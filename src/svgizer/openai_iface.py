@@ -55,7 +55,7 @@ def summarize_changes(
     resp = client.responses.create(
         model=MODEL_NAME,
         input=[{"role": "user", "content": content}],
-        temperature=0.1,
+        temperature=0.2,
         text={"format": {"type": "text"}},
     )
     return resp.output_text
@@ -128,4 +128,3 @@ def call_openai_for_svg(
     )
 
     return response.output_text
-

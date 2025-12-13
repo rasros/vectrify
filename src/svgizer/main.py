@@ -15,16 +15,22 @@ def main():
     run_search(
         image_path=args.image,
         output_svg_path=args.output,
-        max_iter=args.max_iter,
-        base_temperature=args.base_temp,
-        num_beams=args.num_beams,
-        candidates_per_node=args.candidates_per_node,
+        max_accepts=args.max_accepts,
+        proposals_per_step=args.proposals_per_step,
+        base_model_temperature=args.model_temp,
         workers=args.workers,
         log_level=args.log_level,
+        top_k=args.top_k,
         write_top_k_each=args.write_top_k_each,
+        max_total_tasks=args.max_total_tasks,
+        max_wall_seconds=args.max_wall_seconds,
+        resume=args.resume,
+        anneal_t0=args.anneal_t0,
+        anneal_alpha=args.anneal_alpha,
+        anneal_min_t=args.anneal_min_t,
+        propose_from_best_prob=args.propose_from_best_prob,
     )
 
 
 if __name__ == "__main__":
     main()
-
