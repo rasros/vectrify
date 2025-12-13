@@ -125,7 +125,6 @@ def pixel_diff_score(original_rgb: Image.Image, candidate_png: bytes) -> float:
     a_g = _to_float_gray(a_s)
     b_g = _to_float_gray(b_s)
     ssim = _ssim_like(a_g, b_g, c1=_CFG.ssim_c1, c2=_CFG.ssim_c2)
-    struct = max(0.0, min(1.0, (1.0 - ssim) * 0.5 + 0.5 * (1.0 - ssim)))  # keep in [0,1] best-effort
     # The line above simplifies to (1-ssim) but with clamping behavior; keep explicit.
     struct = float(max(0.0, min(1.0, 1.0 - ssim)))
 
