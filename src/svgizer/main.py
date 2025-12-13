@@ -23,7 +23,6 @@ def main():
         max_wall_seconds=args.max_wall_seconds,
         resume=args.resume,
         top_k=args.top_k,
-        write_top_k_each=args.write_top_k_each,
         write_lineage=args.write_lineage,
         log_level=args.log_level,
     )

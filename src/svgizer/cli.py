@@ -8,8 +8,7 @@ DEFAULT_MAX_TOTAL_TASKS = 10_000
 DEFAULT_MAX_WALL_SECONDS = 0  # 0 disables
 DEFAULT_RESUME = True
 
-DEFAULT_TOP_K = 8
-DEFAULT_WRITE_TOP_K_EACH = 0  # off by default
+DEFAULT_TOP_K = 3
 DEFAULT_WRITE_LINEAGE = True
 
 
@@ -80,12 +79,6 @@ def parse_args():
         type=int,
         default=DEFAULT_TOP_K,
         help=f"Maintain this many best nodes in-memory for snapshots/inspection (default: {DEFAULT_TOP_K}).",
-    )
-    parser.add_argument(
-        "--write-top-k-each",
-        type=int,
-        default=DEFAULT_WRITE_TOP_K_EACH,
-        help="Write TOP snapshots every N accepted nodes (0 disables). Default: 0.",
     )
 
     parser.add_argument(

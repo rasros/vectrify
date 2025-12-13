@@ -326,7 +326,6 @@ def run_search(
     max_wall_seconds: Optional[float],
     resume: bool,
     top_k: int,
-    write_top_k_each: int,
     write_lineage: bool,
     log_level: str,
 ) -> None:
@@ -574,19 +573,6 @@ def run_search(
             log.info(f"NEW BEST node={node.id} score={node.score:.6f}")
 
         accepted_valid += 1
-
-        if write_top_k_each > 0 and (accepted_valid % write_top_k_each == 0):
-            best_k = sorted(accepted_nodes, key=lambda n: n.score)[: max(1, top_k)]
-            for rank, bn in enumerate(best_k, start=1):
-                pth = os.path.join(
-                    nodes_dir,
-                    f"TOP_rank{rank:02d}_score{_score_key(bn.score)}_node{bn.id:05d}_parent{bn.parent_id:05d}{ext}",
-                )
-                try:
-                    with open(pth, "w", encoding="utf-8") as f:
-                        f.write(bn.state.svg or "")
-                except Exception:
-                    pass
 
         if write_lineage and (accepted_valid % 10 == 0):
             write_lineage_files(node_info)
