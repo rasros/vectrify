@@ -6,6 +6,7 @@ import io
 import logging
 import os
 import queue
+import random
 import re
 import time
 from typing import Optional, List, Any, Tuple, Dict
@@ -310,9 +311,25 @@ def _load_seed_svg(
         stale_hits=0,
         invalid_msg=None,
     )
-
-    # id=1 placeholder; caller will re-id if needed. parent_id=0 for seed.
     return SearchNode(score=score, id=1, parent_id=0, state=state)
+
+
+def _elite_prob(progress01: float, p_start: float, p_end: float) -> float:
+    # progress01 in [0,1]; probability decays from start -> end as progress increases
+    progress01 = max(0.0, min(1.0, progress01))
+    return float(p_start + (p_end - p_start) * progress01)
+
+
+def _choose_from_top_k_weighted(best_k: List[SearchNode]) -> int:
+    """
+    Weighted selection favoring better ranks.
+    weights: 1/(rank+1)
+    """
+    if not best_k:
+        return 0
+    weights = [1.0 / (i + 1.0) for i in range(len(best_k))]
+    node = random.choices(best_k, weights=weights, k=1)[0]
+    return node.id
 
 
 def run_search(
@@ -326,6 +343,8 @@ def run_search(
     max_wall_seconds: Optional[float],
     resume: bool,
     top_k: int,
+    elite_prob_start: float,
+    elite_prob_end: float,
     write_lineage: bool,
     log_level: str,
 ) -> None:
@@ -340,7 +359,6 @@ def run_search(
     original_data_url = encode_image_to_data_url(image_path)
     original_img = Image.open(image_path).convert("RGB")
 
-    # Keep both RGB image and PNG bytes (for workers)
     original_rgb = original_img
     buf = io.BytesIO()
     original_img.save(buf, format="PNG")
@@ -433,7 +451,16 @@ def run_search(
     best_node: Optional[SearchNode] = None
     next_node_id = 0
 
-    # 1) Optional resume from prior nodes
+    # Track top-K elites for parent selection
+    best_k: List[SearchNode] = []
+
+    def _recompute_best_k() -> None:
+        nonlocal best_k
+        if not accepted_nodes:
+            best_k = []
+            return
+        best_k = sorted(accepted_nodes, key=lambda n: n.score)[: max(1, top_k)]
+
     if resume:
         prior_nodes, prior_best, max_id = _load_resume_nodes(nodes_dir, base_name, ext, log, base_model_temperature)
         if prior_nodes:
@@ -442,9 +469,8 @@ def run_search(
             next_node_id = max_id
             for n in prior_nodes:
                 node_states[n.id] = n.state
+            _recompute_best_k()
 
-    # 2) Optional seed SVG overrides/augments resume best:
-    # If seed is better than current best (or no best), use it as best_node.
     if seed_svg_path:
         seed = _load_seed_svg(seed_svg_path, original_rgb, base_model_temperature, log)
         next_node_id += 1
@@ -462,10 +488,26 @@ def run_search(
             best_node = seed
             log.info(f"Seed SVG set as best node={seed.id} score={seed.score:.6f}")
 
-    def choose_parent_id() -> int:
+        _recompute_best_k()
+
+    def choose_parent_id(accepted_valid: int) -> int:
+        # No pool yet -> root
+        if not accepted_nodes and best_node is None:
+            return 0
+
+        progress = 0.0
+        if max_accepts > 0:
+            progress = accepted_valid / float(max_accepts)
+        p_elite = _elite_prob(progress, elite_prob_start, elite_prob_end)
+
+        # Elite selection decays over time (more exploitation near the end).
+        if best_k and random.random() < p_elite:
+            return _choose_from_top_k_weighted(best_k)
+
+        # Otherwise: exploit best-so-far if available, else fallback to best-k(0)
         if best_node is not None:
             return best_node.id
-        return 0
+        return best_k[0].id if best_k else 0
 
     def next_lineage_temp(parent_id: int, parent_svg: Optional[str], child_svg: str) -> Tuple[float, int]:
         parent_state = node_states.get(parent_id, root_state)
@@ -491,7 +533,7 @@ def run_search(
         if next_task_id > max_total_tasks:
             return False
 
-        pid = choose_parent_id()
+        pid = choose_parent_id(accepted_valid)
         pstate = node_states.get(pid, root_state)
 
         t = Task(
@@ -510,7 +552,6 @@ def run_search(
         in_flight += 1
         return True
 
-    # Start: exactly `workers` initial tasks, from best if seed/resume best exists, else from root.
     for slot in range(workers):
         if not enqueue_one(worker_slot=slot):
             break
@@ -538,7 +579,6 @@ def run_search(
             shutdown_all(res.invalid_msg, terminate=True)
             raise SystemExit(res.invalid_msg)
 
-        # enqueue replacement immediately
         if (accepted_valid < max_accepts) and (next_task_id <= max_total_tasks) and (not time_up()):
             enqueue_one(worker_slot=res.worker_slot)
 
@@ -573,6 +613,9 @@ def run_search(
             log.info(f"NEW BEST node={node.id} score={node.score:.6f}")
 
         accepted_valid += 1
+
+        # Maintain elites
+        _recompute_best_k()
 
         if write_lineage and (accepted_valid % 10 == 0):
             write_lineage_files(node_info)

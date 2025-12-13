@@ -11,6 +11,12 @@ DEFAULT_RESUME = True
 DEFAULT_TOP_K = 3
 DEFAULT_WRITE_LINEAGE = True
 
+# Parent selection:
+# With probability p(progress), pick a parent from the current top-K pool (elite selection).
+# p decays from START -> END as accepted_valid approaches max_accepts.
+DEFAULT_ELITE_PROB_START = 0.70
+DEFAULT_ELITE_PROB_END = 0.10
+
 
 def parse_args():
     parser = argparse.ArgumentParser(
@@ -78,7 +84,20 @@ def parse_args():
         "--top-k",
         type=int,
         default=DEFAULT_TOP_K,
-        help=f"Maintain this many best nodes in-memory for snapshots/inspection (default: {DEFAULT_TOP_K}).",
+        help=f"Maintain this many best nodes in-memory for parent selection (default: {DEFAULT_TOP_K}).",
+    )
+
+    parser.add_argument(
+        "--elite-prob-start",
+        type=float,
+        default=DEFAULT_ELITE_PROB_START,
+        help=f"Probability of choosing a parent from top-K at the start (default: {DEFAULT_ELITE_PROB_START}).",
+    )
+    parser.add_argument(
+        "--elite-prob-end",
+        type=float,
+        default=DEFAULT_ELITE_PROB_END,
+        help=f"Probability of choosing a parent from top-K near the end (default: {DEFAULT_ELITE_PROB_END}).",
     )
 
     parser.add_argument(
@@ -110,5 +129,10 @@ def parse_args():
         raise SystemExit("--max-total-tasks must be > 0")
     if args.top_k <= 0:
         raise SystemExit("--top-k must be > 0")
+
+    if not (0.0 <= args.elite_prob_start <= 1.0):
+        raise SystemExit("--elite-prob-start must be in [0, 1]")
+    if not (0.0 <= args.elite_prob_end <= 1.0):
+        raise SystemExit("--elite-prob-end must be in [0, 1]")
 
     return args
