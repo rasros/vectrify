@@ -1,3 +1,4 @@
+import csv
 import logging
 import os
 import re
@@ -24,16 +25,18 @@ def save_node_to_disk(
     return iter_path
 
 
+
 def write_lineage_csv(
     csv_path: str,
-    node_info: Dict[int, Tuple[int, float, str]]
+    node_info: Dict[int, Tuple[int, float, str, Optional[str]]]
 ) -> None:
     try:
-        with open(csv_path, "w", encoding="utf-8") as csv_file:
-            csv_file.write("node_id,parent_id,score,path\n")
+        with open(csv_path, "w", encoding="utf-8", newline="") as f:
+            w = csv.writer(f)
+            w.writerow(["node_id", "parent_id", "score", "path", "change_summary"])
             for nid in sorted(node_info.keys()):
-                pid, sc, pth = node_info[nid]
-                csv_file.write(f"{nid},{pid},{sc:.6f},{pth}\n")
+                pid, sc, pth, summ = node_info[nid]
+                w.writerow([nid, pid, f"{sc:.6f}", pth, summ or ""])
     except Exception as e:
         logging.getLogger("main").warning(f"Failed writing lineage files: {e}")
 
@@ -101,6 +104,7 @@ def load_resume_nodes(
                 model_temperature=base_model_temperature,
                 stale_hits=0,
                 invalid_msg=None,
+                change_summary=None,
             )
             node = SearchNode(score=score, id=node_id, parent_id=parent_id, state=state)
             accepted.append(node)

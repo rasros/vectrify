@@ -16,6 +16,7 @@ class ChainState:
     model_temperature: float
     stale_hits: int
     invalid_msg: Optional[str]
+    change_summary: Optional[str] = None
 
 
 @dataclasses.dataclass(order=True)

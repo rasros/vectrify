@@ -111,7 +111,7 @@ def run_search(
 
     root_state = ChainState(None, None, None, INVALID_SCORE, base_model_temperature, 0, None)
     node_states: Dict[int, ChainState] = {0: root_state}
-    node_info: Dict[int, Tuple[int, float, str]] = {}
+    node_info: Dict[int, Tuple[int, float, str, Optional[str]]] = {}
     accepted_nodes: List[SearchNode] = []
     best_node: Optional[SearchNode] = None
     next_node_id = 0
@@ -149,6 +149,7 @@ def run_search(
                 model_temperature=base_model_temperature,
                 stale_hits=0,
                 invalid_msg=None,
+                change_summary=None,
             )
             next_node_id += 1
             seed_node = SearchNode(score=seed_score, id=next_node_id, parent_id=0, state=seed_state)
@@ -156,7 +157,7 @@ def run_search(
             node_states[seed_node.id] = seed_state
 
             iter_path = save_node_to_disk(nodes_dir, seed_node, ext)
-            node_info[seed_node.id] = (0, seed_score, iter_path)
+            node_info[seed_node.id] = (0, seed_score, iter_path, seed_state.change_summary)
 
             if best_node is None or seed_score < best_node.score:
                 best_node = seed_node
@@ -231,6 +232,7 @@ def run_search(
             model_temperature=next_temp,
             stale_hits=stale_hits,
             invalid_msg=None,
+            change_summary=res.change_summary,
         )
         node = SearchNode(score=res.score, id=next_node_id, parent_id=res.parent_id, state=new_state)
         accepted_nodes.append(node)
@@ -238,7 +240,11 @@ def run_search(
         accepted_valid += 1
 
         iter_path = save_node_to_disk(nodes_dir, node, ext)
-        node_info[node.id] = (node.parent_id, node.score, iter_path)
+        node_info[node.id] = (node.parent_id, node.score, iter_path, new_state.change_summary)
+
+        if res.change_summary:
+            one_line = " | ".join(s.strip() for s in res.change_summary.splitlines() if s.strip())
+            log.info(f"CHANGE_SUMMARY node={node.id} parent={node.parent_id} score={node.score:.6f}: {one_line}")
 
         if best_node is None or node.score < best_node.score:
             best_node = node
