@@ -1,23 +1,52 @@
-from __future__ import annotations
-
 import io
 from dataclasses import dataclass
 
 import numpy as np
-from PIL import Image, ImageChops, ImageFilter, ImageStat
+import torch
+import torchvision.transforms.functional as TF
+from PIL import Image, ImageChops, ImageStat
 
 @dataclass(frozen=True)
 class ScoreConfig:
-    target_long_side: int = 256  # scoring resolution (controls shift sensitivity & speed)
-    w_struct: float = 0.55
-    w_color: float = 0.35
-    w_edge: float = 0.10
-    ssim_c1: float = 0.01**2
-    ssim_c2: float = 0.03**2
-    ssim_blur_radius: float = 1.0
+    target_long_side: int = 256  # scoring resolution
+    w_lpips: float = 0.85        # heavily weight structural similarity
+    w_color: float = 0.15        # keep a small color check for palette accuracy
 
 
 _CFG = ScoreConfig()
+_LPIPS_MODEL = None
+
+
+def _get_lpips_model():
+    """Lazily load the LPIPS model per worker process."""
+    global _LPIPS_MODEL
+    if _LPIPS_MODEL is None:
+        import lpips
+
+        # Initialize AlexNet backbone and set to evaluation mode
+        _LPIPS_MODEL = lpips.LPIPS(net='alex', spatial=False).eval()
+
+        # Push to hardware acceleration if available
+        if torch.cuda.is_available():
+            _LPIPS_MODEL = _LPIPS_MODEL.to("cuda")
+        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+            _LPIPS_MODEL = _LPIPS_MODEL.to("mps")
+
+    return _LPIPS_MODEL
+
+
+def _image_to_lpips_tensor(im: Image.Image) -> torch.Tensor:
+    """Convert PIL Image to a normalized tensor suitable for LPIPS."""
+    t = TF.to_tensor(im)  # [0, 1]
+    t = t * 2.0 - 1.0     # Normalize to [-1, 1]
+    t = t.unsqueeze(0)    # Add batch dimension -> [1, C, H, W]
+
+    if torch.cuda.is_available():
+        t = t.to("cuda")
+    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        t = t.to("mps")
+
+    return t
 
 
 def _resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
@@ -35,35 +64,6 @@ def _resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
     return im.resize((new_w, new_h), resample=Image.BILINEAR)
 
 
-def _to_float_gray(im_rgb: Image.Image) -> np.ndarray:
-    # float32 in [0,1]
-    g = im_rgb.convert("L")
-    arr = np.asarray(g, dtype=np.float32) / 255.0
-    return arr
-
-
-def _ssim_like(a: np.ndarray, b: np.ndarray, c1: float, c2: float) -> float:
-    """
-    Global SSIM-like (not windowed SSIM) on already-smoothed images.
-    Returns in [-1, 1], typically [0,1] for reasonable inputs.
-    """
-    a = a.astype(np.float32, copy=False)
-    b = b.astype(np.float32, copy=False)
-
-    mu_a = float(a.mean())
-    mu_b = float(b.mean())
-
-    var_a = float(((a - mu_a) ** 2).mean())
-    var_b = float(((b - mu_b) ** 2).mean())
-    cov = float(((a - mu_a) * (b - mu_b)).mean())
-
-    num = (2.0 * mu_a * mu_b + c1) * (2.0 * cov + c2)
-    den = (mu_a * mu_a + mu_b * mu_b + c1) * (var_a + var_b + c2)
-    if den <= 0:
-        return 0.0
-    return float(num / den)
-
-
 def _lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:
     a_lab = a_rgb.convert("LAB")
     b_lab = b_rgb.convert("LAB")
@@ -73,53 +73,49 @@ def _lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:
     return mean_abs / 255.0
 
 
-def _edge_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:
-    a_e = a_rgb.convert("L").filter(ImageFilter.FIND_EDGES)
-    b_e = b_rgb.convert("L").filter(ImageFilter.FIND_EDGES)
-    diff = ImageChops.difference(a_e, b_e)
-    stat = ImageStat.Stat(diff)
-    mean_abs = float(stat.mean[0])  # [0..255]
-    return mean_abs / 255.0
+@dataclass
+class ScoringReference:
+    """Holds both the PIL image (for color checks) and the pre-computed GPU tensor."""
+    image: Image.Image
+    tensor: torch.Tensor
 
 
-def get_scoring_reference(original_rgb: Image.Image) -> Image.Image:
+def get_scoring_reference(original_rgb: Image.Image) -> ScoringReference:
     """
-    Pre-process the original image to the target scoring resolution.
-    Call this ONCE per worker, not per candidate.
+    Pre-process the original image to the target scoring resolution
+    and convert it to a PyTorch tensor ONCE.
     """
-    return _resize_long_side(original_rgb, _CFG.target_long_side)
+    # Ensure model is loaded so hardware device is detected
+    _get_lpips_model()
+
+    ref_small = _resize_long_side(original_rgb, _CFG.target_long_side)
+    ref_tensor = _image_to_lpips_tensor(ref_small)
+
+    return ScoringReference(image=ref_small, tensor=ref_tensor)
 
 
-def pixel_diff_score(reference_small: Image.Image, candidate_png: bytes) -> float:
+def pixel_diff_score(reference: ScoringReference, candidate_png: bytes) -> float:
     cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
 
     # Resize candidate to match the pre-computed reference
-    if cand.size != reference_small.size:
-        # Note: We rely on reference_small being the authority on size logic
-        cand = cand.resize(reference_small.size, resample=Image.BILINEAR)
+    if cand.size != reference.image.size:
+        cand = cand.resize(reference.image.size, resample=Image.BILINEAR)
 
-    a = reference_small
-    b = cand
+    # 1. Structural/Perceptual term via LPIPS
+    model = _get_lpips_model()
+    cand_t = _image_to_lpips_tensor(cand)
 
-    # Structural term (SSIM-like on smoothed grayscale)
-    if _CFG.ssim_blur_radius > 0:
-        a_s = a.filter(ImageFilter.GaussianBlur(radius=_CFG.ssim_blur_radius))
-        b_s = b.filter(ImageFilter.GaussianBlur(radius=_CFG.ssim_blur_radius))
-    else:
-        a_s, b_s = a, b
+    with torch.no_grad():
+        # reference.tensor is already on the GPU/MPS if available
+        dist_tensor = model(reference.tensor, cand_t)
+        lpips_dist = float(dist_tensor.item())
 
-    a_g = _to_float_gray(a_s)
-    b_g = _to_float_gray(b_s)
-    ssim = _ssim_like(a_g, b_g, c1=_CFG.ssim_c1, c2=_CFG.ssim_c2)
-    struct = float(max(0.0, min(1.0, 1.0 - ssim)))
+    struct_score = max(0.0, min(1.0, lpips_dist))
 
-    # Perceptual-ish color term in Lab
-    color = float(max(0.0, min(1.0, _lab_l1(a, b))))
+    # 2. Perceptual-ish color term in Lab
+    color_score = float(max(0.0, min(1.0, _lab_l1(reference.image, cand))))
 
-    # Edge term
-    edge = float(max(0.0, min(1.0, _edge_l1(a, b))))
-
-    score = (_CFG.w_struct * struct) + (_CFG.w_color * color) + (_CFG.w_edge * edge)
+    score = (_CFG.w_lpips * struct_score) + (_CFG.w_color * color_score)
 
     if not np.isfinite(score):
         return 1.0

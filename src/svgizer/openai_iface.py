@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 from openai import OpenAI
 
 
-MODEL_NAME = os.getenv("SVGIZER_OPENAI_MODEL", "gpt-5.1")
+MODEL_NAME = os.getenv("SVGIZER_OPENAI_MODEL", "gpt-5.4")
 
 
 def extract_svg_fragment(raw: str) -> str:
