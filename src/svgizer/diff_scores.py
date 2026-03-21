@@ -3,50 +3,40 @@ from dataclasses import dataclass
 
 import numpy as np
 import torch
-import torchvision.transforms.functional as TF
 from PIL import Image, ImageChops, ImageStat
 
 @dataclass(frozen=True)
 class ScoreConfig:
-    target_long_side: int = 256  # scoring resolution
-    w_lpips: float = 0.85        # heavily weight structural similarity
-    w_color: float = 0.15        # keep a small color check for palette accuracy
+    target_long_side: int = 256  # DreamSim handles specific resizing implicitly via preprocess
+    w_dreamsim: float = 0.85     # Heavily weight semantic/structural layout
+    w_color: float = 0.15        # Keep a small fallback for palette accuracy
 
 
 _CFG = ScoreConfig()
-_LPIPS_MODEL = None
+_DREAMSIM_MODEL = None
+_DREAMSIM_PREPROCESS = None
 
 
-def _get_lpips_model():
-    """Lazily load the LPIPS model per worker process."""
-    global _LPIPS_MODEL
-    if _LPIPS_MODEL is None:
-        import lpips
-
-        # Initialize AlexNet backbone and set to evaluation mode
-        _LPIPS_MODEL = lpips.LPIPS(net='alex', spatial=False).eval()
-
-        # Push to hardware acceleration if available
-        if torch.cuda.is_available():
-            _LPIPS_MODEL = _LPIPS_MODEL.to("cuda")
-        elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-            _LPIPS_MODEL = _LPIPS_MODEL.to("mps")
-
-    return _LPIPS_MODEL
-
-
-def _image_to_lpips_tensor(im: Image.Image) -> torch.Tensor:
-    """Convert PIL Image to a normalized tensor suitable for LPIPS."""
-    t = TF.to_tensor(im)  # [0, 1]
-    t = t * 2.0 - 1.0     # Normalize to [-1, 1]
-    t = t.unsqueeze(0)    # Add batch dimension -> [1, C, H, W]
-
+def _get_device() -> str:
     if torch.cuda.is_available():
-        t = t.to("cuda")
-    elif hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
-        t = t.to("mps")
+        return "cuda"
+    if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
+        return "mps"
+    return "cpu"
 
-    return t
+
+def _get_dreamsim_models():
+    """Lazily load the DreamSim model and preprocessor per worker process."""
+    global _DREAMSIM_MODEL, _DREAMSIM_PREPROCESS
+    if _DREAMSIM_MODEL is None:
+        from dreamsim import dreamsim
+
+        device = _get_device()
+        # Initialize the ensemble model (CLIP, DINO, OpenCLIP)
+        _DREAMSIM_MODEL, _DREAMSIM_PREPROCESS = dreamsim(pretrained=True, device=device)
+        _DREAMSIM_MODEL.eval()
+
+    return _DREAMSIM_MODEL, _DREAMSIM_PREPROCESS
 
 
 def _resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
@@ -83,13 +73,20 @@ class ScoringReference:
 def get_scoring_reference(original_rgb: Image.Image) -> ScoringReference:
     """
     Pre-process the original image to the target scoring resolution
-    and convert it to a PyTorch tensor ONCE.
+    and convert it to a PyTorch tensor ONCE using DreamSim's preprocessor.
     """
-    # Ensure model is loaded so hardware device is detected
-    _get_lpips_model()
+    # Ensure model is loaded to fetch the preprocessor
+    _, preprocess = _get_dreamsim_models()
+    device = _get_device()
 
     ref_small = _resize_long_side(original_rgb, _CFG.target_long_side)
-    ref_tensor = _image_to_lpips_tensor(ref_small)
+
+    # DreamSim's preprocessor returns a normalized tensor.
+    ref_tensor = preprocess(ref_small).to(device)
+
+    # Ensure it has a batch dimension
+    if ref_tensor.ndim == 3:
+        ref_tensor = ref_tensor.unsqueeze(0)
 
     return ScoringReference(image=ref_small, tensor=ref_tensor)
 
@@ -101,21 +98,24 @@ def pixel_diff_score(reference: ScoringReference, candidate_png: bytes) -> float
     if cand.size != reference.image.size:
         cand = cand.resize(reference.image.size, resample=Image.BILINEAR)
 
-    # 1. Structural/Perceptual term via LPIPS
-    model = _get_lpips_model()
-    cand_t = _image_to_lpips_tensor(cand)
+    # 1. Structural/Perceptual term via DreamSim
+    model, preprocess = _get_dreamsim_models()
+    device = _get_device()
+
+    cand_t = preprocess(cand).to(device)
+    if cand_t.ndim == 3:
+        cand_t = cand_t.unsqueeze(0)
 
     with torch.no_grad():
-        # reference.tensor is already on the GPU/MPS if available
         dist_tensor = model(reference.tensor, cand_t)
-        lpips_dist = float(dist_tensor.item())
+        dreamsim_dist = float(dist_tensor.item())
 
-    struct_score = max(0.0, min(1.0, lpips_dist))
+    struct_score = max(0.0, min(1.0, dreamsim_dist))
 
     # 2. Perceptual-ish color term in Lab
     color_score = float(max(0.0, min(1.0, _lab_l1(reference.image, cand))))
 
-    score = (_CFG.w_lpips * struct_score) + (_CFG.w_color * color_score)
+    score = (_CFG.w_dreamsim * struct_score) + (_CFG.w_color * color_score)
 
     if not np.isfinite(score):
         return 1.0
