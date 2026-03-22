@@ -1,7 +1,6 @@
 import csv
 import logging
 import os
-from unittest.mock import patch
 
 import pytest
 
@@ -103,14 +102,13 @@ def test_save_final_svg_and_load_seed(tmp_path):
     assert loaded_svg == test_svg
 
 
-@patch("svgizer.storage.make_preview_data_url")
-@patch("svgizer.storage.rasterize_svg_to_png_bytes")
-def test_load_resume_nodes(mock_rasterize, mock_preview, tmp_path):
-    mock_rasterize.return_value = b"fake_png_bytes"
-    mock_preview.return_value = "data:image/png;base64,fake"
-
+def test_load_resume_nodes(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "resume_test.svg"), resume=True)
     adapter.initialize()
+
+    # Use minimally valid SVGs so the real cairosvg/PIL code doesn't crash
+    valid_svg_new = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>'
+    valid_svg_old = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="blue"/></svg>'
 
     # Create dummy files mimicking the regex patterns
     # 1. New format in nodes_dir
@@ -118,14 +116,14 @@ def test_load_resume_nodes(mock_rasterize, mock_preview, tmp_path):
         adapter.nodes_dir, "score00000.555000_node00015_parent00010.svg"
     )
     with open(new_format_path, "w") as f:
-        f.write("<svg>new</svg>")
+        f.write(valid_svg_new)
 
     # 2. Old format in out_dir
     old_format_path = os.path.join(
         adapter.out_dir, "resume_test_node00008_score0.999.svg"
     )
     with open(old_format_path, "w") as f:
-        f.write("<svg>old</svg>")
+        f.write(valid_svg_old)
 
     # 3. Junk file that should be ignored
     with open(os.path.join(adapter.nodes_dir, "ignore_me.svg"), "w") as f:
@@ -135,9 +133,9 @@ def test_load_resume_nodes(mock_rasterize, mock_preview, tmp_path):
     nodes, best_seen, max_id = adapter.load_resume_nodes(
         log=log,
         base_model_temperature=0.6,
-        original_w=100,
-        original_h=100,
-        openai_image_long_side=512,
+        original_w=10,
+        original_h=10,
+        openai_image_long_side=10,
     )
 
     assert len(nodes) == 2
@@ -147,19 +145,18 @@ def test_load_resume_nodes(mock_rasterize, mock_preview, tmp_path):
     assert nodes[0].id == 8
     assert nodes[0].score == 0.999
     assert nodes[0].parent_id == 0  # Old format defaults to 0
-    assert nodes[0].state.svg == "<svg>old</svg>"
+    assert nodes[0].state.svg == valid_svg_old
+    # Verify the real image pipeline processed it into a base64 string
+    assert nodes[0].state.raster_preview_data_url.startswith("data:image/png;base64,")
 
     assert nodes[1].id == 15
     assert nodes[1].score == 0.555
     assert nodes[1].parent_id == 10
-    assert nodes[1].state.svg == "<svg>new</svg>"
+    assert nodes[1].state.svg == valid_svg_new
+    assert nodes[1].state.raster_preview_data_url.startswith("data:image/png;base64,")
 
     # Best seen should be the lowest score (0.555)
     assert best_seen.id == 15
-
-    # Verify our mocks were called correctly
-    assert mock_rasterize.call_count == 2
-    assert mock_preview.call_count == 2
 
 
 def test_load_resume_nodes_when_resume_false(tmp_path):
