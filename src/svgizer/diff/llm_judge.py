@@ -9,16 +9,20 @@ from openai import OpenAI
 from PIL import Image
 
 from .base import DiffScorer
+from .utils import lab_l1
 from svgizer.image_utils import png_bytes_to_data_url
 
 log = logging.getLogger(__name__)
 
+TIE_BREAKER_WEIGHT = 0.01
+
 @dataclass
 class LLMReference:
     data_url: str
+    image: Image.Image
 
 class LLMJudgeScorer(DiffScorer):
-    """Uses a Vision LLM to score the visual difference between two images."""
+    """Uses a Vision LLM to score the visual difference between two images, with an L1 color fallback as a tiebreaker."""
 
     def __init__(self, model_name: str = "gpt-4o"):
         self.model_name = model_name
@@ -37,7 +41,7 @@ class LLMJudgeScorer(DiffScorer):
         buf = io.BytesIO()
         original_rgb.save(buf, format="PNG")
         data_url = png_bytes_to_data_url(buf.getvalue())
-        return LLMReference(data_url=data_url)
+        return LLMReference(data_url=data_url, image=original_rgb)
 
     def score(self, reference: LLMReference, candidate_png: bytes) -> float:
         candidate_data_url = png_bytes_to_data_url(candidate_png)
@@ -68,7 +72,18 @@ class LLMJudgeScorer(DiffScorer):
 
             result = json.loads(response.choices[0].message.content or "{}")
             similarity = float(result.get("similarity", 0.0))
-            return float(max(0.0, min(1.0, 1.0 - similarity)))
+            llm_score = float(max(0.0, min(1.0, 1.0 - similarity)))
+
+            # --- Tie Breaker Calculation (L1 LAB distance) ---
+            cand_img = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+            if cand_img.size != reference.image.size:
+                cand_img = cand_img.resize(reference.image.size, resample=Image.BILINEAR)
+
+            color_score = float(max(0.0, min(1.0, lab_l1(reference.image, cand_img))))
+
+            # Mix the scores
+            final_score = ((1.0 - TIE_BREAKER_WEIGHT) * llm_score) + (TIE_BREAKER_WEIGHT * color_score)
+            return float(max(0.0, min(1.0, final_score)))
 
         except Exception as e:
             log.error(f"LLM Judge scoring failed: {e}")
