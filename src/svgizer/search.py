@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
-from svgizer.diff_scores import get_default_scorer
+from svgizer.diff import get_scorer
 from svgizer.image_utils import (
     downscale_png_bytes,
     png_bytes_to_data_url,
@@ -48,6 +48,7 @@ def run_search(
     openai_image_long_side: int,
     max_wall_seconds: Optional[float],
     log_level: str,
+    scorer_type: str,
 ) -> None:
     setup_logger(log_level)
     log = logging.getLogger("main")
@@ -93,6 +94,7 @@ def run_search(
                 original_h,
                 openai_image_long_side,
                 log_level,
+                scorer_type,
             ),
             daemon=True,
         )
@@ -131,7 +133,7 @@ def run_search(
     best_k: List[SearchNode] = []
 
     # Initialize the diff scorer
-    scorer = get_default_scorer()
+    scorer = get_scorer(scorer_type)
     scoring_ref = scorer.prepare_reference(original_img)
 
     # Attempt to load resume state via the storage adapter

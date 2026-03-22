@@ -1,5 +1,7 @@
 import argparse
 
+from svgizer.diff import ScorerType
+
 DEFAULT_MAX_ACCEPTS = 32
 DEFAULT_WORKERS = 4
 DEFAULT_MODEL_TEMP = 0.6
@@ -17,6 +19,13 @@ def parse_args():
     parser.add_argument("--output", "-o", default="output.svg", help="Final SVG path.")
     parser.add_argument(
         "--seed-svg", default=None, help="Path to an SVG file to seed the pool."
+    )
+    parser.add_argument(
+        "--scorer",
+        type=str,
+        choices=[e.value for e in ScorerType],
+        default=ScorerType.AUTO.value,
+        help="Which difference scoring backend to use.",
     )
 
     parser.add_argument("--max-accepts", type=int, default=DEFAULT_MAX_ACCEPTS)

@@ -29,6 +29,7 @@ def main():
         openai_image_long_side=args.openai_image_long_side,
         max_wall_seconds=args.max_wall_seconds,
         log_level=args.log_level,
+        scorer_type=args.scorer,
     )
 
 
