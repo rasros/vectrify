@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 from typing import Optional, List
 import os
 import xml.etree.ElementTree as ET
@@ -37,15 +35,23 @@ def summarize_changes(
     rasterized_svg_data_url: Optional[str],
 ) -> str:
     lines = [
-        "You are an SVG critique engine. Compare the Original Image (A) and the Current SVG Render (B).",
-        "Your goal is to guide the SVG generator to make B look like A.",
-        "Identify the 3-5 most distinct GEOMETRIC errors. Be specific about:",
-        "1. Missing elements (e.g., 'The blue background circle is missing').",
-        "2. Shape mismatch (e.g., 'The main rectangle is too wide', 'The corners should be rounded').",
-        "3. Alignment issues (e.g., 'The icon is too far to the left').",
-        "4. Color discrepancies (e.g., 'The green is too pale').",
-        "Output ONLY the bullet points. Do not include introductory text.",
-        f"Iteration #{iter_index}.",
+        "You are a Senior SVG QA Engineer. Compare Original (A) and current SVG Render (B).",
+        "Your goal: Provide actionable geometric feedback to minimize the perceptual distance.",
+        "",
+        "### STEP 1: QUADRANT ANALYSIS",
+        "Mentally divide the image into a 2x2 grid (Top-Left, Top-Right, Bottom-Left, Bottom-Right).",
+        "Identify which quadrant has the most 'broken' geometry or incorrect color fill.",
+        "",
+        "### STEP 2: GROUP IDENTIFICATION",
+        "Look at the SVG code (if provided in context later) or the render.",
+        "Reference specific elements by their logical names (e.g., 'the background group', 'the central icon', 'the shadow path').",
+        "",
+        "### STEP 3: OUTPUT REQUIREMENTS",
+        "- Provide 3-5 concise bullet points.",
+        "- Be spatially specific (e.g., 'In the Top-Right, the border-radius is too sharp').",
+        "- Identify if a group is missing entirely.",
+        "- Output ONLY the bullet points. No intro or outro.",
+        f"Iteration Context: #{iter_index}.",
     ]
 
     content: List[dict] = [
@@ -77,34 +83,30 @@ def call_openai_for_svg(
     diversity_hint: Optional[str] = None,
 ) -> str:
     lines = [
-        "You convert a raster input image into a clean, valid SVG.",
-        "Output ONLY a complete <svg>...</svg> with no commentary or backticks.",
-        "Prioritize matching the overall likeness of the image: silhouette, composition, large shapes, major color blocks.",
-        "Do NOT reproduce noise or artifacts typical of AI-generated images (random speckles, glitchy edges, smeared details, meaningless text or watermark-like blobs). Clean them up in the SVG.",
-        "Aim for structural fidelity and clear vector geometry, not pixel-level accuracy.",
-        "Ensure the SVG is valid XML with a single <svg> root.",
-        f"Iteration #{iter_index}.",
+        "You are a world-class SVG developer. Convert the input raster into a CLEAN, optimized SVG.",
+        "RULES:",
+        "1. Output ONLY the raw <svg>...</svg> code. No markdown, no backticks, no text.",
+        "2. Use SEMANTIC GROUPING: Wrap related paths in <g id='name'> (e.g., <g id='main_subject'>, <g id='background_shapes'>).",
+        "3. Fixed Viewport: Use the same width/height/viewBox for all iterations to prevent drift.",
+        "4. No Noise: Do not attempt to vectorize compression artifacts or grain.",
+        f"Context: Iteration #{iter_index}.",
     ]
 
     if diversity_hint:
-        lines.append(f"Diversity hint (to avoid producing the exact same SVG): {diversity_hint}")
+        lines.append(f"Diversity hint: {diversity_hint}")
 
     if svg_prev is None:
-        lines.append("This is the first attempt. Produce your best high-level SVG approximation.")
+        lines.append("First attempt: Create a high-level structural blocking of the image using large paths and groups.")
     else:
-        lines.append("Refine the previous SVG by addressing the differences.")
+        lines.append("REFINEMENT TASK:")
+        lines.append("Refine the existing SVG groups. Do not delete groups that are already accurate.")
 
     if svg_prev_invalid_msg:
-        lines.append(
-            f"The previous SVG was INVALID:\n{svg_prev_invalid_msg}\n"
-            "Return a corrected, valid SVG."
-        )
+        lines.append(f"CRITICAL: The previous SVG failed to parse: {svg_prev_invalid_msg}. Fix the syntax immediately.")
 
     if change_summary:
-        lines.append(
-            "Here is a summary of the MOST IMPORTANT changes needed to improve likeness. Use these as priorities:\n"
-            + change_summary
-        )
+        lines.append("PRIORITY FIXES (from Vision Critique):")
+        lines.append(change_summary)
 
     if rasterized_svg_data_url:
         lines.append(
@@ -114,7 +116,8 @@ def call_openai_for_svg(
         )
 
     if svg_prev:
-        lines.append("Here is the previous SVG to refine:\n" + svg_prev)
+        lines.append("CURRENT SVG CODE TO MODIFY:")
+        lines.append(svg_prev)
 
     content: List[dict] = [
         {"type": "input_text", "text": "\n".join(lines)},
