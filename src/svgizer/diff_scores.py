@@ -1,18 +1,31 @@
 import io
+import logging
 from dataclasses import dataclass
+from typing import Any, Protocol
 
 import numpy as np
-import torch
 from PIL import Image, ImageChops, ImageStat
+
+log = logging.getLogger(__name__)
+
+
+class DiffScorer(Protocol):
+    """Protocol for algorithms that score image differences."""
+
+    def prepare_reference(self, original_rgb: Image.Image) -> Any:
+        """Pre-processes the reference image into the format required by the scorer."""
+        ...
+
+    def score(self, reference: Any, candidate_png: bytes) -> float:
+        """Returns a difference score between 0.0 (identical) and 1.0 (completely different)."""
+        ...
 
 
 @dataclass(frozen=True)
 class ScoreConfig:
-    target_long_side: int = (
-        256  # DreamSim handles specific resizing implicitly via preprocess
-    )
-    w_dreamsim: float = 0.85  # Heavily weight semantic/structural layout
-    w_color: float = 0.15  # Keep a small fallback for palette accuracy
+    target_long_side: int = 256
+    w_dreamsim: float = 0.85
+    w_color: float = 0.15
 
 
 _CFG = ScoreConfig()
@@ -21,6 +34,8 @@ _DREAMSIM_PREPROCESS = None
 
 
 def _get_device() -> str:
+    import torch
+
     if torch.cuda.is_available():
         return "cuda"
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
@@ -29,16 +44,13 @@ def _get_device() -> str:
 
 
 def _get_dreamsim_models():
-    """Lazily load the DreamSim model and preprocessor per worker process."""
     global _DREAMSIM_MODEL, _DREAMSIM_PREPROCESS
     if _DREAMSIM_MODEL is None:
         from dreamsim import dreamsim
 
         device = _get_device()
-        # Initialize the ensemble model (CLIP, DINO, OpenCLIP)
         _DREAMSIM_MODEL, _DREAMSIM_PREPROCESS = dreamsim(pretrained=True, device=device)
         _DREAMSIM_MODEL.eval()
-
     return _DREAMSIM_MODEL, _DREAMSIM_PREPROCESS
 
 
@@ -52,9 +64,7 @@ def _resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
     else:
         new_h = long_side
         new_w = int(round(w * (long_side / float(h))))
-    new_w = max(1, new_w)
-    new_h = max(1, new_h)
-    return im.resize((new_w, new_h), resample=Image.BILINEAR)
+    return im.resize((max(1, new_w), max(1, new_h)), resample=Image.BILINEAR)
 
 
 def _lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:
@@ -67,60 +77,92 @@ def _lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:
 
 
 @dataclass
-class ScoringReference:
-    """Holds both the PIL image (for color checks) and the pre-computed GPU tensor."""
-
+class DreamSimReference:
     image: Image.Image
-    tensor: torch.Tensor
+    tensor: Any  # torch.Tensor
 
 
-def get_scoring_reference(original_rgb: Image.Image) -> ScoringReference:
-    """
-    Pre-process the original image to the target scoring resolution
-    and convert it to a PyTorch tensor ONCE using DreamSim's preprocessor.
-    """
-    # Ensure model is loaded to fetch the preprocessor
-    _, preprocess = _get_dreamsim_models()
-    device = _get_device()
+class DreamSimScorer:
+    """The original ML-based layout/semantic scorer."""
 
-    ref_small = _resize_long_side(original_rgb, _CFG.target_long_side)
+    def prepare_reference(self, original_rgb: Image.Image) -> DreamSimReference:
+        _, preprocess = _get_dreamsim_models()
+        device = _get_device()
 
-    # DreamSim's preprocessor returns a normalized tensor.
-    ref_tensor = preprocess(ref_small).to(device)
+        ref_small = _resize_long_side(original_rgb, _CFG.target_long_side)
+        ref_tensor = preprocess(ref_small).to(device)
 
-    # Ensure it has a batch dimension
-    if ref_tensor.ndim == 3:
-        ref_tensor = ref_tensor.unsqueeze(0)
+        if ref_tensor.ndim == 3:
+            ref_tensor = ref_tensor.unsqueeze(0)
 
-    return ScoringReference(image=ref_small, tensor=ref_tensor)
+        return DreamSimReference(image=ref_small, tensor=ref_tensor)
+
+    def score(self, reference: DreamSimReference, candidate_png: bytes) -> float:
+        import torch
+
+        cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+
+        if cand.size != reference.image.size:
+            cand = cand.resize(reference.image.size, resample=Image.BILINEAR)
+
+        model, preprocess = _get_dreamsim_models()
+        device = _get_device()
+
+        cand_t = preprocess(cand).to(device)
+        if cand_t.ndim == 3:
+            cand_t = cand_t.unsqueeze(0)
+
+        with torch.no_grad():
+            dist_tensor = model(reference.tensor, cand_t)
+            dreamsim_dist = float(dist_tensor.item())
+
+        struct_score = max(0.0, min(1.0, dreamsim_dist))
+        color_score = float(max(0.0, min(1.0, _lab_l1(reference.image, cand))))
+
+        score = (_CFG.w_dreamsim * struct_score) + (_CFG.w_color * color_score)
+
+        if not np.isfinite(score):
+            return 1.0
+        return float(max(0.0, min(1.0, score)))
 
 
-def pixel_diff_score(reference: ScoringReference, candidate_png: bytes) -> float:
-    cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+@dataclass
+class SimpleReference:
+    image: Image.Image
 
-    # Resize candidate to match the pre-computed reference
-    if cand.size != reference.image.size:
-        cand = cand.resize(reference.image.size, resample=Image.BILINEAR)
 
-    # 1. Structural/Perceptual term via DreamSim
-    model, preprocess = _get_dreamsim_models()
-    device = _get_device()
+class SimpleFallbackScorer:
+    """A fast, CPU-bound fallback relying solely on LAB color distance."""
 
-    cand_t = preprocess(cand).to(device)
-    if cand_t.ndim == 3:
-        cand_t = cand_t.unsqueeze(0)
+    def __init__(self, target_long_side: int = 256):
+        self.target_long_side = target_long_side
 
-    with torch.no_grad():
-        dist_tensor = model(reference.tensor, cand_t)
-        dreamsim_dist = float(dist_tensor.item())
+    def prepare_reference(self, original_rgb: Image.Image) -> SimpleReference:
+        ref_small = _resize_long_side(original_rgb, self.target_long_side)
+        return SimpleReference(image=ref_small)
 
-    struct_score = max(0.0, min(1.0, dreamsim_dist))
+    def score(self, reference: SimpleReference, candidate_png: bytes) -> float:
+        cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
 
-    # 2. Perceptual-ish color term in Lab
-    color_score = float(max(0.0, min(1.0, _lab_l1(reference.image, cand))))
+        if cand.size != reference.image.size:
+            cand = cand.resize(reference.image.size, resample=Image.BILINEAR)
 
-    score = (_CFG.w_dreamsim * struct_score) + (_CFG.w_color * color_score)
+        color_score = _lab_l1(reference.image, cand)
 
-    if not np.isfinite(score):
-        return 1.0
-    return float(max(0.0, min(1.0, score)))
+        if not np.isfinite(color_score):
+            return 1.0
+        return float(max(0.0, min(1.0, color_score)))
+
+
+def get_default_scorer() -> DiffScorer:
+    """Factory that attempts to use ML models but falls back gracefully."""
+    try:
+        # Test loading the model to catch missing dependencies or GPU errors early
+        _get_dreamsim_models()
+        log.info("DreamSim models loaded successfully. Using DreamSimScorer.")
+        return DreamSimScorer()
+    except Exception as e:
+        log.warning(
+            f"DreamSim unavailable ({e}). Falling back to SimpleFallbackScorer."
+        )
+        return SimpleFallbackScorer()

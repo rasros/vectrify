@@ -7,7 +7,7 @@ from typing import Any
 from openai import OpenAI
 from PIL import Image
 
-from svgizer.diff_scores import pixel_diff_score, get_scoring_reference
+from svgizer.diff_scores import get_default_scorer
 from svgizer.image_utils import rasterize_svg_to_png_bytes
 from svgizer.models import Result, Task, INVALID_SCORE
 from svgizer.openai_iface import (
@@ -41,9 +41,10 @@ def worker_loop(
 
     client = OpenAI(api_key=api_key)
 
-    # Prepare scoring reference ONCE per worker.
+    # Prepare scoring reference ONCE per worker using the new diff scorer factory.
+    scorer = get_default_scorer()
     original_rgb = Image.open(io.BytesIO(original_png_bytes)).convert("RGB")
-    scoring_ref = get_scoring_reference(original_rgb)
+    scoring_ref = scorer.prepare_reference(original_rgb)
 
     while True:
         task: Any = task_q.get()
@@ -123,7 +124,8 @@ def worker_loop(
 
         try:
             png = rasterize_svg_to_png_bytes(svg, out_w=original_w, out_h=original_h)
-            score = pixel_diff_score(scoring_ref, png)
+            # Use the injected scorer instead of the hardcoded pixel_diff_score
+            score = scorer.score(scoring_ref, png)
         except Exception as e:
             result_q.put(
                 Result(

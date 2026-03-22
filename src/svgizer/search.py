@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, Tuple
 
 from PIL import Image
 
-from svgizer.diff_scores import pixel_diff_score, get_scoring_reference
+from svgizer.diff_scores import get_default_scorer
 from svgizer.image_utils import (
     downscale_png_bytes,
     png_bytes_to_data_url,
@@ -130,21 +130,53 @@ def run_search(
     next_node_id = 0
     best_k: List[SearchNode] = []
 
+    # Initialize the diff scorer
+    scorer = get_default_scorer()
+    scoring_ref = scorer.prepare_reference(original_img)
+
     # Attempt to load resume state via the storage adapter
-    prior_nodes, prior_best, max_id = storage.load_resume_nodes(
+    prior_nodes, _, max_id = storage.load_resume_nodes(
         log,
         base_model_temperature,
         original_w,
         original_h,
         openai_image_long_side,
     )
+
     if prior_nodes:
+        log.info(
+            f"Resuming from {len(prior_nodes)} prior nodes. Recalculating scores..."
+        )
+
+        # Recalculate scores for all loaded nodes because the scoring method might have changed
+        for n in prior_nodes:
+            if n.state.svg:
+                full_png = rasterize_svg_to_png_bytes(
+                    n.state.svg, out_w=original_w, out_h=original_h
+                )
+                new_score = scorer.score(scoring_ref, full_png)
+                n.score = new_score
+                n.state.score = new_score
+
+        # Re-evaluate best_node based on the fresh scores
+        best_node = min(prior_nodes, key=lambda n: n.score)
+
         accepted_nodes.extend(prior_nodes)
-        best_node = prior_best
         next_node_id = max_id
         for n in prior_nodes:
             node_states[n.id] = n.state
+
+            # Since these are loaded, we can just log their paths without summaries for now
+            # (Lineage will be rewritten based on this if enabled)
+            node_info[n.id] = (
+                n.parent_id,
+                n.score,
+                f"resumed_node_{n.id}.svg",
+                n.state.change_summary,
+            )
+
         best_k = sorted(accepted_nodes, key=lambda n: n.score)[: max(1, TOP_K)]
+        log.info(f"Resume scoring complete. Current best score: {best_node.score:.6f}")
 
     if seed_svg_path:
         try:
@@ -156,7 +188,7 @@ def run_search(
             full_png = rasterize_svg_to_png_bytes(
                 seed_svg, out_w=original_w, out_h=original_h
             )
-            seed_score = pixel_diff_score(get_scoring_reference(original_img), full_png)
+            seed_score = scorer.score(scoring_ref, full_png)
 
             seed_state = ChainState(
                 svg=seed_svg,
