@@ -1,7 +1,7 @@
 from enum import Enum
 from typing import Protocol, TypeVar
 
-from .models import ChainState, Result, SearchNode
+from svgizer.search.models import ChainState, Result, SearchNode
 
 TState = TypeVar("TState")
 

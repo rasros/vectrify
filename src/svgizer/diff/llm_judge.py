@@ -7,11 +7,10 @@ from typing import Any
 from PIL import Image
 from PIL.Image import Resampling
 
+from svgizer.diff.base import DiffScorer
+from svgizer.diff.utils import lab_l1
 from svgizer.image_utils import png_bytes_to_data_url
-from svgizer.llm import LLMClient, LLMConfig
-
-from .base import DiffScorer
-from .utils import lab_l1
+from svgizer.llm import LLMConfig, get_provider
 
 log = logging.getLogger(__name__)
 TIE_BREAKER_WEIGHT = 0.01
@@ -52,13 +51,19 @@ def _build_judge_prompt(reference_url: str, candidate_url: str) -> list[dict[str
 
 
 class LLMJudgeScorer(DiffScorer):
-    def __init__(self, config: LLMConfig | None = None):
+    def __init__(
+        self,
+        provider_name: str = "openai",
+        config: LLMConfig | None = None,
+        api_key: str | None = None,
+    ):
+        self.provider_name = provider_name
         self.config = config or LLMConfig(
-            model="gpt-5.4-nano",
+            model="gpt-4o",
             response_schema=JUDGE_SCHEMA,
             schema_name="similarity_score",
         )
-        self.client = LLMClient()
+        self.client = get_provider(self.provider_name, api_key)
 
     def prepare_reference(self, original_rgb: Image.Image) -> LLMReference:
         buf = io.BytesIO()
@@ -72,6 +77,7 @@ class LLMJudgeScorer(DiffScorer):
 
         try:
             response_text = self.client.generate(content_blocks, self.config)
+
             result = json.loads(response_text)
             similarity = float(result["similarity"])
             llm_score = float(max(0.0, min(1.0, 1.0 - similarity)))

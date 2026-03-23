@@ -9,7 +9,7 @@ DEFAULT_MODEL_TEMP = 0.6
 DEFAULT_MAX_WALL_SECONDS = 0
 DEFAULT_RESUME = True
 DEFAULT_WRITE_LINEAGE = True
-DEFAULT_OPENAI_IMAGE_LONG_SIDE = 512
+DEFAULT_IMAGE_LONG_SIDE = 512
 
 
 def parse_args():
@@ -25,6 +25,20 @@ def parse_args():
     parser.add_argument("--output", "-o", default="output.svg", help="Final SVG path.")
     parser.add_argument(
         "--seed-svg", default=None, help="Path to an SVG file to seed the search pool."
+    )
+
+    parser.add_argument(
+        "--provider",
+        type=str,
+        choices=["openai", "anthropic", "gemini", "auto"],
+        default="auto",
+        help="LLM provider to use. 'auto' checks environment variables.",
+    )
+    parser.add_argument(
+        "--model",
+        type=str,
+        default=None,
+        help="Specific model name. Defaults depend on the active provider.",
     )
 
     parser.add_argument(
@@ -78,9 +92,9 @@ def parse_args():
         help="Base LLM temperature.",
     )
     parser.add_argument(
-        "--openai-image-long-side",
+        "--image-long-side",
         type=int,
-        default=DEFAULT_OPENAI_IMAGE_LONG_SIDE,
+        default=DEFAULT_IMAGE_LONG_SIDE,
         help="Downscale reference/preview images to this long-side dimension.",
     )
 
@@ -110,7 +124,7 @@ def parse_args():
 
     if args.max_accepts <= 0 or args.workers <= 0:
         raise SystemExit("Error: --max-accepts and --workers must be > 0")
-    if args.model_temp < 0 or args.openai_image_long_side < 0:
+    if args.model_temp < 0 or args.image_long_side < 0:
         raise SystemExit("Error: Configuration values cannot be negative")
 
     return args

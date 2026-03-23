@@ -28,12 +28,14 @@ def test_run_svg_search_end_to_end(tmp_path):
         max_accepts=1,
         workers=1,
         base_model_temperature=0.0,
-        openai_image_long_side=64,
+        image_long_side=64,
         max_wall_seconds=None,
         log_level="DEBUG",
         scorer_type=ScorerType.SIMPLE,
         strategy_type=StrategyType.GREEDY,
         goal="Generate a simple blue rectangle.",
+        llm_provider="openai",
+        llm_model="gpt-5.4-nano",
         write_lineage=False,
     )
 

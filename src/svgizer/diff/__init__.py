@@ -1,10 +1,10 @@
 import logging
 from enum import Enum
 
-from .base import DiffScorer, ScoreConfig
-from .dreamsim import DreamSimScorer
-from .llm_judge import LLMJudgeScorer
-from .simple import SimpleFallbackScorer
+from svgizer.diff.base import DiffScorer, ScoreConfig
+from svgizer.diff.dreamsim import DreamSimScorer
+from svgizer.diff.llm_judge import LLMJudgeScorer
+from svgizer.diff.simple import SimpleFallbackScorer
 
 log = logging.getLogger(__name__)
 

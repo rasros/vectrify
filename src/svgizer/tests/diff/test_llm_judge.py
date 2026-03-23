@@ -5,12 +5,12 @@ import pytest
 from PIL import Image
 
 from svgizer.diff.llm_judge import LLMJudgeScorer
-from svgizer.llm import LLMClient, LLMConfig
+from svgizer.llm import LLMConfig, get_provider
 
 
 @pytest.mark.llm
 def test_llm_client_structured_output():
-    client = LLMClient()
+    client = get_provider("openai")
 
     test_schema = {
         "type": "object",
@@ -20,14 +20,14 @@ def test_llm_client_structured_output():
     }
 
     config = LLMConfig(
-        model="gpt-5.4-nano",
+        model="gpt-4o-mini",
         response_schema=test_schema,
         schema_name="magic_number_test",
         temperature=0.0,
     )
 
     content_blocks = [
-        {"type": "input_text", "text": "The magic number is 42. Output it."}
+        {"type": "input_text", "text": "The magic number is 42. Output it in JSON format."}
     ]
 
     response = client.generate(content_blocks, config)
@@ -39,7 +39,7 @@ def test_llm_client_structured_output():
 
 @pytest.mark.llm
 def test_llm_judge_scorer_identical_images():
-    scorer = LLMJudgeScorer()
+    scorer = LLMJudgeScorer(provider_name="openai")
 
     img = Image.new("RGB", (64, 64), color="red")
     ref = scorer.prepare_reference(img)
@@ -55,7 +55,7 @@ def test_llm_judge_scorer_identical_images():
 
 @pytest.mark.llm
 def test_llm_judge_scorer_different_images():
-    scorer = LLMJudgeScorer()
+    scorer = LLMJudgeScorer(provider_name="openai")
 
     img_red = Image.new("RGB", (64, 64), color="red")
     ref = scorer.prepare_reference(img_red)

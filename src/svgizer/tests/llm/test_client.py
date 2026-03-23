@@ -1,12 +1,12 @@
 import pytest
 
-from svgizer.llm import LLMClient, LLMConfig
+from svgizer.llm import LLMConfig, get_provider
 
 
 @pytest.mark.llm
 def test_llm_client_basic_generation():
-    client = LLMClient()
-    config = LLMConfig(model="gpt-5.4-nano", temperature=0.0)
+    client = get_provider("openai")
+    config = LLMConfig(model="gpt-4o-mini", temperature=0.0)
 
     content_blocks = [
         {

@@ -6,7 +6,7 @@ from PIL import Image
 
 from svgizer.diff import get_scorer
 from svgizer.image_utils import rasterize_svg_to_png_bytes
-from svgizer.llm import LLMClient, LLMConfig
+from svgizer.llm import LLMConfig, get_provider
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.svg.adapter import SvgResultPayload
 from svgizer.svg.prompts import (
@@ -23,8 +23,11 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
     setup_logger(worker_params["log_level"])
     log = logging.getLogger("worker")
 
-    api_key = worker_params.get("openai_api_key")
-    client = LLMClient(api_key=api_key) if api_key else LLMClient()
+    provider_name = worker_params.get("llm_provider", "openai")
+    api_key = worker_params.get("api_key")
+    model_name = worker_params.get("llm_model", "gpt-4o")
+
+    client = get_provider(provider_name, api_key)
     scorer = get_scorer(worker_params["scorer_type"])
 
     original_rgb = Image.open(io.BytesIO(worker_params["original_png_bytes"])).convert(
@@ -45,12 +48,13 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
             worker_max_temp,
             max(0.0, parent.model_temperature + (task.worker_slot * worker_temp_step)),
         )
-        config = LLMConfig(temperature=temp)
+
+        config = LLMConfig(model=model_name, temperature=temp)
 
         try:
             if task.secondary_parent_state:
                 prompt = build_crossover_prompt(
-                    worker_params["openai_original_data_url"],
+                    worker_params["image_data_url"],
                     parent.payload.svg,
                     task.secondary_parent_state.payload.svg,
                 )
@@ -65,14 +69,13 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
 
                 if parent.payload.svg:
                     sum_prompt = build_summarize_prompt(
-                        worker_params["openai_original_data_url"], parent_preview
+                        worker_params["image_data_url"], parent_preview
                     )
-                    change_summary = client.generate(
-                        sum_prompt, LLMConfig(temperature=1.0)
-                    )
+                    sum_config = LLMConfig(model=model_name, temperature=1.0)
+                    change_summary = client.generate(sum_prompt, sum_config)
 
                 gen_prompt = build_svg_gen_prompt(
-                    worker_params["openai_original_data_url"],
+                    worker_params["image_data_url"],
                     task.parent_id,
                     svg_prev=parent.payload.svg,
                     change_summary=change_summary,

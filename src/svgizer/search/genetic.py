@@ -2,8 +2,8 @@ import random
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
-from .models import ChainState, Result, SearchNode
-from .utils import calculate_elite_prob, choose_from_top_k_weighted
+from svgizer.search.models import ChainState, Result, SearchNode
+from svgizer.search.utils import calculate_elite_prob, choose_from_top_k_weighted
 
 TState = TypeVar("TState")
 

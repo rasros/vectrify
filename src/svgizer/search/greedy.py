@@ -1,6 +1,6 @@
 from typing import Generic, TypeVar
 
-from .models import ChainState, Result, SearchNode
+from svgizer.search.models import ChainState, Result, SearchNode
 
 TState = TypeVar("TState")
 

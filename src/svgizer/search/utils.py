@@ -1,6 +1,6 @@
 import random
 
-from .models import SearchNode
+from svgizer.search.models import SearchNode
 
 
 def calculate_elite_prob(progress01: float, p_start: float, p_end: float) -> float:

@@ -36,16 +36,19 @@ def run_svg_search(
     max_accepts: int,
     workers: int,
     base_model_temperature: float,
-    openai_image_long_side: int,
+    image_long_side: int,
     max_wall_seconds: float | None,
     log_level: str,
     scorer_type: ScorerType,
     strategy_type: StrategyType,
     goal: str | None,
+    llm_provider: str,
+    llm_model: str,
     write_lineage: bool = True,
 ) -> None:
     setup_logger(log_level)
 
+    # 1. Image & Scorer Setup
     original_img = Image.open(image_path).convert("RGB")
     original_w, original_h = original_img.size
 
@@ -56,12 +59,14 @@ def run_svg_search(
     scorer = get_scorer(scorer_type)
     scoring_ref = scorer.prepare_reference(original_img)
 
+    # 2. Storage & Resume Logic
     storage.initialize()
     initial_nodes = storage.load_resume_nodes()
 
     if initial_nodes:
-        log.info(f"Resumed {len(initial_nodes)} nodes.")
+        log.info(f"Resumed {len(initial_nodes)} nodes from storage.")
 
+    # 3. Seed Handling
     if seed_svg_path:
         try:
             seed_svg = storage.load_seed_svg(seed_svg_path)
@@ -82,7 +87,7 @@ def run_svg_search(
                         svg=seed_svg,
                         raster_data_url=None,
                         raster_preview_data_url=make_preview_data_url(
-                            png, openai_image_long_side
+                            png, image_long_side
                         ),
                         change_summary=None,
                         invalid_msg=None,
@@ -109,6 +114,7 @@ def run_svg_search(
             )
         )
 
+    # 4. Search Execution
     base_strategy: SearchStrategy[SvgStatePayload]
     if strategy_type == StrategyType.GREEDY:
         base_strategy = GreedyHillClimbingStrategy[SvgStatePayload]()
@@ -117,21 +123,27 @@ def run_svg_search(
             top_k=3, is_stale_fn=make_is_svg_stale(0.995)
         )
 
-    strategy = SvgStrategyAdapter(base_strategy, openai_image_long_side, write_lineage)
+    strategy = SvgStrategyAdapter(base_strategy, image_long_side, write_lineage)
+
     engine = MultiprocessSearchEngine(
         workers=workers, strategy=strategy, storage=storage
     )
 
-    model_png = downscale_png_bytes(original_png_bytes, openai_image_long_side)
+    # Prepare worker parameters
+    model_png = downscale_png_bytes(original_png_bytes, image_long_side)
+    api_key_env_var = f"{llm_provider.upper()}_API_KEY"
+
     worker_params = {
-        "openai_original_data_url": png_bytes_to_data_url(model_png),
+        "image_data_url": png_bytes_to_data_url(model_png),
         "original_png_bytes": original_png_bytes,
         "original_w": original_w,
         "original_h": original_h,
         "log_level": log_level,
         "scorer_type": scorer_type,
         "goal": goal,
-        "openai_api_key": os.getenv("OPENAI_API_KEY"),
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
+        "api_key": os.getenv(api_key_env_var),
         "worker_max_temp": 1.6,
         "worker_temp_step": 0.07,
     }

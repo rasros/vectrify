@@ -5,8 +5,8 @@ import time
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
-from .base import SearchStrategy, StorageAdapter
-from .models import Result, SearchNode, Task
+from svgizer.search.base import SearchStrategy, StorageAdapter
+from svgizer.search.models import Result, SearchNode, Task
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
