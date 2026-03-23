@@ -10,6 +10,7 @@ DEFAULT_MAX_WALL_SECONDS = 0
 DEFAULT_RESUME = True
 DEFAULT_WRITE_LINEAGE = True
 DEFAULT_IMAGE_LONG_SIDE = 512
+DEFAULT_REASONING = "medium"
 
 
 def parse_args():
@@ -90,6 +91,13 @@ def parse_args():
         type=float,
         default=DEFAULT_MODEL_TEMP,
         help="Base LLM temperature.",
+    )
+    parser.add_argument(
+        "--reasoning",
+        type=str,
+        default=DEFAULT_REASONING,
+        choices=["low", "medium", "high"],
+        help="Reasoning effort level across supported LLMs.",
     )
     parser.add_argument(
         "--image-long-side",

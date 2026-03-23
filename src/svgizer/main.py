@@ -56,7 +56,7 @@ def main():
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
     logger = logging.getLogger("main")
     logger.info(
-        f"Initialized LLM Backend -> Provider: {provider.upper()} | Model: {model}"
+        f"Initialized LLM Backend -> Provider: {provider.upper()} | Model: {model} | Reasoning: {args.reasoning}"
     )
 
     storage = FileStorageAdapter(
@@ -82,6 +82,7 @@ def main():
             goal=args.goal,
             llm_provider=provider,
             llm_model=model,
+            reasoning=args.reasoning,
             write_lineage=args.write_lineage,
         )
     except KeyboardInterrupt:

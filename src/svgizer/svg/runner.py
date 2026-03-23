@@ -44,6 +44,7 @@ def run_svg_search(
     goal: str | None,
     llm_provider: str,
     llm_model: str,
+    reasoning: str,
     write_lineage: bool = True,
 ) -> None:
     setup_logger(log_level)
@@ -143,6 +144,7 @@ def run_svg_search(
         "goal": goal,
         "llm_provider": llm_provider,
         "llm_model": llm_model,
+        "reasoning": reasoning,
         "api_key": os.getenv(api_key_env_var),
         "worker_max_temp": 1.6,
         "worker_temp_step": 0.07,

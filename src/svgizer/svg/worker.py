@@ -26,6 +26,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
     provider_name = worker_params.get("llm_provider", "openai")
     api_key = worker_params.get("api_key")
     model_name = worker_params.get("llm_model", "gpt-5.4")
+    reasoning = worker_params.get("reasoning", "medium")
 
     client = get_provider(provider_name, api_key)
     scorer = get_scorer(worker_params["scorer_type"])
@@ -49,7 +50,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
             max(0.0, parent.model_temperature + (task.worker_slot * worker_temp_step)),
         )
 
-        config = LLMConfig(model=model_name, temperature=temp)
+        config = LLMConfig(model=model_name, temperature=temp, reasoning=reasoning)
 
         try:
             if task.secondary_parent_state:
@@ -71,7 +72,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     sum_prompt = build_summarize_prompt(
                         worker_params["image_data_url"], parent_preview
                     )
-                    sum_config = LLMConfig(model=model_name, temperature=1.0)
+                    sum_config = LLMConfig(model=model_name, temperature=1.0, reasoning=reasoning)
                     change_summary = client.generate(sum_prompt, sum_config)
 
                 gen_prompt = build_svg_gen_prompt(

@@ -35,6 +35,9 @@ class GeminiProvider(LLMProvider):
             temperature=config.temperature
         )
 
+        if config.reasoning:
+            pass
+
         if config.response_schema or config.json_output:
             generation_config.response_mime_type = "application/json"
             if config.response_schema:
@@ -45,4 +48,4 @@ class GeminiProvider(LLMProvider):
             contents=prompt_parts,
             config=generation_config
         )
-        return response.text
+        return response.text or ""
