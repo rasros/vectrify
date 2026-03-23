@@ -11,11 +11,6 @@ log = logging.getLogger(__name__)
 
 
 class FileStorageAdapter:
-    """
-    Implementation of the Search Storage protocol using the local filesystem.
-    Handles node serialization, CSV lineage, and state hydration for resume.
-    """
-
     def __init__(
         self,
         output_svg_path: str,
@@ -31,7 +26,6 @@ class FileStorageAdapter:
         self.base_temp = base_temp
         self._max_id = 0
 
-        # Path parsing using pathlib
         self.base_name = self.output_svg_path.stem
         self.ext = self.output_svg_path.suffix or ".svg"
         self.out_dir = self.output_svg_path.parent
@@ -46,10 +40,8 @@ class FileStorageAdapter:
         self.nodes_dir.mkdir(parents=True, exist_ok=True)
 
     def save_node(self, node: SearchNode[SvgStatePayload]) -> None:
-        """Saves SVG file and updates lineage CSV."""
         self._max_id = max(self._max_id, node.id)
 
-        # Broken down to fix E501 line length
         fn = (
             f"score{node.score:012.6f}_node{node.id:05d}_"
             f"parent{node.parent_id:05d}{self.ext}"
@@ -60,7 +52,6 @@ class FileStorageAdapter:
             with path.open("w", encoding="utf-8") as f:
                 f.write(node.state.payload.svg)
 
-        # Append to CSV record
         exists = self.lineage_csv.is_file()
         try:
             with self.lineage_csv.open("a", encoding="utf-8", newline="") as f:
@@ -85,7 +76,6 @@ class FileStorageAdapter:
             log.warning(f"Lineage write failed: {e}")
 
     def load_resume_nodes(self) -> list[SearchNode[SvgStatePayload]]:
-        """Scans filesystem to rebuild the search pool."""
         if not self.resume or not self.nodes_dir.is_dir():
             return []
 
@@ -108,7 +98,6 @@ class FileStorageAdapter:
                 with file_path.open(encoding="utf-8") as f:
                     svg = f.read()
 
-                # Hydrate preview for the LLM context
                 png = rasterize_svg_to_png_bytes(
                     svg, out_w=self.img_dims[0], out_h=self.img_dims[1]
                 )
@@ -133,11 +122,9 @@ class FileStorageAdapter:
         return sorted(nodes, key=lambda n: n.id)
 
     def save_final_svg(self, svg_content: str) -> None:
-        """Saves the best result to the primary output path."""
         with self.output_svg_path.open("w", encoding="utf-8") as f:
             f.write(svg_content)
 
     def load_seed_svg(self, seed_path: str) -> str:
-        """Utility for the pipeline to load user-provided starting points."""
         with Path(seed_path).open(encoding="utf-8") as f:
             return f.read()

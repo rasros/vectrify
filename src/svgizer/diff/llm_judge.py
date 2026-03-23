@@ -53,7 +53,6 @@ def _build_judge_prompt(reference_url: str, candidate_url: str) -> list[dict[str
 
 class LLMJudgeScorer(DiffScorer):
     def __init__(self, config: LLMConfig | None = None):
-        # 2. Inject the schema into the config
         self.config = config or LLMConfig(
             model="gpt-5.4-nano",
             response_schema=JUDGE_SCHEMA,
@@ -73,7 +72,6 @@ class LLMJudgeScorer(DiffScorer):
 
         try:
             response_text = self.client.generate(content_blocks, self.config)
-
             result = json.loads(response_text)
             similarity = float(result["similarity"])
             llm_score = float(max(0.0, min(1.0, 1.0 - similarity)))

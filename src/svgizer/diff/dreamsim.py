@@ -23,15 +23,12 @@ class DreamSimReference:
 
 
 class DreamSimScorer(DiffScorer):
-    """ML-based layout/semantic scorer with lazy-loaded dependencies."""
-
     def __init__(self):
         self._model: Any | None = None
         self._preprocess: Callable | None = None
         self._torch: Any | None = None
 
     def _load_dependencies(self):
-        """Internal helper to load torch and models only when needed."""
         if self._model is None:
             try:
                 import torch
@@ -50,7 +47,6 @@ class DreamSimScorer(DiffScorer):
                 ) from e
 
     def validate_environment(self):
-        """Used by the factory to check viability without a full score pass."""
         self._load_dependencies()
 
     def prepare_reference(self, original_rgb: Image.Image) -> DreamSimReference:
@@ -58,7 +54,6 @@ class DreamSimScorer(DiffScorer):
         assert self._preprocess is not None
 
         device = get_device()
-
         ref_small = resize_long_side(original_rgb, DEFAULT_CONFIG.target_long_side)
         ref_tensor = self._preprocess(ref_small).to(device)
 

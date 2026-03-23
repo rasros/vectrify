@@ -9,8 +9,6 @@ TState = TypeVar("TState")
 
 
 class GeneticPoolStrategy(Generic[TState]):
-    """Pool-based refinement and crossover strategy."""
-
     def __init__(
         self,
         top_k: int = 3,
@@ -29,7 +27,7 @@ class GeneticPoolStrategy(Generic[TState]):
         self.elite_end = elite_end
         self.stale_threshold = stale_threshold
         self.crossover_prob = crossover_prob
-        self.is_stale_fn = is_stale_fn or (lambda _parent, _result: False)
+        self.is_stale_fn = is_stale_fn or (lambda _p, _r: False)
 
     @property
     def top_k_count(self) -> int:
@@ -60,7 +58,6 @@ class GeneticPoolStrategy(Generic[TState]):
         next_temp = parent_state.model_temperature
         stale_hits = parent_state.stale_hits
 
-        # Delegate staleness check to the injected domain logic
         if self.is_stale_fn(parent_state.payload, result.payload):
             stale_hits += 1
             if stale_hits >= self.stale_threshold and next_temp < self.max_temp:

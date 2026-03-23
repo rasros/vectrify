@@ -8,8 +8,6 @@ from svgizer.search import ChainState, Result, SearchNode, SearchStrategy
 
 @dataclasses.dataclass
 class SvgStatePayload:
-    """The domain data attached to an accepted search node."""
-
     svg: str | None
     raster_data_url: str | None
     raster_preview_data_url: str | None
@@ -19,8 +17,6 @@ class SvgStatePayload:
 
 @dataclasses.dataclass
 class SvgResultPayload:
-    """The domain data returned by a worker's execution."""
-
     svg: str | None
     raster_png: bytes | None
     change_summary: str | None
@@ -29,12 +25,9 @@ class SvgResultPayload:
 def make_is_svg_stale(
     threshold: float = 0.995,
 ) -> Callable[[SvgStatePayload, SvgResultPayload], bool]:
-    """Returns a staleness check function configured with a specific diff threshold."""
-
     def is_svg_stale(
         prev_payload: SvgStatePayload, new_payload: SvgResultPayload
     ) -> bool:
-        """Domain-specific check to see if the LLM is looping or stuck."""
         if prev_payload is None or prev_payload.svg is None:
             return False
         if new_payload.svg is None:
@@ -49,8 +42,6 @@ def make_is_svg_stale(
 
 
 class SvgStrategyAdapter:
-    """Wraps a generic search strategy to handle domain payload hydration."""
-
     def __init__(
         self,
         base_strategy: SearchStrategy[SvgStatePayload],
@@ -73,10 +64,7 @@ class SvgStrategyAdapter:
     def create_new_state(
         self, parent_state: ChainState[SvgStatePayload], result: Result
     ) -> ChainState[SvgStatePayload]:
-        # Let the generic strategy calculate scores, temp bumps, and staleness math
         new_state = self.base_strategy.create_new_state(parent_state, result)
-
-        # Hydrate the SVG specific payload (converting worker bytes to data URLs)
         result_payload: SvgResultPayload = result.payload
 
         raster_data_url = None
@@ -89,7 +77,6 @@ class SvgStrategyAdapter:
                 result_payload.raster_png, self.openai_image_long_side
             )
 
-        # Replace the raw pass-through payload with our rich state payload
         new_state.payload = SvgStatePayload(
             svg=result_payload.svg,
             raster_data_url=raster_data_url,

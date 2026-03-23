@@ -25,27 +25,25 @@ class LLMClient:
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
         kwargs: dict[str, Any] = {
             "model": config.model,
-            "input": [{"role": "user", "content": content_blocks}],
+            "messages": [{"role": "user", "content": content_blocks}],
         }
 
         if config.response_schema:
-            kwargs["text"] = {
-                "format": {
-                    "type": "json_schema",
+            kwargs["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
                     "name": config.schema_name,
                     "schema": config.response_schema,
                     "strict": True,
-                }
+                },
             }
         elif config.json_output:
-            kwargs["text"] = {"format": {"type": "json_object"}}
-        else:
-            kwargs["text"] = {"format": {"type": "text"}}
+            kwargs["response_format"] = {"type": "json_object"}
 
         if config.reasoning:
-            kwargs["reasoning"] = config.reasoning
+            kwargs["reasoning_effort"] = config.reasoning
         elif config.temperature is not None:
             kwargs["temperature"] = config.temperature
 
-        response = self._client.responses.create(**kwargs)
-        return response.output_text
+        response = self._client.chat.completions.create(**kwargs)
+        return response.choices[0].message.content

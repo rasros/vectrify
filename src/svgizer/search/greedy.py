@@ -6,11 +6,6 @@ TState = TypeVar("TState")
 
 
 class GreedyHillClimbingStrategy(Generic[TState]):
-    """
-    Simplest baseline: Always selects the single best node found so far.
-    Increases model temperature if it gets stuck at a local minimum.
-    """
-
     def __init__(
         self, patience: int = 3, temp_step: float = 0.3, max_temp: float = 1.6
     ):
@@ -40,7 +35,6 @@ class GreedyHillClimbingStrategy(Generic[TState]):
         next_temp = parent_state.model_temperature
         stale_hits = parent_state.stale_hits
 
-        # If new generation didn't improve upon parent's score, consider it stale
         if result.score >= parent_state.score:
             stale_hits += 1
             if stale_hits >= self.patience and next_temp < self.max_temp:

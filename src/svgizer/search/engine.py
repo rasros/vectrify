@@ -13,11 +13,6 @@ log = logging.getLogger(__name__)
 
 
 class MultiprocessSearchEngine(Generic[TState]):
-    """
-    Orchestrates a parallel search by coordinating worker processes,
-    an evolution strategy, and a persistence adapter.
-    """
-
     def __init__(
         self,
         workers: int,
@@ -141,7 +136,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                     status = "ACCEPTED"
 
                 log.info(f"[{status}] node={new_node.id} score={new_node.score:.6f}")
-
                 self.storage.save_node(new_node)
 
         finally:

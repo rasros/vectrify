@@ -6,7 +6,7 @@ from svgizer.search import StrategyType
 DEFAULT_MAX_ACCEPTS = 32
 DEFAULT_WORKERS = 4
 DEFAULT_MODEL_TEMP = 0.6
-DEFAULT_MAX_WALL_SECONDS = 0  # 0 disables
+DEFAULT_MAX_WALL_SECONDS = 0
 DEFAULT_RESUME = True
 DEFAULT_WRITE_LINEAGE = True
 DEFAULT_OPENAI_IMAGE_LONG_SIDE = 512
@@ -20,16 +20,13 @@ def parse_args():
         )
     )
 
-    # Positional
     parser.add_argument("image", help="Path to input raster image (PNG/JPEG/WEBP/GIF).")
 
-    # Output & Input
     parser.add_argument("--output", "-o", default="output.svg", help="Final SVG path.")
     parser.add_argument(
         "--seed-svg", default=None, help="Path to an SVG file to seed the search pool."
     )
 
-    # Scorer Configuration
     parser.add_argument(
         "--scorer",
         type=str,
@@ -55,7 +52,6 @@ def parse_args():
         ),
     )
 
-    # Search Constraints
     parser.add_argument(
         "--max-accepts",
         type=int,
@@ -75,7 +71,6 @@ def parse_args():
         help="Maximum runtime in seconds (0 to disable).",
     )
 
-    # Model Parameters
     parser.add_argument(
         "--model-temp",
         type=float,
@@ -89,7 +84,6 @@ def parse_args():
         help="Downscale reference/preview images to this long-side dimension.",
     )
 
-    # State Management
     parser.add_argument(
         "--resume",
         dest="resume",

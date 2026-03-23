@@ -16,7 +16,6 @@ class ScorerType(str, Enum):
     LLM = "llm"
 
 
-# Registry for mapping types to classes
 SCORER_REGISTRY: dict[ScorerType, type[DiffScorer]] = {
     ScorerType.DREAMSIM: DreamSimScorer,
     ScorerType.SIMPLE: SimpleFallbackScorer,
@@ -27,20 +26,17 @@ __all__ = ["DiffScorer", "ScoreConfig", "ScorerType", "get_scorer"]
 
 
 def get_scorer(scorer_type: ScorerType | str = ScorerType.AUTO) -> DiffScorer:
-    """Factory that returns the requested scorer with lazy-loading behavior."""
     if isinstance(scorer_type, str):
         scorer_type = ScorerType(scorer_type.lower())
 
-    # Handle Explicit Requests
     if scorer_type in SCORER_REGISTRY and scorer_type != ScorerType.AUTO:
         log.info(f"Using {scorer_type.value} scorer.")
         return SCORER_REGISTRY[scorer_type]()
 
-    # Handle AUTO Logic
     log.info("AUTO mode: Attempting to initialize DreamSim...")
     try:
         scorer = DreamSimScorer()
-        scorer.validate_environment()  # Check if models/torch are available
+        scorer.validate_environment()
         log.info("AUTO: DreamSim initialized successfully.")
         return scorer
     except Exception as e:
