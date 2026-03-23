@@ -18,6 +18,7 @@ from svgizer.search import (
     GreedyHillClimbingStrategy,
     MultiprocessSearchEngine,
     SearchNode,
+    SearchStrategy,
     StorageAdapter,
     StrategyType,
 )
@@ -112,10 +113,11 @@ def run_svg_search(
         )
 
     # 4. Search Execution
+    base_strategy: SearchStrategy[SvgStatePayload]
     if strategy_type == StrategyType.GREEDY:
-        base_strategy = GreedyHillClimbingStrategy()
+        base_strategy = GreedyHillClimbingStrategy[SvgStatePayload]()
     else:
-        base_strategy = GeneticPoolStrategy(
+        base_strategy = GeneticPoolStrategy[SvgStatePayload](
             top_k=3, is_stale_fn=make_is_svg_stale(0.995)
         )
 
