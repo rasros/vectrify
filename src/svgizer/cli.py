@@ -99,7 +99,7 @@ def parse_args():
         type=float,
         default=DEFAULT_COOLING_RATE,
         help="Factor to multiply temperature by after each successful step "
-             "(0.1 to 1.0).",
+        "(0.1 to 1.0).",
     )
     parser.add_argument(
         "--reasoning",

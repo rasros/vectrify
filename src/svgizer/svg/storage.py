@@ -41,7 +41,6 @@ class FileStorageAdapter:
         return self._max_id
 
     def initialize(self) -> None:
-        """Creates a new run folder. This MUST be called before save_node."""
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.current_run_dir = self.runs_dir / timestamp
@@ -51,7 +50,6 @@ class FileStorageAdapter:
         log.info(f"Storage initialized. Current run: {self.current_run_dir.name}")
 
     def load_resume_nodes(self) -> list[tuple[int, str]]:
-        """Scans for previous nodes and updates the internal max_id."""
         if not self.resume:
             return []
 
@@ -65,7 +63,7 @@ class FileStorageAdapter:
                 ]
             )
 
-        resumed_data = []
+        resumed_data: list[tuple[int, str]] = []
         pattern = re.compile(r"node(\d+)")
 
         target_folders = []
@@ -87,7 +85,6 @@ class FileStorageAdapter:
                         node_id = int(match.group(1))
                         with file_path.open(encoding="utf-8") as f:
                             found_in_folder.append((node_id, f.read()))
-                        # Update max_id to prevent collisions with new nodes
                         self._max_id = max(self._max_id, node_id)
                     except Exception as e:
                         log.error(f"Failed to read {file_path.name}: {e}")
@@ -99,8 +96,7 @@ class FileStorageAdapter:
         return sorted(resumed_data, key=lambda x: x[0])
 
     def save_node(self, node: SearchNode[SvgStatePayload]) -> None:
-        """Saves a node to the CURRENT run directory."""
-        if not self.nodes_dir or not self.lineage_csv:
+        if self.nodes_dir is None or self.lineage_csv is None:
             raise RuntimeError("Storage initialized call missing.")
 
         self._max_id = max(self._max_id, node.id)
@@ -132,10 +128,10 @@ class FileStorageAdapter:
             )
 
     def save_final_svg(self, svg_content: str) -> None:
-        """Saves to the primary output path and a backup in the project folder."""
         with self.output_svg_path.open("w", encoding="utf-8") as f:
             f.write(svg_content)
 
+        self.project_dir.mkdir(parents=True, exist_ok=True)
         final_backup = self.project_dir / f"best_{self.output_svg_path.name}"
         with final_backup.open("w", encoding="utf-8") as f:
             f.write(svg_content)

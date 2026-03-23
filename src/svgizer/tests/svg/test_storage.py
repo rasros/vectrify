@@ -44,7 +44,10 @@ def test_initialize_creates_directories(tmp_path):
     adapter = FileStorageAdapter(output_path)
 
     adapter.initialize()
+    assert adapter.nodes_dir is not None
+    assert adapter.current_run_dir is not None
     assert adapter.nodes_dir.is_dir()
+    assert adapter.lineage_csv is not None
     assert adapter.lineage_csv.parent == adapter.current_run_dir
 
 
@@ -55,11 +58,13 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
     adapter.save_node(dummy_node)
 
     expected_filename = "score00000.123456_node00042_parent00010.svg"
+
+    assert adapter.nodes_dir is not None
     svg_path = adapter.nodes_dir / expected_filename
     assert svg_path.is_file()
-
     assert adapter.max_node_id == 42
 
+    assert adapter.lineage_csv is not None
     assert adapter.lineage_csv.is_file()
     with adapter.lineage_csv.open(encoding="utf-8") as f:
         reader = list(csv.reader(f))
@@ -82,7 +87,6 @@ def test_load_resume_nodes(tmp_path):
     valid_svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'
     new_format_fn = "score00000.555000_node00015_parent00010.svg"
 
-    # Create a previous run
     prev_run_nodes = adapter.runs_dir / "2020-01-01_00-00-00" / "nodes"
     prev_run_nodes.mkdir(parents=True)
     with (prev_run_nodes / new_format_fn).open("w") as f:
