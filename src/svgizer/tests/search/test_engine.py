@@ -64,7 +64,8 @@ def test_engine_run_loop_terminates_on_max_accepts(monkeypatch):
 
     engine = MultiprocessSearchEngine(1, strat, store)
 
-    monkeypatch.setattr(engine.result_q, "get", lambda _timeout=None: res)
+    # Use **_kwargs to handle the 'timeout' parameter used in engine.py
+    monkeypatch.setattr(engine.result_q, "get", lambda **_kwargs: res)
     monkeypatch.setattr(engine.task_q, "put", lambda _obj: None)
 
     initial_node = SearchNode(

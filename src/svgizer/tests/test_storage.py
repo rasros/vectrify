@@ -36,9 +36,10 @@ def test_adapter_path_resolution(tmp_path):
 
     assert adapter.base_name == "result"
     assert adapter.ext == ".svg"
-    assert adapter.out_dir == str(tmp_path / "somedir")
-    assert adapter.nodes_dir == str(tmp_path / "somedir" / "result_nodes")
-    assert adapter.lineage_csv == str(tmp_path / "somedir" / "result_lineage.csv")
+    # Ensure Path objects are compared as strings to match expected test output
+    assert str(adapter.out_dir) == str(tmp_path / "somedir")
+    assert str(adapter.nodes_dir) == str(tmp_path / "somedir" / "result_nodes")
+    assert str(adapter.lineage_csv) == str(tmp_path / "somedir" / "result_lineage.csv")
 
 
 def test_initialize_creates_directories(tmp_path):
