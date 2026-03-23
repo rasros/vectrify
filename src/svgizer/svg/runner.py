@@ -1,5 +1,6 @@
 import io
 import logging
+import os
 
 from PIL import Image
 
@@ -20,7 +21,7 @@ from svgizer.search import (
     StorageAdapter,
     StrategyType,
 )
-from svgizer.svg.adapter import SvgStatePayload, SvgStrategyAdapter, is_svg_stale
+from svgizer.svg.adapter import SvgStatePayload, SvgStrategyAdapter, make_is_svg_stale
 from svgizer.svg.worker import worker_loop
 from svgizer.utils import setup_logger
 
@@ -95,7 +96,6 @@ def run_svg_search(
         except Exception as e:
             log.error(f"Failed to load seed SVG: {e}")
 
-    # Ensure we have at least one starting point
     if not initial_nodes:
         initial_nodes.append(
             SearchNode(
@@ -115,7 +115,9 @@ def run_svg_search(
     if strategy_type == StrategyType.GREEDY:
         base_strategy = GreedyHillClimbingStrategy()
     else:
-        base_strategy = GeneticPoolStrategy(top_k=3, is_stale_fn=is_svg_stale)
+        base_strategy = GeneticPoolStrategy(
+            top_k=3, is_stale_fn=make_is_svg_stale(0.995)
+        )
 
     strategy = SvgStrategyAdapter(base_strategy, openai_image_long_side, write_lineage)
 
@@ -133,6 +135,9 @@ def run_svg_search(
         "log_level": log_level,
         "scorer_type": scorer_type,
         "goal": goal,
+        "openai_api_key": os.getenv("OPENAI_API_KEY"),
+        "worker_max_temp": 1.6,
+        "worker_temp_step": 0.07,
     }
 
     engine.start_workers(worker_loop, worker_params)
