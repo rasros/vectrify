@@ -2,7 +2,8 @@ import base64
 import os
 from typing import Any
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 
 from svgizer.llm.base import LLMConfig, LLMProvider
 
@@ -12,10 +13,9 @@ class GeminiProvider(LLMProvider):
         self.api_key = api_key or os.getenv("GEMINI_API_KEY")
         if not self.api_key:
             raise ValueError("GEMINI_API_KEY must be set.")
-        genai.configure(api_key=self.api_key)
+        self.client = genai.Client(api_key=self.api_key)
 
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
-        model = genai.GenerativeModel(config.model)
         prompt_parts = []
 
         for block in content_blocks:
@@ -25,18 +25,24 @@ class GeminiProvider(LLMProvider):
                 header, encoded = block["image_url"].split(",", 1)
                 mime_type = header.split(";")[0].split(":")[1]
                 prompt_parts.append(
-                    {"mime_type": mime_type, "data": base64.b64decode(encoded)}
+                    types.Part.from_bytes(
+                        data=base64.b64decode(encoded),
+                        mime_type=mime_type
+                    )
                 )
 
-        # Set up generation config
-        generation_config = genai.types.GenerationConfig(temperature=config.temperature)
+        generation_config = types.GenerateContentConfig(
+            temperature=config.temperature
+        )
 
         if config.response_schema or config.json_output:
             generation_config.response_mime_type = "application/json"
             if config.response_schema:
                 generation_config.response_schema = config.response_schema
 
-        response = model.generate_content(
-            prompt_parts, generation_config=generation_config
+        response = self.client.models.generate_content(
+            model=config.model,
+            contents=prompt_parts,
+            config=generation_config
         )
         return response.text
