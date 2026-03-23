@@ -1,12 +1,14 @@
 import random
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from .models import ChainState, Result, SearchNode
 from .utils import calculate_elite_prob, choose_from_top_k_weighted
 
+TState = TypeVar("TState")
 
-class GeneticPoolStrategy:
+
+class GeneticPoolStrategy(Generic[TState]):
     """Pool-based refinement and crossover strategy."""
 
     def __init__(
@@ -18,7 +20,7 @@ class GeneticPoolStrategy:
         elite_end: float = 0.10,
         stale_threshold: int = 1,
         crossover_prob: float = 0.25,
-        is_stale_fn: Callable[[Any, Any], bool] | None = None,
+        is_stale_fn: Callable[[TState, Any], bool] | None = None,
     ):
         self.top_k = top_k
         self.temp_step = temp_step
@@ -34,7 +36,7 @@ class GeneticPoolStrategy:
         return self.top_k
 
     def select_parent(
-        self, nodes: list[SearchNode], progress: float
+        self, nodes: list[SearchNode[TState]], progress: float
     ) -> tuple[int, int | None]:
         if not nodes:
             return 0, None
@@ -52,7 +54,9 @@ class GeneticPoolStrategy:
             return choose_from_top_k_weighted(best_k), None
         return best_node.id, None
 
-    def create_new_state(self, parent_state: ChainState, result: Result) -> ChainState:
+    def create_new_state(
+        self, parent_state: ChainState[TState], result: Result
+    ) -> ChainState[TState]:
         next_temp = parent_state.model_temperature
         stale_hits = parent_state.stale_hits
 
