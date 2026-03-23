@@ -17,7 +17,7 @@ class FakeStrategy:
     def create_new_state(
         self,
         parent_state: ChainState,
-        result: Result,  # noqa: ARG002
+        result: Result,
     ) -> ChainState:
         return ChainState(
             score=result.score,
