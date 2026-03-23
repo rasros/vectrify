@@ -26,25 +26,22 @@ class FileStorageAdapter:
         self.base_temp = base_temp
         self._max_id = 0
 
-        # Fix: Add missing attributes used in tests
         self.base_name = self.output_svg_path.stem
         self.ext = self.output_svg_path.suffix
-        self.out_dir = self.output_svg_path.parent
-
-        self.project_dir = self.out_dir / self.base_name
+        self.project_dir = self.output_svg_path.parent / self.base_name
         self.runs_dir = self.project_dir / "runs"
-        self.legacy_nodes_dir = self.out_dir / f"{self.base_name}_nodes"
+        self.legacy_nodes_dir = self.output_svg_path.parent / f"{self.base_name}_nodes"
 
-        # Fix: Initialize as Paths to avoid Path(None) errors in type checking
-        self.current_run_dir = self.runs_dir / "pending"
-        self.nodes_dir = self.current_run_dir / "nodes"
-        self.lineage_csv = self.current_run_dir / "lineage.csv"
+        self.current_run_dir: Path | None = None
+        self.nodes_dir: Path | None = None
+        self.lineage_csv: Path | None = None
 
     @property
     def max_node_id(self) -> int:
         return self._max_id
 
     def initialize(self) -> None:
+        """Creates a new run folder. This MUST be called before save_node."""
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.current_run_dir = self.runs_dir / timestamp
@@ -54,7 +51,7 @@ class FileStorageAdapter:
         log.info(f"Storage initialized. Current run: {self.current_run_dir.name}")
 
     def load_resume_nodes(self) -> list[tuple[int, str]]:
-        """Returns raw data for the runner to re-score."""
+        """Scans for previous nodes and updates the internal max_id."""
         if not self.resume:
             return []
 
@@ -81,16 +78,17 @@ class FileStorageAdapter:
             if not folder.exists():
                 continue
 
-            log.info(f"Attempting to resume nodes from: {folder}")
+            log.info(f"Scanning for resume nodes in: {folder}")
             found_in_folder = []
             for file_path in folder.glob("*.svg"):
                 match = pattern.search(file_path.name)
                 if match:
                     try:
+                        node_id = int(match.group(1))
                         with file_path.open(encoding="utf-8") as f:
-                            node_id = int(match.group(1))
                             found_in_folder.append((node_id, f.read()))
-                            self._max_id = max(self._max_id, node_id)
+                        # Update max_id to prevent collisions with new nodes
+                        self._max_id = max(self._max_id, node_id)
                     except Exception as e:
                         log.error(f"Failed to read {file_path.name}: {e}")
 
@@ -101,6 +99,10 @@ class FileStorageAdapter:
         return sorted(resumed_data, key=lambda x: x[0])
 
     def save_node(self, node: SearchNode[SvgStatePayload]) -> None:
+        """Saves a node to the CURRENT run directory."""
+        if not self.nodes_dir or not self.lineage_csv:
+            raise RuntimeError("Storage initialized call missing.")
+
         self._max_id = max(self._max_id, node.id)
         fn = (
             f"score{node.score:012.6f}_node{node.id:05d}_parent{node.parent_id:05d}.svg"
@@ -130,11 +132,15 @@ class FileStorageAdapter:
             )
 
     def save_final_svg(self, svg_content: str) -> None:
-        final_path = self.project_dir / f"best_{self.output_svg_path.name}"
-        final_path.parent.mkdir(parents=True, exist_ok=True)
-        with final_path.open("w", encoding="utf-8") as f:
+        """Saves to the primary output path and a backup in the project folder."""
+        with self.output_svg_path.open("w", encoding="utf-8") as f:
             f.write(svg_content)
-        log.info(f"Updated best SVG at: {final_path}")
+
+        final_backup = self.project_dir / f"best_{self.output_svg_path.name}"
+        with final_backup.open("w", encoding="utf-8") as f:
+            f.write(svg_content)
+
+        log.info(f"Updated best SVG at: {self.output_svg_path}")
 
     def load_seed_svg(self, seed_path: str) -> str:
         with Path(seed_path).open(encoding="utf-8") as f:

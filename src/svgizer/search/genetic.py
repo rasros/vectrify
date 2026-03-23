@@ -62,6 +62,7 @@ class GeneticPoolStrategy(Generic[TState]):
         if self.is_stale_fn(parent_state.payload, result.payload):
             stale_hits += 1
             if stale_hits >= self.stale_threshold:
+                # Heat up to escape stalemate
                 next_temp = min(
                     self.max_temp, parent_state.model_temperature + self.temp_step
                 )
@@ -69,6 +70,7 @@ class GeneticPoolStrategy(Generic[TState]):
             else:
                 next_temp = parent_state.model_temperature
         else:
+            # Success: Cool down from the temperature that worked
             stale_hits = 0
             next_temp = max(0.2, result.used_temperature * self.cooling_rate)
 
