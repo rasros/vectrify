@@ -5,7 +5,7 @@ from svgizer.search import StrategyType
 
 DEFAULT_MAX_ACCEPTS = 32
 DEFAULT_WORKERS = 4
-DEFAULT_MODEL_TEMP = 0.6
+DEFAULT_TEMPERATURE = 1.0
 DEFAULT_MAX_WALL_SECONDS = 0
 DEFAULT_RESUME = True
 DEFAULT_WRITE_LINEAGE = True
@@ -80,23 +80,24 @@ def parse_args():
         help="Number of parallel worker processes.",
     )
     parser.add_argument(
-        "--max-wall-seconds",
+        "--max_wall_seconds",
         type=float,
         default=DEFAULT_MAX_WALL_SECONDS,
         help="Maximum runtime in seconds (0 to disable).",
     )
 
     parser.add_argument(
-        "--model-temp",
+        "--temperature",
+        "-t",
         type=float,
-        default=DEFAULT_MODEL_TEMP,
-        help="Base LLM temperature.",
+        default=DEFAULT_TEMPERATURE,
+        help="Base LLM temperature for generation.",
     )
     parser.add_argument(
         "--reasoning",
         type=str,
         default=DEFAULT_REASONING,
-        choices=["low", "medium", "high"],
+        choices=["none", "low", "medium", "high"],
         help="Reasoning effort level across supported LLMs.",
     )
     parser.add_argument(
@@ -132,7 +133,7 @@ def parse_args():
 
     if args.max_accepts <= 0 or args.workers <= 0:
         raise SystemExit("Error: --max-accepts and --workers must be > 0")
-    if args.model_temp < 0 or args.image_long_side < 0:
+    if args.temperature < 0 or args.image_long_side < 0:
         raise SystemExit("Error: Configuration values cannot be negative")
 
     return args

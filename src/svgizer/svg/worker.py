@@ -23,6 +23,8 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
     setup_logger(worker_params["log_level"])
     log = logging.getLogger("worker")
 
+    SUMMARY_TEMP_MULTIPLIER = 1.2
+
     try:
         provider_name = worker_params.get("llm_provider", "openai")
         api_key = worker_params.get("api_key")
@@ -50,15 +52,15 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
             break
 
         parent = task.parent_state
+        # Calculate current base temperature based on slot/mutation depth
         temp = min(
             worker_max_temp,
             max(0.0, parent.model_temperature + (task.worker_slot * worker_temp_step)),
         )
 
-        config = LLMConfig(model=model_name, temperature=temp, reasoning=reasoning)
-
         try:
             if task.secondary_parent_state:
+                config = LLMConfig(model=model_name, temperature=temp, reasoning=reasoning)
                 prompt = build_crossover_prompt(
                     worker_params["image_data_url"],
                     parent.payload.svg,
@@ -74,14 +76,16 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                 change_summary = None
 
                 if parent.payload.svg:
+                    sum_temp = min(worker_max_temp, temp * SUMMARY_TEMP_MULTIPLIER)
                     sum_prompt = build_summarize_prompt(
                         worker_params["image_data_url"], parent_preview
                     )
                     sum_config = LLMConfig(
-                        model=model_name, temperature=1.0, reasoning=reasoning
+                        model=model_name, temperature=sum_temp, reasoning=reasoning
                     )
                     change_summary = client.generate(sum_prompt, sum_config)
 
+                gen_config = LLMConfig(model=model_name, temperature=temp, reasoning=reasoning)
                 gen_prompt = build_svg_gen_prompt(
                     worker_params["image_data_url"],
                     task.parent_id,
@@ -89,7 +93,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     change_summary=change_summary,
                     custom_goal=worker_params["goal"],
                 )
-                raw = client.generate(gen_prompt, config)
+                raw = client.generate(gen_prompt, gen_config)
 
             svg = extract_svg_fragment(raw)
             valid, err = is_valid_svg(svg)

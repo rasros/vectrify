@@ -60,14 +60,50 @@ def run_svg_search(
     scorer = get_scorer(scorer_type)
     scoring_ref = scorer.prepare_reference(original_img)
 
-    # 2. Storage & Resume Logic
     storage.initialize()
-    initial_nodes = storage.load_resume_nodes()
 
-    if initial_nodes:
-        log.info(f"Resumed {len(initial_nodes)} nodes from storage.")
+    initial_nodes = []
+    current_new_id = 1
 
-    # 3. Seed Handling
+    # 3. Resume / Import Phase
+    resumed_items = storage.load_resume_nodes()
+    if resumed_items:
+        log.info(
+            f"🚀 Found {len(resumed_items)} nodes to resume. Re-scoring for new run..."
+        )
+        for old_id, svg_text in resumed_items:
+            try:
+                png = rasterize_svg_to_png_bytes(
+                    svg_text, out_w=original_w, out_h=original_h
+                )
+                new_score = scorer.score(scoring_ref, png)
+
+                imported_node = SearchNode(
+                    score=new_score,
+                    id=current_new_id,
+                    parent_id=0,
+                    state=ChainState(
+                        score=new_score,
+                        model_temperature=base_model_temperature,
+                        stale_hits=0,
+                        payload=SvgStatePayload(
+                            svg=svg_text,
+                            raster_data_url=None,
+                            raster_preview_data_url=make_preview_data_url(
+                                png, image_long_side
+                            ),
+                            change_summary=f"Imported from Node {old_id}",
+                            invalid_msg=None,
+                        ),
+                    ),
+                )
+                storage.save_node(imported_node)
+                initial_nodes.append(imported_node)
+                current_new_id += 1
+            except Exception as e:
+                log.error(f"Failed to re-score and import Node {old_id}: {e}")
+
+    # 4. Seed Handling
     if seed_svg_path:
         try:
             seed_svg = storage.load_seed_svg(seed_svg_path)
@@ -78,7 +114,7 @@ def run_svg_search(
 
             seed_node = SearchNode(
                 score=score,
-                id=storage.max_node_id + 1,
+                id=current_new_id,
                 parent_id=0,
                 state=ChainState(
                     score=score,
@@ -90,16 +126,18 @@ def run_svg_search(
                         raster_preview_data_url=make_preview_data_url(
                             png, image_long_side
                         ),
-                        change_summary=None,
+                        change_summary="Seed SVG provided by user",
                         invalid_msg=None,
                     ),
                 ),
             )
-            initial_nodes.append(seed_node)
             storage.save_node(seed_node)
+            initial_nodes.append(seed_node)
+            current_new_id += 1
         except Exception as e:
             log.error(f"Failed to load seed SVG: {e}")
 
+    # 5. Empty Start Fallback
     if not initial_nodes:
         initial_nodes.append(
             SearchNode(
@@ -115,8 +153,7 @@ def run_svg_search(
             )
         )
 
-    # 4. Search Execution
-    base_strategy: SearchStrategy[SvgStatePayload]
+    # 6. Search Execution Setup
     if strategy_type == StrategyType.GREEDY:
         base_strategy = GreedyHillClimbingStrategy[SvgStatePayload]()
     else:
@@ -130,7 +167,7 @@ def run_svg_search(
         workers=workers, strategy=strategy, storage=storage
     )
 
-    # Prepare worker parameters
+    # 7. Worker Parameters
     model_png = downscale_png_bytes(original_png_bytes, image_long_side)
     api_key_env_var = f"{llm_provider.upper()}_API_KEY"
 
@@ -155,4 +192,4 @@ def run_svg_search(
 
     if best_node and best_node.state.payload.svg:
         storage.save_final_svg(best_node.state.payload.svg)
-        log.info(f"Done. Best score: {best_node.score:.6f}")
+        log.info(f"Search complete. Final best score: {best_node.score:.6f}")
