@@ -12,7 +12,7 @@ class DiffScorer(Protocol):
         ...
 
     def score(self, reference: Any, candidate_png: bytes) -> float:
-        """Returns a difference score between 0.0 (identical) and 1.0 (completely different)."""
+        """Returns a difference score (0.0=identical, 1.0=completely different)."""
         ...
 
 

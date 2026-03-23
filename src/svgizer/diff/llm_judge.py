@@ -42,7 +42,8 @@ def _build_judge_prompt(reference_url: str, candidate_url: str) -> list[dict[str
             "type": "input_text",
             "text": (
                 "You are an expert computer vision judge. Compare the reference (1st) "
-                "to the candidate (2nd). Rate similarity from 0.0 to 1.0 (1.0 is identical)."
+                "to the candidate (2nd). Rate similarity from 0.0 to 1.0 "
+                "(1.0 is identical)."
             ),
         },
         {"type": "input_image", "image_url": reference_url},

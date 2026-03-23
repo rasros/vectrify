@@ -8,11 +8,17 @@ class FakeStrategy:
         return 1
 
     def select_parent(
-        self, nodes: list[SearchNode], progress: float
+        self,
+        nodes: list[SearchNode],
+        progress: float,  # noqa: ARG002
     ) -> tuple[int, int | None]:
         return 1, None
 
-    def create_new_state(self, parent_state: ChainState, result: Result) -> ChainState:
+    def create_new_state(
+        self,
+        parent_state: ChainState,
+        result: Result,  # noqa: ARG002
+    ) -> ChainState:
         return ChainState(
             score=result.score,
             model_temperature=0.6,
@@ -32,13 +38,13 @@ class FakeStorage:
     def load_resume_nodes(self) -> list:
         return []
 
-    def save_final_svg(self, _content: str) -> None:
+    def save_final_svg(self, svg_content: str) -> None:
         pass
 
-    def load_seed_svg(self, _path: str) -> str:
+    def load_seed_svg(self, seed_path: str) -> str:  # noqa: ARG002
         return ""
 
-    def save_node(self, node: SearchNode) -> None:
+    def save_node(self, node: SearchNode) -> None:  # noqa: ARG002
         self.save_called = True
 
 

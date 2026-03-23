@@ -19,7 +19,9 @@ class GreedyHillClimbingStrategy:
         return 1
 
     def select_parent(
-        self, nodes: list[SearchNode], progress: float
+        self,
+        nodes: list[SearchNode],
+        progress: float,  # noqa: ARG002
     ) -> tuple[int, int | None]:
         if not nodes:
             return 0, None
@@ -31,7 +33,7 @@ class GreedyHillClimbingStrategy:
         next_temp = parent_state.model_temperature
         stale_hits = parent_state.stale_hits
 
-        # If the new generation did not improve upon its parent's score, consider it stale
+        # If new generation didn't improve upon parent's score, consider it stale
         if result.score >= parent_state.score:
             stale_hits += 1
             if stale_hits >= self.patience and next_temp < self.max_temp:

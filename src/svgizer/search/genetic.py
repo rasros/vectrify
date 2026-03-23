@@ -27,7 +27,7 @@ class GeneticPoolStrategy:
         self.elite_end = elite_end
         self.stale_threshold = stale_threshold
         self.crossover_prob = crossover_prob
-        self.is_stale_fn = is_stale_fn or (lambda parent_payload, result_payload: False)
+        self.is_stale_fn = is_stale_fn or (lambda _parent, _result: False)
 
     @property
     def top_k_count(self) -> int:

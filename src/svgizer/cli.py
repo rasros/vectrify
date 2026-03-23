@@ -14,7 +14,10 @@ DEFAULT_OPENAI_IMAGE_LONG_SIDE = 512
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="SVGizer: Evolutionary SVG approximation using Vision LLMs and pool-based refinement."
+        description=(
+            "SVGizer: Evolutionary SVG approximation using Vision LLMs "
+            "and pool-based refinement."
+        )
     )
 
     # Positional
@@ -46,7 +49,10 @@ def parse_args():
     parser.add_argument(
         "--goal",
         default=None,
-        help="Custom prompt/goal to guide the SVG generation (e.g., 'Make lines thicker').",
+        help=(
+            "Custom prompt/goal to guide the SVG generation "
+            "(e.g., 'Make lines thicker')."
+        ),
     )
 
     # Search Constraints

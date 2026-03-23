@@ -12,9 +12,10 @@ def build_svg_gen_prompt(
     custom_goal: str | None = None,
 ) -> list[dict[str, Any]]:
     lines = [
-        "You are a world-class SVG developer. Convert the input raster into a CLEAN, optimized SVG.",
+        "You are a world-class SVG developer. Convert the input raster into a "
+        "CLEAN, optimized SVG.",
         "RULES:",
-        "1. Output ONLY the raw <svg>...</svg> code. No markdown, no backticks, no text.",
+        "1. Output ONLY the raw <svg>...</svg> code. No markdown, no text.",
         "2. Use SEMANTIC GROUPING: Wrap related paths in <g id='name'>.",
         "3. Fixed Viewport: Use the same width/height/viewBox for all iterations.",
         f"Context: Iteration #{iter_index}.",
@@ -33,7 +34,8 @@ def build_svg_gen_prompt(
         )
         if svg_prev_invalid_msg:
             lines.append(
-                f"CRITICAL: Previous SVG failed to parse: {svg_prev_invalid_msg}. Fix syntax."
+                f"CRITICAL: Previous SVG failed to parse: {svg_prev_invalid_msg}. "
+                "Fix syntax."
             )
         if change_summary:
             lines.extend(["PRIORITY FIXES:", change_summary])
