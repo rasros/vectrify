@@ -2,7 +2,7 @@ import io
 import logging
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from PIL import Image
@@ -10,13 +10,16 @@ from PIL import Image
 from .base import DEFAULT_CONFIG, DiffScorer
 from .utils import get_device, lab_l1, resize_long_side
 
+if TYPE_CHECKING:
+    import torch
+
 log = logging.getLogger(__name__)
 
 
 @dataclass
 class DreamSimReference:
     image: Image.Image
-    tensor: Any  # torch.Tensor
+    tensor: "torch.Tensor"
 
 
 class DreamSimScorer(DiffScorer):
