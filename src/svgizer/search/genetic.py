@@ -1,7 +1,9 @@
 import random
+from collections.abc import Callable
+from typing import Any
 
-from svgizer.models import ChainState, Result, SearchNode
-from svgizer.utils import calculate_elite_prob, choose_from_top_k_weighted, is_stale
+from .models import ChainState, Result, SearchNode
+from .utils import calculate_elite_prob, choose_from_top_k_weighted
 
 
 class GeneticPoolStrategy:
@@ -16,6 +18,7 @@ class GeneticPoolStrategy:
         elite_end: float = 0.10,
         stale_threshold: int = 1,
         crossover_prob: float = 0.25,
+        is_stale_fn: Callable[[Any, Any], bool] | None = None,
     ):
         self.top_k = top_k
         self.temp_step = temp_step
@@ -24,6 +27,7 @@ class GeneticPoolStrategy:
         self.elite_end = elite_end
         self.stale_threshold = stale_threshold
         self.crossover_prob = crossover_prob
+        self.is_stale_fn = is_stale_fn or (lambda parent_payload, result_payload: False)
 
     @property
     def top_k_count(self) -> int:
@@ -35,10 +39,8 @@ class GeneticPoolStrategy:
         if not nodes:
             return 0, None
 
-        # Sort by score (ascending)
         best_k = sorted(nodes, key=lambda n: n.score)[: self.top_k]
 
-        # Trigger crossover randomly if we have at least 2 distinct candidates in the pool
         if len(best_k) >= 2 and random.random() < self.crossover_prob:
             p1, p2 = random.sample(best_k, 2)
             return p1.id, p2.id
@@ -54,7 +56,8 @@ class GeneticPoolStrategy:
         next_temp = parent_state.model_temperature
         stale_hits = parent_state.stale_hits
 
-        if parent_state.svg and is_stale(parent_state.svg, result.svg):
+        # Delegate staleness check to the injected domain logic
+        if self.is_stale_fn(parent_state.payload, result.payload):
             stale_hits += 1
             if stale_hits >= self.stale_threshold and next_temp < self.max_temp:
                 next_temp = min(self.max_temp, next_temp + self.temp_step)
@@ -63,12 +66,8 @@ class GeneticPoolStrategy:
             stale_hits = 0
 
         return ChainState(
-            svg=result.svg,
-            raster_data_url=None,  # Populated by engine if lineage is on
-            raster_preview_data_url=None,  # Populated by engine
             score=result.score,
             model_temperature=next_temp,
             stale_hits=stale_hits,
-            invalid_msg=None,
-            change_summary=result.change_summary,
+            payload=result.payload,
         )

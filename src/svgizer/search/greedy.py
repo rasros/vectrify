@@ -1,4 +1,4 @@
-from svgizer.models import ChainState, Result, SearchNode
+from .models import ChainState, Result, SearchNode
 
 
 class GreedyHillClimbingStrategy:
@@ -24,7 +24,6 @@ class GreedyHillClimbingStrategy:
         if not nodes:
             return 0, None
 
-        # Strictly Best-First Search
         best_node = min(nodes, key=lambda n: n.score)
         return best_node.id, None
 
@@ -32,22 +31,18 @@ class GreedyHillClimbingStrategy:
         next_temp = parent_state.model_temperature
         stale_hits = parent_state.stale_hits
 
-        # If the new SVG did not improve upon its parent's score, consider it stale
+        # If the new generation did not improve upon its parent's score, consider it stale
         if result.score >= parent_state.score:
             stale_hits += 1
             if stale_hits >= self.patience and next_temp < self.max_temp:
                 next_temp = min(self.max_temp, next_temp + self.temp_step)
-                stale_hits = 0  # Reset after a temperature bump
+                stale_hits = 0
         else:
-            stale_hits = 0  # Reset on improvement
+            stale_hits = 0
 
         return ChainState(
-            svg=result.svg,
-            raster_data_url=None,
-            raster_preview_data_url=None,
             score=result.score,
             model_temperature=next_temp,
             stale_hits=stale_hits,
-            invalid_msg=None,
-            change_summary=result.change_summary,
+            payload=result.payload,
         )

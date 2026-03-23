@@ -2,12 +2,11 @@ import logging
 import multiprocessing as mp
 import queue
 import time
-
-from svgizer.image_utils import make_preview_data_url, png_bytes_to_data_url
-from svgizer.models import Result, SearchNode, Task
-from svgizer.worker import worker_loop
+from collections.abc import Callable
+from typing import Any
 
 from .base import SearchStrategy
+from .models import Result, SearchNode, Task
 
 log = logging.getLogger(__name__)
 
@@ -17,14 +16,12 @@ class MultiprocessSearchEngine:
         self,
         workers: int,
         strategy: SearchStrategy,
-        storage,
-        scorer_type: str,
+        storage: Any,
         max_total_tasks: int = 10000,
     ):
         self.workers = workers
         self.strategy = strategy
         self.storage = storage
-        self.scorer_type = scorer_type
         self.max_total_tasks = max_total_tasks
 
         self.ctx = mp.get_context("spawn")
@@ -32,12 +29,12 @@ class MultiprocessSearchEngine:
         self.result_q = self.ctx.Queue()
         self.procs = []
 
-    def start_workers(self, params: dict):
+    def start_workers(self, worker_target: Callable, worker_params: dict):
         log.info(f"Starting {self.workers} worker processes...")
         for _ in range(max(1, self.workers)):
             p = self.ctx.Process(
-                target=worker_loop,
-                args=(self.task_q, self.result_q, *params.values()),
+                target=worker_target,
+                args=(self.task_q, self.result_q, worker_params),
                 daemon=True,
             )
             p.start()
@@ -48,13 +45,10 @@ class MultiprocessSearchEngine:
         initial_nodes: list[SearchNode],
         max_accepts: int,
         max_wall_seconds: float | None,
-        openai_image_long_side: int,
-        original_dims: tuple[int, int],
     ):
         start_time = time.monotonic()
         node_states = {n.id: n.state for n in initial_nodes}
         accepted_nodes = list(initial_nodes)
-        node_info = {}
 
         # Track the best score found so far
         best_node = min(initial_nodes, key=lambda n: n.score) if initial_nodes else None
@@ -95,10 +89,10 @@ class MultiprocessSearchEngine:
 
                     self.task_q.put(
                         Task(
-                            next_task_id,
-                            pid1,
-                            node_states.get(pid1),
-                            in_flight % self.workers,
+                            task_id=next_task_id,
+                            parent_id=pid1,
+                            parent_state=node_states.get(pid1),
+                            worker_slot=in_flight % self.workers,
                             secondary_parent_id=pid2,
                             secondary_parent_state=state2,
                         )
@@ -125,13 +119,6 @@ class MultiprocessSearchEngine:
                     node_states[res.parent_id], res
                 )
 
-                # Hydrate UI/Preview data
-                if self.storage.write_lineage_enabled:
-                    new_state.raster_data_url = png_bytes_to_data_url(res.raster_png)
-                new_state.raster_preview_data_url = make_preview_data_url(
-                    res.raster_png, openai_image_long_side
-                )
-
                 new_node = SearchNode(
                     score=res.score,
                     id=next_node_id,
@@ -150,39 +137,14 @@ class MultiprocessSearchEngine:
                     is_new_best = True
 
                 # REPORT PROGRESS
-                if res.secondary_parent_id:
-                    status = (
-                        "NEW BEST (CROSSOVER)"
-                        if is_new_best
-                        else "ACCEPTED (CROSSOVER)"
-                    )
-                    log.info(
-                        f"[{status}] node={new_node.id} parents={res.parent_id}+{res.secondary_parent_id} "
-                        f"score={new_node.score:.6f} (Total: {accepted_count}/{max_accepts})"
-                    )
-                else:
-                    status = "NEW BEST" if is_new_best else "ACCEPTED"
-                    log.info(
-                        f"[{status}] node={new_node.id} parent={res.parent_id} "
-                        f"score={new_node.score:.6f} (Total: {accepted_count}/{max_accepts})"
-                    )
-
-                if res.change_summary:
-                    # Log a snippet of the vision critique
-                    summary_snippet = res.change_summary.replace("\n", " ")[:80]
-                    log.info(f"  Critique: {summary_snippet}...")
-
-                # Save & Lineage
-                iter_path = self.storage.save_node(new_node)
-                node_info[new_node.id] = (
-                    res.parent_id,
-                    res.score,
-                    iter_path,
-                    res.change_summary,
+                status_cross = "(CROSSOVER)" if res.secondary_parent_id else ""
+                status_best = "NEW BEST" if is_new_best else "ACCEPTED"
+                log.info(
+                    f"[{status_best} {status_cross}] node={new_node.id} parent={res.parent_id} "
+                    f"score={new_node.score:.6f} (Total: {accepted_count}/{max_accepts})"
                 )
 
-                if accepted_count % 10 == 0:
-                    self.storage.write_lineage(node_info)
+                self.storage.save_node(new_node)
 
         finally:
             self._shutdown()

@@ -1,7 +1,8 @@
 import pytest
 
 from svgizer.diff import ScorerType
-from svgizer.search import StrategyType, run_search
+from svgizer.search import StrategyType
+from svgizer.pipeline import run_svg_search
 
 
 class FakeStorage:
@@ -24,12 +25,12 @@ class FakeEngine:
     def __init__(self, *args, **kwargs):
         pass
 
-    def start_workers(self, params):
+    def start_workers(self, target, params):
         FakeEngine.started_workers = True
 
     def run(self, *args, **kwargs):
         FakeEngine.ran = True
-        return
+        return None
 
 
 class FakeImage:
@@ -52,11 +53,11 @@ class FakeScorer:
         return 0.5
 
 
-def test_run_search_fails_without_api_key(monkeypatch):
+def test_run_svg_search_fails_without_api_key(monkeypatch):
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
 
     with pytest.raises(SystemExit) as excinfo:
-        run_search(
+        run_svg_search(
             "any.png",
             FakeStorage(),
             None,
@@ -68,27 +69,27 @@ def test_run_search_fails_without_api_key(monkeypatch):
             "INFO",
             ScorerType.SIMPLE,
             StrategyType.GREEDY,
+            None,
         )
 
     assert "OPENAI_API_KEY" in str(excinfo.value)
 
 
-def test_run_search_flow(monkeypatch):
+def test_run_svg_search_flow(monkeypatch):
     monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
 
-    # Swap out dependencies with our explicit fake classes
-    monkeypatch.setattr("svgizer.search.search.Image.open", lambda path: FakeImage())
+    # Target the new pipeline module for monkeypatching
+    monkeypatch.setattr("svgizer.pipeline.Image.open", lambda path: FakeImage())
     monkeypatch.setattr(
-        "svgizer.search.search.get_scorer", lambda scorer_type: FakeScorer()
+        "svgizer.pipeline.get_scorer", lambda scorer_type: FakeScorer()
     )
     monkeypatch.setattr("os.path.isfile", lambda path: True)
 
-    # Swap out the Engine class
-    monkeypatch.setattr("svgizer.search.search.MultiprocessSearchEngine", FakeEngine)
+    monkeypatch.setattr("svgizer.pipeline.MultiprocessSearchEngine", FakeEngine)
 
     store = FakeStorage()
 
-    run_search(
+    run_svg_search(
         image_path="test.png",
         storage=store,
         seed_svg_path=None,
@@ -99,7 +100,8 @@ def test_run_search_flow(monkeypatch):
         max_wall_seconds=None,
         log_level="INFO",
         scorer_type=ScorerType.SIMPLE,
-        strategy=StrategyType.GREEDY,
+        strategy_type=StrategyType.GREEDY,
+        goal=None,
     )
 
     assert store.initialized is True

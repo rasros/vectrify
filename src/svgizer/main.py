@@ -2,7 +2,7 @@ import os
 import sys
 
 from .cli import parse_args
-from .search import run_search
+from .pipeline import run_svg_search
 from .storage import FileStorageAdapter
 
 
@@ -24,7 +24,7 @@ def main():
     )
 
     try:
-        run_search(
+        run_svg_search(
             image_path=args.image,
             storage=storage,
             seed_svg_path=args.seed_svg,
@@ -35,7 +35,7 @@ def main():
             max_wall_seconds=args.max_wall_seconds,
             log_level=args.log_level,
             scorer_type=args.scorer,
-            strategy=args.strategy,
+            strategy_type=args.strategy,
             goal=args.goal,
         )
     except KeyboardInterrupt:

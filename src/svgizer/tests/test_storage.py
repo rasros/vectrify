@@ -4,21 +4,25 @@ import os
 
 import pytest
 
-from svgizer.models import ChainState, SearchNode
+from svgizer.search import ChainState, SearchNode
+from svgizer.svg_adapter import SvgStatePayload
 from svgizer.storage import FileStorageAdapter
 
 
 @pytest.fixture
 def dummy_state() -> ChainState:
-    return ChainState(
+    payload = SvgStatePayload(
         svg="<svg><circle r='10'/></svg>",
         raster_data_url=None,
         raster_preview_data_url=None,
+        change_summary="Fixed circle",
+        invalid_msg=None,
+    )
+    return ChainState(
         score=0.123456,
         model_temperature=0.6,
         stale_hits=0,
-        invalid_msg=None,
-        change_summary="Fixed circle",
+        payload=payload,
     )
 
 
@@ -54,13 +58,12 @@ def test_save_node(tmp_path, dummy_node):
 
     saved_path = adapter.save_node(dummy_node)
 
-    # Verify the specific naming convention: score012.6f_node00042_parent00010.svg
     expected_filename = "score00000.123456_node00042_parent00010.svg"
     assert os.path.basename(saved_path) == expected_filename
     assert os.path.isfile(saved_path)
 
     with open(saved_path, encoding="utf-8") as f:
-        assert f.read() == dummy_node.state.svg
+        assert f.read() == dummy_node.state.payload.svg
 
 
 def test_write_lineage(tmp_path):
@@ -69,7 +72,7 @@ def test_write_lineage(tmp_path):
 
     node_info = {
         1: (0, 0.9, "/path/to/1.svg", "First try"),
-        2: (1, 0.5, "/path/to/2.svg", None),  # Test with None summary
+        2: (1, 0.5, "/path/to/2.svg", None),
     }
 
     adapter.write_lineage(node_info)
@@ -78,7 +81,7 @@ def test_write_lineage(tmp_path):
 
     with open(adapter.lineage_csv_path, encoding="utf-8") as f:
         reader = list(csv.reader(f))
-        assert len(reader) == 3  # Header + 2 rows
+        assert len(reader) == 3
         assert reader[0] == ["node_id", "parent_id", "score", "path", "change_summary"]
         assert reader[1] == ["1", "0", "0.900000", "/path/to/1.svg", "First try"]
         assert reader[2] == ["2", "1", "0.500000", "/path/to/2.svg", ""]
@@ -97,7 +100,6 @@ def test_save_final_svg_and_load_seed(tmp_path):
     adapter.save_final_svg(test_svg)
     assert os.path.isfile(adapter.output_svg_path)
 
-    # Repurpose the written file to test load_seed_svg
     loaded_svg = adapter.load_seed_svg(adapter.output_svg_path)
     assert loaded_svg == test_svg
 
@@ -106,26 +108,21 @@ def test_load_resume_nodes(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "resume_test.svg"), resume=True)
     adapter.initialize()
 
-    # Use minimally valid SVGs so the real cairosvg/PIL code doesn't crash
     valid_svg_new = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="red"/></svg>'
     valid_svg_old = '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10"><rect width="10" height="10" fill="blue"/></svg>'
 
-    # Create dummy files mimicking the regex patterns
-    # 1. New format in nodes_dir
     new_format_path = os.path.join(
         adapter.nodes_dir, "score00000.555000_node00015_parent00010.svg"
     )
     with open(new_format_path, "w") as f:
         f.write(valid_svg_new)
 
-    # 2. Old format in out_dir
     old_format_path = os.path.join(
         adapter.out_dir, "resume_test_node00008_score0.999.svg"
     )
     with open(old_format_path, "w") as f:
         f.write(valid_svg_old)
 
-    # 3. Junk file that should be ignored
     with open(os.path.join(adapter.nodes_dir, "ignore_me.svg"), "w") as f:
         f.write("junk")
 
@@ -141,21 +138,18 @@ def test_load_resume_nodes(tmp_path):
     assert len(nodes) == 2
     assert max_id == 15
 
-    # Assert nodes are sorted by ID
     assert nodes[0].id == 8
     assert nodes[0].score == 0.999
-    assert nodes[0].parent_id == 0  # Old format defaults to 0
-    assert nodes[0].state.svg == valid_svg_old
-    # Verify the real image pipeline processed it into a base64 string
-    assert nodes[0].state.raster_preview_data_url.startswith("data:image/png;base64,")
+    assert nodes[0].parent_id == 0
+    assert nodes[0].state.payload.svg == valid_svg_old
+    assert nodes[0].state.payload.raster_preview_data_url.startswith("data:image/png;base64,")
 
     assert nodes[1].id == 15
     assert nodes[1].score == 0.555
     assert nodes[1].parent_id == 10
-    assert nodes[1].state.svg == valid_svg_new
-    assert nodes[1].state.raster_preview_data_url.startswith("data:image/png;base64,")
+    assert nodes[1].state.payload.svg == valid_svg_new
+    assert nodes[1].state.payload.raster_preview_data_url.startswith("data:image/png;base64,")
 
-    # Best seen should be the lowest score (0.555)
     assert best_seen.id == 15
 
 

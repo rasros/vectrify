@@ -5,9 +5,9 @@ import re
 from typing import Protocol
 
 from svgizer.image_utils import make_preview_data_url, rasterize_svg_to_png_bytes
-from svgizer.models import ChainState, SearchNode
+from svgizer.search import ChainState, SearchNode
+from svgizer.svg_adapter import SvgStatePayload
 
-# Only used for legacy file loading
 NODE_FILE_RE_NEW = re.compile(r"^score([0-9.]+)_node(\d+)_parent(\d+)\.svg$")
 NODE_FILE_RE_OLD = re.compile(r"_node(\d+)_score([0-9.]+)\.svg$")
 
@@ -72,9 +72,9 @@ class FileStorageAdapter:
     def save_node(self, node: SearchNode) -> str:
         fn = f"score{node.score:012.6f}_node{node.id:05d}_parent{node.parent_id:05d}{self.ext}"
         iter_path = os.path.join(self.nodes_dir, fn)
-        if node.state.svg:
+        if node.state.payload.svg:
             with open(iter_path, "w", encoding="utf-8") as f:
-                f.write(node.state.svg)
+                f.write(node.state.payload.svg)
         return iter_path
 
     def write_lineage(
@@ -152,15 +152,19 @@ class FileStorageAdapter:
                     log.warning(f"Resume: failed to load {path}: {e}")
                     continue
 
-                state = ChainState(
+                payload = SvgStatePayload(
                     svg=svg,
                     raster_data_url=None,  # avoid big RAM usage for resume nodes
                     raster_preview_data_url=raster_preview_data_url,
+                    change_summary=None,
+                    invalid_msg=None,
+                )
+
+                state = ChainState(
                     score=score,
                     model_temperature=base_model_temperature,
                     stale_hits=0,
-                    invalid_msg=None,
-                    change_summary=None,
+                    payload=payload,
                 )
                 node = SearchNode(
                     score=score, id=node_id, parent_id=parent_id, state=state
