@@ -36,6 +36,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.pytest.ini_options]
+addopts = "-m 'not llm'"
 markers = [
     "llm: marks tests that require live LLM API calls",
 ]
