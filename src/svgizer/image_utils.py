@@ -3,7 +3,8 @@ import io
 
 import cairosvg
 from PIL import Image
-from PIL.Image import Resampling
+
+from svgizer.diff.utils import resize_long_side
 
 
 def png_bytes_to_data_url(png_bytes: bytes) -> str:
@@ -20,17 +21,7 @@ def downscale_png_bytes(png_bytes: bytes, long_side: int) -> bytes:
     if max(w, h) <= long_side:
         return png_bytes
 
-    if w >= h:
-        new_w = long_side
-        new_h = round(h * (long_side / float(w)))
-    else:
-        new_h = long_side
-        new_w = round(w * (long_side / float(h)))
-
-    new_w = max(1, new_w)
-    new_h = max(1, new_h)
-
-    im2 = im.resize((new_w, new_h), resample=Resampling.BILINEAR)
+    im2 = resize_long_side(im, long_side)
     out = io.BytesIO()
     im2.save(out, format="PNG")
     return out.getvalue()
