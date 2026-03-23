@@ -140,7 +140,11 @@ class MultiprocessSearchEngine(Generic[TState]):
                 else:
                     status = "ACCEPTED"
 
-                log.info(f"[{status}] node={new_node.id} score={new_node.score:.6f}")
+                log.info(
+                    f"[{status}] node={new_node.id} "
+                    f"score={new_node.score:.6f} "
+                    f"temp={new_node.state.model_temperature:.3f}"
+                )
                 self.storage.save_node(new_node)
 
         finally:
@@ -154,11 +158,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             try:
                 self.task_q.put(None, timeout=0.5)
             except queue.Full:
-                log.debug("Task queue full during shutdown, dropping poison pill.")
+                log.debug("Task queue full during shutdown.")
         for p in self.procs:
             p.join(timeout=1.0)
             if p.is_alive():
-                log.warning(
-                    f"Worker process {p.pid} hung during shutdown. Terminating."
-                )
                 p.terminate()

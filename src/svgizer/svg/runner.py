@@ -18,7 +18,6 @@ from svgizer.search import (
     GreedyHillClimbingStrategy,
     MultiprocessSearchEngine,
     SearchNode,
-    SearchStrategy,
     StorageAdapter,
     StrategyType,
 )
@@ -32,10 +31,10 @@ log = logging.getLogger("main")
 def run_svg_search(
     image_path: str,
     storage: StorageAdapter,
-    seed_svg_path: str | None,
     max_accepts: int,
     workers: int,
     base_model_temperature: float,
+    cooling_rate: float,
     image_long_side: int,
     max_wall_seconds: float | None,
     log_level: str,
@@ -65,12 +64,10 @@ def run_svg_search(
     initial_nodes = []
     current_new_id = 1
 
-    # 3. Resume / Import Phase
+    # 3. Resume Phase
     resumed_items = storage.load_resume_nodes()
     if resumed_items:
-        log.info(
-            f"🚀 Found {len(resumed_items)} nodes to resume. Re-scoring for new run..."
-        )
+        log.info(f"Resuming {len(resumed_items)} nodes. Re-scoring...")
         for old_id, svg_text in resumed_items:
             try:
                 png = rasterize_svg_to_png_bytes(
@@ -101,41 +98,7 @@ def run_svg_search(
                 initial_nodes.append(imported_node)
                 current_new_id += 1
             except Exception as e:
-                log.error(f"Failed to re-score and import Node {old_id}: {e}")
-
-    # 4. Seed Handling
-    if seed_svg_path:
-        try:
-            seed_svg = storage.load_seed_svg(seed_svg_path)
-            png = rasterize_svg_to_png_bytes(
-                seed_svg, out_w=original_w, out_h=original_h
-            )
-            score = scorer.score(scoring_ref, png)
-
-            seed_node = SearchNode(
-                score=score,
-                id=current_new_id,
-                parent_id=0,
-                state=ChainState(
-                    score=score,
-                    model_temperature=base_model_temperature,
-                    stale_hits=0,
-                    payload=SvgStatePayload(
-                        svg=seed_svg,
-                        raster_data_url=None,
-                        raster_preview_data_url=make_preview_data_url(
-                            png, image_long_side
-                        ),
-                        change_summary="Seed SVG provided by user",
-                        invalid_msg=None,
-                    ),
-                ),
-            )
-            storage.save_node(seed_node)
-            initial_nodes.append(seed_node)
-            current_new_id += 1
-        except Exception as e:
-            log.error(f"Failed to load seed SVG: {e}")
+                log.error(f"Failed to import Node {old_id}: {e}")
 
     # 5. Empty Start Fallback
     if not initial_nodes:
@@ -155,19 +118,21 @@ def run_svg_search(
 
     # 6. Search Execution Setup
     if strategy_type == StrategyType.GREEDY:
-        base_strategy = GreedyHillClimbingStrategy[SvgStatePayload]()
+        base_strategy = GreedyHillClimbingStrategy[SvgStatePayload](
+            cooling_rate=cooling_rate
+        )
     else:
         base_strategy = GeneticPoolStrategy[SvgStatePayload](
-            top_k=3, is_stale_fn=make_is_svg_stale(0.995)
+            top_k=3,
+            is_stale_fn=make_is_svg_stale(0.995),
+            cooling_rate=cooling_rate,
         )
 
     strategy = SvgStrategyAdapter(base_strategy, image_long_side, write_lineage)
-
     engine = MultiprocessSearchEngine(
         workers=workers, strategy=strategy, storage=storage
     )
 
-    # 7. Worker Parameters
     model_png = downscale_png_bytes(original_png_bytes, image_long_side)
     api_key_env_var = f"{llm_provider.upper()}_API_KEY"
 
@@ -192,4 +157,3 @@ def run_svg_search(
 
     if best_node and best_node.state.payload.svg:
         storage.save_final_svg(best_node.state.payload.svg)
-        log.info(f"Search complete. Final best score: {best_node.score:.6f}")

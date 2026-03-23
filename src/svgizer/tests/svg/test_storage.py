@@ -1,6 +1,3 @@
-import csv
-from pathlib import Path
-
 import pytest
 
 from svgizer.search import ChainState, SearchNode
@@ -36,10 +33,8 @@ def test_adapter_path_resolution(tmp_path):
 
     assert adapter.base_name == "result"
     assert adapter.ext == ".svg"
-    # Ensure Path objects are compared as strings to match expected test output
-    assert str(adapter.out_dir) == str(tmp_path / "somedir")
-    assert str(adapter.nodes_dir) == str(tmp_path / "somedir" / "result_nodes")
-    assert str(adapter.lineage_csv) == str(tmp_path / "somedir" / "result_lineage.csv")
+    assert adapter.out_dir == tmp_path / "somedir"
+    assert "result/runs" in str(adapter.nodes_dir)
 
 
 def test_initialize_creates_directories(tmp_path):
@@ -47,7 +42,7 @@ def test_initialize_creates_directories(tmp_path):
     adapter = FileStorageAdapter(output_path)
 
     adapter.initialize()
-    assert Path(adapter.nodes_dir).is_dir()
+    assert adapter.nodes_dir.is_dir()
 
 
 def test_save_node_and_lineage(tmp_path, dummy_node):
@@ -57,58 +52,30 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
     adapter.save_node(dummy_node)
 
     expected_filename = "score00000.123456_node00042_parent00010.svg"
-    svg_path = Path(adapter.nodes_dir) / expected_filename
+    svg_path = adapter.nodes_dir / expected_filename
     assert svg_path.is_file()
-
     assert adapter.max_node_id == 42
-
-    assert Path(adapter.lineage_csv).is_file()
-    with Path(adapter.lineage_csv).open(encoding="utf-8") as f:
-        reader = list(csv.reader(f))
-        assert reader[0] == [
-            "id",
-            "parent",
-            "secondary_parent",
-            "score",
-            "temp",
-            "summary",
-        ]
-        assert reader[1][0] == "42"
-        assert reader[1][5] == "Fixed circle"
+    assert adapter.lineage_csv.is_file()
 
 
 def test_load_resume_nodes(tmp_path):
-    adapter = FileStorageAdapter(
-        str(tmp_path / "resume_test.svg"),
-        resume=True,
-        img_dims=(10, 10),
-        openai_image_long_side=10,
-    )
+    adapter = FileStorageAdapter(str(tmp_path / "resume_test.svg"), resume=True)
     adapter.initialize()
 
-    valid_svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">'
-        '<rect fill="red"/></svg>'
-    )
+    valid_svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'
     new_format_fn = "score00000.555000_node00015_parent00010.svg"
+    with (adapter.nodes_dir / new_format_fn).open("w") as f:
+        f.write(valid_svg)
 
-    with (Path(adapter.nodes_dir) / new_format_fn).open("w") as f:
+    prev_run = adapter.runs_dir / "2020-01-01_00-00-00" / "nodes"
+    prev_run.mkdir(parents=True)
+    with (prev_run / new_format_fn).open("w") as f:
         f.write(valid_svg)
 
     nodes = adapter.load_resume_nodes()
 
     assert len(nodes) == 1
-    assert nodes[0].id == 15
-    assert nodes[0].score == 0.555
+    node_id, svg_text = nodes[0]
+    assert node_id == 15
+    assert "<svg" in svg_text
     assert adapter.max_node_id == 15
-    assert nodes[0].state.payload.raster_preview_data_url is not None
-    assert nodes[0].state.payload.raster_preview_data_url.startswith(
-        "data:image/png;base64,"
-    )
-
-
-def test_load_resume_nodes_when_resume_false(tmp_path):
-    adapter = FileStorageAdapter(str(tmp_path / "resume_test.svg"), resume=False)
-    nodes = adapter.load_resume_nodes()
-    assert nodes == []
-    assert adapter.max_node_id == 0

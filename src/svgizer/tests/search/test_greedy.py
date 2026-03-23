@@ -24,7 +24,7 @@ def test_select_parent_always_picks_best(strategy):
     assert secondary is None
 
 
-def test_create_new_state_resets_staleness_on_improvement(strategy):
+def test_create_new_state_cools_on_improvement(strategy):
     parent_state = ChainState(
         score=0.5,
         model_temperature=0.5,
@@ -45,7 +45,7 @@ def test_create_new_state_resets_staleness_on_improvement(strategy):
     new_state = strategy.create_new_state(parent_state, res)
 
     assert new_state.stale_hits == 0
-    assert new_state.model_temperature == 0.5
+    assert new_state.model_temperature == pytest.approx(0.45)
 
 
 def test_create_new_state_bumps_temp_on_patience_reached(strategy):
@@ -69,7 +69,7 @@ def test_create_new_state_bumps_temp_on_patience_reached(strategy):
     new_state = strategy.create_new_state(parent_state, res)
 
     assert new_state.stale_hits == 0
-    assert new_state.model_temperature == 1.0
+    assert new_state.model_temperature == pytest.approx(1.0)
 
 
 def test_create_new_state_respects_max_temp(strategy):
@@ -92,4 +92,4 @@ def test_create_new_state_respects_max_temp(strategy):
 
     new_state = strategy.create_new_state(parent_state, res)
 
-    assert new_state.model_temperature == 2.0
+    assert new_state.model_temperature == pytest.approx(2.0)

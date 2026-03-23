@@ -14,6 +14,7 @@ class GeneticPoolStrategy(Generic[TState]):
         top_k: int = 3,
         temp_step: float = 0.3,
         max_temp: float = 1.6,
+        cooling_rate: float = 0.9,
         elite_start: float = 0.70,
         elite_end: float = 0.10,
         stale_threshold: int = 1,
@@ -23,6 +24,7 @@ class GeneticPoolStrategy(Generic[TState]):
         self.top_k = top_k
         self.temp_step = temp_step
         self.max_temp = max_temp
+        self.cooling_rate = cooling_rate
         self.elite_start = elite_start
         self.elite_end = elite_end
         self.stale_threshold = stale_threshold
@@ -55,16 +57,20 @@ class GeneticPoolStrategy(Generic[TState]):
     def create_new_state(
         self, parent_state: ChainState[TState], result: Result
     ) -> ChainState[TState]:
-        next_temp = parent_state.model_temperature
         stale_hits = parent_state.stale_hits
 
         if self.is_stale_fn(parent_state.payload, result.payload):
             stale_hits += 1
-            if stale_hits >= self.stale_threshold and next_temp < self.max_temp:
-                next_temp = min(self.max_temp, next_temp + self.temp_step)
+            if stale_hits >= self.stale_threshold:
+                next_temp = min(
+                    self.max_temp, parent_state.model_temperature + self.temp_step
+                )
                 stale_hits = 0
+            else:
+                next_temp = parent_state.model_temperature
         else:
             stale_hits = 0
+            next_temp = max(0.2, result.used_temperature * self.cooling_rate)
 
         return ChainState(
             score=result.score,

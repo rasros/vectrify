@@ -6,6 +6,7 @@ from svgizer.search import StrategyType
 DEFAULT_MAX_ACCEPTS = 32
 DEFAULT_WORKERS = 4
 DEFAULT_TEMPERATURE = 1.0
+DEFAULT_COOLING_RATE = 0.9
 DEFAULT_MAX_WALL_SECONDS = 0
 DEFAULT_RESUME = True
 DEFAULT_WRITE_LINEAGE = True
@@ -24,9 +25,6 @@ def parse_args():
     parser.add_argument("image", help="Path to input raster image (PNG/JPEG/WEBP/GIF).")
 
     parser.add_argument("--output", "-o", default="output.svg", help="Final SVG path.")
-    parser.add_argument(
-        "--seed-svg", default=None, help="Path to an SVG file to seed the search pool."
-    )
 
     parser.add_argument(
         "--provider",
@@ -80,7 +78,7 @@ def parse_args():
         help="Number of parallel worker processes.",
     )
     parser.add_argument(
-        "--max_wall_seconds",
+        "--max-wall-seconds",
         type=float,
         default=DEFAULT_MAX_WALL_SECONDS,
         help="Maximum runtime in seconds (0 to disable).",
@@ -92,6 +90,13 @@ def parse_args():
         type=float,
         default=DEFAULT_TEMPERATURE,
         help="Base LLM temperature for generation.",
+    )
+    parser.add_argument(
+        "--cooling-rate",
+        type=float,
+        default=DEFAULT_COOLING_RATE,
+        help="Factor to multiply temperature by after each successful step "
+        "(0.1 to 1.0).",
     )
     parser.add_argument(
         "--reasoning",
@@ -135,5 +140,7 @@ def parse_args():
         raise SystemExit("Error: --max-accepts and --workers must be > 0")
     if args.temperature < 0 or args.image_long_side < 0:
         raise SystemExit("Error: Configuration values cannot be negative")
+    if not (0.1 <= args.cooling_rate <= 1.0):
+        raise SystemExit("Error: --cooling-rate must be between 0.1 and 1.0")
 
     return args

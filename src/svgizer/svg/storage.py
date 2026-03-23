@@ -17,7 +17,7 @@ class FileStorageAdapter:
         resume: bool = False,
         img_dims: tuple[int, int] = (512, 512),
         openai_image_long_side: int = 512,
-        base_temp: float = 0.6,
+        base_temp: float = 1.0,
     ):
         self.output_svg_path = Path(output_svg_path)
         self.resume = resume
@@ -26,21 +26,25 @@ class FileStorageAdapter:
         self.base_temp = base_temp
         self._max_id = 0
 
+        # Fix: Add missing attributes used in tests
         self.base_name = self.output_svg_path.stem
-        self.project_dir = self.output_svg_path.parent / self.base_name
-        self.runs_dir = self.project_dir / "runs"
-        self.legacy_nodes_dir = self.output_svg_path.parent / f"{self.base_name}_nodes"
+        self.ext = self.output_svg_path.suffix
+        self.out_dir = self.output_svg_path.parent
 
-        self.current_run_dir: Path | None = None
-        self.nodes_dir: Path | None = None
-        self.lineage_csv: Path | None = None
+        self.project_dir = self.out_dir / self.base_name
+        self.runs_dir = self.project_dir / "runs"
+        self.legacy_nodes_dir = self.out_dir / f"{self.base_name}_nodes"
+
+        # Fix: Initialize as Paths to avoid Path(None) errors in type checking
+        self.current_run_dir = self.runs_dir / "pending"
+        self.nodes_dir = self.current_run_dir / "nodes"
+        self.lineage_csv = self.current_run_dir / "lineage.csv"
 
     @property
     def max_node_id(self) -> int:
         return self._max_id
 
     def initialize(self) -> None:
-        """Creates a new run folder. This MUST be called before save_node."""
         self.runs_dir.mkdir(parents=True, exist_ok=True)
         timestamp = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
         self.current_run_dir = self.runs_dir / timestamp
@@ -50,14 +54,12 @@ class FileStorageAdapter:
         log.info(f"Storage initialized. Current run: {self.current_run_dir.name}")
 
     def load_resume_nodes(self) -> list[tuple[int, str]]:
-        """Scans for previous nodes, ignoring the current run's directory."""
+        """Returns raw data for the runner to re-score."""
         if not self.resume:
             return []
 
-        # 1. Gather all potential run directories
         run_candidates = []
         if self.runs_dir.exists():
-            # Filter out the directory we are currently writing to
             run_candidates = sorted(
                 [
                     d
@@ -69,7 +71,6 @@ class FileStorageAdapter:
         resumed_data = []
         pattern = re.compile(r"node(\d+)")
 
-        # Target directory: the most recent run (excluding current) or legacy folder
         target_folders = []
         if run_candidates:
             target_folders.append(run_candidates[-1] / "nodes")
@@ -80,30 +81,26 @@ class FileStorageAdapter:
             if not folder.exists():
                 continue
 
-            log.info(
-                f"Attempting to resume nodes from: {folder.parent.name if folder.parent else folder}"
-            )
+            log.info(f"Attempting to resume nodes from: {folder}")
             found_in_folder = []
             for file_path in folder.glob("*.svg"):
                 match = pattern.search(file_path.name)
                 if match:
                     try:
                         with file_path.open(encoding="utf-8") as f:
-                            found_in_folder.append((int(match.group(1)), f.read()))
+                            node_id = int(match.group(1))
+                            found_in_folder.append((node_id, f.read()))
+                            self._max_id = max(self._max_id, node_id)
                     except Exception as e:
                         log.error(f"Failed to read {file_path.name}: {e}")
 
             if found_in_folder:
                 resumed_data = found_in_folder
-                break  # Stop once we find the most recent valid source
+                break
 
         return sorted(resumed_data, key=lambda x: x[0])
 
     def save_node(self, node: SearchNode[SvgStatePayload]) -> None:
-        """Saves a node to the CURRENT run directory."""
-        if not self.nodes_dir or not self.lineage_csv:
-            raise RuntimeError("Storage initialized call missing.")
-
         self._max_id = max(self._max_id, node.id)
         fn = (
             f"score{node.score:012.6f}_node{node.id:05d}_parent{node.parent_id:05d}.svg"
@@ -127,13 +124,14 @@ class FileStorageAdapter:
                     node.parent_id,
                     node.secondary_parent_id or "",
                     f"{node.score:.6f}",
-                    node.state.model_temperature,
+                    f"{node.state.model_temperature:.3f}",
                     node.state.payload.change_summary or "",
                 ]
             )
 
     def save_final_svg(self, svg_content: str) -> None:
         final_path = self.project_dir / f"best_{self.output_svg_path.name}"
+        final_path.parent.mkdir(parents=True, exist_ok=True)
         with final_path.open("w", encoding="utf-8") as f:
             f.write(svg_content)
         log.info(f"Updated best SVG at: {final_path}")
