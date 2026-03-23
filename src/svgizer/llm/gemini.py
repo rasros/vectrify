@@ -26,14 +26,11 @@ class GeminiProvider(LLMProvider):
                 mime_type = header.split(";")[0].split(":")[1]
                 prompt_parts.append(
                     types.Part.from_bytes(
-                        data=base64.b64decode(encoded),
-                        mime_type=mime_type
+                        data=base64.b64decode(encoded), mime_type=mime_type
                     )
                 )
 
-        generation_config = types.GenerateContentConfig(
-            temperature=config.temperature
-        )
+        generation_config = types.GenerateContentConfig(temperature=config.temperature)
 
         if config.reasoning:
             pass
@@ -44,8 +41,6 @@ class GeminiProvider(LLMProvider):
                 generation_config.response_schema = config.response_schema
 
         response = self.client.models.generate_content(
-            model=config.model,
-            contents=prompt_parts,
-            config=generation_config
+            model=config.model, contents=prompt_parts, config=generation_config
         )
         return response.text or ""

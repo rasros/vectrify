@@ -72,7 +72,9 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     sum_prompt = build_summarize_prompt(
                         worker_params["image_data_url"], parent_preview
                     )
-                    sum_config = LLMConfig(model=model_name, temperature=1.0, reasoning=reasoning)
+                    sum_config = LLMConfig(
+                        model=model_name, temperature=1.0, reasoning=reasoning
+                    )
                     change_summary = client.generate(sum_prompt, sum_config)
 
                 gen_prompt = build_svg_gen_prompt(

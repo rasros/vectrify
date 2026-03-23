@@ -34,6 +34,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         scorer_type=ScorerType.SIMPLE,
         strategy_type=StrategyType.GREEDY,
         goal="Generate a simple blue rectangle.",
+        reasoning="none",
         llm_provider="openai",
         llm_model="gpt-5.4-nano",
         write_lineage=False,

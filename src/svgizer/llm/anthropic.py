@@ -3,7 +3,7 @@ from typing import Any
 
 import anthropic
 
-from .base import LLMConfig, LLMProvider
+from svgizer.llm.base import LLMConfig, LLMProvider
 
 
 class AnthropicProvider(LLMProvider):

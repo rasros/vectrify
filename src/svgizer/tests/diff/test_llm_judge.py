@@ -27,7 +27,10 @@ def test_llm_client_structured_output():
     )
 
     content_blocks = [
-        {"type": "input_text", "text": "The magic number is 42. Output it in JSON format."}
+        {
+            "type": "input_text",
+            "text": "The magic number is 42. Output it in JSON format.",
+        }
     ]
 
     response = client.generate(content_blocks, config)

@@ -56,7 +56,8 @@ def main():
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
     logger = logging.getLogger("main")
     logger.info(
-        f"Initialized LLM Backend -> Provider: {provider.upper()} | Model: {model} | Reasoning: {args.reasoning}"
+        f"Initialized LLM Backend -> Provider: {provider.upper()} "
+        f"| Model: {model} | Reasoning: {args.reasoning}"
     )
 
     storage = FileStorageAdapter(
