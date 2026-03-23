@@ -65,9 +65,16 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
     assert Path(adapter.lineage_csv).is_file()
     with Path(adapter.lineage_csv).open(encoding="utf-8") as f:
         reader = list(csv.reader(f))
-        assert reader[0] == ["id", "parent", "score", "temp", "summary"]
+        assert reader[0] == [
+            "id",
+            "parent",
+            "secondary_parent",
+            "score",
+            "temp",
+            "summary",
+        ]
         assert reader[1][0] == "42"
-        assert reader[1][4] == "Fixed circle"
+        assert reader[1][5] == "Fixed circle"
 
 
 def test_load_resume_nodes(tmp_path):
