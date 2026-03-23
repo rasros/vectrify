@@ -8,7 +8,8 @@ import numpy as np
 from PIL import Image
 
 from svgizer.diff.base import DEFAULT_CONFIG, DiffScorer
-from svgizer.diff.utils import get_device, lab_l1, resize_long_side
+from svgizer.diff.utils import get_device, lab_l1
+from svgizer.image_utils import resize_long_side
 
 if TYPE_CHECKING:
     import torch

@@ -14,9 +14,20 @@ class OpenAIProvider(LLMProvider):
         self._client = OpenAI(api_key=self.api_key)
 
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
+        openai_content = []
+        for block in content_blocks:
+            if block["type"] == "input_text":
+                openai_content.append({"type": "text", "text": block["text"]})
+            elif block["type"] == "input_image":
+                openai_content.append(
+                    {"type": "image_url", "image_url": {"url": block["image_url"]}}
+                )
+            else:
+                openai_content.append(block)
+
         kwargs: dict[str, Any] = {
             "model": config.model,
-            "messages": [{"role": "user", "content": content_blocks}],
+            "messages": [{"role": "user", "content": openai_content}],
         }
 
         if config.response_schema:

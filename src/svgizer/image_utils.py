@@ -3,8 +3,20 @@ import io
 
 import cairosvg
 from PIL import Image
+from PIL.Image import Resampling
 
-from svgizer.diff.utils import resize_long_side
+
+def resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
+    w, h = im.size
+    if max(w, h) <= long_side:
+        return im
+    if w >= h:
+        new_w = long_side
+        new_h = round(h * (long_side / float(w)))
+    else:
+        new_h = long_side
+        new_w = round(w * (long_side / float(h)))
+    return im.resize((max(1, new_w), max(1, new_h)), resample=Resampling.BILINEAR)
 
 
 def png_bytes_to_data_url(png_bytes: bytes) -> str:

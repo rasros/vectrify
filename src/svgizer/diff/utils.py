@@ -1,5 +1,4 @@
 from PIL import Image, ImageChops, ImageStat
-from PIL.Image import Resampling
 
 
 def get_device() -> str:
@@ -10,19 +9,6 @@ def get_device() -> str:
     if hasattr(torch.backends, "mps") and torch.backends.mps.is_available():
         return "mps"
     return "cpu"
-
-
-def resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
-    w, h = im.size
-    if max(w, h) <= long_side:
-        return im
-    if w >= h:
-        new_w = long_side
-        new_h = round(h * (long_side / float(w)))
-    else:
-        new_h = long_side
-        new_w = round(w * (long_side / float(h)))
-    return im.resize((max(1, new_w), max(1, new_h)), resample=Resampling.BILINEAR)
 
 
 def lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:

@@ -107,7 +107,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                         raise RuntimeError(
                             "All worker processes have exited. Check logs for "
                             "initialization errors (missing API keys, etc)."
-                        )
+                        ) from None
                     continue
 
                 in_flight -= 1

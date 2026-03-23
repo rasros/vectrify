@@ -7,7 +7,8 @@ from PIL import Image
 from PIL.Image import Resampling
 
 from svgizer.diff.base import DiffScorer
-from svgizer.diff.utils import lab_l1, resize_long_side
+from svgizer.diff.utils import lab_l1
+from svgizer.image_utils import resize_long_side
 
 log = logging.getLogger(__name__)
 
