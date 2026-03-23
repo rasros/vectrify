@@ -1,4 +1,5 @@
 from PIL import Image, ImageChops, ImageStat
+from PIL.Image import Resampling
 
 
 def get_device() -> str:
@@ -21,7 +22,7 @@ def resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
     else:
         new_h = long_side
         new_w = int(round(w * (long_side / float(h))))
-    return im.resize((max(1, new_w), max(1, new_h)), resample=Image.BILINEAR)
+    return im.resize((max(1, new_w), max(1, new_h)), resample=Resampling.BILINEAR)
 
 
 def lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:

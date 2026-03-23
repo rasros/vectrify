@@ -1,5 +1,5 @@
+from svgizer.models import ChainState, Result, SearchNode
 from svgizer.search.engine import MultiprocessSearchEngine
-from svgizer.models import SearchNode, Result, ChainState
 
 
 class FakeStrategy:

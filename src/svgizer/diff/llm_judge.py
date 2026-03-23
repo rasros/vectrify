@@ -1,19 +1,19 @@
 import io
 import json
 import logging
-import os
 from dataclasses import dataclass
-from typing import Optional
+from typing import Any
 
-from openai import OpenAI
 from PIL import Image
+from PIL.Image import Resampling
+
+from svgizer.image_utils import png_bytes_to_data_url
+from svgizer.llm import LLMClient, LLMConfig
 
 from .base import DiffScorer
 from .utils import lab_l1
-from svgizer.image_utils import png_bytes_to_data_url
 
 log = logging.getLogger(__name__)
-
 TIE_BREAKER_WEIGHT = 0.01
 
 
@@ -23,21 +23,42 @@ class LLMReference:
     image: Image.Image
 
 
+JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "similarity": {
+            "type": "number",
+            "description": "Visual similarity score from 0.0 to 1.0",
+        }
+    },
+    "required": ["similarity"],
+    "additionalProperties": False,
+}
+
+
+def _build_judge_prompt(reference_url: str, candidate_url: str) -> list[dict[str, Any]]:
+    return [
+        {
+            "type": "input_text",
+            "text": (
+                "You are an expert computer vision judge. Compare the reference (1st) "
+                "to the candidate (2nd). Rate similarity from 0.0 to 1.0 (1.0 is identical)."
+            ),
+        },
+        {"type": "input_image", "image_url": reference_url},
+        {"type": "input_image", "image_url": candidate_url},
+    ]
+
+
 class LLMJudgeScorer(DiffScorer):
-    """Uses a Vision LLM to score the visual difference between two images, with an L1 color fallback as a tiebreaker."""
-
-    def __init__(self, model_name: str = "gpt-4o"):
-        self.model_name = model_name
-        self._client: Optional[OpenAI] = None
-
-    @property
-    def client(self) -> OpenAI:
-        if self._client is None:
-            api_key = os.getenv("OPENAI_API_KEY")
-            if not api_key:
-                raise ValueError("OPENAI_API_KEY must be set to use LLMJudgeScorer")
-            self._client = OpenAI(api_key=api_key)
-        return self._client
+    def __init__(self, config: LLMConfig | None = None):
+        # 2. Inject the schema into the config
+        self.config = config or LLMConfig(
+            model="gpt-5.4-nano",
+            response_schema=JUDGE_SCHEMA,
+            schema_name="similarity_score",
+        )
+        self.client = LLMClient()
 
     def prepare_reference(self, original_rgb: Image.Image) -> LLMReference:
         buf = io.BytesIO()
@@ -47,54 +68,26 @@ class LLMJudgeScorer(DiffScorer):
 
     def score(self, reference: LLMReference, candidate_png: bytes) -> float:
         candidate_data_url = png_bytes_to_data_url(candidate_png)
-
-        prompt = (
-            "You are an expert computer vision judge. Compare the reference (1st) "
-            "to the candidate (2nd). Rate similarity from 0.0 to 1.0 (1.0 is identical). "
-            "Respond strictly with JSON: {'similarity': float}"
-        )
+        content_blocks = _build_judge_prompt(reference.data_url, candidate_data_url)
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model_name,
-                messages=[
-                    {
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": prompt},
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": reference.data_url},
-                            },
-                            {
-                                "type": "image_url",
-                                "image_url": {"url": candidate_data_url},
-                            },
-                        ],
-                    }
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.0,
-                max_tokens=50,
-            )
+            response_text = self.client.generate(content_blocks, self.config)
 
-            result = json.loads(response.choices[0].message.content or "{}")
-            similarity = float(result.get("similarity", 0.0))
+            result = json.loads(response_text)
+            similarity = float(result["similarity"])
             llm_score = float(max(0.0, min(1.0, 1.0 - similarity)))
 
-            # --- Tie Breaker Calculation (L1 LAB distance) ---
             cand_img = Image.open(io.BytesIO(candidate_png)).convert("RGB")
             if cand_img.size != reference.image.size:
                 cand_img = cand_img.resize(
-                    reference.image.size, resample=Image.BILINEAR
+                    reference.image.size, resample=Resampling.BILINEAR
                 )
 
             color_score = float(max(0.0, min(1.0, lab_l1(reference.image, cand_img))))
-
-            # Mix the scores
             final_score = ((1.0 - TIE_BREAKER_WEIGHT) * llm_score) + (
                 TIE_BREAKER_WEIGHT * color_score
             )
+
             return float(max(0.0, min(1.0, final_score)))
 
         except Exception as e:

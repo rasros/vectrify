@@ -1,5 +1,6 @@
 import io
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -22,8 +23,9 @@ class DreamSimScorer(DiffScorer):
     """ML-based layout/semantic scorer with lazy-loaded dependencies."""
 
     def __init__(self):
-        self._model = None
-        self._preprocess = None
+        self._model: Any | None = None
+        self._preprocess: Callable | None = None
+        self._torch: Any | None = None
 
     def _load_dependencies(self):
         """Internal helper to load torch and models only when needed."""
@@ -50,6 +52,8 @@ class DreamSimScorer(DiffScorer):
 
     def prepare_reference(self, original_rgb: Image.Image) -> DreamSimReference:
         self._load_dependencies()
+        assert self._preprocess is not None
+
         device = get_device()
 
         ref_small = resize_long_side(original_rgb, DEFAULT_CONFIG.target_long_side)
@@ -62,10 +66,13 @@ class DreamSimScorer(DiffScorer):
 
     def score(self, reference: DreamSimReference, candidate_png: bytes) -> float:
         self._load_dependencies()
+        assert self._preprocess is not None
+        assert self._model is not None
+        assert self._torch is not None
 
         cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
         if cand.size != reference.image.size:
-            cand = cand.resize(reference.image.size, resample=Image.BILINEAR)
+            cand = cand.resize(reference.image.size, resample=Image.Resampling.BILINEAR)
 
         device = get_device()
         cand_t = self._preprocess(cand).to(device)

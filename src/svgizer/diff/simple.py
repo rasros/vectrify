@@ -4,6 +4,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from PIL import Image
+from PIL.Image import Resampling
 
 from .base import DiffScorer
 from .utils import lab_l1, resize_long_side
@@ -40,7 +41,7 @@ class SimpleFallbackScorer(DiffScorer):
 
             # Ensure dimensions match the reference for a valid L1 comparison
             if cand.size != reference.image.size:
-                cand = cand.resize(reference.image.size, resample=Image.BILINEAR)
+                cand = cand.resize(reference.image.size, resample=Resampling.BILINEAR)
 
             color_score = lab_l1(reference.image, cand)
 

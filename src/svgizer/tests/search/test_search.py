@@ -1,7 +1,7 @@
 import pytest
 
 from svgizer.diff import ScorerType
-from svgizer.search import run_search, StrategyType
+from svgizer.search import StrategyType, run_search
 
 
 class FakeStorage:
@@ -29,7 +29,7 @@ class FakeEngine:
 
     def run(self, *args, **kwargs):
         FakeEngine.ran = True
-        return None
+        return
 
 
 class FakeImage:

@@ -4,8 +4,8 @@ from typing import Dict, Type
 
 from .base import DiffScorer, ScoreConfig
 from .dreamsim import DreamSimScorer
-from .simple import SimpleFallbackScorer
 from .llm_judge import LLMJudgeScorer
+from .simple import SimpleFallbackScorer
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class ScorerType(str, Enum):
 
 
 # Registry for mapping types to classes
-SCORER_REGISTRY: Dict[ScorerType, Type[DiffScorer]] = {
+SCORER_REGISTRY: dict[ScorerType, type[DiffScorer]] = {
     ScorerType.DREAMSIM: DreamSimScorer,
     ScorerType.SIMPLE: SimpleFallbackScorer,
     ScorerType.LLM: LLMJudgeScorer,

@@ -1,5 +1,6 @@
 import pytest
-from svgizer.models import SearchNode, ChainState, Result
+
+from svgizer.models import ChainState, Result, SearchNode
 from svgizer.search.greedy import GreedyHillClimbingStrategy
 
 

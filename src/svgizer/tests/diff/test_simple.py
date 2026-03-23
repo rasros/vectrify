@@ -1,4 +1,5 @@
 import io
+
 from PIL import Image
 
 # Updated import to match the project structure

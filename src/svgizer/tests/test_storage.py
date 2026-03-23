@@ -59,7 +59,7 @@ def test_save_node(tmp_path, dummy_node):
     assert os.path.basename(saved_path) == expected_filename
     assert os.path.isfile(saved_path)
 
-    with open(saved_path, "r", encoding="utf-8") as f:
+    with open(saved_path, encoding="utf-8") as f:
         assert f.read() == dummy_node.state.svg
 
 
@@ -76,7 +76,7 @@ def test_write_lineage(tmp_path):
 
     assert os.path.isfile(adapter.lineage_csv_path)
 
-    with open(adapter.lineage_csv_path, "r", encoding="utf-8") as f:
+    with open(adapter.lineage_csv_path, encoding="utf-8") as f:
         reader = list(csv.reader(f))
         assert len(reader) == 3  # Header + 2 rows
         assert reader[0] == ["node_id", "parent_id", "score", "path", "change_summary"]
