@@ -37,7 +37,7 @@ class FakeEngine:
     def start_workers(self, _target, _params):
         FakeEngine.started_workers = True
 
-    def run(self, *args, **kwargs):
+    def run(self, *_args, **_kwargs):
         FakeEngine.ran = True
         return
 
