@@ -1,11 +1,14 @@
 from svgizer.search.base import StrategyType
-from svgizer.search.models import INVALID_SCORE, SearchNode
+from svgizer.search.models import INVALID_SCORE, ChainState, SearchNode
 
 
 def test_search_node_sorting_by_score():
-    n_best = SearchNode(score=0.1, id=10, parent_id=0, state=None)
-    n_mid = SearchNode(score=0.5, id=5, parent_id=0, state=None)
-    n_worst = SearchNode(score=0.9, id=1, parent_id=0, state=None)
+    dummy_state = ChainState(
+        score=0.0, model_temperature=0.0, stale_hits=0, payload=None
+    )
+    n_best = SearchNode(score=0.1, id=10, parent_id=0, state=dummy_state)
+    n_mid = SearchNode(score=0.5, id=5, parent_id=0, state=dummy_state)
+    n_worst = SearchNode(score=0.9, id=1, parent_id=0, state=dummy_state)
 
     nodes = [n_mid, n_worst, n_best]
     nodes.sort()
@@ -16,15 +19,21 @@ def test_search_node_sorting_by_score():
 
 
 def test_search_node_comparison_ignores_metadata():
-    n1 = SearchNode(score=0.2, id=99, parent_id=99, state=None)
-    n2 = SearchNode(score=0.8, id=1, parent_id=1, state=None)
+    dummy_state = ChainState(
+        score=0.0, model_temperature=0.0, stale_hits=0, payload=None
+    )
+    n1 = SearchNode(score=0.2, id=99, parent_id=99, state=dummy_state)
+    n2 = SearchNode(score=0.8, id=1, parent_id=1, state=dummy_state)
 
     assert n1 < n2
 
 
 def test_search_node_equality_with_identical_scores():
-    n1 = SearchNode(score=0.5, id=1, parent_id=0, state=None)
-    n2 = SearchNode(score=0.5, id=2, parent_id=0, state=None)
+    dummy_state = ChainState(
+        score=0.0, model_temperature=0.0, stale_hits=0, payload=None
+    )
+    n1 = SearchNode(score=0.5, id=1, parent_id=0, state=dummy_state)
+    n2 = SearchNode(score=0.5, id=2, parent_id=0, state=dummy_state)
 
     assert not (n1 < n2)
     assert not (n2 < n1)

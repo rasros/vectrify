@@ -66,11 +66,16 @@ class FileStorageAdapter:
             with self.lineage_csv.open("a", encoding="utf-8", newline="") as f:
                 w = csv.writer(f)
                 if not exists:
-                    w.writerow(["id", "parent", "score", "temp", "summary"])
+                    w.writerow(
+                        ["id", "parent", "secondary_parent", "score", "temp", "summary"]
+                    )
                 w.writerow(
                     [
                         node.id,
                         node.parent_id,
+                        node.secondary_parent_id
+                        if node.secondary_parent_id is not None
+                        else "",
                         f"{node.score:.6f}",
                         node.state.model_temperature,
                         node.state.payload.change_summary or "",

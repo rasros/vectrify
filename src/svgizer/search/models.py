@@ -21,6 +21,9 @@ class SearchNode(Generic[TState]):
     id: int = dataclasses.field(compare=False)
     parent_id: int = dataclasses.field(compare=False)
     state: ChainState[TState] = dataclasses.field(compare=False)
+    secondary_parent_id: int | None = dataclasses.field(
+        default=None, compare=False
+    )  # Add this line
 
 
 @dataclasses.dataclass

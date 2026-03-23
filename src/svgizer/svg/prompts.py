@@ -9,7 +9,6 @@ def build_svg_gen_prompt(
     svg_prev_invalid_msg: str | None = None,
     rasterized_svg_data_url: str | None = None,
     change_summary: str | None = None,
-    diversity_hint: str | None = None,
     custom_goal: str | None = None,
 ) -> list[dict[str, Any]]:
     lines = [

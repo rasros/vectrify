@@ -4,7 +4,7 @@ import multiprocessing as mp
 import queue
 import time
 from collections.abc import Callable
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 
 from .base import SearchStrategy, StorageAdapter
 from .models import Result, SearchNode, Task
@@ -34,7 +34,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         self.ctx = mp.get_context("spawn")
         self.task_q = self.ctx.Queue(maxsize=max(64, workers * 8))
         self.result_q = self.ctx.Queue()
-        self.procs: list[mp.Process] = []
+        self.procs: list[Any] = []
 
     def start_workers(self, worker_target: Callable, worker_params: dict) -> None:
         log.info(f"Starting {self.workers} worker processes...")
@@ -101,12 +101,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                         Task(
                             task_id=next_task_id,
                             parent_id=pid1,
-                            parent_state=node_states.get(pid1),
+                            parent_state=node_states[pid1],
                             worker_slot=in_flight % self.workers,
                             secondary_parent_id=pid2,
-                            secondary_parent_state=node_states.get(pid2)
-                            if pid2
-                            else None,
+                            secondary_parent_state=node_states[pid2] if pid2 else None,
                         )
                     )
                     next_task_id += 1
@@ -136,6 +134,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     id=next_node_id,
                     parent_id=res.parent_id,
                     state=new_state,
+                    secondary_parent_id=res.secondary_parent_id,
                 )
 
                 accepted_nodes.append(new_node)

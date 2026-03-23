@@ -9,10 +9,13 @@ def strategy():
 
 
 def test_select_parent_always_picks_best(strategy):
+    dummy_state = ChainState(
+        score=0.0, model_temperature=0.0, stale_hits=0, payload=None
+    )
     nodes = [
-        SearchNode(score=0.8, id=1, parent_id=0, state=None),
-        SearchNode(score=0.2, id=2, parent_id=0, state=None),
-        SearchNode(score=0.5, id=3, parent_id=0, state=None),
+        SearchNode(score=0.8, id=1, parent_id=0, state=dummy_state),
+        SearchNode(score=0.2, id=2, parent_id=0, state=dummy_state),
+        SearchNode(score=0.5, id=3, parent_id=0, state=dummy_state),
     ]
 
     selected_id, secondary = strategy.select_parent(nodes, progress=0.5)

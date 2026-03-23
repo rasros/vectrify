@@ -97,6 +97,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     payload=SvgResultPayload(
                         svg=svg, raster_png=png, change_summary=change_summary
                     ),
+                    secondary_parent_id=task.secondary_parent_id,
                 )
             )
 
@@ -112,5 +113,6 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     used_temperature=temp,
                     payload=SvgResultPayload(None, None, None),
                     invalid_msg=str(e),
+                    secondary_parent_id=task.secondary_parent_id,
                 )
             )

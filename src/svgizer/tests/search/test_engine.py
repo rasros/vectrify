@@ -7,10 +7,12 @@ class FakeStrategy:
     def top_k_count(self) -> int:
         return 1
 
-    def select_parent(self, _nodes, _progress):
+    def select_parent(
+        self, nodes: list[SearchNode], progress: float
+    ) -> tuple[int, int | None]:
         return 1, None
 
-    def create_new_state(self, _parent_state, result):
+    def create_new_state(self, parent_state: ChainState, result: Result) -> ChainState:
         return ChainState(
             score=result.score,
             model_temperature=0.6,
@@ -36,7 +38,7 @@ class FakeStorage:
     def load_seed_svg(self, _path: str) -> str:
         return ""
 
-    def save_node(self, _node):
+    def save_node(self, node: SearchNode) -> None:
         self.save_called = True
 
 

@@ -23,7 +23,7 @@ class LLMClient:
         self._client = OpenAI(api_key=self.api_key)
 
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
-        kwargs = {
+        kwargs: dict[str, Any] = {
             "model": config.model,
             "input": [{"role": "user", "content": content_blocks}],
         }

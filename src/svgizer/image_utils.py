@@ -3,6 +3,7 @@ import io
 
 import cairosvg
 from PIL import Image
+from PIL.Image import Resampling
 
 
 def png_bytes_to_data_url(png_bytes: bytes) -> str:
@@ -29,7 +30,7 @@ def downscale_png_bytes(png_bytes: bytes, long_side: int) -> bytes:
     new_w = max(1, new_w)
     new_h = max(1, new_h)
 
-    im2 = im.resize((new_w, new_h), resample=Image.BILINEAR)
+    im2 = im.resize((new_w, new_h), resample=Resampling.BILINEAR)
     out = io.BytesIO()
     im2.save(out, format="PNG")
     return out.getvalue()
@@ -38,11 +39,13 @@ def downscale_png_bytes(png_bytes: bytes, long_side: int) -> bytes:
 def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> bytes:
     if out_w <= 0 or out_h <= 0:
         raise ValueError(f"Invalid raster target size: {out_w}x{out_h}")
-    return cairosvg.svg2png(
+    res = cairosvg.svg2png(
         bytestring=svg_text.encode("utf-8"),
         output_width=out_w,
         output_height=out_h,
     )
+    assert isinstance(res, bytes)
+    return res
 
 
 def make_preview_data_url(full_png: bytes, openai_image_long_side: int) -> str:

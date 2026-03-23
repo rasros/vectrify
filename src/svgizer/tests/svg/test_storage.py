@@ -94,6 +94,7 @@ def test_load_resume_nodes(tmp_path):
     assert nodes[0].id == 15
     assert nodes[0].score == 0.555
     assert adapter.max_node_id == 15
+    assert nodes[0].state.payload.raster_preview_data_url is not None
     assert nodes[0].state.payload.raster_preview_data_url.startswith(
         "data:image/png;base64,"
     )
