@@ -40,9 +40,15 @@ def determine_provider_and_model(args) -> tuple[str, str]:
 
 def main():
     args = parse_args()
+
     provider, model = determine_provider_and_model(args)
 
     logging.basicConfig(level=getattr(logging, args.log_level.upper(), logging.INFO))
+    logger = logging.getLogger("main")
+    logger.info(
+        f"Initialized LLM Backend -> Provider: {provider.upper()} "
+        f"| Model: {model} | Reasoning: {args.reasoning}"
+    )
 
     storage = FileStorageAdapter(
         output_svg_path=args.output,
@@ -71,6 +77,7 @@ def main():
             write_lineage=args.write_lineage,
         )
     except KeyboardInterrupt:
+        print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)
         sys.exit(130)
     except Exception as e:
         print(f"FATAL: {e}", file=sys.stderr)
