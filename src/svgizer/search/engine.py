@@ -103,6 +103,11 @@ class MultiprocessSearchEngine(Generic[TState]):
                 try:
                     res: Result = self.result_q.get(timeout=0.2)
                 except queue.Empty:
+                    if not any(p.is_alive() for p in self.procs):
+                        raise RuntimeError(
+                            "All worker processes have exited. Check logs for "
+                            "initialization errors (missing API keys, etc)."
+                        )
                     continue
 
                 in_flight -= 1

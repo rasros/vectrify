@@ -23,21 +23,26 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
     setup_logger(worker_params["log_level"])
     log = logging.getLogger("worker")
 
-    provider_name = worker_params.get("llm_provider", "openai")
-    api_key = worker_params.get("api_key")
-    model_name = worker_params.get("llm_model", "gpt-5.4")
-    reasoning = worker_params.get("reasoning", "medium")
+    try:
+        provider_name = worker_params.get("llm_provider", "openai")
+        api_key = worker_params.get("api_key")
+        model_name = worker_params.get("llm_model", "gpt-5.4")
+        reasoning = worker_params.get("reasoning", "medium")
 
-    client = get_provider(provider_name, api_key)
-    scorer = get_scorer(worker_params["scorer_type"])
+        client = get_provider(provider_name, api_key)
+        scorer = get_scorer(worker_params["scorer_type"])
 
-    original_rgb = Image.open(io.BytesIO(worker_params["original_png_bytes"])).convert(
-        "RGB"
-    )
-    scoring_ref = scorer.prepare_reference(original_rgb)
+        original_rgb = Image.open(
+            io.BytesIO(worker_params["original_png_bytes"])
+        ).convert("RGB")
+        scoring_ref = scorer.prepare_reference(original_rgb)
 
-    worker_max_temp = worker_params.get("worker_max_temp", 1.6)
-    worker_temp_step = worker_params.get("worker_temp_step", 0.07)
+        worker_max_temp = worker_params.get("worker_max_temp", 1.6)
+        worker_temp_step = worker_params.get("worker_temp_step", 0.07)
+
+    except Exception as e:
+        log.critical(f"Worker failed initialization and will exit: {e!r}")
+        return
 
     while True:
         task = task_q.get()
