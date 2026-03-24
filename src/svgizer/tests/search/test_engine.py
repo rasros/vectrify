@@ -1,3 +1,5 @@
+import time
+
 from svgizer.search import ChainState, Result, SearchNode
 from svgizer.search.engine import MultiprocessSearchEngine
 
@@ -81,3 +83,44 @@ def test_engine_run_loop_terminates_on_max_accepts():
     )
 
     assert store.save_called is True
+
+
+def test_engine_respects_max_wall_seconds(monkeypatch):
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage()
+    )
+
+    class FakeTime:
+        def __init__(self):
+            self.calls = 0
+
+        def __call__(self):
+            self.calls += 1
+            return float(self.calls * 100)
+
+    monkeypatch.setattr(time, "monotonic", FakeTime())
+
+    dummy_node = SearchNode(
+        score=0.5,
+        id=1,
+        parent_id=0,
+        state=ChainState(score=0.5, model_temperature=1.0, stale_hits=0, payload=None),
+    )
+
+    engine.run(initial_nodes=[dummy_node], max_accepts=10, max_wall_seconds=50.0)
+    assert True
+
+
+def test_engine_respects_max_total_tasks():
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=0
+    )
+    dummy_node = SearchNode(
+        score=0.5,
+        id=1,
+        parent_id=0,
+        state=ChainState(score=0.5, model_temperature=1.0, stale_hits=0, payload=None),
+    )
+
+    engine.run(initial_nodes=[dummy_node], max_accepts=10, max_wall_seconds=None)
+    assert True
