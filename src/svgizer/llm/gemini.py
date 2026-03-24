@@ -22,8 +22,13 @@ class GeminiProvider(LLMProvider):
             if block["type"] == "input_text":
                 prompt_parts.append(block["text"])
             elif block["type"] == "input_image":
-                header, encoded = block["image_url"].split(",", 1)
-                mime_type = header.split(";")[0].split(":")[1]
+                try:
+                    header, encoded = block["image_url"].split(",", 1)
+                    mime_type = header.split(";")[0].split(":")[1]
+                except (ValueError, IndexError) as e:
+                    raise ValueError(
+                        f"Malformed image data URL: {block['image_url'][:50]!r}"
+                    ) from e
                 prompt_parts.append(
                     types.Part.from_bytes(
                         data=base64.b64decode(encoded), mime_type=mime_type
@@ -33,7 +38,11 @@ class GeminiProvider(LLMProvider):
         generation_config = types.GenerateContentConfig(temperature=config.temperature)
 
         if config.reasoning:
-            pass
+            budget_map = {"low": 1024, "medium": 8192, "high": 24576}
+            budget = budget_map.get(config.reasoning, 8192)
+            generation_config.thinking_config = types.ThinkingConfig(
+                thinking_budget=budget
+            )
 
         if config.response_schema or config.json_output:
             generation_config.response_mime_type = "application/json"

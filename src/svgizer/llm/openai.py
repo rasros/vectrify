@@ -44,7 +44,7 @@ class OpenAIProvider(LLMProvider):
 
         if config.reasoning:
             kwargs["reasoning_effort"] = config.reasoning
-        elif config.temperature is not None:
+        if config.temperature is not None:
             kwargs["temperature"] = config.temperature
 
         response = self._client.chat.completions.create(**kwargs)

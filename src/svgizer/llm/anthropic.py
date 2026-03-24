@@ -19,8 +19,13 @@ class AnthropicProvider(LLMProvider):
             if block["type"] == "input_text":
                 messages_content.append({"type": "text", "text": block["text"]})
             elif block["type"] == "input_image":
-                header, encoded = block["image_url"].split(",", 1)
-                mime_type = header.split(";")[0].split(":")[1]
+                try:
+                    header, encoded = block["image_url"].split(",", 1)
+                    mime_type = header.split(";")[0].split(":")[1]
+                except (ValueError, IndexError) as e:
+                    raise ValueError(
+                        f"Malformed image data URL: {block['image_url'][:50]!r}"
+                    ) from e
                 messages_content.append(
                     {
                         "type": "image",
