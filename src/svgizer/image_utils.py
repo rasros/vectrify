@@ -40,15 +40,27 @@ def downscale_png_bytes(png_bytes: bytes, long_side: int) -> bytes:
 
 
 def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> bytes:
+    """
+    Rasterizes SVG to PNG and composites it over a white background
+    to prevent transparency being treated as black borders/edges.
+    """
     if out_w <= 0 or out_h <= 0:
         raise ValueError(f"Invalid raster target size: {out_w}x{out_h}")
-    res = cairosvg.svg2png(
+
+    raw_png = cairosvg.svg2png(
         bytestring=svg_text.encode("utf-8"),
         output_width=out_w,
         output_height=out_h,
     )
-    assert isinstance(res, bytes)
-    return res
+
+    img = Image.open(io.BytesIO(raw_png)).convert("RGBA")
+
+    bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
+    combined = Image.alpha_composite(bg, img).convert("RGB")
+
+    out = io.BytesIO()
+    combined.save(out, format="PNG")
+    return out.getvalue()
 
 
 def make_preview_data_url(full_png: bytes, openai_image_long_side: int) -> str:

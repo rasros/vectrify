@@ -1,3 +1,4 @@
+import base64
 import csv
 import logging
 import re
@@ -27,10 +28,8 @@ class FileStorageAdapter:
         self._max_id = 0
 
         self.base_name = self.output_svg_path.stem
-        self.ext = self.output_svg_path.suffix
         self.project_dir = self.output_svg_path.parent / self.base_name
         self.runs_dir = self.project_dir / "runs"
-        self.legacy_nodes_dir = self.output_svg_path.parent / f"{self.base_name}_nodes"
 
         self.current_run_dir: Path | None = None
         self.nodes_dir: Path | None = None
@@ -47,76 +46,100 @@ class FileStorageAdapter:
         self.nodes_dir = self.current_run_dir / "nodes"
         self.nodes_dir.mkdir(parents=True, exist_ok=True)
         self.lineage_csv = self.current_run_dir / "lineage.csv"
-        log.info(f"Storage initialized. Current run: {self.current_run_dir.name}")
+        log.info(f"Storage initialized at: {self.current_run_dir}")
 
     def load_resume_nodes(self) -> list[tuple[int, str]]:
-        if not self.resume:
+        """
+        Only if resume is true, check the latest past run directory
+        and ingest all SVGs found in its 'nodes' folder.
+        """
+        if not self.resume or not self.runs_dir.exists():
             return []
 
-        run_candidates = []
-        if self.runs_dir.exists():
-            run_candidates = sorted(
-                [
-                    d
-                    for d in self.runs_dir.iterdir()
-                    if d.is_dir() and d != self.current_run_dir
-                ]
-            )
+        # Get all past runs, sorted by timestamp name
+        past_runs = sorted(
+            [
+                d
+                for d in self.runs_dir.iterdir()
+                if d.is_dir() and d != self.current_run_dir
+            ],
+            key=lambda d: d.name,
+        )
 
-        resumed_data: list[tuple[int, str]] = []
-        pattern = re.compile(r"node(\d+)")
+        if not past_runs:
+            log.info("No previous runs found to resume.")
+            return []
 
-        target_folders = []
-        if run_candidates:
-            target_folders.append(run_candidates[-1] / "nodes")
-        if self.legacy_nodes_dir.exists():
-            target_folders.append(self.legacy_nodes_dir)
+        latest_run = past_runs[-1]
+        target_nodes_dir = latest_run / "nodes"
 
-        for folder in target_folders:
-            if not folder.exists():
-                continue
+        if not target_nodes_dir.exists():
+            log.warning(f"Latest run {latest_run.name} has no 'nodes' directory.")
+            return []
 
-            log.info(f"Scanning for resume nodes in: {folder}")
-            found_in_folder = []
-            for file_path in folder.glob("*.svg"):
-                match = pattern.search(file_path.name)
-                if match:
-                    try:
-                        node_id = int(match.group(1))
-                        with file_path.open(encoding="utf-8") as f:
-                            found_in_folder.append((node_id, f.read()))
-                        self._max_id = max(self._max_id, node_id)
-                    except Exception as e:
-                        log.error(f"Failed to read {file_path.name}: {e}")
+        log.info(f"Resuming nodes from latest run: {latest_run.name}")
 
-            if found_in_folder:
-                resumed_data = found_in_folder
-                break
+        resumed_data = []
+        id_pattern = re.compile(r"node(\d+)")
+
+        for file_path in sorted(target_nodes_dir.glob("*.svg")):
+            try:
+                content = file_path.read_text(encoding="utf-8").strip()
+                if not content:
+                    continue
+
+                # Use ID from name if found, otherwise increment
+                match = id_pattern.search(file_path.name)
+                node_id = int(match.group(1)) if match else (self._max_id + 1)
+
+                resumed_data.append((node_id, content))
+                self._max_id = max(self._max_id, node_id)
+                log.info(f"Found node for resume: {file_path.name} (ID: {node_id})")
+            except Exception as e:
+                log.error(f"Failed to read resume node {file_path.name}: {e}")
 
         return sorted(resumed_data, key=lambda x: x[0])
 
     def save_node(self, node: SearchNode[SvgStatePayload]) -> None:
+        """
+        Writes the node's SVG and PNG to the current run's nodes directory.
+        This is called during re-scoring (resume) and during active search.
+        """
         if self.nodes_dir is None or self.lineage_csv is None:
-            raise RuntimeError("Storage initialized call missing.")
+            return
 
         self._max_id = max(self._max_id, node.id)
-        fn = (
-            f"score{node.score:012.6f}_node{node.id:05d}_parent{node.parent_id:05d}.svg"
+
+        # Standard filename: score_nodeID_parentID
+        base_fn = (
+            f"score{node.score:012.6f}_node{node.id:05d}_parent{node.parent_id:05d}"
         )
-        path = self.nodes_dir / fn
 
+        # 1. Save SVG
         if node.state.payload.svg:
-            with path.open("w", encoding="utf-8") as f:
-                f.write(node.state.payload.svg)
+            svg_path = self.nodes_dir / f"{base_fn}.svg"
+            svg_path.write_text(node.state.payload.svg, encoding="utf-8")
 
+        # 2. Save PNG (crucial for LLM vision context on next resume)
+        if node.state.payload.raster_preview_data_url:
+            try:
+                header, encoded = node.state.payload.raster_preview_data_url.split(
+                    ",", 1
+                )
+                png_path = self.nodes_dir / f"{base_fn}.png"
+                png_path.write_bytes(base64.b64decode(encoded))
+            except Exception as e:
+                log.debug(f"Could not save preview PNG: {e}")
+
+        # 3. Update Lineage CSV
         exists = self.lineage_csv.is_file()
         with self.lineage_csv.open("a", encoding="utf-8", newline="") as f:
-            w = csv.writer(f)
+            writer = csv.writer(f)
             if not exists:
-                w.writerow(
+                writer.writerow(
                     ["id", "parent", "secondary_parent", "score", "temp", "summary"]
                 )
-            w.writerow(
+            writer.writerow(
                 [
                     node.id,
                     node.parent_id,
@@ -128,12 +151,12 @@ class FileStorageAdapter:
             )
 
     def save_final_svg(self, svg_content: str) -> None:
-        with self.output_svg_path.open("w", encoding="utf-8") as f:
-            f.write(svg_content)
+        # Write to the main output path
+        self.output_svg_path.write_text(svg_content, encoding="utf-8")
 
+        # Keep a backup in the project folder
         self.project_dir.mkdir(parents=True, exist_ok=True)
-        final_backup = self.project_dir / f"best_{self.output_svg_path.name}"
-        with final_backup.open("w", encoding="utf-8") as f:
-            f.write(svg_content)
+        backup_path = self.project_dir / f"best_{self.output_svg_path.name}"
+        backup_path.write_text(svg_content, encoding="utf-8")
 
-        log.info(f"Updated best SVG at: {self.output_svg_path}")
+        log.info(f"Final SVG saved to: {self.output_svg_path}")

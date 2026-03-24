@@ -9,7 +9,6 @@ def build_svg_gen_prompt(
     svg_prev_invalid_msg: str | None = None,
     rasterized_svg_data_url: str | None = None,
     change_summary: str | None = None,
-    custom_goal: str | None = None,
 ) -> list[dict[str, Any]]:
     lines = [
         "You are a world-class SVG developer. Convert the input raster into a "
@@ -20,11 +19,6 @@ def build_svg_gen_prompt(
         "3. Fixed Viewport: Use the same width/height/viewBox for all iterations.",
         f"Context: Iteration #{iter_index}.",
     ]
-
-    if custom_goal:
-        lines.extend(
-            ["USER SPECIFIC GOAL:", custom_goal, "Prioritize this instruction."]
-        )
 
     if svg_prev is None:
         lines.append("First attempt: Create a high-level structural blocking.")
@@ -37,8 +31,11 @@ def build_svg_gen_prompt(
                 f"CRITICAL: Previous SVG failed to parse: {svg_prev_invalid_msg}. "
                 "Fix syntax."
             )
-        if change_summary:
-            lines.extend(["PRIORITY FIXES:", change_summary])
+
+    if change_summary:
+        lines.extend(["PRIORITY FIXES:", change_summary])
+
+    if svg_prev is not None:
         lines.extend(["CURRENT SVG CODE TO MODIFY:", svg_prev])
 
     content = [
@@ -51,15 +48,28 @@ def build_svg_gen_prompt(
 
 
 def build_summarize_prompt(
-    original_data_url: str, rasterized_svg_data_url: str | None
+    original_data_url: str,
+    rasterized_svg_data_url: str | None,
+    custom_goal: str | None = None,
 ) -> list[dict[str, Any]]:
-    text = (
-        "Compare the original image (first) to the current SVG render (second).\n"
-        "Provide 3-5 concise, actionable bullet points to improve the likeness.\n"
-        "Output ONLY the bullet points."
-    )
+    lines = [
+        "Compare the original image (first) to the current SVG render (second).",
+        "Provide 3-5 concise, actionable bullet points to improve the likeness.",
+    ]
+
+    if custom_goal:
+        lines.extend(
+            [
+                "USER SPECIFIC GOAL:",
+                custom_goal,
+                "Prioritize this instruction when generating your bullet points.",
+            ]
+        )
+
+    lines.append("Output ONLY the bullet points.")
+
     content = [
-        {"type": "input_text", "text": text},
+        {"type": "input_text", "text": "\n".join(lines)},
         {"type": "input_image", "image_url": original_data_url},
     ]
     if rasterized_svg_data_url:
