@@ -9,14 +9,18 @@ def build_svg_gen_prompt(
     svg_prev_invalid_msg: str | None = None,
     rasterized_svg_data_url: str | None = None,
     change_summary: str | None = None,
+    diff_data_url: str | None = None,
 ) -> list[dict[str, Any]]:
     lines = [
-        "You are a world-class SVG developer. Convert the input raster into a "
-        "CLEAN, optimized SVG.",
+        "You are a world-class SVG developer. Convert the input raster into a CLEAN,"
+        " optimized SVG.",
         "RULES:",
-        "1. Output ONLY the raw <svg>...</svg> code. No markdown, no text.",
-        "2. Use SEMANTIC GROUPING: Wrap related paths in <g id='name'>.",
-        "3. Fixed Viewport: Use the same width/height/viewBox for all iterations.",
+        "1. Scratchpad: Think step-by-step in a <plan>...</plan> block about "
+        "coordinates and geometry before writing code.",
+        "2. Output ONLY the raw <svg>...</svg> code immediately after your "
+        "<plan>. No markdown.",
+        "3. Use SEMANTIC GROUPING: Wrap related paths in <g id='name'>.",
+        "4. Fixed Viewport: Use the same width/height/viewBox for all iterations.",
         f"Context: Iteration #{iter_index}.",
     ]
 
@@ -40,10 +44,24 @@ def build_svg_gen_prompt(
 
     content = [
         {"type": "input_text", "text": "\n".join(lines)},
+        {"type": "input_text", "text": "Target Image:"},
         {"type": "input_image", "image_url": original_data_url},
     ]
+
     if rasterized_svg_data_url:
+        content.append({"type": "input_text", "text": "Your Current SVG Render:"})
         content.append({"type": "input_image", "image_url": rasterized_svg_data_url})
+
+    if diff_data_url:
+        content.append(
+            {
+                "type": "input_text",
+                "text": "Difference Map (Target vs Current Render - "
+                "bright pixels indicate geometric/color errors):",
+            }
+        )
+        content.append({"type": "input_image", "image_url": diff_data_url})
+
     return content
 
 
@@ -58,24 +76,32 @@ def build_summarize_prompt(
         "to the current SVG render (second).",
         "Provide 3-5 concise, technical bullet points to improve the likeness.",
         "GUIDELINES:",
-        "- Use SVG terminology: refer to 'stroke-width', 'opacity', 'coordinates', or 'viewBox'.",
-        "- Categorize feedback: [Geometry/Layout], [Typography/Text], or [Color/Style].",
-        "- Be spatially specific: instead of 'move up', say 'shift the y-coordinate higher'.",
+        "- Use SVG terminology: refer to 'stroke-width', 'opacity', "
+        "'coordinates', or 'viewBox'.",
+        "- Categorize feedback: [Geometry/Layout], [Typography/Text], "
+        "or [Color/Style].",
+        "- Be spatially specific: instead of 'move up', say 'shift the "
+        "y-coordinate higher'.",
     ]
 
     if previous_summary:
-        lines.extend([
-            "PREVIOUS FEEDBACK GIVEN:",
-            previous_summary,
-            "Identify if these points were ignored and emphasize them if still relevant."
-        ])
+        lines.extend(
+            [
+                "PREVIOUS FEEDBACK GIVEN:",
+                previous_summary,
+                "Identify if these points were ignored and emphasize "
+                "them if still relevant.",
+            ]
+        )
 
     if custom_goal:
-        lines.extend([
-            "USER SPECIFIC GOAL:",
-            custom_goal,
-            "Prioritize this instruction over all other visual improvements.",
-        ])
+        lines.extend(
+            [
+                "USER SPECIFIC GOAL:",
+                custom_goal,
+                "Prioritize this instruction over all other visual improvements.",
+            ]
+        )
 
     lines.append("Output ONLY the bullet points.")
 
@@ -104,9 +130,16 @@ def build_crossover_prompt(
 
 
 def extract_svg_fragment(raw: str) -> str:
+    # Use rfind to avoid matching <svg> tags discussed inside the <plan> block
     lower = raw.lower()
-    start_idx = lower.find("<svg")
     end_idx = lower.rfind("</svg>")
+    if end_idx != -1:
+        start_idx = lower.rfind("<svg", 0, end_idx)
+        if start_idx != -1:
+            return raw[start_idx : end_idx + 6].strip()
+
+    # Fallback
+    start_idx = lower.find("<svg")
     if start_idx != -1 and end_idx != -1:
         return raw[start_idx : end_idx + 6].strip()
     return raw.strip()

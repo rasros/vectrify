@@ -1,3 +1,4 @@
+import base64
 import io
 import logging
 import multiprocessing as mp
@@ -5,7 +6,7 @@ import multiprocessing as mp
 from PIL import Image
 
 from svgizer.diff import get_scorer
-from svgizer.image_utils import rasterize_svg_to_png_bytes
+from svgizer.image_utils import generate_diff_data_url, rasterize_svg_to_png_bytes
 from svgizer.llm import LLMConfig, get_provider
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.svg.adapter import SvgResultPayload
@@ -41,7 +42,6 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
 
     except Exception as e:
         log.critical(f"Worker failed initialization: {e!r}")
-        result_q.put({"init_error": repr(e)})
         return
 
     while True:
@@ -96,6 +96,28 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     )
                     change_summary = client.generate(sum_prompt, sum_config)
 
+                diff_data_url = None
+                if parent.payload.raster_data_url:
+                    _, encoded = parent.payload.raster_data_url.split(",", 1)
+                    cand_bytes = base64.b64decode(encoded)
+                    diff_data_url = generate_diff_data_url(
+                        worker_params["original_png_bytes"],
+                        cand_bytes,
+                        worker_params.get("image_long_side", 512),
+                    )
+                elif parent.payload.svg:
+                    # Fallback for when write_lineage is False in tests
+                    cand_bytes = rasterize_svg_to_png_bytes(
+                        parent.payload.svg,
+                        out_w=worker_params["original_w"],
+                        out_h=worker_params["original_h"],
+                    )
+                    diff_data_url = generate_diff_data_url(
+                        worker_params["original_png_bytes"],
+                        cand_bytes,
+                        worker_params.get("image_long_side", 512),
+                    )
+
                 gen_config = LLMConfig(
                     model=model_name, temperature=temp, reasoning=reasoning
                 )
@@ -103,7 +125,11 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     worker_params["image_data_url"],
                     task.parent_id,
                     svg_prev=parent.payload.svg,
+                    rasterized_svg_data_url=parent_preview
+                    if parent.payload.svg
+                    else None,
                     change_summary=change_summary,
+                    diff_data_url=diff_data_url,
                 )
                 raw = client.generate(gen_prompt, gen_config)
 

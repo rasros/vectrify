@@ -142,6 +142,7 @@ def run_svg_search(
         "original_png_bytes": original_png_bytes,
         "original_w": original_w,
         "original_h": original_h,
+        "image_long_side": image_long_side,
         "log_level": log_level,
         "scorer_type": scorer_type,
         "goal": goal,
