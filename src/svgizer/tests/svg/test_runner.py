@@ -40,8 +40,14 @@ def test_run_svg_search_end_to_end(tmp_path):
         write_lineage=False,
     )
 
-    assert out_svg_path.is_file(), "Final SVG file was not saved to storage."
+    # Since save_final_svg is removed, we check the nodes directory
+    assert storage.nodes_dir is not None, "Nodes directory was not initialized."
+    assert storage.nodes_dir.is_dir(), "Nodes directory does not exist."
 
-    with out_svg_path.open(encoding="utf-8") as f:
+    svg_files = list(storage.nodes_dir.glob("*.svg"))
+    assert len(svg_files) > 0, "No SVG files were saved to the nodes directory."
+
+    # Verify the contents of the latest generated SVG
+    with svg_files[-1].open(encoding="utf-8") as f:
         content = f.read().lower()
         assert "<svg" in content, "Output does not contain valid SVG syntax."
