@@ -1,1 +1,1 @@
-# image-to-svg
+# svgizer
