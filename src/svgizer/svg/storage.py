@@ -1,4 +1,3 @@
-import base64
 import csv
 import hashlib
 import logging
@@ -138,18 +137,7 @@ class FileStorageAdapter:
             svg_path = self.nodes_dir / f"{base_fn}.svg"
             svg_path.write_text(node.state.payload.svg, encoding="utf-8")
 
-        # 2. Save PNG (crucial for LLM vision context on next resume)
-        if node.state.payload.raster_preview_data_url:
-            try:
-                _header, encoded = node.state.payload.raster_preview_data_url.split(
-                    ",", 1
-                )
-                png_path = self.nodes_dir / f"{base_fn}.png"
-                png_path.write_bytes(base64.b64decode(encoded))
-            except Exception as e:
-                log.debug(f"Could not save preview PNG: {e}")
-
-        # 3. Update Lineage CSV
+        # 2. Update Lineage CSV
         svg_md5 = (
             hashlib.md5(node.state.payload.svg.encode()).hexdigest()
             if node.state.payload.svg
