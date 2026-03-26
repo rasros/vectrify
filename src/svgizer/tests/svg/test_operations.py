@@ -297,3 +297,38 @@ def test_mutate_with_micro_search():
     assert isinstance(res, str)
     assert "<svg" in res
     assert "mutation" in summary.lower()
+
+
+# ---------------------------------------------------------------------------
+# mutate_drop_style_property
+# ---------------------------------------------------------------------------
+
+SVG_STYLED = (
+    f'<svg xmlns="{NS}"><rect style="fill:red; stroke:blue; opacity:0.5"/></svg>'
+)
+SVG_SINGLE_PROP = f'<svg xmlns="{NS}"><rect style="fill:red"/></svg>'
+SVG_NO_STYLE = f'<svg xmlns="{NS}"><rect width="10"/></svg>'
+
+
+def test_mutate_drop_style_property_removes_one_property():
+    result = mutate_drop_style_property(SVG_STYLED)
+    root = ET.fromstring(result)
+    rect = root.find(f"{{{NS}}}rect")
+    assert rect is not None
+    props = [p.strip() for p in rect.get("style", "").split(";") if p.strip()]
+    assert len(props) == 2  # started with 3, one removed
+
+
+def test_mutate_drop_style_property_single_prop_unchanged():
+    result = mutate_drop_style_property(SVG_SINGLE_PROP)
+    assert result == SVG_SINGLE_PROP
+
+
+def test_mutate_drop_style_property_no_style_unchanged():
+    result = mutate_drop_style_property(SVG_NO_STYLE)
+    assert result == SVG_NO_STYLE
+
+
+def test_mutate_drop_style_property_invalid_svg_unchanged():
+    result = mutate_drop_style_property("not xml")
+    assert result == "not xml"

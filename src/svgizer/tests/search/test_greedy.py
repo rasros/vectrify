@@ -19,6 +19,12 @@ def test_select_parent_always_picks_best(strategy):
     assert selected_id == 2
 
 
+def test_select_parent_empty_list_returns_zero(strategy):
+    selected_id, secondary = strategy.select_parent([], progress=0.0)
+    assert selected_id == 0
+    assert secondary is None
+
+
 def test_create_new_state_applies_score(strategy):
     res = Result(
         task_id=1,

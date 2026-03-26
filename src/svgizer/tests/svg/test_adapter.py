@@ -101,3 +101,25 @@ def test_create_new_state_precomputed_takes_priority_over_raster_png():
     result = _make_result(raster_png=_make_png(), preview_data_url=precomputed)
     state = adapter.create_new_state(result)
     assert state.payload.raster_preview_data_url == precomputed
+
+
+# ---------------------------------------------------------------------------
+# create_new_state: write_lineage handling
+# ---------------------------------------------------------------------------
+
+
+def test_create_new_state_write_lineage_sets_raster_data_url():
+    """write_lineage=True + raster_png → raster_data_url is populated."""
+    adapter = _make_adapter(write_lineage=True)
+    result = _make_result(raster_png=_make_png())
+    state = adapter.create_new_state(result)
+    assert state.payload.raster_data_url is not None
+    assert state.payload.raster_data_url.startswith("data:image/png;base64,")
+
+
+def test_create_new_state_no_lineage_raster_data_url_is_none():
+    """write_lineage=False → raster_data_url is None regardless of raster_png."""
+    adapter = _make_adapter(write_lineage=False)
+    result = _make_result(raster_png=_make_png())
+    state = adapter.create_new_state(result)
+    assert state.payload.raster_data_url is None

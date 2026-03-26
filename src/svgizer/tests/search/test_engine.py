@@ -212,3 +212,91 @@ def test_engine_respects_max_total_tasks():
 
     engine.run(initial_nodes=[dummy_node], max_accepts=10, max_wall_seconds=None)
     assert True
+
+
+def test_engine_active_pool_bounded():
+    """Pool size must not exceed active_pool_size after many accepts."""
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.max_seen = 0
+
+        def select_parent(
+            self, nodes: list[SearchNode], progress: float
+        ) -> tuple[int, int | None]:
+            _ = progress
+            self.max_seen = max(self.max_seen, len(nodes))
+            return 1, None
+
+    strat = TrackingStrategy()
+    store = FakeStorage()
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, storage=store)
+
+    for i in range(10):
+        engine.result_q.put(
+            Result(
+                task_id=i + 1,
+                parent_id=1,
+                worker_slot=0,
+                valid=True,
+                score=float(i) * 0.01,
+                payload="p",
+            )
+        )
+
+    initial_node = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial_node],
+        max_accepts=10,
+        max_wall_seconds=None,
+        active_pool_size=3,
+    )
+    assert strat.max_seen <= 4  # initial 1 + at most active_pool_size
+
+
+def test_engine_init_error_raises():
+    """Worker init_error dict must raise RuntimeError."""
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage()
+    )
+    engine.result_q.put({"init_error": "missing API key"})
+
+    initial_node = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    import pytest
+
+    with pytest.raises(RuntimeError, match="Worker initialization failed"):
+        engine.run(initial_nodes=[initial_node], max_accepts=10, max_wall_seconds=None)
+
+
+def test_engine_score_fn_none_with_unscored_result_raises():
+    """score=None result without score_fn must raise RuntimeError."""
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage()
+    )
+    engine.result_q.put(
+        Result(
+            task_id=1,
+            parent_id=1,
+            worker_slot=0,
+            valid=True,
+            score=None,
+            payload="p",
+        )
+    )
+
+    initial_node = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    import pytest
+
+    with pytest.raises(RuntimeError, match="no score and no score_fn"):
+        engine.run(
+            initial_nodes=[initial_node],
+            max_accepts=10,
+            max_wall_seconds=None,
+            score_fn=None,
+        )
