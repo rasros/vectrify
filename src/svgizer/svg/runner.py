@@ -43,6 +43,8 @@ def run_svg_search(
     llm_model: str,
     reasoning: str,
     write_lineage: bool = True,
+    patience: int | None = None,
+    min_delta: float = 1e-4,
 ) -> None:
     setup_logger(log_level)
 
@@ -141,4 +143,4 @@ def run_svg_search(
     }
 
     engine.start_workers(worker_loop, worker_params)
-    engine.run(initial_nodes, max_accepts, max_wall_seconds)
+    engine.run(initial_nodes, max_accepts, max_wall_seconds, patience, min_delta)

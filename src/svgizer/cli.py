@@ -111,6 +111,22 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--patience",
+        type=int,
+        default=0,
+        help=(
+            "Stop early if best score does not improve by --min-delta over this many "
+            "consecutive tasks. 0 disables early stopping."
+        ),
+    )
+    parser.add_argument(
+        "--min-delta",
+        type=float,
+        default=1e-4,
+        help="Minimum absolute score improvement required to reset the patience counter.",
+    )
+
+    parser.add_argument(
         "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
     )
 

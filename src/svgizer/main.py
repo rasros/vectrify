@@ -72,6 +72,8 @@ def main():
             llm_model=model,
             reasoning=args.reasoning,
             write_lineage=args.write_lineage,
+            patience=args.patience or None,
+            min_delta=args.min_delta,
         )
     except KeyboardInterrupt:
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)

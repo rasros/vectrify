@@ -46,12 +46,16 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_nodes: list[SearchNode[TState]],
         max_accepts: int,
         max_wall_seconds: float | None,
+        patience: int | None = None,
+        min_delta: float = 1e-4,
     ) -> None:
         start_time = time.monotonic()
         node_states = {n.id: n.state for n in initial_nodes}
         accepted_nodes = list(initial_nodes)
 
         best_node = min(initial_nodes, key=lambda n: n.score) if initial_nodes else None
+        patience_best = best_node.score if best_node else float("inf")
+        no_improve_tasks = 0
 
         next_task_id = 1
         tasks_completed = 0
@@ -79,6 +83,12 @@ class MultiprocessSearchEngine(Generic[TState]):
                     break
                 if tasks_completed >= self.max_total_tasks:
                     log.warning("Max task limit reached.")
+                    break
+                if patience and no_improve_tasks >= patience:
+                    log.info(
+                        f"Patience exhausted: no improvement >= {min_delta} "
+                        f"over {patience} consecutive tasks."
+                    )
                     break
 
                 while in_flight < self.workers and next_task_id <= self.max_total_tasks:
@@ -117,6 +127,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                 in_flight -= 1
                 tasks_completed += 1
+                no_improve_tasks += 1
 
                 if not res.valid:
                     log.debug(f"Task {res.task_id} invalid: {res.invalid_msg}")
@@ -138,6 +149,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                 accepted_nodes.append(new_node)
                 node_states[new_node.id] = new_state
                 accepted_count += 1
+
+                if new_node.score <= patience_best - min_delta:
+                    patience_best = new_node.score
+                    no_improve_tasks = 0
 
                 if best_node is None or new_node.score < best_node.score:
                     best_node = new_node
