@@ -240,16 +240,22 @@ class MultiprocessSearchEngine(Generic[TState]):
                     worst_idx = max(
                         range(len(active_pool)), key=lambda i: active_pool[i].score
                     )
-                    active_pool.pop(worst_idx)
+                    evicted_node = active_pool.pop(worst_idx)
+
+                    if evicted_node is new_node:
+                        # Failed to enter the pool, reject it.
+                        if res.task_id in diverse_task_ids:
+                            diverse_task_ids.discard(res.task_id)
+                            diverse_interval = min(diverse_interval + 5, 25)
+
+                        log.debug(
+                            f"[REJECTED] node={new_node.id} score={new_node.score:.6f} (worse than pool)"
+                        )
+                        continue
 
                 if res.task_id in diverse_task_ids:
                     diverse_task_ids.discard(res.task_id)
-                    if new_node in active_pool:
-                        # Success: reset backoff
-                        diverse_interval = 5
-                    else:
-                        # Failed to improve pool: backoff exponentially up to max
-                        diverse_interval = min(diverse_interval * 2, 200)
+                    diverse_interval = 5
 
                 node_states[new_node.id] = new_state
                 accepted_count += 1
