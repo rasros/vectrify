@@ -80,6 +80,7 @@ def main():
             similarity_threshold=args.similarity_threshold,
             epoch_diversity=args.epoch_diversity,
             max_epochs=None if args.max_epochs < 0 else args.max_epochs + 1,
+            epoch_pool_size=args.epoch_seeds or None,
             dreamsim_type=args.dreamsim_type,
         )
     except KeyboardInterrupt:

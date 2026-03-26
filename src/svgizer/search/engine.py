@@ -55,6 +55,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         score_fn: Callable[[Result], float] | None = None,
         seed_tasks: int = 0,
         max_epochs: int | None = None,
+        epoch_pool_size: int | None = None,
     ) -> None:
         start_time = time.monotonic()
 
@@ -280,7 +281,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                             f"(no_improve={epoch_no_improve}, pool={len(active_pool)})"
                         )
                         epoch += 1
-                        seeds = self.strategy.epoch_seeds(active_pool, active_pool_size)
+                        n_seeds = epoch_pool_size or max(1, active_pool_size // 4)
+                        seeds = self.strategy.epoch_seeds(active_pool, n_seeds)
                         if seeds:
                             active_pool = seeds
                         epoch_no_improve = 0

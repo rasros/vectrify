@@ -190,6 +190,17 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--epoch-seeds",
+        type=int,
+        default=0,
+        dest="epoch_seeds",
+        help=(
+            "Number of Pareto-front nodes carried into each new epoch. "
+            "0 defaults to pool-size // 4."
+        ),
+    )
+
+    parser.add_argument(
         "--epoch-patience",
         type=int,
         default=0,

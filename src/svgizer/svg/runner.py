@@ -105,6 +105,7 @@ def run_svg_search(
     similarity_threshold: float = 0.97,
     epoch_diversity: float = 0.10,
     max_epochs: int | None = None,
+    epoch_pool_size: int | None = None,
     dreamsim_type: str = "ensemble",
 ) -> None:
     setup_logger(log_level)
@@ -321,4 +322,5 @@ def run_svg_search(
         score_fn=score_fn,
         seed_tasks=epoch0_seed_tasks,
         max_epochs=max_epochs,
+        epoch_pool_size=epoch_pool_size,
     )
