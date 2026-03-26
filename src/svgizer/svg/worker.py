@@ -20,6 +20,7 @@ from svgizer.svg.operations import (
     mutate_with_micro_search,
 )
 from svgizer.svg.prompts import (
+    build_crossover_prompt,
     build_summarize_prompt,
     build_svg_gen_prompt,
     extract_svg_fragment,
@@ -69,12 +70,27 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
         try:
             if task.secondary_parent_state and task.secondary_parent_state.payload.svg:
                 secondary_svg = task.secondary_parent_state.payload.svg
-                svg, change_summary = crossover_with_micro_search(
-                    svg_a=parent.payload.svg,
-                    svg_b=secondary_svg,
-                    orig_img_fast=orig_img_fast,
-                    num_trials=15,
-                )
+                if use_llm:
+                    change_summary = "LLM crossover"
+                    gen_config = LLMConfig(model=model_name, reasoning=reasoning)
+                    gen_prompt = build_crossover_prompt(
+                        worker_params["image_data_url"],
+                        parent.payload.svg,
+                        secondary_svg,
+                    )
+                    log.info(
+                        f"LLM call [crossover] task={task.task_id} "
+                        f"p1={task.parent_id} p2={task.secondary_parent_id}"
+                    )
+                    raw = client.generate(gen_prompt, gen_config)
+                    svg = extract_svg_fragment(raw)
+                else:
+                    svg, change_summary = crossover_with_micro_search(
+                        svg_a=parent.payload.svg,
+                        svg_b=secondary_svg,
+                        orig_img_fast=orig_img_fast,
+                        num_trials=15,
+                    )
 
             elif use_llm:
                 # force_diverse: generate from scratch to seed a new lineage.

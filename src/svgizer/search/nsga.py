@@ -100,7 +100,7 @@ def crowding_distance(
                 - objectives[sorted_front[k - 1].id][m]
             ) / obj_range
 
-        return distances
+    return distances
 
 
 class NsgaStrategy(Generic[TState]):
@@ -223,7 +223,9 @@ class NsgaStrategy(Generic[TState]):
             for i, j in sample_pairs
         ) / len(sample_pairs)
 
-        log.info(f"Evaluated pool diversity (mean NCD): {mean_ncd:.4f} (Threshold: {self.diversity_boost_threshold})")
+        log.info(
+            f"Evaluated pool diversity (mean NCD): {mean_ncd:.4f}."
+        )
 
         return mean_ncd < self.diversity_boost_threshold
 
