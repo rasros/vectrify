@@ -8,7 +8,7 @@ from svgizer.score.dreamsim import DreamSimScorer
 
 @pytest.fixture(scope="module")
 def scorer():
-    s = DreamSimScorer(device="cpu")
+    s = DreamSimScorer(device="cpu", dreamsim_type="dino_vitb16")
     try:
         s.validate_environment()
     except ImportError as e:
@@ -16,7 +16,7 @@ def scorer():
     return s
 
 
-def _png(color: str, size: int = 64) -> bytes:
+def _png(color: str, size: int = 8) -> bytes:
     img = Image.new("RGB", (size, size), color=color)
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -24,14 +24,14 @@ def _png(color: str, size: int = 64) -> bytes:
 
 
 def test_identical_image_scores_zero(scorer):
-    ref_img = Image.new("RGB", (64, 64), color="red")
+    ref_img = Image.new("RGB", (8, 8), color="red")
     ref = scorer.prepare_reference(ref_img)
     score = scorer.score(ref, _png("red"))
     assert score == pytest.approx(0.0, abs=0.05)
 
 
 def test_different_image_scores_higher(scorer):
-    ref_img = Image.new("RGB", (64, 64), color="red")
+    ref_img = Image.new("RGB", (8, 8), color="red")
     ref = scorer.prepare_reference(ref_img)
     score_same = scorer.score(ref, _png("red"))
     score_diff = scorer.score(ref, _png("blue"))
@@ -39,7 +39,7 @@ def test_different_image_scores_higher(scorer):
 
 
 def test_score_is_in_unit_range(scorer):
-    ref_img = Image.new("RGB", (64, 64), color="green")
+    ref_img = Image.new("RGB", (8, 8), color="green")
     ref = scorer.prepare_reference(ref_img)
     for color in ("green", "red", "blue", "white", "black"):
         score = scorer.score(ref, _png(color))
@@ -47,20 +47,18 @@ def test_score_is_in_unit_range(scorer):
 
 
 def test_score_handles_size_mismatch(scorer):
-    ref_img = Image.new("RGB", (128, 128), color="red")
+    ref_img = Image.new("RGB", (16, 16), color="red")
     ref = scorer.prepare_reference(ref_img)
-    # Candidate is a different resolution
-    score = scorer.score(ref, _png("red", size=32))
+    score = scorer.score(ref, _png("red", size=4))
     assert 0.0 <= score <= 1.0
 
 
 def test_validate_environment_does_not_raise(scorer):
-    # If we got here, validate_environment already passed in the fixture.
     scorer.validate_environment()
 
 
 def test_load_is_idempotent(scorer):
-    ref_img = Image.new("RGB", (64, 64), color="white")
+    ref_img = Image.new("RGB", (8, 8), color="white")
     ref1 = scorer.prepare_reference(ref_img)
     ref2 = scorer.prepare_reference(ref_img)
     s1 = scorer.score(ref1, _png("white"))
