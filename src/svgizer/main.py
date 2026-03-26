@@ -61,7 +61,6 @@ def main():
         run_svg_search(
             image_path=args.image,
             storage=storage,
-            max_accepts=args.max_accepts,
             workers=args.workers,
             image_long_side=args.image_long_side,
             max_wall_seconds=args.max_wall_seconds,
@@ -78,8 +77,9 @@ def main():
             llm_rate=args.llm_rate,
             pool_size=args.pool_size,
             seed_tasks=args.seed_tasks,
-            diversity_threshold=args.diversity_threshold,
-            diversity_boost_threshold=args.diversity_boost_threshold,
+            similarity_threshold=args.similarity_threshold,
+            min_diversity=args.min_diversity,
+            max_epochs=args.max_epochs or None,
         )
     except KeyboardInterrupt:
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)

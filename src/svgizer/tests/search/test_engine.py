@@ -118,7 +118,7 @@ def test_engine_respects_max_wall_seconds(monkeypatch):
 
 
 def test_engine_epoch_patience_triggers_transition():
-    """epoch_patience triggers epoch transition (not global stop) after N stale tasks."""
+    """epoch_patience triggers epoch transition after N stale tasks."""
 
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
@@ -204,7 +204,7 @@ def test_engine_epoch_patience_resets_on_improvement():
         epoch_patience=2,
         min_delta=0.1,
     )
-    # With improvement at task 1 resetting the counter, epoch ends at task 3 (2 no-improves after reset)
+    # Task 1 improves → counter resets; epoch ends at task 3 (2 no-improves after reset)
     assert strat.epoch_seeds_calls >= 1
     assert store.save_called
 

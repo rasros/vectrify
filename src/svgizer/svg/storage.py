@@ -77,10 +77,7 @@ class FileStorageAdapter:
 
         for file_path in target_nodes_dir.glob("*.svg"):
             match = file_pattern.match(file_path.name)
-            if match:
-                node_id = int(match.group(2))
-            else:
-                node_id = self._max_id + 1
+            node_id = int(match.group(2)) if match else self._max_id + 1
 
             self._max_id = max(self._max_id, node_id)
             parsed_files.append((node_id, file_path))
@@ -122,6 +119,7 @@ class FileStorageAdapter:
                         "id",
                         "parent",
                         "secondary_parent",
+                        "epoch",
                         "score",
                         "complexity",
                         "summary",
@@ -133,6 +131,7 @@ class FileStorageAdapter:
                     node.id,
                     node.parent_id,
                     node.secondary_parent_id or "",
+                    node.epoch,
                     f"{node.score:.6f}",
                     f"{node.complexity:.0f}",
                     node.state.payload.change_summary or "",

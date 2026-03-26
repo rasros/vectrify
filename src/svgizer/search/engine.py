@@ -47,13 +47,14 @@ class MultiprocessSearchEngine(Generic[TState]):
     def run(
         self,
         initial_nodes: list[SearchNode[TState]],
-        max_accepts: int,
-        max_wall_seconds: float | None,
+        max_accepts: int = 2_000_000_000,
+        max_wall_seconds: float | None = None,
         epoch_patience: int | None = None,
         min_delta: float = 1e-4,
         active_pool_size: int = 20,
         score_fn: Callable[[Result], float] | None = None,
         seed_tasks: int = 0,
+        max_epochs: int | None = None,
     ) -> None:
         start_time = time.monotonic()
 
@@ -133,6 +134,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if tasks_completed >= self.max_total_tasks:
                     log.warning("Max task limit reached.")
                     break
+                if max_epochs is not None and epoch >= max_epochs:
+                    log.info(f"Max epochs ({max_epochs}) reached.")
+                    break
 
                 while in_flight < self.workers and next_task_id <= self.max_total_tasks:
                     progress = (
@@ -182,7 +186,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if not res.valid:
                     if res.llm_type:
                         log.info(
-                            f"[{res.llm_type.upper()} INVALID] task={res.task_id} msg={res.invalid_msg}"
+                            f"[{res.llm_type.upper()} INVALID] "
+                            f"task={res.task_id} msg={res.invalid_msg}"
                         )
                     elif res.invalid_msg == "Duplicate genome":
                         log.debug(f"Task {res.task_id} rejected: duplicate genome.")
@@ -210,6 +215,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     secondary_parent_id=res.secondary_parent_id,
                     complexity=res.complexity,
                     signature=res.signature,
+                    epoch=epoch,
                 )
 
                 active_pool.append(new_node)
@@ -222,11 +228,14 @@ class MultiprocessSearchEngine(Generic[TState]):
                     if evicted_node is new_node:
                         if res.llm_type:
                             log.info(
-                                f"[{res.llm_type.upper()} REJECTED] node={new_node.id} score={new_node.score:.6f} (worse than pool)"
+                                f"[{res.llm_type.upper()} REJECTED] "
+                                f"node={new_node.id} score={new_node.score:.6f}"
+                                " (worse than pool)"
                             )
                         else:
                             log.debug(
-                                f"[REJECTED] node={new_node.id} score={new_node.score:.6f} (worse than pool)"
+                                f"[REJECTED] node={new_node.id} "
+                                f"score={new_node.score:.6f} (worse than pool)"
                             )
                         continue
 
@@ -241,20 +250,22 @@ class MultiprocessSearchEngine(Generic[TState]):
                     best_node = new_node
                     if res.llm_type:
                         log.info(
-                            f"[{res.llm_type.upper()} NEW BEST] node={new_node.id} score={new_node.score:.6f} "
+                            f"[{res.llm_type.upper()} NEW BEST] "
+                            f"node={new_node.id} score={new_node.score:.6f}"
                         )
                     else:
                         log.info(
-                            f"[NEW BEST] node={new_node.id} score={new_node.score:.6f} "
+                            f"[NEW BEST] node={new_node.id} score={new_node.score:.6f}"
                         )
                 else:
                     if res.llm_type:
                         log.info(
-                            f"[{res.llm_type.upper()} ACCEPTED] node={new_node.id} score={new_node.score:.6f} "
+                            f"[{res.llm_type.upper()} ACCEPTED] "
+                            f"node={new_node.id} score={new_node.score:.6f}"
                         )
                     else:
                         log.debug(
-                            f"[ACCEPTED] node={new_node.id} score={new_node.score:.6f} "
+                            f"[ACCEPTED] node={new_node.id} score={new_node.score:.6f}"
                         )
 
                 self.storage.save_node(new_node)
@@ -286,7 +297,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                             min(valid_scores) if valid_scores else float("inf")
                         )
                         log.info(
-                            f"Epoch {epoch}: seeded with {len(active_pool)} Pareto-front nodes."
+                            f"Epoch {epoch}: seeded with "
+                            f"{len(active_pool)} Pareto-front nodes."
                         )
 
         finally:

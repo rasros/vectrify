@@ -22,6 +22,7 @@ class SearchNode(Generic[TState]):
     secondary_parent_id: int | None = dataclasses.field(default=None, compare=False)
     complexity: float = dataclasses.field(default=0.0, compare=False)
     signature: tuple[int, ...] | None = dataclasses.field(default=None, compare=False)
+    epoch: int = dataclasses.field(default=0, compare=False)
 
 
 @dataclasses.dataclass

@@ -23,7 +23,6 @@ def test_run_svg_search_end_to_end(tmp_path):
     run_svg_search(
         image_path=str(img_path),
         storage=storage,
-        max_accepts=1,
         workers=1,
         image_long_side=64,
         max_wall_seconds=None,
@@ -35,6 +34,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         llm_provider="openai",
         llm_model="gpt-5.4-nano",
         write_lineage=False,
+        max_epochs=1,
     )
 
     assert storage.nodes_dir is not None

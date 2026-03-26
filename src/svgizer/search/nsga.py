@@ -91,13 +91,13 @@ class NsgaStrategy(Generic[TState]):
         self,
         pool_size: int = 20,
         crossover_prob: float = 0.25,
-        diversity_threshold: float = 0.97,
-        diversity_boost_threshold: float = 0.10,
+        similarity_threshold: float = 0.97,
+        min_diversity: float = 0.10,
     ):
         self.pool_size = pool_size
         self.crossover_prob = crossover_prob
-        self.diversity_threshold = diversity_threshold
-        self.diversity_boost_threshold = diversity_boost_threshold
+        self.similarity_threshold = similarity_threshold
+        self.min_diversity = min_diversity
 
     @property
     def top_k_count(self) -> int:
@@ -108,7 +108,7 @@ class NsgaStrategy(Generic[TState]):
             return False
 
         sim = estimate_jaccard(node.signature, other.signature)
-        return sim >= self.diversity_threshold
+        return sim >= self.similarity_threshold
 
     def select_parent(
         self, nodes: list[SearchNode[TState]], progress: float
@@ -193,7 +193,7 @@ class NsgaStrategy(Generic[TState]):
                     node.signature
                     and s.signature
                     and estimate_jaccard(node.signature, s.signature)
-                    >= self.diversity_threshold
+                    >= self.similarity_threshold
                     for s in seeds
                 ):
                     seeds.append(node)
@@ -217,7 +217,7 @@ class NsgaStrategy(Generic[TState]):
             for i, j in sample_pairs
         ) / len(sample_pairs)
 
-        return mean_distance < self.diversity_boost_threshold
+        return mean_distance < self.min_diversity
 
     def create_new_state(self, result: Result[TState]) -> ChainState[TState]:
         return ChainState(score=result.score, payload=result.payload)

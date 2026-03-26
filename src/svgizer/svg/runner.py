@@ -36,7 +36,6 @@ log = logging.getLogger("main")
 def run_svg_search(
     image_path: str,
     storage: StorageAdapter,
-    max_accepts: int,
     workers: int,
     image_long_side: int,
     max_wall_seconds: float | None,
@@ -53,8 +52,9 @@ def run_svg_search(
     llm_rate: float = 0.2,
     pool_size: int = 20,
     seed_tasks: int = -1,
-    diversity_threshold: float = 0.97,
-    diversity_boost_threshold: float = 0.10,
+    similarity_threshold: float = 0.97,
+    min_diversity: float = 0.10,
+    max_epochs: int | None = None,
 ) -> None:
     setup_logger(log_level)
 
@@ -207,8 +207,8 @@ def run_svg_search(
         base_strategy = NsgaStrategy[SvgStatePayload](
             pool_size=pool_size,
             crossover_prob=0.25,
-            diversity_threshold=diversity_threshold,
-            diversity_boost_threshold=diversity_boost_threshold,
+            similarity_threshold=similarity_threshold,
+            min_diversity=min_diversity,
         )
 
     seed_target = pool_size // 10 if seed_tasks < 0 else seed_tasks
@@ -250,11 +250,11 @@ def run_svg_search(
     engine.start_workers(worker_loop, worker_params)
     engine.run(
         initial_nodes,
-        max_accepts,
-        max_wall_seconds,
-        epoch_patience,
-        min_delta,
-        pool_size,
-        score_fn,
-        epoch0_seed_tasks,
+        max_wall_seconds=max_wall_seconds,
+        epoch_patience=epoch_patience,
+        min_delta=min_delta,
+        active_pool_size=pool_size,
+        score_fn=score_fn,
+        seed_tasks=epoch0_seed_tasks,
+        max_epochs=max_epochs,
     )

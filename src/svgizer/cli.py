@@ -4,7 +4,7 @@ import os
 from svgizer.score import ScorerType
 from svgizer.search import StrategyType
 
-DEFAULT_MAX_ACCEPTS = 1000
+DEFAULT_MAX_EPOCHS = 0
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 0
 DEFAULT_RESUME = False
@@ -13,8 +13,8 @@ DEFAULT_IMAGE_LONG_SIDE = 512
 DEFAULT_REASONING = "medium"
 DEFAULT_LLM_RATE = 1 / DEFAULT_WORKERS
 DEFAULT_POOL_SIZE = 200
-DEFAULT_DIVERSITY_THRESHOLD = 0.97
-DEFAULT_DIVERSITY_BOOST_THRESHOLD = 0.10
+DEFAULT_SIMILARITY_THRESHOLD = 0.97
+DEFAULT_MIN_DIVERSITY = 0.10
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -69,10 +69,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--max-accepts",
+        "--max-epochs",
         type=int,
-        default=DEFAULT_MAX_ACCEPTS,
-        help="Number of successful refinements to reach.",
+        default=DEFAULT_MAX_EPOCHS,
+        dest="max_epochs",
+        help="Maximum number of epochs to run (0 for unlimited).",
     )
     parser.add_argument(
         "--workers",
@@ -148,23 +149,24 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--diversity-threshold",
+        "--similarity-threshold",
         type=float,
-        default=DEFAULT_DIVERSITY_THRESHOLD,
+        default=DEFAULT_SIMILARITY_THRESHOLD,
+        dest="similarity_threshold",
         help=(
-            f"NCD/edit-distance ratio above which nodes are considered near-duplicates "
-            f"during selection filtering. Default: {DEFAULT_DIVERSITY_THRESHOLD}."
+            f"Jaccard similarity above which two genomes are near-duplicates "
+            f"and filtered during selection. Default: {DEFAULT_SIMILARITY_THRESHOLD}."
         ),
     )
 
     parser.add_argument(
-        "--diversity-boost-threshold",
+        "--min-diversity",
         type=float,
-        default=DEFAULT_DIVERSITY_BOOST_THRESHOLD,
+        default=DEFAULT_MIN_DIVERSITY,
+        dest="min_diversity",
         help=(
-            f"Mean NCD threshold below which the pool is considered converged, "
-            f"triggering a fresh LLM diversity seed. "
-            f"Default: {DEFAULT_DIVERSITY_BOOST_THRESHOLD}."
+            f"Mean pairwise diversity below which the pool is considered converged, "
+            f"triggering an epoch transition. Default: {DEFAULT_MIN_DIVERSITY}."
         ),
     )
 
@@ -197,8 +199,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if ns.max_wall_seconds is not None and ns.max_wall_seconds <= 0:
         ns.max_wall_seconds = None
 
-    if ns.max_accepts <= 0 or ns.workers <= 0 or ns.pool_size <= 0:
-        raise SystemExit("Error: --max-accepts, --workers, and --pool-size must be > 0")
+    if ns.max_epochs < 0:
+        raise SystemExit("Error: --max-epochs cannot be negative")
+    if ns.workers <= 0 or ns.pool_size <= 0:
+        raise SystemExit("Error: --workers and --pool-size must be > 0")
     if ns.image_long_side < 0:
         raise SystemExit("Error: Configuration values cannot be negative")
 
