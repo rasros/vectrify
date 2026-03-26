@@ -55,7 +55,8 @@ def run_svg_search(
     original_img.save(buf, format="PNG")
     original_png_bytes = buf.getvalue()
 
-    scorer = get_scorer(scorer_type)
+    api_key = os.getenv(f"{llm_provider.upper()}_API_KEY")
+    scorer = get_scorer(scorer_type, provider_name=llm_provider, api_key=api_key)
     scoring_ref = scorer.prepare_reference(original_img)
 
     storage.initialize()
@@ -125,7 +126,6 @@ def run_svg_search(
     )
 
     model_png = downscale_png_bytes(original_png_bytes, image_long_side)
-    api_key_env_var = f"{llm_provider.upper()}_API_KEY"
 
     worker_params = {
         "image_data_url": png_bytes_to_data_url(model_png),
@@ -139,7 +139,7 @@ def run_svg_search(
         "llm_provider": llm_provider,
         "llm_model": llm_model,
         "reasoning": reasoning,
-        "api_key": os.getenv(api_key_env_var),
+        "api_key": api_key,
         "total_workers": workers,
     }
 

@@ -32,7 +32,11 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
         reasoning = worker_params.get("reasoning", "medium")
 
         client = get_provider(provider_name, api_key)
-        scorer = get_scorer(worker_params["scorer_type"])
+        scorer = get_scorer(
+            worker_params["scorer_type"],
+            provider_name=provider_name,
+            api_key=api_key,
+        )
 
         original_rgb = Image.open(
             io.BytesIO(worker_params["original_png_bytes"])
