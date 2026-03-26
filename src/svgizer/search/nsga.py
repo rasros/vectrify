@@ -8,7 +8,8 @@ Objectives:
 Both objectives are normalised to [0, 1] within the active population before
 Pareto sorting, so they contribute equally to dominance.
 
-Selection uses binary tournament on (Pareto front rank ASC, crowding distance DESC).
+Selection uses binary tournament on
+(Pareto front rank ASC, crowding distance DESC).
 
 Diversity: when building the selection pool, near-duplicate nodes (normalised
 edit distance >= diversity_threshold) are skipped to prevent crossover waste.
@@ -107,12 +108,13 @@ class NsgaStrategy(Generic[TState]):
     Both objectives are normalised within the active population so neither dominates.
 
     Args:
-        pool_size:          Max nodes in the selection pool, ordered by Pareto rank
-                            then crowding distance.
-        crossover_prob:     Probability of selecting two parents instead of one.
+        pool_size:                  Max nodes in the selection pool, ordered by Pareto
+                                    rank then crowding distance.
+        crossover_prob:             Probability of selecting two parents instead of one.
         diversity_threshold: Normalised edit-distance ratio above which two nodes are
                             considered near-duplicates. The lower-quality duplicate is
                             dropped from the pool. Set to 1.0 to disable.
+        diversity_boost_threshold: Mean NCD below which to recommend LLM seeding.
     """
 
     def __init__(
@@ -206,7 +208,13 @@ class NsgaStrategy(Generic[TState]):
             return False
         n = len(candidates)
         all_pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
-        sample_pairs = random.sample(all_pairs, min(8, len(all_pairs)))
+
+        # Exhaustive NCD check for small/resumed pools, sample for large ones
+        if len(all_pairs) <= 28:
+            sample_pairs = all_pairs
+        else:
+            sample_pairs = random.sample(all_pairs, 8)
+
         mean_ncd = sum(
             ncd(candidates[i].content, candidates[j].content)  # type: ignore[arg-type]
             for i, j in sample_pairs

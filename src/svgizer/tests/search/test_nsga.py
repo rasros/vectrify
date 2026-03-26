@@ -313,3 +313,39 @@ def test_pool_size_one_always_returns_same_node():
     nodes = [make_node(i, i * 0.1, complexity=float(i * 100)) for i in range(1, 6)]
     selected = {strategy.select_parent(nodes, 0.0)[0] for _ in range(20)}
     assert selected == {1}
+
+
+# ---------------------------------------------------------------------------
+# should_diversify tests
+# ---------------------------------------------------------------------------
+
+
+def test_should_diversify_small_pool_needs_boost():
+    """A small homogenous pool triggers diversity boost exhaustively."""
+    strategy = NsgaStrategy(diversity_boost_threshold=0.5)
+    nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 5)]
+    assert strategy.should_diversify(nodes) is True
+
+
+def test_should_diversify_large_pool_needs_boost():
+    """A large homogenous pool triggers diversity boost via sampling."""
+    strategy = NsgaStrategy(diversity_boost_threshold=0.5)
+    nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 21)]
+    assert strategy.should_diversify(nodes) is True
+
+
+def test_should_not_diversify_diverse_pool():
+    """A highly diverse pool does not trigger the boost."""
+    strategy = NsgaStrategy(diversity_boost_threshold=0.01)
+    nodes = [
+        make_node(i, 0.1, content=f"<svg><circle r='{i}'/></svg>") for i in range(1, 5)
+    ]
+    assert strategy.should_diversify(nodes) is False
+
+
+def test_should_not_diversify_too_few_nodes():
+    """A pool that is too small shouldn't be prematurely checked."""
+    strategy = NsgaStrategy(diversity_boost_threshold=0.99)
+    nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 4)]
+    # < 4 nodes returns False early
+    assert strategy.should_diversify(nodes) is False

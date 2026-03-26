@@ -40,7 +40,7 @@ class SearchStrategy(Protocol[TState]):
 
     def should_diversify(self, pool: list[SearchNode]) -> bool:
         """Return True when the pool has converged and fresh LLM seeds are needed."""
-        return False
+        ...
 
     @property
     def top_k_count(self) -> int: ...

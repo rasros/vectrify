@@ -26,6 +26,10 @@ class FakeStrategy:
             payload="new_fake_payload",
         )
 
+    def should_diversify(self, pool: list[SearchNode]) -> bool:
+        _ = pool
+        return False
+
 
 class FakeStorage:
     def __init__(self):

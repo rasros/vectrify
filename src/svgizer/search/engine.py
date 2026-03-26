@@ -11,6 +11,8 @@ from svgizer.search.models import Result, SearchNode, Task
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
 
+_DIVERSE_INTERVAL = 5  # max one diversity seed per N tasks dispatched
+
 
 class MultiprocessSearchEngine(Generic[TState]):
     def __init__(
@@ -51,6 +53,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         active_pool_size: int = 20,
         score_fn: Callable[[Result], float] | None = None,
         warmup_tasks: int = 0,
+        warmup_diverse: int = 0,
     ) -> None:
         start_time = time.monotonic()
         node_states = {n.id: n.state for n in initial_nodes}
@@ -67,8 +70,10 @@ class MultiprocessSearchEngine(Generic[TState]):
         tasks_completed = 0
         accepted_count = 0
         in_flight = 0
-        tasks_since_diverse = 0
-        _DIVERSE_INTERVAL = 5  # max one diversity seed per N tasks dispatched
+
+        tasks_since_diverse = (
+            _DIVERSE_INTERVAL  # Start at threshold to evaluate immediately
+        )
 
         next_node_id = max(
             self.storage.max_node_id, max((n.id for n in initial_nodes), default=0)
@@ -76,7 +81,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         log.info(
             f"Search started. Initial best: {best_node.score if best_node else 'N/A'}"
-            + (f" Warmup: {warmup_tasks} LLM tasks." if warmup_tasks > 0 else "")
         )
 
         try:
@@ -108,9 +112,20 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                     is_warmup = next_task_id <= warmup_tasks
                     force_diverse = False
-                    if not is_warmup and tasks_since_diverse >= _DIVERSE_INTERVAL:
+
+                    if next_task_id <= warmup_diverse:
+                        force_diverse = True
+                    elif not is_warmup and tasks_since_diverse >= _DIVERSE_INTERVAL:
                         force_diverse = self.strategy.should_diversify(active_pool)
-                    tasks_since_diverse = 0 if force_diverse else tasks_since_diverse + 1
+                        if force_diverse:
+                            log.warning(
+                                "Pool diversity critically low. "
+                                "Dispatching fresh LLM seed."
+                            )
+
+                    tasks_since_diverse = (
+                        0 if force_diverse else tasks_since_diverse + 1
+                    )
 
                     self.task_q.put(
                         Task(

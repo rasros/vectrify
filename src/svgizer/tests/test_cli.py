@@ -1,6 +1,12 @@
 import pytest
 
-from svgizer.cli import DEFAULT_LLM_RATE, DEFAULT_POOL_SIZE, parse_args
+from svgizer.cli import (
+    DEFAULT_DIVERSITY_BOOST_THRESHOLD,
+    DEFAULT_DIVERSITY_THRESHOLD,
+    DEFAULT_LLM_RATE,
+    DEFAULT_POOL_SIZE,
+    parse_args,
+)
 from svgizer.search import StrategyType
 
 
@@ -70,6 +76,12 @@ def test_default_pool_size():
 def test_default_llm_rate():
     args = parse_args(["img.png"])
     assert args.llm_rate == DEFAULT_LLM_RATE
+
+
+def test_default_diversity_thresholds():
+    args = parse_args(["img.png"])
+    assert args.diversity_threshold == DEFAULT_DIVERSITY_THRESHOLD
+    assert args.diversity_boost_threshold == DEFAULT_DIVERSITY_BOOST_THRESHOLD
 
 
 def test_default_patience_zero():

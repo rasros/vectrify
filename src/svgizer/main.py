@@ -78,6 +78,8 @@ def main():
             llm_rate=args.llm_rate,
             pool_size=args.pool_size,
             warmup_llm=args.warmup_llm,
+            diversity_threshold=args.diversity_threshold,
+            diversity_boost_threshold=args.diversity_boost_threshold,
         )
     except KeyboardInterrupt:
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)

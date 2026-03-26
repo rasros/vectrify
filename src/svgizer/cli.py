@@ -13,6 +13,8 @@ DEFAULT_IMAGE_LONG_SIDE = 1024
 DEFAULT_REASONING = "medium"
 DEFAULT_LLM_RATE = 1 / DEFAULT_WORKERS
 DEFAULT_POOL_SIZE = 200
+DEFAULT_DIVERSITY_THRESHOLD = 0.97
+DEFAULT_DIVERSITY_BOOST_THRESHOLD = 0.10
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -142,6 +144,27 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
             "Target number of LLM-seeded nodes before switching to hybrid mode. "
             "Resumed nodes count toward this. "
             "Defaults to pool-size // 10 when -1."
+        ),
+    )
+
+    parser.add_argument(
+        "--diversity-threshold",
+        type=float,
+        default=DEFAULT_DIVERSITY_THRESHOLD,
+        help=(
+            f"NCD/edit-distance ratio above which nodes are considered near-duplicates "
+            f"during selection filtering. Default: {DEFAULT_DIVERSITY_THRESHOLD}."
+        ),
+    )
+
+    parser.add_argument(
+        "--diversity-boost-threshold",
+        type=float,
+        default=DEFAULT_DIVERSITY_BOOST_THRESHOLD,
+        help=(
+            f"Mean NCD threshold below which the pool is considered converged, "
+            f"triggering a fresh LLM diversity seed. "
+            f"Default: {DEFAULT_DIVERSITY_BOOST_THRESHOLD}."
         ),
     )
 

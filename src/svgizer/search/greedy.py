@@ -21,6 +21,7 @@ class GreedyHillClimbingStrategy(Generic[TState]):
         return best_node.id, None
 
     def should_diversify(self, pool: list[SearchNode[TState]]) -> bool:
+        _ = pool
         return False
 
     def create_new_state(self, result: Result) -> ChainState[TState]:

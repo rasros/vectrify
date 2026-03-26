@@ -76,9 +76,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                         svg_prev=None,
                         force_diverse=True,
                     )
-                    log.info(
-                        f"LLM call [diverse-seed] task={task.task_id} model={model_name}"
-                    )
+                    log.info(f"LLM call [diverse-seed] task={task.task_id}")
                     raw = client.generate(gen_prompt, gen_config)
                     svg = extract_svg_fragment(raw)
                 else:
@@ -96,9 +94,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                             previous_summary=parent.payload.change_summary,
                         )
                         sum_config = LLMConfig(model=model_name, reasoning=reasoning)
-                        log.info(
-                            f"LLM call [summarize] task={task.task_id} model={model_name}"
-                        )
+                        log.info(f"LLM call [summarize] task={task.task_id}")
                         change_summary = client.generate(sum_prompt, sum_config)
 
                     diff_data_url = None
