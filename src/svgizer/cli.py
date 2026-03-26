@@ -1,6 +1,6 @@
 import argparse
 
-from svgizer.diff import ScorerType
+from svgizer.score import ScorerType
 from svgizer.search import StrategyType
 
 DEFAULT_MAX_ACCEPTS = 32

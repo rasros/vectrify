@@ -2,7 +2,7 @@ import io
 
 from PIL import Image
 
-from svgizer.diff.simple import SimpleFallbackScorer
+from svgizer.score.simple import SimpleFallbackScorer
 
 
 def test_simple_fallback_scorer_identical():

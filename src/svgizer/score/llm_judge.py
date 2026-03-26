@@ -7,10 +7,10 @@ from typing import Any
 from PIL import Image
 from PIL.Image import Resampling
 
-from svgizer.diff.base import DiffScorer
-from svgizer.diff.utils import lab_l1
 from svgizer.image_utils import png_bytes_to_data_url
 from svgizer.llm import LLMConfig, get_provider
+from svgizer.score.base import Scorer
+from svgizer.score.utils import lab_l1
 
 log = logging.getLogger(__name__)
 TIE_BREAKER_WEIGHT = 0.01
@@ -50,7 +50,7 @@ def _build_judge_prompt(reference_url: str, candidate_url: str) -> list[dict[str
     ]
 
 
-class LLMJudgeScorer(DiffScorer):
+class LLMJudgeScorer(Scorer):
     def __init__(
         self,
         provider_name: str = "openai",

@@ -7,9 +7,9 @@ from typing import TYPE_CHECKING, Any
 import numpy as np
 from PIL import Image
 
-from svgizer.diff.base import DEFAULT_CONFIG, DiffScorer
-from svgizer.diff.utils import get_device, lab_l1
 from svgizer.image_utils import resize_long_side
+from svgizer.score.base import DEFAULT_CONFIG, Scorer
+from svgizer.score.utils import get_device, lab_l1
 
 if TYPE_CHECKING:
     import torch
@@ -23,7 +23,7 @@ class DreamSimReference:
     tensor: "torch.Tensor"
 
 
-class DreamSimScorer(DiffScorer):
+class DreamSimScorer(Scorer):
     def __init__(self):
         self._model: Any | None = None
         self._preprocess: Callable | None = None

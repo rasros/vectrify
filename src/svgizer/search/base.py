@@ -9,6 +9,7 @@ TState = TypeVar("TState")
 class StrategyType(str, Enum):
     GENETIC = "genetic"
     GREEDY = "greedy"
+    NSGA = "nsga"
 
 
 class SearchStrategy(Protocol[TState]):

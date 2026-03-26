@@ -1,10 +1,10 @@
 import logging
 from enum import Enum
 
-from svgizer.diff.base import DiffScorer, ScoreConfig
-from svgizer.diff.dreamsim import DreamSimScorer
-from svgizer.diff.llm_judge import LLMJudgeScorer
-from svgizer.diff.simple import SimpleFallbackScorer
+from svgizer.score.base import ScoreConfig, Scorer
+from svgizer.score.dreamsim import DreamSimScorer
+from svgizer.score.llm_judge import LLMJudgeScorer
+from svgizer.score.simple import SimpleFallbackScorer
 
 log = logging.getLogger(__name__)
 
@@ -16,16 +16,16 @@ class ScorerType(str, Enum):
     LLM = "llm"
 
 
-SCORER_REGISTRY: dict[ScorerType, type[DiffScorer]] = {
+SCORER_REGISTRY: dict[ScorerType, type[Scorer]] = {
     ScorerType.DREAMSIM: DreamSimScorer,
     ScorerType.SIMPLE: SimpleFallbackScorer,
     ScorerType.LLM: LLMJudgeScorer,
 }
 
-__all__ = ["DiffScorer", "ScoreConfig", "ScorerType", "get_scorer"]
+__all__ = ["ScoreConfig", "Scorer", "ScorerType", "get_scorer"]
 
 
-def get_scorer(scorer_type: ScorerType | str = ScorerType.AUTO) -> DiffScorer:
+def get_scorer(scorer_type: ScorerType | str = ScorerType.AUTO) -> Scorer:
     if isinstance(scorer_type, str):
         scorer_type = ScorerType(scorer_type.lower())
 

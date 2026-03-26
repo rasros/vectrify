@@ -131,6 +131,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     parent_id=res.parent_id,
                     state=new_state,
                     secondary_parent_id=res.secondary_parent_id,
+                    complexity=res.complexity,
                 )
 
                 accepted_nodes.append(new_node)

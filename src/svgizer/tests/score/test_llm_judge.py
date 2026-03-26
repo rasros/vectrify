@@ -4,8 +4,8 @@ import json
 import pytest
 from PIL import Image
 
-from svgizer.diff.llm_judge import LLMJudgeScorer
 from svgizer.llm import LLMConfig, get_provider
+from svgizer.score.llm_judge import LLMJudgeScorer
 
 
 @pytest.mark.llm

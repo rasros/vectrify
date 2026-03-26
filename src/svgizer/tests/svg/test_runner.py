@@ -1,7 +1,7 @@
 import pytest
 from PIL import Image
 
-from svgizer.diff import ScorerType
+from svgizer.score import ScorerType
 from svgizer.search import StrategyType
 from svgizer.svg.runner import run_svg_search
 from svgizer.svg.storage import FileStorageAdapter

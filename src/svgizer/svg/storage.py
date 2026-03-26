@@ -160,7 +160,15 @@ class FileStorageAdapter:
             writer = csv.writer(f)
             if not exists:
                 writer.writerow(
-                    ["id", "parent", "secondary_parent", "score", "summary", "svg_md5"]
+                    [
+                        "id",
+                        "parent",
+                        "secondary_parent",
+                        "score",
+                        "complexity",
+                        "summary",
+                        "svg_md5",
+                    ]
                 )
             writer.writerow(
                 [
@@ -168,6 +176,7 @@ class FileStorageAdapter:
                     node.parent_id,
                     node.secondary_parent_id or "",
                     f"{node.score:.6f}",
+                    f"{node.complexity:.0f}",
                     node.state.payload.change_summary or "",
                     svg_md5,
                 ]

@@ -4,7 +4,7 @@ from typing import Any, Protocol
 from PIL import Image
 
 
-class DiffScorer(Protocol):
+class Scorer(Protocol):
     """Protocol for algorithms that score image differences."""
 
     def prepare_reference(self, original_rgb: Image.Image) -> Any:

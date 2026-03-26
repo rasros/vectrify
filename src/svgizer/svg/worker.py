@@ -5,9 +5,10 @@ import multiprocessing as mp
 
 from PIL import Image
 
-from svgizer.diff import get_scorer
 from svgizer.image_utils import generate_diff_data_url, rasterize_svg_to_png_bytes
 from svgizer.llm import LLMConfig, get_provider
+from svgizer.score import get_scorer
+from svgizer.score.complexity import svg_complexity
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.svg.adapter import SvgResultPayload
 from svgizer.svg.prompts import (
@@ -123,6 +124,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                 out_h=worker_params["original_h"],
             )
             score = scorer.score(scoring_ref, png)
+            complexity = svg_complexity(svg)
 
             result_q.put(
                 Result(
@@ -135,6 +137,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                         svg=svg, raster_png=png, change_summary=change_summary
                     ),
                     secondary_parent_id=task.secondary_parent_id,
+                    complexity=complexity,
                 )
             )
 

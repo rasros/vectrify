@@ -6,9 +6,9 @@ import numpy as np
 from PIL import Image
 from PIL.Image import Resampling
 
-from svgizer.diff.base import DiffScorer
-from svgizer.diff.utils import lab_l1
 from svgizer.image_utils import resize_long_side
+from svgizer.score.base import Scorer
+from svgizer.score.utils import lab_l1
 
 log = logging.getLogger(__name__)
 
@@ -18,7 +18,7 @@ class SimpleReference:
     image: Image.Image
 
 
-class SimpleFallbackScorer(DiffScorer):
+class SimpleFallbackScorer(Scorer):
     def __init__(self, target_long_side: int = 256):
         self.target_long_side = target_long_side
 
