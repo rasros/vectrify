@@ -6,7 +6,7 @@ from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
 from svgizer.search.base import SearchStrategy, StorageAdapter
-from svgizer.search.models import SearchNode, Task
+from svgizer.search.models import Result, SearchNode, Task
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         patience: int | None = None,
         min_delta: float = 1e-4,
         active_pool_size: int = 20,
+        score_fn: Callable[[Result], float] | None = None,
     ) -> None:
         start_time = time.monotonic()
         node_states = {n.id: n.state for n in initial_nodes}
@@ -136,6 +137,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if not res.valid:
                     log.debug(f"Task {res.task_id} invalid: {res.invalid_msg}")
                     continue
+
+                if score_fn is not None:
+                    res.score = score_fn(res)
 
                 next_node_id += 1
                 new_state = self.strategy.create_new_state(res)

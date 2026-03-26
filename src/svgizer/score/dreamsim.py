@@ -1,6 +1,8 @@
 import io
 import logging
+import warnings
 from collections.abc import Callable
+from contextlib import redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
@@ -33,12 +35,19 @@ class DreamSimScorer(Scorer):
         if self._model is None:
             try:
                 import torch
-                from dreamsim import dreamsim
 
                 device = get_device()
-                model, preprocess = dreamsim(pretrained=True, device=device)
-                model.eval()
+                with (
+                    redirect_stdout(io.StringIO()),
+                    redirect_stderr(io.StringIO()),
+                    warnings.catch_warnings(),
+                ):
+                    warnings.simplefilter("ignore")
+                    from dreamsim import dreamsim
 
+                    model, preprocess = dreamsim(pretrained=True, device=device)
+
+                model.eval()
                 self._model = model
                 self._preprocess = preprocess
                 self._torch = torch

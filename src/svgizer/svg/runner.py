@@ -137,7 +137,6 @@ def run_svg_search(
         "original_h": original_h,
         "image_long_side": image_long_side,
         "log_level": log_level,
-        "scorer_type": scorer_type,
         "goal": goal,
         "llm_provider": llm_provider,
         "llm_model": llm_model,
@@ -147,7 +146,15 @@ def run_svg_search(
         "llm_rate": llm_rate,
     }
 
+    score_fn = lambda res: scorer.score(scoring_ref, res.payload.raster_png)
+
     engine.start_workers(worker_loop, worker_params)
     engine.run(
-        initial_nodes, max_accepts, max_wall_seconds, patience, min_delta, pool_size
+        initial_nodes,
+        max_accepts,
+        max_wall_seconds,
+        patience,
+        min_delta,
+        pool_size,
+        score_fn,
     )

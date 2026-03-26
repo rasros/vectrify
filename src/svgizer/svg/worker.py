@@ -1,14 +1,10 @@
 import base64
-import io
 import logging
 import multiprocessing as mp
 import random
 
-from PIL import Image
-
 from svgizer.image_utils import generate_diff_data_url, rasterize_svg_to_png_bytes
 from svgizer.llm import LLMConfig, get_provider
-from svgizer.score import get_scorer
 from svgizer.score.complexity import svg_complexity
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.svg.adapter import SvgResultPayload
@@ -44,16 +40,6 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
         llm_rate = float(worker_params["llm_rate"])
 
         client = get_provider(provider_name, api_key)
-        scorer = get_scorer(
-            worker_params["scorer_type"],
-            provider_name=provider_name,
-            api_key=api_key,
-        )
-
-        original_rgb = Image.open(
-            io.BytesIO(worker_params["original_png_bytes"])
-        ).convert("RGB")
-        scoring_ref = scorer.prepare_reference(original_rgb)
 
     except Exception as e:
         log.critical(f"Worker failed initialization: {e!r}")
@@ -159,7 +145,6 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                 out_w=worker_params["original_w"],
                 out_h=worker_params["original_h"],
             )
-            score = scorer.score(scoring_ref, png)
             complexity = svg_complexity(svg)
 
             result_q.put(
@@ -168,7 +153,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     parent_id=task.parent_id,
                     worker_slot=task.worker_slot,
                     valid=True,
-                    score=score,
+                    score=0.0,  # scored by main process via score_fn
                     payload=SvgResultPayload(
                         svg=svg, raster_png=png, change_summary=change_summary
                     ),
