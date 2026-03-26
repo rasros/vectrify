@@ -1,4 +1,25 @@
-accepts too often?
+Still not seeing llm result
+    INFO:svgizer.search.engine:Starting 20 worker processes...
+    INFO:svgizer.search.engine:Search started. Initial best: 0.01679123129514964
+    INFO:svgizer.search.engine:[NEW BEST] node=3462 score=0.016713
+    INFO:svgizer.search.engine:[NEW BEST] node=3630 score=0.016612
+    WARNING:svgizer.search.engine:Pool diversity low. Dispatching fresh seed (interval=5).
+    WARNING:svgizer.search.engine:Pool diversity low. Dispatching fresh seed (interval=5).
+    INFO:svgizer.search.engine:[NEW BEST] node=3675 score=0.016532
+    WARNING:svgizer.search.engine:Pool diversity low. Dispatching fresh seed (interval=5).
+    WARNING:svgizer.search.engine:Pool diversity low. Dispatching fresh seed (interval=10).
+    INFO:svgizer.search.engine:[NEW BEST] node=3752 score=0.016509
+    WARNING:svgizer.search.engine:Pool diversity low. Dispatching fresh seed (interval=20).
+    WARNING:svgizer.search.engine:Pool diversity low. Dispatching fresh seed (interval=40).
+    INFO:svgizer.search.engine:[NEW BEST] node=3779 score=0.016502
+    WARNING:svgizer.search.engine:Pool diversity low. Dispatching fresh seed (interval=80).
+    INFO:svgizer.search.engine:[NEW BEST] node=3797 score=0.016477
+    INFO:svgizer.search.engine:[NEW BEST] node=3806 score=0.016466
+
+
+diversity should only happen when use_llm is true
+diversity basically never work
+
 
 rerun profile.json
 
