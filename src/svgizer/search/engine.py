@@ -135,7 +135,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 no_improve_tasks += 1
 
                 if not res.valid:
-                    log.debug(f"Task {res.task_id} invalid: {res.invalid_msg}")
+                    log.warning(f"Task {res.task_id} rejected: {res.invalid_msg}")
                     continue
 
                 if res.score is None:

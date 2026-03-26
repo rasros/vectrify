@@ -126,6 +126,29 @@ def mutate_remove_node(svg: str) -> str:
         return svg
 
 
+def mutate_drop_style_property(svg: str) -> str:
+    """Remove one random CSS property from a style attribute."""
+    try:
+        root = ET.fromstring(svg)
+
+        styled = [el for el in root.iter() if el.get("style", "").strip()]
+        if not styled:
+            return svg
+
+        el = random.choice(styled)
+        props = [p.strip() for p in el.get("style", "").split(";") if p.strip()]
+        if len(props) <= 1:
+            return svg
+
+        props.pop(random.randrange(len(props)))
+        el.set("style", "; ".join(props))
+
+        ET.register_namespace("", SVG_NS)
+        return ET.tostring(root, encoding="unicode", method="xml")
+    except ET.ParseError:
+        return svg
+
+
 def mutate_numeric(svg: str) -> str:
     """Tweak a random numeric attribute value by a random +-10-30% factor."""
     try:

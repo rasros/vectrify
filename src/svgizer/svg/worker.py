@@ -10,6 +10,7 @@ from svgizer.search import INVALID_SCORE, Result
 from svgizer.svg.adapter import SvgResultPayload
 from svgizer.svg.operations import (
     crossover,
+    mutate_drop_style_property,
     mutate_numeric,
     mutate_remove_node,
     with_retries,
@@ -123,18 +124,25 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
             else:
                 # Local mutation: no LLM call
                 parent_svg = parent.payload.svg
-                if random.random() < 0.5:
+                roll = random.random()
+                if roll < 0.33:
                     svg = with_retries(
                         lambda s=parent_svg: mutate_remove_node(s),
                         fallback=parent_svg,
                     )
                     change_summary = "Mutation: removed node"
-                else:
+                elif roll < 0.66:
                     svg = with_retries(
                         lambda s=parent_svg: mutate_numeric(s),
                         fallback=parent_svg,
                     )
                     change_summary = "Mutation: tweaked value"
+                else:
+                    svg = with_retries(
+                        lambda s=parent_svg: mutate_drop_style_property(s),
+                        fallback=parent_svg,
+                    )
+                    change_summary = "Mutation: dropped style property"
 
             valid, err = is_valid_svg(svg)
             if not valid:
