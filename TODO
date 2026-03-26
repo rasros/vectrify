@@ -1,7 +1,3 @@
-scoring thread
-
-adding files to storage with identical content. they should always be rejected
-
 tqdm on resume mode and improved performance
 
 pool diversity creates entirely new genome, on a mature run it will never be accepted.

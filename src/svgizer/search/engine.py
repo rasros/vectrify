@@ -60,12 +60,25 @@ class MultiprocessSearchEngine(Generic[TState]):
     ) -> None:
         start_time = time.monotonic()
 
+        # Track seen genomes to avoid redundant evaluations and maintain diversity
+        seen_signatures: set[tuple[int, ...]] = {
+            n.signature for n in initial_nodes if n.signature
+        }
+
         def _scorer_worker():
             while True:
                 res = self.unscored_q.get()
                 if res is None:
                     self.result_q.put(None)
                     break
+
+                # Duplicate rejection via MinHash signature (skips scoring)
+                if res.valid and res.signature:
+                    if res.signature in seen_signatures:
+                        res.valid = False
+                        res.invalid_msg = "Duplicate genome"
+                    else:
+                        seen_signatures.add(res.signature)
 
                 try:
                     if res.valid and res.score is None and score_fn is not None:
@@ -183,7 +196,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                 no_improve_tasks += 1
 
                 if not res.valid:
-                    log.warning(f"Task {res.task_id} rejected: {res.invalid_msg}")
+                    if res.invalid_msg == "Duplicate genome":
+                        log.debug(f"Task {res.task_id} rejected: duplicate genome.")
+                    else:
+                        log.warning(f"Task {res.task_id} rejected: {res.invalid_msg}")
                     continue
 
                 if res.score is None:
