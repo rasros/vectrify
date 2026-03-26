@@ -12,8 +12,6 @@ log = logging.getLogger(__name__)
 
 
 class FileStorageAdapter:
-    RESUME_TOP_K = 8
-
     def __init__(
         self,
         output_svg_path: str,
@@ -48,10 +46,10 @@ class FileStorageAdapter:
         self.lineage_csv = self.current_run_dir / "lineage.csv"
         log.info(f"Storage initialized at: {self.current_run_dir}")
 
-    def load_resume_nodes(self) -> list[tuple[int, str]]:
+    def load_resume_nodes(self, max_nodes: int = 20) -> list[tuple[int, str]]:
         """
         Only if resume is true, check the latest past run directory
-        and ingest the top K SVGs found in its 'nodes' folder.
+        and ingest the top max_nodes SVGs found in its 'nodes' folder.
         """
         if not self.resume or not self.runs_dir.exists():
             return []
@@ -78,7 +76,7 @@ class FileStorageAdapter:
             return []
 
         log.info(
-            f"Resuming top {self.RESUME_TOP_K} nodes from latest run: {latest_run.name}"
+            f"Resuming top {max_nodes} nodes from latest run: {latest_run.name}"
         )
 
         file_pattern = re.compile(r"score([0-9.]+)_node(\d+)")
@@ -98,9 +96,9 @@ class FileStorageAdapter:
             self._max_id = max(self._max_id, node_id)
             parsed_files.append((score, node_id, file_path))
 
-        # Sort by score ascending (lower is better) and take top K
+        # Sort by score ascending (lower is better) and take top N
         parsed_files.sort(key=lambda x: x[0])
-        top_k_files = parsed_files[: self.RESUME_TOP_K]
+        top_k_files = parsed_files[:max_nodes]
 
         resumed_data = []
         for score, node_id, file_path in top_k_files:

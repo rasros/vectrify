@@ -56,7 +56,7 @@ class StorageAdapter(Protocol[TState]):
 
     def save_node(self, node: SearchNode[TState]) -> None: ...
 
-    def load_resume_nodes(self) -> list[tuple[int, str]]:
+    def load_resume_nodes(self, max_nodes: int = 20) -> list[tuple[int, str]]:
         """Returns raw IDs and SVG content for re-hydration."""
         ...
 

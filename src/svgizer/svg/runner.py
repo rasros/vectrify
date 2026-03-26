@@ -72,7 +72,7 @@ def run_svg_search(
     current_new_id = 1
 
     # 3. Resume Phase
-    resumed_items = storage.load_resume_nodes()
+    resumed_items = storage.load_resume_nodes(max_nodes=pool_size)
     if resumed_items:
         log.info(f"Resuming {len(resumed_items)} nodes. Re-scoring...")
         for old_id, svg_text in resumed_items:

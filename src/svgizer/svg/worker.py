@@ -1,11 +1,19 @@
 import base64
+import io
 import logging
 import multiprocessing as mp
 import random
 
-from svgizer.image_utils import generate_diff_data_url, rasterize_svg_to_png_bytes
+from PIL import Image
+
+from svgizer.image_utils import (
+    generate_diff_data_url,
+    rasterize_svg_to_png_bytes,
+    resize_long_side,
+)
 from svgizer.llm import LLMConfig, get_provider
 from svgizer.score.complexity import svg_complexity
+from svgizer.score.utils import lab_l1
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.svg.adapter import SvgResultPayload
 from svgizer.svg.operations import (
@@ -41,6 +49,14 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
         llm_rate = float(worker_params["llm_rate"])
 
         client = get_provider(provider_name, api_key)
+
+        # Setup fast local reference for CPU micro-search
+        orig_img = Image.open(io.BytesIO(worker_params["original_png_bytes"])).convert(
+            "RGB"
+        )
+        fast_eval_side = 128
+        orig_img_fast = resize_long_side(orig_img, fast_eval_side)
+        fast_w, fast_h = orig_img_fast.size
 
     except Exception as e:
         log.critical(f"Worker failed initialization: {e!r}")
@@ -135,27 +151,65 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     svg = extract_svg_fragment(raw)
 
             else:
-                # Local mutation: no LLM call
+                # Local mutation: Micro-search via fast CPU diff
                 parent_svg = parent.payload.svg
-                roll = random.random()
-                if roll < 0.33:
-                    svg = with_retries(
-                        lambda s=parent_svg: mutate_remove_node(s),
-                        fallback=parent_svg,
+                best_svg = parent_svg
+                best_fast_score = float("inf")
+                best_summary = "Mutation: no improvement"
+
+                # 1. Evaluate parent's baseline fast score
+                try:
+                    parent_png = rasterize_svg_to_png_bytes(
+                        parent_svg, out_w=fast_w, out_h=fast_h
                     )
-                    change_summary = "Mutation: removed node"
-                elif roll < 0.66:
-                    svg = with_retries(
-                        lambda s=parent_svg: mutate_numeric(s),
-                        fallback=parent_svg,
-                    )
-                    change_summary = "Mutation: tweaked value"
-                else:
-                    svg = with_retries(
-                        lambda s=parent_svg: mutate_drop_style_property(s),
-                        fallback=parent_svg,
-                    )
-                    change_summary = "Mutation: dropped style property"
+                    parent_img = Image.open(io.BytesIO(parent_png)).convert("RGB")
+                    best_fast_score = lab_l1(orig_img_fast, parent_img)
+                except Exception:
+                    pass
+
+                # 2. Try N rapid mutations, keep the one that improves the L1 score the most
+                num_micro_mutations = 15
+
+                for _ in range(num_micro_mutations):
+                    roll = random.random()
+                    if roll < 0.33:
+                        cand_svg = with_retries(
+                            lambda s=parent_svg: mutate_remove_node(s),
+                            fallback=parent_svg,
+                        )
+                        summary = "Mutation: removed node"
+                    elif roll < 0.66:
+                        cand_svg = with_retries(
+                            lambda s=parent_svg: mutate_numeric(s),
+                            fallback=parent_svg,
+                        )
+                        summary = "Mutation: tweaked value"
+                    else:
+                        cand_svg = with_retries(
+                            lambda s=parent_svg: mutate_drop_style_property(s),
+                            fallback=parent_svg,
+                        )
+                        summary = "Mutation: dropped style property"
+
+                    if cand_svg == parent_svg:
+                        continue
+
+                    try:
+                        cand_png = rasterize_svg_to_png_bytes(
+                            cand_svg, out_w=fast_w, out_h=fast_h
+                        )
+                        cand_img = Image.open(io.BytesIO(cand_png)).convert("RGB")
+                        score = lab_l1(orig_img_fast, cand_img)
+
+                        if score < best_fast_score:
+                            best_fast_score = score
+                            best_svg = cand_svg
+                            best_summary = summary
+                    except Exception:
+                        continue
+
+                svg = best_svg
+                change_summary = best_summary
 
             valid, err = is_valid_svg(svg)
             if not valid:
