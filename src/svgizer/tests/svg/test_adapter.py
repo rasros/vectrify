@@ -3,7 +3,7 @@ import io
 from PIL import Image
 
 from svgizer.search import GreedyHillClimbingStrategy
-from svgizer.search.models import ChainState, Result
+from svgizer.search.models import Result
 from svgizer.svg.adapter import SvgResultPayload, SvgStatePayload, SvgStrategyAdapter
 
 
@@ -27,10 +27,6 @@ def _make_result(
     raster_png: bytes | None = None,
     preview_data_url: str | None = None,
 ) -> Result:
-    parent_state = ChainState(
-        score=0.5,
-        payload=SvgStatePayload(svg, None, None, None, None),
-    )
     return Result(
         task_id=1,
         parent_id=0,

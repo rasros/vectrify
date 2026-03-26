@@ -24,6 +24,8 @@ def lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:
     t = _rgb_to_lab_transform()
     a_lab = ImageCms.applyTransform(a_rgb, t)
     b_lab = ImageCms.applyTransform(b_rgb, t)
+    if a_lab is None or b_lab is None:
+        raise RuntimeError("ImageCms.applyTransform returned None")
     diff = ImageChops.difference(a_lab, b_lab)
     stat = ImageStat.Stat(diff)
     mean_abs = float(sum(stat.mean) / 3.0)  # [0..255]
