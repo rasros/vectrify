@@ -117,8 +117,7 @@ def test_diff_data_url_identical_images_are_black():
     result = generate_diff_data_url(ref, ref, long_side=64)
     _, b64 = result.split(",", 1)
     img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-    pixels = list(img.getdata())
-    assert all(p == (0, 0, 0) for p in pixels)
+    assert all(p == (0, 0, 0) for p in img.getdata())
 
 
 def test_diff_data_url_different_images_are_nonzero():
@@ -128,8 +127,7 @@ def test_diff_data_url_different_images_are_nonzero():
     result = generate_diff_data_url(ref, cand, long_side=64)
     _, b64 = result.split(",", 1)
     img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-    pixels = list(img.getdata())
-    assert any(p != (0, 0, 0) for p in pixels)
+    assert any(p != (0, 0, 0) for p in img.getdata())
 
 
 def test_diff_data_url_handles_size_mismatch():

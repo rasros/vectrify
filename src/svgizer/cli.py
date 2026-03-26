@@ -15,7 +15,7 @@ DEFAULT_LLM_RATE = 1 / DEFAULT_WORKERS
 DEFAULT_POOL_SIZE = 200
 
 
-def parse_args(args: list[str] | None = None):
+def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "SVGizer: Evolutionary SVG approximation using Vision LLMs "
@@ -76,7 +76,7 @@ def parse_args(args: list[str] | None = None):
         "--workers",
         type=int,
         default=DEFAULT_WORKERS,
-        help=f"Number of parallel worker processes. Default: {DEFAULT_WORKERS} (CPU count).",
+        help=f"Parallel worker processes (default: {DEFAULT_WORKERS}, cpu count).",
     )
     parser.add_argument(
         "--max-wall-seconds",
@@ -118,7 +118,7 @@ def parse_args(args: list[str] | None = None):
         type=float,
         default=DEFAULT_LLM_RATE,
         help=(
-            f"Fraction of tasks (0.0–1.0) that call the LLM; the rest use local "
+            f"Fraction of tasks (0.0-1.0) that call the LLM; the rest use local "
             f"operations (crossover, mutations). Default: {DEFAULT_LLM_RATE}."
         ),
     )
@@ -146,21 +146,23 @@ def parse_args(args: list[str] | None = None):
         "--min-delta",
         type=float,
         default=1e-4,
-        help="Minimum absolute score improvement required to reset the patience counter.",
+        help=(
+            "Minimum absolute score improvement required to reset the patience counter."
+        ),
     )
 
     parser.add_argument(
         "--log-level", default="INFO", choices=["DEBUG", "INFO", "WARNING", "ERROR"]
     )
 
-    args = parser.parse_args(args)
+    ns = parser.parse_args(args)
 
-    if args.max_wall_seconds is not None and args.max_wall_seconds <= 0:
-        args.max_wall_seconds = None
+    if ns.max_wall_seconds is not None and ns.max_wall_seconds <= 0:
+        ns.max_wall_seconds = None
 
-    if args.max_accepts <= 0 or args.workers <= 0 or args.pool_size <= 0:
+    if ns.max_accepts <= 0 or ns.workers <= 0 or ns.pool_size <= 0:
         raise SystemExit("Error: --max-accepts, --workers, and --pool-size must be > 0")
-    if args.image_long_side < 0:
+    if ns.image_long_side < 0:
         raise SystemExit("Error: Configuration values cannot be negative")
 
-    return args
+    return ns

@@ -9,9 +9,19 @@ from svgizer.svg.operations import (
     with_retries,
 )
 
-SVG_A = '<svg xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="5"/><rect width="20" height="20"/></svg>'
-SVG_B = '<svg xmlns="http://www.w3.org/2000/svg"><ellipse rx="8" ry="4"/><line x1="0" y1="0" x2="10" y2="10"/></svg>'
-SVG_ONE = '<svg xmlns="http://www.w3.org/2000/svg"><rect width="100" height="50" rx="4" font-size="12" opacity="0.8"/></svg>'
+NS = "http://www.w3.org/2000/svg"
+SVG_A = (
+    f'<svg xmlns="{NS}"><circle cx="10" cy="10" r="5"/>'
+    f'<rect width="20" height="20"/></svg>'
+)
+SVG_B = (
+    f'<svg xmlns="{NS}"><ellipse rx="8" ry="4"/>'
+    f'<line x1="0" y1="0" x2="10" y2="10"/></svg>'
+)
+SVG_ONE = (
+    f'<svg xmlns="{NS}"><rect width="100" height="50" rx="4"'
+    f' font-size="12" opacity="0.8"/></svg>'
+)
 
 
 # ---------------------------------------------------------------------------
@@ -106,7 +116,7 @@ def test_mutate_numeric_still_valid_svg():
 
 
 def test_mutate_numeric_opacity_clamped():
-    svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect opacity="0.9" width="10" height="10"/></svg>'
+    svg = f'<svg xmlns="{NS}"><rect opacity="0.9" width="10" height="10"/></svg>'
     for _ in range(50):
         result = mutate_numeric(svg)
         root = ET.fromstring(result)

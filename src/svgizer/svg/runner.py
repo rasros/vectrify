@@ -146,7 +146,8 @@ def run_svg_search(
         "llm_rate": llm_rate,
     }
 
-    score_fn = lambda res: scorer.score(scoring_ref, res.payload.raster_png)
+    def score_fn(res):
+        return scorer.score(scoring_ref, res.payload.raster_png)
 
     engine.start_workers(worker_loop, worker_params)
     engine.run(

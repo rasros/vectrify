@@ -138,7 +138,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                     log.debug(f"Task {res.task_id} invalid: {res.invalid_msg}")
                     continue
 
-                if score_fn is not None:
+                if res.score is None:
+                    if score_fn is None:
+                        raise RuntimeError(
+                            "Result has no score and no score_fn provided"
+                        )
+                    res.score = score_fn(res)
+                elif score_fn is not None:
                     res.score = score_fn(res)
 
                 next_node_id += 1

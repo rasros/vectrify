@@ -153,7 +153,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     parent_id=task.parent_id,
                     worker_slot=task.worker_slot,
                     valid=True,
-                    score=0.0,  # scored by main process via score_fn
+                    score=None,  # scored by main process via score_fn
                     payload=SvgResultPayload(
                         svg=svg, raster_png=png, change_summary=change_summary
                     ),

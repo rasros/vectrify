@@ -127,7 +127,7 @@ def mutate_remove_node(svg: str) -> str:
 
 
 def mutate_numeric(svg: str) -> str:
-    """Tweak a random numeric attribute value by a random ±10–30% factor."""
+    """Tweak a random numeric attribute value by a random +-10-30% factor."""
     try:
         root = ET.fromstring(svg)
 
@@ -152,7 +152,7 @@ def mutate_numeric(svg: str) -> str:
             new_num = max(0.0, min(1.0, new_num))
 
         if not unit and num == int(num) and new_num >= 0:
-            elem.attrib[attr] = str(int(round(new_num)))
+            elem.attrib[attr] = str(round(new_num))
         else:
             formatted = f"{new_num:.3f}".rstrip("0").rstrip(".")
             elem.attrib[attr] = f"{formatted}{unit}"
