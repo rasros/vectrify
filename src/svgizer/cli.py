@@ -12,9 +12,9 @@ DEFAULT_WRITE_LINEAGE = True
 DEFAULT_IMAGE_LONG_SIDE = 512
 DEFAULT_REASONING = "medium"
 DEFAULT_LLM_RATE = 1 / DEFAULT_WORKERS
-DEFAULT_POOL_SIZE = 200
+DEFAULT_POOL_SIZE = 100
 DEFAULT_SIMILARITY_THRESHOLD = 0.97
-DEFAULT_MIN_DIVERSITY = 0.10
+DEFAULT_EPOCH_DIVERSITY = 0.0
 
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
@@ -179,13 +179,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
-        "--min-diversity",
+        "--epoch-diversity",
         type=float,
-        default=DEFAULT_MIN_DIVERSITY,
-        dest="min_diversity",
+        default=DEFAULT_EPOCH_DIVERSITY,
+        dest="epoch_diversity",
         help=(
-            f"Mean pairwise diversity below which the pool is considered converged, "
-            f"triggering an epoch transition. Default: {DEFAULT_MIN_DIVERSITY}."
+            "Trigger an epoch transition when mean pairwise genome diversity "
+            "drops below this threshold. 0 disables diversity-based epoch transitions."
         ),
     )
 

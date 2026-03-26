@@ -262,19 +262,19 @@ def test_pool_size_one_always_returns_same_node():
 
 
 def test_should_diversify_small_pool_needs_boost():
-    strategy = NsgaStrategy(min_diversity=0.5)
+    strategy = NsgaStrategy(epoch_diversity=0.5)
     nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 5)]
     assert strategy.should_diversify(nodes) is True
 
 
 def test_should_diversify_large_pool_needs_boost():
-    strategy = NsgaStrategy(min_diversity=0.5)
+    strategy = NsgaStrategy(epoch_diversity=0.5)
     nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 21)]
     assert strategy.should_diversify(nodes) is True
 
 
 def test_should_not_diversify_diverse_pool():
-    strategy = NsgaStrategy(min_diversity=0.01)
+    strategy = NsgaStrategy(epoch_diversity=0.01)
     nodes = [
         make_node(
             i, 0.1, content=f"<svg><circle r='{i * 1000}' cx='{i}' cy='{i}'/></svg>"
@@ -285,7 +285,7 @@ def test_should_not_diversify_diverse_pool():
 
 
 def test_should_not_diversify_too_few_nodes():
-    strategy = NsgaStrategy(min_diversity=0.99)
+    strategy = NsgaStrategy(epoch_diversity=0.99)
     nodes = [make_node(i, 0.1) for i in range(1, 4)]
     assert strategy.should_diversify(nodes) is False
 

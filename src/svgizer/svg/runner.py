@@ -103,7 +103,7 @@ def run_svg_search(
     pool_size: int = 20,
     seed_tasks: int = -1,
     similarity_threshold: float = 0.97,
-    min_diversity: float = 0.10,
+    epoch_diversity: float = 0.10,
     max_epochs: int | None = None,
     dreamsim_type: str = "ensemble",
 ) -> None:
@@ -272,7 +272,7 @@ def run_svg_search(
             pool_size=pool_size,
             crossover_prob=0.25,
             similarity_threshold=similarity_threshold,
-            min_diversity=min_diversity,
+            epoch_diversity=epoch_diversity,
         )
 
     seed_target = pool_size // 10 if seed_tasks < 0 else seed_tasks

@@ -78,7 +78,7 @@ def main():
             pool_size=args.pool_size,
             seed_tasks=args.seed_tasks,
             similarity_threshold=args.similarity_threshold,
-            min_diversity=args.min_diversity,
+            epoch_diversity=args.epoch_diversity,
             max_epochs=None if args.max_epochs < 0 else args.max_epochs + 1,
             dreamsim_type=args.dreamsim_type,
         )

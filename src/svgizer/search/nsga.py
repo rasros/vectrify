@@ -92,12 +92,12 @@ class NsgaStrategy(Generic[TState]):
         pool_size: int = 20,
         crossover_prob: float = 0.25,
         similarity_threshold: float = 0.97,
-        min_diversity: float = 0.10,
+        epoch_diversity: float = 0.0,
     ):
         self.pool_size = pool_size
         self.crossover_prob = crossover_prob
         self.similarity_threshold = similarity_threshold
-        self.min_diversity = min_diversity
+        self.epoch_diversity = epoch_diversity
 
     @property
     def top_k_count(self) -> int:
@@ -217,7 +217,7 @@ class NsgaStrategy(Generic[TState]):
             for i, j in sample_pairs
         ) / len(sample_pairs)
 
-        return mean_distance < self.min_diversity
+        return mean_distance < self.epoch_diversity
 
     def create_new_state(self, result: Result[TState]) -> ChainState[TState]:
         return ChainState(score=result.score, payload=result.payload)

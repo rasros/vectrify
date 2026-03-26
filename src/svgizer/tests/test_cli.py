@@ -1,8 +1,8 @@
 import pytest
 
 from svgizer.cli import (
+    DEFAULT_EPOCH_DIVERSITY,
     DEFAULT_LLM_RATE,
-    DEFAULT_MIN_DIVERSITY,
     DEFAULT_POOL_SIZE,
     DEFAULT_SIMILARITY_THRESHOLD,
     parse_args,
@@ -60,7 +60,7 @@ def test_default_llm_rate():
 def test_default_similarity_thresholds():
     args = parse_args(["img.png"])
     assert args.similarity_threshold == DEFAULT_SIMILARITY_THRESHOLD
-    assert args.min_diversity == DEFAULT_MIN_DIVERSITY
+    assert args.epoch_diversity == DEFAULT_EPOCH_DIVERSITY
 
 
 def test_default_epoch_patience_zero():
