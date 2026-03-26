@@ -114,21 +114,6 @@ def build_summarize_prompt(
     return content
 
 
-def build_crossover_prompt(
-    original_data_url: str, svg_a: str, svg_b: str
-) -> list[dict[str, Any]]:
-    text = (
-        "Merge the best elements of Candidate A and Candidate B into a superior SVG.\n"
-        "Output ONLY raw <svg> code.\n"
-        f"--- CANDIDATE A ---\n{svg_a}\n"
-        f"--- CANDIDATE B ---\n{svg_b}"
-    )
-    return [
-        {"type": "input_text", "text": text},
-        {"type": "input_image", "image_url": original_data_url},
-    ]
-
-
 def extract_svg_fragment(raw: str) -> str:
     # Use rfind to avoid matching <svg> tags discussed inside the <plan> block
     lower = raw.lower()

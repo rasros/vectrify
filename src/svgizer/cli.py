@@ -111,6 +111,16 @@ def parse_args():
     )
 
     parser.add_argument(
+        "--llm-rate",
+        type=float,
+        default=0.2,
+        help=(
+            "Fraction of tasks that call the LLM (0.0–1.0). "
+            "The remainder use local operations (crossover, mutations). Default: 0.2."
+        ),
+    )
+
+    parser.add_argument(
         "--patience",
         type=int,
         default=0,

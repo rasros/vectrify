@@ -74,6 +74,7 @@ def main():
             write_lineage=args.write_lineage,
             patience=args.patience or None,
             min_delta=args.min_delta,
+            llm_rate=args.llm_rate,
         )
     except KeyboardInterrupt:
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)

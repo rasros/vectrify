@@ -2,6 +2,7 @@ import base64
 import io
 import logging
 import multiprocessing as mp
+import random
 
 from PIL import Image
 
@@ -11,14 +12,24 @@ from svgizer.score import get_scorer
 from svgizer.score.complexity import svg_complexity
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.svg.adapter import SvgResultPayload
+from svgizer.svg.operations import (
+    crossover,
+    mutate_numeric,
+    mutate_remove_node,
+    with_retries,
+)
 from svgizer.svg.prompts import (
-    build_crossover_prompt,
     build_summarize_prompt,
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
 )
 from svgizer.utils import setup_logger
+
+
+def _use_llm(has_svg: bool, llm_rate: float) -> bool:
+    """Return True if this task should call the LLM."""
+    return not has_svg or random.random() < llm_rate
 
 
 def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
@@ -30,6 +41,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
         api_key = worker_params.get("api_key")
         model_name = worker_params.get("llm_model", "gpt-5.4")
         reasoning = worker_params.get("reasoning", "medium")
+        llm_rate = float(worker_params.get("llm_rate", 0.2))
 
         client = get_provider(provider_name, api_key)
         scorer = get_scorer(
@@ -53,26 +65,26 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
             break
 
         parent = task.parent_state
+        has_svg = bool(parent.payload.svg)
+        use_llm = _use_llm(has_svg, llm_rate)
 
         try:
-            if task.secondary_parent_state:
-                config = LLMConfig(model=model_name, reasoning=reasoning)
-                prompt = build_crossover_prompt(
-                    worker_params["image_data_url"],
-                    parent.payload.svg,
-                    task.secondary_parent_state.payload.svg,
+            if task.secondary_parent_state and task.secondary_parent_state.payload.svg:
+                secondary_svg = task.secondary_parent_state.payload.svg
+                svg = with_retries(
+                    lambda a=parent.payload.svg, b=secondary_svg: crossover(a, b),
+                    fallback=parent.payload.svg,
                 )
-                raw = client.generate(prompt, config)
-                change_summary = "Genetic Crossover"
-            else:
+                change_summary = "Local crossover"
+
+            elif use_llm:
                 parent_preview = (
                     parent.payload.raster_preview_data_url
                     or parent.payload.raster_data_url
                 )
-
                 change_summary = worker_params.get("goal")
 
-                if parent.payload.svg:
+                if has_svg:
                     sum_prompt = build_summarize_prompt(
                         worker_params["image_data_url"],
                         parent_preview,
@@ -91,8 +103,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                         cand_bytes,
                         worker_params.get("image_long_side", 512),
                     )
-                elif parent.payload.svg:
-                    # Fallback for when write_lineage is False in tests
+                elif has_svg:
                     cand_bytes = rasterize_svg_to_png_bytes(
                         parent.payload.svg,
                         out_w=worker_params["original_w"],
@@ -109,15 +120,29 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     worker_params["image_data_url"],
                     task.parent_id,
                     svg_prev=parent.payload.svg,
-                    rasterized_svg_data_url=parent_preview
-                    if parent.payload.svg
-                    else None,
+                    rasterized_svg_data_url=parent_preview if has_svg else None,
                     change_summary=change_summary,
                     diff_data_url=diff_data_url,
                 )
                 raw = client.generate(gen_prompt, gen_config)
+                svg = extract_svg_fragment(raw)
 
-            svg = extract_svg_fragment(raw)
+            else:
+                # Local mutation: no LLM call
+                parent_svg = parent.payload.svg
+                if random.random() < 0.5:
+                    svg = with_retries(
+                        lambda s=parent_svg: mutate_remove_node(s),
+                        fallback=parent_svg,
+                    )
+                    change_summary = "Mutation: removed node"
+                else:
+                    svg = with_retries(
+                        lambda s=parent_svg: mutate_numeric(s),
+                        fallback=parent_svg,
+                    )
+                    change_summary = "Mutation: tweaked value"
+
             valid, err = is_valid_svg(svg)
             if not valid:
                 raise ValueError(err)

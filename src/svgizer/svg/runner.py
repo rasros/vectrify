@@ -45,6 +45,7 @@ def run_svg_search(
     write_lineage: bool = True,
     patience: int | None = None,
     min_delta: float = 1e-4,
+    llm_rate: float = 0.2,
 ) -> None:
     setup_logger(log_level)
 
@@ -140,6 +141,7 @@ def run_svg_search(
         "reasoning": reasoning,
         "api_key": api_key,
         "total_workers": workers,
+        "llm_rate": llm_rate,
     }
 
     engine.start_workers(worker_loop, worker_params)
