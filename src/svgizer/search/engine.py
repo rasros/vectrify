@@ -196,13 +196,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     continue
 
                 if res.score is None:
-                    if score_fn is None:
-                        raise RuntimeError(
-                            "Result has no score and no score_fn provided"
-                        )
-                    res.score = score_fn(res)
-                elif score_fn is not None:
-                    res.score = score_fn(res)
+                    raise RuntimeError("Result has no score and no score_fn provided")
 
                 next_node_id += 1
                 new_state = self.strategy.create_new_state(res)
