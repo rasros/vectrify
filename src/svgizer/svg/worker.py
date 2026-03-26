@@ -8,6 +8,7 @@ from PIL import Image
 
 from svgizer.image_utils import (
     generate_diff_data_url,
+    png_bytes_to_data_url,
     rasterize_svg_to_png_bytes,
     resize_long_side,
 )
@@ -166,6 +167,13 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
             complexity = svg_complexity(svg)
             signature = compute_signature(svg)
 
+            # Preview computed in worker to free the main thread
+            full_img = Image.open(io.BytesIO(png)).convert("RGB")
+            preview_img = resize_long_side(full_img, worker_params["image_long_side"])
+            preview_buf = io.BytesIO()
+            preview_img.save(preview_buf, format="PNG")
+            preview_data_url = png_bytes_to_data_url(preview_buf.getvalue())
+
             result_q.put(
                 Result(
                     task_id=task.task_id,
@@ -174,7 +182,10 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     valid=True,
                     score=None,  # scored by main process via score_fn
                     payload=SvgResultPayload(
-                        svg=svg, raster_png=png, change_summary=change_summary
+                        svg=svg,
+                        raster_png=png,
+                        change_summary=change_summary,
+                        raster_preview_data_url=preview_data_url,
                     ),
                     secondary_parent_id=task.secondary_parent_id,
                     complexity=complexity,

@@ -18,6 +18,7 @@ class SvgResultPayload:
     svg: str | None
     raster_png: bytes | None
     change_summary: str | None
+    raster_preview_data_url: str | None = None
 
 
 class SvgStrategyAdapter:
@@ -51,8 +52,8 @@ class SvgStrategyAdapter:
         if self.write_lineage and result_payload.raster_png:
             raster_data_url = png_bytes_to_data_url(result_payload.raster_png)
 
-        preview_data_url = None
-        if result_payload.raster_png:
+        preview_data_url = result_payload.raster_preview_data_url
+        if preview_data_url is None and result_payload.raster_png:
             preview_data_url = make_preview_data_url(
                 result_payload.raster_png, self.openai_image_long_side
             )
