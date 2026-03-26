@@ -26,8 +26,9 @@ class DreamSimReference:
 
 
 class DreamSimScorer(Scorer):
-    def __init__(self, dreamsim_type: str = "ensemble"):
+    def __init__(self, dreamsim_type: str = "ensemble", device: str | None = None):
         self._dreamsim_type = dreamsim_type
+        self._device = device
         self._model: Any | None = None
         self._preprocess: Callable | None = None
         self._torch: Any | None = None
@@ -37,7 +38,7 @@ class DreamSimScorer(Scorer):
             try:
                 import torch
 
-                device = get_device()
+                device = self._device or get_device()
                 with (
                     redirect_stdout(io.StringIO()),
                     redirect_stderr(io.StringIO()),
@@ -69,7 +70,7 @@ class DreamSimScorer(Scorer):
         self._load_dependencies()
         assert self._preprocess is not None
 
-        device = get_device()
+        device = self._device or get_device()
         ref_small = resize_long_side(original_rgb, DEFAULT_CONFIG.target_long_side)
         ref_tensor = self._preprocess(ref_small).to(device)
 
@@ -88,7 +89,7 @@ class DreamSimScorer(Scorer):
         if cand.size != reference.image.size:
             cand = cand.resize(reference.image.size, resample=Image.Resampling.BILINEAR)
 
-        device = get_device()
+        device = self._device or get_device()
         cand_t = self._preprocess(cand).to(device)
         if cand_t.ndim == 3:
             cand_t = cand_t.unsqueeze(0)

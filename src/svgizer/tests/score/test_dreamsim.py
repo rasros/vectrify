@@ -8,7 +8,7 @@ from svgizer.score.dreamsim import DreamSimScorer
 
 @pytest.fixture(scope="module")
 def scorer():
-    s = DreamSimScorer()
+    s = DreamSimScorer(device="cpu")
     try:
         s.validate_environment()
     except ImportError as e:
