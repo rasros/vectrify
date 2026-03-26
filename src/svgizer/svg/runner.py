@@ -48,6 +48,7 @@ def run_svg_search(
     min_delta: float = 1e-4,
     llm_rate: float = 0.2,
     pool_size: int = 20,
+    warmup_llm: int = -1,
 ) -> None:
     setup_logger(log_level)
 
@@ -117,6 +118,20 @@ def run_svg_search(
             )
         )
 
+    # Warmup: force LLM for the first N tasks so the pool is seeded with
+    # LLM-generated SVGs before local mutations dominate.
+    # Resumed nodes count toward the target; cap at workers so we don't send
+    # more warmup tasks than we have workers to process them in parallel.
+    warmup_target = pool_size // 10 if warmup_llm < 0 else warmup_llm
+    # Nodes that already have real SVGs (not the sentinel) count as seeded.
+    seeded = sum(1 for n in initial_nodes if n.state.payload.svg)
+    warmup_tasks = max(0, warmup_target - seeded)
+    if warmup_tasks:
+        log.info(
+            f"Warmup: {warmup_tasks} LLM tasks "
+            f"(target={warmup_target}, already seeded={seeded})"
+        )
+
     # 6. Search Execution Setup
     if strategy_type == StrategyType.GREEDY:
         base_strategy = GreedyHillClimbingStrategy[SvgStatePayload]()
@@ -160,4 +175,5 @@ def run_svg_search(
         min_delta,
         pool_size,
         score_fn,
+        warmup_tasks,
     )

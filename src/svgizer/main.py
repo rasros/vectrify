@@ -77,6 +77,7 @@ def main():
             min_delta=args.min_delta,
             llm_rate=args.llm_rate,
             pool_size=args.pool_size,
+            warmup_llm=args.warmup_llm,
         )
     except KeyboardInterrupt:
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)

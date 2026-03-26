@@ -134,6 +134,18 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--warmup-llm",
+        type=int,
+        default=-1,
+        dest="warmup_llm",
+        help=(
+            "Target number of LLM-seeded nodes before switching to hybrid mode. "
+            "Resumed nodes count toward this. "
+            "Defaults to pool-size // 10 when -1."
+        ),
+    )
+
+    parser.add_argument(
         "--patience",
         type=int,
         default=0,

@@ -21,7 +21,7 @@ def svg_complexity(svg: str | None) -> float:
     All three are summed. NSGA-II normalises within the population so the
     absolute scale only affects relative ordering — the weights below are chosen
     so that each signal contributes roughly equally for typical LLM-generated SVGs
-    (~10–200 elements, ~100–2000 path commands, ~500–5000 compressed bytes).
+    (~10-200 elements, ~100-2000 path commands, ~500-5000 compressed bytes).
 
     Returns 0.0 for None/empty SVGs (sentinel nodes).
     """

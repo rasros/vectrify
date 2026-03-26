@@ -50,6 +50,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         min_delta: float = 1e-4,
         active_pool_size: int = 20,
         score_fn: Callable[[Result], float] | None = None,
+        warmup_tasks: int = 0,
     ) -> None:
         start_time = time.monotonic()
         node_states = {n.id: n.state for n in initial_nodes}
@@ -73,6 +74,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         log.info(
             f"Search started. Initial best: {best_node.score if best_node else 'N/A'}"
+            + (f" Warmup: {warmup_tasks} LLM tasks." if warmup_tasks > 0 else "")
         )
 
         try:
@@ -110,6 +112,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                             worker_slot=in_flight % self.workers,
                             secondary_parent_id=pid2,
                             secondary_parent_state=node_states[pid2] if pid2 else None,
+                            force_llm=next_task_id <= warmup_tasks,
                         )
                     )
                     next_task_id += 1

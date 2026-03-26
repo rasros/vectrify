@@ -53,7 +53,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
 
         parent = task.parent_state
         has_svg = bool(parent.payload.svg)
-        use_llm = _use_llm(has_svg, llm_rate)
+        use_llm = task.force_llm or _use_llm(has_svg, llm_rate)
 
         try:
             if task.secondary_parent_state and task.secondary_parent_state.payload.svg:

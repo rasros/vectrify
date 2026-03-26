@@ -32,6 +32,7 @@ class Task(Generic[TState]):
     worker_slot: int
     secondary_parent_id: int | None = None
     secondary_parent_state: ChainState[TState] | None = None
+    force_llm: bool = False
 
 
 @dataclasses.dataclass
