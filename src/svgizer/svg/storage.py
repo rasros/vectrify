@@ -5,7 +5,9 @@ import re
 from datetime import datetime
 from pathlib import Path
 
+from svgizer.score.complexity import svg_complexity
 from svgizer.search import SearchNode
+from svgizer.search.nsga import crowding_distance, non_dominated_sort
 from svgizer.svg.adapter import SvgStatePayload
 
 log = logging.getLogger(__name__)
@@ -70,7 +72,9 @@ class FileStorageAdapter:
             log.warning(f"Latest run {latest_run.name} has no 'nodes' directory.")
             return []
 
-        log.info(f"Resuming top {max_nodes} nodes from latest run: {latest_run.name}")
+        log.info(
+            f"Resuming top {max_nodes} nodes from latest run: {latest_run.name} via Pareto front"
+        )
 
         file_pattern = re.compile(r"^([0-9.]+)_(\d+)\.svg$")
         parsed_files = []
@@ -87,21 +91,60 @@ class FileStorageAdapter:
             self._max_id = max(self._max_id, node_id)
             parsed_files.append((score, node_id, file_path))
 
-        parsed_files.sort(key=lambda x: x[0])
-        top_k_files = parsed_files[:max_nodes]
-
-        resumed_data = []
-        for score, node_id, file_path in top_k_files:
+        valid_nodes = []
+        for score, node_id, file_path in parsed_files:
             try:
                 content = file_path.read_text(encoding="utf-8").strip()
                 if content:
-                    resumed_data.append((node_id, content))
-                    log.info(
-                        f"Found node for resume: "
-                        f"{file_path.name} (ID: {node_id}, Score: {score})"
+                    comp = svg_complexity(content)
+                    node = SearchNode(
+                        score=score,
+                        id=node_id,
+                        parent_id=0,
+                        state=None,  # type: ignore
+                        complexity=comp,
                     )
+                    valid_nodes.append((node, content))
             except Exception as e:
                 log.error(f"Failed to read resume node {file_path.name}: {e}")
+
+        if not valid_nodes:
+            return []
+
+        # Extract objectives for NSGA sorting
+        nodes_only = [n for n, _ in valid_nodes]
+        max_score = (
+            max((n.score for n in nodes_only if n.score < float("inf")), default=1.0)
+            or 1.0
+        )
+        max_comp = max((n.complexity for n in nodes_only), default=1.0) or 1.0
+
+        objectives = {
+            n.id: (n.score / max_score, n.complexity / max_comp) for n in nodes_only
+        }
+
+        fronts = non_dominated_sort(nodes_only, objectives)
+
+        resumed_data = []
+        node_to_content = {n.id: c for n, c in valid_nodes}
+
+        # Pick nodes front by front until we hit max_nodes
+        for front in fronts:
+            if len(resumed_data) >= max_nodes:
+                break
+
+            # Sort within the front using crowding distance to maximize diversity
+            distances = crowding_distance(front, objectives)
+            front_sorted = sorted(front, key=lambda n: -distances[n.id])
+
+            for node in front_sorted:
+                if len(resumed_data) >= max_nodes:
+                    break
+                resumed_data.append((node.id, node_to_content[node.id]))
+                log.info(
+                    f"Found node for resume: "
+                    f"ID {node.id} (Score: {node.score:.6f}, Comp: {node.complexity})"
+                )
 
         return sorted(resumed_data, key=lambda x: x[0])
 
