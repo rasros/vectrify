@@ -1,14 +1,3 @@
-"""
-Local (non-LLM) SVG operations: crossover and mutations.
-
-All functions accept SVG string(s) and return a new SVG string.
-On parse failure they return the primary input unchanged.
-
-Use `with_retries` to wrap any operation for automatic retry on invalid output:
-
-    svg = with_retries(lambda: mutate_numeric(parent_svg), fallback=parent_svg)
-"""
-
 import copy
 import io
 import random
