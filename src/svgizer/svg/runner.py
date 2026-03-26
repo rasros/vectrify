@@ -105,6 +105,7 @@ def run_svg_search(
     similarity_threshold: float = 0.97,
     min_diversity: float = 0.10,
     max_epochs: int | None = None,
+    dreamsim_type: str = "ensemble",
 ) -> None:
     setup_logger(log_level)
 
@@ -116,7 +117,12 @@ def run_svg_search(
     original_png_bytes = buf.getvalue()
 
     api_key = os.getenv(f"{llm_provider.upper()}_API_KEY")
-    scorer = get_scorer(scorer_type, provider_name=llm_provider, api_key=api_key)
+    scorer = get_scorer(
+        scorer_type,
+        provider_name=llm_provider,
+        api_key=api_key,
+        dreamsim_type=dreamsim_type,
+    )
     scoring_ref = scorer.prepare_reference(original_img)
 
     storage.initialize()

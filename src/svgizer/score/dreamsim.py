@@ -26,7 +26,8 @@ class DreamSimReference:
 
 
 class DreamSimScorer(Scorer):
-    def __init__(self):
+    def __init__(self, dreamsim_type: str = "ensemble"):
+        self._dreamsim_type = dreamsim_type
         self._model: Any | None = None
         self._preprocess: Callable | None = None
         self._torch: Any | None = None
@@ -45,7 +46,11 @@ class DreamSimScorer(Scorer):
                     warnings.simplefilter("ignore")
                     from dreamsim import dreamsim
 
-                    model, preprocess = dreamsim(pretrained=True, device=device)
+                    model, preprocess = dreamsim(
+                        pretrained=True,
+                        device=device,
+                        dreamsim_type=self._dreamsim_type,
+                    )
 
                 model.eval()
                 self._model = model

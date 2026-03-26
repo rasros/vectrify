@@ -29,6 +29,7 @@ def get_scorer(
     scorer_type: ScorerType | str = ScorerType.AUTO,
     provider_name: str = "openai",
     api_key: str | None = None,
+    dreamsim_type: str = "ensemble",
 ) -> Scorer:
     if isinstance(scorer_type, str):
         scorer_type = ScorerType(scorer_type.lower())
@@ -37,11 +38,13 @@ def get_scorer(
         log.info(f"Using {scorer_type.value} scorer.")
         if scorer_type == ScorerType.LLM:
             return LLMJudgeScorer(provider_name=provider_name, api_key=api_key)
+        if scorer_type == ScorerType.DREAMSIM:
+            return DreamSimScorer(dreamsim_type=dreamsim_type)
         return SCORER_REGISTRY[scorer_type]()
 
     log.info("AUTO mode: Attempting to initialize DreamSim...")
     try:
-        scorer = DreamSimScorer()
+        scorer = DreamSimScorer(dreamsim_type=dreamsim_type)
         scorer.validate_environment()
         log.info("AUTO: DreamSim initialized successfully.")
         return scorer

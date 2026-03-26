@@ -52,6 +52,25 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--dreamsim-type",
+        type=str,
+        default="dino_vitb16",
+        dest="dreamsim_type",
+        choices=[
+            "ensemble",
+            "dino_vitb16",
+            "clip_vitb32",
+            "open_clip_vitb32",
+            "dinov2_vitb14",
+            "synclr_vitb16",
+        ],
+        help=(
+            "DreamSim model variant. 'ensemble' (default) is highest quality; "
+            "single-model options (e.g. dino_vitb16) are faster."
+        ),
+    )
+
+    parser.add_argument(
         "--strategy",
         type=str,
         choices=[e.value for e in StrategyType],
