@@ -67,6 +67,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         tasks_completed = 0
         accepted_count = 0
         in_flight = 0
+        tasks_since_diverse = 0
+        _DIVERSE_INTERVAL = 5  # max one diversity seed per N tasks dispatched
 
         next_node_id = max(
             self.storage.max_node_id, max((n.id for n in initial_nodes), default=0)
@@ -104,6 +106,12 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
                     pid1, pid2 = self.strategy.select_parent(active_pool, progress)
 
+                    is_warmup = next_task_id <= warmup_tasks
+                    force_diverse = False
+                    if not is_warmup and tasks_since_diverse >= _DIVERSE_INTERVAL:
+                        force_diverse = self.strategy.should_diversify(active_pool)
+                    tasks_since_diverse = 0 if force_diverse else tasks_since_diverse + 1
+
                     self.task_q.put(
                         Task(
                             task_id=next_task_id,
@@ -112,7 +120,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                             worker_slot=in_flight % self.workers,
                             secondary_parent_id=pid2,
                             secondary_parent_state=node_states[pid2] if pid2 else None,
-                            force_llm=next_task_id <= warmup_tasks,
+                            force_llm=is_warmup,
+                            force_diverse=force_diverse,
                         )
                     )
                     next_task_id += 1

@@ -10,6 +10,7 @@ def build_svg_gen_prompt(
     rasterized_svg_data_url: str | None = None,
     change_summary: str | None = None,
     diff_data_url: str | None = None,
+    force_diverse: bool = False,
 ) -> list[dict[str, Any]]:
     lines = [
         "You are a world-class SVG developer. Convert the input raster into a CLEAN,"
@@ -24,7 +25,13 @@ def build_svg_gen_prompt(
         f"Context: Iteration #{iter_index}.",
     ]
 
-    if svg_prev is None:
+    if force_diverse:
+        lines.append(
+            "DIVERSITY SEED: The search has converged. Ignore any prior SVG. "
+            "Produce a FRESH structural interpretation using completely different "
+            "primitives, geometry, or decomposition than you might otherwise attempt."
+        )
+    elif svg_prev is None:
         lines.append("First attempt: Create a high-level structural blocking.")
     else:
         lines.append(

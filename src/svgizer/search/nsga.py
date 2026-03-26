@@ -18,6 +18,7 @@ import random
 from difflib import SequenceMatcher
 from typing import Generic, TypeVar
 
+from svgizer.search.base import ncd
 from svgizer.search.models import ChainState, Result, SearchNode
 
 TState = TypeVar("TState")
@@ -119,10 +120,12 @@ class NsgaStrategy(Generic[TState]):
         pool_size: int = 20,
         crossover_prob: float = 0.25,
         diversity_threshold: float = 0.97,
+        diversity_boost_threshold: float = 0.10,
     ):
         self.pool_size = pool_size
         self.crossover_prob = crossover_prob
         self.diversity_threshold = diversity_threshold
+        self.diversity_boost_threshold = diversity_boost_threshold
 
     @property
     def top_k_count(self) -> int:
@@ -195,6 +198,20 @@ class NsgaStrategy(Generic[TState]):
             return p1.id, p2.id
 
         return p1.id, None
+
+    def should_diversify(self, pool: list[SearchNode[TState]]) -> bool:
+        """True when pool NCD is low enough to warrant fresh LLM seeds."""
+        candidates = [n for n in pool if n.content and n.score < float("inf")]
+        if len(candidates) < 4:
+            return False
+        n = len(candidates)
+        all_pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
+        sample_pairs = random.sample(all_pairs, min(8, len(all_pairs)))
+        mean_ncd = sum(
+            ncd(candidates[i].content, candidates[j].content)  # type: ignore[arg-type]
+            for i, j in sample_pairs
+        ) / len(sample_pairs)
+        return mean_ncd < self.diversity_boost_threshold
 
     def create_new_state(self, result: Result[TState]) -> ChainState[TState]:
         return ChainState(score=result.score, payload=result.payload)

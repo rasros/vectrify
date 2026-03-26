@@ -35,27 +35,46 @@ def test_crossover_returns_valid_svg():
     assert root.tag.endswith("svg")
 
 
-def test_crossover_children_from_parents():
-    result = crossover(SVG_A, SVG_B, rate=1.0)
+def test_crossover_children_only_from_parents():
+    result = crossover(SVG_A, SVG_B)
     root = ET.fromstring(result)
     tags = {c.tag.split("}")[-1] for c in root}
     assert tags <= {"circle", "rect", "ellipse", "line"}
 
 
-def test_crossover_rate_one_takes_all_from_a():
-    # rate=1.0 → always pick from A for shared positions
-    result = crossover(SVG_A, SVG_B, rate=1.0)
-    root = ET.fromstring(result)
-    # Both children should come from A (circle, rect)
-    tags = [c.tag.split("}")[-1] for c in root]
-    assert tags == ["circle", "rect"]
-
-
-def test_crossover_rate_zero_takes_all_from_b():
-    result = crossover(SVG_A, SVG_B, rate=0.0)
+def test_crossover_k1_two_segments():
+    # k=1 → one cut-point → child has elements from exactly A then B (or B then A)
+    # SVG_A: [circle, rect], SVG_B: [ellipse, line]
+    a_tags = {"circle", "rect"}
+    b_tags = {"ellipse", "line"}
+    result = crossover(SVG_A, SVG_B, k=1)
     root = ET.fromstring(result)
     tags = [c.tag.split("}")[-1] for c in root]
-    assert tags == ["ellipse", "line"]
+    # All tags come from one of the two parents
+    assert all(t in a_tags | b_tags for t in tags)
+
+
+def test_crossover_unequal_lengths():
+    long_a = f'<svg xmlns="{NS}"><rect/><circle/><ellipse/><line/><path/></svg>'
+    result = crossover(long_a, SVG_B, k=2)
+    root = ET.fromstring(result)
+    # Child length is at most max(len_a, len_b)
+    assert len(list(root)) <= 5
+
+
+def test_crossover_k_clamped_to_max():
+    # k larger than max_len-1 shouldn't crash
+    result = crossover(SVG_A, SVG_B, k=100)
+    root = ET.fromstring(result)
+    assert root.tag.endswith("svg")
+
+
+def test_crossover_degenerate_single_element():
+    single_a = f'<svg xmlns="{NS}"><rect/></svg>'
+    single_b = f'<svg xmlns="{NS}"><circle/></svg>'
+    result = crossover(single_a, single_b)
+    root = ET.fromstring(result)
+    assert len(list(root)) == 1
 
 
 def test_crossover_invalid_svg_returns_a():

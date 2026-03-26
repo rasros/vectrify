@@ -72,31 +72,45 @@ def with_retries(
     return fallback
 
 
-def crossover(svg_a: str, svg_b: str, rate: float = 0.5) -> str:
+def crossover(svg_a: str, svg_b: str, k: int = 2) -> str:
     """
-    Produce a child SVG by interleaving top-level children from two parents.
-    Each child element is taken from svg_a with probability `rate`, svg_b otherwise.
-    Extra tail elements from either parent are included at their respective probability.
+    K-point crossover: split top-level children into k+1 contiguous segments,
+    alternating which parent contributes each segment.
+
+    Contiguous blocks preserve more intra-group structure than per-element
+    coin flips (the previous behaviour), which helps the child inherit coherent
+    sub-trees from each parent.
     """
     try:
         root_a = ET.fromstring(svg_a)
         root_b = ET.fromstring(svg_b)
 
-        new_root = ET.Element(root_a.tag, root_a.attrib)
-
         children_a = list(root_a)
         children_b = list(root_b)
         max_len = max(len(children_a), len(children_b))
 
+        new_root = ET.Element(root_a.tag, root_a.attrib)
+
+        if max_len <= 1:
+            src = children_a or children_b
+            for child in src:
+                new_root.append(copy.deepcopy(child))
+            ET.register_namespace("", SVG_NS)
+            return ET.tostring(new_root, encoding="unicode", method="xml")
+
+        actual_k = min(k, max_len - 1)
+        cuts = sorted(random.sample(range(1, max_len), actual_k))
+        # Segments: [0, cuts[0]), [cuts[0], cuts[1]), ..., [cuts[-1], max_len)
+
+        segment = 0
+        use_a = True
         for i in range(max_len):
-            choice = random.random()
-            if i < len(children_a) and i < len(children_b):
-                src = children_a[i] if choice < rate else children_b[i]
-                new_root.append(copy.deepcopy(src))
-            elif i < len(children_a) and choice < rate:
-                new_root.append(copy.deepcopy(children_a[i]))
-            elif i < len(children_b) and choice >= rate:
-                new_root.append(copy.deepcopy(children_b[i]))
+            while segment < len(cuts) and i >= cuts[segment]:
+                use_a = not use_a
+                segment += 1
+            children = children_a if use_a else children_b
+            if i < len(children):
+                new_root.append(copy.deepcopy(children[i]))
 
         ET.register_namespace("", SVG_NS)
         return ET.tostring(new_root, encoding="unicode", method="xml")

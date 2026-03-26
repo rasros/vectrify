@@ -20,6 +20,9 @@ class GreedyHillClimbingStrategy(Generic[TState]):
         best_node = min(nodes, key=lambda n: n.score)
         return best_node.id, None
 
+    def should_diversify(self, pool: list[SearchNode[TState]]) -> bool:
+        return False
+
     def create_new_state(self, result: Result) -> ChainState[TState]:
         return ChainState(
             score=result.score,

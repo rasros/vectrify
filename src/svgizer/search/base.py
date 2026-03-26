@@ -1,9 +1,23 @@
+import zlib
 from enum import Enum
 from typing import Protocol, TypeVar
 
 from svgizer.search.models import ChainState, Result, SearchNode
 
 TState = TypeVar("TState")
+
+
+def ncd(a: str, b: str) -> float:
+    """Normalised Compression Distance: ~0 for near-identical, ~1 for unrelated."""
+    if not a or not b:
+        return 0.0
+    ca = len(zlib.compress(a.encode("utf-8"), level=6))
+    cb = len(zlib.compress(b.encode("utf-8"), level=6))
+    cab = len(zlib.compress((a + b).encode("utf-8"), level=6))
+    denom = max(ca, cb)
+    if denom == 0:
+        return 0.0
+    return (cab - min(ca, cb)) / denom
 
 
 class StrategyType(str, Enum):
@@ -23,6 +37,10 @@ class SearchStrategy(Protocol[TState]):
     def create_new_state(self, result: Result[TState]) -> ChainState[TState]:
         """Handles state transition."""
         ...
+
+    def should_diversify(self, pool: list[SearchNode]) -> bool:
+        """Return True when the pool has converged and fresh LLM seeds are needed."""
+        return False
 
     @property
     def top_k_count(self) -> int: ...
