@@ -25,7 +25,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         storage=storage,
         workers=1,
         image_long_side=64,
-        max_wall_seconds=None,
+        max_wall_seconds=10.0,
         log_level="DEBUG",
         scorer_type=ScorerType.SIMPLE,
         strategy_type=StrategyType.GREEDY,
@@ -34,7 +34,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         llm_provider="openai",
         llm_model="gpt-5.4-nano",
         write_lineage=False,
-        max_epochs=1,
+        max_epochs=None,
     )
 
     assert storage.nodes_dir is not None
