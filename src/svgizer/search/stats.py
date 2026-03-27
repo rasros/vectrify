@@ -24,6 +24,7 @@ class SearchStats:
     llm_rate: float = 0.0  # configured llm_rate, used to compute effective call rate
 
     llm_call_count: int = 0
+    llm_calls_in_flight: int = 0  # LLM calls currently being processed by workers
     llm_invalid_count: int = 0  # LLM calls that produced invalid/unparseable SVG
     llm_accepted_count: int = 0
 
@@ -35,16 +36,6 @@ class SearchStats:
     best_score: float = float("inf")
     # (elapsed_seconds, score) on each new-best event; kept for seeding but not graphed
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))
-
-    # Per-accept flag: 1.0 if that accept was a new best, else 0.0
-    activity_window: deque = dataclasses.field(default_factory=lambda: deque(maxlen=50))
-    # Sampled improvement rate over time (fraction of activity_window that are new bests)
-    convergence_history: deque = dataclasses.field(
-        default_factory=lambda: deque(maxlen=60)
-    )
-    _conv_sample_counter: int = dataclasses.field(
-        default=0, init=False, repr=False, compare=False
-    )
 
     # Captured from logging by DashboardLogHandler
     recent_events: deque = dataclasses.field(default_factory=lambda: deque(maxlen=8))
@@ -100,12 +91,6 @@ class SearchStats:
             if self.mutation_call_count
             else 0.0
         )
-
-    def improvement_rate(self) -> float:
-        """Fraction of recent accepts that set a new best score."""
-        if not self.activity_window:
-            return 0.0
-        return sum(self.activity_window) / len(self.activity_window)
 
     def stagnation_fraction(self) -> float:
         if self.epoch_patience <= 0:

@@ -11,7 +11,6 @@ from rich.text import Text
 from svgizer.search.stats import SearchStats
 
 _REFRESH_INTERVAL = 0.25
-_SPARK = "▁▂▃▄▅▆▇█"
 
 
 def _bar(fraction: float, width: int = 12) -> str:
@@ -53,8 +52,9 @@ def _build_renderable(stats: SearchStats) -> Panel:
     )
 
     # ── LLM row ───────────────────────────────────────────────────────────
+    llm_total = s.llm_call_count + s.llm_calls_in_flight
     llm_line = (
-        f"  calls [bold]{s.llm_call_count:,}[/bold]"
+        f"  calls [bold]{s.llm_call_count:,}[/bold]/[bold]{llm_total:,}[/bold]"
         f"   valid [green]{s.llm_valid_rate() * 100:.1f}%[/green]"
         f"   pool-acc [cyan]{s.llm_accept_rate() * 100:.1f}%[/cyan]"
         f"   rate [yellow]{s.effective_llm_rate() * 100:.2f}%[/yellow]"
@@ -66,40 +66,22 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"   pool-acc [cyan]{s.mutation_accept_rate() * 100:.1f}%[/cyan]"
     )
 
-    # ── Convergence row ────────────────────────────────────────────────────
-    # Sparkline of improvement rate over time. High = actively finding new bests.
-    # Low/zero = search has converged or stagnated.
-    conv_history = list(s.convergence_history)
-    if conv_history:
-        lo, hi = min(conv_history), max(conv_history)
-        span = hi - lo or 1.0
-        spark = "".join(
-            _SPARK[int((v - lo) / span * (len(_SPARK) - 1))] for v in conv_history
-        )
-    else:
-        spark = "─" * 8
-    rate_now = s.improvement_rate()
-    rate_color = "green" if rate_now > 0.2 else "yellow" if rate_now > 0.05 else "red"
-    conv_line = (
-        f"  [dim]{spark}[/dim]"
-        f"  [{rate_color}]{rate_now * 100:.1f}% improving[/{rate_color}]"
-    )
-
-    # ── Diversity row (only when --epoch-diversity is active) ──────────────
-    div_line = None
+    # ── Diversity row ──────────────────────────────────────────────────────
+    div_bar = _bar(s.pool_diversity, width=20)
     if s.epoch_diversity > 0:
-        div_bar = _bar(s.pool_diversity, width=20)
         if s.pool_diversity < s.epoch_diversity:
             div_color = "red"
         elif s.pool_diversity < s.epoch_diversity * 2:
             div_color = "yellow"
         else:
             div_color = "green"
-        div_line = (
-            f"  [{div_color}]{div_bar}[/{div_color}]"
-            f"  {s.pool_diversity:.3f}"
-            f"  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]"
-        )
+        div_threshold = f"  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]"
+    else:
+        div_color = "cyan"
+        div_threshold = ""
+    div_line = (
+        f"  [{div_color}]{div_bar}[/{div_color}]  {s.pool_diversity:.3f}{div_threshold}"
+    )
 
     # ── Stagnation row ─────────────────────────────────────────────────────
     # When no epoch_patience is set, a bar is meaningless — just show the counter.
@@ -128,9 +110,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
     table.add_row("tasks", Text.from_markup(tasks_line))
     table.add_row("llm", Text.from_markup(llm_line))
     table.add_row("mutation", Text.from_markup(mut_line))
-    table.add_row("improvement", Text.from_markup(conv_line))
-    if div_line is not None:
-        table.add_row("diversity", Text.from_markup(div_line))
+    table.add_row("diversity", Text.from_markup(div_line))
     table.add_row("stagnation", Text.from_markup(stag_line))
 
     # ── Recent events ─────────────────────────────────────────────────────

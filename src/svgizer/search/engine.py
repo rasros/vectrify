@@ -36,6 +36,8 @@ class MultiprocessSearchEngine(Generic[TState]):
 
     def start_workers(self, worker_target: Callable, worker_params: dict) -> None:
         log.info(f"Starting {self.workers} worker processes...")
+        self._llm_in_flight = self.ctx.Value("i", 0)
+        worker_params["llm_in_flight"] = self._llm_in_flight
         for _ in range(max(1, self.workers)):
             p = self.ctx.Process(
                 target=worker_target,
@@ -155,9 +157,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                     is_epoch0_seed = epoch == 0 and epoch0_seeds_dispatched < seed_tasks
                     if is_epoch0_seed:
                         epoch0_seeds_dispatched += 1
-                    elif epoch == 0 and seed_tasks > 0 and in_flight > 0:
-                        # Seeds are dispatched but results not yet back — don't dispatch
-                        # regular tasks so workers don't busy-wait on the empty pool.
+                    elif epoch == 0 and seed_tasks > 0 and accepted_count == 0:
+                        # No seed accepted yet — don't dispatch regular tasks since
+                        # the pool has no valid SVG to mutate.
                         break
 
                     # Ramp LLM pressure from 0 → 1 as stagnation grows
@@ -205,6 +207,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if stats is not None:
                     stats.tasks_completed = tasks_completed
                     stats.epoch_no_improve = epoch_no_improve
+                    if hasattr(self, "_llm_in_flight"):
+                        stats.llm_calls_in_flight = self._llm_in_flight.value
                     if res.llm_type:
                         stats.llm_call_count += 1
                     else:
@@ -281,11 +285,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                         stats.llm_accepted_count += 1
                     else:
                         stats.mutation_accepted_count += 1
-                    stats.activity_window.append(1.0 if is_new_best else 0.0)
-                    stats._conv_sample_counter += 1
-                    if stats._conv_sample_counter >= 10:
-                        stats.convergence_history.append(stats.improvement_rate())
-                        stats._conv_sample_counter = 0
 
                 if new_node.score <= epoch_patience_best - epoch_min_delta:
                     epoch_patience_best = new_node.score

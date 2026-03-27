@@ -46,6 +46,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
         model_name = worker_params["llm_model"]
         reasoning = worker_params["reasoning"]
         llm_rate = float(worker_params["llm_rate"])
+        llm_in_flight = worker_params.get("llm_in_flight")
 
         client = get_provider(provider_name, api_key)
 
@@ -82,59 +83,67 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
 
             elif use_llm:
                 llm_type = "llm-generate"
-                parent_preview = (
-                    parent.payload.raster_preview_data_url
-                    or parent.payload.raster_data_url
-                )
-                change_summary = worker_params.get("goal")
+                if llm_in_flight is not None:
+                    with llm_in_flight.get_lock():
+                        llm_in_flight.value += 1
+                try:
+                    parent_preview = (
+                        parent.payload.raster_preview_data_url
+                        or parent.payload.raster_data_url
+                    )
+                    change_summary = worker_params.get("goal")
 
-                if has_svg:
-                    sum_prompt = build_summarize_prompt(
+                    if has_svg:
+                        sum_prompt = build_summarize_prompt(
+                            worker_params["image_data_url"],
+                            parent_preview,
+                            custom_goal=worker_params.get("goal"),
+                            previous_summary=parent.payload.change_summary,
+                        )
+                        sum_config = LLMConfig(model=model_name, reasoning=reasoning)
+                        log.debug(f"LLM call [summarize] task={task.task_id}")
+                        change_summary = client.generate(sum_prompt, sum_config)
+
+                    diff_data_url = None
+                    if parent.payload.raster_data_url:
+                        _, encoded = parent.payload.raster_data_url.split(",", 1)
+                        cand_bytes = base64.b64decode(encoded)
+                        diff_data_url = generate_diff_data_url(
+                            worker_params["original_png_bytes"],
+                            cand_bytes,
+                            worker_params["image_long_side"],
+                        )
+                    elif has_svg:
+                        cand_bytes = rasterize_svg_to_png_bytes(
+                            parent.payload.svg,
+                            out_w=worker_params["original_w"],
+                            out_h=worker_params["original_h"],
+                        )
+                        diff_data_url = generate_diff_data_url(
+                            worker_params["original_png_bytes"],
+                            cand_bytes,
+                            worker_params["image_long_side"],
+                        )
+
+                    gen_config = LLMConfig(model=model_name, reasoning=reasoning)
+                    gen_prompt = build_svg_gen_prompt(
                         worker_params["image_data_url"],
-                        parent_preview,
-                        custom_goal=worker_params.get("goal"),
-                        previous_summary=parent.payload.change_summary,
+                        task.parent_id,
+                        svg_prev=parent.payload.svg,
+                        rasterized_svg_data_url=parent_preview if has_svg else None,
+                        change_summary=change_summary,
+                        diff_data_url=diff_data_url,
                     )
-                    sum_config = LLMConfig(model=model_name, reasoning=reasoning)
-                    log.debug(f"LLM call [summarize] task={task.task_id}")
-                    change_summary = client.generate(sum_prompt, sum_config)
-
-                diff_data_url = None
-                if parent.payload.raster_data_url:
-                    _, encoded = parent.payload.raster_data_url.split(",", 1)
-                    cand_bytes = base64.b64decode(encoded)
-                    diff_data_url = generate_diff_data_url(
-                        worker_params["original_png_bytes"],
-                        cand_bytes,
-                        worker_params["image_long_side"],
+                    log.debug(
+                        f"LLM call [generate] task={task.task_id} "
+                        f"parent={task.parent_id} model={model_name}"
                     )
-                elif has_svg:
-                    cand_bytes = rasterize_svg_to_png_bytes(
-                        parent.payload.svg,
-                        out_w=worker_params["original_w"],
-                        out_h=worker_params["original_h"],
-                    )
-                    diff_data_url = generate_diff_data_url(
-                        worker_params["original_png_bytes"],
-                        cand_bytes,
-                        worker_params["image_long_side"],
-                    )
-
-                gen_config = LLMConfig(model=model_name, reasoning=reasoning)
-                gen_prompt = build_svg_gen_prompt(
-                    worker_params["image_data_url"],
-                    task.parent_id,
-                    svg_prev=parent.payload.svg,
-                    rasterized_svg_data_url=parent_preview if has_svg else None,
-                    change_summary=change_summary,
-                    diff_data_url=diff_data_url,
-                )
-                log.debug(
-                    f"LLM call [generate] task={task.task_id} "
-                    f"parent={task.parent_id} model={model_name}"
-                )
-                raw = client.generate(gen_prompt, gen_config)
-                svg = extract_svg_fragment(raw)
+                    raw = client.generate(gen_prompt, gen_config)
+                    svg = extract_svg_fragment(raw)
+                finally:
+                    if llm_in_flight is not None:
+                        with llm_in_flight.get_lock():
+                            llm_in_flight.value -= 1
 
             else:
                 svg, change_summary = mutate_with_micro_search(
