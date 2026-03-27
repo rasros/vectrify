@@ -41,6 +41,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 addopts = "-m 'not llm'"
+testpaths = ["src"]
 markers = [
     "llm: marks tests that require live LLM API calls",
 ]
