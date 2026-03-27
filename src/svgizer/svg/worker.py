@@ -4,6 +4,7 @@ import io
 import logging
 import multiprocessing as mp
 import random
+import signal
 
 from PIL import Image
 
@@ -38,6 +39,7 @@ def _use_llm(has_svg: bool, llm_rate: float, llm_pressure: float) -> bool:
 
 
 def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
+    signal.signal(signal.SIGINT, signal.SIG_IGN)
     setup_logger(worker_params["log_level"], log_file=worker_params.get("log_file"))
     log = logging.getLogger("worker")
 
