@@ -94,7 +94,7 @@ def test_crowding_distance_two_nodes_are_infinite():
 
 
 def test_select_parent_returns_valid_node_id():
-    strategy = NsgaStrategy(pool_size=5, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=65)
     nodes = [make_node(i, i * 0.1, i * 100.0) for i in range(1, 6)]
     pid, secondary = strategy.select_parent(nodes, progress=0.5)
     assert pid in {n.id for n in nodes}
@@ -102,8 +102,11 @@ def test_select_parent_returns_valid_node_id():
 
 
 def test_select_parent_crossover_returns_two_distinct_parents():
-    strategy = NsgaStrategy(pool_size=5, crossover_prob=1.0)
-    nodes = [make_node(i, i * 0.1, i * 100.0) for i in range(1, 6)]
+    strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=0)
+    nodes = [
+        make_node(i, i * 0.1, i * 100.0, content=f"<svg><rect id='{i}'/></svg>")
+        for i in range(1, 6)
+    ]
     results = set()
     for _ in range(20):
         pid, secondary = strategy.select_parent(nodes, progress=0.5)
@@ -113,7 +116,7 @@ def test_select_parent_crossover_returns_two_distinct_parents():
 
 
 def test_select_parent_skips_invalid_nodes():
-    strategy = NsgaStrategy(pool_size=10, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     sentinel = SearchNode(
         score=float("inf"),
         id=0,
@@ -127,7 +130,7 @@ def test_select_parent_skips_invalid_nodes():
 
 
 def test_select_parent_only_invalid_falls_back():
-    strategy = NsgaStrategy(pool_size=5, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=65)
     sentinel = SearchNode(
         score=float("inf"),
         id=0,
@@ -157,7 +160,7 @@ def test_create_new_state_propagates_score_and_payload():
 
 
 def test_diversity_admits_distinct_nodes():
-    strategy = NsgaStrategy(pool_size=3, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=3, crossover_distance_threshold=65)
     nodes = [
         make_node(1, 0.1, content="<svg><circle/></svg>"),
         make_node(2, 0.2, content="<svg><rect/></svg>"),
@@ -170,7 +173,7 @@ def test_diversity_admits_distinct_nodes():
 
 def test_diversity_rejects_exact_duplicate_with_worse_score():
     content = "<svg><rect width='200' height='200'/></svg>"
-    strategy = NsgaStrategy(pool_size=5, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=65)
     good = make_node(1, 0.1, content=content)
     duplicate = make_node(2, 0.9, content=content)  # exact same content, worse score
     different = make_node(3, 0.5, content="<svg><completely different/></svg>")
@@ -183,7 +186,7 @@ def test_diversity_rejects_exact_duplicate_with_worse_score():
 
 
 def test_diversity_admits_node_with_no_content():
-    strategy = NsgaStrategy(pool_size=3, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=3, crossover_distance_threshold=65)
     nodes = [
         make_node(1, 0.1, content=None),
         make_node(2, 0.2, content=None),
@@ -206,7 +209,7 @@ def test_pareto_front_prefers_simpler_for_equal_quality():
 
 
 def test_tournament_prefers_lower_rank():
-    strategy = NsgaStrategy(pool_size=10, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [make_node(1, 0.1, complexity=100.0), make_node(2, 0.9, complexity=100.0)]
     selected = {strategy.select_parent(nodes, 0.0)[0] for _ in range(30)}
     assert 1 in selected
@@ -214,7 +217,7 @@ def test_tournament_prefers_lower_rank():
 
 
 def test_tournament_single_pool_candidate_returns_it():
-    strategy = NsgaStrategy(pool_size=10, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [make_node(1, 0.3, complexity=200.0)]
     pid, secondary = strategy.select_parent(nodes, 0.0)
     assert pid == 1
@@ -222,7 +225,7 @@ def test_tournament_single_pool_candidate_returns_it():
 
 
 def test_tournament_two_equal_rank_nodes_both_selectable():
-    strategy = NsgaStrategy(pool_size=10, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [make_node(1, 0.1, complexity=500.0), make_node(2, 0.9, complexity=10.0)]
     selected = {strategy.select_parent(nodes, 0.0)[0] for _ in range(50)}
     assert 1 in selected
@@ -230,7 +233,7 @@ def test_tournament_two_equal_rank_nodes_both_selectable():
 
 
 def test_pool_size_limits_candidate_set():
-    strategy = NsgaStrategy(pool_size=2, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=2, crossover_distance_threshold=65)
     nodes = [
         make_node(1, 0.1, complexity=10.0),
         make_node(2, 0.2, complexity=20.0),
@@ -243,7 +246,7 @@ def test_pool_size_limits_candidate_set():
 
 
 def test_pool_size_one_always_returns_same_node():
-    strategy = NsgaStrategy(pool_size=1, crossover_prob=0.0)
+    strategy = NsgaStrategy(pool_size=1, crossover_distance_threshold=65)
     nodes = [make_node(i, i * 0.1, complexity=float(i * 100)) for i in range(1, 6)]
     selected = {strategy.select_parent(nodes, 0.0)[0] for _ in range(20)}
     assert selected == {1}

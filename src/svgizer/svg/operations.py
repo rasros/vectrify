@@ -66,21 +66,12 @@ def with_micro_search(
     fallback_svg: str,
     orig_img_fast: Image.Image,
     num_trials: int = 15,
-    default_summary: str = "No improvement",
+    default_summary: str = "No change",
 ) -> tuple[str, str]:
-    best_svg = fallback_svg
+    best_svg: str | None = None
     best_fast_score = float("inf")
     best_summary = default_summary
     fast_w, fast_h = orig_img_fast.size
-
-    try:
-        parent_png = rasterize_svg_to_png_bytes(
-            fallback_svg, out_w=fast_w, out_h=fast_h
-        )
-        parent_img = Image.open(io.BytesIO(parent_png)).convert("RGB")
-        best_fast_score = lab_l1(orig_img_fast, parent_img)
-    except Exception:
-        pass
 
     for _ in range(num_trials):
         cand_svg, summary = op_generator()
@@ -99,7 +90,7 @@ def with_micro_search(
         except Exception:
             continue
 
-    return best_svg, best_summary
+    return best_svg if best_svg is not None else fallback_svg, best_summary
 
 
 def crossover(svg_a: str, svg_b: str, k: int = 2) -> str:

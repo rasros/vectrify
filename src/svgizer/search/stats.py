@@ -31,8 +31,6 @@ class SearchStats:
     mutation_call_count: int = 0
     mutation_accepted_count: int = 0
 
-    duplicate_count: int = 0  # results rejected as duplicate genomes
-
     shutting_down: bool = False
 
     best_score: float = float("inf")
@@ -81,11 +79,6 @@ class SearchStats:
     def effective_llm_rate(self) -> float:
         """Actual fraction of tasks that call the LLM (pressure * llm_rate)."""
         return self.llm_pressure * self.llm_rate
-
-    def duplicate_rate(self) -> float:
-        return (
-            self.duplicate_count / self.tasks_completed if self.tasks_completed else 0.0
-        )
 
     def mutation_accept_rate(self) -> float:
         return (

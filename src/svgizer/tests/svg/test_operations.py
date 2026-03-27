@@ -216,8 +216,24 @@ def test_with_micro_search_finds_improvement():
     assert summary == "good"
 
 
-def test_with_micro_search_no_improvement_returns_fallback():
-    # Target image is blue, fallback is already perfect
+def test_with_micro_search_no_valid_candidates_returns_fallback():
+    # All candidates are identical to fallback_svg, so best_svg stays None
+    target_img = Image.new("RGB", (10, 10), color="blue")
+    fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
+
+    def op_gen():
+        return fallback_svg, "same"
+
+    best_svg, summary = with_micro_search(
+        op_gen, fallback_svg, target_img, num_trials=2, default_summary="No change"
+    )
+    assert best_svg == fallback_svg
+    assert summary == "No change"
+
+
+def test_with_micro_search_returns_best_candidate_even_if_worse_than_parent():
+    # With the new logic the best candidate tried is always returned,
+    # even if it scores worse than the parent.
     target_img = Image.new("RGB", (10, 10), color="blue")
     fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
     worse_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
@@ -226,10 +242,11 @@ def test_with_micro_search_no_improvement_returns_fallback():
         return worse_svg, "worse"
 
     best_svg, summary = with_micro_search(
-        op_gen, fallback_svg, target_img, num_trials=2, default_summary="No improvement"
+        op_gen, fallback_svg, target_img, num_trials=2, default_summary="No change"
     )
-    assert best_svg == fallback_svg
-    assert summary == "No improvement"
+    # The worse candidate is different from fallback so it becomes best_svg
+    assert best_svg == worse_svg
+    assert summary == "worse"
 
 
 def test_with_micro_search_ignores_invalid_renders():

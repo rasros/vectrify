@@ -67,25 +67,12 @@ class MultiprocessSearchEngine(Generic[TState]):
             stats.start_time = start_time
             stats.epoch_patience = epoch_patience or 0
 
-        # Track seen genomes to avoid redundant evaluations
-        seen_signatures: set[int] = {
-            n.signature for n in initial_nodes if n.signature is not None
-        }
-
         def _scorer_worker():
             while True:
                 res = self.unscored_q.get()
                 if res is None:
                     self.result_q.put(None)
                     break
-
-                # Duplicate rejection via MinHash signature (skips scoring)
-                if res.valid and res.signature:
-                    if res.signature in seen_signatures:
-                        res.valid = False
-                        res.invalid_msg = "Duplicate genome"
-                    else:
-                        seen_signatures.add(res.signature)
 
                 try:
                     if res.valid and res.score is None and score_fn is not None:
@@ -215,23 +202,17 @@ class MultiprocessSearchEngine(Generic[TState]):
                         stats.mutation_call_count += 1
 
                 if not res.valid:
-                    is_duplicate = res.invalid_msg == "Duplicate genome"
                     if res.llm_type:
                         log.info(
                             f"[{res.llm_type.upper()} INVALID] "
                             f"task={res.task_id} msg={res.invalid_msg}"
                         )
-                    elif is_duplicate:
-                        log.debug(f"Task {res.task_id} rejected: duplicate genome.")
                     else:
                         log.debug(f"Task {res.task_id} rejected: {res.invalid_msg}")
                     if stats is not None:
-                        if is_duplicate:
-                            stats.duplicate_count += 1
-                        else:
-                            stats.invalid_count += 1
-                            if res.llm_type:
-                                stats.llm_invalid_count += 1
+                        stats.invalid_count += 1
+                        if res.llm_type:
+                            stats.llm_invalid_count += 1
                     continue
 
                 if res.score is None:

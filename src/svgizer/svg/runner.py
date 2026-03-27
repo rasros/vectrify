@@ -294,7 +294,7 @@ def run_svg_search(
     else:
         base_strategy = NsgaStrategy[SvgStatePayload](
             pool_size=pool_size,
-            crossover_prob=0.25,
+            crossover_distance_threshold=10,
             epoch_diversity=epoch_diversity,
         )
 

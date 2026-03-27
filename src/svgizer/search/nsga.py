@@ -2,7 +2,7 @@ import logging
 import random
 from typing import Generic, TypeVar
 
-from svgizer.search.diversity import pool_diversity
+from svgizer.search.diversity import hamming_distance, pool_diversity
 from svgizer.search.models import ChainState, Result, SearchNode
 
 log = logging.getLogger(__name__)
@@ -90,11 +90,11 @@ class NsgaStrategy(Generic[TState]):
     def __init__(
         self,
         pool_size: int = 20,
-        crossover_prob: float = 0.25,
+        crossover_distance_threshold: int = 10,
         epoch_diversity: float = 0.0,
     ):
         self.pool_size = pool_size
-        self.crossover_prob = crossover_prob
+        self.crossover_distance_threshold = crossover_distance_threshold
         self.epoch_diversity = epoch_diversity
 
     @property
@@ -156,9 +156,16 @@ class NsgaStrategy(Generic[TState]):
 
         p1 = _tournament()
 
-        if len(pool) >= 2 and random.random() < self.crossover_prob:
-            p2 = _tournament(exclude_id=p1.id)
-            return p1.id, p2.id
+        if len(pool) >= 2:
+            p2_candidate = _tournament(exclude_id=p1.id)
+            sig1 = p1.signature
+            sig2 = p2_candidate.signature
+            if (
+                sig1 is not None
+                and sig2 is not None
+                and hamming_distance(sig1, sig2) > self.crossover_distance_threshold
+            ):
+                return p1.id, p2_candidate.id
 
         return p1.id, None
 

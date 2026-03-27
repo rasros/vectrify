@@ -49,7 +49,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"   accept [green]{s.accept_rate() * 100:.1f}%[/green]"
         f"   pool-rej [yellow]{s.pool_rejected_rate() * 100:.1f}%[/yellow]"
         f"   invalid [red]{s.invalid_rate() * 100:.1f}%[/red]"
-        f"   dupes [dim]{s.duplicate_rate() * 100:.1f}%[/dim]"
     )
 
     # ── LLM row ───────────────────────────────────────────────────────────
