@@ -2,7 +2,7 @@ import logging
 import random
 from typing import Generic, TypeVar
 
-from svgizer.search.base import estimate_jaccard
+from svgizer.search.diversity import pool_diversity
 from svgizer.search.models import ChainState, Result, SearchNode
 
 log = logging.getLogger(__name__)
@@ -91,24 +91,22 @@ class NsgaStrategy(Generic[TState]):
         self,
         pool_size: int = 20,
         crossover_prob: float = 0.25,
-        similarity_threshold: float = 0.97,
         epoch_diversity: float = 0.0,
     ):
         self.pool_size = pool_size
         self.crossover_prob = crossover_prob
-        self.similarity_threshold = similarity_threshold
         self.epoch_diversity = epoch_diversity
 
     @property
     def top_k_count(self) -> int:
         return self.pool_size
 
-    def _too_similar(self, node: SearchNode[TState], other: SearchNode[TState]) -> bool:
-        if not node.signature or not other.signature:
+    def _is_duplicate(
+        self, node: SearchNode[TState], other: SearchNode[TState]
+    ) -> bool:
+        if node.signature is None or other.signature is None:
             return False
-
-        sim = estimate_jaccard(node.signature, other.signature)
-        return sim >= self.similarity_threshold
+        return node.signature == other.signature
 
     def select_parent(
         self, nodes: list[SearchNode[TState]], progress: float
@@ -140,7 +138,7 @@ class NsgaStrategy(Generic[TState]):
         for node in sorted_valid:
             if len(pool) >= self.pool_size:
                 break
-            if not any(self._too_similar(node, p) for p in pool):
+            if not any(self._is_duplicate(node, p) for p in pool):
                 pool.append(node)
         if not pool:
             pool = sorted_valid[: self.pool_size]
@@ -189,35 +187,14 @@ class NsgaStrategy(Generic[TState]):
             for node in front_sorted:
                 if len(seeds) >= max_seeds:
                     break
-                if not any(
-                    node.signature
-                    and s.signature
-                    and estimate_jaccard(node.signature, s.signature)
-                    >= self.similarity_threshold
-                    for s in seeds
-                ):
+                if not any(self._is_duplicate(node, s) for s in seeds):
                     seeds.append(node)
 
         return seeds or valid[:max_seeds]
 
     def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:
-        candidates = [n for n in pool if n.signature and n.score < float("inf")]
-        if len(candidates) < 4:
-            return False, 1.0
-        n = len(candidates)
-        all_pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
-
-        if len(all_pairs) <= 28:
-            sample_pairs = all_pairs
-        else:
-            sample_pairs = random.sample(all_pairs, 8)
-
-        mean_distance = sum(
-            1.0 - estimate_jaccard(candidates[i].signature, candidates[j].signature)
-            for i, j in sample_pairs
-        ) / len(sample_pairs)
-
-        return mean_distance < self.epoch_diversity, mean_distance
+        diversity = pool_diversity(pool)
+        return self.epoch_diversity > 0 and diversity < self.epoch_diversity, diversity
 
     def create_new_state(self, result: Result[TState]) -> ChainState[TState]:
         return ChainState(score=result.score, payload=result.payload)

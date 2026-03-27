@@ -21,7 +21,7 @@ class SearchNode(Generic[TState]):
     state: ChainState[TState] = dataclasses.field(compare=False)
     secondary_parent_id: int | None = dataclasses.field(default=None, compare=False)
     complexity: float = dataclasses.field(default=0.0, compare=False)
-    signature: tuple[int, ...] | None = dataclasses.field(default=None, compare=False)
+    signature: int | None = dataclasses.field(default=None, compare=False)
     epoch: int = dataclasses.field(default=0, compare=False)
 
 
@@ -49,5 +49,5 @@ class Result(Generic[TResultPayload]):
     secondary_parent_id: int | None = None
     complexity: float = 0.0
     content: str | None = None
-    signature: tuple[int, ...] | None = None
+    signature: int | None = None
     llm_type: str | None = None

@@ -1,5 +1,5 @@
 from svgizer.search import ChainState, Result, SearchNode
-from svgizer.search.base import compute_signature
+from svgizer.search.diversity import simhash
 from svgizer.search.nsga import (
     NsgaStrategy,
     _dominates,
@@ -15,14 +15,13 @@ def make_node(
     content: str | None = None,
 ) -> SearchNode:
     state = ChainState(score=score, payload=None)
-    sig = compute_signature(content) if content else None
     return SearchNode(
         score=score,
         id=node_id,
         parent_id=0,
         state=state,
         complexity=complexity,
-        signature=sig,
+        signature=simhash(content) if content else None,
     )
 
 
@@ -158,7 +157,7 @@ def test_create_new_state_propagates_score_and_payload():
 
 
 def test_diversity_admits_distinct_nodes():
-    strategy = NsgaStrategy(pool_size=3, crossover_prob=0.0, similarity_threshold=0.97)
+    strategy = NsgaStrategy(pool_size=3, crossover_prob=0.0)
     nodes = [
         make_node(1, 0.1, content="<svg><circle/></svg>"),
         make_node(2, 0.2, content="<svg><rect/></svg>"),
@@ -169,24 +168,22 @@ def test_diversity_admits_distinct_nodes():
         assert pid in {1, 2, 3}
 
 
-def test_diversity_rejects_near_duplicate_with_worse_score():
-    base_content = "<svg>" + "".join(str(i) for i in range(500)) + "</svg>"
-    near_dup = base_content[:-10] + "YYYY</svg>"
-
-    strategy = NsgaStrategy(pool_size=5, crossover_prob=0.0, similarity_threshold=0.97)
-    good = make_node(1, 0.1, content=base_content)
-    near = make_node(2, 0.9, content=near_dup)
+def test_diversity_rejects_exact_duplicate_with_worse_score():
+    content = "<svg><rect width='200' height='200'/></svg>"
+    strategy = NsgaStrategy(pool_size=5, crossover_prob=0.0)
+    good = make_node(1, 0.1, content=content)
+    duplicate = make_node(2, 0.9, content=content)  # exact same content, worse score
     different = make_node(3, 0.5, content="<svg><completely different/></svg>")
 
     selected = set()
     for _ in range(50):
-        pid, _ = strategy.select_parent([good, near, different], 0.0)
+        pid, _ = strategy.select_parent([good, duplicate, different], 0.0)
         selected.add(pid)
     assert 2 not in selected
 
 
 def test_diversity_admits_node_with_no_content():
-    strategy = NsgaStrategy(pool_size=3, crossover_prob=0.0, similarity_threshold=0.97)
+    strategy = NsgaStrategy(pool_size=3, crossover_prob=0.0)
     nodes = [
         make_node(1, 0.1, content=None),
         make_node(2, 0.2, content=None),
@@ -194,15 +191,6 @@ def test_diversity_admits_node_with_no_content():
     for _ in range(10):
         pid, _ = strategy.select_parent(nodes, 0.0)
         assert pid in {1, 2}
-
-
-def test_diversity_disabled_at_threshold_one():
-    base_content = "<svg>" + "".join(str(i) for i in range(500)) + "</svg>"
-    strategy = NsgaStrategy(pool_size=5, crossover_prob=0.0, similarity_threshold=1.0)
-    nodes = [make_node(i, i * 0.1, content=base_content) for i in range(1, 4)]
-    for _ in range(10):
-        pid, _ = strategy.select_parent(nodes, 0.0)
-        assert pid in {1, 2, 3}
 
 
 def test_pareto_front_prefers_simpler_for_equal_quality():
@@ -299,7 +287,7 @@ def test_should_not_diversify_too_few_nodes():
 
 
 def test_epoch_seeds_returns_pareto_front():
-    strategy = NsgaStrategy(pool_size=10, similarity_threshold=0.97)
+    strategy = NsgaStrategy(pool_size=10)
     # Node 2 dominates node 3 (better on both objectives)
     # Node 1 and 2 are non-dominated (each better on one objective)
     nodes = [
@@ -318,24 +306,23 @@ def test_epoch_seeds_returns_pareto_front():
 
 
 def test_epoch_seeds_respects_max_seeds():
-    strategy = NsgaStrategy(pool_size=10, similarity_threshold=0.97)
+    strategy = NsgaStrategy(pool_size=10)
     nodes = [make_node(i, i * 0.1, complexity=float(i * 100)) for i in range(1, 8)]
     seeds = strategy.epoch_seeds(nodes, max_seeds=3)
     assert len(seeds) <= 3
 
 
-def test_epoch_seeds_filters_near_duplicates():
-    base_content = "<svg>" + "".join(str(i) for i in range(500)) + "</svg>"
-    near_dup = base_content[:-10] + "YYYY</svg>"
-    strategy = NsgaStrategy(pool_size=10, similarity_threshold=0.97)
-    good = make_node(1, 0.1, complexity=100.0, content=base_content)
-    near = make_node(2, 0.1, complexity=100.0, content=near_dup)
+def test_epoch_seeds_filters_exact_duplicates():
+    content = "<svg>" + "".join(str(i) for i in range(500)) + "</svg>"
+    strategy = NsgaStrategy(pool_size=10)
+    good = make_node(1, 0.1, complexity=100.0, content=content)
+    duplicate = make_node(2, 0.1, complexity=100.0, content=content)  # exact copy
     different = make_node(
         3, 0.2, complexity=200.0, content="<svg><completely different/></svg>"
     )
-    seeds = strategy.epoch_seeds([good, near, different], max_seeds=3)
+    seeds = strategy.epoch_seeds([good, duplicate, different], max_seeds=3)
     seed_ids = {n.id for n in seeds}
-    # near duplicate should be filtered out (too similar to good)
+    # exact duplicate should be filtered; both 1 and 2 should not appear together
     assert not (1 in seed_ids and 2 in seed_ids)
 
 

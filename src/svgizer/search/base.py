@@ -1,41 +1,10 @@
-import binascii
 from enum import Enum
+from pathlib import Path
 from typing import Protocol, TypeVar
 
 from svgizer.search.models import ChainState, Result, SearchNode
 
 TState = TypeVar("TState")
-
-
-def compute_signature(
-    text: str | None, num_perms: int = 64, ngram_size: int = 4
-) -> tuple[int, ...] | None:
-    """Compute a MinHash signature for O(1) Jaccard similarity estimation."""
-    if not text:
-        return None
-    encoded = text.encode("utf-8")
-    if len(encoded) < ngram_size:
-        ngrams = {encoded}
-    else:
-        ngrams = {
-            encoded[i : i + ngram_size] for i in range(len(encoded) - ngram_size + 1)
-        }
-
-    sig = []
-    for i in range(num_perms):
-        salt = i.to_bytes(4, "little")
-        sig.append(min(binascii.crc32(salt + ng) for ng in ngrams))
-    return tuple(sig)
-
-
-def estimate_jaccard(
-    sig1: tuple[int, ...] | None, sig2: tuple[int, ...] | None
-) -> float:
-    """Estimate Jaccard similarity from two MinHash signatures (0.0 to 1.0)."""
-    if not sig1 or not sig2 or len(sig1) != len(sig2):
-        return 0.0
-    matches = sum(1 for a, b in zip(sig1, sig2, strict=False) if a == b)
-    return matches / len(sig1)
 
 
 class StrategyType(str, Enum):
@@ -51,7 +20,10 @@ class SearchStrategy(Protocol[TState]):
     def create_new_state(self, result: Result[TState]) -> ChainState[TState]: ...
 
     def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
-        """Return (trigger_epoch, pool_diversity) where diversity is mean pairwise Jaccard distance (0-1)."""
+        """Return (trigger_epoch, diversity).
+
+        diversity is the mean normalised Hamming distance across sampled node pairs.
+        """
         ...
 
     def epoch_seeds(
@@ -65,6 +37,8 @@ class SearchStrategy(Protocol[TState]):
 
 
 class StorageAdapter(Protocol[TState]):
+    current_run_dir: Path | None
+
     def initialize(self) -> None: ...
 
     def save_node(self, node: SearchNode[TState]) -> None: ...

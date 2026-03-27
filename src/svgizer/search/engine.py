@@ -68,8 +68,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             stats.epoch_patience = epoch_patience or 0
 
         # Track seen genomes to avoid redundant evaluations
-        seen_signatures: set[tuple[int, ...]] = {
-            n.signature for n in initial_nodes if n.signature
+        seen_signatures: set[int] = {
+            n.signature for n in initial_nodes if n.signature is not None
         }
 
         def _scorer_worker():

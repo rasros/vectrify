@@ -77,7 +77,7 @@ class SearchStats:
         )
 
     def effective_llm_rate(self) -> float:
-        """Actual fraction of tasks that call the LLM (pressure × llm_rate)."""
+        """Actual fraction of tasks that call the LLM (pressure * llm_rate)."""
         return self.llm_pressure * self.llm_rate
 
     def duplicate_rate(self) -> float:

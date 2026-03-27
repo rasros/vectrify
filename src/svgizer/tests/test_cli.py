@@ -4,7 +4,6 @@ from svgizer.cli import (
     DEFAULT_EPOCH_DIVERSITY,
     DEFAULT_LLM_RATE,
     DEFAULT_POOL_SIZE,
-    DEFAULT_SIMILARITY_THRESHOLD,
     parse_args,
 )
 from svgizer.search import StrategyType
@@ -57,9 +56,8 @@ def test_default_llm_rate():
     assert args.llm_rate == DEFAULT_LLM_RATE
 
 
-def test_default_similarity_thresholds():
+def test_default_epoch_diversity():
     args = parse_args(["img.png"])
-    assert args.similarity_threshold == DEFAULT_SIMILARITY_THRESHOLD
     assert args.epoch_diversity == DEFAULT_EPOCH_DIVERSITY
 
 

@@ -30,7 +30,7 @@ from svgizer.search import (
     StorageAdapter,
     StrategyType,
 )
-from svgizer.search.base import compute_signature
+from svgizer.search.diversity import simhash
 from svgizer.search.nsga import crowding_distance, non_dominated_sort
 from svgizer.svg.adapter import SvgStatePayload, SvgStrategyAdapter
 from svgizer.svg.worker import worker_loop
@@ -107,7 +107,6 @@ def run_svg_search(
     llm_rate: float = 0.2,
     pool_size: int = 20,
     seeds: int = 0,
-    similarity_threshold: float = 0.97,
     epoch_diversity: float = 0.10,
     max_epochs: int | None = None,
     epoch_pool_size: int | None = None,
@@ -118,6 +117,7 @@ def run_svg_search(
     # Initialize storage first so we can switch to file-only logging immediately,
     # before any heavy setup (scorer/model loading) produces terminal output.
     storage.initialize()
+    assert storage.current_run_dir is not None
     run_log_file = storage.current_run_dir / "search.log"
     setup_logger(log_level, log_file=run_log_file)
     if dashboard is not None:
@@ -151,8 +151,8 @@ def run_svg_search(
         unique_items = []
         seen_sigs = set()
         for old_id, svg_text in resumed_items:
-            sig = compute_signature(svg_text)
-            if sig:
+            sig = simhash(svg_text)
+            if sig is not None:
                 if sig in seen_sigs:
                     log.debug(f"Skipping duplicate Node {old_id} during resume.")
                     continue
@@ -295,7 +295,6 @@ def run_svg_search(
         base_strategy = NsgaStrategy[SvgStatePayload](
             pool_size=pool_size,
             crossover_prob=0.25,
-            similarity_threshold=similarity_threshold,
             epoch_diversity=epoch_diversity,
         )
 
@@ -351,11 +350,11 @@ def run_svg_search(
     engine.start_workers(worker_loop, worker_params)
 
     # Start dashboard only after the tqdm resume phase to avoid display conflicts.
-    dashboard_started = False
+    dashboard_entered = False
     try:
         if dashboard is not None:
             dashboard.__enter__()
-            dashboard_started = True
+            dashboard_entered = True
         engine.run(
             initial_nodes,
             max_wall_seconds=max_wall_seconds,
@@ -369,7 +368,6 @@ def run_svg_search(
             stats=stats,
         )
     finally:
-        if dashboard_started:
+        if dashboard is not None and dashboard_entered:
             dashboard.__exit__(None, None, None)
-        if dashboard is not None:
             logging.getLogger().removeHandler(dashboard.log_handler)

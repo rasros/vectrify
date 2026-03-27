@@ -40,6 +40,7 @@ class FakeStorage:
     def __init__(self):
         self.save_called = False
         self.max_node_id = 1
+        self.current_run_dir = None
 
     def initialize(self) -> None:
         pass

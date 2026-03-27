@@ -1,5 +1,6 @@
 from typing import Generic, TypeVar
 
+from svgizer.search.diversity import pool_diversity
 from svgizer.search.models import ChainState, Result, SearchNode
 
 TState = TypeVar("TState")
@@ -21,8 +22,7 @@ class GreedyHillClimbingStrategy(Generic[TState]):
         return best_node.id, None
 
     def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:
-        _ = pool
-        return False, 1.0
+        return False, pool_diversity(pool)
 
     def epoch_seeds(
         self, pool: list[SearchNode[TState]], max_seeds: int

@@ -85,7 +85,6 @@ def main():
             llm_rate=args.llm_rate,
             pool_size=args.pool_size,
             seeds=args.seeds,
-            similarity_threshold=args.similarity_threshold,
             epoch_diversity=args.epoch_diversity,
             max_epochs=None if args.max_epochs < 0 else max(1, args.max_epochs),
             epoch_pool_size=args.epoch_seeds or None,

@@ -1,3 +1,4 @@
+import contextlib
 import logging
 import threading
 import time
@@ -176,16 +177,12 @@ class Dashboard:
         if self._thread:
             self._thread.join(timeout=2.0)
         # Final render
-        try:
+        with contextlib.suppress(Exception):
             self._live.update(_build_renderable(self.stats), refresh=True)
-        except Exception:
-            pass
         self._live.__exit__(*exc_info)
 
     def _loop(self) -> None:
         while not self._stop.is_set():
-            try:
+            with contextlib.suppress(Exception):
                 self._live.update(_build_renderable(self.stats), refresh=True)
-            except Exception:
-                pass
             time.sleep(_REFRESH_INTERVAL)

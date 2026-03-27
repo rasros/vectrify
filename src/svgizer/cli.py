@@ -11,9 +11,8 @@ DEFAULT_RESUME = False
 DEFAULT_WRITE_LINEAGE = True
 DEFAULT_IMAGE_LONG_SIDE = 512
 DEFAULT_REASONING = "medium"
-DEFAULT_LLM_RATE = 1 / DEFAULT_WORKERS
+DEFAULT_LLM_RATE = 1 / (DEFAULT_WORKERS * 5)
 DEFAULT_POOL_SIZE = 100
-DEFAULT_SIMILARITY_THRESHOLD = 0.97
 DEFAULT_EPOCH_DIVERSITY = 0.0
 
 
@@ -153,17 +152,6 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
             "Target number of LLM-seeded nodes for epoch 0. "
             "Resumed nodes count toward this. "
             "Defaults to pool-size // 10 when 0."
-        ),
-    )
-
-    parser.add_argument(
-        "--similarity-threshold",
-        type=float,
-        default=DEFAULT_SIMILARITY_THRESHOLD,
-        dest="similarity_threshold",
-        help=(
-            f"Jaccard similarity above which two genomes are near-duplicates "
-            f"and filtered during selection. Default: {DEFAULT_SIMILARITY_THRESHOLD}."
         ),
     )
 
