@@ -266,7 +266,9 @@ def run_svg_search(
             )
         )
 
-    if strategy_type == StrategyType.GREEDY:
+    is_greedy = strategy_type == StrategyType.GREEDY
+
+    if is_greedy:
         base_strategy = GreedyHillClimbingStrategy[SvgStatePayload]()
     else:
         base_strategy = NsgaStrategy[SvgStatePayload](
@@ -276,15 +278,27 @@ def run_svg_search(
             epoch_diversity=epoch_diversity,
         )
 
-    seed_target = pool_size // 10 if seeds == 0 else seeds
-    seeded = sum(1 for n in initial_nodes if n.state.payload.svg)
-    epoch0_seed_tasks = max(0, seed_target - seeded)
-
-    if epoch0_seed_tasks > 0:
-        log.info(
-            f"Epoch 0: {epoch0_seed_tasks} LLM seed tasks "
-            f"(target={seed_target}, already seeded={seeded})"
-        )
+    if is_greedy:
+        engine_pool_size = 1
+        engine_seed_tasks = 0
+        engine_epoch_patience = epoch_patience
+        engine_epoch_min_delta = epoch_min_delta
+        engine_max_epochs = max_epochs
+        engine_epoch_pool_size = None
+    else:
+        engine_pool_size = pool_size
+        seed_target = pool_size // 10 if seeds == 0 else seeds
+        seeded = sum(1 for n in initial_nodes if n.state.payload.svg)
+        engine_seed_tasks = max(0, seed_target - seeded)
+        engine_epoch_patience = epoch_patience
+        engine_epoch_min_delta = epoch_min_delta
+        engine_max_epochs = max_epochs
+        engine_epoch_pool_size = epoch_pool_size
+        if engine_seed_tasks > 0:
+            log.info(
+                f"Epoch 0: {engine_seed_tasks} LLM seed tasks "
+                f"(target={seed_target}, already seeded={seeded})"
+            )
 
     strategy = SvgStrategyAdapter(base_strategy, image_long_side, write_lineage)
     engine = MultiprocessSearchEngine(
@@ -316,11 +330,11 @@ def run_svg_search(
     engine.run(
         initial_nodes,
         max_wall_seconds=max_wall_seconds,
-        epoch_patience=epoch_patience,
-        epoch_min_delta=epoch_min_delta,
-        active_pool_size=pool_size,
+        epoch_patience=engine_epoch_patience,
+        epoch_min_delta=engine_epoch_min_delta,
+        active_pool_size=engine_pool_size,
         score_fn=score_fn,
-        seed_tasks=epoch0_seed_tasks,
-        max_epochs=max_epochs,
-        epoch_pool_size=epoch_pool_size,
+        seed_tasks=engine_seed_tasks,
+        max_epochs=engine_max_epochs,
+        epoch_pool_size=engine_epoch_pool_size,
     )

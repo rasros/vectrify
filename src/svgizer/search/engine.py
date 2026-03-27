@@ -285,16 +285,19 @@ class MultiprocessSearchEngine(Generic[TState]):
                         seeds = self.strategy.epoch_seeds(active_pool, n_seeds)
                         if seeds:
                             active_pool = seeds
+                            log.info(
+                                f"Epoch {epoch}: seeded with "
+                                f"{len(active_pool)} Pareto-front nodes."
+                            )
+                        else:
+                            active_pool = list(initial_nodes[:active_pool_size])
+                            log.info(f"Epoch {epoch}: restarting from initial node.")
                         epoch_no_improve = 0
                         valid_scores = [
                             n.score for n in active_pool if n.score < float("inf")
                         ]
                         epoch_patience_best = (
                             min(valid_scores) if valid_scores else float("inf")
-                        )
-                        log.info(
-                            f"Epoch {epoch}: seeded with "
-                            f"{len(active_pool)} Pareto-front nodes."
                         )
 
         finally:

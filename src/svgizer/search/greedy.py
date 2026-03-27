@@ -27,10 +27,9 @@ class GreedyHillClimbingStrategy(Generic[TState]):
     def epoch_seeds(
         self, pool: list[SearchNode[TState]], max_seeds: int
     ) -> list[SearchNode[TState]]:
-        valid = [n for n in pool if n.score < float("inf")]
-        if not valid:
-            return pool[:max_seeds]
-        return sorted(valid, key=lambda n: n.score)[:max_seeds]
+        # Return empty to signal the engine to restart from the initial node.
+        _ = pool, max_seeds
+        return []
 
     def create_new_state(self, result: Result) -> ChainState[TState]:
         return ChainState(
