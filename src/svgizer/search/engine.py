@@ -155,6 +155,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                     is_epoch0_seed = epoch == 0 and epoch0_seeds_dispatched < seed_tasks
                     if is_epoch0_seed:
                         epoch0_seeds_dispatched += 1
+                    elif epoch == 0 and seed_tasks > 0 and in_flight > 0:
+                        # Seeds are dispatched but results not yet back — don't dispatch
+                        # regular tasks so workers don't busy-wait on the empty pool.
+                        break
 
                     # Ramp LLM pressure from 0 → 1 as stagnation grows
                     ramp_ref = epoch_patience or 100
