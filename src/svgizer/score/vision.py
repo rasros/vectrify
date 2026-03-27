@@ -32,9 +32,9 @@ class VisionScorer(Scorer):
     ):
         self._model_name = model_name
         self._device = device
-        self._model: Any | None = None
-        self._processor: Any | None = None
-        self._torch: Any | None = None
+        self._model: Any = None
+        self._processor: Any = None
+        self._torch: Any = None
         self._device_str: str | None = None
 
     def _load_dependencies(self) -> None:

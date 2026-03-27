@@ -24,7 +24,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         image_path=str(img_path),
         storage=storage,
         workers=1,
-        image_long_side=64,
+        image_long_side=32,
         max_wall_seconds=10.0,
         log_level="DEBUG",
         scorer_type=ScorerType.SIMPLE,

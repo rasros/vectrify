@@ -14,28 +14,35 @@ class _TinyVisionScorer(VisionScorer):
             return
         try:
             import torch
-            from transformers import SiglipConfig, SiglipImageProcessor, SiglipModel
-
-            config = SiglipConfig(
-                vision_config={
-                    "hidden_size": 32,
-                    "intermediate_size": 64,
-                    "num_hidden_layers": 1,
-                    "num_attention_heads": 2,
-                    "image_size": 32,
-                    "patch_size": 16,
-                },
-                text_config={
-                    "hidden_size": 32,
-                    "intermediate_size": 64,
-                    "num_hidden_layers": 1,
-                    "num_attention_heads": 2,
-                    "vocab_size": 100,
-                },
+            from transformers import (
+                SiglipConfig,
+                SiglipImageProcessor,
+                SiglipModel,
+                SiglipTextConfig,
+                SiglipVisionConfig,
             )
+
+            vision_config = SiglipVisionConfig()
+            vision_config.hidden_size = 8
+            vision_config.intermediate_size = 16
+            vision_config.num_hidden_layers = 1
+            vision_config.num_attention_heads = 2
+            vision_config.image_size = 16
+            vision_config.patch_size = 16
+
+            text_config = SiglipTextConfig()
+            text_config.hidden_size = 8
+            text_config.intermediate_size = 16
+            text_config.num_hidden_layers = 1
+            text_config.num_attention_heads = 2
+            text_config.vocab_size = 32
+
+            config = SiglipConfig()
+            config.vision_config = vision_config
+            config.text_config = text_config
             model = SiglipModel(config)
             model.eval()
-            processor = SiglipImageProcessor(size={"height": 32, "width": 32})
+            processor = SiglipImageProcessor(size={"height": 16, "width": 16})
 
             self._model = model
             self._processor = processor
