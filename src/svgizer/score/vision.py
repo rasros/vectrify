@@ -70,8 +70,11 @@ class VisionScorer(Scorer):
             if hasattr(self._model, "get_image_features"):
                 features = self._model.get_image_features(pixel_values=pixel_values)
             else:
-                outputs = self._model(pixel_values=pixel_values)
-                features = outputs.pooler_output
+                features = self._model(pixel_values=pixel_values)
+
+            # Unwrap dataclass outputs (e.g. BaseModelOutputWithPooling)
+            if not isinstance(features, self._torch.Tensor):
+                features = features.pooler_output
 
             return functional.normalize(features, dim=-1)
 

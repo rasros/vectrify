@@ -6,9 +6,48 @@ from PIL import Image
 from svgizer.score.vision import VisionScorer
 
 
+class _TinyVisionScorer(VisionScorer):
+    """VisionScorer backed by a tiny SiglipModel with random weights — no download."""
+
+    def _load_dependencies(self) -> None:
+        if self._model is not None:
+            return
+        try:
+            import torch
+            from transformers import SiglipConfig, SiglipImageProcessor, SiglipModel
+
+            config = SiglipConfig(
+                vision_config={
+                    "hidden_size": 32,
+                    "intermediate_size": 64,
+                    "num_hidden_layers": 1,
+                    "num_attention_heads": 2,
+                    "image_size": 32,
+                    "patch_size": 16,
+                },
+                text_config={
+                    "hidden_size": 32,
+                    "intermediate_size": 64,
+                    "num_hidden_layers": 1,
+                    "num_attention_heads": 2,
+                    "vocab_size": 100,
+                },
+            )
+            model = SiglipModel(config)
+            model.eval()
+            processor = SiglipImageProcessor(size={"height": 32, "width": 32})
+
+            self._model = model
+            self._processor = processor
+            self._torch = torch
+            self._device_str = "cpu"
+        except ImportError as e:
+            raise ImportError(f"transformers or torch not available: {e}") from e
+
+
 @pytest.fixture(scope="module")
 def scorer():
-    s = VisionScorer(device="cpu")
+    s = _TinyVisionScorer(device="cpu")
     try:
         s.validate_environment()
     except ImportError as e:
