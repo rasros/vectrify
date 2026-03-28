@@ -52,9 +52,13 @@ def _build_renderable(stats: SearchStats) -> Panel:
     )
 
     # ── LLM row ───────────────────────────────────────────────────────────
-    llm_total = s.llm_call_count + s.llm_calls_in_flight
+    in_flight_str = (
+        f" [dim](+{s.llm_calls_in_flight} in flight)[/dim]"
+        if s.llm_calls_in_flight
+        else ""
+    )
     llm_line = (
-        f"  calls [bold]{s.llm_call_count:,}[/bold]/[bold]{llm_total:,}[/bold]"
+        f"  calls [bold]{s.llm_call_count:,}[/bold]{in_flight_str}"
         f"   valid [green]{s.llm_valid_rate() * 100:.1f}%[/green]"
         f"   pool-acc [cyan]{s.llm_accept_rate() * 100:.1f}%[/cyan]"
         f"   rate [yellow]{s.effective_llm_rate() * 100:.2f}%[/yellow]"

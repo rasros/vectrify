@@ -17,7 +17,7 @@ from svgizer.image_utils import (
     rasterize_svg_to_png_bytes,
 )
 from svgizer.score import ScorerType, get_scorer
-from svgizer.score.complexity import svg_complexity
+from svgizer.score.complexity import visual_complexity
 from svgizer.score.simple import SimpleFallbackScorer
 from svgizer.search import (
     INVALID_SCORE,
@@ -175,7 +175,7 @@ def run_svg_search(
                     svg_text, out_w=original_w, out_h=original_h
                 )
                 preview = make_preview_data_url(png, image_long_side)
-                complexity = svg_complexity(svg_text)
+                complexity = visual_complexity(png)
                 return old_id, svg_text, png, preview, complexity, sig
 
             prepped_nodes = []

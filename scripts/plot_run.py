@@ -18,16 +18,25 @@ import csv
 import sys
 from pathlib import Path
 
+import matplotlib
+matplotlib.rcParams["figure.dpi"] = 192  # crisp on HiDPI / 4K displays
+matplotlib.use("Agg")  # safe default; switch_backend below upgrades to GUI if available
+
 import matplotlib.pyplot as plt
+
+for _backend in ("TkAgg", "Qt5Agg", "GTK3Agg", "WXAgg"):
+    try:
+        plt.switch_backend(_backend)
+        break
+    except Exception:
+        pass
 import matplotlib.ticker as mticker
-import numpy as np
 
 
 # ── Data loading ─────────────────────────────────────────────────────────────
 
 def load_stats(run_dir: Path) -> dict:
-    """Load wide-format stats.csv. Returns a dict with summary scalars and
-    score_history → list of (elapsed, score) derived from new-best rows."""
+    """Load wide-format stats.csv."""
     path = run_dir / "stats.csv"
     if not path.exists():
         return {}
@@ -50,17 +59,15 @@ def load_stats(run_dir: Path) -> dict:
         except (ValueError, TypeError):
             return default
 
-    tasks = _float("tasks_completed") or 1
-    llm   = _float("llm_call_count")
-    mut   = _float("mutation_call_count")
-    acc   = _float("accepted_count")
+    tasks   = _float("tasks_completed") or 1
+    llm     = _float("llm_call_count")
+    mut     = _float("mutation_call_count")
+    acc     = _float("accepted_count")
     llm_acc = _float("llm_accepted_count")
     llm_inv = _float("llm_invalid_count")
     mut_acc = _float("mutation_accepted_count")
 
     stats: dict = {
-        "strategy":               last.get("strategy", ""),
-        "model":                  last.get("model", ""),
         "elapsed_seconds":        _float("elapsed"),
         "best_score":             _float("best_score", float("inf")),
         "tasks_completed":        tasks,
@@ -104,6 +111,25 @@ def load_stats(run_dir: Path) -> dict:
         except (ValueError, TypeError):
             pass
     stats["score_history"] = history
+
+    # Convergence + rates time series:
+    # (elapsed, pool_diversity, pool_score_std, epoch, llm_pressure, accept_rate)
+    convergence = []
+    for row in rows:
+        try:
+            t_comp = float(row.get("tasks_completed", 0) or 0)
+            a_comp = float(row.get("accepted_count", 0) or 0)
+            convergence.append((
+                float(row.get("elapsed", 0) or 0),
+                float(row.get("pool_diversity", 0) or 0),
+                float(row.get("pool_score_std", 0) or 0),
+                int(float(row.get("epoch", 0) or 0)),
+                float(row.get("llm_pressure", 0) or 0),
+                a_comp / t_comp if t_comp else 0.0,
+            ))
+        except (ValueError, TypeError):
+            pass
+    stats["convergence_history"] = convergence
 
     return stats
 
@@ -150,9 +176,38 @@ def resolve_run_dirs(path: Path, top: int | None) -> list[Path]:
     return run_dirs[-top:] if top else run_dirs
 
 
+# ── Pareto helper ──────────────────────────────────────────────────────────────
+
+def _pareto_top10(lin: list[dict]) -> list[dict]:
+    """Return up to 10 Pareto-front nodes (minimise score and complexity), sorted by score."""
+    valid = [r for r in lin if r["score"] < float("inf")]
+    if not valid:
+        return []
+    front = []
+    for candidate in valid:
+        dominated = False
+        for other in valid:
+            if other is candidate:
+                continue
+            if (other["score"] <= candidate["score"]
+                    and other["complexity"] <= candidate["complexity"]
+                    and (other["score"] < candidate["score"]
+                         or other["complexity"] < candidate["complexity"])):
+                dominated = True
+                break
+        if not dominated:
+            front.append(candidate)
+    return sorted(front, key=lambda r: r["score"])[:10]
+
+
 # ── Plot helpers ──────────────────────────────────────────────────────────────
 
 COLORS = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+# Distinct highlight colors for top-10 Pareto nodes (cycled if >10)
+PARETO_COLORS = [
+    "#e41a1c", "#377eb8", "#4daf4a", "#984ea3", "#ff7f00",
+    "#a65628", "#f781bf", "#999999", "#66c2a5", "#fc8d62",
+]
 
 
 def _label(run_dir: Path) -> str:
@@ -163,7 +218,8 @@ def plot_score_history(ax, runs: list[tuple[Path, dict]], lineages: list[list[di
     ax.set_title("Best score over time")
     ax.set_xlabel("Elapsed (s)")
     ax.set_ylabel("Score (lower = better)")
-    for i, (run_dir, stats) in enumerate(runs):
+
+    for i, ((run_dir, stats), lin) in enumerate(zip(runs, lineages)):
         history = stats.get("score_history", [])
         if not history:
             continue
@@ -173,142 +229,121 @@ def plot_score_history(ax, runs: list[tuple[Path, dict]], lineages: list[list[di
         ax.step(xs, ys, where="post", color=color, label=_label(run_dir), linewidth=1.5)
         ax.scatter([t for t, _ in history], [s for _, s in history],
                    color=color, s=20, zorder=3)
+
+        # Epoch transition lines
+        ch = stats.get("convergence_history", [])
+        prev_epoch = ch[0][3] if ch else 0
+        for elapsed, _div, _std, ep, _pr, _ar in ch:
+            if ep != prev_epoch:
+                ax.axvline(elapsed, color="grey", linewidth=0.8, linestyle=":", alpha=0.8)
+                ax.text(elapsed, ys[-1], f" e{ep}", fontsize=8, color="grey", va="bottom")
+                prev_epoch = ep
+
+
     if len(runs) > 1:
         ax.legend(fontsize=7, loc="upper right")
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.4f"))
 
 
-def plot_score_distribution(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
-    ax.set_title("Accepted score distribution")
-    ax.set_xlabel("Score")
-    ax.set_ylabel("Count")
-    for i, (run_dir, _) in enumerate(runs):
-        lin = lineages[i]
-        scores = [r["score"] for r in lin if r["score"] < float("inf")]
-        if not scores:
-            continue
-        ax.hist(scores, bins=40, alpha=0.6, color=COLORS[i % len(COLORS)],
-                label=_label(run_dir), edgecolor="none")
-    if len(runs) > 1:
-        ax.legend(fontsize=7)
-
-
 def plot_pareto(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
-    ax.set_title("Score vs complexity (all accepted)")
+    ax.set_title("Score vs complexity")
     ax.set_xlabel("Complexity")
     ax.set_ylabel("Score")
-    for i, (run_dir, _) in enumerate(runs):
-        lin = lineages[i]
-        xs = [r["complexity"] for r in lin if r["score"] < float("inf")]
-        ys = [r["score"] for r in lin if r["score"] < float("inf")]
-        if not xs:
-            continue
-        ax.scatter(xs, ys, s=8, alpha=0.4, color=COLORS[i % len(COLORS)],
-                   label=_label(run_dir))
-    if len(runs) > 1:
-        ax.legend(fontsize=7)
-    ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.4f"))
 
-
-def plot_score_per_epoch(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
-    ax.set_title("Score by epoch")
-    ax.set_xlabel("Epoch")
-    ax.set_ylabel("Score")
-    all_epochs = sorted({r["epoch"] for lin in lineages for r in lin})
-    width = 0.8 / max(len(runs), 1)
-    for i, (run_dir, _) in enumerate(runs):
-        lin = lineages[i]
-        by_epoch: dict[int, list[float]] = {}
-        for r in lin:
-            if r["score"] < float("inf"):
-                by_epoch.setdefault(r["epoch"], []).append(r["score"])
-        epochs = sorted(by_epoch)
-        if not epochs:
+    for i, ((run_dir, _), lin) in enumerate(zip(runs, lineages)):
+        valid = [r for r in lin if r["score"] < float("inf")]
+        if not valid:
             continue
-        offsets = np.array(epochs, dtype=float) + (i - len(runs) / 2 + 0.5) * width
-        medians = [np.median(by_epoch[e]) for e in epochs]
-        q25 = [np.percentile(by_epoch[e], 25) for e in epochs]
-        q75 = [np.percentile(by_epoch[e], 75) for e in epochs]
         color = COLORS[i % len(COLORS)]
-        ax.bar(offsets, medians, width=width * 0.9, color=color, alpha=0.7,
-               label=_label(run_dir))
-        ax.errorbar(offsets, medians,
-                    yerr=[np.subtract(medians, q25), np.subtract(q75, medians)],
-                    fmt="none", color="black", linewidth=0.8, capsize=2)
-    ax.set_xticks(all_epochs)
+        ax.scatter([r["complexity"] for r in valid],
+                   [r["score"] for r in valid],
+                   s=6, alpha=0.3, color=color, label=_label(run_dir) if len(runs) > 1 else None)
+
+        top10 = _pareto_top10(lin)
+        for j, node in enumerate(top10):
+            pc = PARETO_COLORS[j % len(PARETO_COLORS)]
+            ax.scatter([node["complexity"]], [node["score"]],
+                       marker="*", s=160, color=pc, zorder=5,
+                       edgecolors="black", linewidths=0.4)
+            ax.annotate(f"#{node['id']}", (node["complexity"], node["score"]),
+                        fontsize=8, color=pc,
+                        xytext=(4, 4), textcoords="offset points")
+
     if len(runs) > 1:
         ax.legend(fontsize=7)
     ax.yaxis.set_major_formatter(mticker.FormatStrFormatter("%.4f"))
 
 
-def plot_task_breakdown(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
-    ax.set_title("Task outcome breakdown")
-    labels = ["accepted", "pool_rejected", "invalid"]
-    x = np.arange(len(labels))
-    width = 0.8 / max(len(runs), 1)
-    for i, (run_dir, stats) in enumerate(runs):
-        total = stats.get("tasks_completed") or 1
-        values = [
-            (stats.get("accepted_count") or 0) / total,
-            (stats.get("pool_rejected_count") or 0) / total,
-            (stats.get("invalid_count") or 0) / total,
-        ]
-        offsets = x + (i - len(runs) / 2 + 0.5) * width
-        ax.bar(offsets, values, width=width * 0.9,
-               color=COLORS[i % len(COLORS)], alpha=0.8, label=_label(run_dir))
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels)
-    ax.set_ylabel("Fraction of tasks")
-    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1))
-    if len(runs) > 1:
-        ax.legend(fontsize=7)
+def plot_convergence(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
+    ax.set_title("Pool convergence over time")
+    ax.set_xlabel("Elapsed (s)")
+    ax.set_ylabel("Pool diversity", color="tab:blue")
+    ax.tick_params(axis="y", labelcolor="tab:blue")
 
+    ax2 = ax.twinx()
+    ax2.set_ylabel("Score std dev", color="tab:orange")
+    ax2.tick_params(axis="y", labelcolor="tab:orange")
 
-def plot_llm_vs_mutation(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
-    ax.set_title("LLM vs mutation accept rate")
-    labels = ["LLM accept", "LLM valid", "Mut accept"]
-    x = np.arange(len(labels))
-    width = 0.8 / max(len(runs), 1)
     for i, (run_dir, stats) in enumerate(runs):
-        values = [
-            stats.get("llm_accept_rate") or 0,
-            stats.get("llm_valid_rate") or 0,
-            stats.get("mutation_accept_rate") or 0,
-        ]
-        offsets = x + (i - len(runs) / 2 + 0.5) * width
-        ax.bar(offsets, values, width=width * 0.9,
-               color=COLORS[i % len(COLORS)], alpha=0.8, label=_label(run_dir))
-    ax.set_xticks(x)
-    ax.set_xticklabels(labels, fontsize=8)
-    ax.set_ylabel("Rate")
-    ax.yaxis.set_major_formatter(mticker.PercentFormatter(xmax=1))
-    if len(runs) > 1:
-        ax.legend(fontsize=7)
+        ch = stats.get("convergence_history", [])
+        if not ch:
+            continue
+        color_div = COLORS[i % len(COLORS)]
+        color_std = COLORS[(i + 1) % len(COLORS)]
+        xs          = [r[0] for r in ch]
+        diversities = [r[1] for r in ch]
+        stds        = [r[2] for r in ch]
+        ax.plot(xs, diversities, color=color_div, linewidth=1.2,
+                label=f"{_label(run_dir)} diversity")
+        ax2.plot(xs, stds, color=color_std, linewidth=1.2, linestyle="--",
+                 label=f"{_label(run_dir)} score std")
+
+    lines1, labels1 = ax.get_legend_handles_labels()
+    lines2, labels2 = ax2.get_legend_handles_labels()
+    if lines1 or lines2:
+        ax.legend(lines1 + lines2, labels1 + labels2, fontsize=6, loc="upper right")
+
 
 
 def plot_summary_text(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
     ax.axis("off")
     ax.set_title("Run summary", loc="left")
     lines = []
-    for run_dir, stats in runs:
+    for (run_dir, stats), lin in zip(runs, lineages):
         if not stats:
             continue
         best = stats.get("best_score")
-        best_str = f"{best:.6f}" if best is not None else "—"
+        best_str = f"{best:.6f}" if best is not None and best < float("inf") else "—"
         lines.append(f"[{_label(run_dir)}]")
-        lines.append(f"  best score:    {best_str}")
-        lines.append(f"  elapsed:       {stats.get('elapsed_seconds', '—'):.0f}s")
-        lines.append(f"  tasks:         {int(stats.get('tasks_completed') or 0):,}")
-        lines.append(f"  accepted:      {int(stats.get('accepted_count') or 0):,}  ({stats.get('accept_rate', 0)*100:.1f}%)")
-        lines.append(f"  llm calls:     {int(stats.get('llm_call_count') or 0):,}")
-        lines.append(f"  mut calls:     {int(stats.get('mutation_call_count') or 0):,}")
-        lines.append(f"  epochs:        {int(stats.get('epochs_completed') or 0)}")
-        lines.append(f"  diversity:     {stats.get('pool_diversity_final', 0):.3f}")
-        lines.append(f"  score std:     {stats.get('pool_score_std_final', 0):.5f}")
-        lines.append(f"  model:         {stats.get('model', '—')}")
+        lines.append(f"  best score      {best_str}")
+        lines.append(f"  elapsed         {stats.get('elapsed_seconds', 0):.0f}s")
+        lines.append(f"  tasks           {int(stats.get('tasks_completed') or 0):,}")
+        lines.append(f"  accepted        {int(stats.get('accepted_count') or 0):,}  ({stats.get('accept_rate', 0)*100:.1f}%)")
+        lines.append(f"  pool-rejected   {int(stats.get('pool_rejected_count') or 0):,}  ({stats.get('pool_rejected_rate', 0)*100:.1f}%)")
+        lines.append(f"  invalid         {int(stats.get('invalid_count') or 0):,}  ({stats.get('invalid_rate', 0)*100:.1f}%)")
+        lines.append(f"  llm calls       {int(stats.get('llm_call_count') or 0):,}")
+        lines.append(f"  llm valid       {stats.get('llm_valid_rate', 0)*100:.1f}%")
+        lines.append(f"  llm accept      {stats.get('llm_accept_rate', 0)*100:.1f}%")
+        lines.append(f"  llm pressure    {stats.get('llm_pressure_final', 0):.3f}")
+        lines.append(f"  mut calls       {int(stats.get('mutation_call_count') or 0):,}")
+        lines.append(f"  mut accept      {stats.get('mutation_accept_rate', 0)*100:.1f}%")
+        lines.append(f"  epochs          {int(stats.get('epochs_completed') or 0)}")
+        lines.append(f"  diversity       {stats.get('pool_diversity_final', 0):.4f}")
+        lines.append(f"  score std       {stats.get('pool_score_std_final', 0):.6f}")
+
+        top10 = _pareto_top10(lin)
+        if top10:
+            lines.append("")
+            lines.append(f"  pareto top 10:")
+            lines.append(f"  {'#':>2}  {'id':>6}  {'score':>10}  {'complexity':>10}  ep")
+            for rank, node in enumerate(top10, 1):
+                lines.append(
+                    f"  {rank:>2}  {node['id']:>6}  {node['score']:>10.6f}"
+                    f"  {node['complexity']:>10.0f}  {node['epoch']}"
+                )
         lines.append("")
     ax.text(0.02, 0.98, "\n".join(lines), transform=ax.transAxes,
-            fontsize=8, verticalalignment="top", fontfamily="monospace")
+            fontsize=7, verticalalignment="top", fontfamily="monospace")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -342,28 +377,30 @@ def main():
     runs_f = [(r, s) for r, s, _ in combined]
     lineages_f = [l for _, _, l in combined]
 
-    fig, axes = plt.subplots(2, 4, figsize=(18, 9))
+    fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     fig.suptitle(
         f"SVGizer run stats — {run_dirs_f[0].parent.name if len(run_dirs_f) == 1 else str(Path(args.path))}",
         fontsize=11, fontweight="bold",
     )
-    plt.subplots_adjust(hspace=0.38, wspace=0.32, left=0.06, right=0.98, top=0.92, bottom=0.08)
+    plt.subplots_adjust(hspace=0.35, wspace=0.32, left=0.07, right=0.98, top=0.93, bottom=0.06)
 
     plot_score_history(axes[0, 0], runs_f, lineages_f)
-    plot_score_distribution(axes[0, 1], runs_f, lineages_f)
-    plot_pareto(axes[0, 2], runs_f, lineages_f)
-    plot_score_per_epoch(axes[0, 3], runs_f, lineages_f)
-    plot_task_breakdown(axes[1, 0], runs_f, lineages_f)
-    plot_llm_vs_mutation(axes[1, 1], runs_f, lineages_f)
-    plot_summary_text(axes[1, 2], runs_f, lineages_f)
-    axes[1, 3].axis("off")  # spare slot
+    plot_pareto(axes[0, 1], runs_f, lineages_f)
+    plot_convergence(axes[1, 0], runs_f, lineages_f)
+    plot_summary_text(axes[1, 1], runs_f, lineages_f)
 
     if args.output:
         out = Path(args.output)
         fig.savefig(out, dpi=150, bbox_inches="tight")
         print(f"Saved to {out}")
     else:
-        plt.show()
+        if matplotlib.get_backend().lower() == "agg":
+            out = Path("/tmp/svgizer_plot.png")
+            fig.savefig(out, dpi=150, bbox_inches="tight")
+            print(f"No GUI backend available. Saved to {out}", file=sys.stderr)
+            print(f"Use --output FILE to save to a specific path.")
+        else:
+            plt.show()
 
 
 if __name__ == "__main__":

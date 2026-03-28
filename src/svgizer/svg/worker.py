@@ -15,7 +15,7 @@ from svgizer.image_utils import (
     resize_long_side,
 )
 from svgizer.llm import LLMConfig, get_provider
-from svgizer.score.complexity import svg_complexity
+from svgizer.score.complexity import visual_complexity
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.search.diversity import simhash
 from svgizer.svg.adapter import SvgResultPayload
@@ -167,7 +167,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                 out_w=worker_params["original_w"],
                 out_h=worker_params["original_h"],
             )
-            complexity = svg_complexity(svg)
+            complexity = visual_complexity(png)
             signature = simhash(svg)
 
             full_img = Image.open(io.BytesIO(png)).convert("RGB")

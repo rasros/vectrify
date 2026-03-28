@@ -33,8 +33,6 @@ STATS_COLUMNS = [
     "epoch_patience",
     "epoch_diversity",
     "epoch_variance",
-    "strategy",
-    "model",
 ]
 
 
@@ -214,8 +212,6 @@ class StatCollector:
                         "epoch_patience": s.epoch_patience,
                         "epoch_diversity": round(s.epoch_diversity, 4),
                         "epoch_variance": round(s.epoch_variance, 6),
-                        "strategy": s.strategy_name,
-                        "model": s.model_name,
                     }
                 )
         except Exception as e:
