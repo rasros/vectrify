@@ -139,6 +139,11 @@ class MultiprocessSearchEngine(Generic[TState]):
                     log.info(f"Max epochs ({max_epochs}) reached.")
                     break
 
+                # Block regular tasks until 80% of seeds have completed results.
+                seeds_ready_threshold = (
+                    math.ceil(0.8 * seed_tasks) if seed_tasks > 0 else 0
+                )
+
                 while in_flight < self.workers and next_task_id <= self.max_total_tasks:
                     progress = (
                         accepted_count / float(max_accepts) if max_accepts > 0 else 0.0
@@ -149,9 +154,16 @@ class MultiprocessSearchEngine(Generic[TState]):
                     is_epoch0_seed = epoch == 0 and epoch0_seeds_dispatched < seed_tasks
                     if is_epoch0_seed:
                         epoch0_seeds_dispatched += 1
-                    elif epoch == 0 and seed_tasks > 0 and accepted_count == 0:
-                        # No seed accepted yet — don't dispatch regular tasks since
-                        # the pool has no valid SVG to mutate.
+                    elif (
+                        epoch == 0
+                        and seed_tasks > 0
+                        and (
+                            epoch0_seeds_completed < seeds_ready_threshold
+                            or accepted_count == 0
+                        )
+                    ):
+                        # Wait until 80% of seeds have returned and at least one
+                        # was accepted — the pool needs a valid SVG to mutate from.
                         break
 
                     # Ramp LLM pressure from 0 → 1 as stagnation grows
