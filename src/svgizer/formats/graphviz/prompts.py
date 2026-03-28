@@ -14,11 +14,12 @@ def build_dot_gen_prompt(
         "Your task is to write Graphviz DOT language code that, when rendered, "
         "visually matches a target image as closely as possible.\n\n"
         "DOT syntax rules:\n"
-        "- Use `strict digraph G { ... }` for directed graphs or "
-        "`strict graph G { ... }` for undirected\n"
+        "- Use `digraph G { ... }` for directed graphs (with -> edges) or "
+        "`graph G { ... }` for undirected (with -- edges)\n"
+        "- CRITICAL: -> edges require digraph; -- edges require graph. Never mix them.\n"
         "- Node declarations: "
         '`NodeName [label="...", shape=box, style=filled, fillcolor=lightblue];`\n'
-        '- Edge declarations: `A -> B [label="...", style=dashed];`\n'
+        '- Edge declarations: `A -> B [label="...", style=dashed];`  (in a digraph)\n'
         "- Graph attributes at top: `rankdir=LR; splines=ortho; nodesep=0.5;`\n"
         "- Layout engines: dot (hierarchical), neato (spring), "
         "fdp (force-directed), circo (radial)\n"

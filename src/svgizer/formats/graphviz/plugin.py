@@ -18,9 +18,19 @@ from svgizer.formats.graphviz.prompts import (
 log = logging.getLogger(__name__)
 
 _DOT_FENCE = re.compile(r"```dot\s*(.*?)\s*```", re.DOTALL | re.IGNORECASE)
+# Graph name may be unquoted (\w+), quoted ("..."), or absent.
 _DOT_RAW = re.compile(
-    r"(strict\s+)?(di)?graph\s+\w*\s*\{.*\}", re.DOTALL | re.IGNORECASE
+    r'(strict\s+)?(di)?graph\s+(?:\w+|"[^"]*")?\s*\{.*\}',
+    re.DOTALL | re.IGNORECASE,
 )
+
+
+def _sanitize_dot(dot: str) -> str:
+    """Fix common LLM-generated DOT mistakes before validation."""
+    # Upgrade undirected `graph` to `digraph` when directed edges are present.
+    if "->" in dot and not re.search(r"\bdigraph\b", dot, re.IGNORECASE):
+        dot = re.sub(r"\bgraph\b", "digraph", dot, count=1, flags=re.IGNORECASE)
+    return dot
 
 
 class GraphvizPlugin:
@@ -67,11 +77,11 @@ class GraphvizPlugin:
     def extract_from_llm(self, raw: str) -> str:
         m = _DOT_FENCE.search(raw)
         if m:
-            return m.group(1).strip()
+            return _sanitize_dot(m.group(1).strip())
         m = _DOT_RAW.search(raw)
         if m:
-            return m.group(0).strip()
-        return raw.strip()
+            return _sanitize_dot(m.group(0).strip())
+        return _sanitize_dot(raw.strip())
 
     def build_generate_prompt(
         self,
