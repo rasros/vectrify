@@ -2,7 +2,9 @@ from svgizer.search import ChainState, Result, SearchNode
 from svgizer.search.diversity import simhash
 from svgizer.search.nsga import (
     NsgaStrategy,
+    _constrained_dominates,
     _dominates,
+    _percentile_75,
     crowding_distance,
     non_dominated_sort,
 )
@@ -224,12 +226,15 @@ def test_tournament_single_pool_candidate_returns_it():
     assert secondary is None
 
 
-def test_tournament_two_equal_rank_nodes_both_selectable():
+def test_tournament_constrained_dominance_prefers_better_score():
+    # With constrained dominance, node 1 (score=0.1) is feasible while
+    # node 2 (score=0.9) is infeasible at the 75th-percentile threshold,
+    # so node 1 always wins tournament selection regardless of complexity.
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [make_node(1, 0.1, complexity=500.0), make_node(2, 0.9, complexity=10.0)]
     selected = {strategy.select_parent(nodes, 0.0)[0] for _ in range(50)}
     assert 1 in selected
-    assert 2 in selected
+    assert 2 not in selected
 
 
 def test_pool_size_limits_candidate_set():
@@ -340,3 +345,77 @@ def test_epoch_seeds_all_invalid_falls_back():
     nodes = [make_node(i, float("inf")) for i in range(1, 4)]
     seeds = strategy.epoch_seeds(nodes, max_seeds=5)
     assert len(seeds) <= 5
+
+
+# --- constrained dominance tests ---
+
+
+def test_percentile_75_empty():
+    assert _percentile_75([]) == float("inf")
+
+
+def test_percentile_75_single():
+    assert _percentile_75([0.5]) == 0.5
+
+
+def test_percentile_75_four_values():
+    # sorted: [0.1, 0.2, 0.3, 0.4]; index = int(0.75*4)=3 → 0.4
+    assert _percentile_75([0.4, 0.1, 0.3, 0.2]) == 0.4
+
+
+def test_constrained_dominates_feasible_over_infeasible():
+    # a is feasible (score < threshold), b is not → a dominates regardless of objectives
+    assert _constrained_dominates(
+        (0.9, 0.9), (0.1, 0.1), a_score=0.2, b_score=0.8, threshold=0.5
+    )
+
+
+def test_constrained_dominates_infeasible_does_not_dominate_feasible():
+    assert not _constrained_dominates(
+        (0.1, 0.1), (0.9, 0.9), a_score=0.8, b_score=0.2, threshold=0.5
+    )
+
+
+def test_constrained_dominates_both_feasible_falls_back_to_pareto():
+    # both feasible; a is pareto-better
+    assert _constrained_dominates(
+        (0.1, 0.2), (0.3, 0.4), a_score=0.1, b_score=0.3, threshold=0.5
+    )
+    # both feasible; incomparable → neither dominates
+    assert not _constrained_dominates(
+        (0.1, 0.5), (0.3, 0.2), a_score=0.1, b_score=0.3, threshold=0.5
+    )
+
+
+def test_constrained_dominates_both_infeasible_falls_back_to_pareto():
+    # both infeasible; a pareto-better
+    assert _constrained_dominates(
+        (0.6, 0.7), (0.8, 0.9), a_score=0.7, b_score=0.9, threshold=0.5
+    )
+
+
+def test_non_dominated_sort_constrained_feasible_dominates_simple_but_bad():
+    """A high-quality but complex node should dominate a simple-but-mediocre one
+    when the mediocre node's score exceeds the 75th percentile threshold."""
+    # Node 1: good quality (score=0.1), complex (complexity=5000)
+    # Node 2: poor quality (score=0.9), simple (complexity=10)
+    # Threshold = 75th percentile of [0.1, 0.9] → 0.9; but we pass threshold=0.5
+    # Node 1 is feasible (0.1 < 0.5), node 2 is infeasible (0.9 >= 0.5)
+    # → node 1 must dominate node 2 regardless of complexity
+    n1 = make_node(1, score=0.1, complexity=5000.0)
+    n2 = make_node(2, score=0.9, complexity=10.0)
+    objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}  # n2 is simpler in objective space
+    fronts = non_dominated_sort([n1, n2], objectives, score_threshold=0.5)
+    assert fronts[0][0].id == 1
+    assert fronts[1][0].id == 2
+
+
+def test_non_dominated_sort_no_threshold_simple_dominates_complex():
+    """Without threshold, standard Pareto applies: simpler node can dominate complex one."""
+    n1 = make_node(1, score=0.1, complexity=5000.0)
+    n2 = make_node(2, score=0.9, complexity=10.0)
+    objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}
+    fronts = non_dominated_sort([n1, n2], objectives)
+    # Neither dominates the other in standard Pareto (each better on one objective)
+    assert len(fronts) == 1
+    assert {n.id for n in fronts[0]} == {1, 2}

@@ -17,12 +17,67 @@ def _dominates(a: Objectives, b: Objectives) -> bool:
     return a[0] <= b[0] and a[1] <= b[1] and (a[0] < b[0] or a[1] < b[1])
 
 
+def _constrained_dominates(
+    a: Objectives,
+    b: Objectives,
+    a_score: float,
+    b_score: float,
+    threshold: float,
+) -> bool:
+    """Dominance with a score constraint (constraint-first NSGA-II, Deb 2000).
+
+    A solution whose score is strictly better than *threshold* is considered
+    feasible; one at or above is infeasible.  A feasible solution always
+    dominates an infeasible one, ignoring complexity entirely.  When both
+    solutions land on the same side of the threshold standard Pareto dominance
+    applies, so complexity still counts within each group.
+    """
+    a_feasible = a_score < threshold
+    b_feasible = b_score < threshold
+    if a_feasible and not b_feasible:
+        return True
+    if not a_feasible and b_feasible:
+        return False
+    return _dominates(a, b)
+
+
+def _percentile_75(scores: list[float]) -> float:
+    """75th-percentile score of the current population — used as constraint threshold."""
+    if not scores:
+        return float("inf")
+    s = sorted(scores)
+    return s[min(int(0.75 * len(s)), len(s) - 1)]
+
+
 def non_dominated_sort(
     nodes: list[SearchNode],
     objectives: dict[int, Objectives],
+    score_threshold: float | None = None,
 ) -> list[list[SearchNode]]:
-    """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front."""
+    """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front.
+
+    If *score_threshold* is provided, constrained dominance is used: nodes
+    with score < threshold automatically dominate nodes with score ≥ threshold,
+    regardless of complexity.  Within each side of the threshold standard Pareto
+    applies.  Pass ``None`` (the default) for pure Pareto behaviour.
+    """
     id_to_node = {n.id: n for n in nodes}
+
+    if score_threshold is not None:
+        raw: dict[int, float] = {n.id: n.score for n in nodes}
+
+        def _dom(a_id: int, b_id: int) -> bool:
+            return _constrained_dominates(
+                objectives[a_id],
+                objectives[b_id],
+                raw[a_id],
+                raw[b_id],
+                score_threshold,
+            )
+    else:
+
+        def _dom(a_id: int, b_id: int) -> bool:
+            return _dominates(objectives[a_id], objectives[b_id])
 
     domination_count: dict[int, int] = {n.id: 0 for n in nodes}
     dominated_set: dict[int, list[int]] = {n.id: [] for n in nodes}
@@ -31,9 +86,9 @@ def non_dominated_sort(
         for b in nodes:
             if a.id == b.id:
                 continue
-            if _dominates(objectives[a.id], objectives[b.id]):
+            if _dom(a.id, b.id):
                 dominated_set[a.id].append(b.id)
-            elif _dominates(objectives[b.id], objectives[a.id]):
+            elif _dom(b.id, a.id):
                 domination_count[a.id] += 1
 
     fronts: list[list[SearchNode]] = []
@@ -124,7 +179,8 @@ class NsgaStrategy(Generic[TState]):
             n.id: (n.score / max_score, n.complexity / max_complexity) for n in valid
         }
 
-        fronts = non_dominated_sort(valid, objectives)
+        score_threshold = _percentile_75([n.score for n in valid])
+        fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
         rank: dict[int, int] = {}
         crowd: dict[int, float] = {}
         for front_idx, front in enumerate(fronts):
@@ -183,7 +239,8 @@ class NsgaStrategy(Generic[TState]):
             n.id: (n.score / max_score, n.complexity / max_complexity) for n in valid
         }
 
-        fronts = non_dominated_sort(valid, objectives)
+        score_threshold = _percentile_75([n.score for n in valid])
+        fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
         seeds: list[SearchNode[TState]] = []
 
         for front in fronts:
