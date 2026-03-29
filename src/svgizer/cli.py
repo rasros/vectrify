@@ -123,6 +123,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_WRITE_LINEAGE,
         help="Write a CSV and directory of all accepted SVG nodes.",
     )
+    parser.add_argument(
+        "--save-raster",
+        dest="save_raster",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save a .png alongside each accepted node file (useful for non-SVG formats).",
+    )
 
     parser.add_argument(
         "--llm-rate",

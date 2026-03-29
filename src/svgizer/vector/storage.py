@@ -1,3 +1,4 @@
+import base64
 import csv
 import hashlib
 import logging
@@ -19,12 +20,14 @@ class FileStorageAdapter:
         resume: bool = False,
         img_dims: tuple[int, int] = (512, 512),
         openai_image_long_side: int = 512,
+        save_raster: bool = False,
     ):
         self.output_path = Path(output_path)
         self.file_extension = file_extension
         self.resume = resume
         self.img_dims = img_dims
         self.openai_image_long_side = openai_image_long_side
+        self.save_raster = save_raster
         self._max_id = 0
 
         self.base_name = self.output_path.stem
@@ -108,6 +111,11 @@ class FileStorageAdapter:
         if node.state.payload.content:
             content_path = self.nodes_dir / f"{base_fn}{self.file_extension}"
             content_path.write_text(node.state.payload.content, encoding="utf-8")
+
+        if self.save_raster and node.state.payload.raster_data_url:
+            _, b64 = node.state.payload.raster_data_url.split(",", 1)
+            png_path = self.nodes_dir / f"{base_fn}.png"
+            png_path.write_bytes(base64.b64decode(b64))
 
         content_md5 = (
             hashlib.md5(node.state.payload.content.encode()).hexdigest()

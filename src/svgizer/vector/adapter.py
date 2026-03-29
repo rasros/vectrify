@@ -10,16 +10,19 @@ class VectorStrategyAdapter:
     base_strategy: SearchStrategy[VectorStatePayload]
     openai_image_long_side: int
     write_lineage: bool
+    save_raster: bool
 
     def __init__(
         self,
         base_strategy: SearchStrategy[VectorStatePayload],
         openai_image_long_side: int,
         write_lineage: bool,
+        save_raster: bool = False,
     ):
         self.base_strategy = base_strategy
         self.openai_image_long_side = openai_image_long_side
         self.write_lineage = write_lineage
+        self.save_raster = save_raster
 
     @property
     def top_k_count(self) -> int:
@@ -45,7 +48,7 @@ class VectorStrategyAdapter:
         result_payload: VectorResultPayload = result.payload
 
         raster_data_url = None
-        if self.write_lineage and result_payload.raster_png:
+        if (self.write_lineage or self.save_raster) and result_payload.raster_png:
             raster_data_url = png_bytes_to_data_url(result_payload.raster_png)
 
         preview_data_url = result_payload.raster_preview_data_url

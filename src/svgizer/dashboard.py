@@ -182,7 +182,7 @@ class Dashboard:
         self._live = Live(
             console=self._console,
             auto_refresh=False,
-            redirect_stderr=False,
+            redirect_stderr=True,
         )
         self._thread: threading.Thread | None = None
         self._stop = threading.Event()

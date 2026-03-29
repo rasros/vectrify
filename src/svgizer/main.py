@@ -86,6 +86,7 @@ def main():
             reasoning=args.reasoning,
             format_plugin=plugin,
             write_lineage=args.write_lineage,
+            save_raster=args.save_raster,
             epoch_patience=args.epoch_patience or None,
             epoch_min_delta=args.epoch_min_delta,
             llm_rate=args.llm_rate,

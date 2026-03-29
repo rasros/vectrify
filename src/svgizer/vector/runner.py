@@ -105,6 +105,7 @@ def run_vector_search(
     reasoning: str,
     format_plugin: "FormatPlugin",
     write_lineage: bool = True,
+    save_raster: bool = False,
     epoch_patience: int | None = None,
     epoch_min_delta: float = 1e-4,
     llm_rate: float = 0.2,
@@ -123,9 +124,11 @@ def run_vector_search(
     run_log_file = storage.current_run_dir / "search.log"
     setup_logger(log_level, log_file=run_log_file)
 
-    # Suppress tqdm / HF progress output before any library imports or workers spawn.
+    # Suppress tqdm / HF noise before any library imports or workers spawn.
     os.environ["TQDM_DISABLE"] = "1"
     os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+    os.environ["HF_HUB_VERBOSITY"] = "error"
+    os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
     original_img = Image.open(image_path).convert("RGB")
     original_w, original_h = original_img.size
@@ -161,12 +164,18 @@ def run_vector_search(
         finally:
             scorer_ready.set()
 
-    threading.Thread(target=_init_scorer, daemon=True, name="ScorerInit").start()
+    def _start_scorer_thread() -> None:
+        threading.Thread(target=_init_scorer, daemon=True, name="ScorerInit").start()
 
     initial_nodes = []
     current_new_id = 1
 
     resumed_items = storage.load_resume_nodes()
+    if resumed_items:
+        # Resume path: scorer needed before engine starts — kick it off now
+        # and wait for it just before scoring the resumed nodes.
+        _start_scorer_thread()
+
     if resumed_items:
         log.info(
             f"Resuming {len(resumed_items)} nodes. Deduplicating and re-scoring..."
@@ -348,7 +357,9 @@ def run_vector_search(
                 f"(target={seed_target}, already seeded={seeded})"
             )
 
-    strategy = VectorStrategyAdapter(base_strategy, image_long_side, write_lineage)
+    strategy = VectorStrategyAdapter(
+        base_strategy, image_long_side, write_lineage, save_raster
+    )
     engine = MultiprocessSearchEngine(
         workers=workers, strategy=strategy, storage=storage
     )
@@ -394,6 +405,11 @@ def run_vector_search(
         if dashboard is not None:
             dashboard.__enter__()
             dashboard_entered = True
+
+        if not resumed_items:
+            # Fresh start: start scorer after dashboard so HF output doesn't
+            # appear above the Live display.
+            _start_scorer_thread()
 
         engine.run(
             initial_nodes,

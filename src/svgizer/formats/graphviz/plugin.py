@@ -128,7 +128,7 @@ class GraphvizPlugin:
         import graphviz
 
         src = graphviz.Source(content)
-        png = src.pipe(format="png")
+        png = src.pipe(format="png", quiet=True)
         # Resize to exact dimensions
         img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
         img = img.resize((out_w, out_h), PIL.Image.LANCZOS)
@@ -143,7 +143,7 @@ class GraphvizPlugin:
             from svgizer.image_utils import resize_long_side
 
             src = graphviz.Source(content)
-            png = src.pipe(format="png")
+            png = src.pipe(format="png", quiet=True)
             img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
             img = resize_long_side(img, long_side)
             buf = io.BytesIO()
@@ -156,7 +156,7 @@ class GraphvizPlugin:
         try:
             import graphviz
 
-            graphviz.Source(content).pipe(format="svg")
+            graphviz.Source(content).pipe(format="svg", quiet=True)
             return True, None
         except Exception as e:
             return False, str(e)

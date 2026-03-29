@@ -95,7 +95,7 @@ def _random_node_attr_tweak(dot: str) -> str:
         if re.search(r"fontsize\s*=", dot):
             dot = re.sub(r"fontsize\s*=\s*\d+", f"fontsize={val}", dot, count=1)
     elif op == "style":
-        val = random.choice(["filled", "rounded", "dashed", "bold"])
+        val = random.choice(["filled", "dashed", "bold", "dotted"])
         if re.search(r"style\s*=", dot):
             dot = re.sub(r"style\s*=\s*\w+", f"style={val}", dot, count=1)
     return dot
@@ -148,7 +148,7 @@ def _rasterize_dot(dot: str) -> bytes | None:
         import graphviz
 
         src = graphviz.Source(dot)
-        return src.pipe(format="png")
+        return src.pipe(format="png", quiet=True)
     except Exception:
         return None
 
