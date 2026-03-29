@@ -127,10 +127,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "--save-raster",
         dest="save_raster",
         action=argparse.BooleanOptionalAction,
-        default=False,
+        default=True,
         help=(
-            "Save a .png alongside each accepted node file "
-            "(useful for non-SVG formats)."
+            "Save a .png alongside each accepted node file."
         ),
     )
 
