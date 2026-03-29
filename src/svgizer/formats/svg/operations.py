@@ -9,6 +9,7 @@ from PIL import Image
 
 from svgizer.image_utils import rasterize_svg_to_png_bytes
 from svgizer.score.utils import lab_l1
+from svgizer.search.models import INVALID_SCORE
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -69,7 +70,7 @@ def with_micro_search(
     default_summary: str = "No change",
 ) -> tuple[str, str]:
     best_svg: str | None = None
-    best_fast_score = float("inf")
+    best_fast_score = INVALID_SCORE
     best_summary = default_summary
     fast_w, fast_h = orig_img_fast.size
 

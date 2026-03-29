@@ -20,7 +20,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         output_path=str(out_svg_path),
         file_extension=plugin.file_extension,
         resume=False,
-        openai_image_long_side=64,
+        image_long_side=64,
     )
 
     run_vector_search(

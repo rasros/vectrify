@@ -1,7 +1,7 @@
 import binascii
 import random
 
-from svgizer.search.models import SearchNode
+from svgizer.search.models import INVALID_SCORE, SearchNode
 
 _NGRAM_SIZE = 4
 _BITS = 64
@@ -59,7 +59,9 @@ def pool_diversity(nodes: list[SearchNode], sample_pairs: int = 100) -> float:
     there is too little data to measure.
     """
     sigs: list[int] = [
-        n.signature for n in nodes if n.signature is not None and n.score < float("inf")
+        n.signature
+        for n in nodes
+        if n.signature is not None and n.score < INVALID_SCORE
     ]
     if len(sigs) < 2:
         return 1.0

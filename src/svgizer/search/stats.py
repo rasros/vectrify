@@ -3,6 +3,8 @@ import threading
 import time
 from collections import deque
 
+from svgizer.search.models import INVALID_SCORE
+
 
 @dataclasses.dataclass
 class SearchStats:
@@ -36,7 +38,7 @@ class SearchStats:
     pool_score_std: float = 0.0  # std dev of scores in active pool (0 = converged)
     epoch_variance: float = 0.0  # --epoch-variance threshold (0 = disabled)
 
-    best_score: float = float("inf")
+    best_score: float = INVALID_SCORE
     # (elapsed_seconds, score) on each new-best event; kept for seeding but not graphed
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))
 

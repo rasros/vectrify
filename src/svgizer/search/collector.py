@@ -4,6 +4,8 @@ import math
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from svgizer.search.models import INVALID_SCORE
+
 if TYPE_CHECKING:
     from svgizer.search.models import Result, SearchNode
     from svgizer.search.stats import SearchStats
@@ -101,7 +103,7 @@ class StatCollector:
                     writer.writerow(
                         {
                             "id": node.id,
-                            "score": node.score if node.score < float("inf") else "",
+                            "score": node.score if node.score < INVALID_SCORE else "",
                             "complexity": node.complexity,
                         }
                     )
@@ -217,7 +219,7 @@ class StatCollector:
                         "accepted_count": s.accepted_count,
                         "pool_rejected_count": s.pool_rejected_count,
                         "invalid_count": s.invalid_count,
-                        "best_score": "" if bs == float("inf") else bs,
+                        "best_score": "" if bs >= INVALID_SCORE else bs,
                         "llm_call_count": s.llm_call_count,
                         "llm_accepted_count": s.llm_accepted_count,
                         "llm_invalid_count": s.llm_invalid_count,

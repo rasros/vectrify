@@ -67,7 +67,7 @@ def main():
         output_path=args.output,
         file_extension=plugin.file_extension,
         resume=args.resume,
-        openai_image_long_side=args.image_long_side,
+        image_long_side=args.image_long_side,
     )
 
     try:

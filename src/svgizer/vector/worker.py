@@ -1,10 +1,12 @@
 import base64
 import contextlib
+import dataclasses
 import io
 import logging
 import multiprocessing as mp
 import random
 import signal
+from typing import Any
 
 from PIL import Image
 
@@ -21,31 +23,45 @@ from svgizer.search.diversity import simhash
 from svgizer.utils import setup_logger
 
 
+@dataclasses.dataclass
+class WorkerContext:
+    """All configuration a worker process needs to handle tasks."""
+
+    format_plugin: Any
+    image_data_url: str
+    original_png_bytes: bytes
+    original_w: int
+    original_h: int
+    image_long_side: int
+    log_level: str
+    log_file: str | None
+    goal: str | None
+    llm_provider: str
+    llm_model: str
+    reasoning: str
+    api_key: str | None
+    total_workers: int
+    llm_rate: float
+    # Injected by MultiprocessSearchEngine.start_workers after construction
+    llm_in_flight: Any = None
+
+
 def _use_llm(has_content: bool, llm_rate: float, llm_pressure: float) -> bool:
     if llm_rate <= 0:
         return False
     return not has_content or random.random() < llm_rate * llm_pressure
 
 
-def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
+def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    setup_logger(worker_params["log_level"], log_file=worker_params.get("log_file"))
+    setup_logger(ctx.log_level, log_file=ctx.log_file)
     log = logging.getLogger("worker")
 
     try:
-        plugin = worker_params["format_plugin"]
-        provider_name = worker_params["llm_provider"]
-        api_key = worker_params["api_key"]
-        model_name = worker_params["llm_model"]
-        reasoning = worker_params["reasoning"]
-        llm_rate = float(worker_params["llm_rate"])
-        llm_in_flight = worker_params.get("llm_in_flight")
+        plugin = ctx.format_plugin
+        client = get_provider(ctx.llm_provider, ctx.api_key)
 
-        client = get_provider(provider_name, api_key)
-
-        orig_img = Image.open(io.BytesIO(worker_params["original_png_bytes"])).convert(
-            "RGB"
-        )
+        orig_img = Image.open(io.BytesIO(ctx.original_png_bytes)).convert("RGB")
         fast_eval_side = 128
         orig_img_fast = resize_long_side(orig_img, fast_eval_side)
 
@@ -64,7 +80,9 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
         parent = task.parent_state
         has_content = bool(parent.payload.content)
 
-        use_llm = task.force_llm or _use_llm(has_content, llm_rate, task.llm_pressure)
+        use_llm = task.force_llm or _use_llm(
+            has_content, ctx.llm_rate, task.llm_pressure
+        )
         llm_type = None
 
         try:
@@ -81,24 +99,26 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
 
             elif use_llm:
                 llm_type = "llm-generate"
-                if llm_in_flight is not None:
-                    with llm_in_flight.get_lock():
-                        llm_in_flight.value += 1
+                if ctx.llm_in_flight is not None:
+                    with ctx.llm_in_flight.get_lock():
+                        ctx.llm_in_flight.value += 1
                 try:
                     parent_preview = (
                         parent.payload.raster_preview_data_url
                         or parent.payload.raster_data_url
                     )
-                    change_summary = worker_params.get("goal")
+                    change_summary = ctx.goal
 
                     if has_content:
                         sum_prompt = plugin.build_summarize_prompt(
-                            worker_params["image_data_url"],
+                            ctx.image_data_url,
                             parent_preview,
-                            custom_goal=worker_params.get("goal"),
+                            custom_goal=ctx.goal,
                             previous_summary=parent.payload.change_summary,
                         )
-                        sum_config = LLMConfig(model=model_name, reasoning=reasoning)
+                        sum_config = LLMConfig(
+                            model=ctx.llm_model, reasoning=ctx.reasoning
+                        )
                         log.debug(f"LLM call [summarize] task={task.task_id}")
                         change_summary = client.generate(sum_prompt, sum_config)
 
@@ -107,25 +127,25 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                         _, encoded = parent.payload.raster_data_url.split(",", 1)
                         cand_bytes = base64.b64decode(encoded)
                         diff_data_url = generate_diff_data_url(
-                            worker_params["original_png_bytes"],
+                            ctx.original_png_bytes,
                             cand_bytes,
-                            worker_params["image_long_side"],
+                            ctx.image_long_side,
                         )
                     elif has_content:
                         cand_bytes = plugin.rasterize(
                             parent.payload.content,
-                            out_w=worker_params["original_w"],
-                            out_h=worker_params["original_h"],
+                            out_w=ctx.original_w,
+                            out_h=ctx.original_h,
                         )
                         diff_data_url = generate_diff_data_url(
-                            worker_params["original_png_bytes"],
+                            ctx.original_png_bytes,
                             cand_bytes,
-                            worker_params["image_long_side"],
+                            ctx.image_long_side,
                         )
 
-                    gen_config = LLMConfig(model=model_name, reasoning=reasoning)
+                    gen_config = LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
                     gen_prompt = plugin.build_generate_prompt(
-                        worker_params["image_data_url"],
+                        ctx.image_data_url,
                         task.parent_id,
                         content_prev=parent.payload.content,
                         raster_preview_url=parent_preview if has_content else None,
@@ -134,14 +154,14 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
                     )
                     log.debug(
                         f"LLM call [generate] task={task.task_id} "
-                        f"parent={task.parent_id} model={model_name}"
+                        f"parent={task.parent_id} model={ctx.llm_model}"
                     )
                     raw = client.generate(gen_prompt, gen_config)
                     content = plugin.extract_from_llm(raw)
                 finally:
-                    if llm_in_flight is not None:
-                        with llm_in_flight.get_lock():
-                            llm_in_flight.value -= 1
+                    if ctx.llm_in_flight is not None:
+                        with ctx.llm_in_flight.get_lock():
+                            ctx.llm_in_flight.value -= 1
 
             else:
                 content, change_summary = plugin.mutate(
@@ -155,14 +175,14 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, worker_params: dict):
 
             png = plugin.rasterize(
                 content,
-                out_w=worker_params["original_w"],
-                out_h=worker_params["original_h"],
+                out_w=ctx.original_w,
+                out_h=ctx.original_h,
             )
             complexity = visual_complexity(png)
             signature = simhash(content)
 
             full_img = Image.open(io.BytesIO(png)).convert("RGB")
-            preview_img = resize_long_side(full_img, worker_params["image_long_side"])
+            preview_img = resize_long_side(full_img, ctx.image_long_side)
             preview_buf = io.BytesIO()
             preview_img.save(preview_buf, format="PNG")
             preview_data_url = png_bytes_to_data_url(preview_buf.getvalue())

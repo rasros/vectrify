@@ -110,5 +110,5 @@ def test_crossover_with_micro_search_returns_dot_string():
 def test_crossover_falls_back_to_mutation_when_no_attrs_in_b():
     dot_b = "digraph H { X -> Y; }"  # no attribute blocks
     target = Image.new("RGB", (32, 32), color="red")
-    result, summary = crossover_with_micro_search(_DOT, dot_b, target, num_trials=3)
+    result, _summary = crossover_with_micro_search(_DOT, dot_b, target, num_trials=3)
     assert isinstance(result, str)

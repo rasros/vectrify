@@ -10,7 +10,7 @@ from typing import Any, Generic, TypeVar
 
 from svgizer.search.base import SearchStrategy, StorageAdapter
 from svgizer.search.collector import StatCollector
-from svgizer.search.models import Result, SearchNode, Task
+from svgizer.search.models import INVALID_SCORE, Result, SearchNode, Task
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
@@ -35,10 +35,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         self.result_q = queue.Queue()
         self.procs: list[Any] = []
 
-    def start_workers(self, worker_target: Callable, worker_params: dict) -> None:
+    def start_workers(self, worker_target: Callable, worker_params: Any) -> None:
         log.info(f"Starting {self.workers} worker processes...")
         self._llm_in_flight = self.ctx.Value("i", 0)
-        worker_params["llm_in_flight"] = self._llm_in_flight
+        if isinstance(worker_params, dict):
+            worker_params["llm_in_flight"] = self._llm_in_flight
+        else:
+            worker_params.llm_in_flight = self._llm_in_flight
         for _ in range(max(1, self.workers)):
             p = self.ctx.Process(
                 target=worker_target,
@@ -84,7 +87,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 except Exception as e:
                     res.valid = False
                     res.invalid_msg = f"Scoring error: {e}"
-                    res.score = float("inf")
+                    res.score = INVALID_SCORE
 
                 self.result_q.put(res)
 
@@ -103,7 +106,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         # Epoch state
         epoch = 0
         epoch_no_improve = 0
-        epoch_patience_best = best_node.score if best_node else float("inf")
+        epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         # Epoch 0: track how many seed tasks (force_llm) we've dispatched/completed
         epoch0_seeds_dispatched = 0
         epoch0_seeds_completed = 0
@@ -199,7 +202,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                         ) from None
                     if collector is not None and hasattr(self, "_llm_in_flight"):
                         valid_scores = [
-                            n.score for n in active_pool if n.score < float("inf")
+                            n.score for n in active_pool if n.score < INVALID_SCORE
                         ]
                         collector.on_idle(
                             llm_in_flight=self._llm_in_flight.value,
@@ -338,7 +341,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
 
                     valid_scores = [
-                        n.score for n in active_pool if n.score < float("inf")
+                        n.score for n in active_pool if n.score < INVALID_SCORE
                     ]
                     if len(valid_scores) >= 2:
                         mean = sum(valid_scores) / len(valid_scores)
@@ -386,10 +389,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                             active_pool = list(initial_nodes[:active_pool_size])
                             log.info(f"Epoch {epoch}: restarting from initial node.")
                         valid_scores = [
-                            n.score for n in active_pool if n.score < float("inf")
+                            n.score for n in active_pool if n.score < INVALID_SCORE
                         ]
                         epoch_patience_best = (
-                            min(valid_scores) if valid_scores else float("inf")
+                            min(valid_scores) if valid_scores else INVALID_SCORE
                         )
 
         finally:

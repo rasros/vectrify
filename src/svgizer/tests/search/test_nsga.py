@@ -411,7 +411,10 @@ def test_non_dominated_sort_constrained_feasible_dominates_simple_but_bad():
 
 
 def test_non_dominated_sort_no_threshold_simple_dominates_complex():
-    """Without threshold, standard Pareto applies: simpler node can dominate complex one."""
+    """Without threshold, standard Pareto applies.
+
+    A simpler node can dominate a complex one.
+    """
     n1 = make_node(1, score=0.1, complexity=5000.0)
     n2 = make_node(2, score=0.9, complexity=10.0)
     objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}

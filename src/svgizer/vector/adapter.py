@@ -8,19 +8,19 @@ from svgizer.search import ChainState, Result, SearchNode, SearchStrategy
 @dataclasses.dataclass
 class VectorStrategyAdapter:
     base_strategy: SearchStrategy[VectorStatePayload]
-    openai_image_long_side: int
+    image_long_side: int
     write_lineage: bool
     save_raster: bool
 
     def __init__(
         self,
         base_strategy: SearchStrategy[VectorStatePayload],
-        openai_image_long_side: int,
+        image_long_side: int,
         write_lineage: bool,
         save_raster: bool = False,
     ):
         self.base_strategy = base_strategy
-        self.openai_image_long_side = openai_image_long_side
+        self.image_long_side = image_long_side
         self.write_lineage = write_lineage
         self.save_raster = save_raster
 
@@ -54,7 +54,7 @@ class VectorStrategyAdapter:
         preview_data_url = result_payload.raster_preview_data_url
         if preview_data_url is None and result_payload.raster_png:
             preview_data_url = make_preview_data_url(
-                result_payload.raster_png, self.openai_image_long_side
+                result_payload.raster_png, self.image_long_side
             )
 
         new_state.payload = VectorStatePayload(

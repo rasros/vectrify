@@ -16,7 +16,8 @@ def build_dot_gen_prompt(
         "DOT syntax rules:\n"
         "- Use `digraph G { ... }` for directed graphs (with -> edges) or "
         "`graph G { ... }` for undirected (with -- edges)\n"
-        "- CRITICAL: -> edges require digraph; -- edges require graph. Never mix them.\n"
+        "- CRITICAL: -> edges require digraph; "
+        "-- edges require graph. Never mix them.\n"
         "- Node declarations: "
         '`NodeName [label="...", shape=box, style=filled, fillcolor=lightblue];`\n'
         '- Edge declarations: `A -> B [label="...", style=dashed];`  (in a digraph)\n'

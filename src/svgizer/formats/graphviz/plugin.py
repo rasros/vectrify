@@ -116,8 +116,7 @@ def _sanitize_dot(dot: str) -> str:
     if "->" in dot and not re.search(r"\bdigraph\b", dot, re.IGNORECASE):
         dot = re.sub(r"\bgraph\b", "digraph", dot, count=1, flags=re.IGNORECASE)
     # Convert malformed HTML labels to plain quoted strings.
-    dot = _fix_html_labels(dot)
-    return dot
+    return _fix_html_labels(dot)
 
 
 class GraphvizPlugin:
@@ -131,7 +130,7 @@ class GraphvizPlugin:
         png = src.pipe(format="png", quiet=True)
         # Resize to exact dimensions
         img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
-        img = img.resize((out_w, out_h), PIL.Image.LANCZOS)
+        img = img.resize((out_w, out_h), PIL.Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         img.save(buf, format="PNG")
         return buf.getvalue()

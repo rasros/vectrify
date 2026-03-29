@@ -5,6 +5,8 @@ import re
 
 from PIL import Image
 
+from svgizer.search.models import INVALID_SCORE
+
 log = logging.getLogger(__name__)
 
 # ── Attribute pools ────────────────────────────────────────────────────────────
@@ -176,7 +178,7 @@ def mutate_with_micro_search(
     orig_png = orig_buf.getvalue()
 
     best_dot = parent_dot
-    best_score = float("inf")
+    best_score = INVALID_SCORE
 
     for _ in range(num_trials):
         candidate = _apply_one_mutation(parent_dot)
@@ -212,7 +214,7 @@ def crossover_with_micro_search(
         return mutate_with_micro_search(dot_a, orig_img_fast, num_trials)
 
     best_dot = dot_a
-    best_score = float("inf")
+    best_score = INVALID_SCORE
 
     for _ in range(num_trials):
         # Take dot_a and inject a random attribute block from dot_b

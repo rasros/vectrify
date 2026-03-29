@@ -9,6 +9,7 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
+from svgizer.search.models import INVALID_SCORE
 from svgizer.search.stats import SearchStats
 
 _REFRESH_INTERVAL = 0.25
@@ -20,7 +21,7 @@ def _bar(fraction: float, width: int = 12) -> str:
 
 
 def _fmt_score(score: float) -> str:
-    return f"{score:.6f}" if score < float("inf") else "—"
+    return f"{score:.6f}" if score < INVALID_SCORE else "—"
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -89,7 +90,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
 
     # ── Score variance row ────────────────────────────────────────────────
     if s.epoch_variance > 0:
-        # Bar scaled so full = 4× threshold (threshold is expected convergence point)
+        # Bar scaled so full = 4x threshold (threshold is expected convergence point)
         var_frac = min(1.0, s.pool_score_std / (s.epoch_variance * 4))
         if s.pool_score_std < s.epoch_variance:
             var_color = "red"

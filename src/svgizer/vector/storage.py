@@ -19,14 +19,14 @@ class FileStorageAdapter:
         file_extension: str = ".svg",
         resume: bool = False,
         img_dims: tuple[int, int] = (512, 512),
-        openai_image_long_side: int = 512,
+        image_long_side: int = 512,
         save_raster: bool = False,
     ):
         self.output_path = Path(output_path)
         self.file_extension = file_extension
         self.resume = resume
         self.img_dims = img_dims
-        self.openai_image_long_side = openai_image_long_side
+        self.image_long_side = image_long_side
         self.save_raster = save_raster
         self._max_id = 0
 

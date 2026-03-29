@@ -18,7 +18,7 @@ def _make_png(color: str = "red", size: int = 16) -> bytes:
 def _make_adapter(write_lineage: bool = False) -> VectorStrategyAdapter:
     return VectorStrategyAdapter(
         base_strategy=GreedyHillClimbingStrategy(),
-        openai_image_long_side=64,
+        image_long_side=64,
         write_lineage=write_lineage,
     )
 

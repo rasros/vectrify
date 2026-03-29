@@ -3,7 +3,7 @@ import random
 from typing import Generic, TypeVar
 
 from svgizer.search.diversity import hamming_distance, pool_diversity
-from svgizer.search.models import ChainState, Result, SearchNode
+from svgizer.search.models import INVALID_SCORE, ChainState, Result, SearchNode
 
 log = logging.getLogger(__name__)
 
@@ -42,9 +42,12 @@ def _constrained_dominates(
 
 
 def _percentile_75(scores: list[float]) -> float:
-    """75th-percentile score of the current population — used as constraint threshold."""
+    """75th-percentile score of the current population.
+
+    Used as constraint threshold.
+    """
     if not scores:
-        return float("inf")
+        return INVALID_SCORE
     s = sorted(scores)
     return s[min(int(0.75 * len(s)), len(s) - 1)]
 
@@ -113,7 +116,7 @@ def crowding_distance(
 ) -> dict[int, float]:
     """Compute crowding distance to maintain diversity within a front."""
     if len(front) <= 2:
-        return {n.id: float("inf") for n in front}
+        return {n.id: INVALID_SCORE for n in front}
 
     distances: dict[int, float] = {n.id: 0.0 for n in front}
     n_objectives = 2
@@ -123,8 +126,8 @@ def crowding_distance(
         obj_min = objectives[sorted_front[0].id][m]
         obj_max = objectives[sorted_front[-1].id][m]
 
-        distances[sorted_front[0].id] = float("inf")
-        distances[sorted_front[-1].id] = float("inf")
+        distances[sorted_front[0].id] = INVALID_SCORE
+        distances[sorted_front[-1].id] = INVALID_SCORE
 
         obj_range = obj_max - obj_min
         if obj_range == 0.0:
@@ -168,7 +171,7 @@ class NsgaStrategy(Generic[TState]):
     ) -> tuple[int, int | None]:
         _ = progress
 
-        valid = [n for n in nodes if n.score < float("inf")]
+        valid = [n for n in nodes if n.score < INVALID_SCORE]
         if not valid:
             return nodes[0].id if nodes else 0, None
 
@@ -229,7 +232,7 @@ class NsgaStrategy(Generic[TState]):
         self, pool: list[SearchNode[TState]], max_seeds: int
     ) -> list[SearchNode[TState]]:
         """Return a diverse Pareto-front subset to seed the next epoch."""
-        valid = [n for n in pool if n.score < float("inf")]
+        valid = [n for n in pool if n.score < INVALID_SCORE]
         if not valid:
             return pool[:max_seeds]
 
