@@ -51,6 +51,8 @@ _FONT_SIZES = ["8", "10", "12", "14", "16", "18"]
 _RANK_DIRS = ["TB", "LR", "BT", "RL"]
 _LAYOUTS = ["dot", "neato", "fdp", "circo", "twopi"]
 _ARROW_HEADS = ["normal", "vee", "dot", "odot", "none", "box", "open"]
+_PORTS = ["n", "ne", "e", "se", "s", "sw", "w", "nw", "c"]
+_NODE_KEYWORDS = frozenset({"node", "edge", "graph", "strict", "digraph", "subgraph"})
 
 
 def _parse_node_names(dot: str) -> list[str]:
@@ -72,7 +74,7 @@ def _set_graph_attr(dot: str, key: str, value: str) -> str:
 
 
 def _random_node_attr_tweak(dot: str) -> str:
-    op = random.choice(["shape", "color", "fillcolor", "fontsize", "style"])
+    op = random.choice(["shape", "color", "fillcolor", "fontsize", "style", "penwidth"])
     if op == "shape":
         val = random.choice(_NODE_SHAPES)
         if re.search(r"shape\s*=", dot):
@@ -97,11 +99,19 @@ def _random_node_attr_tweak(dot: str) -> str:
         val = random.choice(["filled", "dashed", "bold", "dotted"])
         if re.search(r"style\s*=", dot):
             dot = re.sub(r"style\s*=\s*\w+", f"style={val}", dot, count=1)
+    elif op == "penwidth":
+        val = str(round(random.uniform(0.5, 4.0), 1))
+        if re.search(r"penwidth\s*=", dot):
+            dot = re.sub(r"penwidth\s*=\s*[\d.]+", f"penwidth={val}", dot, count=1)
+        elif "node [" in dot:
+            dot = re.sub(r"node\s*\[", f"node [penwidth={val},", dot, count=1)
+        else:
+            dot = dot + f"\n    node [penwidth={val}];"
     return dot
 
 
 def _random_edge_attr_tweak(dot: str) -> str:
-    op = random.choice(["style", "color", "arrowhead"])
+    op = random.choice(["style", "color", "arrowhead", "penwidth", "headport"])
     if op == "style":
         val = random.choice(_EDGE_STYLES)
         if re.search(r"edge\s*\[", dot):
@@ -120,11 +130,23 @@ def _random_edge_attr_tweak(dot: str) -> str:
             dot = re.sub(r"arrowhead\s*=\s*\w+", f"arrowhead={val}", dot, count=1)
         else:
             dot = dot + f"\n    edge [arrowhead={val}];"
+    elif op == "penwidth":
+        val = str(round(random.uniform(0.5, 4.0), 1))
+        if re.search(r"edge\s*\[", dot):
+            dot = re.sub(r"edge\s*\[", f"edge [penwidth={val},", dot, count=1)
+        else:
+            dot = dot + f"\n    edge [penwidth={val}];"
+    elif op == "headport":
+        val = random.choice(_PORTS)
+        if re.search(r"headport\s*=", dot):
+            dot = re.sub(r"headport\s*=\s*\w+", f"headport={val}", dot, count=1)
+        else:
+            dot = dot + f"\n    edge [headport={val}];"
     return dot
 
 
 def _random_layout_tweak(dot: str) -> str:
-    op = random.choice(["rankdir", "splines", "nodesep"])
+    op = random.choice(["rankdir", "splines", "nodesep", "ranksep"])
     if op == "rankdir":
         val = random.choice(_RANK_DIRS)
         return _set_graph_attr(dot, "rankdir", val)
@@ -134,12 +156,35 @@ def _random_layout_tweak(dot: str) -> str:
     if op == "nodesep":
         val = str(round(random.uniform(0.25, 1.5), 2))
         return _set_graph_attr(dot, "nodesep", val)
+    if op == "ranksep":
+        val = str(round(random.uniform(0.3, 2.0), 2))
+        return _set_graph_attr(dot, "ranksep", val)
     return dot
 
 
+def _remove_node(dot: str) -> str:
+    """Remove a random node and all lines referencing it."""
+    names = [n for n in _parse_node_names(dot) if n.lower() not in _NODE_KEYWORDS]
+    if len(names) <= 1:
+        return dot
+    target = random.choice(names)
+    esc = re.escape(target)
+    lines = dot.splitlines(keepends=True)
+    return "".join(line for line in lines if not re.search(rf'\b"?{esc}"?\b', line))
+
+
 def _apply_one_mutation(dot: str) -> str:
-    ops = [_random_node_attr_tweak, _random_edge_attr_tweak, _random_layout_tweak]
-    return random.choice(ops)(dot)
+    fn = random.choices(
+        [
+            _random_node_attr_tweak,
+            _random_edge_attr_tweak,
+            _random_layout_tweak,
+            _remove_node,
+        ],
+        weights=[3, 3, 3, 1],
+        k=1,
+    )[0]
+    return fn(dot)
 
 
 def _rasterize_dot(dot: str) -> bytes | None:
@@ -213,7 +258,6 @@ def crossover_with_micro_search(
     best_score = INVALID_SCORE
 
     for _ in range(num_trials):
-        # Take dot_a and inject a random attribute block from dot_b
         attr = random.choice(attrs_b)
         candidate = re.sub(r"(\{)", r"\1\n" + attr, dot_a, count=1)
         png = _rasterize_dot(candidate)

@@ -43,10 +43,32 @@ _SHAPE_TAGS = frozenset(
 )
 
 _NAMED_SVG_COLORS = [
-    "red", "blue", "green", "yellow", "orange", "purple", "cyan",
-    "magenta", "pink", "brown", "black", "white", "gray", "navy",
-    "teal", "olive", "coral", "salmon", "gold", "indigo",
-    "lime", "aqua", "maroon", "silver", "crimson", "turquoise",
+    "red",
+    "blue",
+    "green",
+    "yellow",
+    "orange",
+    "purple",
+    "cyan",
+    "magenta",
+    "pink",
+    "brown",
+    "black",
+    "white",
+    "gray",
+    "navy",
+    "teal",
+    "olive",
+    "coral",
+    "salmon",
+    "gold",
+    "indigo",
+    "lime",
+    "aqua",
+    "maroon",
+    "silver",
+    "crimson",
+    "turquoise",
 ]
 
 _NUM_RE = re.compile(r"^(-?\d+(?:\.\d+)?)([a-z%]*)$")
@@ -398,12 +420,12 @@ def mutate_with_micro_search(
         (mutate_reorder, "Mutation: reordered elements", 0.10),
         (mutate_drop_style_property, "Mutation: dropped style property", 0.05),
     ]
-    fns, labels, weights = zip(*_ops)
+    fns, labels, weights = zip(*_ops, strict=True)
 
     def _op():
-        fn, label = random.choices(list(zip(fns, labels)), weights=list(weights), k=1)[
-            0
-        ]
+        fn, label = random.choices(
+            list(zip(fns, labels, strict=True)), weights=list(weights), k=1
+        )[0]
         cand = with_retries(lambda: fn(parent_svg), fallback=parent_svg)
         return cand, label
 
