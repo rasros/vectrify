@@ -1,5 +1,4 @@
 import io
-import logging
 import random
 import re
 
@@ -7,14 +6,44 @@ from PIL import Image
 
 from svgizer.search.models import INVALID_SCORE
 
-log = logging.getLogger(__name__)
-
-# Regex to match Typst numeric attributes with units like 12pt, 1.5em, 50%
+# Matches numeric values with Typst units: 12pt, 1.5em, 50%, 3mm, etc.
 _NUM_RE = re.compile(r"(\b|-)(\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)\b")
+
+# Matches a simple named color after fill: or stroke:
+_NAMED_COLOR_ATTR_RE = re.compile(r"\b(fill|stroke)\s*:\s*([a-z]+)\b")
+
+# Lines that are renderable shape/layout elements (not page/text setup)
+_ELEMENT_LINE_RE = re.compile(
+    r"^\s*#(rect|circle|ellipse|line|polygon|place|square|path)\b",
+    re.MULTILINE,
+)
+
+_TYPST_COLORS = [
+    "red",
+    "blue",
+    "green",
+    "yellow",
+    "orange",
+    "purple",
+    "cyan",
+    "magenta",
+    "pink",
+    "black",
+    "white",
+    "gray",
+    "navy",
+    "teal",
+    "olive",
+    "coral",
+    "gold",
+    "lime",
+    "maroon",
+    "silver",
+]
 
 
 def _random_numeric_tweak(typst_code: str) -> str:
-    """Find a random numeric value with a unit and scale it."""
+    """Find a random numeric value with a unit and scale it by ±30%."""
     matches = list(_NUM_RE.finditer(typst_code))
     if not matches:
         return typst_code
@@ -24,38 +53,83 @@ def _random_numeric_tweak(typst_code: str) -> str:
     val = float(m.group(2))
     unit = m.group(3)
 
-    factor = random.uniform(0.8, 1.2)
-    new_val = max(0.1, val * factor)  # Prevent zero or negative sizes
+    factor = random.uniform(0.7, 1.3)
+    new_val = max(0.1, val * factor)
     formatted = f"{prefix}{new_val:.2f}{unit}".replace(".00", "")
 
     return typst_code[: m.start()] + formatted + typst_code[m.end() :]
 
 
-def _random_block_swap(typst_code: str) -> str:
-    """Randomly swap two lines or blocks to shake up the rendering order."""
-    lines = [line for line in typst_code.split("\n") if line.strip()]
-    if len(lines) < 3:
+def _mutate_color(typst_code: str) -> str:
+    """Replace a named fill or stroke color with a random one."""
+    matches = list(_NAMED_COLOR_ATTR_RE.finditer(typst_code))
+    if not matches:
         return typst_code
 
-    idx1, idx2 = random.sample(range(1, len(lines)), 2)  # keep index 0 (page setup)
-    lines[idx1], lines[idx2] = lines[idx2], lines[idx1]
-    return "\n".join(lines)
+    m = random.choice(matches)
+    current = m.group(2)
+    candidates = [c for c in _TYPST_COLORS if c != current]
+    if not candidates:
+        return typst_code
+
+    new_color = random.choice(candidates)
+    start = m.start(2)
+    end = m.end(2)
+    return typst_code[:start] + new_color + typst_code[end:]
 
 
-def _apply_one_mutation(typst_code: str) -> str:
-    ops = [_random_numeric_tweak, _random_numeric_tweak, _random_block_swap]
-    return random.choice(ops)(typst_code)
+def _remove_element(typst_code: str) -> str:
+    """Remove a random shape element line, keeping at least one."""
+    lines = typst_code.splitlines(keepends=True)
+    element_indices = [
+        i for i, line in enumerate(lines) if _ELEMENT_LINE_RE.match(line)
+    ]
+    if len(element_indices) <= 1:
+        return typst_code
+
+    idx = random.choice(element_indices)
+    return "".join(line for i, line in enumerate(lines) if i != idx)
+
+
+def _reorder_elements(typst_code: str) -> str:
+    """Swap two element lines to change rendering order."""
+    lines = typst_code.splitlines(keepends=True)
+    element_indices = [
+        i for i, line in enumerate(lines) if _ELEMENT_LINE_RE.match(line)
+    ]
+    if len(element_indices) < 2:
+        return typst_code
+
+    i, j = random.sample(element_indices, 2)
+    lines[i], lines[j] = lines[j], lines[i]
+    return "".join(lines)
+
+
+def _apply_one_mutation(typst_code: str) -> tuple[str, str]:
+    _ops = [
+        (_mutate_color, "Mutation: color tweak", 0.30),
+        (_random_numeric_tweak, "Mutation: numeric tweak", 0.30),
+        (_remove_element, "Mutation: removed element", 0.20),
+        (_reorder_elements, "Mutation: reordered elements", 0.20),
+    ]
+    fns, labels, weights = zip(*_ops, strict=True)
+    fn, label = random.choices(
+        list(zip(fns, labels, strict=True)), weights=list(weights), k=1
+    )[0]
+    return fn(typst_code), label
 
 
 def _rasterize_typst(typst_code: str) -> bytes | None:
     try:
         import typst
 
-        # Compile to PNG at standard DPI
-        png_bytes = typst.compile(typst_code, format="png", ppi=144)
-        if isinstance(png_bytes, list) and len(png_bytes) > 0:
-            return png_bytes[0]  # Take first page if multi-page array
-        return png_bytes
+        # Must encode to bytes — typst-py treats a plain str as a file path
+        png_bytes = typst.compile(typst_code.encode("utf-8"), format="png", ppi=144)
+        if isinstance(png_bytes, list):
+            return png_bytes[0] if png_bytes else None
+        if isinstance(png_bytes, bytes):
+            return png_bytes
+        return None
     except Exception:
         return None
 
@@ -83,9 +157,12 @@ def mutate_with_micro_search(
 
     best_code = parent_code
     best_score = INVALID_SCORE
+    best_label = "Mutation: no improvement"
 
     for _ in range(num_trials):
-        candidate = _apply_one_mutation(parent_code)
+        candidate, label = _apply_one_mutation(parent_code)
+        if candidate == parent_code:
+            continue
         png = _rasterize_typst(candidate)
         if png is None:
             continue
@@ -93,8 +170,9 @@ def mutate_with_micro_search(
         if score < best_score:
             best_score = score
             best_code = candidate
+            best_label = label
 
-    return best_code, "local typst mutation"
+    return best_code, best_label
 
 
 def crossover_with_micro_search(
@@ -107,23 +185,36 @@ def crossover_with_micro_search(
     orig_img_fast.save(orig_buf, format="PNG")
     orig_png = orig_buf.getvalue()
 
-    # Simple crossover: split by double newline, inject a random block from B into A
-    blocks_a = code_a.split("\n\n")
-    blocks_b = [b for b in code_b.split("\n\n") if b.strip()]
+    # Extract non-empty element lines from B to inject into A
+    lines_b = [
+        line
+        for line in code_b.splitlines(keepends=True)
+        if _ELEMENT_LINE_RE.match(line)
+    ]
 
-    if not blocks_b or len(blocks_a) < 2:
+    if not lines_b:
+        return mutate_with_micro_search(code_a, orig_img_fast, num_trials)
+
+    lines_a = code_a.splitlines(keepends=True)
+    element_indices_a = [
+        i for i, line in enumerate(lines_a) if _ELEMENT_LINE_RE.match(line)
+    ]
+
+    if not element_indices_a:
         return mutate_with_micro_search(code_a, orig_img_fast, num_trials)
 
     best_code = code_a
     best_score = INVALID_SCORE
 
     for _ in range(num_trials):
-        idx_a = random.randint(1, len(blocks_a))
-        block_b = random.choice(blocks_b)
-
-        candidate_blocks = [*blocks_a[:idx_a], block_b, *blocks_a[idx_a:]]
-        candidate = "\n\n".join(candidate_blocks)
-
+        insert_after = random.choice(element_indices_a)
+        new_line = random.choice(lines_b)
+        candidate_lines = [
+            *lines_a[: insert_after + 1],
+            new_line,
+            *lines_a[insert_after + 1 :],
+        ]
+        candidate = "".join(candidate_lines)
         png = _rasterize_typst(candidate)
         if png is None:
             continue
@@ -132,4 +223,4 @@ def crossover_with_micro_search(
             best_score = score
             best_code = candidate
 
-    return best_code, "typst block crossover"
+    return best_code, "Crossover: element injection"
