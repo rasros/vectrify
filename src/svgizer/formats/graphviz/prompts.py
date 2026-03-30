@@ -53,9 +53,9 @@ def build_dot_gen_prompt(
     else:
         system_text += "\n- Output ONLY search/replace diff blocks, no full file"
 
-    blocks: list[dict] = [{"type": "text", "text": system_text}]
-    blocks.append({"type": "text", "text": "Target image:"})
-    blocks.append({"type": "image_url", "image_url": {"url": image_data_url}})
+    blocks: list[dict] = [{"type": "input_text", "text": system_text}]
+    blocks.append({"type": "input_text", "text": "Target image:"})
+    blocks.append({"type": "input_image", "image_url": image_data_url})
 
     if not is_edit:
         seed_text = (
@@ -64,24 +64,26 @@ def build_dot_gen_prompt(
         )
         if goal:
             seed_text += f"\nUser goal: {goal}"
-        blocks.append({"type": "text", "text": seed_text})
+        blocks.append({"type": "input_text", "text": seed_text})
     else:
         if rasterized_dot_data_url:
-            blocks.append({"type": "text", "text": "Current rendered output:"})
-            blocks.append(
-                {"type": "image_url", "image_url": {"url": rasterized_dot_data_url}}
-            )
+            blocks.append({"type": "input_text", "text": "Current rendered output:"})
+            blocks.append({"type": "input_image", "image_url": rasterized_dot_data_url})
 
         if diff_data_url:
             blocks.append(
-                {"type": "text", "text": "Difference map (bright = mismatch):"}
+                {
+                    "type": "input_text",
+                    "text": "Difference map (bright = mismatch — focus edits here):",
+                }
             )
-            blocks.append({"type": "image_url", "image_url": {"url": diff_data_url}})
+            blocks.append({"type": "input_image", "image_url": diff_data_url})
 
         edit_text = (
             f"Iteration #{node_index}. "
             "Improve the DOT code to better match the target. "
-            "Focus on structure, layout, node/edge attributes, and colors.\n"
+            "Focus on structure, layout, label text,"
+            " node/edge attributes, and colors.\n"
         )
         if goal:
             edit_text += f"\nUser goal (highest priority): {goal}\n"
@@ -89,6 +91,6 @@ def build_dot_gen_prompt(
             f"\nCurrent DOT code:\n```dot\n{dot_prev}\n```\n\n"
             + _DIFF_FORMAT_INSTRUCTIONS
         )
-        blocks.append({"type": "text", "text": edit_text})
+        blocks.append({"type": "input_text", "text": edit_text})
 
     return blocks

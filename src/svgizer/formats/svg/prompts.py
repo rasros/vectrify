@@ -29,8 +29,10 @@ def build_svg_gen_prompt(
     is_edit = svg_prev is not None
 
     lines = [
-        "Convert the target image into SVG code that reproduces it as accurately"
-        " as possible.",
+        "Reproduce the target image as SVG code, matching colors, shapes,"
+        " positions, and proportions as closely as possible.",
+        "- Always include `xmlns='http://www.w3.org/2000/svg'` and a"
+        " `viewBox='0 0 W H'` on the root <svg> element.",
         "- Wrap related elements in <g id='name'>.",
         f"Iteration #{iter_index}.",
     ]
@@ -40,7 +42,7 @@ def build_svg_gen_prompt(
     else:
         lines.append(
             "Output ONLY search/replace diff blocks. "
-            "No full file. Do not remove accurate elements."
+            "No full file. Only modify elements visible in the difference map."
         )
         if svg_prev_invalid_msg:
             lines.append(
@@ -68,7 +70,10 @@ def build_svg_gen_prompt(
 
     if diff_data_url:
         content.append(
-            {"type": "input_text", "text": "Difference Map (Target vs Current Render):"}
+            {
+                "type": "input_text",
+                "text": "Difference Map (bright = mismatch — focus edits here):",
+            }
         )
         content.append({"type": "input_image", "image_url": diff_data_url})
 

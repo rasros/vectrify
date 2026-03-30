@@ -7,11 +7,11 @@ _DOT = "digraph G { A -> B }"
 
 
 def _text_blocks(blocks: list[dict]) -> list[str]:
-    return [b["text"] for b in blocks if b.get("type") == "text"]
+    return [b["text"] for b in blocks if b.get("type") == "input_text"]
 
 
 def _image_urls(blocks: list[dict]) -> list[str]:
-    return [b["image_url"]["url"] for b in blocks if b.get("type") == "image_url"]
+    return [b["image_url"] for b in blocks if b.get("type") == "input_image"]
 
 
 # ── build_dot_gen_prompt ──────────────────────────────────────────────────────
