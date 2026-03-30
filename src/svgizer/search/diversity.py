@@ -27,8 +27,6 @@ def simhash(text: str | None) -> int | None:
             encoded[i : i + _NGRAM_SIZE] for i in range(len(encoded) - _NGRAM_SIZE + 1)
         }
 
-    # Accumulate per-bit signed votes across all n-grams.
-    # Each n-gram hashes to a 64-bit value; bit i votes +1 if set, -1 if not.
     v = [0] * _BITS
     for ng in ngrams:
         # Two CRC32s give us 64 independent bits cheaply.
@@ -54,9 +52,8 @@ def pool_diversity(nodes: list[SearchNode], sample_pairs: int = 100) -> float:
     """
     Estimate pool diversity via sampled pairwise normalised Hamming distance.
 
-    Returns a value in [0, 1] where 1.0 = maximally diverse (all fingerprints
-    differ in every bit) and 0.0 = all nodes are identical.  Returns 1.0 when
-    there is too little data to measure.
+    Returns a value in [0, 1] where 1.0 = maximally diverse and 0.0 = identical.
+    Returns 1.0 when there is too little data to measure.
     """
     sigs: list[int] = [
         n.signature

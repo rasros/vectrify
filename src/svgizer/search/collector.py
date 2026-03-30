@@ -12,7 +12,6 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-# Wide-format columns written to stats.csv (one row per flush event).
 STATS_COLUMNS = [
     "elapsed",
     "tasks_completed",
@@ -59,8 +58,6 @@ class StatCollector:
     def stats(self) -> "SearchStats":
         return self._stats
 
-    # ── Pre-run configuration (called by runner before engine.run()) ──────────
-
     def configure_run(
         self,
         *,
@@ -77,8 +74,6 @@ class StatCollector:
         s = self._stats
         s.best_score = best_score
         s.score_history.append((elapsed, best_score))
-
-    # ── Engine lifecycle ──────────────────────────────────────────────────────
 
     def on_run_start(self, *, start_time: float, epoch_patience: int) -> None:
         s = self._stats
@@ -109,8 +104,6 @@ class StatCollector:
                     )
         except Exception as e:
             log.warning(f"Failed to write pool.csv: {e}")
-
-    # ── Per-task events ───────────────────────────────────────────────────────
 
     def on_llm_pressure(self, pressure: float) -> None:
         self._stats.llm_pressure = pressure
@@ -190,8 +183,6 @@ class StatCollector:
             s.pool_score_std = math.sqrt(
                 sum((v - mean) ** 2 for v in valid_scores) / len(valid_scores)
             )
-
-    # ── CSV helpers ───────────────────────────────────────────────────────────
 
     def _maybe_flush(self, *, is_llm: bool) -> None:
         """Flush if this is an LLM call or a task-count milestone."""

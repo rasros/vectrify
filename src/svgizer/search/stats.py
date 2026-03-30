@@ -15,34 +15,29 @@ class SearchStats:
     epoch: int = 0
     epoch_no_improve: int = 0
     llm_pressure: float = 0.0
-    pool_diversity: float = 1.0  # mean pairwise Jaccard distance in active pool (0-1)
-    epoch_diversity: float = 0.0  # --epoch-diversity threshold (0 = disabled)
+    pool_diversity: float = 1.0
+    epoch_diversity: float = 0.0
 
     tasks_completed: int = 0
     accepted_count: int = 0
     pool_rejected_count: int = 0
     invalid_count: int = 0
 
-    llm_rate: float = 0.0  # configured llm_rate, used to compute effective call rate
-
+    llm_rate: float = 0.0
     llm_call_count: int = 0
-    llm_calls_in_flight: int = 0  # LLM calls currently being processed by workers
-    llm_invalid_count: int = 0  # LLM calls that produced invalid/unparseable SVG
+    llm_calls_in_flight: int = 0
+    llm_invalid_count: int = 0
     llm_accepted_count: int = 0
 
     mutation_call_count: int = 0
     mutation_accepted_count: int = 0
 
     shutting_down: bool = False
-
-    pool_score_std: float = 0.0  # std dev of scores in active pool (0 = converged)
-    epoch_variance: float = 0.0  # --epoch-variance threshold (0 = disabled)
+    pool_score_std: float = 0.0
+    epoch_variance: float = 0.0
 
     best_score: float = INVALID_SCORE
-    # (elapsed_seconds, score) on each new-best event; kept for seeding but not graphed
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))
-
-    # Captured from logging by DashboardLogHandler
     recent_events: deque = dataclasses.field(default_factory=lambda: deque(maxlen=8))
 
     start_time: float = dataclasses.field(default_factory=time.monotonic)

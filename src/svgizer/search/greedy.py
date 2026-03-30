@@ -27,7 +27,7 @@ class GreedyHillClimbingStrategy(Generic[TState]):
     def epoch_seeds(
         self, pool: list[SearchNode[TState]], max_seeds: int
     ) -> list[SearchNode[TState]]:
-        # Return empty to signal the engine to restart from the initial node.
+        # Signal the engine to restart from the initial node.
         _ = pool, max_seeds
         return []
 

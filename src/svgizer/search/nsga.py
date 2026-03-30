@@ -27,10 +27,7 @@ def _constrained_dominates(
     """Dominance with a score constraint (constraint-first NSGA-II, Deb 2000).
 
     A solution whose score is strictly better than *threshold* is considered
-    feasible; one at or above is infeasible.  A feasible solution always
-    dominates an infeasible one, ignoring complexity entirely.  When both
-    solutions land on the same side of the threshold standard Pareto dominance
-    applies, so complexity still counts within each group.
+    feasible; a feasible solution always dominates an infeasible one.
     """
     a_feasible = a_score < threshold
     b_feasible = b_score < threshold
@@ -42,10 +39,6 @@ def _constrained_dominates(
 
 
 def _percentile_75(scores: list[float]) -> float:
-    """75th-percentile score of the current population.
-
-    Used as constraint threshold.
-    """
     if not scores:
         return INVALID_SCORE
     s = sorted(scores)
@@ -57,13 +50,7 @@ def non_dominated_sort(
     objectives: dict[int, Objectives],
     score_threshold: float | None = None,
 ) -> list[list[SearchNode]]:
-    """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front.
-
-    If *score_threshold* is provided, constrained dominance is used: nodes
-    with score < threshold automatically dominate nodes with score ≥ threshold,
-    regardless of complexity.  Within each side of the threshold standard Pareto
-    applies.  Pass ``None`` (the default) for pure Pareto behaviour.
-    """
+    """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front."""
     id_to_node = {n.id: n for n in nodes}
 
     if score_threshold is not None:
@@ -170,14 +157,12 @@ class NsgaStrategy(Generic[TState]):
         self, nodes: list[SearchNode[TState]], progress: float
     ) -> tuple[int, int | None]:
         _ = progress
-
         valid = [n for n in nodes if n.score < INVALID_SCORE]
         if not valid:
             return nodes[0].id if nodes else 0, None
 
         max_score = max(n.score for n in valid) or 1.0
         max_complexity = max(n.complexity for n in valid) or 1.0
-
         objectives: dict[int, Objectives] = {
             n.id: (n.score / max_score, n.complexity / max_complexity) for n in valid
         }
@@ -214,11 +199,9 @@ class NsgaStrategy(Generic[TState]):
             return b
 
         p1 = _tournament()
-
         if len(pool) >= 2:
             p2_candidate = _tournament(exclude_id=p1.id)
-            sig1 = p1.signature
-            sig2 = p2_candidate.signature
+            sig1, sig2 = p1.signature, p2_candidate.signature
             if (
                 sig1 is not None
                 and sig2 is not None

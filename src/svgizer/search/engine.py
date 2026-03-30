@@ -97,17 +97,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         scorer_thread.start()
 
         node_states = {n.id: n.state for n in initial_nodes}
-
         sorted_initial = sorted(initial_nodes, key=lambda n: n.score)
         active_pool: list[SearchNode[TState]] = sorted_initial[:active_pool_size]
-
         best_node = sorted_initial[0] if sorted_initial else None
 
-        # Epoch state
         epoch = 0
         epoch_no_improve = 0
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
-        # Epoch 0: track how many seed tasks (force_llm) we've dispatched/completed
         epoch0_seeds_dispatched = 0
         epoch0_seeds_completed = 0
 
@@ -142,7 +138,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                     log.info(f"Max epochs ({max_epochs}) reached.")
                     break
 
-                # Block regular tasks until 80% of seeds have completed results.
                 seeds_ready_threshold = (
                     math.ceil(0.8 * seed_tasks) if seed_tasks > 0 else 0
                 )
@@ -153,7 +148,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
                     pid1, pid2 = self.strategy.select_parent(active_pool, progress)
 
-                    # Epoch 0: seed with force_llm until seed_tasks are dispatched
                     is_epoch0_seed = epoch == 0 and epoch0_seeds_dispatched < seed_tasks
                     if is_epoch0_seed:
                         epoch0_seeds_dispatched += 1
@@ -165,11 +159,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                             or accepted_count == 0
                         )
                     ):
-                        # Wait until 80% of seeds have returned and at least one
-                        # was accepted — the pool needs a valid SVG to mutate from.
+                        # Wait until 80% of seeds returned and pool has valid SVG
                         break
 
-                    # Ramp LLM pressure from 0 → 1 as stagnation grows
                     ramp_ref = epoch_patience or 100
                     llm_pressure = min(1.0, epoch_no_improve / ramp_ref)
 
@@ -193,7 +185,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                 try:
                     res = self.result_q.get(timeout=0.2)
-                    if res is None:  # Caught shutdown sentinel from ScorerThread
+                    if res is None:
                         break
                 except queue.Empty:
                     if not any(p.is_alive() for p in self.procs):
@@ -305,29 +297,23 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                 if is_new_best:
                     best_node = new_node
-                    if res.llm_type:
-                        log.info(
-                            f"[{res.llm_type.upper()} NEW BEST] "
-                            f"node={new_node.id} score={new_node.score:.6f}"
-                        )
-                    else:
-                        log.info(
-                            f"[NEW BEST] node={new_node.id} score={new_node.score:.6f}"
-                        )
+                    log.info(
+                        f"[{res.llm_type.upper() if res.llm_type else 'NEW BEST'}] "
+                        f"node={new_node.id} score={new_node.score:.6f}"
+                    )
+                elif res.llm_type:
+                    log.info(
+                        f"[{res.llm_type.upper()} ACCEPTED] "
+                        f"node={new_node.id} score={new_node.score:.6f}"
+                    )
                 else:
-                    if res.llm_type:
-                        log.info(
-                            f"[{res.llm_type.upper()} ACCEPTED] "
-                            f"node={new_node.id} score={new_node.score:.6f}"
-                        )
-                    else:
-                        log.debug(
-                            f"[ACCEPTED] node={new_node.id} score={new_node.score:.6f}"
-                        )
+                    log.debug(
+                        f"[ACCEPTED] node={new_node.id} score={new_node.score:.6f}"
+                    )
 
                 self.storage.save_node(new_node)
 
-                # Check epoch-end conditions (only once all epoch-0 seeds have returned)
+                # Check epoch-end conditions
                 past_seed_phase = (
                     epoch > 0 or seed_tasks == 0 or epoch0_seeds_completed >= seed_tasks
                 )
@@ -369,10 +355,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                             if staleness
                             else ("low diversity" if low_diversity else "low variance")
                         )
-                        log.info(
-                            f"Epoch {epoch} → {epoch + 1}: {reason} "
-                            f"(no_improve={epoch_no_improve}, pool={len(active_pool)})"
-                        )
+                        log.info(f"Epoch {epoch} → {epoch + 1}: {reason}")
                         epoch += 1
                         if collector is not None:
                             collector.on_epoch_transition(epoch)
@@ -381,13 +364,11 @@ class MultiprocessSearchEngine(Generic[TState]):
                         seeds = self.strategy.epoch_seeds(active_pool, n_seeds)
                         if seeds:
                             active_pool = seeds
-                            log.info(
-                                f"Epoch {epoch}: seeded with "
-                                f"{len(active_pool)} Pareto-front nodes."
-                            )
+                            log.info(f"Epoch {epoch}: seeded with Pareto-front nodes.")
                         else:
                             active_pool = list(initial_nodes[:active_pool_size])
                             log.info(f"Epoch {epoch}: restarting from initial node.")
+
                         valid_scores = [
                             n.score for n in active_pool if n.score < INVALID_SCORE
                         ]
@@ -402,7 +383,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
     def _shutdown(self) -> None:
         log.info("Shutting down workers...")
-
         with contextlib.suppress(queue.Full, OSError, ValueError):
             self.unscored_q.put(None, timeout=0.5)
 
