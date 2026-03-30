@@ -13,7 +13,7 @@ def dummy_state() -> ChainState:
         content="<svg><circle r='10'/></svg>",
         raster_data_url=None,
         raster_preview_data_url=None,
-        change_summary="Fixed circle",
+        origin="Fixed circle",
         invalid_msg=None,
     )
     return ChainState(

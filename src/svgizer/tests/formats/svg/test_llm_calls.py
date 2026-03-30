@@ -3,8 +3,8 @@ import io
 import pytest
 from PIL import Image
 
+from svgizer.formats.svg.plugin import SvgPlugin
 from svgizer.formats.svg.prompts import (
-    build_summarize_prompt,
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
@@ -46,26 +46,11 @@ def test_llm_svg_refinement_produces_valid_svg():
         image_data_url,
         iter_index=2,
         svg_prev=parent_svg,
-        change_summary="Make the fill color match the target image.",
+        goal="Make the fill color match the target image.",
     )
     config = LLMConfig(model=_MODEL)
     raw = client.generate(prompt, config)
-    svg = extract_svg_fragment(raw)
+    plugin = SvgPlugin()
+    svg = plugin.apply_edit(parent_svg, raw)
     valid, err = is_valid_svg(svg)
     assert valid, f"LLM refinement did not produce valid SVG: {err}\nRaw: {raw[:200]}"
-
-
-@pytest.mark.llm
-def test_llm_summarize_prompt_returns_nonempty_text():
-    client = get_provider("openai")
-    image_data_url = _make_image_data_url("green")
-    parent_svg_data_url = _make_image_data_url("blue")
-    prompt = build_summarize_prompt(
-        image_data_url,
-        rasterized_svg_data_url=parent_svg_data_url,
-        custom_goal="Make the SVG look more like the target.",
-    )
-    config = LLMConfig(model=_MODEL)
-    result = client.generate(prompt, config)
-    assert isinstance(result, str)
-    assert len(result.strip()) > 0

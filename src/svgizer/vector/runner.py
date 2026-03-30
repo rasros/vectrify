@@ -1,4 +1,3 @@
-import concurrent.futures
 import dataclasses
 import io
 import logging
@@ -16,12 +15,9 @@ from PIL import Image
 from svgizer.formats.models import VectorStatePayload
 from svgizer.image_utils import (
     downscale_png_bytes,
-    make_preview_data_url,
     png_bytes_to_data_url,
 )
 from svgizer.score import ScorerType, get_scorer
-from svgizer.score.complexity import visual_complexity
-from svgizer.score.simple import SimpleFallbackScorer
 from svgizer.search import (
     INVALID_SCORE,
     ChainState,
@@ -33,10 +29,9 @@ from svgizer.search import (
     StrategyType,
 )
 from svgizer.search.collector import StatCollector
-from svgizer.search.diversity import simhash
-from svgizer.search.nsga import crowding_distance, non_dominated_sort
 from svgizer.utils import setup_logger
 from svgizer.vector.adapter import VectorStrategyAdapter
+from svgizer.vector.resume import filter_to_pool_size, resume_nodes
 from svgizer.vector.worker import WorkerContext, worker_loop
 
 log = logging.getLogger("main")
@@ -59,177 +54,6 @@ def _load_image(image_path: str) -> tuple[Image.Image, bytes, int, int]:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return img, buf.getvalue(), w, h
-
-
-def _prefilter_nodes(
-    prepped_nodes: list,
-    original_img: Image.Image,
-    max_keep: int,
-) -> list:
-    """Use SimpleFallbackScorer + complexity Pareto front to reduce candidates."""
-    simple_scorer = SimpleFallbackScorer()
-    simple_ref = simple_scorer.prepare_reference(original_img)
-
-    simple_scores = []
-    for _, _, png, _, _, _ in prepped_nodes:
-        try:
-            simple_scores.append(simple_scorer.score(simple_ref, png))
-        except Exception:
-            simple_scores.append(1.0)
-
-    complexities = [item[4] for item in prepped_nodes]
-    max_s = max(simple_scores, default=1.0) or 1.0
-    max_c = max(complexities, default=1.0) or 1.0
-
-    temp_nodes = [
-        SearchNode(
-            score=simple_scores[i],
-            id=i,
-            parent_id=0,
-            state=ChainState(score=simple_scores[i], payload=None),
-            complexity=complexities[i],
-        )
-        for i in range(len(prepped_nodes))
-    ]
-    objectives = {
-        i: (simple_scores[i] / max_s, complexities[i] / max_c)
-        for i in range(len(prepped_nodes))
-    }
-
-    fronts = non_dominated_sort(temp_nodes, objectives)
-    kept: list[int] = []
-    for front in fronts:
-        if len(kept) >= max_keep:
-            break
-        distances = crowding_distance(front, objectives)
-        for node in sorted(front, key=lambda n: -distances[n.id]):
-            if len(kept) >= max_keep:
-                break
-            kept.append(node.id)
-
-    return [prepped_nodes[i] for i in kept]
-
-
-def _resume_nodes(
-    resumed_items: list[tuple[int, str]],
-    format_plugin: "FormatPlugin",
-    original_img: Image.Image,
-    original_w: int,
-    original_h: int,
-    image_long_side: int,
-    pool_size: int,
-    workers: int,
-    scorer: Any,
-    scoring_ref: Any,
-    storage: StorageAdapter,
-) -> list[SearchNode]:
-    """Deduplicate, rasterize, pre-filter, and re-score resumed nodes."""
-    log.info(f"Resuming {len(resumed_items)} nodes. Deduplicating and re-scoring...")
-
-    unique_items = []
-    seen_sigs: set[int] = set()
-    for old_id, content_text in resumed_items:
-        sig = simhash(content_text)
-        if sig is not None:
-            if sig in seen_sigs:
-                log.debug(f"Skipping duplicate Node {old_id} during resume.")
-                continue
-            seen_sigs.add(sig)
-        unique_items.append((old_id, content_text, sig))
-
-    log.info(f"Filtered to {len(unique_items)} unique nodes.")
-
-    def _prep(item: tuple) -> tuple:
-        old_id, content_text, sig = item
-        png = format_plugin.rasterize(content_text, out_w=original_w, out_h=original_h)
-        preview = make_preview_data_url(png, image_long_side)
-        complexity = visual_complexity(png)
-        return old_id, content_text, png, preview, complexity, sig
-
-    prepped: list = []
-    with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = [executor.submit(_prep, item) for item in unique_items]
-        for future in concurrent.futures.as_completed(futures):
-            try:
-                prepped.append(future.result())
-            except Exception as e:
-                log.error(f"Failed to prep resume node: {e}")
-
-    if len(prepped) > 2 * pool_size:
-        log.info(
-            f"Pre-filtering {len(prepped)} resume nodes "
-            f"to {2 * pool_size} using simple scorer + complexity Pareto front..."
-        )
-        prepped = _prefilter_nodes(prepped, original_img, 2 * pool_size)
-        log.info(f"Pre-filter done: {len(prepped)} nodes selected.")
-
-    initial_nodes: list[SearchNode] = []
-    current_new_id = 1
-    for old_id, content_text, png, preview, complexity, sig in prepped:
-        try:
-            new_score = scorer.score(scoring_ref, png)
-            node = SearchNode(
-                score=new_score,
-                id=current_new_id,
-                parent_id=0,
-                complexity=complexity,
-                signature=sig,
-                state=ChainState(
-                    score=new_score,
-                    payload=VectorStatePayload(
-                        content=content_text,
-                        raster_data_url=None,
-                        raster_preview_data_url=preview,
-                        change_summary=f"Imported from Node {old_id}",
-                        invalid_msg=None,
-                    ),
-                ),
-            )
-            storage.save_node(node)
-            initial_nodes.append(node)
-            current_new_id += 1
-        except Exception as e:
-            log.error(f"Failed to import Node {old_id}: {e}")
-
-    return initial_nodes
-
-
-def _filter_resumed_nodes(
-    initial_nodes: list[SearchNode],
-    pool_size: int,
-    strategy_type: StrategyType,
-) -> list[SearchNode]:
-    """Trim resumed nodes down to pool_size using NSGA or score sorting."""
-    if len(initial_nodes) <= pool_size:
-        return initial_nodes
-
-    log.info(f"Filtering {len(initial_nodes)} rescored nodes down to {pool_size}...")
-
-    if strategy_type == StrategyType.NSGA:
-        max_score = (
-            max(
-                (n.score for n in initial_nodes if n.score < INVALID_SCORE),
-                default=1.0,
-            )
-            or 1.0
-        )
-        max_comp = max((n.complexity for n in initial_nodes), default=1.0) or 1.0
-        objectives = {
-            n.id: (n.score / max_score, n.complexity / max_comp) for n in initial_nodes
-        }
-        fronts = non_dominated_sort(initial_nodes, objectives)
-        filtered: list[SearchNode] = []
-        for front in fronts:
-            if len(filtered) >= pool_size:
-                break
-            distances = crowding_distance(front, objectives)
-            for node in sorted(front, key=lambda n: -distances[n.id]):
-                if len(filtered) >= pool_size:
-                    break
-                filtered.append(node)
-        return filtered
-
-    return sorted(initial_nodes, key=lambda n: n.score)[:pool_size]
 
 
 def _build_engine_params(
@@ -360,7 +184,7 @@ def run_vector_search(
                 f"Scorer failed to initialise: {_scorer_error[0]}"
             ) from _scorer_error[0]
 
-        initial_nodes = _resume_nodes(
+        initial_nodes = resume_nodes(
             resumed_items=resumed_items,
             format_plugin=format_plugin,
             original_img=original_img,
@@ -373,7 +197,7 @@ def run_vector_search(
             scoring_ref=_scoring_ref[0],
             storage=storage,
         )
-        initial_nodes = _filter_resumed_nodes(initial_nodes, pool_size, strategy_type)
+        initial_nodes = filter_to_pool_size(initial_nodes, pool_size, strategy_type)
 
     if not initial_nodes:
         initial_nodes.append(

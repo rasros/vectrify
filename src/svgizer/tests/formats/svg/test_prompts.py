@@ -1,5 +1,4 @@
 from svgizer.formats.svg.prompts import (
-    build_summarize_prompt,
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
@@ -67,15 +66,14 @@ def _image_blocks(blocks: list[dict]) -> list[str]:
 def test_gen_prompt_first_attempt_no_svg():
     blocks = build_svg_gen_prompt(_IMG_URL, iter_index=1)
     text = "\n".join(_text_blocks(blocks))
-    assert "First attempt" in text
-    assert "REFINEMENT" not in text
+    assert "search/replace" not in text
     assert "CURRENT SVG" not in text
 
 
 def test_gen_prompt_refinement_includes_svg():
     blocks = build_svg_gen_prompt(_IMG_URL, iter_index=5, svg_prev=_SVG)
     text = "\n".join(_text_blocks(blocks))
-    assert "REFINEMENT TASK" in text
+    assert "search/replace" in text.lower()
     assert "CURRENT SVG CODE TO MODIFY" in text
     assert _SVG in text
 
@@ -88,9 +86,9 @@ def test_gen_prompt_invalid_msg_shown():
     assert "bad parse" in text
 
 
-def test_gen_prompt_change_summary_included():
+def test_gen_prompt_goal_included():
     blocks = build_svg_gen_prompt(
-        _IMG_URL, iter_index=3, svg_prev=_SVG, change_summary="fix the circle"
+        _IMG_URL, iter_index=3, svg_prev=_SVG, goal="fix the circle"
     )
     text = "\n".join(_text_blocks(blocks))
     assert "fix the circle" in text
@@ -135,43 +133,9 @@ def test_gen_prompt_diff_url_absent_when_not_provided():
     assert _DIFF_URL not in _image_blocks(blocks)
 
 
-def test_summarize_prompt_basic_structure():
-    blocks = build_summarize_prompt(_IMG_URL, _RENDER_URL)
-    images = _image_blocks(blocks)
-    assert _IMG_URL in images
-    assert _RENDER_URL in images
-
-
-def test_summarize_prompt_no_render_url():
-    blocks = build_summarize_prompt(_IMG_URL, rasterized_svg_data_url=None)
-    assert _RENDER_URL not in _image_blocks(blocks)
-
-
-def test_summarize_prompt_previous_summary_included():
-    blocks = build_summarize_prompt(
-        _IMG_URL, _RENDER_URL, previous_summary="fix the stroke"
-    )
+def test_gen_prompt_diff_format_instructions_in_edit():
+    blocks = build_svg_gen_prompt(_IMG_URL, iter_index=2, svg_prev=_SVG)
     text = "\n".join(_text_blocks(blocks))
-    assert "PREVIOUS FEEDBACK GIVEN" in text
-    assert "fix the stroke" in text
-
-
-def test_summarize_prompt_no_previous_summary():
-    blocks = build_summarize_prompt(_IMG_URL, _RENDER_URL)
-    text = "\n".join(_text_blocks(blocks))
-    assert "PREVIOUS FEEDBACK GIVEN" not in text
-
-
-def test_summarize_prompt_custom_goal_included():
-    blocks = build_summarize_prompt(
-        _IMG_URL, _RENDER_URL, custom_goal="make lines thicker"
-    )
-    text = "\n".join(_text_blocks(blocks))
-    assert "USER SPECIFIC GOAL" in text
-    assert "make lines thicker" in text
-
-
-def test_summarize_prompt_no_custom_goal():
-    blocks = build_summarize_prompt(_IMG_URL, _RENDER_URL)
-    text = "\n".join(_text_blocks(blocks))
-    assert "USER SPECIFIC GOAL" not in text
+    assert "<<<SEARCH>>>" in text
+    assert "<<<REPLACE>>>" in text
+    assert "<<<END>>>" in text

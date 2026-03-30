@@ -37,7 +37,7 @@ def _make_result(
         payload=VectorResultPayload(
             content=content,
             raster_png=raster_png,
-            change_summary="test",
+            origin="test",
             raster_preview_data_url=preview_data_url,
         ),
         content=content,
@@ -49,7 +49,7 @@ def create_payload(content_text: str | None) -> VectorStatePayload:
         content=content_text,
         raster_data_url=None,
         raster_preview_data_url=None,
-        change_summary=None,
+        origin=None,
         invalid_msg=None,
     )
 

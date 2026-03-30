@@ -91,7 +91,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                 and task.secondary_parent_state.payload.content
             ):
                 secondary_content = task.secondary_parent_state.payload.content
-                content, change_summary = plugin.crossover(
+                content, origin = plugin.crossover(
                     parent.payload.content,
                     secondary_content,
                     orig_img_fast,
@@ -107,20 +107,6 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                         parent.payload.raster_preview_data_url
                         or parent.payload.raster_data_url
                     )
-                    change_summary = ctx.goal
-
-                    if has_content:
-                        sum_prompt = plugin.build_summarize_prompt(
-                            ctx.image_data_url,
-                            parent_preview,
-                            custom_goal=ctx.goal,
-                            previous_summary=parent.payload.change_summary,
-                        )
-                        sum_config = LLMConfig(
-                            model=ctx.llm_model, reasoning=ctx.reasoning
-                        )
-                        log.debug(f"LLM call [summarize] task={task.task_id}")
-                        change_summary = client.generate(sum_prompt, sum_config)
 
                     diff_data_url = None
                     if parent.payload.raster_data_url:
@@ -149,7 +135,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                         task.parent_id,
                         content_prev=parent.payload.content,
                         raster_preview_url=parent_preview if has_content else None,
-                        change_summary=change_summary,
+                        goal=ctx.goal,
                         diff_data_url=diff_data_url,
                     )
                     log.debug(
@@ -157,14 +143,19 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                         f"parent={task.parent_id} model={ctx.llm_model}"
                     )
                     raw = client.generate(gen_prompt, gen_config)
-                    content = plugin.extract_from_llm(raw)
+                    content = (
+                        plugin.apply_edit(parent.payload.content, raw)
+                        if has_content
+                        else plugin.extract_from_llm(raw)
+                    )
+                    origin = "llm edit"
                 finally:
                     if ctx.llm_in_flight is not None:
                         with ctx.llm_in_flight.get_lock():
                             ctx.llm_in_flight.value -= 1
 
             else:
-                content, change_summary = plugin.mutate(
+                content, origin = plugin.mutate(
                     parent.payload.content,
                     orig_img_fast,
                 )
@@ -197,7 +188,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                     payload=VectorResultPayload(
                         content=content,
                         raster_png=png,
-                        change_summary=change_summary,
+                        origin=origin,
                         raster_preview_data_url=preview_data_url,
                     ),
                     secondary_parent_id=task.secondary_parent_id,

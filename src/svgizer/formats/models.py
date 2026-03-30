@@ -6,7 +6,7 @@ class VectorStatePayload:
     content: str | None
     raster_data_url: str | None
     raster_preview_data_url: str | None
-    change_summary: str | None
+    origin: str | None
     invalid_msg: str | None
 
 
@@ -14,5 +14,5 @@ class VectorStatePayload:
 class VectorResultPayload:
     content: str | None
     raster_png: bytes | None
-    change_summary: str | None
+    origin: str | None
     raster_preview_data_url: str | None = None

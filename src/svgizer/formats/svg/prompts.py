@@ -1,6 +1,20 @@
 import xml.etree.ElementTree as ET
 from typing import Any
 
+_DIFF_FORMAT_INSTRUCTIONS = """\
+Respond with one or more search/replace blocks — do NOT output the full file.
+
+<<<SEARCH>>>
+exact SVG fragment to replace (copy verbatim from the current SVG)
+<<<REPLACE>>>
+improved replacement fragment
+<<<END>>>
+
+Rules:
+- The SEARCH text must match the current SVG exactly (including whitespace).
+- Keep blocks small and focused; only change what needs to change.
+- Multiple blocks are allowed."""
+
 
 def build_svg_gen_prompt(
     original_data_url: str,
@@ -8,27 +22,23 @@ def build_svg_gen_prompt(
     svg_prev: str | None = None,
     svg_prev_invalid_msg: str | None = None,
     rasterized_svg_data_url: str | None = None,
-    change_summary: str | None = None,
+    goal: str | None = None,
     diff_data_url: str | None = None,
 ) -> list[dict[str, Any]]:
+    is_edit = svg_prev is not None
+
     lines = [
-        "You are a world-class SVG developer. Convert the input raster into a CLEAN,"
-        " optimized SVG.",
-        "RULES:",
-        "1. Scratchpad: Think step-by-step in a <plan>...</plan> block about "
-        "coordinates and geometry before writing code.",
-        "2. Output ONLY the raw <svg>...</svg> code immediately after your "
-        "<plan>. No markdown.",
-        "3. Use SEMANTIC GROUPING: Wrap related paths in <g id='name'>.",
-        "4. Fixed Viewport: Use the same width/height/viewBox for all iterations.",
-        f"Context: Iteration #{iter_index}.",
+        "Convert the target image into SVG code that reproduces it as accurately as possible.",
+        "- Wrap related elements in <g id='name'>.",
+        f"Iteration #{iter_index}.",
     ]
 
-    if svg_prev is None:
-        lines.append("First attempt: Create a high-level structural blocking.")
+    if not is_edit:
+        lines.append("Output ONLY the raw <svg>...</svg>. No markdown.")
     else:
         lines.append(
-            "REFINEMENT TASK: Refine existing groups. Do not delete accurate ones."
+            "Output ONLY search/replace diff blocks. "
+            "No full file. Do not remove accurate elements."
         )
         if svg_prev_invalid_msg:
             lines.append(
@@ -36,11 +46,13 @@ def build_svg_gen_prompt(
                 "Fix syntax."
             )
 
-    if change_summary:
-        lines.extend(["PRIORITY FIXES FROM JUDGE:", change_summary])
+    if goal:
+        lines.extend(["USER GOAL (highest priority):", goal])
 
-    if svg_prev is not None:
-        lines.extend(["CURRENT SVG CODE TO MODIFY:", svg_prev])
+    if is_edit:
+        lines.extend(
+            ["CURRENT SVG CODE TO MODIFY:", svg_prev, _DIFF_FORMAT_INSTRUCTIONS]
+        )
 
     content = [
         {"type": "input_text", "text": "\n".join(lines)},
@@ -63,70 +75,6 @@ def build_svg_gen_prompt(
         content.append({"type": "input_image", "image_url": diff_data_url})
 
     return content
-
-
-def build_summarize_prompt(
-    original_data_url: str,
-    rasterized_svg_data_url: str | None,
-    custom_goal: str | None = None,
-    previous_summary: str | None = None,
-) -> list[dict[str, Any]]:
-    lines = [
-        "You are a technical design critic. Compare the original image (first) "
-        "to the current SVG render (second).",
-        "Provide 3-5 concise, technical bullet points to improve the likeness.",
-        "GUIDELINES:",
-        "- Use SVG terminology: refer to 'stroke-width', 'opacity', "
-        "'coordinates', or 'viewBox'.",
-        "- Categorize feedback: [Geometry/Layout], [Typography/Text], "
-        "or [Color/Style].",
-        "- Be spatially specific: instead of 'move up', say 'shift the "
-        "y-coordinate higher'.",
-    ]
-
-    if previous_summary:
-        lines.extend(
-            [
-                "PREVIOUS FEEDBACK GIVEN:",
-                previous_summary,
-                "Identify if these points were ignored and emphasize "
-                "them if still relevant.",
-            ]
-        )
-
-    if custom_goal:
-        lines.extend(
-            [
-                "USER SPECIFIC GOAL:",
-                custom_goal,
-                "Prioritize this instruction over all other visual improvements.",
-            ]
-        )
-
-    lines.append("Output ONLY the bullet points.")
-
-    content = [
-        {"type": "input_text", "text": "\n".join(lines)},
-        {"type": "input_image", "image_url": original_data_url},
-    ]
-    if rasterized_svg_data_url:
-        content.append({"type": "input_image", "image_url": rasterized_svg_data_url})
-    return content
-
-
-def build_crossover_prompt(
-    original_data_url: str, svg_a: str, svg_b: str
-) -> list[dict[str, Any]]:
-    text = (
-        "Merge the best elements of Candidate A and Candidate B into a superior SVG.\n"
-        "Output ONLY raw <svg> code.\n"
-        f"--- CANDIDATE A ---\n{svg_a}\n"
-        f"--- CANDIDATE B ---\n{svg_b}"
-    )
-    return [
-        {"type": "input_text", "text": text},
-        {"type": "input_image", "image_url": original_data_url},
-    ]
 
 
 def extract_svg_fragment(raw: str) -> str:

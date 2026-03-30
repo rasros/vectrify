@@ -1,7 +1,4 @@
-from svgizer.formats.graphviz.prompts import (
-    build_dot_gen_prompt,
-    build_dot_summarize_prompt,
-)
+from svgizer.formats.graphviz.prompts import build_dot_gen_prompt
 
 _IMG_URL = "data:image/png;base64,abc"
 _RENDER_URL = "data:image/png;base64,def"
@@ -26,7 +23,7 @@ def test_gen_prompt_first_iteration_no_dot():
         node_index=1,
         dot_prev=None,
         rasterized_dot_data_url=None,
-        change_summary=None,
+        goal=None,
         diff_data_url=None,
     )
     text = "\n".join(_text_blocks(blocks))
@@ -40,7 +37,7 @@ def test_gen_prompt_first_iteration_asks_for_fenced_code():
         node_index=1,
         dot_prev=None,
         rasterized_dot_data_url=None,
-        change_summary=None,
+        goal=None,
         diff_data_url=None,
     )
     text = "\n".join(_text_blocks(blocks))
@@ -53,7 +50,7 @@ def test_gen_prompt_refinement_includes_previous_dot():
         node_index=3,
         dot_prev=_DOT,
         rasterized_dot_data_url=None,
-        change_summary=None,
+        goal=None,
         diff_data_url=None,
     )
     text = "\n".join(_text_blocks(blocks))
@@ -67,7 +64,7 @@ def test_gen_prompt_render_url_included():
         node_index=2,
         dot_prev=_DOT,
         rasterized_dot_data_url=_RENDER_URL,
-        change_summary=None,
+        goal=None,
         diff_data_url=None,
     )
     assert _RENDER_URL in _image_urls(blocks)
@@ -79,19 +76,19 @@ def test_gen_prompt_diff_url_included():
         node_index=2,
         dot_prev=_DOT,
         rasterized_dot_data_url=None,
-        change_summary=None,
+        goal=None,
         diff_data_url=_DIFF_URL,
     )
     assert _DIFF_URL in _image_urls(blocks)
 
 
-def test_gen_prompt_change_summary_included():
+def test_gen_prompt_goal_included():
     blocks = build_dot_gen_prompt(
         _IMG_URL,
         node_index=2,
         dot_prev=_DOT,
         rasterized_dot_data_url=None,
-        change_summary="add more nodes",
+        goal="add more nodes",
         diff_data_url=None,
     )
     text = "\n".join(_text_blocks(blocks))
@@ -104,7 +101,7 @@ def test_gen_prompt_system_text_mentions_digraph():
         node_index=1,
         dot_prev=None,
         rasterized_dot_data_url=None,
-        change_summary=None,
+        goal=None,
         diff_data_url=None,
     )
     text = "\n".join(_text_blocks(blocks))
@@ -117,38 +114,23 @@ def test_gen_prompt_warns_about_arrow_graph_mismatch():
         node_index=1,
         dot_prev=None,
         rasterized_dot_data_url=None,
-        change_summary=None,
+        goal=None,
         diff_data_url=None,
     )
     text = "\n".join(_text_blocks(blocks))
     assert "->" in text
 
 
-# ── build_dot_summarize_prompt ────────────────────────────────────────────────
-
-
-def test_summarize_prompt_includes_target_image():
-    blocks = build_dot_summarize_prompt(_IMG_URL, None, None, None)
-    assert _IMG_URL in _image_urls(blocks)
-
-
-def test_summarize_prompt_includes_render_when_provided():
-    blocks = build_dot_summarize_prompt(_IMG_URL, _RENDER_URL, None, None)
-    assert _RENDER_URL in _image_urls(blocks)
-
-
-def test_summarize_prompt_no_render_absent():
-    blocks = build_dot_summarize_prompt(_IMG_URL, None, None, None)
-    assert _RENDER_URL not in _image_urls(blocks)
-
-
-def test_summarize_prompt_custom_goal_included():
-    blocks = build_dot_summarize_prompt(_IMG_URL, None, "make it circular", None)
+def test_gen_prompt_diff_format_instructions_in_edit():
+    blocks = build_dot_gen_prompt(
+        _IMG_URL,
+        node_index=2,
+        dot_prev=_DOT,
+        rasterized_dot_data_url=None,
+        goal=None,
+        diff_data_url=None,
+    )
     text = "\n".join(_text_blocks(blocks))
-    assert "make it circular" in text
-
-
-def test_summarize_prompt_previous_summary_included():
-    blocks = build_dot_summarize_prompt(_IMG_URL, None, None, "fix node shapes")
-    text = "\n".join(_text_blocks(blocks))
-    assert "fix node shapes" in text
+    assert "<<<SEARCH>>>" in text
+    assert "<<<REPLACE>>>" in text
+    assert "<<<END>>>" in text

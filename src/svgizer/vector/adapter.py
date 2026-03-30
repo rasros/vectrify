@@ -61,7 +61,7 @@ class VectorStrategyAdapter:
             content=result_payload.content,
             raster_data_url=raster_data_url,
             raster_preview_data_url=preview_data_url,
-            change_summary=result_payload.change_summary,
+            origin=result_payload.origin,
             invalid_msg=result.invalid_msg,
         )
         return new_state

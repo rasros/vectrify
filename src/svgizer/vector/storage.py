@@ -146,7 +146,7 @@ class FileStorageAdapter:
                     node.epoch,
                     f"{node.score:.6f}",
                     f"{node.complexity:.0f}",
-                    node.state.payload.change_summary or "",
+                    node.state.payload.origin or "",
                     content_md5,
                 ]
             )

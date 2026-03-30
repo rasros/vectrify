@@ -4,12 +4,12 @@ import io
 
 from PIL import Image
 
+from svgizer.formats.base import apply_search_replace
 from svgizer.formats.svg.operations import (
     crossover_with_micro_search,
     mutate_with_micro_search,
 )
 from svgizer.formats.svg.prompts import (
-    build_summarize_prompt,
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
@@ -41,13 +41,22 @@ class SvgPlugin:
     def extract_from_llm(self, raw: str) -> str:
         return extract_svg_fragment(raw)
 
+    def apply_edit(self, parent: str, raw: str) -> str:
+        """Apply a diff-format LLM response to *parent*.
+
+        Tries search/replace blocks first; falls back to treating *raw* as a
+        full SVG file if no blocks are found.
+        """
+        patched = apply_search_replace(parent, raw)
+        return patched if patched is not None else extract_svg_fragment(raw)
+
     def build_generate_prompt(
         self,
         image_data_url: str,
         node_index: int,
         content_prev: str | None,
         raster_preview_url: str | None,
-        change_summary: str | None,
+        goal: str | None,
         diff_data_url: str | None,
     ) -> list[dict]:
         return build_svg_gen_prompt(
@@ -55,22 +64,8 @@ class SvgPlugin:
             node_index,
             svg_prev=content_prev,
             rasterized_svg_data_url=raster_preview_url if content_prev else None,
-            change_summary=change_summary,
+            goal=goal,
             diff_data_url=diff_data_url,
-        )
-
-    def build_summarize_prompt(
-        self,
-        image_data_url: str,
-        raster_preview_url: str | None,
-        custom_goal: str | None,
-        previous_summary: str | None,
-    ) -> list[dict]:
-        return build_summarize_prompt(
-            image_data_url,
-            raster_preview_url,
-            custom_goal=custom_goal,
-            previous_summary=previous_summary,
         )
 
     def mutate(self, content: str, orig_img_fast: Image.Image) -> tuple[str, str]:
