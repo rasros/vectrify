@@ -227,19 +227,15 @@ class NsgaStrategy(Generic[TState]):
 
         score_threshold = _percentile_75([n.score for n in valid])
         fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
-        seeds: list[SearchNode[TState]] = []
 
+        pareto_nodes: list[SearchNode[TState]] = []
         for front in fronts:
-            if len(seeds) >= max_seeds:
-                break
-            distances = crowding_distance(front, objectives)
-            front_sorted = sorted(front, key=lambda n: -distances[n.id])
-            for node in front_sorted:
-                if len(seeds) >= max_seeds:
-                    break
-                if not any(self._is_duplicate(node, s) for s in seeds):
-                    seeds.append(node)
+            for node in front:
+                if not any(self._is_duplicate(node, s) for s in pareto_nodes):
+                    pareto_nodes.append(node)
 
+        pareto_nodes.sort(key=lambda n: n.score)
+        seeds = pareto_nodes[:max_seeds]
         return seeds or valid[:max_seeds]
 
     def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:

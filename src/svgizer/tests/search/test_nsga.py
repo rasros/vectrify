@@ -333,6 +333,20 @@ def test_epoch_seeds_empty_pool_returns_empty():
     assert seeds == []
 
 
+def test_epoch_seeds_sorted_by_visual_score():
+    strategy = NsgaStrategy(pool_size=10)
+    nodes = [
+        make_node(1, 0.1, complexity=800.0),
+        make_node(2, 0.3, complexity=600.0),
+        make_node(3, 0.5, complexity=400.0),
+        make_node(4, 0.7, complexity=200.0),
+    ]
+    seeds = strategy.epoch_seeds(nodes, max_seeds=4)
+    scores = [n.score for n in seeds]
+    assert scores == sorted(scores)
+    assert seeds[0].id == 1
+
+
 def test_epoch_seeds_all_invalid_falls_back():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [make_node(i, float("inf")) for i in range(1, 4)]
