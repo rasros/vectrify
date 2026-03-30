@@ -14,9 +14,6 @@ def make_node(node_id: int, score: float, sig: int | None = None) -> SearchNode:
     )
 
 
-# ── simhash ────────────────────────────────────────────────────────────────────
-
-
 def test_simhash_none_returns_none():
     assert simhash(None) is None
 
@@ -47,9 +44,6 @@ def test_simhash_short_text_below_ngram_size():
     assert isinstance(simhash("ab"), int)
 
 
-# ── hamming_distance ───────────────────────────────────────────────────────────
-
-
 def test_hamming_distance_identical():
     assert hamming_distance(0b1010, 0b1010) == 0
 
@@ -67,9 +61,6 @@ def test_hamming_distance_symmetric():
     assert hamming_distance(a, b) == hamming_distance(b, a)
 
 
-# ── pool_diversity ─────────────────────────────────────────────────────────────
-
-
 def test_pool_diversity_all_identical_returns_low():
     h = simhash("<svg><rect/></svg>")
     nodes = [make_node(i, 0.1, sig=h) for i in range(5)]
@@ -77,7 +68,6 @@ def test_pool_diversity_all_identical_returns_low():
 
 
 def test_pool_diversity_all_unique_returns_high():
-    # Use very different texts so SimHash distances are large
     texts = [
         "<svg><rect width='100'/></svg>",
         "<svg><circle r='50' cx='200' cy='300'/></svg>",
@@ -87,7 +77,7 @@ def test_pool_diversity_all_unique_returns_high():
     ]
     nodes = [make_node(i + 1, 0.1, sig=simhash(t)) for i, t in enumerate(texts)]
     diversity = pool_diversity(nodes)
-    assert diversity > 0.1  # These differ in structure, so Hamming distance > 0
+    assert diversity > 0.1
 
 
 def test_pool_diversity_ignores_none_signatures():

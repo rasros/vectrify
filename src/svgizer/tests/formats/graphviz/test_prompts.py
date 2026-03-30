@@ -14,9 +14,6 @@ def _image_urls(blocks: list[dict]) -> list[str]:
     return [b["image_url"] for b in blocks if b.get("type") == "input_image"]
 
 
-# ── build_dot_gen_prompt ──────────────────────────────────────────────────────
-
-
 def test_gen_prompt_first_iteration_no_dot():
     blocks = build_dot_gen_prompt(
         _IMG_URL,

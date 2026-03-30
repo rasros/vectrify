@@ -23,9 +23,6 @@ _DOT = """digraph G {
 }"""
 
 
-# ── _parse_node_names ─────────────────────────────────────────────────────────
-
-
 def test_parse_node_names_extracts_names():
     names = _parse_node_names(_DOT)
     assert "A" in names
@@ -34,9 +31,6 @@ def test_parse_node_names_extracts_names():
 
 def test_parse_node_names_empty_string():
     assert _parse_node_names("") == []
-
-
-# ── _set_graph_attr ───────────────────────────────────────────────────────────
 
 
 def test_set_graph_attr_replaces_existing():
@@ -50,9 +44,6 @@ def test_set_graph_attr_inserts_new():
     dot = "digraph G { A -> B; }"
     result = _set_graph_attr(dot, "splines", "ortho")
     assert "splines=ortho" in result
-
-
-# ── Attribute tweaks (pure string transformations) ────────────────────────────
 
 
 def test_random_node_attr_tweak_returns_string():
@@ -80,9 +71,6 @@ def test_random_layout_tweak_changes_something():
             changed = True
             break
     assert changed
-
-
-# ── micro-search wrappers (require graphviz binary) ───────────────────────────
 
 
 @pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")

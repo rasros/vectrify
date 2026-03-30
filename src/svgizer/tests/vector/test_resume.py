@@ -8,8 +8,6 @@ from svgizer.formats.models import VectorStatePayload
 from svgizer.search import INVALID_SCORE, ChainState, SearchNode, StrategyType
 from svgizer.vector.resume import filter_to_pool_size, prefilter_nodes, resume_nodes
 
-# ── Helpers ────────────────────────────────────────────────────────────────────
-
 
 def _make_png(color: str = "red", size: int = 16) -> bytes:
     img = Image.new("RGB", (size, size), color=color)
@@ -47,18 +45,14 @@ def _make_prepped(
     complexity: float = 100.0,
     png: bytes | None = None,
 ) -> tuple:
-    """Build a prepped-node tuple as produced during resume rasterization."""
     return (
         old_id,
         f"<svg id='{old_id}'/>",
         png or _make_png(),
         "data:image/png;base64,PREVIEW",
         complexity,
-        None,  # signature
+        None,
     )
-
-
-# ── prefilter_nodes ────────────────────────────────────────────────────────────
 
 
 def test_prefilter_returns_all_when_under_limit():
@@ -82,15 +76,11 @@ def test_prefilter_empty_input():
 
 
 def test_prefilter_returns_original_items():
-    """Returned items must be the same tuples, not copies."""
     nodes = [_make_prepped(i) for i in range(3)]
     ref_img = Image.new("RGB", (16, 16), color="white")
     result = prefilter_nodes(nodes, ref_img, max_keep=10)
     for item in result:
         assert item in nodes
-
-
-# ── filter_to_pool_size ────────────────────────────────────────────────────────
 
 
 def test_filter_no_op_when_within_pool():
@@ -116,7 +106,6 @@ def test_filter_nsga_returns_pool_size():
 
 
 def test_filter_nsga_prefers_pareto_front():
-    """A node that dominates on both objectives should survive."""
     best = _make_node(1, score=0.1, complexity=10.0)  # dominates all others
     worse = [_make_node(i + 2, score=0.9, complexity=900.0) for i in range(9)]
     result = filter_to_pool_size(
@@ -133,11 +122,7 @@ def test_filter_handles_invalid_scores():
     ]
     result = filter_to_pool_size(nodes, pool_size=2, strategy_type=StrategyType.GREEDY)
     assert len(result) == 2
-    # INVALID_SCORE sorts last, so the two valid nodes should be kept
     assert all(n.score < INVALID_SCORE for n in result)
-
-
-# ── resume_nodes ───────────────────────────────────────────────────────────────
 
 
 def _make_mock_plugin(png: bytes | None = None) -> MagicMock:
@@ -286,9 +271,7 @@ def test_resume_nodes_skips_failed_scoring():
 
 
 def test_resume_nodes_triggers_prefilter_when_many_items():
-    """When resumed items exceed 2*pool_size, prefilter should reduce them."""
     pool_size = 3
-    # 7 items > 2*3=6 → triggers prefilter
     n_items = 7
     plugin = _make_mock_plugin()
     scorer, ref = _make_mock_scorer(0.2)

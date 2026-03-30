@@ -12,13 +12,8 @@ def _make_png(color: str = "red", size: int = 32) -> bytes:
     return buf.getvalue()
 
 
-# SimpleFallbackScorer inherits Scorer.diff_heatmap without overriding it,
-# making it the right vehicle to test the base implementation.
-
-
 def test_base_diff_heatmap_returns_none_when_reference_has_no_image():
     scorer = SimpleFallbackScorer()
-    # object() has no .image attribute — exercises the None early-return path
     result = scorer.diff_heatmap(object(), _make_png(), long_side=32)
     assert result is None
 

@@ -23,9 +23,6 @@ def _make_image_data_url(color: str = "blue", size: int = 32) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-# ── LLM integration ───────────────────────────────────────────────────────────
-
-
 @pytest.mark.llm
 def test_llm_svg_generation_produces_valid_svg():
     from svgizer.llm import LLMConfig, get_provider

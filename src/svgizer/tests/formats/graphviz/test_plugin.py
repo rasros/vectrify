@@ -11,11 +11,8 @@ from svgizer.formats.graphviz.plugin import (
 _DOT_AVAILABLE = shutil.which("dot") is not None
 
 _DIGRAPH = "digraph G { A -> B }"
-_GRAPH_WITH_ARROWS = "graph G { A -> B }"  # invalid: -> in undirected graph
+_GRAPH_WITH_ARROWS = "graph G { A -> B }"
 _UNDIRECTED = "graph G { A -- B }"
-
-
-# ── _sanitize_dot ─────────────────────────────────────────────────────────────
 
 
 def test_sanitize_noop_for_valid_digraph():
@@ -45,9 +42,6 @@ def test_sanitize_already_digraph_unchanged():
     assert result.count("digraph") == 1
 
 
-# ── _fix_html_labels ─────────────────────────────────────────────────────────
-
-
 def test_fix_html_labels_plain_label_unchanged():
     dot = 'digraph G { A [label="hello"]; }'
     assert _fix_html_labels(dot) == dot
@@ -63,7 +57,6 @@ def test_fix_html_labels_simple_html_tag():
 def test_fix_html_labels_nested_html_tags():
     dot = "digraph G { A [label=<B>bold text</B>]; }"
     result = _fix_html_labels(dot)
-    # Should produce a plain quoted string with no unescaped angle brackets
     label_part = result.split("label=")[1].split("]")[0]
     assert label_part.startswith('"')
     assert "<" not in label_part
@@ -79,7 +72,6 @@ def test_fix_html_labels_multiline_html():
 
 
 def test_fix_html_labels_doubled_angle_bracket_left_alone():
-    # <<...>> is valid DOT HTML label syntax — should NOT be modified
     dot = "digraph G { A [label=<<B>bold</B>>]; }"
     result = _fix_html_labels(dot)
     assert "<<" in result
@@ -95,9 +87,6 @@ def test_sanitize_dot_fixes_html_labels():
     result = _sanitize_dot(dot)
     assert "<B>" not in result
     assert "</B>" not in result
-
-
-# ── extract_from_llm ──────────────────────────────────────────────────────────
 
 
 def test_extract_fenced_dot_block():
@@ -141,9 +130,6 @@ def test_extract_fallback_returns_stripped_raw():
     raw = "  no graph here  "
     result = plugin.extract_from_llm(raw)
     assert result == "no graph here"
-
-
-# ── validate / rasterize (require system graphviz) ───────────────────────────
 
 
 @pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
@@ -195,9 +181,6 @@ def test_rasterize_fast_returns_none_on_invalid():
     plugin = GraphvizPlugin()
     result = plugin.rasterize_fast("not dot code >>>", long_side=64)
     assert result is None
-
-
-# ── LLM integration ───────────────────────────────────────────────────────────
 
 
 @pytest.mark.llm

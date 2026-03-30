@@ -1,5 +1,3 @@
-"""Utilities for loading and preparing nodes from a previous run."""
-
 import concurrent.futures
 import logging
 from typing import TYPE_CHECKING, Any

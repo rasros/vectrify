@@ -33,7 +33,6 @@ def _fmt_elapsed(seconds: float) -> str:
 def _build_renderable(stats: SearchStats) -> Panel:
     s = stats
 
-    # ── Header ────────────────────────────────────────────────────────────
     header = (
         f"[bold]{s.strategy_name or '—'}[/bold]"
         f"  ·  model: [cyan]{s.model_name or '—'}[/cyan]"
@@ -41,10 +40,8 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"  ·  [dim]{_fmt_elapsed(s.elapsed())}[/dim]"
     )
 
-    # ── Score row ──────────────────────────────────────────────────────────
     score_line = f"  [bold green]{_fmt_score(s.best_score)}[/bold green]"
 
-    # ── Tasks row ─────────────────────────────────────────────────────────
     tasks_line = (
         f"  completed [bold]{s.tasks_completed:,}[/bold]"
         f"   accept [green]{s.accept_rate() * 100:.1f}%[/green]"
@@ -52,7 +49,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"   invalid [red]{s.invalid_rate() * 100:.1f}%[/red]"
     )
 
-    # ── LLM row ───────────────────────────────────────────────────────────
     in_flight_str = (
         f" [dim](+{s.llm_calls_in_flight} in flight)[/dim]"
         if s.llm_calls_in_flight
@@ -65,13 +61,11 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"   rate [yellow]{s.effective_llm_rate() * 100:.2f}%[/yellow]"
     )
 
-    # ── Mutation row ───────────────────────────────────────────────────────
     mut_line = (
         f"  calls [bold]{s.mutation_call_count:,}[/bold]"
         f"   pool-acc [cyan]{s.mutation_accept_rate() * 100:.1f}%[/cyan]"
     )
 
-    # ── Diversity row ──────────────────────────────────────────────────────
     div_bar = _bar(s.pool_diversity, width=20)
     if s.epoch_diversity > 0:
         if s.pool_diversity < s.epoch_diversity:
@@ -88,7 +82,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"  [{div_color}]{div_bar}[/{div_color}]  {s.pool_diversity:.3f}{div_threshold}"
     )
 
-    # ── Score variance row ────────────────────────────────────────────────
     if s.epoch_variance > 0:
         # Bar scaled so full = 4x threshold (threshold is expected convergence point)
         var_frac = min(1.0, s.pool_score_std / (s.epoch_variance * 4))
@@ -108,8 +101,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"  [{var_color}]{var_bar}[/{var_color}]  {s.pool_score_std:.4f}{var_threshold}"
     )
 
-    # ── Stagnation row ─────────────────────────────────────────────────────
-    # When no epoch_patience is set, a bar is meaningless — just show the counter.
     if s.epoch_patience > 0:
         stag_frac = s.stagnation_fraction()
         if stag_frac > 0.8:
@@ -126,7 +117,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
     else:
         stag_line = f"  [dim]{s.epoch_no_improve:,} tasks since last improvement[/dim]"
 
-    # ── Build table ───────────────────────────────────────────────────────
     table = Table.grid(padding=(0, 1))
     table.add_column(style="bold dim", width=10)
     table.add_column()
@@ -139,7 +129,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
     table.add_row("variance", Text.from_markup(var_line))
     table.add_row("stagnation", Text.from_markup(stag_line))
 
-    # ── Recent events ─────────────────────────────────────────────────────
     with s._lock:
         events = list(s.recent_events)
 

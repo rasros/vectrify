@@ -202,7 +202,6 @@ def test_save_node_content_none_does_not_write_content_file(tmp_path):
         state=ChainState(score=0.5, payload=payload),
     )
     adapter.save_node(node)
-    # No .svg file should be written, but lineage CSV should still record the node
     assert not (adapter.nodes_dir / "0.500000_99.svg").is_file()
     assert adapter.lineage_csv is not None
     assert adapter.lineage_csv.is_file()

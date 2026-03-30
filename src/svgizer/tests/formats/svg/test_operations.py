@@ -195,11 +195,6 @@ def test_with_retries_exhausts_all_attempts():
     assert len(calls) == 4
 
 
-# ---------------------------------------------------------------------------
-# with_micro_search
-# ---------------------------------------------------------------------------
-
-
 def test_with_micro_search_finds_improvement():
     target_img = Image.new("RGB", (10, 10), color="blue")
     fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
@@ -217,7 +212,6 @@ def test_with_micro_search_finds_improvement():
 
 
 def test_with_micro_search_no_valid_candidates_returns_fallback():
-    # All candidates are identical to fallback_svg, so best_svg stays None
     target_img = Image.new("RGB", (10, 10), color="blue")
     fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
 
@@ -232,8 +226,6 @@ def test_with_micro_search_no_valid_candidates_returns_fallback():
 
 
 def test_with_micro_search_returns_best_candidate_even_if_worse_than_parent():
-    # With the new logic the best candidate tried is always returned,
-    # even if it scores worse than the parent.
     target_img = Image.new("RGB", (10, 10), color="blue")
     fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
     worse_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
@@ -244,7 +236,6 @@ def test_with_micro_search_returns_best_candidate_even_if_worse_than_parent():
     best_svg, summary = with_micro_search(
         op_gen, fallback_svg, target_img, num_trials=2, default_summary="No change"
     )
-    # The worse candidate is different from fallback so it becomes best_svg
     assert best_svg == worse_svg
     assert summary == "worse"
 
@@ -260,14 +251,8 @@ def test_with_micro_search_ignores_invalid_renders():
     best_svg, summary = with_micro_search(
         op_gen, fallback_svg, target_img, num_trials=1, default_summary="none"
     )
-    # The invalid SVG should throw inside the rasterizer, be caught, and ignored
     assert best_svg == fallback_svg
     assert summary == "none"
-
-
-# ---------------------------------------------------------------------------
-# High-level Micro Search Wrappers
-# ---------------------------------------------------------------------------
 
 
 def test_crossover_with_micro_search():
@@ -289,11 +274,6 @@ def test_mutate_with_micro_search():
     assert isinstance(res, str)
     assert "<svg" in res
     assert "mutation" in summary.lower()
-
-
-# ---------------------------------------------------------------------------
-# mutate_drop_style_property
-# ---------------------------------------------------------------------------
 
 
 SVG_STYLED = (

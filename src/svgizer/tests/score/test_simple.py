@@ -71,11 +71,6 @@ def test_lab_l1_different_images_nonzero():
     assert lab_l1(red, blue) > 0.0
 
 
-# ---------------------------------------------------------------------------
-# SimpleFallbackScorer.diff_heatmap (inherited from base)
-# ---------------------------------------------------------------------------
-
-
 def test_simple_diff_heatmap_returns_valid_png():
     scorer = SimpleFallbackScorer()
     ref_img = Image.new("RGB", (32, 32), color="red")

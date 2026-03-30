@@ -130,11 +130,6 @@ def test_diff_data_url_handles_size_mismatch():
     assert result.startswith("data:image/png;base64,")
 
 
-# ---------------------------------------------------------------------------
-# pixel_diff_png
-# ---------------------------------------------------------------------------
-
-
 def test_pixel_diff_png_returns_valid_png():
     ref_img = Image.new("RGB", (64, 64), color="red")
     cand = create_test_image(64, 64, color="blue")

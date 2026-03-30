@@ -124,8 +124,6 @@ def test_create_new_state_heatmap_data_url_none_when_no_png():
 
 
 def test_create_new_state_heatmap_independent_of_save_raster():
-    # heatmap_data_url is always stored in state (for LLM feedback); save_raster
-    # controls raster disk saving only and must not suppress heatmap.
     adapter = VectorStrategyAdapter(
         base_strategy=GreedyHillClimbingStrategy(),
         image_long_side=64,
