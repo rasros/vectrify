@@ -114,6 +114,7 @@ def run_vector_search(
     format_plugin: "FormatPlugin",
     write_lineage: bool = True,
     save_raster: bool = False,
+    save_heatmap: bool = False,
     epoch_patience: int | None = None,
     epoch_min_delta: float = 1e-4,
     llm_rate: float = 0.2,
@@ -250,7 +251,7 @@ def run_vector_search(
     )
 
     strategy = VectorStrategyAdapter(
-        base_strategy, image_long_side, write_lineage, save_raster
+        base_strategy, image_long_side, write_lineage, save_raster, save_heatmap
     )
     engine = MultiprocessSearchEngine(
         workers=workers, strategy=strategy, storage=storage
@@ -281,7 +282,14 @@ def run_vector_search(
             raise RuntimeError(
                 f"Scorer failed to initialise: {_scorer_error[0]}"
             ) from _scorer_error[0]
-        return _scorer[0].score(_scoring_ref[0], res.payload.raster_png)
+        scorer = _scorer[0]
+        ref = _scoring_ref[0]
+        result = scorer.score(ref, res.payload.raster_png)
+        if res.payload.raster_png:
+            res.payload.heatmap_png = scorer.diff_heatmap(
+                ref, res.payload.raster_png, long_side=image_long_side
+            )
+        return result
 
     # Start workers before the dashboard enters so that subprocess spawn output
     # (which goes to the inherited stderr fd) doesn't disrupt Rich Live's cursor

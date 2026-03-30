@@ -68,6 +68,8 @@ def main():
         file_extension=plugin.file_extension,
         resume=args.resume,
         image_long_side=args.image_long_side,
+        save_raster=args.save_raster,
+        save_heatmap=args.save_heatmap,
     )
 
     try:
@@ -87,6 +89,7 @@ def main():
             format_plugin=plugin,
             write_lineage=args.write_lineage,
             save_raster=args.save_raster,
+            save_heatmap=args.save_heatmap,
             epoch_patience=args.epoch_patience or None,
             epoch_min_delta=args.epoch_min_delta,
             llm_rate=args.llm_rate,

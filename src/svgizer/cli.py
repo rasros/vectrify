@@ -130,6 +130,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=True,
         help="Save a .png alongside each accepted node file.",
     )
+    parser.add_argument(
+        "--save-heatmap",
+        dest="save_heatmap",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Save a .heatmap.png perceptual diff alongside each accepted node file.",
+    )
 
     parser.add_argument(
         "--llm-rate",

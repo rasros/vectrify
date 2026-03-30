@@ -108,26 +108,27 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                         or parent.payload.raster_data_url
                     )
 
-                    diff_data_url = None
-                    if parent.payload.raster_data_url:
-                        _, encoded = parent.payload.raster_data_url.split(",", 1)
-                        cand_bytes = base64.b64decode(encoded)
-                        diff_data_url = generate_diff_data_url(
-                            ctx.original_png_bytes,
-                            cand_bytes,
-                            ctx.image_long_side,
-                        )
-                    elif has_content:
-                        cand_bytes = plugin.rasterize(
-                            parent.payload.content,
-                            out_w=ctx.original_w,
-                            out_h=ctx.original_h,
-                        )
-                        diff_data_url = generate_diff_data_url(
-                            ctx.original_png_bytes,
-                            cand_bytes,
-                            ctx.image_long_side,
-                        )
+                    diff_data_url = parent.payload.heatmap_data_url
+                    if diff_data_url is None:
+                        if parent.payload.raster_data_url:
+                            _, encoded = parent.payload.raster_data_url.split(",", 1)
+                            cand_bytes = base64.b64decode(encoded)
+                            diff_data_url = generate_diff_data_url(
+                                ctx.original_png_bytes,
+                                cand_bytes,
+                                ctx.image_long_side,
+                            )
+                        elif has_content:
+                            cand_bytes = plugin.rasterize(
+                                parent.payload.content,
+                                out_w=ctx.original_w,
+                                out_h=ctx.original_h,
+                            )
+                            diff_data_url = generate_diff_data_url(
+                                ctx.original_png_bytes,
+                                cand_bytes,
+                                ctx.image_long_side,
+                            )
 
                     gen_config = LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
                     gen_prompt = plugin.build_generate_prompt(

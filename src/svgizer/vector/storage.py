@@ -21,6 +21,7 @@ class FileStorageAdapter:
         img_dims: tuple[int, int] = (512, 512),
         image_long_side: int = 512,
         save_raster: bool = False,
+        save_heatmap: bool = False,
     ):
         self.output_path = Path(output_path)
         self.file_extension = file_extension
@@ -28,6 +29,7 @@ class FileStorageAdapter:
         self.img_dims = img_dims
         self.image_long_side = image_long_side
         self.save_raster = save_raster
+        self.save_heatmap = save_heatmap
         self._max_id = 0
 
         self.base_name = self.output_path.stem
@@ -116,6 +118,11 @@ class FileStorageAdapter:
             _, b64 = node.state.payload.raster_data_url.split(",", 1)
             png_path = self.nodes_dir / f"{base_fn}.png"
             png_path.write_bytes(base64.b64decode(b64))
+
+        if self.save_heatmap and node.state.payload.heatmap_data_url:
+            _, b64 = node.state.payload.heatmap_data_url.split(",", 1)
+            heatmap_path = self.nodes_dir / f"{base_fn}.heatmap.png"
+            heatmap_path.write_bytes(base64.b64decode(b64))
 
         content_md5 = (
             hashlib.md5(node.state.payload.content.encode()).hexdigest()

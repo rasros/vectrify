@@ -11,6 +11,7 @@ class VectorStrategyAdapter:
     image_long_side: int
     write_lineage: bool
     save_raster: bool
+    save_heatmap: bool
 
     def __init__(
         self,
@@ -18,11 +19,13 @@ class VectorStrategyAdapter:
         image_long_side: int,
         write_lineage: bool,
         save_raster: bool = False,
+        save_heatmap: bool = False,
     ):
         self.base_strategy = base_strategy
         self.image_long_side = image_long_side
         self.write_lineage = write_lineage
         self.save_raster = save_raster
+        self.save_heatmap = save_heatmap
 
     @property
     def top_k_count(self) -> int:
@@ -57,11 +60,16 @@ class VectorStrategyAdapter:
                 result_payload.raster_png, self.image_long_side
             )
 
+        heatmap_data_url = None
+        if result_payload.heatmap_png:
+            heatmap_data_url = png_bytes_to_data_url(result_payload.heatmap_png)
+
         new_state.payload = VectorStatePayload(
             content=result_payload.content,
             raster_data_url=raster_data_url,
             raster_preview_data_url=preview_data_url,
             origin=result_payload.origin,
             invalid_msg=result.invalid_msg,
+            heatmap_data_url=heatmap_data_url,
         )
         return new_state
