@@ -8,6 +8,7 @@ from PIL import Image
 from svgizer.image_utils import (
     downscale_png_bytes,
     generate_diff_data_url,
+    pixel_diff_png,
     png_bytes_to_data_url,
     rasterize_svg_to_png_bytes,
     resize_long_side,
@@ -127,3 +128,48 @@ def test_diff_data_url_handles_size_mismatch():
     cand = create_test_image(128, 128, color="blue")
     result = generate_diff_data_url(ref, cand, long_side=64)
     assert result.startswith("data:image/png;base64,")
+
+
+# ---------------------------------------------------------------------------
+# pixel_diff_png
+# ---------------------------------------------------------------------------
+
+
+def test_pixel_diff_png_returns_valid_png():
+    ref_img = Image.new("RGB", (64, 64), color="red")
+    cand = create_test_image(64, 64, color="blue")
+    result = pixel_diff_png(ref_img, cand, long_side=64)
+    img = Image.open(io.BytesIO(result))
+    assert img.mode == "RGB"
+
+
+def test_pixel_diff_png_identical_images_are_black():
+    ref_img = Image.new("RGB", (64, 64), color="red")
+    cand = create_test_image(64, 64, color="red")
+    result = pixel_diff_png(ref_img, cand, long_side=64)
+    img = Image.open(io.BytesIO(result)).convert("RGB")
+    assert all(p == (0, 0, 0) for p in img.get_flattened_data())
+
+
+def test_pixel_diff_png_different_images_are_nonzero():
+    ref_img = Image.new("RGB", (64, 64), color="red")
+    cand = create_test_image(64, 64, color="blue")
+    result = pixel_diff_png(ref_img, cand, long_side=64)
+    img = Image.open(io.BytesIO(result)).convert("RGB")
+    assert any(p != (0, 0, 0) for p in img.get_flattened_data())
+
+
+def test_pixel_diff_png_respects_long_side():
+    ref_img = Image.new("RGB", (200, 200), color="red")
+    cand = create_test_image(200, 200, color="blue")
+    result = pixel_diff_png(ref_img, cand, long_side=50)
+    img = Image.open(io.BytesIO(result))
+    assert max(img.size) <= 50
+
+
+def test_pixel_diff_png_handles_size_mismatch():
+    ref_img = Image.new("RGB", (64, 64), color="red")
+    cand = create_test_image(128, 128, color="blue")
+    result = pixel_diff_png(ref_img, cand, long_side=64)
+    img = Image.open(io.BytesIO(result))
+    assert img.mode == "RGB"

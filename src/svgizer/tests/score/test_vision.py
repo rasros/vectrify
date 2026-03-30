@@ -121,7 +121,7 @@ def test_load_is_idempotent(scorer):
 def test_prepare_reference_includes_patch_embeddings(scorer):
     ref_img = Image.new("RGB", (32, 32), color="red")
     ref = scorer.prepare_reference(ref_img)
-    # Tiny model has image_size=16, patch_size=16 → 1×1 grid (1 patch)
+    # Tiny model has image_size=16, patch_size=16 -> 1x1 grid (1 patch)
     assert ref.patch_embeddings is not None
     assert ref.patch_embeddings.shape[0] == 1  # 1 patch
     assert ref.grid_hw == (1, 1)
@@ -142,7 +142,8 @@ def test_diff_heatmap_returns_valid_png(scorer):
     assert png is not None
     img = Image.open(io.BytesIO(png))
     assert img.mode == "RGB"
-    assert img.size[0] > 0 and img.size[1] > 0
+    assert img.size[0] > 0
+    assert img.size[1] > 0
 
 
 def test_diff_heatmap_identical_images_are_dark(scorer):
@@ -160,7 +161,8 @@ def test_diff_heatmap_different_images_are_brighter(scorer):
     ref = scorer.prepare_reference(ref_img)
     same_png = scorer.diff_heatmap(ref, _png("red"), long_side=64)
     diff_png = scorer.diff_heatmap(ref, _png("blue"), long_side=64)
-    assert same_png is not None and diff_png is not None
+    assert same_png is not None
+    assert diff_png is not None
     mean_same = np.array(Image.open(io.BytesIO(same_png))).mean()
     mean_diff = np.array(Image.open(io.BytesIO(diff_png))).mean()
     assert mean_diff >= mean_same
@@ -206,3 +208,48 @@ def test_hot_colormap_output_shape_matches_input():
     rgb = _apply_hot_colormap(arr)
     assert rgb.shape == (10, 20, 3)
     assert rgb.dtype == np.uint8
+
+
+# ---------------------------------------------------------------------------
+# diff_heatmap failure paths
+# ---------------------------------------------------------------------------
+
+
+def test_diff_heatmap_returns_none_when_patch_embeddings_none(scorer):
+    from svgizer.score.vision import VisionReference
+
+    ref_img = Image.new("RGB", (32, 32), color="red")
+    ref = scorer.prepare_reference(ref_img)
+
+    # Manually strip patch embeddings to simulate a model without vision_model
+    ref_no_patches = VisionReference(
+        image=ref.image,
+        embedding=ref.embedding,
+        patch_embeddings=None,
+        grid_hw=None,
+    )
+    result = scorer.diff_heatmap(ref_no_patches, _png("blue"), long_side=32)
+    assert result is None
+
+
+def test_diff_heatmap_returns_none_on_grid_mismatch(scorer):
+    import torch
+
+    from svgizer.score.vision import VisionReference
+
+    ref_img = Image.new("RGB", (32, 32), color="red")
+    ref = scorer.prepare_reference(ref_img)
+
+    if ref.patch_embeddings is None:
+        pytest.skip("Patch embeddings not available")
+
+    # Fake a reference with a different grid shape
+    fake_patch_embs = torch.zeros(4, ref.patch_embeddings.shape[-1])
+    ref_wrong_grid = VisionReference(
+        image=ref.image,
+        embedding=ref.embedding,
+        patch_embeddings=fake_patch_embs,
+        grid_hw=(2, 2),  # (1,1) for real ref, (2,2) mismatch with candidate
+    )
+    result = scorer.diff_heatmap(ref_wrong_grid, _png("blue"), long_side=32)
+    assert result is None

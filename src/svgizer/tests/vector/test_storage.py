@@ -143,6 +143,7 @@ def _make_node_with_raster_and_heatmap(
 def test_save_raster_writes_png(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"), save_raster=True)
     adapter.initialize()
+    assert adapter.nodes_dir is not None
     node = _make_node_with_raster_and_heatmap(
         raster_data_url=png_bytes_to_data_url(_make_png())
     )
@@ -153,6 +154,7 @@ def test_save_raster_writes_png(tmp_path):
 def test_save_raster_false_does_not_write_png(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"), save_raster=False)
     adapter.initialize()
+    assert adapter.nodes_dir is not None
     node = _make_node_with_raster_and_heatmap(
         raster_data_url=png_bytes_to_data_url(_make_png())
     )
@@ -163,6 +165,7 @@ def test_save_raster_false_does_not_write_png(tmp_path):
 def test_save_heatmap_writes_heatmap_png(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"), save_heatmap=True)
     adapter.initialize()
+    assert adapter.nodes_dir is not None
     node = _make_node_with_raster_and_heatmap(
         heatmap_data_url=png_bytes_to_data_url(_make_png("blue"))
     )
@@ -173,6 +176,7 @@ def test_save_heatmap_writes_heatmap_png(tmp_path):
 def test_save_heatmap_false_does_not_write_heatmap_png(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"), save_heatmap=False)
     adapter.initialize()
+    assert adapter.nodes_dir is not None
     node = _make_node_with_raster_and_heatmap(
         heatmap_data_url=png_bytes_to_data_url(_make_png("blue"))
     )
@@ -180,9 +184,34 @@ def test_save_heatmap_false_does_not_write_heatmap_png(tmp_path):
     assert not (adapter.nodes_dir / "0.500000_1.heatmap.png").is_file()
 
 
+def test_save_node_content_none_does_not_write_content_file(tmp_path):
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
+    adapter.initialize()
+    assert adapter.nodes_dir is not None
+    payload = VectorStatePayload(
+        content=None,
+        raster_data_url=None,
+        raster_preview_data_url=None,
+        origin="no content",
+        invalid_msg=None,
+    )
+    node = SearchNode(
+        score=0.5,
+        id=99,
+        parent_id=0,
+        state=ChainState(score=0.5, payload=payload),
+    )
+    adapter.save_node(node)
+    # No .svg file should be written, but lineage CSV should still record the node
+    assert not (adapter.nodes_dir / "0.500000_99.svg").is_file()
+    assert adapter.lineage_csv is not None
+    assert adapter.lineage_csv.is_file()
+
+
 def test_save_heatmap_content_is_valid_png(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"), save_heatmap=True)
     adapter.initialize()
+    assert adapter.nodes_dir is not None
     original_png = _make_png("green")
     node = _make_node_with_raster_and_heatmap(
         heatmap_data_url=png_bytes_to_data_url(original_png)

@@ -193,7 +193,7 @@ class VisionScorer(Scorer):
 
         grid = distances.cpu().float().numpy().reshape(h, w)
 
-        # Boost contrast the same way generate_diff_data_url does (3× scale)
+        # Boost contrast the same way generate_diff_data_url does (3x scale)
         grid = np.clip(grid * 3.0, 0.0, 1.0)
 
         # Upsample patch grid to target pixel resolution via PIL

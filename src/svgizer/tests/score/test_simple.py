@@ -69,3 +69,36 @@ def test_lab_l1_different_images_nonzero():
     red = Image.new("RGB", (32, 32), color="red")
     blue = Image.new("RGB", (32, 32), color="blue")
     assert lab_l1(red, blue) > 0.0
+
+
+# ---------------------------------------------------------------------------
+# SimpleFallbackScorer.diff_heatmap (inherited from base)
+# ---------------------------------------------------------------------------
+
+
+def test_simple_diff_heatmap_returns_valid_png():
+    scorer = SimpleFallbackScorer()
+    ref_img = Image.new("RGB", (32, 32), color="red")
+    ref = scorer.prepare_reference(ref_img)
+
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), color="blue").save(buf, format="PNG")
+    result = scorer.diff_heatmap(ref, buf.getvalue(), long_side=32)
+
+    assert result is not None
+    img = Image.open(io.BytesIO(result))
+    assert img.mode == "RGB"
+
+
+def test_simple_diff_heatmap_identical_images_are_black():
+    scorer = SimpleFallbackScorer()
+    ref_img = Image.new("RGB", (32, 32), color="green")
+    ref = scorer.prepare_reference(ref_img)
+
+    buf = io.BytesIO()
+    Image.new("RGB", (32, 32), color="green").save(buf, format="PNG")
+    result = scorer.diff_heatmap(ref, buf.getvalue(), long_side=32)
+
+    assert result is not None
+    img = Image.open(io.BytesIO(result)).convert("RGB")
+    assert all(p == (0, 0, 0) for p in img.get_flattened_data())

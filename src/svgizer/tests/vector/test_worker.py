@@ -30,6 +30,14 @@ def test_use_llm_rate_one_always_calls():
         assert _use_llm(has_content=True, llm_rate=1.0, llm_pressure=1.0) is True
 
 
+def test_use_llm_intermediate_rate_is_probabilistic():
+    results = [
+        _use_llm(has_content=True, llm_rate=0.5, llm_pressure=1.0) for _ in range(200)
+    ]
+    assert any(results), "Expected some True values at rate=0.5"
+    assert not all(results), "Expected some False values at rate=0.5"
+
+
 def _compute_preview(png: bytes, long_side: int) -> str:
     full_img = Image.open(io.BytesIO(png)).convert("RGB")
     preview_img = resize_long_side(full_img, long_side)

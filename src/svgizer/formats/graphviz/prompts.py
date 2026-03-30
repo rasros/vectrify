@@ -44,7 +44,8 @@ def build_dot_gen_prompt(
     is_edit = dot_prev is not None
 
     system_text = (
-        "Write Graphviz DOT code that, when rendered, visually matches the target image.\n\n"
+        "Write Graphviz DOT code that, when rendered, visually matches the target"
+        " image.\n\n"
         + _DOT_SYNTAX_RULES
     )
 
@@ -58,7 +59,10 @@ def build_dot_gen_prompt(
     blocks.append({"type": "image_url", "image_url": {"url": image_data_url}})
 
     if not is_edit:
-        seed_text = f"Iteration #{node_index}. Write complete DOT code. Wrap in ```dot\\n...\\n```"
+        seed_text = (
+            f"Iteration #{node_index}. Write complete DOT code."
+            " Wrap in ```dot\\n...\\n```"
+        )
         if goal:
             seed_text += f"\nUser goal: {goal}"
         blocks.append({"type": "text", "text": seed_text})

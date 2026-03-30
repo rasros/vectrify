@@ -28,7 +28,8 @@ def build_svg_gen_prompt(
     is_edit = svg_prev is not None
 
     lines = [
-        "Convert the target image into SVG code that reproduces it as accurately as possible.",
+        "Convert the target image into SVG code that reproduces it as accurately"
+        " as possible.",
         "- Wrap related elements in <g id='name'>.",
         f"Iteration #{iter_index}.",
     ]
