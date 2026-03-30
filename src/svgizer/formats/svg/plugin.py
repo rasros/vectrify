@@ -42,11 +42,6 @@ class SvgPlugin:
         return extract_svg_fragment(raw)
 
     def apply_edit(self, parent: str, raw: str) -> str:
-        """Apply a diff-format LLM response to *parent*.
-
-        Tries search/replace blocks first; falls back to treating *raw* as a
-        full SVG file if no blocks are found.
-        """
         patched = apply_search_replace(parent, raw)
         return patched if patched is not None else extract_svg_fragment(raw)
 

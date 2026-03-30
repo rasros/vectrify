@@ -6,8 +6,6 @@ from typing import TYPE_CHECKING, Protocol
 if TYPE_CHECKING:
     import PIL.Image
 
-# Diff format used for LLM edits.  Both SVG and DOT plugins use the same
-# search/replace block syntax so the apply logic lives here.
 _SEARCH_REPLACE_RE = re.compile(
     r"<<<SEARCH>>>\n(.*?)\n<<<REPLACE>>>\n(.*?)\n<<<END>>>",
     re.DOTALL,
@@ -32,7 +30,7 @@ def apply_search_replace(parent: str, raw: str) -> str | None:
 
 class FormatPlugin(Protocol):
     name: str
-    file_extension: str  # e.g. ".svg", ".dot"
+    file_extension: str
 
     def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
         """Render content to PNG bytes at given dimensions."""

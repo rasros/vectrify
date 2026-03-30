@@ -25,6 +25,7 @@ def build_svg_gen_prompt(
     goal: str | None = None,
     diff_data_url: str | None = None,
 ) -> list[dict[str, Any]]:
+    """Build LLM prompt for SVG generation/refinement."""
     is_edit = svg_prev is not None
 
     lines = [
@@ -43,8 +44,8 @@ def build_svg_gen_prompt(
         )
         if svg_prev_invalid_msg:
             lines.append(
-                f"CRITICAL: Previous SVG failed to parse: {svg_prev_invalid_msg}. "
-                "Fix syntax."
+                f"CRITICAL: Previous SVG failed to parse: "
+                f"{svg_prev_invalid_msg}. Fix syntax."
             )
 
     if goal:
@@ -67,11 +68,7 @@ def build_svg_gen_prompt(
 
     if diff_data_url:
         content.append(
-            {
-                "type": "input_text",
-                "text": "Difference Map (Target vs Current Render - "
-                "bright pixels indicate geometric/color errors):",
-            }
+            {"type": "input_text", "text": "Difference Map (Target vs Current Render):"}
         )
         content.append({"type": "input_image", "image_url": diff_data_url})
 
@@ -79,6 +76,7 @@ def build_svg_gen_prompt(
 
 
 def extract_svg_fragment(raw: str) -> str:
+    """Extract <svg> tag from LLM response text."""
     lower = raw.lower()
     end_idx = lower.rfind("</svg>")
     if end_idx != -1:

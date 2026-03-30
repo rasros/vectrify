@@ -9,8 +9,6 @@ from svgizer.search.models import INVALID_SCORE
 
 log = logging.getLogger(__name__)
 
-# ── Attribute pools ────────────────────────────────────────────────────────────
-
 _NODE_SHAPES = [
     "box",
     "ellipse",
@@ -62,7 +60,7 @@ def _parse_node_names(dot: str) -> list[str]:
         r'^\s*"?([A-Za-z0-9_]+)"?\s*(?:\[|;|->|--|\n)', dot, re.MULTILINE
     ):
         names.append(m.group(1))
-    return list(dict.fromkeys(names))  # unique, order-preserving
+    return list(dict.fromkeys(names))
 
 
 def _set_graph_attr(dot: str, key: str, value: str) -> str:
@@ -70,7 +68,6 @@ def _set_graph_attr(dot: str, key: str, value: str) -> str:
     pattern = rf"({key}\s*=\s*)[^\s;,\]]+"
     if re.search(pattern, dot):
         return re.sub(pattern + r"([;\s])", rf"\g<1>{value}\2", dot, count=1)
-    # Insert after opening brace
     return re.sub(r"(\{)", rf"\1\n    {key}={value};", dot, count=1)
 
 
@@ -204,7 +201,6 @@ def crossover_with_micro_search(
     orig_img_fast.save(orig_buf, format="PNG")
     orig_png = orig_buf.getvalue()
 
-    # Extract attribute lines from both
     attr_pattern = re.compile(
         r"^\s*(?:node|edge|graph)\s*\[[^\]]*\];?\s*$", re.MULTILINE
     )

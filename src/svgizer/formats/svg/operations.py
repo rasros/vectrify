@@ -138,7 +138,6 @@ def crossover(svg_a: str, svg_b: str, k: int = 2) -> str:
 def mutate_remove_node(svg: str) -> str:
     try:
         root = ET.fromstring(svg)
-
         pairs: list[tuple[ET.Element, ET.Element]] = []
         for parent in root.iter():
             for child in list(parent):
@@ -159,7 +158,6 @@ def mutate_remove_node(svg: str) -> str:
 def mutate_drop_style_property(svg: str) -> str:
     try:
         root = ET.fromstring(svg)
-
         styled = [el for el in root.iter() if el.get("style", "").strip()]
         if not styled:
             return svg
@@ -181,7 +179,6 @@ def mutate_drop_style_property(svg: str) -> str:
 def mutate_numeric(svg: str) -> str:
     try:
         root = ET.fromstring(svg)
-
         candidates: list[tuple[ET.Element, str, float, str]] = []
         for elem in root.iter():
             for attr, val in elem.attrib.items():
