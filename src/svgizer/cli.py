@@ -171,6 +171,30 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     parser.add_argument(
+        "--beams",
+        type=int,
+        default=10,
+        help=(
+            "Number of beams (parallel hill-climbers) for the greedy strategy. "
+            "Each epoch starts with this many fresh LLM seeds. "
+            "Ignored by the nsga strategy. Default: 10."
+        ),
+    )
+
+    parser.add_argument(
+        "--cull-keep",
+        type=float,
+        default=0.5,
+        dest="cull_keep",
+        help=(
+            "Fraction of beams eligible for expansion in the greedy strategy. "
+            "Only the top scoring fraction are mutated/LLM-edited; the rest "
+            "starve and are evicted by better candidates. "
+            "1.0 disables culling. Ignored by nsga. Default: 0.5."
+        ),
+    )
+
+    parser.add_argument(
         "--epoch-diversity",
         type=float,
         default=DEFAULT_EPOCH_DIVERSITY,

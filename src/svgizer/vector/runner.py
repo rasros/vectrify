@@ -60,7 +60,7 @@ def _build_engine_params(
     strategy_type: StrategyType,
     pool_size: int,
     seeds: int,
-    workers: int,
+    beams: int,
     initial_nodes: list[SearchNode],
     epoch_patience: int | None,
     epoch_min_delta: float,
@@ -71,10 +71,9 @@ def _build_engine_params(
     is_greedy = strategy_type == StrategyType.GREEDY
 
     if is_greedy:
-        effective_seeds = seeds if seeds > 0 else workers
         return _EngineParams(
-            pool_size=effective_seeds,
-            seed_tasks=effective_seeds,
+            pool_size=beams,
+            seed_tasks=beams,
             epoch_patience=epoch_patience,
             epoch_min_delta=epoch_min_delta,
             max_epochs=max_epochs,
@@ -121,6 +120,8 @@ def run_vector_search(
     llm_rate: float = 0.2,
     pool_size: int = 20,
     seeds: int = 0,
+    beams: int = 10,
+    cull_keep: float = 0.5,
     epoch_diversity: float = 0.10,
     epoch_variance: float | None = None,
     max_epochs: int | None = None,
@@ -230,9 +231,8 @@ def run_vector_search(
             collector.seed_initial_score(min(valid, key=lambda n: n.score).score)
 
     is_greedy = strategy_type == StrategyType.GREEDY
-    effective_greedy_seeds = seeds if seeds > 0 else workers
     base_strategy = (
-        GreedyHillClimbingStrategy[VectorStatePayload](seeds=effective_greedy_seeds)
+        GreedyHillClimbingStrategy[VectorStatePayload](beams=beams, cull_keep=cull_keep)
         if is_greedy
         else NsgaStrategy[VectorStatePayload](
             pool_size=pool_size,
@@ -245,7 +245,7 @@ def run_vector_search(
         strategy_type=strategy_type,
         pool_size=pool_size,
         seeds=seeds,
-        workers=workers,
+        beams=beams,
         initial_nodes=initial_nodes,
         epoch_patience=epoch_patience,
         epoch_min_delta=epoch_min_delta,
