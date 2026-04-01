@@ -6,7 +6,7 @@ from PIL import Image
 
 from svgizer.formats.models import VectorStatePayload
 from svgizer.image_utils import make_preview_data_url
-from svgizer.score.complexity import visual_complexity
+from svgizer.score.complexity import complexity as blended_complexity
 from svgizer.score.simple import SimpleFallbackScorer
 from svgizer.search import (
     INVALID_SCORE,
@@ -114,8 +114,8 @@ def resume_nodes(
         old_id, content_text, sig = item
         png = format_plugin.rasterize(content_text, out_w=original_w, out_h=original_h)
         preview = make_preview_data_url(png, image_long_side)
-        complexity = visual_complexity(png)
-        return old_id, content_text, png, preview, complexity, sig
+        comp = blended_complexity(png, content_text)
+        return old_id, content_text, png, preview, comp, sig
 
     prepped: list = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:

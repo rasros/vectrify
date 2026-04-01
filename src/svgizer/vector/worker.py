@@ -17,7 +17,7 @@ from svgizer.image_utils import (
     resize_long_side,
 )
 from svgizer.llm import LLMConfig, get_provider
-from svgizer.score.complexity import visual_complexity
+from svgizer.score.complexity import complexity as blended_complexity
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.search.diversity import simhash
 from svgizer.utils import setup_worker_logger  # <-- Updated import
@@ -170,7 +170,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                 out_w=ctx.original_w,
                 out_h=ctx.original_h,
             )
-            complexity = visual_complexity(png)
+            complexity = blended_complexity(png, content)
             signature = simhash(content)
 
             full_img = Image.open(io.BytesIO(png)).convert("RGB")
