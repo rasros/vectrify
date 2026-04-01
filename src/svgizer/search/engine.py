@@ -281,6 +281,9 @@ class MultiprocessSearchEngine(Generic[TState]):
             if not past_seed_phase:
                 return
 
+            if len(active_pool) < active_pool_size:
+                return
+
             staleness = (
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
