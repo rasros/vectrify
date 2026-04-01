@@ -66,7 +66,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"   pool-acc [cyan]{s.mutation_accept_rate() * 100:.1f}%[/cyan]"
     )
 
-    div_bar = _bar(s.pool_diversity, width=20)
+    # Pool stats: single line with diversity + variance values
     if s.epoch_diversity > 0:
         if s.pool_diversity < s.epoch_diversity:
             div_color = "red"
@@ -74,48 +74,65 @@ def _build_renderable(stats: SearchStats) -> Panel:
             div_color = "yellow"
         else:
             div_color = "green"
-        div_threshold = f"  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]"
     else:
         div_color = "cyan"
-        div_threshold = ""
-    div_line = (
-        f"  [{div_color}]{div_bar}[/{div_color}]  {s.pool_diversity:.3f}{div_threshold}"
-    )
 
     if s.epoch_variance > 0:
-        # Bar scaled so full = 4x threshold (threshold is expected convergence point)
-        var_frac = min(1.0, s.pool_score_std / (s.epoch_variance * 4))
         if s.pool_score_std < s.epoch_variance:
             var_color = "red"
         elif s.pool_score_std < s.epoch_variance * 2:
             var_color = "yellow"
         else:
             var_color = "green"
-        var_threshold = f"  [dim]epoch at < {s.epoch_variance:.4f}[/dim]"
     else:
-        var_frac = 0.0
         var_color = "cyan"
-        var_threshold = ""
-    var_bar = _bar(var_frac, width=20)
-    var_line = (
-        f"  [{var_color}]{var_bar}[/{var_color}]  {s.pool_score_std:.4f}{var_threshold}"
+
+    pool_line = (
+        f"  diversity [{div_color}]{s.pool_diversity:.3f}[/{div_color}]"
+        f"   variance [{var_color}]{s.pool_score_std:.4f}[/{var_color}]"
+        f"   no-improve [dim]{s.epoch_no_improve:,}[/dim]"
     )
+
+    # Stop criteria rows (only when enabled)
+    stop_rows: list[tuple[str, str]] = []
+
+    if s.epoch_diversity > 0:
+        div_bar = _bar(s.pool_diversity, width=20)
+        stop_rows.append(
+            (
+                "div stop",
+                f"  [{div_color}]{div_bar}[/{div_color}]"
+                f"  {s.pool_diversity:.3f}  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]",
+            )
+        )
+
+    if s.epoch_variance > 0:
+        var_frac = min(1.0, s.pool_score_std / (s.epoch_variance * 4))
+        var_bar = _bar(var_frac, width=20)
+        stop_rows.append(
+            (
+                "var stop",
+                f"  [{var_color}]{var_bar}[/{var_color}]"
+                f"  {s.pool_score_std:.4f}  [dim]epoch at < {s.epoch_variance:.4f}[/dim]",
+            )
+        )
 
     if s.epoch_patience > 0:
         stag_frac = s.stagnation_fraction()
         if stag_frac > 0.8:
-            bar_color = "red"
+            stag_color = "red"
         elif stag_frac > 0.5:
-            bar_color = "yellow"
+            stag_color = "yellow"
         else:
-            bar_color = "green"
+            stag_color = "green"
         stag_bar = _bar(stag_frac, width=20)
-        stag_line = (
-            f"  [{bar_color}]{stag_bar}[/{bar_color}]"
-            f"  {s.epoch_no_improve}/{s.epoch_patience}"
+        stop_rows.append(
+            (
+                "stagnation",
+                f"  [{stag_color}]{stag_bar}[/{stag_color}]"
+                f"  {s.epoch_no_improve}/{s.epoch_patience}",
+            )
         )
-    else:
-        stag_line = f"  [dim]{s.epoch_no_improve:,} tasks since last improvement[/dim]"
 
     table = Table.grid(padding=(0, 1))
     table.add_column(style="bold dim", width=10)
@@ -125,9 +142,9 @@ def _build_renderable(stats: SearchStats) -> Panel:
     table.add_row("tasks", Text.from_markup(tasks_line))
     table.add_row("llm", Text.from_markup(llm_line))
     table.add_row("mutation", Text.from_markup(mut_line))
-    table.add_row("diversity", Text.from_markup(div_line))
-    table.add_row("variance", Text.from_markup(var_line))
-    table.add_row("stagnation", Text.from_markup(stag_line))
+    table.add_row("pool", Text.from_markup(pool_line))
+    for label, content in stop_rows:
+        table.add_row(label, Text.from_markup(content))
 
     with s._lock:
         events = list(s.recent_events)
