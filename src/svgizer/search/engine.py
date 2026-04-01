@@ -145,7 +145,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     break
 
                 ramp_ref = epoch_patience or 100
-                llm_pressure = min(1.0, epoch_no_improve / ramp_ref)
+                llm_pressure = max(0.1, min(1.0, epoch_no_improve / ramp_ref))
 
                 if collector is not None:
                     collector.on_llm_pressure(llm_pressure)
