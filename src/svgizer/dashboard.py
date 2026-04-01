@@ -78,13 +78,19 @@ def _build_renderable(stats: SearchStats) -> Panel:
         div_color = "cyan"
 
     if s.epoch_variance > 0:
-        if s.pool_score_std < s.epoch_variance:
+        var_frac = (
+            min(1.0, s.epoch_variance / s.pool_score_std)
+            if s.pool_score_std > 0
+            else 0.0
+        )
+        if var_frac > 0.8:
             var_color = "red"
-        elif s.pool_score_std < s.epoch_variance * 2:
+        elif var_frac > 0.5:
             var_color = "yellow"
         else:
             var_color = "green"
     else:
+        var_frac = 0.0
         var_color = "cyan"
 
     pool_line = (
@@ -107,7 +113,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
         )
 
     if s.epoch_variance > 0:
-        var_frac = min(1.0, s.pool_score_std / (s.epoch_variance * 4))
         var_bar = _bar(var_frac, width=20)
         stop_rows.append(
             (
