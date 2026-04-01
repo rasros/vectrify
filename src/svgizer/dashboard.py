@@ -108,7 +108,8 @@ def _build_renderable(stats: SearchStats) -> Panel:
             (
                 "div stop",
                 f"  [{div_color}]{div_bar}[/{div_color}]"
-                f"  {s.pool_diversity:.3f}  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]",
+                f"  {s.pool_diversity:.3f}"
+                f"  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]",
             )
         )
 
@@ -118,7 +119,8 @@ def _build_renderable(stats: SearchStats) -> Panel:
             (
                 "var stop",
                 f"  [{var_color}]{var_bar}[/{var_color}]"
-                f"  {s.pool_score_std:.4f}  [dim]epoch at < {s.epoch_variance:.4f}[/dim]",
+                f"  {s.pool_score_std:.4f}"
+                f"  [dim]epoch at < {s.epoch_variance:.4f}[/dim]",
             )
         )
 
