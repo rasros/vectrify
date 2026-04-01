@@ -71,16 +71,16 @@ def test_max_epochs_parsed():
     assert args.max_epochs == 5
 
 
-def test_max_epochs_unlimited():
-    args = parse_args(["img.png", "--max-epochs", "-1"])
-    assert args.max_epochs == -1
+def test_max_epochs_default():
+    args = parse_args(["img.png"])
+    assert args.max_epochs == 1
 
 
-def test_max_epochs_zero_means_one_epoch():
-    args = parse_args(["img.png", "--max-epochs", "0"])
-    assert args.max_epochs == 0
-
-
-def test_max_epochs_below_minus_one_raises():
+def test_max_epochs_zero_raises():
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--max-epochs", "-2"])
+        parse_args(["img.png", "--max-epochs", "0"])
+
+
+def test_max_epochs_negative_raises():
+    with pytest.raises(SystemExit):
+        parse_args(["img.png", "--max-epochs", "-1"])

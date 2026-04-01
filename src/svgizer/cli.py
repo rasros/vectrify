@@ -11,7 +11,7 @@ DEFAULT_VISION_MODEL = "google/siglip-so400m-patch14-384"
 DEFAULT_STRATEGY = "nsga"
 BEAM_ONLY_PARAMS = {"beams", "cull_keep"}
 NSGA_ONLY_PARAMS = {"epoch_diversity", "epoch_variance", "epoch_seeds"}
-DEFAULT_MAX_EPOCHS = -1
+DEFAULT_MAX_EPOCHS = 1
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
 DEFAULT_RESUME = False
@@ -102,7 +102,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=DEFAULT_MAX_EPOCHS,
         dest="max_epochs",
-        help="Maximum number of epochs to run (0 = one epoch only, -1 for unlimited).",
+        help="Maximum number of epochs to run.",
     )
     parser.add_argument(
         "--workers",
@@ -300,8 +300,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if ns.max_wall_seconds is not None and ns.max_wall_seconds <= 0:
         ns.max_wall_seconds = None
 
-    if ns.max_epochs < -1:
-        raise SystemExit("Error: --max-epochs cannot be less than -1")
+    if ns.max_epochs < 1:
+        raise SystemExit("Error: --max-epochs must be at least 1")
     if ns.workers <= 0 or ns.pool_size <= 0:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
     if ns.image_long_side < 0:
