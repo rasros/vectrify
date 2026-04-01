@@ -108,6 +108,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         epoch0_seeds_dispatched = 0
         epoch0_seeds_completed = 0
+        draining_epoch = False
+        epoch_drain_reason = ""
 
         next_task_id = 1
         tasks_completed = 0
@@ -124,6 +126,8 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         def _dispatch_tasks():
             nonlocal in_flight, next_task_id, epoch0_seeds_dispatched
+            if draining_epoch:
+                return
             while in_flight < self.workers and next_task_id <= self.max_total_tasks:
                 progress = (
                     accepted_count / float(max_accepts) if max_accepts > 0 else 0.0
@@ -269,13 +273,44 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             self.storage.save_node(new_node)
 
-        def _check_epoch_end():
+        def _do_epoch_transition() -> None:
             nonlocal \
                 epoch, \
                 epoch_no_improve, \
                 epoch_tasks, \
                 active_pool, \
-                epoch_patience_best
+                epoch_patience_best, \
+                draining_epoch, \
+                epoch_drain_reason
+
+            reason = epoch_drain_reason
+            draining_epoch = False
+            epoch_drain_reason = ""
+
+            log.info(f"Epoch {epoch} → {epoch + 1}: {reason}")
+            epoch += 1
+            if collector is not None:
+                collector.on_epoch_transition(epoch)
+            epoch_no_improve = 0
+            epoch_tasks = 0
+            n_seeds = epoch_pool_size or max(1, active_pool_size // 4)
+            seeds = self.strategy.epoch_seeds(active_pool, n_seeds)
+            old_pool_ids = {n.id for n in active_pool}
+            if seeds:
+                active_pool = seeds
+                log.info(f"Epoch {epoch}: seeded with Pareto-front nodes.")
+            else:
+                active_pool = list(initial_nodes[:active_pool_size])
+                log.info(f"Epoch {epoch}: restarting from initial node.")
+            kept_ids = {n.id for n in active_pool}
+            for nid in old_pool_ids - kept_ids:
+                self.storage.record_eviction(nid, tasks_completed)
+
+            valid_scores = [n.score for n in active_pool if n.score < INVALID_SCORE]
+            epoch_patience_best = min(valid_scores) if valid_scores else INVALID_SCORE
+
+        def _check_epoch_end():
+            nonlocal draining_epoch, epoch_drain_reason
 
             past_seed_phase = (
                 epoch > 0 or seed_tasks == 0 or epoch0_seeds_completed >= seed_tasks
@@ -284,6 +319,16 @@ class MultiprocessSearchEngine(Generic[TState]):
                 return
 
             if len(active_pool) < active_pool_size:
+                return
+
+            llm_in_flight = (
+                self._llm_in_flight.value if hasattr(self, "_llm_in_flight") else 0
+            )
+
+            # If already draining, transition as soon as all LLM calls finish.
+            if draining_epoch:
+                if llm_in_flight == 0:
+                    _do_epoch_transition()
                 return
 
             staleness = (
@@ -323,29 +368,16 @@ class MultiprocessSearchEngine(Generic[TState]):
                 else:
                     reason = f"low variance ({score_std:.6f} < {epoch_variance})"
 
-                log.info(f"Epoch {epoch} → {epoch + 1}: {reason}")
-                epoch += 1
-                if collector is not None:
-                    collector.on_epoch_transition(epoch)
-                epoch_no_improve = 0
-                epoch_tasks = 0
-                n_seeds = epoch_pool_size or max(1, active_pool_size // 4)
-                seeds = self.strategy.epoch_seeds(active_pool, n_seeds)
-                old_pool_ids = {n.id for n in active_pool}
-                if seeds:
-                    active_pool = seeds
-                    log.info(f"Epoch {epoch}: seeded with Pareto-front nodes.")
+                if llm_in_flight == 0:
+                    epoch_drain_reason = reason
+                    _do_epoch_transition()
                 else:
-                    active_pool = list(initial_nodes[:active_pool_size])
-                    log.info(f"Epoch {epoch}: restarting from initial node.")
-                kept_ids = {n.id for n in active_pool}
-                for nid in old_pool_ids - kept_ids:
-                    self.storage.record_eviction(nid, tasks_completed)
-
-                valid_scores = [n.score for n in active_pool if n.score < INVALID_SCORE]
-                epoch_patience_best = (
-                    min(valid_scores) if valid_scores else INVALID_SCORE
-                )
+                    log.info(
+                        f"Epoch {epoch} end condition met ({reason}),"
+                        f" waiting for {llm_in_flight} LLM call(s) to finish."
+                    )
+                    draining_epoch = True
+                    epoch_drain_reason = reason
 
         try:
             while True:
