@@ -20,7 +20,7 @@ from svgizer.llm import LLMConfig, get_provider
 from svgizer.score.complexity import visual_complexity
 from svgizer.search import INVALID_SCORE, Result
 from svgizer.search.diversity import simhash
-from svgizer.utils import setup_logger
+from svgizer.utils import setup_worker_logger  # <-- Updated import
 
 
 @dataclasses.dataclass
@@ -42,7 +42,7 @@ class WorkerContext:
     api_key: str | None
     total_workers: int
     llm_rate: float
-    # Injected by MultiprocessSearchEngine.start_workers after construction
+    log_queue: Any = None
     llm_in_flight: Any = None
 
 
@@ -54,7 +54,7 @@ def _use_llm(has_content: bool, llm_rate: float, llm_pressure: float) -> bool:
 
 def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
-    setup_logger(ctx.log_level, log_file=ctx.log_file)
+    setup_worker_logger(ctx.log_level, ctx.log_queue)
     log = logging.getLogger("worker")
 
     try:

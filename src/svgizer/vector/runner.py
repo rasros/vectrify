@@ -29,7 +29,7 @@ from svgizer.search import (
     StrategyType,
 )
 from svgizer.search.collector import StatCollector
-from svgizer.utils import setup_logger
+from svgizer.utils import setup_logger, start_log_listener
 from svgizer.vector.adapter import VectorStrategyAdapter
 from svgizer.vector.resume import filter_to_pool_size, resume_nodes
 from svgizer.vector.worker import WorkerContext, worker_loop
@@ -139,6 +139,7 @@ def run_vector_search(
     assert storage.current_run_dir is not None
     run_log_file = storage.current_run_dir / "search.log"
     setup_logger(log_level, log_file=run_log_file)
+    log_queue, log_listener = start_log_listener()
 
     # Suppress tqdm / HF noise before any library imports or workers spawn.
     os.environ["TQDM_DISABLE"] = "1"
@@ -283,6 +284,7 @@ def run_vector_search(
         api_key=api_key,
         total_workers=workers,
         llm_rate=llm_rate,
+        log_queue=log_queue,
     )
 
     def score_fn(res):
@@ -334,6 +336,7 @@ def run_vector_search(
             collector=collector,
         )
     finally:
+        log_listener.stop()
         if dashboard is not None and dashboard_entered:
             dashboard.__exit__(None, None, None)
         if dashboard is not None:
