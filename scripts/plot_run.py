@@ -549,7 +549,7 @@ def main():
     fig, axes = plt.subplots(2, 2, figsize=(16, 12))
     title = run_dirs_f[0].parent.name if len(run_dirs_f) == 1 else str(Path(args.path))
     fig.suptitle(
-        f"SVGizer run stats — {title}",
+        f"Vectrify run stats — {title}",
         fontsize=11,
         fontweight="bold",
     )
@@ -568,7 +568,7 @@ def main():
         print(f"Saved to {out}")
     else:
         if matplotlib.get_backend().lower() == "agg":
-            out = Path("/tmp/svgizer_plot.png")
+            out = Path("/tmp/vectrify_plot.png")
             fig.savefig(out, dpi=150, bbox_inches="tight")
             print(f"No GUI backend available. Saved to {out}", file=sys.stderr)
             print("Use --output FILE to save to a specific path.")

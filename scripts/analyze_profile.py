@@ -4,7 +4,7 @@ Analyze a speedscope JSON profile (from py-spy) for CPU hotspots.
 
 Usage:
     uv tool run py-spy record -f speedscope -o profile.json \\
-        --subprocesses -- uv run svgizer ...
+        --subprocesses -- uv run vectrify ...
     python scripts/analyze_profile.py profile.json
 """
 

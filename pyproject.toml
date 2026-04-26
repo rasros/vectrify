@@ -1,9 +1,42 @@
 [project]
-name = "svgizer"
+name = "vectrify"
 version = "0.1.0"
-description = "Iterative SVG refinement using OpenAI multimodal models and search-based optimization"
+description = "Vectorizes raster images (PNG/JPG) using a mix of LLMs and NSGA-II multi-objective optimization. Outputs SVG and other vector formats."
 readme = "README.md"
 requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Rasmus Ros", email = "rasmus.s.ros@gmail.com" },
+]
+keywords = [
+    "svg",
+    "vectorization",
+    "raster-to-vector",
+    "llm",
+    "openai",
+    "anthropic",
+    "gemini",
+    "graphviz",
+    "typst",
+    "nsga",
+    "evolutionary",
+]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Multimedia :: Graphics",
+    "Topic :: Multimedia :: Graphics :: Graphics Conversion",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
 
 dependencies = [
     "openai>=1.0.0",
@@ -12,29 +45,43 @@ dependencies = [
     "cairosvg>=2.7.0",
     "pillow>=10.0.0",
     "numpy>=2.2.6",
-    "torch>=2.0.0",
-    "torchvision>=0.15.0",
-    "transformers>=4.40.0",
     "rich>=14.3.3",
     "tqdm>=4.67.3",
-    "graphviz>=0.21",
-    "typst>=0.11.0",
 ]
 
 [project.optional-dependencies]
+vision = [
+    "torch>=2.0.0",
+    "transformers>=4.40.0",
+]
+graphviz = [
+    "graphviz>=0.21",
+]
+typst = [
+    "typst>=0.11.0",
+]
+all = [
+    "vectrify[vision,graphviz,typst]",
+]
 dev = [
     "pytest",
     "pytest-xdist",
     "ruff",
     "pyrefly",
     "py-spy",
+    "matplotlib>=3.10.8",
 ]
 
+[project.urls]
+Homepage = "https://github.com/rasros/vectrify"
+Repository = "https://github.com/rasros/vectrify"
+Issues = "https://github.com/rasros/vectrify/issues"
+
 [project.scripts]
-svgizer = "svgizer.main:main"
+vectrify = "vectrify.main:main"
 
 [build-system]
-requires = ["setuptools>=68", "wheel"]
+requires = ["setuptools>=77", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
@@ -42,6 +89,7 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+exclude = ["vectrify.tests*"]
 
 [tool.pytest.ini_options]
 addopts = "-m 'not llm'"
@@ -60,7 +108,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu126" }]
-torchvision = [{ index = "pytorch-cu126" }]
 
 [tool.ruff]
 target-version = "py310"
@@ -90,8 +137,3 @@ ignore = []
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
-
-[dependency-groups]
-dev = [
-    "matplotlib>=3.10.8",
-]
