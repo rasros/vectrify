@@ -1,0 +1,55 @@
+name: release
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system deps
+        run: sudo apt-get update && sudo apt-get install -y graphviz libcairo2
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v3
+        with:
+          enable-cache: true
+
+      - name: Set up Python
+        run: uv python install 3.13
+
+      - name: Extract version from tag
+        run: echo "RELEASE_VERSION=${GITHUB_REF_NAME#v}" >> $GITHUB_ENV
+
+      - name: Verify pyproject version matches tag
+        run: |
+          PYPROJECT_VERSION=$(uv run --no-project python -c "import tomllib, pathlib; print(tomllib.loads(pathlib.Path('pyproject.toml').read_text())['project']['version'])")
+          if [ "$PYPROJECT_VERSION" != "$RELEASE_VERSION" ]; then
+            echo "::error::Tag v$RELEASE_VERSION does not match pyproject version $PYPROJECT_VERSION"
+            exit 1
+          fi
+
+      - name: Sync dependencies
+        run: uv sync --extra dev --extra graphviz --extra typst
+
+      - name: Run tests
+        run: uv run pytest -q
+
+      - name: Build distribution
+        run: uv build
+
+      - name: Publish to PyPI
+        env:
+          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_KEY }}
+        run: uv publish
+
+      - name: Upload distribution artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/
