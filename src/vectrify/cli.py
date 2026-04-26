@@ -1,5 +1,7 @@
 import argparse
 import os
+from importlib.metadata import PackageNotFoundError
+from importlib.metadata import version as _pkg_version
 
 from vectrify.score import ScorerType
 from vectrify.search import StrategyType
@@ -34,265 +36,314 @@ DEFAULT_EPOCH_STEPS = 0
 DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
 
+DESCRIPTION = (
+    "Vectorize raster images into SVG, Graphviz, or Typst by combining vision "
+    "LLMs with NSGA-II multi-objective evolutionary search."
+)
+
+EPILOG = """\
+Examples
+--------
+  Quickstart (auto-detects provider from $OPENAI_API_KEY /
+              $ANTHROPIC_API_KEY / $GEMINI_API_KEY):
+      vectrify input.png -o output.svg
+
+  Cap runtime at 10 minutes and run several refinement epochs:
+      vectrify photo.jpg -o sketch.svg --max-epochs 5 --max-wall-seconds 600
+
+  Steer the search with a custom goal:
+      vectrify logo.png --goal "Use thick strokes only and avoid gradients"
+
+  Output a Graphviz DOT diagram instead of SVG:
+      vectrify diagram.png -o out.dot --format graphviz
+
+  Resume an earlier run and keep only the 20 best nodes:
+      vectrify input.png --resume --resume-top 20
+
+Environment
+-----------
+  OPENAI_API_KEY, ANTHROPIC_API_KEY, GEMINI_API_KEY  one is required
+
+Docs: https://github.com/rasros/vectrify
+"""
+
+
+def _get_version() -> str:
+    try:
+        return _pkg_version("vectrify")
+    except PackageNotFoundError:
+        return "0.0.0+local"
+
 
 def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description=(
-            "Vectrify: Evolutionary SVG approximation using Vision LLMs "
-            "and pool-based refinement."
-        ),
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-
-    parser.add_argument("image", help="Path to input raster image (PNG/JPEG/WEBP/GIF).")
-
-    parser.add_argument(
-        "--output", "-o", default=DEFAULT_OUTPUT, help="Final SVG path."
+        prog="vectrify",
+        description=DESCRIPTION,
+        epilog=EPILOG,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
     parser.add_argument(
+        "image",
+        help="Input raster image (PNG, JPEG, WEBP, or GIF).",
+    )
+    parser.add_argument(
+        "--output",
+        "-o",
+        default=DEFAULT_OUTPUT,
+        metavar="PATH",
+        help="Output file path. Extension should match --format. "
+        f"Default: {DEFAULT_OUTPUT}",
+    )
+    parser.add_argument(
+        "--format",
+        type=str,
+        choices=["svg", "graphviz", "typst"],
+        default=DEFAULT_FORMAT,
+        help=f"Output vector format. Default: {DEFAULT_FORMAT}",
+    )
+    parser.add_argument(
+        "--version",
+        action="version",
+        version=f"%(prog)s {_get_version()}",
+    )
+
+    g_llm = parser.add_argument_group("LLM provider")
+    g_llm.add_argument(
         "--provider",
         type=str,
-        choices=["openai", "anthropic", "gemini", "auto"],
+        choices=["auto", "openai", "anthropic", "gemini"],
         default=DEFAULT_PROVIDER,
-        help="LLM provider to use. 'auto' checks environment variables.",
+        help="LLM provider. 'auto' picks whichever *_API_KEY is set "
+        f"(openai > anthropic > gemini). Default: {DEFAULT_PROVIDER}",
     )
-    parser.add_argument(
+    g_llm.add_argument(
         "--model",
         type=str,
         default=None,
-        help="Specific model name. Defaults depend on the active provider.",
+        metavar="NAME",
+        help="Model name. Defaults to a recent flagship model for the "
+        "active provider.",
+    )
+    g_llm.add_argument(
+        "--reasoning",
+        type=str,
+        choices=["low", "medium", "high"],
+        default=DEFAULT_REASONING,
+        help="Reasoning effort for thinking-capable models. "
+        f"Default: {DEFAULT_REASONING}",
     )
 
-    parser.add_argument(
+    g_score = parser.add_argument_group("Scoring")
+    g_score.add_argument(
         "--scorer",
         type=str,
         choices=[e.value for e in ScorerType],
         default=DEFAULT_SCORER,
-        help="Difference scoring backend (vision, simple, llm, or auto).",
+        help="Perceptual scorer. 'auto' uses 'vision' if torch+transformers "
+        f"are installed, else 'simple'. Default: {DEFAULT_SCORER}",
     )
-
-    parser.add_argument(
+    g_score.add_argument(
         "--vision-model",
         type=str,
         default=DEFAULT_VISION_MODEL,
         dest="vision_model",
-        help="HuggingFace vision model for perceptual scoring.",
+        metavar="HF_REPO",
+        help="HuggingFace model id for the vision scorer (CLIP/SigLIP-style). "
+        f"Default: {DEFAULT_VISION_MODEL}",
     )
 
-    parser.add_argument(
+    g_search = parser.add_argument_group("Search strategy")
+    g_search.add_argument(
         "--strategy",
         type=str,
         choices=[e.value for e in StrategyType],
         default=DEFAULT_STRATEGY,
-        help="Search strategy/evolution algorithm to use.",
+        help=f"Search algorithm. Default: {DEFAULT_STRATEGY}",
     )
-
-    parser.add_argument(
+    g_search.add_argument(
         "--goal",
         default=None,
-        help=(
-            "Custom prompt/goal to guide the SVG generation "
-            "(e.g., 'Make lines thicker')."
-        ),
+        metavar="TEXT",
+        help="Custom prompt steering the LLM "
+        "(e.g. 'Make lines thicker and avoid gradients').",
+    )
+    g_search.add_argument(
+        "--pool-size",
+        type=int,
+        default=DEFAULT_POOL_SIZE,
+        metavar="N",
+        help="Active pool size used for parent selection. "
+        f"Default: {DEFAULT_POOL_SIZE}",
+    )
+    g_search.add_argument(
+        "--seeds",
+        type=int,
+        default=DEFAULT_SEEDS,
+        dest="seeds",
+        metavar="N",
+        help="Target LLM-seeded nodes for epoch 0. Resumed nodes count "
+        "toward this. 0 uses pool-size // 10.",
+    )
+    g_search.add_argument(
+        "--llm-rate",
+        type=float,
+        default=DEFAULT_LLM_RATE,
+        metavar="RATE",
+        help="Fraction of tasks (0.0-1.0) that call the LLM; the rest run "
+        f"local mutations and crossover. Default: {DEFAULT_LLM_RATE:.2f}",
+    )
+    g_search.add_argument(
+        "--beams",
+        type=int,
+        default=DEFAULT_BEAMS,
+        metavar="N",
+        help="[beam-only] Parallel hill-climbers; each epoch starts with "
+        f"this many fresh LLM seeds. Default: {DEFAULT_BEAMS}",
+    )
+    g_search.add_argument(
+        "--cull-keep",
+        type=float,
+        default=DEFAULT_CULL_KEEP,
+        dest="cull_keep",
+        metavar="FRAC",
+        help="[beam-only] Fraction of beams eligible for expansion. Lower "
+        f"values prune harder; 1.0 disables culling. Default: {DEFAULT_CULL_KEEP}",
     )
 
-    parser.add_argument(
+    g_epoch = parser.add_argument_group("Epoch control")
+    g_epoch.add_argument(
         "--max-epochs",
         type=int,
         default=DEFAULT_MAX_EPOCHS,
         dest="max_epochs",
-        help="Maximum number of epochs to run.",
+        metavar="N",
+        help=f"Maximum epochs to run. Default: {DEFAULT_MAX_EPOCHS}",
     )
-    parser.add_argument(
-        "--workers",
+    g_epoch.add_argument(
+        "--epoch-patience",
         type=int,
-        default=DEFAULT_WORKERS,
-        help="Parallel worker processes (cpu count).",
+        default=DEFAULT_EPOCH_PATIENCE,
+        dest="epoch_patience",
+        metavar="N",
+        help="End the epoch and re-seed if best score does not improve by "
+        "--epoch-min-delta for this many consecutive tasks. 0 disables.",
     )
-    parser.add_argument(
-        "--max-wall-seconds",
+    g_epoch.add_argument(
+        "--epoch-min-delta",
         type=float,
-        default=DEFAULT_MAX_WALL_SECONDS,
-        help="Maximum runtime in seconds (0 to disable).",
+        default=DEFAULT_EPOCH_MIN_DELTA,
+        metavar="DELTA",
+        help="Minimum score improvement that resets --epoch-patience. "
+        f"Default: {DEFAULT_EPOCH_MIN_DELTA}",
     )
-
-    parser.add_argument(
-        "--reasoning",
-        type=str,
-        default=DEFAULT_REASONING,
-        help="Reasoning effort level across supported LLMs.",
-    )
-    parser.add_argument(
-        "--image-long-side",
+    g_epoch.add_argument(
+        "--epoch-steps",
         type=int,
-        default=DEFAULT_IMAGE_LONG_SIDE,
-        help="Downscale reference/preview images to this long-side dimension.",
+        default=DEFAULT_EPOCH_STEPS,
+        dest="epoch_steps",
+        metavar="N",
+        help="Cap completed tasks per epoch before forcing transition. "
+        "0 means unlimited.",
+    )
+    g_epoch.add_argument(
+        "--epoch-diversity",
+        type=float,
+        default=DEFAULT_EPOCH_DIVERSITY,
+        dest="epoch_diversity",
+        metavar="THR",
+        help="[nsga-only] End epoch when mean pairwise genome diversity "
+        "drops below this threshold. 0 disables.",
+    )
+    g_epoch.add_argument(
+        "--epoch-variance",
+        type=float,
+        default=DEFAULT_EPOCH_VARIANCE,
+        dest="epoch_variance",
+        metavar="THR",
+        help="[nsga-only] End epoch when score std dev in the active pool "
+        "drops below this threshold. 0 disables.",
+    )
+    g_epoch.add_argument(
+        "--epoch-seeds",
+        type=int,
+        default=DEFAULT_EPOCH_SEEDS,
+        dest="epoch_seeds",
+        metavar="N",
+        help="[nsga-only] Pareto-front nodes carried into each new epoch. "
+        "0 uses pool-size // 4.",
     )
 
-    parser.add_argument(
+    g_resume = parser.add_argument_group("Resume")
+    g_resume.add_argument(
         "--resume",
         dest="resume",
         action=argparse.BooleanOptionalAction,
         default=DEFAULT_RESUME,
         help="Resume search from existing nodes in the output directory.",
     )
-    parser.add_argument(
+    g_resume.add_argument(
         "--resume-top",
         type=int,
         default=None,
         dest="resume_top",
-        help="When resuming, keep only the N best-scoring nodes. Default: load all.",
+        metavar="N",
+        help="When resuming, keep only the N best-scoring nodes "
+        "(implies --resume).",
     )
-    parser.add_argument(
+
+    g_artifacts = parser.add_argument_group("Output artifacts")
+    g_artifacts.add_argument(
         "--write-lineage",
         dest="write_lineage",
         action=argparse.BooleanOptionalAction,
         default=DEFAULT_WRITE_LINEAGE,
-        help="Write a CSV and directory of all accepted SVG nodes.",
+        help="Write lineage.csv and per-node files for every accepted node.",
     )
-    parser.add_argument(
+    g_artifacts.add_argument(
         "--save-raster",
         dest="save_raster",
         action=argparse.BooleanOptionalAction,
         default=DEFAULT_SAVE_RASTER,
-        help="Save a .png alongside each accepted node file.",
+        help="Save a rendered .png alongside each accepted node.",
     )
-    parser.add_argument(
+    g_artifacts.add_argument(
         "--save-heatmap",
         dest="save_heatmap",
         action=argparse.BooleanOptionalAction,
         default=DEFAULT_SAVE_HEATMAP,
-        help="Save a .heatmap.png perceptual diff alongside each accepted node file.",
+        help="Save a perceptual diff .heatmap.png alongside each accepted node.",
     )
 
-    parser.add_argument(
-        "--llm-rate",
+    g_runtime = parser.add_argument_group("Runtime")
+    g_runtime.add_argument(
+        "--workers",
+        type=int,
+        default=DEFAULT_WORKERS,
+        metavar="N",
+        help=f"Parallel worker processes. Default: cpu count ({DEFAULT_WORKERS})",
+    )
+    g_runtime.add_argument(
+        "--max-wall-seconds",
         type=float,
-        default=DEFAULT_LLM_RATE,
-        help="Fraction of tasks (0.0-1.0) that call the LLM;"
-        " the rest use local operations (crossover, mutations).",
+        default=DEFAULT_MAX_WALL_SECONDS,
+        metavar="SECS",
+        help="Wall-clock budget. 0 (or negative) disables. "
+        f"Default: {DEFAULT_MAX_WALL_SECONDS}s",
     )
-
-    parser.add_argument(
-        "--pool-size",
+    g_runtime.add_argument(
+        "--image-long-side",
         type=int,
-        default=DEFAULT_POOL_SIZE,
-        help="Number of top nodes kept in the active pool for parent selection.",
+        default=DEFAULT_IMAGE_LONG_SIDE,
+        metavar="PX",
+        help="Downscale reference and preview images to this long-side. "
+        f"Default: {DEFAULT_IMAGE_LONG_SIDE}",
     )
-
-    parser.add_argument(
-        "--seeds",
-        type=int,
-        default=DEFAULT_SEEDS,
-        dest="seeds",
-        help=(
-            "Target number of LLM-seeded nodes for epoch 0. "
-            "Resumed nodes count toward this. "
-            "Defaults to pool-size // 10 when 0."
-        ),
-    )
-
-    parser.add_argument(
-        "--beams",
-        type=int,
-        default=DEFAULT_BEAMS,
-        help=(
-            "Number of beams (parallel hill-climbers) for the beam strategy. "
-            "Each epoch starts with this many fresh LLM seeds. "
-            "Ignored by the nsga strategy."
-        ),
-    )
-
-    parser.add_argument(
-        "--cull-keep",
-        type=float,
-        default=DEFAULT_CULL_KEEP,
-        dest="cull_keep",
-        help=(
-            "Fraction of beams eligible for expansion in the beam strategy. "
-            "Only the top scoring fraction are mutated/LLM-edited; the rest "
-            "starve and are evicted by better candidates. "
-            "1.0 disables culling. Ignored by nsga."
-        ),
-    )
-
-    parser.add_argument(
-        "--epoch-diversity",
-        type=float,
-        default=DEFAULT_EPOCH_DIVERSITY,
-        dest="epoch_diversity",
-        help=(
-            "Trigger an epoch transition when mean pairwise genome diversity "
-            "drops below this threshold. 0 disables diversity-based epoch transitions."
-        ),
-    )
-
-    parser.add_argument(
-        "--epoch-variance",
-        type=float,
-        default=DEFAULT_EPOCH_VARIANCE,
-        dest="epoch_variance",
-        help=(
-            "Trigger an epoch transition when the std dev of scores in the active pool "
-            "drops below this threshold (pool converged). "
-            "0 disables variance-based epoch transitions."
-        ),
-    )
-
-    parser.add_argument(
-        "--epoch-seeds",
-        type=int,
-        default=DEFAULT_EPOCH_SEEDS,
-        dest="epoch_seeds",
-        help=(
-            "Number of Pareto-front nodes carried into each new epoch. "
-            "0 defaults to pool-size // 4."
-        ),
-    )
-
-    parser.add_argument(
-        "--epoch-patience",
-        type=int,
-        default=DEFAULT_EPOCH_PATIENCE,
-        dest="epoch_patience",
-        help=(
-            "End the current epoch and re-seed from the Pareto front if the best score "
-            "does not improve by --epoch-min-delta over this many consecutive tasks."
-            "0 disables staleness-based epoch transitions."
-        ),
-    )
-    parser.add_argument(
-        "--epoch-min-delta",
-        type=float,
-        default=DEFAULT_EPOCH_MIN_DELTA,
-        help=(
-            "Minimum absolute score improvement required to reset the patience counter."
-        ),
-    )
-    parser.add_argument(
-        "--epoch-steps",
-        type=int,
-        default=DEFAULT_EPOCH_STEPS,
-        dest="epoch_steps",
-        help=(
-            "Maximum number of completed tasks per epoch before forcing an epoch "
-            "transition. 0 means unlimited."
-        ),
-    )
-
-    parser.add_argument(
-        "--format",
-        type=str,
-        choices=["svg", "graphviz", "typst"],
-        default=DEFAULT_FORMAT,
-        help="Output vector format to generate.",
-    )
-
-    parser.add_argument(
+    g_runtime.add_argument(
         "--log-level",
         default=DEFAULT_LOG_LEVEL,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
+        help=f"Console log verbosity. Default: {DEFAULT_LOG_LEVEL}",
     )
 
     ns = parser.parse_args(args)
