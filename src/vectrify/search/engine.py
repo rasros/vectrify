@@ -407,14 +407,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if max_epochs is not None and epoch >= max_epochs:
                     log.info(f"Max epochs ({max_epochs}) reached.")
                     break
-                if (
-                    max_llm_calls is not None
-                    and total_llm_completions >= max_llm_calls
-                ):
-                    log.warning(
-                        f"Max LLM calls ({max_llm_calls}) reached. "
-                        "Ending run."
-                    )
+                if max_llm_calls is not None and total_llm_completions >= max_llm_calls:
+                    log.warning(f"Max LLM calls ({max_llm_calls}) reached. Ending run.")
                     break
 
                 seeds_ready_threshold = (
