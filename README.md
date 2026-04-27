@@ -30,9 +30,16 @@ criteria.
 
 ## Install
 
+The recommended way to install a CLI tool is `pipx` or `uv tool`, which
+each put `vectrify` in its own isolated environment and on your PATH:
+
 ```bash
-pip install vectrify
+pipx install vectrify           # or: uv tool install vectrify
 ```
+
+Plain `pip install vectrify` works too, but installs into whatever Python
+environment is active. If you use `pip install --user`, add
+`~/.local/bin` to your PATH so the `vectrify` command resolves.
 
 The base install includes SVG output and the simple pixel-difference
 scorer. For everything else, pick the extras you need:
@@ -45,8 +52,8 @@ scorer. For everything else, pick the extras you need:
 | `all`      | vision + graphviz + typst                                      |
 
 ```bash
-pip install "vectrify[vision]"          # recommended for best quality
-pip install "vectrify[all]"             # everything
+pipx install "vectrify[vision]"          # recommended for best quality
+pipx install "vectrify[all]"             # everything
 ```
 
 System dependencies: Cairo is needed for SVG → PNG rendering (`apt
