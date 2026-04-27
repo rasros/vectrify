@@ -6,6 +6,9 @@ on:
       - 'v*'
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: ubuntu-latest
@@ -44,3 +47,18 @@ jobs:
         with:
           name: dist
           path: dist/
+
+      - name: Detect pre-release
+        run: |
+          if [[ "${GITHUB_REF_NAME#v}" == *"-"* ]]; then
+            echo "IS_PRERELEASE=true" >> "$GITHUB_ENV"
+          else
+            echo "IS_PRERELEASE=false" >> "$GITHUB_ENV"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          prerelease: ${{ env.IS_PRERELEASE }}
+          generate_release_notes: true
