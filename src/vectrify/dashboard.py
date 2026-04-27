@@ -96,7 +96,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
     pool_line = (
         f"  diversity [{div_color}]{s.pool_diversity:.3f}[/{div_color}]"
         f"   variance [{var_color}]{s.pool_score_std:.4f}[/{var_color}]"
-        f"   no-improve [dim]{s.epoch_no_improve:,}[/dim]"
+        f"   llm-stale [dim]{s.epoch_no_improve:,}[/dim]"
     )
 
     # Stop criteria rows (only when enabled)
@@ -135,7 +135,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
         steps_bar = _bar(steps_frac, width=20)
         stop_rows.append(
             (
-                "steps",
+                "llm steps",
                 f"  [{steps_color}]{steps_bar}[/{steps_color}]"
                 f"  {s.epoch_tasks}/{s.epoch_steps}",
             )
@@ -152,7 +152,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
         stag_bar = _bar(stag_frac, width=20)
         stop_rows.append(
             (
-                "stagnation",
+                "llm stale",
                 f"  [{stag_color}]{stag_bar}[/{stag_color}]"
                 f"  {s.epoch_no_improve}/{s.epoch_patience}",
             )

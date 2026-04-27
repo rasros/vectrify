@@ -107,6 +107,7 @@ def main():
             max_epochs=args.max_epochs,
             epoch_pool_size=args.epoch_seeds or None,
             epoch_steps=args.epoch_steps or None,
+            max_llm_calls=args.max_llm_calls or None,
             vision_model=args.vision_model,
             stats=stats,
             dashboard=Dashboard(stats),

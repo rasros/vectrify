@@ -65,6 +65,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_pool_size: int | None = None,
         epoch_variance: float | None = None,
         epoch_steps: int | None = None,
+        max_llm_calls: int | None = None,
         collector: StatCollector | None = None,
     ) -> None:
         start_time = time.monotonic()
@@ -105,6 +106,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch = 0
         epoch_no_improve = 0
         epoch_tasks = 0
+        total_llm_completions = 0
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         epoch0_seeds_dispatched = 0
         epoch0_seeds_completed = 0
@@ -366,10 +368,12 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if staleness:
                     reason = (
                         f"staleness ({epoch_no_improve} >="
-                        f" {epoch_patience} tasks without improvement)"
+                        f" {epoch_patience} LLM calls without improvement)"
                     )
                 elif steps_exhausted:
-                    reason = f"steps exhausted ({epoch_tasks} >= {epoch_steps} tasks)"
+                    reason = (
+                        f"steps exhausted ({epoch_tasks} >= {epoch_steps} LLM calls)"
+                    )
                 elif low_diversity:
                     reason = f"low diversity ({pool_diversity:.4f})"
                 else:
@@ -403,6 +407,15 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if max_epochs is not None and epoch >= max_epochs:
                     log.info(f"Max epochs ({max_epochs}) reached.")
                     break
+                if (
+                    max_llm_calls is not None
+                    and total_llm_completions >= max_llm_calls
+                ):
+                    log.warning(
+                        f"Max LLM calls ({max_llm_calls}) reached. "
+                        "Ending run."
+                    )
+                    break
 
                 seeds_ready_threshold = (
                     math.ceil(0.8 * seed_tasks) if seed_tasks > 0 else 0
@@ -423,8 +436,10 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                 in_flight -= 1
                 tasks_completed += 1
-                epoch_no_improve += 1
-                epoch_tasks += 1
+                if res.llm_type:
+                    epoch_no_improve += 1
+                    epoch_tasks += 1
+                    total_llm_completions += 1
                 if epoch == 0 and seed_tasks > 0 and res.task_id <= seed_tasks:
                     epoch0_seeds_completed += 1
 

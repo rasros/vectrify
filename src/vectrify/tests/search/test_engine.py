@@ -145,6 +145,7 @@ def test_engine_epoch_patience_triggers_transition():
                 valid=True,
                 score=score,
                 payload="p",
+                llm_type="llm-generate",
             )
         )
 
@@ -186,6 +187,7 @@ def test_engine_epoch_patience_resets_on_improvement():
                 valid=True,
                 score=score,
                 payload="p",
+                llm_type="llm-generate",
             )
         )
 

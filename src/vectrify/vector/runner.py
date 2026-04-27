@@ -131,6 +131,7 @@ def run_vector_search(
     max_epochs: int | None = None,
     epoch_pool_size: int | None = None,
     epoch_steps: int | None = None,
+    max_llm_calls: int | None = None,
     vision_model: str = "ensemble",
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
@@ -331,6 +332,7 @@ def run_vector_search(
             epoch_pool_size=ep.epoch_pool_size,
             epoch_variance=epoch_variance,
             epoch_steps=ep.epoch_steps,
+            max_llm_calls=max_llm_calls,
             collector=collector,
         )
     finally:

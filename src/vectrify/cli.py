@@ -13,7 +13,7 @@ DEFAULT_VISION_MODEL = "google/siglip-so400m-patch14-384"
 DEFAULT_STRATEGY = "nsga"
 BEAM_ONLY_PARAMS = {"beams", "cull_keep"}
 NSGA_ONLY_PARAMS = {"epoch_diversity", "epoch_variance", "epoch_seeds"}
-DEFAULT_MAX_EPOCHS = 1
+DEFAULT_MAX_EPOCHS = 4
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
 DEFAULT_RESUME = False
@@ -30,9 +30,10 @@ DEFAULT_CULL_KEEP = 0.5
 DEFAULT_EPOCH_DIVERSITY = 0.0
 DEFAULT_EPOCH_VARIANCE = 0.0
 DEFAULT_EPOCH_SEEDS = 0
-DEFAULT_EPOCH_PATIENCE = 0
+DEFAULT_EPOCH_PATIENCE = 20
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
-DEFAULT_EPOCH_STEPS = 0
+DEFAULT_EPOCH_STEPS = 50
+DEFAULT_MAX_LLM_CALLS = 0  # 0 = unlimited / off
 DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
 
@@ -48,8 +49,8 @@ Examples
               $ANTHROPIC_API_KEY / $GEMINI_API_KEY):
       vectrify input.png -o output.svg
 
-  Cap runtime at 10 minutes and run several refinement epochs:
-      vectrify photo.jpg -o sketch.svg --max-epochs 5 --max-wall-seconds 600
+  Bigger LLM budget per epoch, longer wall-clock cap:
+      vectrify photo.jpg -o sketch.svg --epoch-patience 60 --max-wall-seconds 1800
 
   Steer the search with a custom goal:
       vectrify logo.png --goal "Use thick strokes only and avoid gradients"
@@ -122,8 +123,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         type=str,
         default=None,
         metavar="NAME",
-        help="Model name. Defaults to a recent flagship model for the "
-        "active provider.",
+        help="Model name. Defaults to a recent flagship model for the active provider.",
     )
     g_llm.add_argument(
         "--reasoning",
@@ -227,7 +227,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         dest="epoch_patience",
         metavar="N",
         help="End the epoch and re-seed if best score does not improve by "
-        "--epoch-min-delta for this many consecutive tasks. 0 disables.",
+        "--epoch-min-delta over this many consecutive LLM calls "
+        "(local mutations are not counted). 0 disables. "
+        f"Default: {DEFAULT_EPOCH_PATIENCE}",
     )
     g_epoch.add_argument(
         "--epoch-min-delta",
@@ -243,8 +245,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_STEPS,
         dest="epoch_steps",
         metavar="N",
-        help="Cap completed tasks per epoch before forcing transition. "
-        "0 means unlimited.",
+        help="Hard cap on LLM calls per epoch before forcing transition "
+        "(local mutations are not counted). 0 means unlimited. "
+        f"Default: {DEFAULT_EPOCH_STEPS}",
     )
     g_epoch.add_argument(
         "--epoch-diversity",
@@ -288,8 +291,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=None,
         dest="resume_top",
         metavar="N",
-        help="When resuming, keep only the N best-scoring nodes "
-        "(implies --resume).",
+        help="When resuming, keep only the N best-scoring nodes (implies --resume).",
     )
 
     g_artifacts = parser.add_argument_group("Output artifacts")
@@ -330,6 +332,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         metavar="SECS",
         help="Wall-clock budget. 0 (or negative) disables. "
         f"Default: {DEFAULT_MAX_WALL_SECONDS}s",
+    )
+    g_runtime.add_argument(
+        "--max-llm-calls",
+        type=int,
+        default=DEFAULT_MAX_LLM_CALLS,
+        dest="max_llm_calls",
+        metavar="N",
+        help="Hard cap on total LLM calls across the entire run; ends the "
+        "run as soon as it is reached. 0 disables. Useful as a strict "
+        f"cost bound. Default: {DEFAULT_MAX_LLM_CALLS} (unlimited)",
     )
     g_runtime.add_argument(
         "--image-long-side",

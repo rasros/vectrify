@@ -61,19 +61,23 @@ def test_default_epoch_diversity():
     assert args.epoch_diversity == DEFAULT_EPOCH_DIVERSITY
 
 
-def test_default_epoch_patience_zero():
+def test_default_epoch_patience():
+    from vectrify.cli import DEFAULT_EPOCH_PATIENCE
+
     args = parse_args(["img.png"])
-    assert args.epoch_patience == 0
+    assert args.epoch_patience == DEFAULT_EPOCH_PATIENCE
 
 
 def test_max_epochs_parsed():
-    args = parse_args(["img.png", "--max-epochs", "5"])
-    assert args.max_epochs == 5
+    args = parse_args(["img.png", "--max-epochs", "10"])
+    assert args.max_epochs == 10
 
 
 def test_max_epochs_default():
+    from vectrify.cli import DEFAULT_MAX_EPOCHS
+
     args = parse_args(["img.png"])
-    assert args.max_epochs == 1
+    assert args.max_epochs == DEFAULT_MAX_EPOCHS
 
 
 def test_max_epochs_zero_raises():
