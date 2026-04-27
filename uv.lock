@@ -2626,7 +2626,6 @@ wheels = [
 
 [[package]]
 name = "vectrify"
-version = "0.1.0"
 source = { editable = "." }
 dependencies = [
     { name = "anthropic" },
@@ -2686,7 +2685,7 @@ requires-dist = [
     { name = "tqdm", specifier = ">=4.67.3" },
     { name = "transformers", marker = "extra == 'vision'", specifier = ">=4.40.0" },
     { name = "typst", marker = "extra == 'typst'", specifier = ">=0.11.0" },
-    { name = "vectrify", extras = ["vision", "graphviz", "typst"], marker = "extra == 'all'" },
+    { name = "vectrify", extras = ["graphviz", "typst", "vision"], marker = "extra == 'all'" },
 ]
 provides-extras = ["vision", "graphviz", "typst", "all", "dev"]
 

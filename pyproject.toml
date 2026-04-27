@@ -1,6 +1,6 @@
 [project]
 name = "vectrify"
-version = "0.1.0"
+dynamic = ["version"]
 description = "Vectorizes raster images (PNG/JPG) using a mix of LLMs and NSGA-II multi-objective optimization. Outputs SVG and other vector formats."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -81,8 +81,11 @@ Issues = "https://github.com/rasros/vectrify/issues"
 vectrify = "vectrify.main:main"
 
 [build-system]
-requires = ["setuptools>=77", "wheel"]
+requires = ["setuptools>=77", "setuptools-scm>=8", "wheel"]
 build-backend = "setuptools.build_meta"
+
+[tool.setuptools_scm]
+fallback_version = "0.0.0+unknown"
 
 [tool.setuptools]
 package-dir = { "" = "src" }
