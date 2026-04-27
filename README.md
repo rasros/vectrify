@@ -30,16 +30,16 @@ criteria.
 
 ## Install
 
-The recommended way to install a CLI tool is `pipx` or `uv tool`, which
-each put `vectrify` in its own isolated environment and on your PATH:
+The recommended way to install a CLI tool is pipx or uv tool, both of
+which put vectrify in its own isolated environment and on your PATH:
 
 ```bash
 pipx install vectrify           # or: uv tool install vectrify
 ```
 
-Plain `pip install vectrify` works too, but installs into whatever Python
-environment is active. If you use `pip install --user`, add
-`~/.local/bin` to your PATH so the `vectrify` command resolves.
+Plain pip works too, but it installs into whatever Python environment is
+active. With `pip install --user`, make sure `~/.local/bin` is on your
+PATH.
 
 The base install includes SVG output and the simple pixel-difference
 scorer. For everything else, pick the extras you need:
@@ -56,11 +56,10 @@ pipx install "vectrify[vision]"          # recommended for best quality
 pipx install "vectrify[all]"             # everything
 ```
 
-System dependencies: Cairo is needed for SVG → PNG rendering (`apt
-install libcairo2` or `brew install cairo`), Graphviz is needed only when
-using `--format graphviz` (`apt install graphviz` or `brew install
-graphviz`), and a CUDA-capable GPU is optional since the vision scorer
-falls back to CPU/MPS.
+System dependencies: SVG output needs Cairo (`apt install libcairo2` or
+`brew install cairo`), and `--format graphviz` additionally needs the
+Graphviz binaries (`apt install graphviz` or `brew install graphviz`). A
+CUDA-capable GPU is optional; the vision scorer falls back to CPU/MPS.
 
 ## Provider setup
 
@@ -108,24 +107,23 @@ artifacts, and runtime sections.
 ## How it works
 
 vectrify runs an evolutionary loop over a pool of candidate vector
-representations. The pool is seeded with `--seeds` LLM-generated
-candidates, then on each iteration a parent is sampled from the pool.
-With probability `1 - llm_rate` the parent is mutated locally (color
-tweaks, path nudges, crossover); otherwise the LLM is called to produce
-a refined edit. The new candidate is scored against the source image
-(perceptual via vision transformer embeddings, pixel-space, or
-LLM-as-judge) and either replaces a worse pool member or is dropped.
+representations. The pool is seeded with a few LLM-generated candidates,
+then on each iteration a parent is sampled from the pool. With probability
+1 − `--llm-rate` the parent is mutated locally (color tweaks, path
+nudges, crossover); otherwise the LLM is called to produce a refined
+edit. The new candidate is scored against the source image (perceptual
+via vision transformer embeddings, pixel-space, or LLM-as-judge) and
+either replaces a worse pool member or is dropped.
 
-Two search strategies decide how the pool is managed and how parents are
-picked. The default `nsga` strategy uses NSGA-II with non-dominated
-sorting and crowding distance, which keeps diverse Pareto-optimal
-candidates around and shines when you have time for multiple epochs. The
-`beam` strategy runs beam search over `--beams` parallel hill-climbers,
-with `--cull-keep` controlling how aggressively low-ranked beams are
-pruned, and converges faster on a single good answer. NSGA-only flags
-are `--epoch-diversity`, `--epoch-variance`, and `--epoch-seeds`;
-beam-only flags are `--beams` and `--cull-keep`. The CLI rejects mixed
-usage.
+Two search strategies decide how the pool is managed and how parents
+are picked. The default NSGA-II strategy uses non-dominated sorting and
+crowding distance, which keeps diverse Pareto-optimal candidates around
+and shines when you have time for multiple epochs. Beam search instead
+runs `--beams` parallel hill-climbers, with `--cull-keep` controlling
+how aggressively low-ranked beams are pruned, and converges faster on a
+single good answer. NSGA-only flags are `--epoch-diversity`,
+`--epoch-variance`, and `--epoch-seeds`; beam-only flags are `--beams`
+and `--cull-keep`. The CLI rejects mixed usage.
 
 NSGA-II minimizes two normalized objectives in parallel: visual error
 (scorer distance to the source) and content complexity (code size / token
@@ -157,12 +155,12 @@ re-seeds from the current Pareto front. The search stops once
 
 Most tasks are cheap local mutations (controlled by `--llm-rate`, default
 10% LLM). They run constantly and only rarely produce a new best score,
-so counting every task toward `--epoch-patience` would burn it through in
-seconds. Patience and step counters therefore tick only on LLM-driven
-exploration tasks, which is what you actually pay for and what drives
-meaningful progress. A new best from any source, LLM or local, still
-resets `--epoch-patience`. Set `--epoch-variance` and `--epoch-diversity`
-to non-zero values to add NSGA-specific stop criteria; their right
+so counting every task toward patience would burn it through in seconds.
+Patience and step counters therefore tick only on LLM-driven exploration
+tasks, which is what you actually pay for and what drives meaningful
+progress. A new best from any source, LLM or local, still resets the
+patience counter. Set `--epoch-variance` and `--epoch-diversity` to
+non-zero values to add NSGA-specific stop criteria; their right
 thresholds depend on your scorer and image, so they're off by default.
 
 ### Bounding the API bill
