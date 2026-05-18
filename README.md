@@ -4,29 +4,26 @@
 [![Python](https://img.shields.io/pypi/pyversions/vectrify.svg)](https://pypi.org/project/vectrify/)
 [![License](https://img.shields.io/pypi/l/vectrify.svg)](https://github.com/rasros/vectrify/blob/main/LICENSE)
 
-While LLMs are powerful they still struggle to generate perfect vector
-images from reference raster images in one shot. That is where vectrify
-can help. It turns raster images into editable vector code by treating
-vectorization as a search problem: an LLM proposes candidate
-SVG/Graphviz/Typst code, a vision scorer ranks how close each candidate
-looks to the source, and an optimization algorithm iteratively refines
-the best candidates.
+LLMs still struggle to generate perfect vector images from a reference
+raster in one shot. vectrify turns raster images into editable vector
+code by treating vectorization as a search problem: an LLM proposes
+candidate SVG/Graphviz/Typst code, a vision scorer ranks how close each
+candidate looks to the source, and an optimization loop iteratively
+refines the best candidates.
 
-The results are quite good and produces human-readable code.
+The results are quite good, and the output is human-readable code.
 
 ## Features
 
-Three output formats are supported out of the box: SVG (default),
-Graphviz DOT, and Typst (HTML and TikZ are planned). API keys for OpenAI,
-Anthropic, and Google Gemini are auto-detected from environment
-variables. Two search strategies are available: NSGA-II for
-diversity-preserving multi-objective optimization that weighs in
-complexity, and beam search for a budget-friendly singular solution.
-Perceptual scoring uses a local vision model with embeddings, with a
-pixel-level fallback or LLM-as-judge as alternatives. Runs are resumable,
-so you can pick up where you left off or fork from the top-N nodes of a
-previous run. A live dashboard shows pool stats, scoring, and convergence
-criteria.
+- **Output formats**: SVG (default), Graphviz DOT, Typst (HTML and TikZ planned).
+- **LLM providers**: OpenAI, Anthropic, Google Gemini — auto-detected from env vars.
+- **Search strategies**: NSGA-II for diversity-preserving multi-objective
+  optimization, or beam search for a cheaper single-best run.
+- **Scoring**: local vision-model embeddings (perceptual), with pixel-diff
+  and LLM-as-judge as alternatives.
+- **Resumable runs**: pick up where you left off, or fork from the top-N
+  nodes of a previous run.
+- **Live dashboard**: pool stats, scoring, and convergence criteria.
 
 ## Install
 
@@ -41,8 +38,8 @@ Plain pip works too, but it installs into whatever Python environment is
 active. With `pip install --user`, make sure `~/.local/bin` is on your
 PATH.
 
-The base install includes SVG output and the simple pixel-difference
-scorer. For everything else, pick the extras you need:
+The base install includes SVG output and the pixel-difference scorer.
+For everything else, pick the extras you need:
 
 | Extra      | What it adds                                                   |
 |------------|----------------------------------------------------------------|
@@ -56,10 +53,11 @@ pipx install "vectrify[vision]"          # recommended for best quality
 pipx install "vectrify[all]"             # everything
 ```
 
-System dependencies: SVG output needs Cairo (`apt install libcairo2` or
-`brew install cairo`), and `--format graphviz` additionally needs the
-Graphviz binaries (`apt install graphviz` or `brew install graphviz`). A
-CUDA-capable GPU is optional; the vision scorer falls back to CPU/MPS.
+System dependencies:
+
+- **Cairo** (required for SVG): `apt install libcairo2` / `brew install cairo`
+- **Graphviz binaries** (for `--format graphviz`): `apt install graphviz` / `brew install graphviz`
+- **GPU** is optional — the vision scorer falls back to CPU/MPS.
 
 ## Provider setup
 
@@ -80,9 +78,9 @@ keys set.
 vectrify input.png -o output.svg
 ```
 
-That's it. The defaults run up to 5 NSGA-II epochs and stop early once
-the search stops finding new improvements (see [Convergence](#convergence)
-below). Worst case it runs for an hour and gives up.
+The defaults run up to 5 NSGA-II epochs and stop early once the search
+stops finding improvements (see [Convergence](#convergence)). Worst case,
+it runs for an hour and gives up.
 
 A few useful variations:
 
@@ -107,34 +105,33 @@ artifacts, and runtime sections.
 ## How it works
 
 vectrify runs an evolutionary loop over a pool of candidate vector
-representations. The pool is seeded with a few LLM-generated candidates,
-then on each iteration a parent is sampled from the pool. With probability
-1 − `--llm-rate` the parent is mutated locally (color tweaks, path
-nudges, crossover); otherwise the LLM is called to produce a refined
-edit. The new candidate is scored against the source image (perceptual
-via vision transformer embeddings, pixel-space, or LLM-as-judge) and
+representations. The pool is seeded with a few LLM-generated candidates.
+On each iteration a parent is sampled, and:
+
+- with probability 1 − `--llm-rate`, mutated locally (color tweaks, path
+  nudges, crossover);
+- otherwise, sent to the LLM for a refined edit.
+
+The new candidate is scored against the source image (perceptual via
+vision-transformer embeddings, pixel-space, or LLM-as-judge), then
 either replaces a worse pool member or is dropped.
 
-Two search strategies decide how the pool is managed and how parents
-are picked. The default NSGA-II strategy uses non-dominated sorting and
-crowding distance, which keeps diverse Pareto-optimal candidates around
-and shines when you have time for multiple epochs. Beam search instead
-runs `--beams` parallel hill-climbers, with `--cull-keep` controlling
-how aggressively low-ranked beams are pruned, and converges faster on a
-single good answer. NSGA-only flags are `--epoch-diversity`,
-`--epoch-variance`, and `--epoch-seeds`; beam-only flags are `--beams`
-and `--cull-keep`. The CLI rejects mixed usage.
+**Search strategies.** The default **NSGA-II** uses non-dominated
+sorting and crowding distance to keep a diverse Pareto front — best when
+you have time for multiple epochs. **Beam search** runs `--beams`
+parallel hill-climbers with `--cull-keep` pruning, converging faster on
+a single good answer. NSGA-only flags: `--epoch-diversity`,
+`--epoch-variance`, `--epoch-seeds`. Beam-only flags: `--beams`,
+`--cull-keep`. The CLI rejects mixed usage.
 
-NSGA-II minimizes two normalized objectives in parallel: visual error
-(scorer distance to the source) and content complexity (code size / token
-cost). The variant used here is constraint-first (Deb 2000): only
-candidates whose visual error is in the top 25% of the active pool are
-considered feasible and compete on the Pareto frontier of (error,
-complexity); everything else is automatically dominated. In practice that
-means visual quality is the primary objective; complexity acts as a
-tiebreaker among the quality-leaders, biasing the search toward small,
-clean renderings instead of accreting detail forever once the image is
-already close.
+**NSGA-II objectives.** Two normalized objectives are minimized in
+parallel: visual error (scorer distance to source) and content
+complexity (code size / token cost). The constraint-first variant (Deb
+2000) treats only candidates in the top 25% by visual error as feasible
+— everything else is automatically dominated. In practice, visual
+quality is the primary objective and complexity acts as a tiebreaker
+among the quality-leaders, biasing toward small, clean renderings
+instead of accreting detail forever once the image is already close.
 
 ### Convergence
 
