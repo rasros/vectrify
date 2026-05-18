@@ -15,15 +15,15 @@ The results are quite good, and the output is human-readable code.
 
 ## Features
 
-- **Output formats**: SVG (default), Graphviz DOT, Typst (HTML and TikZ planned).
-- **LLM providers**: OpenAI, Anthropic, Google Gemini — auto-detected from env vars.
-- **Search strategies**: NSGA-II for diversity-preserving multi-objective
+- Output formats: SVG (default), Graphviz DOT, Typst. HTML and TikZ planned.
+- LLM providers: OpenAI, Anthropic, Google Gemini, auto-detected from env vars.
+- Search strategies: NSGA-II for diversity-preserving multi-objective
   optimization, or beam search for a cheaper single-best run.
-- **Scoring**: local vision-model embeddings (perceptual), with pixel-diff
+- Scoring: local vision-model embeddings (perceptual), with pixel-diff
   and LLM-as-judge as alternatives.
-- **Resumable runs**: pick up where you left off, or fork from the top-N
+- Resumable runs: pick up where you left off, or fork from the top-N
   nodes of a previous run.
-- **Live dashboard**: pool stats, scoring, and convergence criteria.
+- Live dashboard: pool stats, scoring, and convergence criteria.
 
 ## Install
 
@@ -55,9 +55,9 @@ pipx install "vectrify[all]"             # everything
 
 System dependencies:
 
-- **Cairo** (required for SVG): `apt install libcairo2` / `brew install cairo`
-- **Graphviz binaries** (for `--format graphviz`): `apt install graphviz` / `brew install graphviz`
-- **GPU** is optional — the vision scorer falls back to CPU/MPS.
+- Cairo (required for SVG): `apt install libcairo2` or `brew install cairo`
+- Graphviz binaries (for `--format graphviz`): `apt install graphviz` or `brew install graphviz`
+- GPU is optional; the vision scorer falls back to CPU/MPS.
 
 ## Provider setup
 
@@ -116,22 +116,26 @@ The new candidate is scored against the source image (perceptual via
 vision-transformer embeddings, pixel-space, or LLM-as-judge), then
 either replaces a worse pool member or is dropped.
 
-**Search strategies.** The default **NSGA-II** uses non-dominated
-sorting and crowding distance to keep a diverse Pareto front — best when
-you have time for multiple epochs. **Beam search** runs `--beams`
-parallel hill-climbers with `--cull-keep` pruning, converging faster on
-a single good answer. NSGA-only flags: `--epoch-diversity`,
-`--epoch-variance`, `--epoch-seeds`. Beam-only flags: `--beams`,
-`--cull-keep`. The CLI rejects mixed usage.
+### Search strategies
 
-**NSGA-II objectives.** Two normalized objectives are minimized in
-parallel: visual error (scorer distance to source) and content
-complexity (code size / token cost). The constraint-first variant (Deb
-2000) treats only candidates in the top 25% by visual error as feasible
-— everything else is automatically dominated. In practice, visual
-quality is the primary objective and complexity acts as a tiebreaker
-among the quality-leaders, biasing toward small, clean renderings
-instead of accreting detail forever once the image is already close.
+The default NSGA-II uses non-dominated sorting and crowding distance to
+keep a diverse Pareto front, which is best when you have time for
+multiple epochs. Beam search instead runs `--beams` parallel
+hill-climbers with `--cull-keep` pruning, converging faster on a single
+good answer. NSGA-only flags: `--epoch-diversity`, `--epoch-variance`,
+`--epoch-seeds`. Beam-only flags: `--beams`, `--cull-keep`. The CLI
+rejects mixed usage.
+
+### NSGA-II objectives
+
+Two normalized objectives are minimized in parallel: visual error
+(scorer distance to source) and content complexity (code size / token
+cost). The constraint-first variant (Deb 2000) treats only candidates
+in the top 25% by visual error as feasible; everything else is
+automatically dominated. In practice, visual quality is the primary
+objective and complexity acts as a tiebreaker among the quality-leaders,
+biasing toward small, clean renderings instead of accreting detail
+forever once the image is already close.
 
 ### Convergence
 
