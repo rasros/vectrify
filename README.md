@@ -192,7 +192,7 @@ is on the order of a US dollar on flagship models. Verify against the
 Given `--output sketch.svg`, vectrify writes:
 
 ```
-sketch.svg                       # the best final candidate
+sketch.svg                       # the best final candidate (written at the end)
 sketch/
 └── runs/
     └── 2026-04-26_14-30-21/     # one directory per run, timestamped
