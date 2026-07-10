@@ -23,6 +23,52 @@ def test_runner_defaults_match_cli_defaults():
     assert defaults["llm_rate"] is None
 
 
+def _make_storage(tmp_path):
+    plugin = SvgPlugin()
+    storage = FileStorageAdapter(
+        output_path=str(tmp_path / "out.svg"),
+        file_extension=plugin.file_extension,
+        resume=False,
+    )
+    return plugin, storage
+
+
+def _run(image_path, plugin, storage):
+    run_vector_search(
+        image_path=image_path,
+        storage=storage,
+        workers=1,
+        image_long_side=32,
+        max_wall_seconds=1.0,
+        log_level="ERROR",
+        scorer_type=ScorerType.SIMPLE,
+        strategy_type=StrategyType.BEAM,
+        goal=None,
+        reasoning="none",
+        llm_provider="openai",
+        llm_model="gpt-5.4-nano",
+        format_plugin=plugin,
+        write_lineage=False,
+        max_epochs=None,
+    )
+
+
+def test_missing_image_raises_before_creating_output_dirs(tmp_path):
+    plugin, storage = _make_storage(tmp_path)
+    with pytest.raises(FileNotFoundError):
+        _run(str(tmp_path / "does-not-exist.png"), plugin, storage)
+    assert not storage.project_dir.exists()
+
+
+def test_corrupt_image_raises_value_error_before_creating_output_dirs(tmp_path):
+    bad = tmp_path / "bad.png"
+    bad.write_text("this is not an image", encoding="utf-8")
+    plugin, storage = _make_storage(tmp_path)
+    with pytest.raises(ValueError, match="could not be read as an image"):
+        _run(str(bad), plugin, storage)
+    assert not storage.project_dir.exists()
+
+
 @pytest.mark.llm
 def test_run_svg_search_end_to_end(tmp_path):
     img_path = tmp_path / "test.png"

@@ -10,7 +10,7 @@ if TYPE_CHECKING:
     from vectrify.formats.base import FormatPlugin
     from vectrify.search.stats import SearchStats
 
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 
 from vectrify.cli import (
     DEFAULT_EPOCH_DIVERSITY,
@@ -55,8 +55,19 @@ class _EngineParams:
 
 
 def _load_image(image_path: str) -> tuple[Image.Image, bytes, int, int]:
-    """Open the reference image and return (img, png_bytes, width, height)."""
-    img = Image.open(image_path).convert("RGB")
+    """Open the reference image and return (img, png_bytes, width, height).
+
+    Raises FileNotFoundError if the path does not exist and ValueError if the
+    file exists but is not a decodable image.
+    """
+    try:
+        img = Image.open(image_path).convert("RGB")
+    except FileNotFoundError:
+        raise
+    except (UnidentifiedImageError, OSError, ValueError) as exc:
+        raise ValueError(
+            f"input image could not be read as an image: {image_path} ({exc})"
+        ) from exc
     w, h = img.size
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -145,6 +156,10 @@ def run_vector_search(
     if llm_rate is None:
         llm_rate = _default_llm_rate(workers)
 
+    # Validate the reference image up front so a missing or corrupt input fails
+    # before storage.initialize() creates the output directory tree.
+    original_img, original_png_bytes, original_w, original_h = _load_image(image_path)
+
     storage.initialize()
     assert storage.current_run_dir is not None
     run_log_file = storage.current_run_dir / "search.log"
@@ -157,7 +172,6 @@ def run_vector_search(
     os.environ["HF_HUB_VERBOSITY"] = "error"
     os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-    original_img, original_png_bytes, original_w, original_h = _load_image(image_path)
     api_key = os.getenv(f"{llm_provider.upper()}_API_KEY")
 
     # Load the scoring model in the background so epoch-0 LLM seeding can run
