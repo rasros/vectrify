@@ -22,7 +22,16 @@ DEFAULT_SAVE_RASTER = True
 DEFAULT_SAVE_HEATMAP = False
 DEFAULT_IMAGE_LONG_SIDE = 512
 DEFAULT_REASONING = "medium"
-DEFAULT_LLM_RATE = min(2 / DEFAULT_WORKERS, 0.2)
+
+
+def _default_llm_rate(workers: int) -> float:
+    """Target ~2 concurrent LLM calls regardless of worker count, capped at 0.2."""
+    return min(2 / workers, 0.2)
+
+
+# Shown in --help; the effective default is recomputed from the resolved
+# --workers in parse_args when the user does not pass --llm-rate explicitly.
+DEFAULT_LLM_RATE = _default_llm_rate(DEFAULT_WORKERS)
 DEFAULT_POOL_SIZE = 100
 DEFAULT_SEEDS = 0
 DEFAULT_BEAMS = 10
@@ -188,10 +197,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     g_search.add_argument(
         "--llm-rate",
         type=float,
-        default=DEFAULT_LLM_RATE,
+        default=None,
         metavar="RATE",
         help="Fraction of tasks (0.0-1.0) that call the LLM; the rest run "
-        f"local mutations and crossover. Default: {DEFAULT_LLM_RATE:.2f}",
+        "local mutations and crossover. Defaults to min(2/workers, 0.2) so "
+        "roughly two LLM calls stay in flight regardless of --workers.",
     )
     g_search.add_argument(
         "--beams",
@@ -369,6 +379,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
     if ns.image_long_side < 0:
         raise SystemExit("Error: Configuration values cannot be negative")
+
+    if ns.llm_rate is None:
+        ns.llm_rate = _default_llm_rate(ns.workers)
 
     if ns.resume_top is not None:
         ns.resume = True
