@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+from pathlib import Path
 
 from vectrify.cli import parse_args
 from vectrify.dashboard import Dashboard
@@ -52,6 +53,19 @@ def determine_provider_and_model(args) -> tuple[str, str]:
     return provider, model
 
 
+def format_extension_warning(
+    output_path: str, fmt: str, expected_ext: str
+) -> str | None:
+    """Return a warning if the output extension doesn't match --format, else None."""
+    actual = Path(output_path).suffix.lower()
+    if actual == expected_ext:
+        return None
+    return (
+        f"Output path '{output_path}' has extension '{actual or '(none)'}' but "
+        f"--format {fmt} produces '{expected_ext}' files; writing it anyway."
+    )
+
+
 def main():
     args = parse_args()
     provider, model = determine_provider_and_model(args)
@@ -70,6 +84,10 @@ def main():
         plugin = TypstPlugin()
     else:
         plugin = SvgPlugin()
+
+    mismatch = format_extension_warning(args.output, args.format, plugin.file_extension)
+    if mismatch:
+        logger.warning(mismatch)
 
     stats = SearchStats(
         strategy_name=args.strategy,
