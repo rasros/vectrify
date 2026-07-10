@@ -376,6 +376,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],
         help=f"Console log verbosity. Default: {DEFAULT_LOG_LEVEL}",
     )
+    g_runtime.add_argument(
+        "--debug",
+        action="store_true",
+        help="Print the full traceback on failure instead of a one-line error.",
+    )
 
     ns = parser.parse_args(args)
 
