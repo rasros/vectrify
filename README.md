@@ -78,7 +78,7 @@ keys set.
 vectrify input.png -o output.svg
 ```
 
-The defaults run up to 5 NSGA-II epochs and stop early once the search
+The defaults run up to 4 NSGA-II epochs and stop early once the search
 stops finding improvements (see [Convergence](#convergence)). Worst case,
 it runs for an hour and gives up.
 
