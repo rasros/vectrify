@@ -104,6 +104,11 @@ def main():
         save_heatmap=args.save_heatmap,
     )
 
+    use_dashboard = args.dashboard and sys.stdout.isatty()
+    if args.dashboard and not use_dashboard:
+        logger.info("stdout is not a terminal; disabling the live dashboard.")
+    dashboard = Dashboard(stats) if use_dashboard else None
+
     try:
         run_vector_search(
             image_path=args.image,
@@ -136,7 +141,7 @@ def main():
             max_llm_calls=args.max_llm_calls or None,
             vision_model=args.vision_model,
             stats=stats,
-            dashboard=Dashboard(stats),
+            dashboard=dashboard,
         )
     except KeyboardInterrupt:
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)

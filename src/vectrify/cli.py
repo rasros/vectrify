@@ -20,6 +20,7 @@ DEFAULT_RESUME = False
 DEFAULT_WRITE_LINEAGE = True
 DEFAULT_SAVE_RASTER = True
 DEFAULT_SAVE_HEATMAP = False
+DEFAULT_DASHBOARD = True
 DEFAULT_IMAGE_LONG_SIDE = 512
 DEFAULT_REASONING = "medium"
 
@@ -360,6 +361,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         metavar="PX",
         help="Downscale reference and preview images to this long-side. "
         f"Default: {DEFAULT_IMAGE_LONG_SIDE}",
+    )
+    g_runtime.add_argument(
+        "--dashboard",
+        dest="dashboard",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_DASHBOARD,
+        help="Show the live progress dashboard. Automatically disabled when "
+        "stdout is not a terminal (e.g. piped or redirected).",
     )
     g_runtime.add_argument(
         "--log-level",
