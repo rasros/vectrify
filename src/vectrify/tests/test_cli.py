@@ -103,6 +103,14 @@ def test_no_dashboard_flag():
     assert parse_args(["img.png", "--no-dashboard"]).dashboard is False
 
 
+def test_debug_default_off():
+    assert parse_args(["img.png"]).debug is False
+
+
+def test_debug_flag():
+    assert parse_args(["img.png", "--debug"]).debug is True
+
+
 def test_default_epoch_diversity():
     args = parse_args(["img.png"])
     assert args.epoch_diversity == DEFAULT_EPOCH_DIVERSITY

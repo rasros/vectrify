@@ -2,7 +2,11 @@ import argparse
 
 import pytest
 
-from vectrify.main import determine_provider_and_model, format_extension_warning
+from vectrify.main import (
+    _fail,
+    determine_provider_and_model,
+    format_extension_warning,
+)
 
 _KEYS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
 
@@ -81,3 +85,29 @@ def test_extension_mismatch_warns(output, fmt, ext):
     assert msg is not None
     assert fmt in msg
     assert ext in msg
+
+
+def test_fail_without_debug_shows_hint_not_traceback(capsys):
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        with pytest.raises(SystemExit) as exc:
+            _fail("Error: boom", debug=False)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Error: boom" in err
+    assert "--debug" in err
+    assert "Traceback" not in err
+
+
+def test_fail_with_debug_prints_traceback(capsys):
+    try:
+        raise ValueError("boom")
+    except ValueError:
+        with pytest.raises(SystemExit) as exc:
+            _fail("Error: boom", debug=True)
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "Error: boom" in err
+    assert "Traceback" in err
+    assert "ValueError: boom" in err

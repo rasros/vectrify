@@ -1,6 +1,7 @@
 import logging
 import os
 import sys
+import traceback
 from pathlib import Path
 
 from vectrify.cli import parse_args
@@ -51,6 +52,20 @@ def determine_provider_and_model(args) -> tuple[str, str]:
     if not model:
         model = default_models.get(provider, "gpt-5.4")
     return provider, model
+
+
+def _fail(message: str, debug: bool) -> None:
+    """Print a fatal error and exit; show the full traceback when debug is set.
+
+    Must be called from within an ``except`` block so the active exception is
+    available to ``traceback.print_exc()``.
+    """
+    print(message, file=sys.stderr)
+    if debug:
+        traceback.print_exc()
+    else:
+        print("(run with --debug for the full traceback)", file=sys.stderr)
+    sys.exit(1)
 
 
 def format_extension_warning(
@@ -147,11 +162,9 @@ def main():
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)
         sys.exit(130)
     except FileNotFoundError:
-        print(f"Error: input image not found: {args.image}", file=sys.stderr)
-        sys.exit(1)
+        _fail(f"Error: input image not found: {args.image}", args.debug)
     except Exception as e:
-        print(f"Error: {e}", file=sys.stderr)
-        sys.exit(1)
+        _fail(f"Error: {e}", args.debug)
 
 
 if __name__ == "__main__":
