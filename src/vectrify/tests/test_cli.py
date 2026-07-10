@@ -46,6 +46,33 @@ def test_image_long_side_negative_raises():
         parse_args(["img.png", "--image-long-side", "-1"])
 
 
+def test_image_long_side_zero_raises():
+    with pytest.raises(SystemExit):
+        parse_args(["img.png", "--image-long-side", "0"])
+
+
+@pytest.mark.parametrize("rate", ["-0.1", "1.5"])
+def test_llm_rate_out_of_range_raises(rate):
+    with pytest.raises(SystemExit):
+        parse_args(["img.png", "--llm-rate", rate])
+
+
+@pytest.mark.parametrize("rate", ["0.0", "1.0", "0.5"])
+def test_llm_rate_in_range_accepted(rate):
+    assert parse_args(["img.png", "--llm-rate", rate]).llm_rate == float(rate)
+
+
+@pytest.mark.parametrize("keep", ["0", "0.0", "-0.5", "1.1"])
+def test_cull_keep_out_of_range_raises(keep):
+    with pytest.raises(SystemExit):
+        parse_args(["img.png", "--strategy", "beam", "--cull-keep", keep])
+
+
+def test_cull_keep_upper_bound_accepted():
+    args = parse_args(["img.png", "--strategy", "beam", "--cull-keep", "1.0"])
+    assert args.cull_keep == 1.0
+
+
 def test_default_pool_size():
     args = parse_args(["img.png"])
     assert args.pool_size == DEFAULT_POOL_SIZE

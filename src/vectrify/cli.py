@@ -377,11 +377,18 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --max-epochs must be at least 1")
     if ns.workers <= 0 or ns.pool_size <= 0:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
-    if ns.image_long_side < 0:
-        raise SystemExit("Error: Configuration values cannot be negative")
+    if ns.image_long_side <= 0:
+        raise SystemExit("Error: --image-long-side must be > 0")
 
+    if ns.llm_rate is not None and not (0.0 <= ns.llm_rate <= 1.0):
+        raise SystemExit("Error: --llm-rate must be between 0.0 and 1.0")
     if ns.llm_rate is None:
         ns.llm_rate = _default_llm_rate(ns.workers)
+
+    if not (0.0 < ns.cull_keep <= 1.0):
+        raise SystemExit(
+            "Error: --cull-keep must be greater than 0.0 and at most 1.0"
+        )
 
     if ns.resume_top is not None:
         ns.resume = True
