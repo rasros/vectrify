@@ -56,6 +56,18 @@ def test_default_llm_rate():
     assert args.llm_rate == DEFAULT_LLM_RATE
 
 
+def test_default_llm_rate_tracks_workers():
+    # Small worker count: 2/4 = 0.5 clamped to the 0.2 cap.
+    assert parse_args(["img.png", "--workers", "4"]).llm_rate == 0.2
+    # Larger worker count derives below the cap and scales with --workers.
+    assert parse_args(["img.png", "--workers", "40"]).llm_rate == 2 / 40
+
+
+def test_explicit_llm_rate_overrides_workers_derivation():
+    args = parse_args(["img.png", "--workers", "40", "--llm-rate", "0.5"])
+    assert args.llm_rate == 0.5
+
+
 def test_default_epoch_diversity():
     args = parse_args(["img.png"])
     assert args.epoch_diversity == DEFAULT_EPOCH_DIVERSITY

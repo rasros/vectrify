@@ -41,12 +41,12 @@ PATH.
 The base install includes SVG output and the pixel-difference scorer.
 For everything else, pick the extras you need:
 
-| Extra      | What it adds                                                   |
-|------------|----------------------------------------------------------------|
-| `vision`   | torch + transformers for the perceptual (CLIP/SigLIP) scorer   |
-| `graphviz` | the graphviz Python bindings (system Graphviz still required)  |
-| `typst`    | the typst Python compiler                                      |
-| `all`      | vision + graphviz + typst                                      |
+| Extra    | What it adds                                                   |
+|----------|----------------------------------------------------------------|
+| vision   | torch + transformers for the perceptual (CLIP/SigLIP) scorer   |
+| graphviz | the graphviz Python bindings (system Graphviz still required)  |
+| typst    | the typst Python compiler                                      |
+| all      | vision + graphviz + typst                                      |
 
 ```bash
 pipx install "vectrify[vision]"          # recommended for best quality
@@ -120,8 +120,8 @@ either replaces a worse pool member or is dropped.
 
 The default NSGA-II uses non-dominated sorting and crowding distance to
 keep a diverse Pareto front, which is best when you have time for
-multiple epochs. Beam search instead runs `--beams` parallel
-hill-climbers with `--cull-keep` pruning, converging faster on a single
+multiple epochs. Beam search instead runs several parallel
+hill-climbers with pruning, converging faster on a single
 good answer. NSGA-only flags: `--epoch-diversity`, `--epoch-variance`,
 `--epoch-seeds`. Beam-only flags: `--beams`, `--cull-keep`. The CLI
 rejects mixed usage.
@@ -154,9 +154,11 @@ re-seeds from the current Pareto front. The search stops once
 | `--max-wall-seconds` |    3600 | global wall-clock budget; ends the run, not just the epoch     |
 | `--max-llm-calls`    |       0 | global hard cap on total LLM calls; 0 disables                 |
 
-Most tasks are cheap local mutations (controlled by `--llm-rate`, default
-10% LLM). They run constantly and only rarely produce a new best score,
-so counting every task toward patience would burn it through in seconds.
+Most tasks are cheap local mutations, with only a small fraction sent to
+the LLM (the llm-rate setting defaults to min(2/workers, 0.2), so roughly
+two LLM calls stay in flight regardless of how many workers you run). They
+run constantly and only rarely produce a new best score, so counting every
+task toward patience would burn it through in seconds.
 Patience and step counters therefore tick only on LLM-driven exploration
 tasks, which is what you actually pay for and what drives meaningful
 progress. A new best from any source, LLM or local, still resets the
