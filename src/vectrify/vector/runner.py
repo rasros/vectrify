@@ -12,6 +12,12 @@ if TYPE_CHECKING:
 
 from PIL import Image
 
+from vectrify.cli import (
+    DEFAULT_EPOCH_DIVERSITY,
+    DEFAULT_POOL_SIZE,
+    DEFAULT_VISION_MODEL,
+    _default_llm_rate,
+)
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import (
     downscale_png_bytes,
@@ -121,21 +127,24 @@ def run_vector_search(
     save_raster: bool = False,
     epoch_patience: int | None = None,
     epoch_min_delta: float = 1e-4,
-    llm_rate: float = 0.2,
-    pool_size: int = 20,
+    llm_rate: float | None = None,
+    pool_size: int = DEFAULT_POOL_SIZE,
     seeds: int = 0,
     beams: int = 10,
     cull_keep: float = 0.5,
-    epoch_diversity: float = 0.10,
+    epoch_diversity: float = DEFAULT_EPOCH_DIVERSITY,
     epoch_variance: float | None = None,
     max_epochs: int | None = None,
     epoch_pool_size: int | None = None,
     epoch_steps: int | None = None,
     max_llm_calls: int | None = None,
-    vision_model: str = "ensemble",
+    vision_model: str = DEFAULT_VISION_MODEL,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
 ) -> None:
+    if llm_rate is None:
+        llm_rate = _default_llm_rate(workers)
+
     storage.initialize()
     assert storage.current_run_dir is not None
     run_log_file = storage.current_run_dir / "search.log"
