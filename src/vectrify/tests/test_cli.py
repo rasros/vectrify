@@ -95,6 +95,14 @@ def test_explicit_llm_rate_overrides_workers_derivation():
     assert args.llm_rate == 0.5
 
 
+def test_dashboard_default_on():
+    assert parse_args(["img.png"]).dashboard is True
+
+
+def test_no_dashboard_flag():
+    assert parse_args(["img.png", "--no-dashboard"]).dashboard is False
+
+
 def test_default_epoch_diversity():
     args = parse_args(["img.png"])
     assert args.epoch_diversity == DEFAULT_EPOCH_DIVERSITY
