@@ -154,8 +154,10 @@ re-seeds from the current Pareto front. The search stops once
 | `--max-wall-seconds` |    3600 | global wall-clock budget; ends the run, not just the epoch     |
 | `--max-llm-calls`    |       0 | global hard cap on total LLM calls; 0 disables                 |
 
-Most tasks are cheap local mutations (controlled by `--llm-rate`, default
-10% LLM). They run constantly and only rarely produce a new best score,
+Most tasks are cheap local mutations (controlled by `--llm-rate`, which
+defaults to `min(2/workers, 0.2)` so roughly two LLM calls stay in flight
+regardless of how many workers you run). They run constantly and only
+rarely produce a new best score,
 so counting every task toward patience would burn it through in seconds.
 Patience and step counters therefore tick only on LLM-driven exploration
 tasks, which is what you actually pay for and what drives meaningful
