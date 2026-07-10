@@ -120,8 +120,8 @@ either replaces a worse pool member or is dropped.
 
 The default NSGA-II uses non-dominated sorting and crowding distance to
 keep a diverse Pareto front, which is best when you have time for
-multiple epochs. Beam search instead runs `--beams` parallel
-hill-climbers with `--cull-keep` pruning, converging faster on a single
+multiple epochs. Beam search instead runs several parallel
+hill-climbers with pruning, converging faster on a single
 good answer. NSGA-only flags: `--epoch-diversity`, `--epoch-variance`,
 `--epoch-seeds`. Beam-only flags: `--beams`, `--cull-keep`. The CLI
 rejects mixed usage.
