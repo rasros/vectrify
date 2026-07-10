@@ -1,11 +1,26 @@
+import inspect
+
 import pytest
 from PIL import Image
 
+from vectrify import cli
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.score import ScorerType
 from vectrify.search import StrategyType
 from vectrify.vector.runner import run_vector_search
 from vectrify.vector.storage import FileStorageAdapter
+
+
+def test_runner_defaults_match_cli_defaults():
+    defaults = {
+        p.name: p.default
+        for p in inspect.signature(run_vector_search).parameters.values()
+    }
+    assert defaults["pool_size"] == cli.DEFAULT_POOL_SIZE
+    assert defaults["epoch_diversity"] == cli.DEFAULT_EPOCH_DIVERSITY
+    assert defaults["vision_model"] == cli.DEFAULT_VISION_MODEL
+    # llm_rate has no static default; it is derived from --workers at call time.
+    assert defaults["llm_rate"] is None
 
 
 @pytest.mark.llm
