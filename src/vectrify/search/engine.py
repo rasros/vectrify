@@ -465,6 +465,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                 _check_epoch_end()
 
         finally:
+            if best_node is not None:
+                with contextlib.suppress(Exception):
+                    self.storage.save_best(best_node)
             if collector is not None:
                 collector.on_shutdown()
             self._shutdown()

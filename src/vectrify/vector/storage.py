@@ -162,6 +162,18 @@ class FileStorageAdapter:
                 ]
             )
 
+    def save_best(self, node: SearchNode[VectorStatePayload]) -> None:
+        """Write the winning candidate's content to the top-level output path."""
+        content = node.state.payload.content
+        if not content:
+            log.warning("No valid candidate found; %s not written.", self.output_path)
+            return
+        self.output_path.parent.mkdir(parents=True, exist_ok=True)
+        self.output_path.write_text(content, encoding="utf-8")
+        log.info(
+            "Best candidate (score %.6f) written to %s", node.score, self.output_path
+        )
+
     def record_eviction(self, node_id: int, tasks_completed: int) -> None:
         if self.lineage_csv is None or not self.lineage_csv.exists():
             return

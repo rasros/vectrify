@@ -58,6 +58,31 @@ def test_initialize_creates_directories(tmp_path):
     assert adapter.lineage_csv.parent == adapter.current_run_dir
 
 
+def test_save_best_writes_output_path(tmp_path, dummy_node):
+    output_path = tmp_path / "sub" / "out.svg"
+    adapter = FileStorageAdapter(str(output_path))
+    adapter.initialize()
+
+    adapter.save_best(dummy_node)
+
+    assert output_path.is_file()
+    assert output_path.read_text(encoding="utf-8") == dummy_node.state.payload.content
+
+
+def test_save_best_skips_empty_content(tmp_path):
+    output_path = tmp_path / "out.svg"
+    adapter = FileStorageAdapter(str(output_path))
+    empty_state = ChainState(
+        score=0.0,
+        payload=VectorStatePayload(None, None, None, None, None),
+    )
+    node = SearchNode(score=0.0, id=0, parent_id=0, state=empty_state)
+
+    adapter.save_best(node)
+
+    assert not output_path.exists()
+
+
 def test_save_node_and_lineage(tmp_path, dummy_node):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
     adapter.initialize()

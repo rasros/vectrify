@@ -39,6 +39,7 @@ class FakeStrategy:
 class FakeStorage:
     def __init__(self):
         self.save_called = False
+        self.best_saved = None
         self.max_node_id = 1
         self.current_run_dir = None
 
@@ -52,6 +53,9 @@ class FakeStorage:
     def save_node(self, node: SearchNode) -> None:
         _ = node
         self.save_called = True
+
+    def save_best(self, node: SearchNode) -> None:
+        self.best_saved = node
 
     def record_eviction(self, node_id: int, tasks_completed: int) -> None:
         _ = node_id, tasks_completed
