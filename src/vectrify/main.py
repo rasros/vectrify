@@ -31,12 +31,20 @@ def determine_provider_and_model(args) -> tuple[str, str]:
         elif os.getenv("GEMINI_API_KEY"):
             provider = "gemini"
         else:
-            print("CRITICAL: No API key found.", file=sys.stderr)
+            print(
+                "Error: no LLM API key found. Set one of OPENAI_API_KEY, "
+                "ANTHROPIC_API_KEY, or GEMINI_API_KEY in your environment.",
+                file=sys.stderr,
+            )
             sys.exit(1)
     else:
         env_var = f"{provider.upper()}_API_KEY"
         if not os.getenv(env_var):
-            print(f"CRITICAL: {env_var} not set.", file=sys.stderr)
+            print(
+                f"Error: --provider {provider} was selected but {env_var} is "
+                f"not set. Export {env_var} or pick a provider whose key is set.",
+                file=sys.stderr,
+            )
             sys.exit(1)
 
     if not model:
@@ -115,8 +123,11 @@ def main():
     except KeyboardInterrupt:
         print("\nSearch interrupted by user. Exiting safely...", file=sys.stderr)
         sys.exit(130)
+    except FileNotFoundError:
+        print(f"Error: input image not found: {args.image}", file=sys.stderr)
+        sys.exit(1)
     except Exception as e:
-        print(f"FATAL: {e}", file=sys.stderr)
+        print(f"Error: {e}", file=sys.stderr)
         sys.exit(1)
 
 
