@@ -41,12 +41,12 @@ PATH.
 The base install includes SVG output and the pixel-difference scorer.
 For everything else, pick the extras you need:
 
-| Extra      | What it adds                                                   |
-|------------|----------------------------------------------------------------|
-| `vision`   | torch + transformers for the perceptual (CLIP/SigLIP) scorer   |
-| `graphviz` | the graphviz Python bindings (system Graphviz still required)  |
-| `typst`    | the typst Python compiler                                      |
-| `all`      | vision + graphviz + typst                                      |
+| Extra    | What it adds                                                   |
+|----------|----------------------------------------------------------------|
+| vision   | torch + transformers for the perceptual (CLIP/SigLIP) scorer   |
+| graphviz | the graphviz Python bindings (system Graphviz still required)  |
+| typst    | the typst Python compiler                                      |
+| all      | vision + graphviz + typst                                      |
 
 ```bash
 pipx install "vectrify[vision]"          # recommended for best quality
