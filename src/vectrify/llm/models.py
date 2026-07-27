@@ -4,13 +4,13 @@ PROVIDERS: tuple[str, ...] = ("openai", "anthropic", "gemini")
 
 DEFAULT_MODELS: dict[str, str] = {
     "openai": "gpt-5.4",
-    "anthropic": "claude-sonnet-4-6",
+    "anthropic": "claude-sonnet-5",
     "gemini": "gemini-3.1-pro-preview",
 }
 
 JUDGE_MODELS: dict[str, str] = {
     "openai": "gpt-5.4",
-    "anthropic": "claude-sonnet-4-6",
+    "anthropic": "claude-sonnet-5",
     "gemini": "gemini-3.0-flash",
 }
 

@@ -105,9 +105,7 @@ def test_engine_respects_max_wall_seconds(monkeypatch):
             return 1, None
 
     strat = TrackingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage()
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, storage=FakeStorage())
 
     class FakeTime:
         def __init__(self):
