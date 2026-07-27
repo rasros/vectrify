@@ -1,10 +1,9 @@
-import io
 import random
 import re
 
 from PIL import Image
 
-from vectrify.search.models import INVALID_SCORE
+from vectrify.formats.micro_search import with_micro_search
 
 # Matches numeric values with Typst units: 12pt, 1.5em, 50%, 3mm, etc.
 _NUM_RE = re.compile(r"(\b|-)(\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)\b")
@@ -119,31 +118,26 @@ def _apply_one_mutation(typst_code: str) -> tuple[str, str]:
     return fn(typst_code), label
 
 
+def render_typst_png(typst_code: str) -> bytes:
+    """Render Typst source to PNG bytes (first page). Raises on failure."""
+    import typst
+
+    # Must encode to bytes — typst-py treats a plain str as a file path
+    result = typst.compile(typst_code.encode("utf-8"), format="png", ppi=144)
+    if isinstance(result, list):
+        if not result:
+            raise ValueError("Typst generated zero pages.")
+        return result[0]
+    if isinstance(result, bytes):
+        return result
+    raise ValueError("Failed to rasterize Typst to PNG bytes.")
+
+
 def _rasterize_typst(typst_code: str) -> bytes | None:
     try:
-        import typst
-
-        # Must encode to bytes — typst-py treats a plain str as a file path
-        png_bytes = typst.compile(typst_code.encode("utf-8"), format="png", ppi=144)
-        if isinstance(png_bytes, list):
-            return png_bytes[0] if png_bytes else None
-        if isinstance(png_bytes, bytes):
-            return png_bytes
-        return None
+        return render_typst_png(typst_code)
     except Exception:
         return None
-
-
-def _fast_lab_l1(png_a: bytes, png_b: bytes, size: int = 64) -> float:
-    from vectrify.image_utils import resize_long_side
-    from vectrify.score.utils import lab_l1
-
-    try:
-        img_a = resize_long_side(Image.open(io.BytesIO(png_a)).convert("RGB"), size)
-        img_b = resize_long_side(Image.open(io.BytesIO(png_b)).convert("RGB"), size)
-        return lab_l1(img_a, img_b)
-    except Exception:
-        return 1.0
 
 
 def mutate_with_micro_search(
@@ -151,28 +145,14 @@ def mutate_with_micro_search(
     orig_img_fast: Image.Image,
     num_trials: int = 15,
 ) -> tuple[str, str]:
-    orig_buf = io.BytesIO()
-    orig_img_fast.save(orig_buf, format="PNG")
-    orig_png = orig_buf.getvalue()
-
-    best_code = parent_code
-    best_score = INVALID_SCORE
-    best_label = "Mutation: no improvement"
-
-    for _ in range(num_trials):
-        candidate, label = _apply_one_mutation(parent_code)
-        if candidate == parent_code:
-            continue
-        png = _rasterize_typst(candidate)
-        if png is None:
-            continue
-        score = _fast_lab_l1(orig_png, png)
-        if score < best_score:
-            best_score = score
-            best_code = candidate
-            best_label = label
-
-    return best_code, best_label
+    return with_micro_search(
+        lambda: _apply_one_mutation(parent_code),
+        fallback=parent_code,
+        rasterize=_rasterize_typst,
+        orig_img_fast=orig_img_fast,
+        num_trials=num_trials,
+        default_summary="Mutation: no improvement",
+    )
 
 
 def crossover_with_micro_search(
@@ -181,46 +161,34 @@ def crossover_with_micro_search(
     orig_img_fast: Image.Image,
     num_trials: int = 15,
 ) -> tuple[str, str]:
-    orig_buf = io.BytesIO()
-    orig_img_fast.save(orig_buf, format="PNG")
-    orig_png = orig_buf.getvalue()
-
     # Extract non-empty element lines from B to inject into A
     lines_b = [
         line
         for line in code_b.splitlines(keepends=True)
         if _ELEMENT_LINE_RE.match(line)
     ]
-
-    if not lines_b:
-        return mutate_with_micro_search(code_a, orig_img_fast, num_trials)
-
     lines_a = code_a.splitlines(keepends=True)
     element_indices_a = [
         i for i, line in enumerate(lines_a) if _ELEMENT_LINE_RE.match(line)
     ]
 
-    if not element_indices_a:
+    if not lines_b or not element_indices_a:
         return mutate_with_micro_search(code_a, orig_img_fast, num_trials)
 
-    best_code = code_a
-    best_score = INVALID_SCORE
-
-    for _ in range(num_trials):
+    def _op() -> tuple[str, str]:
         insert_after = random.choice(element_indices_a)
-        new_line = random.choice(lines_b)
         candidate_lines = [
             *lines_a[: insert_after + 1],
-            new_line,
+            random.choice(lines_b),
             *lines_a[insert_after + 1 :],
         ]
-        candidate = "".join(candidate_lines)
-        png = _rasterize_typst(candidate)
-        if png is None:
-            continue
-        score = _fast_lab_l1(orig_png, png)
-        if score < best_score:
-            best_score = score
-            best_code = candidate
+        return "".join(candidate_lines), "Crossover: element injection"
 
-    return best_code, "Crossover: element injection"
+    return with_micro_search(
+        _op,
+        fallback=code_a,
+        rasterize=_rasterize_typst,
+        orig_img_fast=orig_img_fast,
+        num_trials=num_trials,
+        default_summary="Crossover: no improvement",
+    )

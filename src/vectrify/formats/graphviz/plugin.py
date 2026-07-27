@@ -1,10 +1,9 @@
-import io
 import logging
 import re
 
 import PIL.Image
 
-from vectrify.formats.base import apply_search_replace
+from vectrify.formats.base import BaseFormatPlugin
 from vectrify.formats.graphviz.operations import (
     crossover_with_micro_search,
     mutate_with_micro_search,
@@ -103,29 +102,19 @@ def _sanitize_dot(dot: str) -> str:
     return _fix_html_labels(dot)
 
 
-class GraphvizPlugin:
+class GraphvizPlugin(BaseFormatPlugin):
     name = "graphviz"
     file_extension = ".dot"
 
-    def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
+    def _render_png(self, content: str) -> bytes:
         import graphviz
 
-        src = graphviz.Source(content)
-        png = src.pipe(format="png", quiet=True)
-        img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
-        img = img.resize((out_w, out_h), PIL.Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
+        return graphviz.Source(content).pipe(format="png", quiet=True)
 
-    def validate(self, content: str) -> tuple[bool, str | None]:
-        try:
-            import graphviz
+    def _compile(self, content: str) -> None:
+        import graphviz
 
-            graphviz.Source(content).pipe(format="svg", quiet=True)
-            return True, None
-        except Exception as e:
-            return False, str(e)
+        graphviz.Source(content).pipe(format="svg", quiet=True)
 
     def extract_from_llm(self, raw: str) -> str:
         m = _DOT_FENCE.search(raw)
@@ -135,10 +124,6 @@ class GraphvizPlugin:
         if m:
             return _sanitize_dot(m.group(0).strip())
         return _sanitize_dot(raw.strip())
-
-    def apply_edit(self, parent: str, raw: str) -> str:
-        patched = apply_search_replace(parent, raw)
-        return patched if patched is not None else self.extract_from_llm(raw)
 
     def build_generate_prompt(
         self,

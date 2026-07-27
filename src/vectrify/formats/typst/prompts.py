@@ -1,16 +1,4 @@
-_DIFF_FORMAT_INSTRUCTIONS = """\
-Respond with one or more search/replace blocks — do NOT output the full file.
-
-<<<SEARCH>>>
-exact Typst lines to replace (copy verbatim from the current Typst code)
-<<<REPLACE>>>
-improved replacement lines
-<<<END>>>
-
-Rules:
-- The SEARCH text must match the current Typst code exactly (including whitespace).
-- Keep blocks small and focused; only change what needs to change.
-- Multiple blocks are allowed."""
+from vectrify.formats.prompts import build_code_gen_prompt
 
 _TYPST_SYNTAX_RULES = (
     "Typst syntax rules:\n"
@@ -34,55 +22,15 @@ def build_typst_gen_prompt(
     diff_data_url: str | None,
 ) -> list[dict]:
     """Build LLM prompt for Typst generation/refinement."""
-    is_edit = typst_prev is not None
-
-    system_text = (
-        "Write Typst code that, when rendered, visually matches the target image.\n\n"
-        + _TYPST_SYNTAX_RULES
+    return build_code_gen_prompt(
+        image_data_url=image_data_url,
+        node_index=node_index,
+        code_prev=typst_prev,
+        rasterized_data_url=rasterized_data_url,
+        goal=goal,
+        diff_data_url=diff_data_url,
+        lang="Typst",
+        fence="typst",
+        syntax_rules=_TYPST_SYNTAX_RULES,
+        focus_hint="alignment, sizes, paddings, and colors",
     )
-
-    if not is_edit:
-        system_text += "\n- Output ONLY the Typst code block, no explanation"
-    else:
-        system_text += "\n- Output ONLY search/replace diff blocks, no full file"
-
-    blocks: list[dict] = [{"type": "input_text", "text": system_text}]
-    blocks.append({"type": "input_text", "text": "Target image:"})
-    blocks.append({"type": "input_image", "image_url": image_data_url})
-
-    if not is_edit:
-        seed_text = (
-            f"Iteration #{node_index}. Write complete Typst code. "
-            "Wrap in ```typst\n...\n```"
-        )
-        if goal:
-            seed_text += f"\nUser goal: {goal}"
-        blocks.append({"type": "input_text", "text": seed_text})
-    else:
-        if rasterized_data_url:
-            blocks.append({"type": "input_text", "text": "Current rendered output:"})
-            blocks.append({"type": "input_image", "image_url": rasterized_data_url})
-
-        if diff_data_url:
-            blocks.append(
-                {
-                    "type": "input_text",
-                    "text": "Difference map (bright = mismatch — focus edits here):",
-                }
-            )
-            blocks.append({"type": "input_image", "image_url": diff_data_url})
-
-        edit_text = (
-            f"Iteration #{node_index}. "
-            "Improve the Typst code to better match the target. "
-            "Focus on alignment, sizes, paddings, and colors.\n"
-        )
-        if goal:
-            edit_text += f"\nUser goal (highest priority): {goal}\n"
-        edit_text += (
-            f"\nCurrent Typst code:\n```typst\n{typst_prev}\n```\n\n"
-            + _DIFF_FORMAT_INSTRUCTIONS
-        )
-        blocks.append({"type": "input_text", "text": edit_text})
-
-    return blocks

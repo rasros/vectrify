@@ -61,6 +61,16 @@ def test_first_iteration_asks_for_fenced_code(case):
 
 
 @pytest.mark.parametrize("case", CASES)
+def test_fence_example_uses_real_newlines(case):
+    """The wrap-in-fence example must contain actual newlines, not a literal
+    backslash-n, which the DOT prompt used to emit."""
+    blocks = case.build(_IMG_URL, 1, None, None, None, None)
+    text = "\n".join(text_blocks(blocks))
+    assert f"{case.fence}\n...\n```" in text
+    assert "\\n...\\n" not in text
+
+
+@pytest.mark.parametrize("case", CASES)
 def test_refinement_includes_previous_code(case):
     blocks = case.build(_IMG_URL, 3, case.sample, None, None, None)
     text = "\n".join(text_blocks(blocks))

@@ -1,15 +1,15 @@
 from __future__ import annotations
 
-import io
 import logging
 import re
 
 import PIL.Image
 
-from vectrify.formats.base import apply_search_replace
+from vectrify.formats.base import BaseFormatPlugin
 from vectrify.formats.typst.operations import (
     crossover_with_micro_search,
     mutate_with_micro_search,
+    render_typst_png,
 )
 from vectrify.formats.typst.prompts import build_typst_gen_prompt
 
@@ -22,48 +22,24 @@ _TYPST_FENCE = re.compile(
 )
 
 
-class TypstPlugin:
+class TypstPlugin(BaseFormatPlugin):
     name = "typst"
     file_extension = ".typ"
 
-    def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
+    def _render_png(self, content: str) -> bytes:
+        return render_typst_png(content)
+
+    def _compile(self, content: str) -> None:
         import typst
 
-        # Encode to bytes so typst-py treats it as source code, not a file path!
-        png = typst.compile(content.encode("utf-8"), format="png", ppi=144)
-
-        if isinstance(png, list):
-            if not png:
-                raise ValueError("Typst generated zero pages.")
-            png = png[0]
-        elif not isinstance(png, bytes):
-            raise ValueError("Failed to rasterize Typst to PNG bytes.")
-
-        img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
-        img = img.resize((out_w, out_h), PIL.Image.Resampling.LANCZOS)
-        buf = io.BytesIO()
-        img.save(buf, format="PNG")
-        return buf.getvalue()
-
-    def validate(self, content: str) -> tuple[bool, str | None]:
-        try:
-            import typst
-
-            # Compile to dummy PDF in memory to check syntax validity
-            typst.compile(content.encode("utf-8"))
-            return True, None
-        except Exception as e:
-            return False, str(e)
+        # Compile to a throwaway PDF in memory to check syntax validity
+        typst.compile(content.encode("utf-8"))
 
     def extract_from_llm(self, raw: str) -> str:
         m = _TYPST_FENCE.search(raw)
         if m:
             return m.group(1).strip()
         return raw.strip()
-
-    def apply_edit(self, parent: str, raw: str) -> str:
-        patched = apply_search_replace(parent, raw)
-        return patched if patched is not None else self.extract_from_llm(raw)
 
     def build_generate_prompt(
         self,

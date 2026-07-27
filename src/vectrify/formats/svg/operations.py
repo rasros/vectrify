@@ -1,5 +1,5 @@
 import copy
-import io
+import functools
 import random
 import re
 import xml.etree.ElementTree as ET
@@ -7,9 +7,8 @@ from collections.abc import Callable
 
 from PIL import Image
 
+from vectrify.formats.micro_search import with_micro_search
 from vectrify.image_utils import rasterize_svg_to_png_bytes
-from vectrify.score.utils import lab_l1
-from vectrify.search.models import INVALID_SCORE
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -88,6 +87,34 @@ def _is_valid_svg(svg: str) -> bool:
         return False
 
 
+class _NoChangeError(Exception):
+    """Raised by an operator when there is nothing it can mutate."""
+
+
+def svg_transform(fn: Callable[[ET.Element], None]) -> Callable[[str], str]:
+    """Turn an in-place root-element edit into an SVG-string mutation.
+
+    Handles parsing, namespace registration, and serialization, and returns
+    the input unchanged when it does not parse or *fn* finds nothing to do
+    (signalled by raising _NoChangeError).
+    """
+
+    @functools.wraps(fn)
+    def wrapper(svg: str) -> str:
+        try:
+            root = ET.fromstring(svg)
+        except ET.ParseError:
+            return svg
+        try:
+            fn(root)
+        except _NoChangeError:
+            return svg
+        ET.register_namespace("", SVG_NS)
+        return ET.tostring(root, encoding="unicode", method="xml")
+
+    return wrapper
+
+
 def with_retries(
     op: Callable[[], str],
     fallback: str,
@@ -103,36 +130,18 @@ def with_retries(
     return fallback
 
 
-def with_micro_search(
-    op_generator: Callable[[], tuple[str, str]],
-    fallback_svg: str,
-    orig_img_fast: Image.Image,
-    num_trials: int = 15,
-    default_summary: str = "No change",
-) -> tuple[str, str]:
-    best_svg: str | None = None
-    best_fast_score = INVALID_SCORE
-    best_summary = default_summary
-    fast_w, fast_h = orig_img_fast.size
+def _svg_rasterizer(orig_img_fast: Image.Image) -> Callable[[str], bytes | None]:
+    """Rasterizer that renders straight to the target's size (cairosvg picks
+    the output size, unlike the graphviz/typst renderers)."""
+    out_w, out_h = orig_img_fast.size
 
-    for _ in range(num_trials):
-        cand_svg, summary = op_generator()
-        if cand_svg == fallback_svg:
-            continue
-
+    def _rasterize(svg: str) -> bytes | None:
         try:
-            cand_png = rasterize_svg_to_png_bytes(cand_svg, out_w=fast_w, out_h=fast_h)
-            cand_img = Image.open(io.BytesIO(cand_png)).convert("RGB")
-            score = lab_l1(orig_img_fast, cand_img)
-
-            if score < best_fast_score:
-                best_fast_score = score
-                best_svg = cand_svg
-                best_summary = summary
+            return rasterize_svg_to_png_bytes(svg, out_w=out_w, out_h=out_h)
         except Exception:
-            continue
+            return None
 
-    return best_svg if best_svg is not None else fallback_svg, best_summary
+    return _rasterize
 
 
 def crossover(svg_a: str, svg_b: str, k: int = 2) -> str:
@@ -176,215 +185,172 @@ def crossover(svg_a: str, svg_b: str, k: int = 2) -> str:
         return svg_a
 
 
-def mutate_remove_node(svg: str) -> str:
-    try:
-        root = ET.fromstring(svg)
-        pairs: list[tuple[ET.Element, ET.Element]] = []
-        for parent in root.iter():
-            for child in list(parent):
-                pairs.append((parent, child))
-
-        if not pairs:
-            return svg
-
-        parent_elem, child = random.choice(pairs)
-        parent_elem.remove(child)
-
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="unicode", method="xml")
-    except ET.ParseError:
-        return svg
-
-
-def mutate_drop_style_property(svg: str) -> str:
-    try:
-        root = ET.fromstring(svg)
-        styled = [el for el in root.iter() if el.get("style", "").strip()]
-        if not styled:
-            return svg
-
-        el = random.choice(styled)
-        props = [p.strip() for p in el.get("style", "").split(";") if p.strip()]
-        if len(props) <= 1:
-            return svg
-
-        props.pop(random.randrange(len(props)))
-        el.set("style", "; ".join(props))
-
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="unicode", method="xml")
-    except ET.ParseError:
-        return svg
-
-
-def mutate_numeric(svg: str) -> str:
-    try:
-        root = ET.fromstring(svg)
-        candidates: list[tuple[ET.Element, str, float, str]] = []
-        for elem in root.iter():
-            for attr, val in elem.attrib.items():
-                bare_attr = attr.split("}")[-1]
-                if bare_attr not in _NUMERIC_ATTRS:
-                    continue
-                m = _NUM_RE.match(val.strip())
-                if m:
-                    candidates.append((elem, attr, float(m.group(1)), m.group(2)))
-
-        if not candidates:
-            return svg
-
-        elem, attr, num, unit = random.choice(candidates)
-        factor = random.uniform(0.7, 1.3)
-        new_num = num * factor
-
-        if "opacity" in attr:
-            new_num = max(0.0, min(1.0, new_num))
-
-        if not unit and num == int(num) and new_num >= 0:
-            elem.attrib[attr] = str(round(new_num))
-        else:
-            formatted = f"{new_num:.3f}".rstrip("0").rstrip(".")
-            elem.attrib[attr] = f"{formatted}{unit}"
-
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="unicode", method="xml")
-    except ET.ParseError:
-        return svg
-
-
-def mutate_color(svg: str) -> str:
-    """Tweak a fill or stroke color — nudge hex channels or swap named color."""
-    try:
-        root = ET.fromstring(svg)
-
-        # Collect (elem, source, key, current_value) for every color reference
-        candidates: list[tuple[ET.Element, str, str, str]] = []
-        for elem in root.iter():
-            for attr in list(elem.attrib):
-                bare = attr.split("}")[-1]
-                if bare in _COLOR_ATTRS:
-                    val = elem.attrib[attr]
-                    if val and val not in ("none", "inherit", "transparent"):
-                        candidates.append((elem, "attr", attr, val))
-            style = elem.get("style", "")
-            for prop in style.split(";"):
-                prop = prop.strip()
-                if ":" not in prop:
-                    continue
-                k, v = prop.split(":", 1)
-                k, v = k.strip(), v.strip()
-                if k in _COLOR_ATTRS and v not in ("none", "inherit", "transparent"):
-                    candidates.append((elem, "style", k, v))
-
-        if not candidates:
-            return svg
-
-        elem, source, key, val = random.choice(candidates)
-
-        hex_match = _HEX_COLOR_RE.search(val)
-        if hex_match:
-            h = hex_match.group(1)
-            if len(h) == 3:
-                h = h[0] * 2 + h[1] * 2 + h[2] * 2
-            r = max(0, min(255, int(h[0:2], 16) + random.randint(-60, 60)))
-            g = max(0, min(255, int(h[2:4], 16) + random.randint(-60, 60)))
-            b = max(0, min(255, int(h[4:6], 16) + random.randint(-60, 60)))
-            new_color = f"#{r:02x}{g:02x}{b:02x}"
-        else:
-            new_color = random.choice(_NAMED_SVG_COLORS)
-
-        if source == "attr":
-            elem.set(key, new_color)
-        else:
-            props: dict[str, str] = {}
-            for prop in elem.get("style", "").split(";"):
-                prop = prop.strip()
-                if ":" in prop:
-                    pk, pv = prop.split(":", 1)
-                    props[pk.strip()] = pv.strip()
-            props[key] = new_color
-            elem.set("style", "; ".join(f"{pk}:{pv}" for pk, pv in props.items()))
-
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="unicode", method="xml")
-    except ET.ParseError:
-        return svg
-
-
-def mutate_stroke(svg: str) -> str:
-    """Add, remove, or change stroke on a random shape element."""
-    try:
-        root = ET.fromstring(svg)
-        shapes = [el for el in root.iter() if _local_tag(el) in _SHAPE_TAGS]
-        if not shapes:
-            return svg
-
-        el = random.choice(shapes)
-        has_stroke = el.get("stroke") not in (None, "none", "")
-
-        op = random.choice(["add", "remove", "change"])
-        if op == "remove" and has_stroke:
-            el.set("stroke", "none")
-        elif op in ("add", "change"):
-            el.set("stroke", random.choice(_NAMED_SVG_COLORS))
-            if not el.get("stroke-width"):
-                el.set("stroke-width", str(random.choice([1, 2, 3])))
-
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="unicode", method="xml")
-    except ET.ParseError:
-        return svg
-
-
-def mutate_path(svg: str) -> str:
-    """Nudge one numeric coordinate in a path 'd' attribute."""
-    try:
-        root = ET.fromstring(svg)
-        paths = [el for el in root.iter() if el.get("d")]
-        if not paths:
-            return svg
-
-        el = random.choice(paths)
-        d = el.get("d", "")
-        nums = list(_PATH_NUM_RE.finditer(d))
-        if not nums:
-            return svg
-
-        m = random.choice(nums)
-        val = float(m.group(1))
-        # Use a proportional nudge (±15%) with a minimum of ±2px
-        magnitude = max(2.0, abs(val) * 0.15)
-        new_val = val + random.uniform(-magnitude, magnitude)
-        new_str = f"{new_val:.1f}".rstrip("0").rstrip(".")
-        el.set("d", d[: m.start()] + new_str + d[m.end() :])
-
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="unicode", method="xml")
-    except ET.ParseError:
-        return svg
-
-
-def mutate_reorder(svg: str) -> str:
-    """Swap two adjacent sibling elements to change z-order."""
-    try:
-        root = ET.fromstring(svg)
-        candidates = [el for el in root.iter() if len(list(el)) >= 2]
-        if not candidates:
-            return svg
-
-        parent = random.choice(candidates)
-        children = list(parent)
-        i = random.randrange(len(children) - 1)
-        children[i], children[i + 1] = children[i + 1], children[i]
+@svg_transform
+def mutate_remove_node(root: ET.Element) -> None:
+    pairs: list[tuple[ET.Element, ET.Element]] = []
+    for parent in root.iter():
         for child in list(parent):
-            parent.remove(child)
-        for child in children:
-            parent.append(child)
+            pairs.append((parent, child))
 
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(root, encoding="unicode", method="xml")
-    except ET.ParseError:
-        return svg
+    if not pairs:
+        raise _NoChangeError
+
+    parent_elem, child = random.choice(pairs)
+    parent_elem.remove(child)
+
+
+@svg_transform
+def mutate_drop_style_property(root: ET.Element) -> None:
+    styled = [el for el in root.iter() if el.get("style", "").strip()]
+    if not styled:
+        raise _NoChangeError
+
+    el = random.choice(styled)
+    props = [p.strip() for p in el.get("style", "").split(";") if p.strip()]
+    if len(props) <= 1:
+        raise _NoChangeError
+
+    props.pop(random.randrange(len(props)))
+    el.set("style", "; ".join(props))
+
+
+@svg_transform
+def mutate_numeric(root: ET.Element) -> None:
+    candidates: list[tuple[ET.Element, str, float, str]] = []
+    for elem in root.iter():
+        for attr, val in elem.attrib.items():
+            bare_attr = attr.split("}")[-1]
+            if bare_attr not in _NUMERIC_ATTRS:
+                continue
+            m = _NUM_RE.match(val.strip())
+            if m:
+                candidates.append((elem, attr, float(m.group(1)), m.group(2)))
+
+    if not candidates:
+        raise _NoChangeError
+
+    elem, attr, num, unit = random.choice(candidates)
+    factor = random.uniform(0.7, 1.3)
+    new_num = num * factor
+
+    if "opacity" in attr:
+        new_num = max(0.0, min(1.0, new_num))
+
+    if not unit and num == int(num) and new_num >= 0:
+        elem.attrib[attr] = str(round(new_num))
+    else:
+        formatted = f"{new_num:.3f}".rstrip("0").rstrip(".")
+        elem.attrib[attr] = f"{formatted}{unit}"
+
+
+@svg_transform
+def mutate_color(root: ET.Element) -> None:
+    """Tweak a fill or stroke color — nudge hex channels or swap named color."""
+    # Collect (elem, source, key, current_value) for every color reference
+    candidates: list[tuple[ET.Element, str, str, str]] = []
+    for elem in root.iter():
+        for attr in list(elem.attrib):
+            bare = attr.split("}")[-1]
+            if bare in _COLOR_ATTRS:
+                val = elem.attrib[attr]
+                if val and val not in ("none", "inherit", "transparent"):
+                    candidates.append((elem, "attr", attr, val))
+        style = elem.get("style", "")
+        for prop in style.split(";"):
+            prop = prop.strip()
+            if ":" not in prop:
+                continue
+            k, v = prop.split(":", 1)
+            k, v = k.strip(), v.strip()
+            if k in _COLOR_ATTRS and v not in ("none", "inherit", "transparent"):
+                candidates.append((elem, "style", k, v))
+
+    if not candidates:
+        raise _NoChangeError
+
+    elem, source, key, val = random.choice(candidates)
+
+    hex_match = _HEX_COLOR_RE.search(val)
+    if hex_match:
+        h = hex_match.group(1)
+        if len(h) == 3:
+            h = h[0] * 2 + h[1] * 2 + h[2] * 2
+        r = max(0, min(255, int(h[0:2], 16) + random.randint(-60, 60)))
+        g = max(0, min(255, int(h[2:4], 16) + random.randint(-60, 60)))
+        b = max(0, min(255, int(h[4:6], 16) + random.randint(-60, 60)))
+        new_color = f"#{r:02x}{g:02x}{b:02x}"
+    else:
+        new_color = random.choice(_NAMED_SVG_COLORS)
+
+    if source == "attr":
+        elem.set(key, new_color)
+    else:
+        props: dict[str, str] = {}
+        for prop in elem.get("style", "").split(";"):
+            prop = prop.strip()
+            if ":" in prop:
+                pk, pv = prop.split(":", 1)
+                props[pk.strip()] = pv.strip()
+        props[key] = new_color
+        elem.set("style", "; ".join(f"{pk}:{pv}" for pk, pv in props.items()))
+
+
+@svg_transform
+def mutate_stroke(root: ET.Element) -> None:
+    """Add, remove, or change stroke on a random shape element."""
+    shapes = [el for el in root.iter() if _local_tag(el) in _SHAPE_TAGS]
+    if not shapes:
+        raise _NoChangeError
+
+    el = random.choice(shapes)
+    has_stroke = el.get("stroke") not in (None, "none", "")
+
+    op = random.choice(["add", "remove", "change"])
+    if op == "remove" and has_stroke:
+        el.set("stroke", "none")
+    elif op in ("add", "change"):
+        el.set("stroke", random.choice(_NAMED_SVG_COLORS))
+        if not el.get("stroke-width"):
+            el.set("stroke-width", str(random.choice([1, 2, 3])))
+
+
+@svg_transform
+def mutate_path(root: ET.Element) -> None:
+    """Nudge one numeric coordinate in a path 'd' attribute."""
+    paths = [el for el in root.iter() if el.get("d")]
+    if not paths:
+        raise _NoChangeError
+
+    el = random.choice(paths)
+    d = el.get("d", "")
+    nums = list(_PATH_NUM_RE.finditer(d))
+    if not nums:
+        raise _NoChangeError
+
+    m = random.choice(nums)
+    val = float(m.group(1))
+    # Use a proportional nudge (±15%) with a minimum of ±2px
+    magnitude = max(2.0, abs(val) * 0.15)
+    new_val = val + random.uniform(-magnitude, magnitude)
+    new_str = f"{new_val:.1f}".rstrip("0").rstrip(".")
+    el.set("d", d[: m.start()] + new_str + d[m.end() :])
+
+
+@svg_transform
+def mutate_reorder(root: ET.Element) -> None:
+    """Swap two adjacent sibling elements to change z-order."""
+    candidates = [el for el in root.iter() if len(list(el)) >= 2]
+    if not candidates:
+        raise _NoChangeError
+
+    parent = random.choice(candidates)
+    children = list(parent)
+    i = random.randrange(len(children) - 1)
+    children[i], children[i + 1] = children[i + 1], children[i]
+    for child in list(parent):
+        parent.remove(child)
+    for child in children:
+        parent.append(child)
 
 
 def crossover_with_micro_search(
@@ -399,7 +365,8 @@ def crossover_with_micro_search(
 
     return with_micro_search(
         _op,
-        fallback_svg=svg_a,
+        fallback=svg_a,
+        rasterize=_svg_rasterizer(orig_img_fast),
         orig_img_fast=orig_img_fast,
         num_trials=num_trials,
         default_summary="Crossover: no improvement",
@@ -431,7 +398,8 @@ def mutate_with_micro_search(
 
     return with_micro_search(
         _op,
-        fallback_svg=parent_svg,
+        fallback=parent_svg,
+        rasterize=_svg_rasterizer(orig_img_fast),
         orig_img_fast=orig_img_fast,
         num_trials=num_trials,
         default_summary="Mutation: no improvement",

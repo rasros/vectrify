@@ -69,9 +69,9 @@ def test_random_layout_tweak_changes_something():
 def test_mutate_with_micro_search_returns_dot_string():
     target = Image.new("RGB", (32, 32), color="blue")
     result, summary = mutate_with_micro_search(_DOT, target, num_trials=3)
-    assert isinstance(result, str)
     assert "digraph" in result or "graph" in result
-    assert summary == "local mutation"
+    # The per-operator label now survives instead of a constant string.
+    assert summary.startswith("Mutation: ")
 
 
 @pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
@@ -82,8 +82,8 @@ def test_crossover_with_micro_search_returns_dot_string():
     }"""
     target = Image.new("RGB", (32, 32), color="green")
     result, summary = crossover_with_micro_search(_DOT, dot_b, target, num_trials=3)
-    assert isinstance(result, str)
-    assert summary in ("crossover", "local mutation")
+    assert "digraph" in result
+    assert summary.startswith(("Crossover: ", "Mutation: "))
 
 
 @pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
