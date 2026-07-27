@@ -248,9 +248,7 @@ def test_engine_active_pool_bounded():
         def __init__(self):
             self.max_seen = 0
 
-        def select_parent(
-            self, nodes: list[SearchNode]
-        ) -> tuple[int, int | None]:
+        def select_parent(self, nodes: list[SearchNode]) -> tuple[int, int | None]:
             self.max_seen = max(self.max_seen, len(nodes))
             return nodes[0].id, None
 
