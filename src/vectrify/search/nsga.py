@@ -149,9 +149,7 @@ class NsgaStrategy(Generic[TState]):
             return False
         return node.signature == other.signature
 
-    def select_parent(
-        self, nodes: list[SearchNode[TState]]
-    ) -> tuple[int, int | None]:
+    def select_parent(self, nodes: list[SearchNode[TState]]) -> tuple[int, int | None]:
         valid = [n for n in nodes if n.score < INVALID_SCORE]
         if not valid:
             return nodes[0].id if nodes else 0, None

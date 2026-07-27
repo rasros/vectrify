@@ -18,9 +18,7 @@ class BeamSearchStrategy(Generic[TState]):
         self.beams = beams
         self.cull_keep = cull_keep
 
-    def select_parent(
-        self, nodes: list[SearchNode[TState]]
-    ) -> tuple[int, int | None]:
+    def select_parent(self, nodes: list[SearchNode[TState]]) -> tuple[int, int | None]:
         if not nodes:
             return 0, None
 

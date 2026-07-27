@@ -1,4 +1,3 @@
-
 from PIL import Image
 
 from vectrify.formats.base import apply_search_replace
