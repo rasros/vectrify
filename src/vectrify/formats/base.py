@@ -3,6 +3,8 @@ from __future__ import annotations
 import re
 from typing import TYPE_CHECKING, Protocol
 
+from vectrify.image_utils import png_resize_exact
+
 if TYPE_CHECKING:
     import PIL.Image
 
@@ -76,3 +78,47 @@ class FormatPlugin(Protocol):
     ) -> tuple[str, str]:
         """Crossover two contents. Return (new_content, origin)."""
         ...
+
+
+class BaseFormatPlugin:
+    """Shared plumbing for plugins whose renderer picks its own output size.
+
+    Subclasses supply ``_render_png`` and ``_compile``; rasterizing, validating,
+    and edit application are derived from those. ``extract_from_llm``, the
+    prompt builder, and the genetic operators stay format-specific.
+    """
+
+    name: str
+    file_extension: str
+
+    def _render_png(self, content: str) -> bytes:
+        """Render *content* to PNG bytes at the renderer's natural size."""
+        raise NotImplementedError
+
+    def _compile(self, content: str) -> None:
+        """Raise if *content* is not syntactically valid."""
+        raise NotImplementedError
+
+    def extract_from_llm(self, raw: str) -> str:
+        raise NotImplementedError
+
+    def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
+        return png_resize_exact(self._render_png(content), out_w, out_h)
+
+    def render_png_or_none(self, content: str) -> bytes | None:
+        """Render without raising — the shape micro-search expects."""
+        try:
+            return self._render_png(content)
+        except Exception:
+            return None
+
+    def validate(self, content: str) -> tuple[bool, str | None]:
+        try:
+            self._compile(content)
+            return True, None
+        except Exception as e:
+            return False, str(e)
+
+    def apply_edit(self, parent: str, raw: str) -> str:
+        patched = apply_search_replace(parent, raw)
+        return patched if patched is not None else self.extract_from_llm(raw)

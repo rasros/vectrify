@@ -1,11 +1,10 @@
-import io
 import logging
 import random
 import re
 
 from PIL import Image
 
-from vectrify.search.models import INVALID_SCORE
+from vectrify.formats.micro_search import with_micro_search
 
 log = logging.getLogger(__name__)
 
@@ -172,40 +171,37 @@ def _remove_node(dot: str) -> str:
     return "".join(line for line in lines if not re.search(rf'\b"?{esc}"?\b', line))
 
 
-def _apply_one_mutation(dot: str) -> str:
-    fn = random.choices(
-        [
-            _random_node_attr_tweak,
-            _random_edge_attr_tweak,
-            _random_layout_tweak,
-            _remove_node,
-        ],
-        weights=[3, 3, 3, 1],
-        k=1,
+_MUTATIONS = [
+    (_random_node_attr_tweak, "Mutation: node attributes", 3),
+    (_random_edge_attr_tweak, "Mutation: edge attributes", 3),
+    (_random_layout_tweak, "Mutation: layout tweak", 3),
+    (_remove_node, "Mutation: removed node", 1),
+]
+
+
+def _apply_one_mutation(dot: str) -> tuple[str, str]:
+    fns, labels, weights = zip(*_MUTATIONS, strict=True)
+    fn, label = random.choices(
+        list(zip(fns, labels, strict=True)), weights=list(weights), k=1
     )[0]
-    return fn(dot)
+    return fn(dot), label
+
+
+def render_dot_png(dot: str) -> bytes:
+    """Render DOT source to PNG bytes at graphviz's natural size."""
+    import graphviz
+
+    return graphviz.Source(dot).pipe(format="png", quiet=True)
 
 
 def _rasterize_dot(dot: str) -> bytes | None:
     try:
-        import graphviz
-
-        src = graphviz.Source(dot)
-        return src.pipe(format="png", quiet=True)
+        return render_dot_png(dot)
     except Exception:
         return None
 
 
-def _fast_lab_l1(png_a: bytes, png_b: bytes, size: int = 64) -> float:
-    from vectrify.image_utils import resize_long_side
-    from vectrify.score.utils import lab_l1
-
-    try:
-        img_a = resize_long_side(Image.open(io.BytesIO(png_a)).convert("RGB"), size)
-        img_b = resize_long_side(Image.open(io.BytesIO(png_b)).convert("RGB"), size)
-        return lab_l1(img_a, img_b)
-    except Exception:
-        return 1.0
+_ATTR_BLOCK_RE = re.compile(r"^\s*(?:node|edge|graph)\s*\[[^\]]*\];?\s*$", re.MULTILINE)
 
 
 def mutate_with_micro_search(
@@ -214,24 +210,14 @@ def mutate_with_micro_search(
     num_trials: int = 15,
 ) -> tuple[str, str]:
     """Generate num_trials mutations, pick the one closest to target."""
-    orig_buf = io.BytesIO()
-    orig_img_fast.save(orig_buf, format="PNG")
-    orig_png = orig_buf.getvalue()
-
-    best_dot = parent_dot
-    best_score = INVALID_SCORE
-
-    for _ in range(num_trials):
-        candidate = _apply_one_mutation(parent_dot)
-        png = _rasterize_dot(candidate)
-        if png is None:
-            continue
-        score = _fast_lab_l1(orig_png, png)
-        if score < best_score:
-            best_score = score
-            best_dot = candidate
-
-    return best_dot, "local mutation"
+    return with_micro_search(
+        lambda: _apply_one_mutation(parent_dot),
+        fallback=parent_dot,
+        rasterize=_rasterize_dot,
+        orig_img_fast=orig_img_fast,
+        num_trials=num_trials,
+        default_summary="Mutation: no improvement",
+    )
 
 
 def crossover_with_micro_search(
@@ -241,30 +227,19 @@ def crossover_with_micro_search(
     num_trials: int = 15,
 ) -> tuple[str, str]:
     """Crossover: try swapping attribute blocks between two DOT sources."""
-    orig_buf = io.BytesIO()
-    orig_img_fast.save(orig_buf, format="PNG")
-    orig_png = orig_buf.getvalue()
-
-    attr_pattern = re.compile(
-        r"^\s*(?:node|edge|graph)\s*\[[^\]]*\];?\s*$", re.MULTILINE
-    )
-    attrs_b = attr_pattern.findall(dot_b)
-
+    attrs_b = _ATTR_BLOCK_RE.findall(dot_b)
     if not attrs_b:
         return mutate_with_micro_search(dot_a, orig_img_fast, num_trials)
 
-    best_dot = dot_a
-    best_score = INVALID_SCORE
-
-    for _ in range(num_trials):
+    def _op() -> tuple[str, str]:
         attr = random.choice(attrs_b)
-        candidate = re.sub(r"(\{)", r"\1\n" + attr, dot_a, count=1)
-        png = _rasterize_dot(candidate)
-        if png is None:
-            continue
-        score = _fast_lab_l1(orig_png, png)
-        if score < best_score:
-            best_score = score
-            best_dot = candidate
+        return re.sub(r"(\{)", r"\1\n" + attr, dot_a, count=1), "Crossover: attributes"
 
-    return best_dot, "crossover"
+    return with_micro_search(
+        _op,
+        fallback=dot_a,
+        rasterize=_rasterize_dot,
+        orig_img_fast=orig_img_fast,
+        num_trials=num_trials,
+        default_summary="Crossover: no improvement",
+    )

@@ -10,7 +10,6 @@ from vectrify.formats.svg.operations import (
     mutate_numeric,
     mutate_remove_node,
     mutate_with_micro_search,
-    with_micro_search,
     with_retries,
 )
 
@@ -191,66 +190,6 @@ def test_with_retries_exhausts_all_attempts():
 
     with_retries(always_bad, fallback=SVG_ONE, max_retries=4)
     assert len(calls) == 4
-
-
-def test_with_micro_search_finds_improvement():
-    target_img = Image.new("RGB", (10, 10), color="blue")
-    fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
-    better_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
-    yields = [(fallback_svg, "bad"), (better_svg, "good")]
-
-    def op_gen():
-        return yields.pop(0)
-
-    best_svg, summary = with_micro_search(
-        op_gen, fallback_svg, target_img, num_trials=2, default_summary="none"
-    )
-    assert best_svg == better_svg
-    assert summary == "good"
-
-
-def test_with_micro_search_no_valid_candidates_returns_fallback():
-    target_img = Image.new("RGB", (10, 10), color="blue")
-    fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
-
-    def op_gen():
-        return fallback_svg, "same"
-
-    best_svg, summary = with_micro_search(
-        op_gen, fallback_svg, target_img, num_trials=2, default_summary="No change"
-    )
-    assert best_svg == fallback_svg
-    assert summary == "No change"
-
-
-def test_with_micro_search_returns_best_candidate_even_if_worse_than_parent():
-    target_img = Image.new("RGB", (10, 10), color="blue")
-    fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
-    worse_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
-
-    def op_gen():
-        return worse_svg, "worse"
-
-    best_svg, summary = with_micro_search(
-        op_gen, fallback_svg, target_img, num_trials=2, default_summary="No change"
-    )
-    assert best_svg == worse_svg
-    assert summary == "worse"
-
-
-def test_with_micro_search_ignores_invalid_renders():
-    target_img = Image.new("RGB", (10, 10), color="blue")
-    fallback_svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
-    invalid_svg = "not an svg"
-
-    def op_gen():
-        return invalid_svg, "invalid"
-
-    best_svg, summary = with_micro_search(
-        op_gen, fallback_svg, target_img, num_trials=1, default_summary="none"
-    )
-    assert best_svg == fallback_svg
-    assert summary == "none"
 
 
 def test_crossover_with_micro_search():

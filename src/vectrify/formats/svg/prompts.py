@@ -1,19 +1,11 @@
 import xml.etree.ElementTree as ET
 from typing import Any
 
-_DIFF_FORMAT_INSTRUCTIONS = """\
-Respond with one or more search/replace blocks — do NOT output the full file.
+from vectrify.formats.prompts import diff_format_instructions
 
-<<<SEARCH>>>
-exact SVG fragment to replace (copy verbatim from the current SVG)
-<<<REPLACE>>>
-improved replacement fragment
-<<<END>>>
-
-Rules:
-- The SEARCH text must match the current SVG exactly (including whitespace).
-- Keep blocks small and focused; only change what needs to change.
-- Multiple blocks are allowed."""
+_DIFF_FORMAT_INSTRUCTIONS = diff_format_instructions(
+    "SVG", unit="fragment", subject="SVG"
+)
 
 
 def build_svg_gen_prompt(

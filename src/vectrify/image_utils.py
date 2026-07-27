@@ -26,6 +26,15 @@ def png_bytes_to_data_url(png_bytes: bytes) -> str:
     return f"data:image/png;base64,{b64}"
 
 
+def png_resize_exact(png_bytes: bytes, out_w: int, out_h: int) -> bytes:
+    """Re-encode *png_bytes* as RGB at exactly out_w x out_h."""
+    img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
+    img = img.resize((out_w, out_h), Resampling.LANCZOS)
+    buf = io.BytesIO()
+    img.save(buf, format="PNG")
+    return buf.getvalue()
+
+
 def downscale_png_bytes(png_bytes: bytes, long_side: int) -> bytes:
     if long_side <= 0:
         return png_bytes
