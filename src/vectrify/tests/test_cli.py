@@ -1,10 +1,6 @@
 import pytest
 
-from vectrify.cli import (
-    DEFAULT_EPOCH_DIVERSITY,
-    DEFAULT_POOL_SIZE,
-    parse_args,
-)
+from vectrify.cli import parse_args
 from vectrify.search import StrategyType
 
 
@@ -72,9 +68,14 @@ def test_cull_keep_upper_bound_accepted():
     assert args.cull_keep == 1.0
 
 
-def test_default_pool_size():
+# Defaults are pinned as literals so a change to any default is a visible,
+# deliberate edit here rather than silently tracking the constant.
+def test_defaults_pinned():
     args = parse_args(["img.png"])
-    assert args.pool_size == DEFAULT_POOL_SIZE
+    assert args.pool_size == 100
+    assert args.epoch_diversity == 0.0
+    assert args.epoch_patience == 20
+    assert args.max_epochs == 4
 
 
 def test_default_llm_rate_tracks_workers():
@@ -89,44 +90,21 @@ def test_explicit_llm_rate_overrides_workers_derivation():
     assert args.llm_rate == 0.5
 
 
-def test_dashboard_default_on():
-    assert parse_args(["img.png"]).dashboard is True
-
-
-def test_no_dashboard_flag():
-    assert parse_args(["img.png", "--no-dashboard"]).dashboard is False
-
-
-def test_debug_default_off():
-    assert parse_args(["img.png"]).debug is False
-
-
-def test_debug_flag():
-    assert parse_args(["img.png", "--debug"]).debug is True
-
-
-def test_default_epoch_diversity():
-    args = parse_args(["img.png"])
-    assert args.epoch_diversity == DEFAULT_EPOCH_DIVERSITY
-
-
-def test_default_epoch_patience():
-    from vectrify.cli import DEFAULT_EPOCH_PATIENCE
-
-    args = parse_args(["img.png"])
-    assert args.epoch_patience == DEFAULT_EPOCH_PATIENCE
+@pytest.mark.parametrize(
+    ("flag", "attr", "default", "flagged"),
+    [
+        ("--no-dashboard", "dashboard", True, False),
+        ("--debug", "debug", False, True),
+    ],
+)
+def test_boolean_flags(flag, attr, default, flagged):
+    assert getattr(parse_args(["img.png"]), attr) is default
+    assert getattr(parse_args(["img.png", flag]), attr) is flagged
 
 
 def test_max_epochs_parsed():
     args = parse_args(["img.png", "--max-epochs", "10"])
     assert args.max_epochs == 10
-
-
-def test_max_epochs_default():
-    from vectrify.cli import DEFAULT_MAX_EPOCHS
-
-    args = parse_args(["img.png"])
-    assert args.max_epochs == DEFAULT_MAX_EPOCHS
 
 
 def test_max_epochs_zero_raises():

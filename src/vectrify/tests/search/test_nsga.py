@@ -114,7 +114,8 @@ def test_select_parent_crossover_returns_two_distinct_parents():
         pid, secondary = strategy.select_parent(nodes)
         if secondary is not None:
             results.add((pid, secondary))
-    assert all(len(pair) == 2 and pair[0] != pair[1] for pair in results)
+    assert results, "crossover never selected a secondary parent"
+    assert all(pair[0] != pair[1] for pair in results)
 
 
 def test_select_parent_skips_invalid_nodes():
@@ -310,7 +311,7 @@ def test_epoch_seeds_respects_max_seeds():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [make_node(i, i * 0.1, complexity=float(i * 100)) for i in range(1, 8)]
     seeds = strategy.epoch_seeds(nodes, max_seeds=3)
-    assert len(seeds) <= 3
+    assert len(seeds) == 3
 
 
 def test_epoch_seeds_filters_exact_duplicates():
@@ -350,7 +351,7 @@ def test_epoch_seeds_all_invalid_falls_back():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [make_node(i, float("inf")) for i in range(1, 4)]
     seeds = strategy.epoch_seeds(nodes, max_seeds=5)
-    assert len(seeds) <= 5
+    assert len(seeds) == 3
 
 
 def test_percentile_75_empty():

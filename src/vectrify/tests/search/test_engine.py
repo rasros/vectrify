@@ -95,8 +95,18 @@ def test_engine_run_loop_processes_result_and_saves():
 
 
 def test_engine_respects_max_wall_seconds(monkeypatch):
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.select_calls = 0
+
+        def select_parent(self, nodes: list[SearchNode]) -> tuple[int, int | None]:
+            _ = nodes
+            self.select_calls += 1
+            return 1, None
+
+    strat = TrackingStrategy()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage()
+        workers=1, strategy=strat, storage=FakeStorage()
     )
 
     class FakeTime:
@@ -116,8 +126,10 @@ def test_engine_respects_max_wall_seconds(monkeypatch):
         state=ChainState(score=0.5, payload=None),
     )
 
+    # The first wall-clock check already exceeds the limit, so the run loop
+    # must exit before dispatching any task.
     engine.run(initial_nodes=[dummy_node], max_wall_seconds=50.0)
-    assert True
+    assert strat.select_calls == 0
 
 
 def test_engine_epoch_patience_triggers_transition():
@@ -175,7 +187,9 @@ def test_engine_epoch_patience_resets_on_improvement():
         workers=1, strategy=strat, storage=store, max_total_tasks=3
     )
 
-    for score in (0.1, 0.09, 0.08):
+    # Each result improves on the previous best by more than epoch_min_delta,
+    # so the patience counter resets every time and no transition may fire.
+    for score in (0.35, 0.2, 0.05):
         engine.unscored_q.put(
             Result(
                 task_id=1,
@@ -196,7 +210,7 @@ def test_engine_epoch_patience_resets_on_improvement():
         epoch_patience=2,
         epoch_min_delta=0.1,
     )
-    assert strat.epoch_seeds_calls >= 1
+    assert strat.epoch_seeds_calls == 0
     assert store.save_called
 
 
@@ -229,8 +243,19 @@ def test_engine_epoch_patience_none_no_transitions():
 
 
 def test_engine_respects_max_total_tasks():
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.select_calls = 0
+
+        def select_parent(self, nodes: list[SearchNode]) -> tuple[int, int | None]:
+            _ = nodes
+            self.select_calls += 1
+            return 1, None
+
+    strat = TrackingStrategy()
+    store = FakeStorage()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=0
+        workers=1, strategy=strat, storage=store, max_total_tasks=0
     )
     dummy_node = SearchNode(
         score=0.5,
@@ -240,7 +265,8 @@ def test_engine_respects_max_total_tasks():
     )
 
     engine.run(initial_nodes=[dummy_node], max_wall_seconds=None)
-    assert True
+    assert strat.select_calls == 0
+    assert store.save_called is False
 
 
 def test_engine_active_pool_bounded():

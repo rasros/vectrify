@@ -1,20 +1,16 @@
 import csv
-import io
 
 import pytest
-from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import png_bytes_to_data_url
 from vectrify.search import ChainState, SearchNode
+from vectrify.tests.helpers import make_png
 from vectrify.vector.storage import FileStorageAdapter
 
 
 def _make_png(color: str = "red", size: int = 16) -> bytes:
-    img = Image.new("RGB", (size, size), color=color)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    return make_png(color, size)
 
 
 @pytest.fixture

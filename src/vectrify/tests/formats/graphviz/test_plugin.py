@@ -7,6 +7,7 @@ from vectrify.formats.graphviz.plugin import (
     _fix_html_labels,
     _sanitize_dot,
 )
+from vectrify.tests.helpers import TEST_MODEL
 
 _DOT_AVAILABLE = shutil.which("dot") is not None
 
@@ -196,7 +197,7 @@ def test_llm_dot_generation_produces_valid_dot():
         goal=None,
         diff_data_url=None,
     )
-    raw = client.generate(prompt, LLMConfig(model="gpt-5.4-nano"))
+    raw = client.generate(prompt, LLMConfig(model=TEST_MODEL))
     dot = GraphvizPlugin().extract_from_llm(raw)
     valid, err = GraphvizPlugin().validate(dot)
     assert valid, f"LLM did not produce valid DOT: {err}\nRaw: {raw[:200]}"
@@ -232,7 +233,7 @@ def test_llm_dot_refinement_produces_valid_dot():
         goal="Add a node C connected to B.",
         diff_data_url=None,
     )
-    raw = client.generate(prompt, LLMConfig(model="gpt-5.4-nano"))
+    raw = client.generate(prompt, LLMConfig(model=TEST_MODEL))
     dot = plugin.apply_edit(parent_dot, raw)
     valid, err = plugin.validate(dot)
     assert valid, f"LLM refinement did not produce valid DOT: {err}\nRaw: {raw[:200]}"

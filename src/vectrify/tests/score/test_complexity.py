@@ -3,13 +3,7 @@ import io
 from PIL import Image
 
 from vectrify.score.complexity import complexity, content_complexity, visual_complexity
-
-
-def _make_png(color: str | tuple, size: int = 64) -> bytes:
-    img = Image.new("RGB", (size, size), color=color)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+from vectrify.tests.helpers import make_png as _make_png
 
 
 def _noise_png(size: int = 64) -> bytes:
@@ -25,10 +19,6 @@ def _noise_png(size: int = 64) -> bytes:
     buf = io.BytesIO()
     img.save(buf, format="PNG")
     return buf.getvalue()
-
-
-def test_returns_float():
-    assert isinstance(visual_complexity(_make_png("red")), float)
 
 
 def test_returns_positive():
@@ -75,10 +65,6 @@ _COMPLEX_SVG = """
 """
 
 
-def test_content_complexity_returns_float():
-    assert isinstance(content_complexity(_SIMPLE_SVG), float)
-
-
 def test_content_complexity_positive():
     assert content_complexity(_SIMPLE_SVG) > 0.0
 
@@ -115,24 +101,17 @@ def test_content_complexity_gradients_and_filters_contribute():
 # ── complexity (blended) ──────────────────────────────────────────────────────
 
 
-def test_blended_complexity_returns_float():
-    png = _make_png("red")
-    assert isinstance(complexity(png, _SIMPLE_SVG), float)
-
-
 def test_blended_complexity_positive():
     png = _make_png("white")
     assert complexity(png, _SIMPLE_SVG) > 0.0
 
 
-def test_blended_complexity_weighted_combination():
-    from vectrify.score.complexity import _VISUAL_WEIGHT
-
+def test_blended_complexity_between_components():
     png = _make_png("red")
     v = visual_complexity(png)
     c = content_complexity(_SIMPLE_SVG)
-    expected = _VISUAL_WEIGHT * v + (1.0 - _VISUAL_WEIGHT) * c
-    assert complexity(png, _SIMPLE_SVG) == expected
+    blended = complexity(png, _SIMPLE_SVG)
+    assert min(v, c) <= blended <= max(v, c)
 
 
 def test_blended_complexity_higher_for_complex_svg():

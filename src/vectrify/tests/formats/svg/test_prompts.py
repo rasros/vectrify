@@ -3,6 +3,7 @@ from vectrify.formats.svg.prompts import (
     extract_svg_fragment,
     is_valid_svg,
 )
+from vectrify.tests.helpers import image_urls, text_blocks
 
 _IMG_URL = "data:image/png;base64,abc"
 _RENDER_URL = "data:image/png;base64,def"
@@ -55,12 +56,8 @@ def test_is_valid_svg_wrong_root_tag():
     assert "Root tag is not <svg>" in err
 
 
-def _text_blocks(blocks: list[dict]) -> list[str]:
-    return [b["text"] for b in blocks if b["type"] == "input_text"]
-
-
-def _image_blocks(blocks: list[dict]) -> list[str]:
-    return [b["image_url"] for b in blocks if b["type"] == "input_image"]
+_text_blocks = text_blocks
+_image_blocks = image_urls
 
 
 def test_gen_prompt_first_attempt_no_svg():

@@ -9,8 +9,7 @@ from vectrify.formats.svg.prompts import (
     extract_svg_fragment,
     is_valid_svg,
 )
-
-_MODEL = "gpt-5.4-nano"
+from vectrify.tests.helpers import TEST_MODEL as _MODEL
 
 
 def _make_image_data_url(color: str = "blue", size: int = 32) -> str:
