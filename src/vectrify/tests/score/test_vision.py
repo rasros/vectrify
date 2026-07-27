@@ -39,6 +39,9 @@ class _TinyVisionScorer(VisionScorer):
             config = SiglipConfig()
             config.vision_config = vision_config
             config.text_config = text_config
+            # Deterministic random weights: tolerance-based assertions below
+            # would otherwise be flaky across runs.
+            torch.manual_seed(0)
             model = SiglipModel(config)
             model.eval()
             processor = SiglipImageProcessor(size={"height": 16, "width": 16})
@@ -98,10 +101,6 @@ def test_score_handles_size_mismatch(scorer):
     assert 0.0 <= score <= 1.0
 
 
-def test_validate_environment_does_not_raise(scorer):
-    scorer.validate_environment()
-
-
 def test_load_is_idempotent(scorer):
     ref_img = Image.new("RGB", (32, 32), color="white")
     ref1 = scorer.prepare_reference(ref_img)
@@ -156,7 +155,7 @@ def test_diff_heatmap_different_images_are_brighter(scorer):
     assert diff_png is not None
     mean_same = np.array(Image.open(io.BytesIO(same_png))).mean()
     mean_diff = np.array(Image.open(io.BytesIO(diff_png))).mean()
-    assert mean_diff >= mean_same
+    assert mean_diff > mean_same
 
 
 def test_diff_heatmap_respects_long_side(scorer):

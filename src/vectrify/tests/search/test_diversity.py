@@ -31,11 +31,6 @@ def test_simhash_deterministic():
     assert simhash(text) == simhash(text)
 
 
-def test_simhash_identical_texts_same_hash():
-    text = "<svg><circle r='50'/></svg>"
-    assert simhash(text) == simhash(text)
-
-
 def test_simhash_different_texts_differ():
     assert simhash("<svg><rect/></svg>") != simhash("<svg><circle/></svg>")
 

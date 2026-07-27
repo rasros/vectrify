@@ -16,17 +16,25 @@ def test_search_node_sorting_by_score():
 
 
 def test_search_node_comparison_ignores_metadata():
-    dummy_state = ChainState(score=0.0, payload=None)
-    n1 = SearchNode(score=0.2, id=99, parent_id=99, state=dummy_state)
-    n2 = SearchNode(score=0.8, id=1, parent_id=1, state=dummy_state)
-
-    assert n1 < n2
-
-
-def test_search_node_equality_with_identical_scores():
-    dummy_state = ChainState(score=0.0, payload=None)
-    n1 = SearchNode(score=0.5, id=1, parent_id=0, state=dummy_state)
-    n2 = SearchNode(score=0.5, id=2, parent_id=0, state=dummy_state)
+    # Same score but every non-score field differs: ordering must treat
+    # the nodes as equal, proving metadata is excluded from comparison.
+    n1 = SearchNode(
+        score=0.5,
+        id=99,
+        parent_id=99,
+        state=ChainState(score=0.5, payload="a"),
+        secondary_parent_id=7,
+        complexity=123.0,
+        signature=42,
+        epoch=3,
+    )
+    n2 = SearchNode(
+        score=0.5,
+        id=1,
+        parent_id=1,
+        state=ChainState(score=0.5, payload="b"),
+    )
 
     assert not (n1 < n2)
     assert not (n2 < n1)
+    assert n1 == n2

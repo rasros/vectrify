@@ -7,6 +7,7 @@ from vectrify import cli
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.score import ScorerType
 from vectrify.search import StrategyType
+from vectrify.tests.helpers import TEST_MODEL
 from vectrify.vector.runner import run_vector_search
 from vectrify.vector.storage import FileStorageAdapter
 
@@ -46,7 +47,7 @@ def _run(image_path, plugin, storage):
         goal=None,
         reasoning="none",
         llm_provider="openai",
-        llm_model="gpt-5.4-nano",
+        llm_model=TEST_MODEL,
         format_plugin=plugin,
         write_lineage=False,
         max_epochs=None,
@@ -95,7 +96,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         goal="Generate a simple blue rectangle.",
         reasoning="none",
         llm_provider="openai",
-        llm_model="gpt-5.4-nano",
+        llm_model=TEST_MODEL,
         format_plugin=plugin,
         write_lineage=False,
         max_epochs=None,

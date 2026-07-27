@@ -46,22 +46,14 @@ def test_set_graph_attr_inserts_new():
     assert "splines=ortho" in result
 
 
-def test_random_node_attr_tweak_returns_string():
-    result = _random_node_attr_tweak(_DOT)
-    assert isinstance(result, str)
+@pytest.mark.parametrize(
+    "op",
+    [_random_node_attr_tweak, _random_edge_attr_tweak, _random_layout_tweak],
+)
+def test_tweak_keeps_document_structure(op):
+    result = op(_DOT)
     assert "digraph" in result
-
-
-def test_random_edge_attr_tweak_returns_string():
-    result = _random_edge_attr_tweak(_DOT)
-    assert isinstance(result, str)
-    assert "digraph" in result
-
-
-def test_random_layout_tweak_returns_string():
-    result = _random_layout_tweak(_DOT)
-    assert isinstance(result, str)
-    assert "digraph" in result
+    assert "A -> B" in result
 
 
 def test_random_layout_tweak_changes_something():

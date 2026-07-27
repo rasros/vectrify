@@ -42,26 +42,20 @@ def test_crossover_children_only_from_parents():
     assert tags <= {"circle", "rect", "ellipse", "line"}
 
 
-def test_crossover_k1_two_segments():
-    a_tags = {"circle", "rect"}
-    b_tags = {"ellipse", "line"}
-    result = crossover(SVG_A, SVG_B, k=1)
-    root = ET.fromstring(result)
-    tags = [c.tag.split("}")[-1] for c in root]
-    assert all(t in a_tags | b_tags for t in tags)
-
-
 def test_crossover_unequal_lengths():
     long_a = f'<svg xmlns="{NS}"><rect/><circle/><ellipse/><line/><path/></svg>'
     result = crossover(long_a, SVG_B, k=2)
     root = ET.fromstring(result)
-    assert len(list(root)) <= 5
+    assert 1 <= len(list(root)) <= 5
 
 
 def test_crossover_k_clamped_to_max():
     result = crossover(SVG_A, SVG_B, k=100)
     root = ET.fromstring(result)
-    assert root.tag.endswith("svg")
+    children = list(root)
+    tags = {c.tag.split("}")[-1] for c in children}
+    assert children
+    assert tags <= {"circle", "rect", "ellipse", "line"}
 
 
 def test_crossover_degenerate_single_element():
@@ -120,6 +114,7 @@ def test_mutate_numeric_still_valid_svg():
 
 def test_mutate_numeric_opacity_clamped():
     svg = f'<svg xmlns="{NS}"><rect opacity="0.9" width="10" height="10"/></svg>'
+    checked = 0
     for _ in range(50):
         result = mutate_numeric(svg)
         root = ET.fromstring(result)
@@ -127,6 +122,8 @@ def test_mutate_numeric_opacity_clamped():
         if rect is not None and "opacity" in rect.attrib:
             val = float(rect.attrib["opacity"])
             assert 0.0 <= val <= 1.0
+            checked += 1
+    assert checked, "no iteration ever produced an opacity attribute to check"
 
 
 def test_mutate_numeric_invalid_svg_unchanged():
@@ -148,8 +145,9 @@ def test_mutate_numeric_no_numeric_attrs_unchanged():
         mutate_drop_style_property,
     ],
 )
-def test_mutation_result_is_string(op):
-    assert isinstance(op(SVG_ONE), str)
+def test_mutation_result_stays_parseable(op):
+    result = op(SVG_ONE)
+    assert ET.fromstring(result).tag.endswith("svg")
 
 
 def test_with_retries_returns_valid_result_on_first_try():

@@ -269,9 +269,20 @@ def test_resume_nodes_skips_failed_scoring():
     assert result[0].score == pytest.approx(0.5)
 
 
-def test_resume_nodes_triggers_prefilter_when_many_items():
+def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
+    import vectrify.vector.resume as resume_module
+
     pool_size = 3
     n_items = 7
+
+    prefilter_sizes: list[int] = []
+    real_prefilter = resume_module.prefilter_nodes
+
+    def spy_prefilter(prepped, original_img, max_keep):
+        prefilter_sizes.append(len(prepped))
+        return real_prefilter(prepped, original_img, max_keep)
+
+    monkeypatch.setattr(resume_module, "prefilter_nodes", spy_prefilter)
     plugin = _make_mock_plugin()
     scorer, ref = _make_mock_scorer(0.2)
     storage = _make_mock_storage()
@@ -292,4 +303,7 @@ def test_resume_nodes_triggers_prefilter_when_many_items():
         storage=storage,
     )
 
+    # 7 items > 2 * pool_size, so prefiltering must run over all 7 items and
+    # the surviving pool must not exceed the prefilter cap.
+    assert prefilter_sizes == [n_items]
     assert len(result) <= 2 * pool_size

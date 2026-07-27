@@ -3,6 +3,7 @@ import importlib.util
 import pytest
 
 from vectrify.formats.typst.plugin import TypstPlugin
+from vectrify.tests.helpers import TEST_MODEL
 
 _TYPST_AVAILABLE = importlib.util.find_spec("typst") is not None
 
@@ -102,7 +103,7 @@ def test_llm_typst_generation_produces_valid_typst():
         goal=None,
         diff_data_url=None,
     )
-    raw = client.generate(prompt, LLMConfig(model="gpt-5.4-nano"))
+    raw = client.generate(prompt, LLMConfig(model=TEST_MODEL))
     code = TypstPlugin().extract_from_llm(raw)
     valid, err = TypstPlugin().validate(code)
     assert valid, f"LLM did not produce valid Typst: {err}\nRaw: {raw[:200]}"

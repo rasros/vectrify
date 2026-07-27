@@ -162,10 +162,8 @@ def test_reorder_elements_single_element_unchanged():
 @pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
 def test_mutate_with_micro_search_returns_typst_string():
     target = Image.new("RGB", (32, 32), color="red")
-    result, summary = mutate_with_micro_search(_TYPST_CODE, target, num_trials=3)
-    assert isinstance(result, str)
+    result, _summary = mutate_with_micro_search(_TYPST_CODE, target, num_trials=3)
     assert "#set page" in result
-    assert isinstance(summary, str)
 
 
 @pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
@@ -194,7 +192,7 @@ def test_crossover_with_micro_search_returns_typst_string():
     result, summary = crossover_with_micro_search(
         _TYPST_CODE, code_b, target, num_trials=3
     )
-    assert isinstance(result, str)
+    assert "#set page" in result
     assert summary in ("Crossover: element injection", "Mutation: no improvement")
 
 
@@ -203,5 +201,4 @@ def test_crossover_falls_back_to_mutation_when_no_elements_in_b():
     code_b = "#set page(width: auto, height: auto, margin: 0pt)\n"
     target = Image.new("RGB", (32, 32), color="red")
     result, _ = crossover_with_micro_search(_TYPST_CODE, code_b, target, num_trials=3)
-    assert isinstance(result, str)
     assert "#set page" in result

@@ -13,13 +13,11 @@ from vectrify.image_utils import (
     rasterize_svg_to_png_bytes,
     resize_long_side,
 )
+from vectrify.tests.helpers import make_png
 
 
 def create_test_image(width: int, height: int, color="red") -> bytes:
-    img = Image.new("RGB", (width, height), color=color)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
+    return make_png(color, (width, height))
 
 
 def test_resize_long_side_landscape():
@@ -81,53 +79,16 @@ def test_rasterize_svg_to_png_bytes_invalid_dimensions():
         rasterize_svg_to_png_bytes(svg, out_w=-10, out_h=100)
 
 
-def test_diff_data_url_returns_data_url():
+# generate_diff_data_url is a thin wrapper over pixel_diff_png (tested below),
+# so a single test covering the data-URL encoding is enough.
+def test_diff_data_url_wraps_pixel_diff_as_data_url():
     ref = create_test_image(64, 64, color="red")
     cand = create_test_image(64, 64, color="blue")
     result = generate_diff_data_url(ref, cand, long_side=64)
     assert result.startswith("data:image/png;base64,")
-
-
-def test_diff_data_url_output_is_valid_png():
-    ref = create_test_image(64, 64, color="red")
-    cand = create_test_image(64, 64, color="blue")
-    result = generate_diff_data_url(ref, cand, long_side=64)
     _, b64 = result.split(",", 1)
     img = Image.open(io.BytesIO(base64.b64decode(b64)))
     assert img.mode == "RGB"
-
-
-def test_diff_data_url_output_respects_long_side():
-    ref = create_test_image(200, 200, color="red")
-    cand = create_test_image(200, 200, color="blue")
-    result = generate_diff_data_url(ref, cand, long_side=64)
-    _, b64 = result.split(",", 1)
-    img = Image.open(io.BytesIO(base64.b64decode(b64)))
-    assert max(img.size) <= 64
-
-
-def test_diff_data_url_identical_images_are_black():
-    ref = create_test_image(64, 64, color="red")
-    result = generate_diff_data_url(ref, ref, long_side=64)
-    _, b64 = result.split(",", 1)
-    img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-    assert all(p == (0, 0, 0) for p in img.get_flattened_data())
-
-
-def test_diff_data_url_different_images_are_nonzero():
-    ref = create_test_image(64, 64, color="red")
-    cand = create_test_image(64, 64, color="blue")
-    result = generate_diff_data_url(ref, cand, long_side=64)
-    _, b64 = result.split(",", 1)
-    img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("RGB")
-    assert any(p != (0, 0, 0) for p in img.get_flattened_data())
-
-
-def test_diff_data_url_handles_size_mismatch():
-    ref = create_test_image(64, 64, color="red")
-    cand = create_test_image(128, 128, color="blue")
-    result = generate_diff_data_url(ref, cand, long_side=64)
-    assert result.startswith("data:image/png;base64,")
 
 
 def test_pixel_diff_png_returns_valid_png():

@@ -6,6 +6,7 @@ from PIL import Image
 
 from vectrify.llm import LLMConfig, get_provider
 from vectrify.score.llm_judge import LLMJudgeScorer
+from vectrify.tests.helpers import TEST_MODEL
 
 
 @pytest.mark.llm
@@ -20,7 +21,7 @@ def test_llm_client_structured_output():
     }
 
     config = LLMConfig(
-        model="gpt-5.4-nano",
+        model=TEST_MODEL,
         response_schema=test_schema,
         schema_name="magic_number_test",
     )

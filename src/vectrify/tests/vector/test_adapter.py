@@ -53,11 +53,6 @@ def create_payload(content_text: str | None) -> VectorStatePayload:
     )
 
 
-def test_payload_creation():
-    payload = create_payload("<svg></svg>")
-    assert payload.content == "<svg></svg>"
-
-
 def test_create_new_state_uses_precomputed_preview():
     adapter = _make_adapter()
     precomputed = "data:image/png;base64,PRECOMPUTED"

@@ -4,14 +4,8 @@ import io
 from PIL import Image
 
 from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
+from vectrify.tests.helpers import make_png as _make_png
 from vectrify.vector.worker import _use_llm
-
-
-def _make_png(color: str = "red", size: int = 32) -> bytes:
-    img = Image.new("RGB", (size, size), color=color)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
 
 
 def test_use_llm_no_svg_uses_llm_when_rate_nonzero():
@@ -43,23 +37,115 @@ def test_use_llm_zero_pressure_never_calls_when_has_content():
         assert _use_llm(has_content=True, llm_rate=1.0, llm_pressure=0.0) is False
 
 
-def test_use_llm_takes_priority_over_crossover():
+def test_use_llm_takes_priority_over_crossover(monkeypatch):
     """LLM must be checked before crossover so pressure actually triggers LLM calls.
 
     Regression: previously crossover was checked first, so once the pool had
     ≥2 nodes every task went to crossover and llm_pressure was never effective.
     """
-    import inspect
+    import queue
 
+    from vectrify.formats.models import VectorStatePayload
+    from vectrify.search import ChainState, Task
     from vectrify.vector import worker as worker_module
+    from vectrify.vector.worker import WorkerContext, worker_loop
 
-    src = inspect.getsource(worker_module.worker_loop)
-    # use_llm check must precede crossover check in the dispatch if/elif chain
-    llm_pos = src.index("if use_llm:")
-    crossover_pos = src.index("secondary_parent_state")
-    assert llm_pos < crossover_pos, (
-        "use_llm check must come before crossover check in worker_loop"
+    png = _make_png()
+
+    class FakeClient:
+        def __init__(self):
+            self.generate_calls = 0
+
+        def generate(self, blocks, config):
+            _ = (blocks, config)
+            self.generate_calls += 1
+            return "<svg/>"
+
+    class FakePlugin:
+        def __init__(self):
+            self.crossover_calls = 0
+
+        def build_generate_prompt(self, *args, **kwargs):
+            _ = (args, kwargs)
+            return []
+
+        def apply_edit(self, parent, raw):
+            _ = parent
+            return raw
+
+        def extract_from_llm(self, raw):
+            return raw
+
+        def crossover(self, a, b, orig_img_fast):
+            _ = (b, orig_img_fast)
+            self.crossover_calls += 1
+            return a, "crossover"
+
+        def mutate(self, content, orig_img_fast):
+            _ = orig_img_fast
+            return content, "mutation"
+
+        def validate(self, content):
+            _ = content
+            return True, None
+
+        def rasterize(self, content, out_w, out_h):
+            _ = (content, out_w, out_h)
+            return png
+
+    client = FakeClient()
+    plugin = FakePlugin()
+    monkeypatch.setattr(worker_module, "get_provider", lambda *_a, **_kw: client)
+    # Make _use_llm deterministic: random() < llm_rate * llm_pressure always true.
+    monkeypatch.setattr(worker_module.random, "random", lambda: 0.0)
+
+    parent_state = ChainState(
+        score=0.5,
+        payload=VectorStatePayload(
+            content="<svg><rect/></svg>",
+            raster_data_url=None,
+            raster_preview_data_url=None,
+            origin=None,
+        ),
     )
+    # Both dispatch branches are eligible: LLM pressure is maxed AND a
+    # secondary parent with content makes crossover possible.
+    task = Task(
+        task_id=1,
+        parent_id=1,
+        parent_state=parent_state,
+        secondary_parent_id=2,
+        secondary_parent_state=parent_state,
+        llm_pressure=1.0,
+    )
+
+    task_q: queue.Queue = queue.Queue()
+    result_q: queue.Queue = queue.Queue()
+    task_q.put(task)
+    task_q.put(None)
+
+    ctx = WorkerContext(
+        format_plugin=plugin,
+        image_data_url=png_bytes_to_data_url(png),
+        original_png_bytes=png,
+        original_w=32,
+        original_h=32,
+        image_long_side=16,
+        log_level="ERROR",
+        log_file=None,
+        goal=None,
+        llm_provider="openai",
+        llm_model="test-model",
+        reasoning="",
+        api_key=None,
+        llm_rate=1.0,
+    )
+    worker_loop(task_q, result_q, ctx)
+
+    result = result_q.get_nowait()
+    assert result.llm_type == "llm-generate"
+    assert client.generate_calls == 1
+    assert plugin.crossover_calls == 0
 
 
 def _compute_preview(png: bytes, long_side: int) -> str:
