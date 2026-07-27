@@ -32,7 +32,6 @@ def _make_result(
     return Result(
         task_id=1,
         parent_id=0,
-        worker_slot=0,
         valid=True,
         score=0.5,
         payload=VectorResultPayload(
@@ -42,7 +41,6 @@ def _make_result(
             raster_preview_data_url=preview_data_url,
             heatmap_png=heatmap_png,
         ),
-        content=content,
     )
 
 
@@ -52,7 +50,6 @@ def create_payload(content_text: str | None) -> VectorStatePayload:
         raster_data_url=None,
         raster_preview_data_url=None,
         origin=None,
-        invalid_msg=None,
     )
 
 

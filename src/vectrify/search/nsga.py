@@ -142,10 +142,6 @@ class NsgaStrategy(Generic[TState]):
         self.crossover_distance_threshold = crossover_distance_threshold
         self.epoch_diversity = epoch_diversity
 
-    @property
-    def top_k_count(self) -> int:
-        return self.pool_size
-
     def _is_duplicate(
         self, node: SearchNode[TState], other: SearchNode[TState]
     ) -> bool:
@@ -154,9 +150,8 @@ class NsgaStrategy(Generic[TState]):
         return node.signature == other.signature
 
     def select_parent(
-        self, nodes: list[SearchNode[TState]], progress: float
+        self, nodes: list[SearchNode[TState]]
     ) -> tuple[int, int | None]:
-        _ = progress
         valid = [n for n in nodes if n.score < INVALID_SCORE]
         if not valid:
             return nodes[0].id if nodes else 0, None

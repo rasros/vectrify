@@ -36,10 +36,6 @@ class FormatPlugin(Protocol):
         """Render content to PNG bytes at given dimensions."""
         ...
 
-    def rasterize_fast(self, content: str, long_side: int) -> bytes | None:
-        """Fast low-res render for micro-search scoring. Return None on failure."""
-        ...
-
     def validate(self, content: str) -> tuple[bool, str | None]:
         """Return (is_valid, error_message_or_None)."""
         ...

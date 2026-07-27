@@ -20,7 +20,6 @@ def build_svg_gen_prompt(
     original_data_url: str,
     iter_index: int,
     svg_prev: str | None = None,
-    svg_prev_invalid_msg: str | None = None,
     rasterized_svg_data_url: str | None = None,
     goal: str | None = None,
     diff_data_url: str | None = None,
@@ -44,11 +43,6 @@ def build_svg_gen_prompt(
             "Output ONLY search/replace diff blocks. "
             "No full file. Only modify elements visible in the difference map."
         )
-        if svg_prev_invalid_msg:
-            lines.append(
-                f"CRITICAL: Previous SVG failed to parse: "
-                f"{svg_prev_invalid_msg}. Fix syntax."
-            )
 
     if goal:
         lines.extend(["USER GOAL (highest priority):", goal])

@@ -45,7 +45,7 @@ class AnthropicProvider(LLMProvider):
         }
 
         # Add system prompt dynamically to satisfy the type checker
-        if config.response_schema or config.json_output:
+        if config.response_schema:
             kwargs["system"] = "You must respond with valid JSON."
 
         message = self._client.messages.create(**kwargs)

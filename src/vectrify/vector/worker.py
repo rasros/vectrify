@@ -20,7 +20,7 @@ from vectrify.llm import LLMConfig, get_provider
 from vectrify.score.complexity import complexity as blended_complexity
 from vectrify.search import INVALID_SCORE, Result
 from vectrify.search.diversity import simhash
-from vectrify.utils import setup_worker_logger  # <-- Updated import
+from vectrify.utils import setup_worker_logger
 
 
 @dataclasses.dataclass
@@ -40,7 +40,6 @@ class WorkerContext:
     llm_model: str
     reasoning: str
     api_key: str | None
-    total_workers: int
     llm_rate: float
     log_queue: Any = None
     llm_in_flight: Any = None
@@ -183,7 +182,6 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                 Result(
                     task_id=task.task_id,
                     parent_id=task.parent_id,
-                    worker_slot=task.worker_slot,
                     valid=True,
                     score=None,
                     payload=VectorResultPayload(
@@ -206,7 +204,6 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                     Result(
                         task_id=task.task_id,
                         parent_id=task.parent_id,
-                        worker_slot=task.worker_slot,
                         valid=False,
                         score=INVALID_SCORE,
                         payload=VectorResultPayload(None, None, None),

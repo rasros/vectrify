@@ -307,7 +307,6 @@ def run_vector_search(
         llm_model=llm_model,
         reasoning=reasoning,
         api_key=api_key,
-        total_workers=workers,
         llm_rate=llm_rate,
         log_queue=log_queue,
     )

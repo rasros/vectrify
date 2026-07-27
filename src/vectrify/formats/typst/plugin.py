@@ -45,30 +45,6 @@ class TypstPlugin:
         img.save(buf, format="PNG")
         return buf.getvalue()
 
-    def rasterize_fast(self, content: str, long_side: int) -> bytes | None:
-        try:
-            import typst
-
-            from vectrify.image_utils import resize_long_side
-
-            # Encode to bytes
-            png = typst.compile(content.encode("utf-8"), format="png", ppi=144)
-
-            if isinstance(png, list):
-                if not png:
-                    return None
-                png = png[0]
-            elif not isinstance(png, bytes):
-                return None
-
-            img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
-            img = resize_long_side(img, long_side)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
-        except Exception:
-            return None
-
     def validate(self, content: str) -> tuple[bool, str | None]:
         try:
             import typst

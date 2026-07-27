@@ -78,14 +78,6 @@ def test_gen_prompt_refinement_includes_svg():
     assert _SVG in text
 
 
-def test_gen_prompt_invalid_msg_shown():
-    blocks = build_svg_gen_prompt(
-        _IMG_URL, iter_index=2, svg_prev=_SVG, svg_prev_invalid_msg="bad parse"
-    )
-    text = "\n".join(_text_blocks(blocks))
-    assert "bad parse" in text
-
-
 def test_gen_prompt_goal_included():
     blocks = build_svg_gen_prompt(
         _IMG_URL, iter_index=3, svg_prev=_SVG, goal="fix the circle"

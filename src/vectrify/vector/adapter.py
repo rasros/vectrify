@@ -24,14 +24,10 @@ class VectorStrategyAdapter:
         self.write_lineage = write_lineage
         self.save_raster = save_raster
 
-    @property
-    def top_k_count(self) -> int:
-        return self.base_strategy.top_k_count
-
     def select_parent(
-        self, nodes: list[SearchNode[VectorStatePayload]], progress: float
+        self, nodes: list[SearchNode[VectorStatePayload]]
     ) -> tuple[int, int | None]:
-        return self.base_strategy.select_parent(nodes, progress)
+        return self.base_strategy.select_parent(nodes)
 
     def should_diversify(
         self, pool: list[SearchNode[VectorStatePayload]]
@@ -66,7 +62,6 @@ class VectorStrategyAdapter:
             raster_data_url=raster_data_url,
             raster_preview_data_url=preview_data_url,
             origin=result_payload.origin,
-            invalid_msg=result.invalid_msg,
             heatmap_data_url=heatmap_data_url,
         )
         return new_state

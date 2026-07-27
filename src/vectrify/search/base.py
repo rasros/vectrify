@@ -14,7 +14,7 @@ class StrategyType(str, Enum):
 
 class SearchStrategy(Protocol[TState]):
     def select_parent(
-        self, nodes: list[SearchNode[TState]], progress: float
+        self, nodes: list[SearchNode[TState]]
     ) -> tuple[int, int | None]: ...
 
     def create_new_state(self, result: Result[TState]) -> ChainState[TState]: ...
@@ -31,9 +31,6 @@ class SearchStrategy(Protocol[TState]):
     ) -> list[SearchNode[TState]]:
         """Select diverse nodes from the pool to seed the next epoch."""
         ...
-
-    @property
-    def top_k_count(self) -> int: ...
 
 
 class StorageAdapter(Protocol[TState]):
