@@ -49,7 +49,6 @@ _FILL_COLORS = [
 ]
 _FONT_SIZES = ["8", "10", "12", "14", "16", "18"]
 _RANK_DIRS = ["TB", "LR", "BT", "RL"]
-_LAYOUTS = ["dot", "neato", "fdp", "circo", "twopi"]
 _ARROW_HEADS = ["normal", "vee", "dot", "odot", "none", "box", "open"]
 _PORTS = ["n", "ne", "e", "se", "s", "sw", "w", "nw", "c"]
 _NODE_KEYWORDS = frozenset({"node", "edge", "graph", "strict", "digraph", "subgraph"})

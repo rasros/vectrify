@@ -34,7 +34,6 @@ def _make_node(
                 raster_data_url=None,
                 raster_preview_data_url=None,
                 origin=None,
-                invalid_msg=None,
             ),
         ),
     )

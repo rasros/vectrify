@@ -30,7 +30,6 @@ class Task(Generic[TState]):
     task_id: int
     parent_id: int
     parent_state: ChainState[TState]
-    worker_slot: int
     secondary_parent_id: int | None = None
     secondary_parent_state: ChainState[TState] | None = None
     force_llm: bool = False
@@ -41,13 +40,11 @@ class Task(Generic[TState]):
 class Result(Generic[TResultPayload]):
     task_id: int
     parent_id: int
-    worker_slot: int
     valid: bool
     score: float | None
     payload: TResultPayload
     invalid_msg: str | None = None
     secondary_parent_id: int | None = None
     complexity: float = 0.0
-    content: str | None = None
     signature: int | None = None
     llm_type: str | None = None

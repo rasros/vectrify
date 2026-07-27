@@ -2,7 +2,6 @@ import pytest
 
 from vectrify.cli import (
     DEFAULT_EPOCH_DIVERSITY,
-    DEFAULT_LLM_RATE,
     DEFAULT_POOL_SIZE,
     parse_args,
 )
@@ -76,11 +75,6 @@ def test_cull_keep_upper_bound_accepted():
 def test_default_pool_size():
     args = parse_args(["img.png"])
     assert args.pool_size == DEFAULT_POOL_SIZE
-
-
-def test_default_llm_rate():
-    args = parse_args(["img.png"])
-    assert args.llm_rate == DEFAULT_LLM_RATE
 
 
 def test_default_llm_rate_tracks_workers():

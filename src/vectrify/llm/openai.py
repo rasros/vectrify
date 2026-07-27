@@ -39,8 +39,6 @@ class OpenAIProvider(LLMProvider):
                     "strict": True,
                 },
             }
-        elif config.json_output:
-            kwargs["response_format"] = {"type": "json_object"}
 
         if config.reasoning:
             kwargs["reasoning_effort"] = config.reasoning

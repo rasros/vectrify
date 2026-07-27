@@ -1,4 +1,3 @@
-import io
 
 from PIL import Image
 
@@ -12,7 +11,7 @@ from vectrify.formats.svg.prompts import (
     extract_svg_fragment,
     is_valid_svg,
 )
-from vectrify.image_utils import rasterize_svg_to_png_bytes, resize_long_side
+from vectrify.image_utils import rasterize_svg_to_png_bytes
 
 
 class SvgPlugin:
@@ -21,17 +20,6 @@ class SvgPlugin:
 
     def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
         return rasterize_svg_to_png_bytes(content, out_w=out_w, out_h=out_h)
-
-    def rasterize_fast(self, content: str, long_side: int) -> bytes | None:
-        try:
-            png = rasterize_svg_to_png_bytes(content, out_w=long_side, out_h=long_side)
-            img = Image.open(io.BytesIO(png)).convert("RGB")
-            img = resize_long_side(img, long_side)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
-        except Exception:
-            return None
 
     def validate(self, content: str) -> tuple[bool, str | None]:
         return is_valid_svg(content)

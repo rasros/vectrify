@@ -54,7 +54,6 @@ class MultiprocessSearchEngine(Generic[TState]):
     def run(
         self,
         initial_nodes: list[SearchNode[TState]],
-        max_accepts: int = 2_000_000_000,
         max_wall_seconds: float | None = None,
         epoch_patience: int | None = None,
         epoch_min_delta: float = 1e-4,
@@ -134,10 +133,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             if draining_epoch:
                 return
             while in_flight < self.workers and next_task_id <= self.max_total_tasks:
-                progress = (
-                    accepted_count / float(max_accepts) if max_accepts > 0 else 0.0
-                )
-                pid1, pid2 = self.strategy.select_parent(active_pool, progress)
+                pid1, pid2 = self.strategy.select_parent(active_pool)
 
                 is_epoch0_seed = epoch == 0 and epoch0_seeds_dispatched < seed_tasks
                 if is_epoch0_seed:
@@ -164,7 +160,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                         task_id=next_task_id,
                         parent_id=pid1,
                         parent_state=node_states[pid1],
-                        worker_slot=in_flight % self.workers,
                         secondary_parent_id=pid2,
                         secondary_parent_state=node_states[pid2] if pid2 else None,
                         force_llm=is_epoch0_seed,
@@ -398,9 +393,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 ):
                     log.warning("Time limit reached.")
                     break
-                if accepted_count >= max_accepts:
-                    log.info(f"Target of {max_accepts} accepts reached.")
-                    break
                 if tasks_completed >= self.max_total_tasks:
                     log.warning("Max task limit reached.")
                     break
@@ -422,11 +414,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                     break
                 if res is None:
                     continue
-
-                if isinstance(res, dict) and "init_error" in res:
-                    raise RuntimeError(
-                        f"Worker initialization failed: {res['init_error']}"
-                    )
 
                 in_flight -= 1
                 tasks_completed += 1

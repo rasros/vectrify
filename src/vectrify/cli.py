@@ -30,9 +30,6 @@ def _default_llm_rate(workers: int) -> float:
     return min(2 / workers, 0.2)
 
 
-# Shown in --help; the effective default is recomputed from the resolved
-# --workers in parse_args when the user does not pass --llm-rate explicitly.
-DEFAULT_LLM_RATE = _default_llm_rate(DEFAULT_WORKERS)
 DEFAULT_POOL_SIZE = 100
 DEFAULT_SEEDS = 0
 DEFAULT_BEAMS = 10
@@ -400,9 +397,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         ns.llm_rate = _default_llm_rate(ns.workers)
 
     if not (0.0 < ns.cull_keep <= 1.0):
-        raise SystemExit(
-            "Error: --cull-keep must be greater than 0.0 and at most 1.0"
-        )
+        raise SystemExit("Error: --cull-keep must be greater than 0.0 and at most 1.0")
 
     if ns.resume_top is not None:
         ns.resume = True

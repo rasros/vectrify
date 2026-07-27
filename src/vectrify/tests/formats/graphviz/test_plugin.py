@@ -168,21 +168,6 @@ def test_rasterize_output_dimensions():
     assert img.size == (128, 96)
 
 
-@pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
-def test_rasterize_fast_returns_png_bytes():
-    plugin = GraphvizPlugin()
-    png = plugin.rasterize_fast(_DIGRAPH, long_side=64)
-    assert png is not None
-    assert png[:4] == b"\x89PNG"
-
-
-@pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
-def test_rasterize_fast_returns_none_on_invalid():
-    plugin = GraphvizPlugin()
-    result = plugin.rasterize_fast("not dot code >>>", long_side=64)
-    assert result is None
-
-
 @pytest.mark.llm
 @pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
 def test_llm_dot_generation_produces_valid_dot():

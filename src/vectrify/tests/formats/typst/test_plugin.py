@@ -76,21 +76,6 @@ def test_rasterize_output_dimensions():
     assert img.size == (128, 96)
 
 
-@pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
-def test_rasterize_fast_returns_png_bytes():
-    plugin = TypstPlugin()
-    png = plugin.rasterize_fast(_VALID_TYPST, long_side=64)
-    assert png is not None
-    assert png[:4] == b"\x89PNG"
-
-
-@pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
-def test_rasterize_fast_returns_none_on_invalid():
-    plugin = TypstPlugin()
-    result = plugin.rasterize_fast("#invalid_syntax()", long_side=64)
-    assert result is None
-
-
 @pytest.mark.llm
 @pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
 def test_llm_typst_generation_produces_valid_typst():

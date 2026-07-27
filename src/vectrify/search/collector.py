@@ -54,10 +54,6 @@ class StatCollector:
         self._run_dir = run_dir
         self._csv_ready = False  # True once the header has been written
 
-    @property
-    def stats(self) -> "SearchStats":
-        return self._stats
-
     def configure_run(
         self,
         *,

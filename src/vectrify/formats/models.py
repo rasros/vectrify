@@ -7,7 +7,6 @@ class VectorStatePayload:
     raster_data_url: str | None
     raster_preview_data_url: str | None
     origin: str | None
-    invalid_msg: str | None
     heatmap_data_url: str | None = None
 
 

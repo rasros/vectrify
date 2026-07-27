@@ -152,7 +152,6 @@ def resume_nodes(
                         raster_data_url=None,
                         raster_preview_data_url=preview,
                         origin=f"Imported from Node {old_id}",
-                        invalid_msg=None,
                     ),
                 ),
             )

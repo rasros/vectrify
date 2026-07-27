@@ -7,7 +7,6 @@ class LLMConfig:
     model: str
     temperature: float | None = None
     reasoning: str | None = None
-    json_output: bool = False
     response_schema: dict[str, Any] | None = None
     schema_name: str = "output"
 

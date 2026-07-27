@@ -24,7 +24,6 @@ def dummy_state() -> ChainState:
         raster_data_url=None,
         raster_preview_data_url=None,
         origin="Fixed circle",
-        invalid_msg=None,
     )
     return ChainState(
         score=0.123456,
@@ -74,7 +73,7 @@ def test_save_best_skips_empty_content(tmp_path):
     adapter = FileStorageAdapter(str(output_path))
     empty_state = ChainState(
         score=0.0,
-        payload=VectorStatePayload(None, None, None, None, None),
+        payload=VectorStatePayload(None, None, None, None),
     )
     node = SearchNode(score=0.0, id=0, parent_id=0, state=empty_state)
 
@@ -156,7 +155,6 @@ def _make_node_with_raster_and_heatmap(
         raster_data_url=raster_data_url,
         raster_preview_data_url=None,
         origin="test",
-        invalid_msg=None,
         heatmap_data_url=heatmap_data_url,
     )
     return SearchNode(
@@ -220,7 +218,6 @@ def test_save_node_content_none_does_not_write_content_file(tmp_path):
         raster_data_url=None,
         raster_preview_data_url=None,
         origin="no content",
-        invalid_msg=None,
     )
     node = SearchNode(
         score=0.5,

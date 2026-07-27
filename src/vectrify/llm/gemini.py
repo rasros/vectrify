@@ -44,10 +44,9 @@ class GeminiProvider(LLMProvider):
                 thinking_budget=budget
             )
 
-        if config.response_schema or config.json_output:
+        if config.response_schema:
             generation_config.response_mime_type = "application/json"
-            if config.response_schema:
-                generation_config.response_schema = config.response_schema
+            generation_config.response_schema = config.response_schema
 
         response = self.client.models.generate_content(
             model=config.model, contents=prompt_parts, config=generation_config

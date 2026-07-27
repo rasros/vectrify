@@ -118,22 +118,6 @@ class GraphvizPlugin:
         img.save(buf, format="PNG")
         return buf.getvalue()
 
-    def rasterize_fast(self, content: str, long_side: int) -> bytes | None:
-        try:
-            import graphviz
-
-            from vectrify.image_utils import resize_long_side
-
-            src = graphviz.Source(content)
-            png = src.pipe(format="png", quiet=True)
-            img = PIL.Image.open(io.BytesIO(png)).convert("RGB")
-            img = resize_long_side(img, long_side)
-            buf = io.BytesIO()
-            img.save(buf, format="PNG")
-            return buf.getvalue()
-        except Exception:
-            return None
-
     def validate(self, content: str) -> tuple[bool, str | None]:
         try:
             import graphviz
