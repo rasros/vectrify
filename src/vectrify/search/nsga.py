@@ -1,6 +1,7 @@
 import logging
 import random
-from typing import Generic, TypeVar
+from collections.abc import Callable
+from typing import Any, Generic, TypeVar
 
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, ChainState, Result, SearchNode
@@ -15,6 +16,17 @@ Objectives = tuple[float, float]
 def _dominates(a: Objectives, b: Objectives) -> bool:
     """True if a Pareto-dominates b (better/equal in all, strictly better in one)."""
     return a[0] <= b[0] and a[1] <= b[1] and (a[0] < b[0] or a[1] < b[1])
+
+
+def pareto_front(items: list, key: "Callable[[Any], Objectives]") -> list:
+    """Return the items whose key(item) = (a, b) tuple is not Pareto-dominated
+    by any other item's (lower is better for both objectives)."""
+    points = [key(it) for it in items]
+    return [
+        items[i]
+        for i, p in enumerate(points)
+        if not any(_dominates(q, p) for j, q in enumerate(points) if j != i)
+    ]
 
 
 def _constrained_dominates(
@@ -129,6 +141,37 @@ def crowding_distance(
     return distances
 
 
+def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
+    """Normalize (score, complexity) per node into unit-scaled objectives.
+
+    Callers must pass only valid nodes (score < INVALID_SCORE); an infinite
+    score would corrupt the normalization for every other node.
+    """
+    max_score = max((n.score for n in nodes), default=1.0) or 1.0
+    max_complexity = max((n.complexity for n in nodes), default=1.0) or 1.0
+    return {n.id: (n.score / max_score, n.complexity / max_complexity) for n in nodes}
+
+
+def pareto_select(
+    nodes: list[SearchNode],
+    objectives: dict[int, Objectives],
+    max_keep: int,
+) -> list[SearchNode]:
+    """Walk Pareto fronts in order, taking crowding-distance-diverse nodes
+    from each until *max_keep* are selected."""
+    fronts = non_dominated_sort(nodes, objectives)
+    selected: list[SearchNode] = []
+    for front in fronts:
+        if len(selected) >= max_keep:
+            break
+        distances = crowding_distance(front, objectives)
+        for node in sorted(front, key=lambda n: -distances[n.id]):
+            if len(selected) >= max_keep:
+                break
+            selected.append(node)
+    return selected
+
+
 class NsgaStrategy(Generic[TState]):
     """NSGA-II-style selection balancing visual quality and SVG complexity."""
 
@@ -154,11 +197,7 @@ class NsgaStrategy(Generic[TState]):
         if not valid:
             return nodes[0].id if nodes else 0, None
 
-        max_score = max(n.score for n in valid) or 1.0
-        max_complexity = max(n.complexity for n in valid) or 1.0
-        objectives: dict[int, Objectives] = {
-            n.id: (n.score / max_score, n.complexity / max_complexity) for n in valid
-        }
+        objectives = build_objectives(valid)
 
         score_threshold = _percentile_75([n.score for n in valid])
         fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
@@ -212,11 +251,7 @@ class NsgaStrategy(Generic[TState]):
         if not valid:
             return pool[:max_seeds]
 
-        max_score = max(n.score for n in valid) or 1.0
-        max_complexity = max(n.complexity for n in valid) or 1.0
-        objectives: dict[int, Objectives] = {
-            n.id: (n.score / max_score, n.complexity / max_complexity) for n in valid
-        }
+        objectives = build_objectives(valid)
 
         score_threshold = _percentile_75([n.score for n in valid])
         fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)

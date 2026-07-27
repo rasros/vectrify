@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Clean up run directories, keeping only the Pareto front (score vs complexity)
-and the top 20 nodes by score. All other .svg files are deleted.
+and the top 20 nodes by score. All other node files are deleted.
 
 Usage:
     uv run scripts/clean_runs.py <project_dir_or_svg_output>
@@ -20,45 +20,26 @@ import re
 import sys
 from pathlib import Path
 
-
-def _dominates(a: tuple[float, float], b: tuple[float, float]) -> bool:
-    """True if a Pareto-dominates b (lower is better for both objectives)."""
-    return a[0] <= b[0] and a[1] <= b[1] and (a[0] < b[0] or a[1] < b[1])
+from vectrify.run_dirs import OUTPUT_EXTENSIONS, project_runs_dir, run_dirs_in
+from vectrify.search.nsga import pareto_front
 
 
-def pareto_front(nodes: list[dict]) -> list[dict]:
-    """Return nodes on the Pareto front (minimising score and complexity)."""
-    front = []
-    for candidate in nodes:
-        dominated = False
-        for other in nodes:
-            if other is candidate:
-                continue
-            if _dominates(
-                (other["score"], other["complexity"]),
-                (candidate["score"], candidate["complexity"]),
-            ):
-                dominated = True
-                break
-        if not dominated:
-            front.append(candidate)
-    return front
-
-
-def collect_svg_files(nodes_dir: Path) -> list[dict]:
+def collect_node_files(nodes_dir: Path) -> list[dict]:
     """
-    Read SVG files from a nodes directory. Supports two filename formats:
-      New: {score}_{id}.svg             e.g. 0.069113_2.svg
+    Read node files (any known output extension) from a nodes directory.
+    Supports two filename formats:
+      New: {score}_{id}.{ext}           e.g. 0.069113_2.svg
       Old: score{score}_node{id}_...    e.g. score00000.069113_node00002_parent00000.svg
     """
-    # New format: plain score_id.svg
-    _new = re.compile(r"^([0-9.]+(?:inf)?)_(\d+)\.svg$")
+    ext_pattern = "|".join(re.escape(e) for e in OUTPUT_EXTENSIONS)
+    # New format: plain score_id.ext
+    _new = re.compile(rf"^([0-9.]+(?:inf)?)_(\d+)(?:{ext_pattern})$")
     # Old format: score00000.069113_node00002_parent00000.svg
-    _old = re.compile(r"^score([0-9.]+)_node(\d+)_parent\d+\.svg$")
+    _old = re.compile(rf"^score([0-9.]+)_node(\d+)_parent\d+(?:{ext_pattern})$")
 
     nodes = []
-    for svg_path in nodes_dir.glob("*.svg"):
-        m = _new.match(svg_path.name) or _old.match(svg_path.name)
+    for node_path in sorted(nodes_dir.iterdir()):
+        m = _new.match(node_path.name) or _old.match(node_path.name)
         if not m:
             continue
         try:
@@ -67,7 +48,7 @@ def collect_svg_files(nodes_dir: Path) -> list[dict]:
             score = float("inf")
         node_id = int(m.group(2))
         nodes.append(
-            {"id": node_id, "score": score, "path": svg_path, "complexity": None}
+            {"id": node_id, "score": score, "path": node_path, "complexity": None}
         )
     return nodes
 
@@ -100,7 +81,7 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
     if not nodes_dir.exists():
         return 0, 0
 
-    nodes = collect_svg_files(nodes_dir)
+    nodes = collect_node_files(nodes_dir)
     if not nodes:
         return 0, 0
 
@@ -115,7 +96,7 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
 
     # Pareto front (score vs complexity)
     if valid:
-        for node in pareto_front(valid):
+        for node in pareto_front(valid, key=lambda n: (n["score"], n["complexity"])):
             keep_ids.add(node["id"])
 
     # Top N by score
@@ -140,37 +121,23 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
     return kept, deleted
 
 
-def _runs_dirs_from_runs(runs_dir: Path) -> list[Path]:
-    return sorted(
-        [d for d in runs_dir.iterdir() if d.is_dir()],
-        key=lambda d: d.name,
-    )
-
-
 def resolve_run_dirs(path: Path) -> list[tuple[Path, list[Path]]]:
     """
     Return a list of (runs_dir, [run_dir, ...]) groups to clean.
 
     Accepts:
-      - output.svg              → output/runs/
+      - an output file (.svg/.dot/.typ) → output/runs/
       - project_dir/            → project_dir/runs/
       - project_dir/runs/       → all run dirs inside
       - single run dir          → that dir only
       - arbitrary directory     → recursively find all */runs/ beneath it
     """
-    if path.suffix == ".svg":
-        runs_dir = path.parent / path.stem / "runs"
+    runs_dir = project_runs_dir(path)
+    if runs_dir is not None:
         if not runs_dir.exists():
             print(f"Runs directory not found: {runs_dir}", file=sys.stderr)
             sys.exit(1)
-        return [(runs_dir, _runs_dirs_from_runs(runs_dir))]
-
-    if path.name == "runs" and path.is_dir():
-        return [(path, _runs_dirs_from_runs(path))]
-
-    if (path / "runs").is_dir():
-        runs_dir = path / "runs"
-        return [(runs_dir, _runs_dirs_from_runs(runs_dir))]
+        return [(runs_dir, run_dirs_in(runs_dir))]
 
     # Check if it looks like a single timestamped run dir (has a nodes/ subdir)
     if (path / "nodes").is_dir():
@@ -178,7 +145,7 @@ def resolve_run_dirs(path: Path) -> list[tuple[Path, list[Path]]]:
 
     # Recurse: find all runs/ directories anywhere beneath path
     all_runs_dirs = sorted(path.rglob("runs"), key=lambda p: str(p))
-    groups = [(rd, _runs_dirs_from_runs(rd)) for rd in all_runs_dirs if rd.is_dir()]
+    groups = [(rd, run_dirs_in(rd)) for rd in all_runs_dirs if rd.is_dir()]
     if not groups:
         print(f"No runs/ directories found under {path}", file=sys.stderr)
         sys.exit(1)

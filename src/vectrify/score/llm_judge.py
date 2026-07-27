@@ -9,17 +9,12 @@ from PIL.Image import Resampling
 
 from vectrify.image_utils import png_bytes_to_data_url
 from vectrify.llm import LLMConfig, get_provider
+from vectrify.llm.models import JUDGE_MODELS
 from vectrify.score.base import Scorer
 from vectrify.score.utils import lab_l1
 
 log = logging.getLogger(__name__)
 TIE_BREAKER_WEIGHT = 0.01
-
-JUDGE_MODELS: dict[str, str] = {
-    "openai": "gpt-5.4",
-    "anthropic": "claude-sonnet-4-6",
-    "gemini": "gemini-3.0-flash",
-}
 
 
 @dataclass
@@ -63,7 +58,7 @@ class LLMJudgeScorer(Scorer):
         api_key: str | None = None,
     ):
         self.provider_name = provider_name
-        judge_model = JUDGE_MODELS.get(provider_name, "gpt-5.4")
+        judge_model = JUDGE_MODELS.get(provider_name, JUDGE_MODELS["openai"])
         self.config = LLMConfig(
             model=judge_model,
             temperature=0.0,

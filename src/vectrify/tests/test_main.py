@@ -49,7 +49,7 @@ def test_auto_selects_provider_by_priority(monkeypatch):
     monkeypatch.setenv("GEMINI_API_KEY", "y")
     provider, model = determine_provider_and_model(_args())
     assert provider == "anthropic"
-    assert model == "claude-4-6-sonnet"
+    assert model == "claude-sonnet-4-6"
 
 
 @pytest.mark.usefixtures("clear_keys")

@@ -22,6 +22,9 @@ from pathlib import Path
 
 import matplotlib
 
+from vectrify.run_dirs import project_runs_dir, run_dirs_in
+from vectrify.search.nsga import pareto_front
+
 matplotlib.rcParams["figure.dpi"] = 192  # crisp on HiDPI / 4K displays
 matplotlib.use("Agg")  # safe default; switch_backend below upgrades to GUI if available
 
@@ -181,27 +184,18 @@ def load_final_pool_ids(run_dir: Path) -> set[int] | None:
 
 
 def resolve_run_dirs(path: Path, top: int | None) -> list[Path]:
-    if path.suffix == ".svg":
-        runs_dir = path.parent / path.stem / "runs"
-    elif path.name == "runs" and path.is_dir():
-        runs_dir = path
-    elif (path / "runs").is_dir():
-        runs_dir = path / "runs"
-    elif (path / "nodes").is_dir() or (path / "lineage.csv").exists():
-        return [path]
-    else:
+    runs_dir = project_runs_dir(path)
+    if runs_dir is None:
+        if (path / "nodes").is_dir() or (path / "lineage.csv").exists():
+            return [path]
         # recurse
         found = sorted(path.rglob("runs"), key=lambda p: str(p))
         dirs = []
         for rd in found:
-            dirs.extend(
-                sorted([d for d in rd.iterdir() if d.is_dir()], key=lambda d: d.name)
-            )
+            dirs.extend(run_dirs_in(rd))
         return dirs[-top:] if top else dirs
 
-    run_dirs = sorted(
-        [d for d in runs_dir.iterdir() if d.is_dir()], key=lambda d: d.name
-    )
+    run_dirs = run_dirs_in(runs_dir)
     return run_dirs[-top:] if top else run_dirs
 
 
@@ -219,24 +213,7 @@ def _pareto_top10(lin: list[dict], pool_ids: set[int] | None = None) -> list[dic
     valid = [r for r in candidates if r["score"] < float("inf")]
     if not valid:
         return []
-    front = []
-    for candidate in valid:
-        dominated = False
-        for other in valid:
-            if other is candidate:
-                continue
-            if (
-                other["score"] <= candidate["score"]
-                and other["complexity"] <= candidate["complexity"]
-                and (
-                    other["score"] < candidate["score"]
-                    or other["complexity"] < candidate["complexity"]
-                )
-            ):
-                dominated = True
-                break
-        if not dominated:
-            front.append(candidate)
+    front = pareto_front(valid, key=lambda r: (r["score"], r["complexity"]))
     return sorted(front, key=lambda r: r["score"])[:10]
 
 
