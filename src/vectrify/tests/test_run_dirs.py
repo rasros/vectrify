@@ -7,8 +7,11 @@ from vectrify.run_dirs import OUTPUT_EXTENSIONS, project_runs_dir, run_dirs_in
 
 
 def test_output_extensions_match_plugins():
-    plugin_exts = {SvgPlugin.file_extension, GraphvizPlugin.file_extension,
-                   TypstPlugin.file_extension}
+    plugin_exts = {
+        SvgPlugin.file_extension,
+        GraphvizPlugin.file_extension,
+        TypstPlugin.file_extension,
+    }
     assert plugin_exts == OUTPUT_EXTENSIONS
 
 
