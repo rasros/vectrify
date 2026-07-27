@@ -14,8 +14,8 @@ from PIL import Image, UnidentifiedImageError
 
 from vectrify.cli import (
     DEFAULT_EPOCH_DIVERSITY,
+    DEFAULT_MAX_TOTAL_TASKS,
     DEFAULT_POOL_SIZE,
-    DEFAULT_VISION_MODEL,
     _default_llm_rate,
 )
 from vectrify.formats.models import VectorStatePayload
@@ -23,7 +23,9 @@ from vectrify.image_utils import (
     downscale_png_bytes,
     png_bytes_to_data_url,
 )
+from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
+from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
     BeamSearchStrategy,
@@ -149,6 +151,7 @@ def run_vector_search(
     epoch_pool_size: int | None = None,
     epoch_steps: int | None = None,
     max_llm_calls: int | None = None,
+    max_total_tasks: int = DEFAULT_MAX_TOTAL_TASKS,
     vision_model: str = DEFAULT_VISION_MODEL,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
@@ -172,7 +175,7 @@ def run_vector_search(
     os.environ["HF_HUB_VERBOSITY"] = "error"
     os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 
-    api_key = os.getenv(f"{llm_provider.upper()}_API_KEY")
+    api_key = os.getenv(api_key_env(llm_provider))
 
     # Load the scoring model in the background so epoch-0 LLM seeding can run
     # concurrently with (potentially slow) HuggingFace model downloads/init.
@@ -289,7 +292,10 @@ def run_vector_search(
         base_strategy, image_long_side, write_lineage, save_raster
     )
     engine = MultiprocessSearchEngine(
-        workers=workers, strategy=strategy, storage=storage
+        workers=workers,
+        strategy=strategy,
+        storage=storage,
+        max_total_tasks=max_total_tasks,
     )
 
     model_png = downscale_png_bytes(original_png_bytes, image_long_side)

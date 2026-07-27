@@ -4,12 +4,12 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
 from vectrify.score import ScorerType
+from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import StrategyType
 
 DEFAULT_OUTPUT = "output.svg"
 DEFAULT_PROVIDER = "auto"
 DEFAULT_SCORER = "auto"
-DEFAULT_VISION_MODEL = "google/siglip-so400m-patch14-384"
 DEFAULT_STRATEGY = "nsga"
 BEAM_ONLY_PARAMS = {"beams", "cull_keep"}
 NSGA_ONLY_PARAMS = {"epoch_diversity", "epoch_variance", "epoch_seeds"}
@@ -41,6 +41,7 @@ DEFAULT_EPOCH_PATIENCE = 20
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
 DEFAULT_EPOCH_STEPS = 50
 DEFAULT_MAX_LLM_CALLS = 0  # 0 = unlimited / off
+DEFAULT_MAX_TOTAL_TASKS = 10000
 DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
 
@@ -352,6 +353,15 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"cost bound. Default: {DEFAULT_MAX_LLM_CALLS} (unlimited)",
     )
     g_runtime.add_argument(
+        "--max-total-tasks",
+        type=int,
+        default=DEFAULT_MAX_TOTAL_TASKS,
+        dest="max_total_tasks",
+        metavar="N",
+        help="Hard cap on total tasks (mutations, crossovers, and LLM calls) "
+        f"across the entire run. Default: {DEFAULT_MAX_TOTAL_TASKS}",
+    )
+    g_runtime.add_argument(
         "--image-long-side",
         type=int,
         default=DEFAULT_IMAGE_LONG_SIDE,
@@ -390,6 +400,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
     if ns.image_long_side <= 0:
         raise SystemExit("Error: --image-long-side must be > 0")
+    if ns.max_total_tasks <= 0:
+        raise SystemExit("Error: --max-total-tasks must be > 0")
 
     if ns.llm_rate is not None and not (0.0 <= ns.llm_rate <= 1.0):
         raise SystemExit("Error: --llm-rate must be between 0.0 and 1.0")

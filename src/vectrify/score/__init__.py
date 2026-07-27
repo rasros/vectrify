@@ -4,7 +4,7 @@ from enum import Enum
 from vectrify.score.base import ScoreConfig, Scorer
 from vectrify.score.llm_judge import LLMJudgeScorer
 from vectrify.score.simple import SimpleFallbackScorer
-from vectrify.score.vision import VisionScorer
+from vectrify.score.vision import DEFAULT_VISION_MODEL, VisionScorer
 
 log = logging.getLogger(__name__)
 
@@ -29,7 +29,7 @@ def get_scorer(
     scorer_type: ScorerType | str = ScorerType.AUTO,
     provider_name: str = "openai",
     api_key: str | None = None,
-    vision_model: str = "google/siglip-so400m-patch14-384",
+    vision_model: str = DEFAULT_VISION_MODEL,
 ) -> Scorer:
     if isinstance(scorer_type, str):
         scorer_type = ScorerType(scorer_type.lower())

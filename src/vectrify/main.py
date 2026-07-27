@@ -9,6 +9,7 @@ from vectrify.dashboard import Dashboard
 from vectrify.formats.graphviz.plugin import GraphvizPlugin
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.formats.typst.plugin import TypstPlugin
+from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, api_key_env
 from vectrify.search.base import StrategyType
 from vectrify.search.stats import SearchStats
 from vectrify.utils import setup_logger
@@ -19,28 +20,22 @@ from vectrify.vector.storage import FileStorageAdapter
 def determine_provider_and_model(args) -> tuple[str, str]:
     provider = args.provider
     model = args.model
-    default_models = {
-        "openai": "gpt-5.4",
-        "anthropic": "claude-4-6-sonnet",
-        "gemini": "gemini-3.1-pro-preview",
-    }
 
     if provider == "auto":
-        if os.getenv("OPENAI_API_KEY"):
-            provider = "openai"
-        elif os.getenv("ANTHROPIC_API_KEY"):
-            provider = "anthropic"
-        elif os.getenv("GEMINI_API_KEY"):
-            provider = "gemini"
-        else:
+        provider = next(
+            (p for p in PROVIDERS if os.getenv(api_key_env(p))),
+            None,
+        )
+        if provider is None:
+            env_vars = ", ".join(api_key_env(p) for p in PROVIDERS)
             print(
-                "Error: no LLM API key found. Set one of OPENAI_API_KEY, "
-                "ANTHROPIC_API_KEY, or GEMINI_API_KEY in your environment.",
+                f"Error: no LLM API key found. Set one of {env_vars} "
+                "in your environment.",
                 file=sys.stderr,
             )
             sys.exit(1)
     else:
-        env_var = f"{provider.upper()}_API_KEY"
+        env_var = api_key_env(provider)
         if not os.getenv(env_var):
             print(
                 f"Error: --provider {provider} was selected but {env_var} is "
@@ -50,7 +45,7 @@ def determine_provider_and_model(args) -> tuple[str, str]:
             sys.exit(1)
 
     if not model:
-        model = default_models.get(provider, "gpt-5.4")
+        model = DEFAULT_MODELS[provider]
     return provider, model
 
 
@@ -154,6 +149,7 @@ def main():
             epoch_pool_size=args.epoch_seeds or None,
             epoch_steps=args.epoch_steps or None,
             max_llm_calls=args.max_llm_calls or None,
+            max_total_tasks=args.max_total_tasks,
             vision_model=args.vision_model,
             stats=stats,
             dashboard=dashboard,

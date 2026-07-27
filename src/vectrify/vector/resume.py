@@ -16,7 +16,7 @@ from vectrify.search import (
     StrategyType,
 )
 from vectrify.search.diversity import simhash
-from vectrify.search.nsga import crowding_distance, non_dominated_sort
+from vectrify.search.nsga import build_objectives, pareto_select
 
 if TYPE_CHECKING:
     from vectrify.formats.base import FormatPlugin
@@ -46,8 +46,6 @@ def prefilter_nodes(
             simple_scores.append(1.0)
 
     complexities = [item[4] for item in prepped_nodes]
-    max_s = max(simple_scores, default=1.0) or 1.0
-    max_c = max(complexities, default=1.0) or 1.0
 
     temp_nodes = [
         SearchNode(
@@ -59,23 +57,9 @@ def prefilter_nodes(
         )
         for i in range(len(prepped_nodes))
     ]
-    objectives = {
-        i: (simple_scores[i] / max_s, complexities[i] / max_c)
-        for i in range(len(prepped_nodes))
-    }
-
-    fronts = non_dominated_sort(temp_nodes, objectives)
-    kept: list[int] = []
-    for front in fronts:
-        if len(kept) >= max_keep:
-            break
-        distances = crowding_distance(front, objectives)
-        for node in sorted(front, key=lambda n: -distances[n.id]):
-            if len(kept) >= max_keep:
-                break
-            kept.append(node.id)
-
-    return [prepped_nodes[i] for i in kept]
+    objectives = build_objectives(temp_nodes)
+    kept = pareto_select(temp_nodes, objectives, max_keep)
+    return [prepped_nodes[node.id] for node in kept]
 
 
 def resume_nodes(
@@ -176,27 +160,15 @@ def filter_to_pool_size(
     log.info(f"Filtering {len(nodes)} rescored nodes down to {pool_size}...")
 
     if strategy_type == StrategyType.NSGA:
-        max_score = (
-            max(
-                (n.score for n in nodes if n.score < INVALID_SCORE),
-                default=1.0,
-            )
-            or 1.0
-        )
-        max_comp = max((n.complexity for n in nodes), default=1.0) or 1.0
-        objectives = {
-            n.id: (n.score / max_score, n.complexity / max_comp) for n in nodes
-        }
-        fronts = non_dominated_sort(nodes, objectives)
-        filtered: list[SearchNode] = []
-        for front in fronts:
-            if len(filtered) >= pool_size:
-                break
-            distances = crowding_distance(front, objectives)
-            for node in sorted(front, key=lambda n: -distances[n.id]):
-                if len(filtered) >= pool_size:
-                    break
-                filtered.append(node)
+        # Pareto-select among valid nodes only (an infinite score would
+        # corrupt the normalization); top up with invalid ones if short,
+        # matching the old behavior where they sorted into the last fronts.
+        valid = [n for n in nodes if n.score < INVALID_SCORE]
+        filtered = pareto_select(valid, build_objectives(valid), pool_size)
+        if len(filtered) < pool_size:
+            kept_ids = {n.id for n in filtered}
+            invalid = [n for n in nodes if n.id not in kept_ids]
+            filtered.extend(invalid[: pool_size - len(filtered)])
         return filtered
 
     return sorted(nodes, key=lambda n: n.score)[:pool_size]

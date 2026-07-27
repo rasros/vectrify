@@ -44,6 +44,15 @@ class AnthropicProvider(LLMProvider):
             "messages": [{"role": "user", "content": messages_content}],
         }
 
+        if config.reasoning:
+            budget_map = {"low": 1024, "medium": 8192, "high": 24576}
+            budget = budget_map.get(config.reasoning, 8192)
+            kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            # max_tokens must exceed the thinking budget, and the API requires
+            # temperature 1 when extended thinking is enabled.
+            kwargs["max_tokens"] = budget + 8192
+            kwargs["temperature"] = 1.0
+
         # Add system prompt dynamically to satisfy the type checker
         if config.response_schema:
             kwargs["system"] = "You must respond with valid JSON."
