@@ -9,7 +9,7 @@ from PIL import Image
 
 from vectrify.image_utils import resize_long_side
 from vectrify.score.base import DEFAULT_CONFIG, Scorer
-from vectrify.score.utils import get_device, lab_l1
+from vectrify.score.utils import MAX_SCORE, clamp01, color_score, get_device
 
 if TYPE_CHECKING:
     import torch
@@ -138,20 +138,16 @@ class VisionScorer(Scorer):
 
         # Dot product of L2-normalised vectors = cosine similarity
         cos_sim = float((reference.embedding * cand_embedding).sum().item())
-        struct_score = max(0.0, min(1.0, 1.0 - cos_sim))
-
-        cand_small = cand.resize(
-            reference.image.size, resample=Image.Resampling.BILINEAR
-        )
-        color_score = float(max(0.0, min(1.0, lab_l1(reference.image, cand_small))))
+        struct_score = clamp01(1.0 - cos_sim)
+        color = color_score(reference.image, candidate_png)
 
         score = (DEFAULT_CONFIG.w_vision * struct_score) + (
-            DEFAULT_CONFIG.w_color * color_score
+            DEFAULT_CONFIG.w_color * color
         )
 
         if not np.isfinite(score):
-            return 1.0
-        return float(max(0.0, min(1.0, score)))
+            return MAX_SCORE
+        return clamp01(score)
 
     def diff_heatmap(
         self,

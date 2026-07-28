@@ -20,6 +20,37 @@ def _bar(fraction: float, width: int = 12) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
+def _diversity_color(pool_diversity: float, epoch_diversity: float) -> str:
+    """Diversity keeps its own ladder — red once it has reached the stop
+    threshold, yellow while still within 2x of it — rather than the
+    fraction-based one the other criteria use."""
+    if epoch_diversity <= 0:
+        return "cyan"
+    if pool_diversity < epoch_diversity:
+        return "red"
+    if pool_diversity < epoch_diversity * 2:
+        return "yellow"
+    return "green"
+
+
+def _threshold_color(fraction: float) -> str:
+    """Green while there is headroom, red as a stop threshold is approached."""
+    if fraction > 0.8:
+        return "red"
+    if fraction > 0.5:
+        return "yellow"
+    return "green"
+
+
+def _stop_row(
+    label: str, fraction: float, value: str, note: str = ""
+) -> tuple[str, str]:
+    """A progress-toward-stop-criterion row: colored bar, value, optional note."""
+    color = _threshold_color(fraction)
+    suffix = f"  [dim]{note}[/dim]" if note else ""
+    return label, f"  [{color}]{_bar(fraction, width=20)}[/{color}]  {value}{suffix}"
+
+
 def _fmt_score(score: float) -> str:
     return f"{score:.6f}" if score < INVALID_SCORE else "—"
 
@@ -67,15 +98,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
     )
 
     # Pool stats: single line with diversity + variance values
-    if s.epoch_diversity > 0:
-        if s.pool_diversity < s.epoch_diversity:
-            div_color = "red"
-        elif s.pool_diversity < s.epoch_diversity * 2:
-            div_color = "yellow"
-        else:
-            div_color = "green"
-    else:
-        div_color = "cyan"
+    div_color = _diversity_color(s.pool_diversity, s.epoch_diversity)
 
     if s.epoch_variance > 0:
         var_frac = (
@@ -83,12 +106,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
             if s.pool_score_std > 0
             else 0.0
         )
-        if var_frac > 0.8:
-            var_color = "red"
-        elif var_frac > 0.5:
-            var_color = "yellow"
-        else:
-            var_color = "green"
+        var_color = _threshold_color(var_frac)
     else:
         var_frac = 0.0
         var_color = "cyan"
@@ -103,58 +121,41 @@ def _build_renderable(stats: SearchStats) -> Panel:
     stop_rows: list[tuple[str, str]] = []
 
     if s.epoch_diversity > 0:
-        div_bar = _bar(s.pool_diversity, width=20)
+        # Diversity's bar tracks the raw value, and its color its own ladder.
         stop_rows.append(
             (
                 "div stop",
-                f"  [{div_color}]{div_bar}[/{div_color}]"
+                f"  [{div_color}]{_bar(s.pool_diversity, width=20)}[/{div_color}]"
                 f"  {s.pool_diversity:.3f}"
                 f"  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]",
             )
         )
 
     if s.epoch_variance > 0:
-        var_bar = _bar(var_frac, width=20)
         stop_rows.append(
-            (
+            _stop_row(
                 "var stop",
-                f"  [{var_color}]{var_bar}[/{var_color}]"
-                f"  {s.pool_score_std:.4f}"
-                f"  [dim]epoch at < {s.epoch_variance:.4f}[/dim]",
+                var_frac,
+                f"{s.pool_score_std:.4f}",
+                note=f"epoch at < {s.epoch_variance:.4f}",
             )
         )
 
     if s.epoch_steps > 0:
-        steps_frac = min(1.0, s.epoch_tasks / s.epoch_steps)
-        if steps_frac > 0.8:
-            steps_color = "red"
-        elif steps_frac > 0.5:
-            steps_color = "yellow"
-        else:
-            steps_color = "green"
-        steps_bar = _bar(steps_frac, width=20)
         stop_rows.append(
-            (
+            _stop_row(
                 "llm steps",
-                f"  [{steps_color}]{steps_bar}[/{steps_color}]"
-                f"  {s.epoch_tasks}/{s.epoch_steps}",
+                min(1.0, s.epoch_tasks / s.epoch_steps),
+                f"{s.epoch_tasks}/{s.epoch_steps}",
             )
         )
 
     if s.epoch_patience > 0:
-        stag_frac = s.stagnation_fraction()
-        if stag_frac > 0.8:
-            stag_color = "red"
-        elif stag_frac > 0.5:
-            stag_color = "yellow"
-        else:
-            stag_color = "green"
-        stag_bar = _bar(stag_frac, width=20)
         stop_rows.append(
-            (
+            _stop_row(
                 "llm stale",
-                f"  [{stag_color}]{stag_bar}[/{stag_color}]"
-                f"  {s.epoch_no_improve}/{s.epoch_patience}",
+                s.stagnation_fraction(),
+                f"{s.epoch_no_improve}/{s.epoch_patience}",
             )
         )
 

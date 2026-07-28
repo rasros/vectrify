@@ -1,16 +1,18 @@
-import os
 from typing import Any
 
 import anthropic
 
-from vectrify.llm.base import LLMConfig, LLMProvider
+from vectrify.llm.base import (
+    LLMConfig,
+    LLMProvider,
+    resolve_api_key,
+    split_data_url,
+)
 
 
 class AnthropicProvider(LLMProvider):
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.getenv("ANTHROPIC_API_KEY")
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY must be set.")
+        self.api_key = resolve_api_key("anthropic", api_key)
         self._client = anthropic.Anthropic(api_key=self.api_key)
 
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
@@ -19,13 +21,7 @@ class AnthropicProvider(LLMProvider):
             if block["type"] == "input_text":
                 messages_content.append({"type": "text", "text": block["text"]})
             elif block["type"] == "input_image":
-                try:
-                    header, encoded = block["image_url"].split(",", 1)
-                    mime_type = header.split(";")[0].split(":")[1]
-                except (ValueError, IndexError) as e:
-                    raise ValueError(
-                        f"Malformed image data URL: {block['image_url'][:50]!r}"
-                    ) from e
+                mime_type, encoded = split_data_url(block["image_url"])
                 messages_content.append(
                     {
                         "type": "image",

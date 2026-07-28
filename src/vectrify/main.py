@@ -6,9 +6,7 @@ from pathlib import Path
 
 from vectrify.cli import parse_args
 from vectrify.dashboard import Dashboard
-from vectrify.formats.graphviz.plugin import GraphvizPlugin
-from vectrify.formats.svg.plugin import SvgPlugin
-from vectrify.formats.typst.plugin import TypstPlugin
+from vectrify.formats import get_plugin
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, api_key_env
 from vectrify.search.base import StrategyType
 from vectrify.search.stats import SearchStats
@@ -88,12 +86,7 @@ def main():
         logger.debug(f"  {key}: {val}")
     logger.debug("==========================")
 
-    if args.format == "graphviz":
-        plugin = GraphvizPlugin()
-    elif args.format == "typst":
-        plugin = TypstPlugin()
-    else:
-        plugin = SvgPlugin()
+    plugin = get_plugin(args.format)
 
     mismatch = format_extension_warning(args.output, args.format, plugin.file_extension)
     if mismatch:

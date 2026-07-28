@@ -7,6 +7,7 @@ from datetime import datetime
 from pathlib import Path
 
 from vectrify.formats.models import VectorStatePayload
+from vectrify.llm.base import split_data_url
 from vectrify.search import SearchNode
 
 log = logging.getLogger(__name__)
@@ -117,12 +118,12 @@ class FileStorageAdapter:
             content_path.write_text(node.state.payload.content, encoding="utf-8")
 
         if self.save_raster and node.state.payload.raster_data_url:
-            _, b64 = node.state.payload.raster_data_url.split(",", 1)
+            _, b64 = split_data_url(node.state.payload.raster_data_url)
             png_path = self.nodes_dir / f"{base_fn}.png"
             png_path.write_bytes(base64.b64decode(b64))
 
         if self.save_heatmap and node.state.payload.heatmap_data_url:
-            _, b64 = node.state.payload.heatmap_data_url.split(",", 1)
+            _, b64 = split_data_url(node.state.payload.heatmap_data_url)
             heatmap_path = self.nodes_dir / f"{base_fn}.heatmap.png"
             heatmap_path.write_bytes(base64.b64decode(b64))
 

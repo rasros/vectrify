@@ -10,7 +10,14 @@ from typing import Any, Generic, TypeVar
 
 from vectrify.search.base import SearchStrategy, StorageAdapter
 from vectrify.search.collector import StatCollector
-from vectrify.search.models import INVALID_SCORE, Result, SearchNode, Task
+from vectrify.search.models import (
+    INVALID_SCORE,
+    Result,
+    SearchNode,
+    Task,
+    valid_scores,
+)
+from vectrify.search.stats import score_std
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
@@ -179,12 +186,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if not any(p.is_alive() for p in self.procs):
                     raise RuntimeError("All worker processes have exited.") from None
                 if collector is not None and hasattr(self, "_llm_in_flight"):
-                    valid_scores = [
-                        n.score for n in active_pool if n.score < INVALID_SCORE
-                    ]
                     collector.on_idle(
                         llm_in_flight=self._llm_in_flight.value,
-                        valid_scores=valid_scores,
+                        valid_scores=valid_scores(active_pool),
                     )
                 return True, None
 
@@ -307,8 +311,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             for nid in old_pool_ids - kept_ids:
                 self.storage.record_eviction(nid, tasks_completed)
 
-            valid_scores = [n.score for n in active_pool if n.score < INVALID_SCORE]
-            epoch_patience_best = min(valid_scores) if valid_scores else INVALID_SCORE
+            scores = valid_scores(active_pool)
+            epoch_patience_best = min(scores) if scores else INVALID_SCORE
             pool_refilling = True
 
         def _check_epoch_end():
@@ -341,17 +345,10 @@ class MultiprocessSearchEngine(Generic[TState]):
             steps_exhausted = epoch_steps is not None and epoch_tasks >= epoch_steps
             low_diversity, pool_diversity = self.strategy.should_diversify(active_pool)
 
-            valid_scores = [n.score for n in active_pool if n.score < INVALID_SCORE]
-            if len(valid_scores) >= 2:
-                mean = sum(valid_scores) / len(valid_scores)
-                score_std = math.sqrt(
-                    sum((s - mean) ** 2 for s in valid_scores) / len(valid_scores)
-                )
-            else:
-                score_std = 0.0
+            pool_std = score_std(valid_scores(active_pool))
 
             if collector is not None:
-                collector.on_pool_state(diversity=pool_diversity, score_std=score_std)
+                collector.on_pool_state(diversity=pool_diversity, score_std=pool_std)
 
             low_variance = (
                 epoch_variance is not None

@@ -1,9 +1,54 @@
 import dataclasses
+import math
 import threading
 import time
 from collections import deque
+from collections.abc import Callable, Mapping
 
 from vectrify.search.models import INVALID_SCORE
+
+
+def _rate(numerator: float, denominator: float) -> float:
+    return numerator / denominator if denominator else 0.0
+
+
+def _valid_llm_calls(c: Mapping[str, float]) -> float:
+    return c.get("llm_call_count", 0.0) - c.get("llm_invalid_count", 0.0)
+
+
+# Derived rate name -> (numerator from raw counters, denominator counter).
+# Single source of truth: SearchStats reads live counters through it, and
+# scripts/plot_run.py reads stats.csv rows through it, so the two cannot drift.
+RATE_SPECS: dict[str, tuple[Callable[[Mapping[str, float]], float], str]] = {
+    "accept_rate": (lambda c: c.get("accepted_count", 0.0), "tasks_completed"),
+    "pool_rejected_rate": (
+        lambda c: c.get("pool_rejected_count", 0.0),
+        "tasks_completed",
+    ),
+    "invalid_rate": (lambda c: c.get("invalid_count", 0.0), "tasks_completed"),
+    "llm_valid_rate": (_valid_llm_calls, "llm_call_count"),
+    "llm_accept_rate": (lambda c: c.get("llm_accepted_count", 0.0), "llm_call_count"),
+    "mutation_accept_rate": (
+        lambda c: c.get("mutation_accepted_count", 0.0),
+        "mutation_call_count",
+    ),
+}
+
+
+def derived_rates(counts: Mapping[str, float]) -> dict[str, float]:
+    """Compute every derived rate from a mapping of raw counters."""
+    return {
+        name: _rate(numerator(counts), counts.get(denominator, 0.0))
+        for name, (numerator, denominator) in RATE_SPECS.items()
+    }
+
+
+def score_std(scores: list[float]) -> float:
+    """Population standard deviation; 0.0 for fewer than two samples."""
+    if len(scores) < 2:
+        return 0.0
+    mean = sum(scores) / len(scores)
+    return math.sqrt(sum((s - mean) ** 2 for s in scores) / len(scores))
 
 
 @dataclasses.dataclass
@@ -50,44 +95,35 @@ class SearchStats:
     def elapsed(self) -> float:
         return time.monotonic() - self.start_time
 
+    def _rate_of(self, name: str) -> float:
+        numerator, denominator = RATE_SPECS[name]
+        counts = vars(self)
+        return _rate(numerator(counts), counts.get(denominator, 0.0))
+
+    def derived_rates(self) -> dict[str, float]:
+        return derived_rates(vars(self))
+
     def accept_rate(self) -> float:
-        return (
-            self.accepted_count / self.tasks_completed if self.tasks_completed else 0.0
-        )
+        return self._rate_of("accept_rate")
 
     def pool_rejected_rate(self) -> float:
-        return (
-            self.pool_rejected_count / self.tasks_completed
-            if self.tasks_completed
-            else 0.0
-        )
+        return self._rate_of("pool_rejected_rate")
 
     def invalid_rate(self) -> float:
-        return (
-            self.invalid_count / self.tasks_completed if self.tasks_completed else 0.0
-        )
+        return self._rate_of("invalid_rate")
 
     def llm_valid_rate(self) -> float:
-        valid = self.llm_call_count - self.llm_invalid_count
-        return valid / self.llm_call_count if self.llm_call_count else 0.0
+        return self._rate_of("llm_valid_rate")
 
     def llm_accept_rate(self) -> float:
-        return (
-            self.llm_accepted_count / self.llm_call_count
-            if self.llm_call_count
-            else 0.0
-        )
+        return self._rate_of("llm_accept_rate")
+
+    def mutation_accept_rate(self) -> float:
+        return self._rate_of("mutation_accept_rate")
 
     def effective_llm_rate(self) -> float:
         """Actual fraction of tasks that call the LLM (pressure * llm_rate)."""
         return self.llm_pressure * self.llm_rate
-
-    def mutation_accept_rate(self) -> float:
-        return (
-            self.mutation_accepted_count / self.mutation_call_count
-            if self.mutation_call_count
-            else 0.0
-        )
 
     def stagnation_fraction(self) -> float:
         if self.epoch_patience <= 0:

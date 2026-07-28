@@ -10,19 +10,7 @@ class VectorStrategyAdapter:
     base_strategy: SearchStrategy[VectorStatePayload]
     image_long_side: int
     write_lineage: bool
-    save_raster: bool
-
-    def __init__(
-        self,
-        base_strategy: SearchStrategy[VectorStatePayload],
-        image_long_side: int,
-        write_lineage: bool,
-        save_raster: bool = False,
-    ):
-        self.base_strategy = base_strategy
-        self.image_long_side = image_long_side
-        self.write_lineage = write_lineage
-        self.save_raster = save_raster
+    save_raster: bool = False
 
     def select_parent(
         self, nodes: list[SearchNode[VectorStatePayload]]

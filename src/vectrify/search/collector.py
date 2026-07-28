@@ -1,10 +1,11 @@
 import csv
 import logging
-import math
+from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from vectrify.search.models import INVALID_SCORE
+from vectrify.search.stats import score_std
 
 if TYPE_CHECKING:
     from vectrify.search.models import Result, SearchNode
@@ -12,29 +13,42 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-STATS_COLUMNS = [
-    "elapsed",
-    "tasks_completed",
-    "accepted_count",
-    "pool_rejected_count",
-    "invalid_count",
-    "best_score",
-    "llm_call_count",
-    "llm_accepted_count",
-    "llm_invalid_count",
-    "llm_in_flight",
-    "mutation_call_count",
-    "mutation_accepted_count",
-    "epoch",
-    "epoch_no_improve",
-    "llm_pressure",
-    "llm_rate",
-    "pool_diversity",
-    "pool_score_std",
-    "epoch_patience",
-    "epoch_diversity",
-    "epoch_variance",
-]
+def _best_score(s: "SearchStats") -> float | str:
+    """Blank rather than 'inf' so the CSV stays numeric for plotting."""
+    return "" if s.best_score >= INVALID_SCORE else s.best_score
+
+
+def _rounded(field: str, digits: int) -> Callable[["SearchStats"], float]:
+    return lambda s: round(getattr(s, field), digits)
+
+
+# Column name -> how to read it off SearchStats. The CSV header and every row
+# are both derived from this, so they cannot fall out of alignment.
+STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
+    "elapsed": lambda s: round(s.elapsed(), 2),
+    "tasks_completed": lambda s: s.tasks_completed,
+    "accepted_count": lambda s: s.accepted_count,
+    "pool_rejected_count": lambda s: s.pool_rejected_count,
+    "invalid_count": lambda s: s.invalid_count,
+    "best_score": _best_score,
+    "llm_call_count": lambda s: s.llm_call_count,
+    "llm_accepted_count": lambda s: s.llm_accepted_count,
+    "llm_invalid_count": lambda s: s.llm_invalid_count,
+    "llm_in_flight": lambda s: s.llm_calls_in_flight,
+    "mutation_call_count": lambda s: s.mutation_call_count,
+    "mutation_accepted_count": lambda s: s.mutation_accepted_count,
+    "epoch": lambda s: s.epoch,
+    "epoch_no_improve": lambda s: s.epoch_no_improve,
+    "llm_pressure": _rounded("llm_pressure", 4),
+    "llm_rate": _rounded("llm_rate", 4),
+    "pool_diversity": _rounded("pool_diversity", 4),
+    "pool_score_std": _rounded("pool_score_std", 6),
+    "epoch_patience": lambda s: s.epoch_patience,
+    "epoch_diversity": _rounded("epoch_diversity", 4),
+    "epoch_variance": _rounded("epoch_variance", 6),
+}
+
+STATS_COLUMNS = list(STATS_FIELDS)
 
 
 class StatCollector:
@@ -68,10 +82,11 @@ class StatCollector:
         s.epoch_variance = epoch_variance
         s.epoch_steps = epoch_steps
 
-    def seed_initial_score(self, best_score: float, elapsed: float = 0.0) -> None:
+    def seed_initial_score(self, best_score: float) -> None:
         s = self._stats
         s.best_score = best_score
-        s.score_history.append((elapsed, best_score))
+        # The seed score is the run's t=0 datapoint by definition.
+        s.score_history.append((0.0, best_score))
 
     def on_run_start(self, *, start_time: float, epoch_patience: int) -> None:
         s = self._stats
@@ -159,10 +174,7 @@ class StatCollector:
         s = self._stats
         s.llm_calls_in_flight = llm_in_flight
         if len(valid_scores) >= 2:
-            mean = sum(valid_scores) / len(valid_scores)
-            s.pool_score_std = math.sqrt(
-                sum((v - mean) ** 2 for v in valid_scores) / len(valid_scores)
-            )
+            s.pool_score_std = score_std(valid_scores)
 
     def _maybe_flush(self, *, is_llm: bool) -> None:
         """Flush if this is an LLM call or a task-count milestone."""
@@ -182,31 +194,6 @@ class StatCollector:
                 if write_header:
                     writer.writeheader()
                 self._csv_ready = True
-                bs = s.best_score
-                writer.writerow(
-                    {
-                        "elapsed": round(s.elapsed(), 2),
-                        "tasks_completed": s.tasks_completed,
-                        "accepted_count": s.accepted_count,
-                        "pool_rejected_count": s.pool_rejected_count,
-                        "invalid_count": s.invalid_count,
-                        "best_score": "" if bs >= INVALID_SCORE else bs,
-                        "llm_call_count": s.llm_call_count,
-                        "llm_accepted_count": s.llm_accepted_count,
-                        "llm_invalid_count": s.llm_invalid_count,
-                        "llm_in_flight": s.llm_calls_in_flight,
-                        "mutation_call_count": s.mutation_call_count,
-                        "mutation_accepted_count": s.mutation_accepted_count,
-                        "epoch": s.epoch,
-                        "epoch_no_improve": s.epoch_no_improve,
-                        "llm_pressure": round(s.llm_pressure, 4),
-                        "llm_rate": round(s.llm_rate, 4),
-                        "pool_diversity": round(s.pool_diversity, 4),
-                        "pool_score_std": round(s.pool_score_std, 6),
-                        "epoch_patience": s.epoch_patience,
-                        "epoch_diversity": round(s.epoch_diversity, 4),
-                        "epoch_variance": round(s.epoch_variance, 6),
-                    }
-                )
+                writer.writerow({k: read(s) for k, read in STATS_FIELDS.items()})
         except Exception as e:
             log.warning(f"Failed to write stats row: {e}")
