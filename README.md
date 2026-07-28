@@ -114,9 +114,9 @@ either replaces a worse pool member or is dropped.
 The default NSGA-II uses non-dominated sorting and crowding distance to
 keep a diverse Pareto front, worth it when you have time for several
 epochs. Beam search runs parallel hill-climbers with pruning instead, and
-converges faster on one good answer. NSGA-only flags are --epoch-diversity, --epoch-variance and
---epoch-seeds; beam-only flags are --beams and --cull-keep. The CLI
-rejects mixed usage.
+converges faster on one good answer. NSGA-only flags are epoch-diversity,
+epoch-variance and epoch-seeds; beam-only flags are beams and cull-keep.
+The CLI rejects mixed usage.
 
 ### NSGA-II objectives
 
@@ -140,10 +140,9 @@ while the complexity measures act as tiebreakers among the
 quality-leaders, biasing toward small, clean output instead of accreting
 detail once the image is already close.
 
-The strongest lever on that bias is --tournament-size. Parents are chosen
-by tournament, so raising it converges faster on visual quality but
-spends pool diversity, which also brings --epoch-diversity transitions
-forward.
+The strongest lever on that bias is tournament-size. Parents are chosen by
+tournament, so raising it converges faster on visual quality but spends
+pool diversity, which also brings epoch-diversity transitions forward.
 
 Metrics live in one registry, METRICS in score/complexity.py. The
 objective vector, node model, lineage.csv columns, and analysis scripts
@@ -155,8 +154,8 @@ nothing is dominated.
 
 Each epoch ends as soon as one of these triggers fires; the next epoch
 re-seeds from the current Pareto front. The search stops once it reaches
---max-epochs, runs out of --max-wall-seconds, or hits the global
---max-llm-calls cap, if one is set.
+max-epochs, runs out of max-wall-seconds, or hits the global max-llm-calls
+cap, if one is set.
 
 | Flag                 | Default | Triggers when…                                                 |
 |----------------------|--------:|----------------------------------------------------------------|
@@ -175,15 +174,15 @@ run constantly and only rarely produce a new best score, so counting every
 task toward patience would burn it through in seconds.
 Patience and step counters tick only on LLM-driven exploration tasks, the
 ones you pay for. A new best from any source, LLM or local, still resets
-the patience counter. Set --epoch-variance and --epoch-diversity to
-non-zero values to add NSGA-specific stop criteria; their right
-thresholds depend on your scorer and image, so they're off by default.
+the patience counter. Set epoch-variance and epoch-diversity to non-zero
+values to add NSGA-specific stop criteria; their right thresholds depend
+on your scorer and image, so they're off by default.
 
 Those defaults also bound the API bill: LLM calls cannot exceed
 max_epochs × epoch_steps plus the epoch-0 seeds and a little drain
 overhead, so 4 × 50 + ~10 lands near 220, and most runs stop earlier on
---epoch-patience. For a hard ceiling, --max-llm-calls halts the run the
-moment the counter reaches it.
+epoch-patience. For a hard ceiling, max-llm-calls halts the run the moment
+the counter reaches it.
 
 Each edit call sends three images (target, current render, diff heatmap)
 plus the current code as input (typically a few thousand tokens), and
@@ -210,6 +209,5 @@ sketch/
             └── ...
 ```
 
-Disable artifacts you don't need with --no-write-lineage or
---no-save-raster. Enable --save-heatmap to also dump perceptual diff maps
-next to each node.
+Disable artifacts you don't need with no-write-lineage or no-save-raster.
+Enable save-heatmap to also dump perceptual diff maps next to each node.
