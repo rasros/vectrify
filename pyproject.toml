@@ -103,6 +103,9 @@ markers = [
 
 [tool.pyrefly]
 project-includes = ["src/**/*.py"]
+# scripts/ is not an installed package, but the round-trip tests import the
+# analysis scripts directly to check they still read what storage writes.
+search-path = ["src", "scripts"]
 
 [[tool.uv.index]]
 name = "pytorch-cu126"

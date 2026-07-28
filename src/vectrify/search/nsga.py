@@ -1,6 +1,6 @@
 import logging
 import random
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
 from vectrify.score.complexity import METRIC_NAMES
@@ -89,7 +89,7 @@ def _feasibility_threshold(scores: list[float]) -> float:
 
 def non_dominated_sort(
     nodes: list[SearchNode],
-    objectives: dict[int, Objectives],
+    objectives: Mapping[int, Objectives],
     score_threshold: float | None = None,
 ) -> list[list[SearchNode]]:
     """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front."""
@@ -141,7 +141,7 @@ def non_dominated_sort(
 
 def crowding_distance(
     front: list[SearchNode],
-    objectives: dict[int, Objectives],
+    objectives: Mapping[int, Objectives],
 ) -> dict[int, float]:
     """Compute crowding distance to maintain diversity within a front.
 
@@ -203,7 +203,7 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
 
 def pareto_select(
     nodes: list[SearchNode],
-    objectives: dict[int, Objectives],
+    objectives: Mapping[int, Objectives],
     max_keep: int,
 ) -> list[SearchNode]:
     """Walk Pareto fronts in order, taking crowding-distance-diverse nodes

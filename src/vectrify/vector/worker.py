@@ -3,10 +3,9 @@ import contextlib
 import dataclasses
 import io
 import logging
-import multiprocessing as mp
 import random
 import signal
-from typing import Any
+from typing import Any, Protocol
 
 from PIL import Image
 
@@ -66,7 +65,23 @@ def _should_use_llm(
     return force_llm or _use_llm(has_content, llm_rate, llm_pressure)
 
 
-def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
+class MessageQueue(Protocol):
+    """The queue surface worker_loop needs.
+
+    Declared as a protocol rather than mp.Queue because that is more than the
+    loop uses: it only gets tasks and puts results. Production passes a
+    multiprocessing queue and the tests pass a queue.Queue, and those two share
+    no base class.
+    """
+
+    # Positional-only: the two queue classes name this argument differently
+    # (item vs obj), which would otherwise fail protocol matching.
+    def get(self) -> Any: ...
+
+    def put(self, obj: Any, /) -> None: ...
+
+
+def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     setup_worker_logger(ctx.log_level, ctx.log_queue)
     log = logging.getLogger("worker")
