@@ -16,6 +16,7 @@ from vectrify.cli import (
     DEFAULT_EPOCH_DIVERSITY,
     DEFAULT_MAX_TOTAL_TASKS,
     DEFAULT_POOL_SIZE,
+    DEFAULT_TOURNAMENT_SIZE,
     _default_llm_rate,
 )
 from vectrify.formats.models import VectorStatePayload
@@ -146,6 +147,7 @@ def run_vector_search(
     beams: int = 10,
     cull_keep: float = 0.5,
     epoch_diversity: float = DEFAULT_EPOCH_DIVERSITY,
+    tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
     epoch_variance: float | None = None,
     max_epochs: int | None = None,
     epoch_pool_size: int | None = None,
@@ -286,6 +288,7 @@ def run_vector_search(
             pool_size=pool_size,
             crossover_distance_threshold=10,
             epoch_diversity=epoch_diversity,
+            tournament_size=tournament_size,
         )
     )
 

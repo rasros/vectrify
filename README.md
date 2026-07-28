@@ -165,6 +165,18 @@ between two infeasible candidates, where the gate contributes nothing.
 Splitting at the median maximises the share of comparisons the gate
 actually decides.
 
+If you want to push harder toward visual quality, `--tournament-size` is
+the stronger lever by a wide margin — parents are chosen by tournament,
+and the winner's expected quality rises steeply with the number of
+candidates compared. On a 20-node pool, the share of parents drawn from
+the better-scoring half runs about 81% at the default of 2, 92% at 3, and
+97% at 4. It is an absolute count rather than a fraction of the pool,
+because selection intensity depends only on the tournament size, so the
+same value means the same thing at any `--pool-size`. Note the two are
+not perfectly orthogonal: at a very small pool the same size bites
+harder. Raising it converges faster but spends pool diversity, which
+also brings `--epoch-diversity` transitions forward.
+
 Structural complexity is deliberately format-agnostic, so it means the
 same thing for SVG, DOT and Typst and no backend is scored as free. It
 counts source characters rather than compressed size: every crossover

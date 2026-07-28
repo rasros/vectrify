@@ -115,3 +115,33 @@ def test_max_epochs_zero_raises():
 def test_max_epochs_negative_raises():
     with pytest.raises(SystemExit):
         parse_args(["img.png", "--max-epochs", "-1"])
+
+
+def test_tournament_size_defaults_to_two():
+    from vectrify.cli import DEFAULT_TOURNAMENT_SIZE
+
+    args = parse_args(["in.png"])
+    assert args.tournament_size == DEFAULT_TOURNAMENT_SIZE == 2
+
+
+def test_tournament_size_is_accepted():
+    args = parse_args(["in.png", "--tournament-size", "4"])
+    assert args.tournament_size == 4
+
+
+def test_tournament_size_below_two_is_rejected():
+    with pytest.raises(SystemExit):
+        parse_args(["in.png", "--tournament-size", "1"])
+
+
+def test_tournament_size_is_nsga_only():
+    with pytest.raises(SystemExit):
+        parse_args(["in.png", "--strategy", "beam", "--tournament-size", "4"])
+
+
+def test_default_tournament_size_does_not_trip_the_beam_check():
+    """The nsga-only guard must compare against the default, not against zero --
+    a default of 2 would otherwise look 'set' and break every beam run.
+    """
+    args = parse_args(["in.png", "--strategy", "beam"])
+    assert args.strategy == "beam"

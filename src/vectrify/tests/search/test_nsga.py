@@ -548,3 +548,60 @@ def test_non_dominated_sort_no_threshold_simple_dominates_complex():
     fronts = non_dominated_sort([n1, n2], objectives)
     assert len(fronts) == 1
     assert {n.id for n in fronts[0]} == {1, 2}
+
+
+def test_tournament_size_defaults_to_two():
+    assert NsgaStrategy().tournament_size == 2
+
+
+def test_tournament_size_is_clamped_to_a_usable_minimum():
+    """A tournament of one is not a tournament -- it would select uniformly at
+    random and silently remove all selection pressure."""
+    assert NsgaStrategy(tournament_size=1).tournament_size == 2
+    assert NsgaStrategy(tournament_size=0).tournament_size == 2
+
+
+def test_tournament_size_larger_than_the_pool_is_safe():
+    """random.sample raises if asked for more items than exist."""
+    strategy = NsgaStrategy(pool_size=10, tournament_size=50)
+    nodes = [make_node(i, i * 0.1) for i in range(1, 4)]
+    pid, _ = strategy.select_parent(nodes)
+    assert pid in {n.id for n in nodes}
+
+
+def test_tournament_size_of_one_node_pool_is_safe():
+    strategy = NsgaStrategy(tournament_size=8)
+    nodes = [make_node(1, 0.5)]
+    assert strategy.select_parent(nodes) == (1, None)
+
+
+def test_larger_tournament_biases_harder_toward_score():
+    """Selection intensity rises with tournament size; this is the lever that
+    keeps visual error primary, far more than the feasibility gate does.
+    """
+    import random as _random
+
+    def better_half_rate(size: int, trials: int = 1500) -> float:
+        strategy = NsgaStrategy(
+            pool_size=20, crossover_distance_threshold=999, tournament_size=size
+        )
+        _random.seed(7)
+        hits = 0
+        for _ in range(trials):
+            nodes = [
+                make_node(
+                    i,
+                    _random.random(),
+                    _random.random() * 5000,
+                    content=f"n{i}-{_random.random()}",
+                    structural_complexity=_random.random() * 5000,
+                )
+                for i in range(20)
+            ]
+            median = sorted(n.score for n in nodes)[10]
+            pid, _secondary = strategy.select_parent(nodes)
+            if next(n for n in nodes if n.id == pid).score <= median:
+                hits += 1
+        return hits / trials
+
+    assert better_half_rate(4) > better_half_rate(2) > 0.5
