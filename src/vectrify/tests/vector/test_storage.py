@@ -1,4 +1,5 @@
 import csv
+import hashlib
 
 import pytest
 
@@ -6,7 +7,7 @@ from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import png_bytes_to_data_url
 from vectrify.search import ChainState, SearchNode
 from vectrify.tests.helpers import make_png
-from vectrify.vector.storage import FileStorageAdapter
+from vectrify.vector.storage import LINEAGE_COLUMNS, FileStorageAdapter
 
 
 def _make_png(color: str = "red", size: int = 16) -> bytes:
@@ -91,27 +92,53 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
 
     assert adapter.lineage_csv is not None
     assert adapter.lineage_csv.is_file()
-    with adapter.lineage_csv.open(encoding="utf-8") as f:
-        reader = list(csv.reader(f))
-        assert reader[0] == [
-            "id",
-            "parent",
-            "secondary_parent",
-            "epoch",
-            "score",
-            "complexity",
-            "summary",
-            "content_md5",
-            "evicted",
-        ]
-        assert reader[1][0] == "42"
-        assert reader[1][3] == "0"  # epoch
-        assert reader[1][6] == "Fixed circle"
-        import hashlib
+    with adapter.lineage_csv.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
 
-        expected_md5 = hashlib.md5(b"<svg><circle r='10'/></svg>").hexdigest()
-        assert reader[1][7] == expected_md5
-        assert reader[1][8] == ""  # evicted (empty until evicted)
+    assert list(rows[0]) == LINEAGE_COLUMNS
+    row = rows[0]
+    assert row["id"] == "42"
+    assert row["epoch"] == "0"
+    assert row["summary"] == "Fixed circle"
+    assert row["visual_complexity"] == "0"
+    assert row["structural_complexity"] == "0"
+    expected_md5 = hashlib.md5(b"<svg><circle r='10'/></svg>").hexdigest()
+    assert row["content_md5"] == expected_md5
+    assert row["evicted"] == ""  # empty until evicted
+
+
+def test_lineage_columns_match_the_written_header(tmp_path, dummy_node):
+    """Header and rows come from one column list, so they cannot misalign."""
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
+    adapter.initialize()
+    adapter.save_node(dummy_node)
+
+    assert adapter.lineage_csv is not None
+    with adapter.lineage_csv.open(encoding="utf-8", newline="") as f:
+        header = next(iter(csv.reader(f)))
+    assert header == LINEAGE_COLUMNS
+
+
+def test_eviction_row_lands_in_the_evicted_column(tmp_path, dummy_node):
+    """An eviction row is sparse; its value must not shift into a neighbouring
+    column when the schema gains a field."""
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
+    adapter.initialize()
+    adapter.save_node(dummy_node)
+    adapter.record_eviction(dummy_node.id, tasks_completed=77)
+
+    assert adapter.lineage_csv is not None
+    with adapter.lineage_csv.open(encoding="utf-8", newline="") as f:
+        rows = list(csv.DictReader(f))
+
+    eviction = rows[-1]
+    assert eviction["id"] == "42"
+    assert eviction["evicted"] == "77"
+    # Every other field is blank -- in particular the value did not land in
+    # content_md5, which is where a hand-built positional row would have put it.
+    assert eviction["content_md5"] == ""
+    assert eviction["score"] == ""
+    assert eviction["structural_complexity"] == ""
 
 
 def test_load_resume_nodes(tmp_path):
