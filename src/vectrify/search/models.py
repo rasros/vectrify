@@ -25,7 +25,8 @@ class SearchNode(Generic[TState]):
     parent_id: int = dataclasses.field(compare=False)
     state: ChainState[TState] = dataclasses.field(compare=False)
     secondary_parent_id: int | None = dataclasses.field(default=None, compare=False)
-    complexity: float = dataclasses.field(default=0.0, compare=False)
+    visual_complexity: float = dataclasses.field(default=0.0, compare=False)
+    structural_complexity: float = dataclasses.field(default=0.0, compare=False)
     signature: int | None = dataclasses.field(default=None, compare=False)
     epoch: int = dataclasses.field(default=0, compare=False)
 
@@ -50,6 +51,7 @@ class Result(Generic[TResultPayload]):
     payload: TResultPayload
     invalid_msg: str | None = None
     secondary_parent_id: int | None = None
-    complexity: float = 0.0
+    visual_complexity: float = 0.0
+    structural_complexity: float = 0.0
     signature: int | None = None
     llm_type: str | None = None

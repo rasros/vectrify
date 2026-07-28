@@ -12,6 +12,21 @@ from vectrify.search import SearchNode
 
 log = logging.getLogger(__name__)
 
+# lineage.csv schema. The header and every row are written through this one
+# list, so a row can never fall out of alignment with the header.
+LINEAGE_COLUMNS = [
+    "id",
+    "parent",
+    "secondary_parent",
+    "epoch",
+    "score",
+    "visual_complexity",
+    "structural_complexity",
+    "summary",
+    "content_md5",
+    "evicted",
+]
+
 
 class FileStorageAdapter:
     def __init__(
@@ -132,36 +147,33 @@ class FileStorageAdapter:
             if node.state.payload.content
             else ""
         )
+        self._append_lineage_row(
+            {
+                "id": node.id,
+                "parent": node.parent_id,
+                "secondary_parent": node.secondary_parent_id or "",
+                "epoch": node.epoch,
+                "score": f"{node.score:.6f}",
+                "visual_complexity": f"{node.visual_complexity:.0f}",
+                "structural_complexity": f"{node.structural_complexity:.0f}",
+                "summary": node.state.payload.origin or "",
+                "content_md5": content_md5,
+            }
+        )
+
+    def _append_lineage_row(self, row: dict[str, object]) -> None:
+        """Append one lineage row, writing the header first if the file is new.
+
+        Rows are passed as a mapping so a caller cannot silently misalign its
+        values against the header -- unset columns are written empty.
+        """
+        assert self.lineage_csv is not None
         exists = self.lineage_csv.is_file()
         with self.lineage_csv.open("a", encoding="utf-8", newline="") as f:
-            writer = csv.writer(f)
+            writer = csv.DictWriter(f, fieldnames=LINEAGE_COLUMNS, restval="")
             if not exists:
-                writer.writerow(
-                    [
-                        "id",
-                        "parent",
-                        "secondary_parent",
-                        "epoch",
-                        "score",
-                        "complexity",
-                        "summary",
-                        "content_md5",
-                        "evicted",
-                    ]
-                )
-            writer.writerow(
-                [
-                    node.id,
-                    node.parent_id,
-                    node.secondary_parent_id or "",
-                    node.epoch,
-                    f"{node.score:.6f}",
-                    f"{node.complexity:.0f}",
-                    node.state.payload.origin or "",
-                    content_md5,
-                    "",
-                ]
-            )
+                writer.writeheader()
+            writer.writerow(row)
 
     def save_best(self, node: SearchNode[VectorStatePayload]) -> None:
         """Write the winning candidate's content to the top-level output path."""
@@ -179,8 +191,6 @@ class FileStorageAdapter:
         if self.lineage_csv is None or not self.lineage_csv.exists():
             return
         try:
-            with self.lineage_csv.open("a", encoding="utf-8", newline="") as f:
-                writer = csv.writer(f)
-                writer.writerow([node_id, "", "", "", "", "", "", "", tasks_completed])
+            self._append_lineage_row({"id": node_id, "evicted": tasks_completed})
         except Exception as e:
             log.error(f"Failed to record eviction for node {node_id}: {e}")

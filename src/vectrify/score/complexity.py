@@ -1,18 +1,17 @@
+"""Complexity measures used as NSGA objectives alongside visual score.
+
+Two independent measures are reported rather than one blended number: a raster
+measure of how much detail the render carries, and a source measure of how much
+text it takes to say it. They are separate objectives, so nothing here has to
+pick a weighting between them.
+"""
+
 import io
 import re
 
 from PIL import Image
 
-_VISUAL_WEIGHT = 0.7
-
-# Regex patterns compiled once.
-_RE_PATH_DATA = re.compile(r'\bd="([^"]*)"')
-_RE_PATH_CMDS = re.compile(r"[MmLlHhVvCcSsQqTtAaZz]")
-_RE_PATHS = re.compile(r"<path\b")
-_RE_SHAPES = re.compile(r"<(?:circle|ellipse|rect|line|polyline|polygon|text|image)\b")
-_RE_COLOURS = re.compile(r'(?:fill|stroke)="(#[0-9a-fA-F]{3,8}|rgb[^"]*|[a-z]+)"')
-_RE_STOPS = re.compile(r"<stop\b")
-_RE_FILTERS = re.compile(r"<fe[A-Z]\w+")
+_WHITESPACE_RE = re.compile(r"\s+")
 
 
 def visual_complexity(png_bytes: bytes) -> float:
@@ -21,9 +20,9 @@ def visual_complexity(png_bytes: bytes) -> float:
     JPEG encodes spatial redundancy the same way the human visual system weighs
     detail: a flat-coloured region compresses to almost nothing; a region with
     fine detail or many colour transitions requires many more bytes.  This gives
-    a perceptual complexity score that is immune to SVG structural tricks (e.g.
-    a single large <rect> matching the dominant colour scores near zero even if
-    the SVG file itself is small).
+    a perceptual complexity score that is immune to source-level tricks (e.g.
+    a single large rectangle matching the dominant colour scores near zero even
+    if the source itself is small).
     """
     img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
     buf = io.BytesIO()
@@ -31,34 +30,20 @@ def visual_complexity(png_bytes: bytes) -> float:
     return float(len(buf.getvalue()))
 
 
-def content_complexity(svg_str: str) -> float:
-    """Structural complexity of an SVG estimated from its source text.
+def structural_complexity(source: str) -> float:
+    """Source complexity as whitespace-stripped character count.
 
-    Counts path commands, element count, unique colours, and use of advanced
-    features (gradients, filters) as a proxy for visual richness that is
-    independent of raster rendering.
+    Deliberately format-agnostic: it means the same thing for SVG, DOT and
+    Typst, so no backend can be silently scored as free. Stripping whitespace
+    makes it indifferent to indentation and pretty-printing, which vary with
+    whatever the model happened to emit and carry no complexity information.
+
+    A compressed size (gzip) was the obvious alternative and was rejected: it
+    discounts repetitive source by ~80%, and every crossover operator injects
+    elements from a *related* parent, so accumulating near-duplicate elements
+    is the norm rather than the exception. That is exactly the bloat this
+    objective exists to charge for, and ``visual_complexity`` already forgives
+    visual repetition, so a compressible-source measure would leave redundancy
+    unpenalised on both objectives at once.
     """
-    path_commands = sum(
-        len(_RE_PATH_CMDS.findall(d)) for d in _RE_PATH_DATA.findall(svg_str)
-    )
-    paths = len(_RE_PATHS.findall(svg_str))
-    shapes = len(_RE_SHAPES.findall(svg_str))
-    colours = len(set(_RE_COLOURS.findall(svg_str)))
-    gradient_stops = len(_RE_STOPS.findall(svg_str))
-    filter_prims = len(_RE_FILTERS.findall(svg_str))
-
-    return float(
-        path_commands * 8
-        + paths * 40
-        + shapes * 15
-        + colours * 20
-        + gradient_stops * 25
-        + filter_prims * 50
-    )
-
-
-def complexity(png_bytes: bytes, svg_str: str) -> float:
-    """Blended complexity: visual (0.7) + structural content (0.3)."""
-    return _VISUAL_WEIGHT * visual_complexity(png_bytes) + (
-        1.0 - _VISUAL_WEIGHT
-    ) * content_complexity(svg_str)
+    return float(len(_WHITESPACE_RE.sub("", source)))
