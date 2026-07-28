@@ -138,17 +138,32 @@ Three normalized objectives are minimized in parallel:
 
 Each is scaled by its own maximum across the current pool, so the three
 are directly comparable and no weighting between them is needed — NSGA
-trades them off by dominance alone. Adding a fourth objective is a
-matter of extending the vector: dominance, crowding distance, and the
-Pareto helpers all read the arity off the data rather than assuming it.
+trades them off by dominance alone. The selection machinery itself is
+arity-agnostic: dominance, crowding distance, and the Pareto helpers all
+read the objective count off the data rather than assuming it. Adding a
+fourth objective still means threading the new measure through the
+worker, node model, and run artifacts, but the algorithm needs no
+changes.
+
+Be sparing about it, though. Dominance dilutes as objectives multiply —
+on a 12-node pool the first front grows from 8 nodes at three objectives
+to 11 at five — so past about four, nearly everything is non-dominated
+and the front stops discriminating.
 
 The constraint-first variant (Deb 2000) gates on visual error: a
-candidate is feasible only while its error beats a percentile of the
-pool, and infeasible candidates are automatically dominated by feasible
-ones. So visual quality stays the primary objective and the two
+candidate is feasible only while its error is better than the pool
+median, and infeasible candidates are automatically dominated by
+feasible ones. So visual quality stays the primary objective and the two
 complexity measures act as tiebreakers among the quality-leaders,
 biasing toward small, clean renderings instead of accreting detail
 forever once the image is already close.
+
+The median split (`FEASIBLE_FRACTION`) is chosen rather than something
+stricter because a tighter gate is not automatically a stronger one: if
+the feasible group is very small, most binary-tournament comparisons are
+between two infeasible candidates, where the gate contributes nothing.
+Splitting at the median maximises the share of comparisons the gate
+actually decides.
 
 Structural complexity is deliberately format-agnostic, so it means the
 same thing for SVG, DOT and Typst and no backend is scored as free. It
