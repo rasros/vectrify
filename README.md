@@ -101,7 +101,7 @@ vectrify runs an evolutionary loop over a pool of candidate vector
 representations. The pool is seeded with a few LLM-generated candidates.
 On each iteration a parent is sampled, and:
 
-- with probability 1 − --llm-rate, mutated locally (color tweaks, path
+- with probability 1 − llm-rate, mutated locally (color tweaks, path
   nudges, crossover);
 - otherwise, sent to the LLM for a refined edit.
 
