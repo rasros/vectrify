@@ -11,7 +11,7 @@ candidate SVG/Graphviz/Typst code, a vision scorer ranks how close each
 candidate looks to the source, and an optimization loop iteratively
 refines the best candidates.
 
-The results are quite good, and the output is human-readable code.
+The output is human-readable code you can keep editing by hand.
 
 ## Features
 
@@ -27,19 +27,19 @@ The results are quite good, and the output is human-readable code.
 
 ## Install
 
-The recommended way to install a CLI tool is pipx or uv tool, both of
-which put vectrify in its own isolated environment and on your PATH:
+pipx or uv tool keeps vectrify in its own environment and on your PATH:
 
 ```bash
-pipx install vectrify           # or: uv tool install vectrify
+pipx install vectrify                    # or: uv tool install vectrify
+pipx install "vectrify[vision]"          # recommended for best quality
+pipx install "vectrify[all]"             # everything
 ```
 
-Plain pip works too, but it installs into whatever Python environment is
-active. With `pip install --user`, make sure `~/.local/bin` is on your
-PATH.
+Plain pip install works too, into whatever environment is active; when
+using --user, check that ~/.local/bin is on your PATH.
 
-The base install includes SVG output and the pixel-difference scorer.
-For everything else, pick the extras you need:
+The base install covers SVG output and the pixel-difference scorer. The
+extras add the rest:
 
 | Extra    | What it adds                                                   |
 |----------|----------------------------------------------------------------|
@@ -48,16 +48,10 @@ For everything else, pick the extras you need:
 | typst    | the typst Python compiler                                      |
 | all      | vision + graphviz + typst                                      |
 
-```bash
-pipx install "vectrify[vision]"          # recommended for best quality
-pipx install "vectrify[all]"             # everything
-```
-
-System dependencies:
-
-- Cairo (required for SVG): `apt install libcairo2` or `brew install cairo`
-- Graphviz binaries (for `--format graphviz`): `apt install graphviz` or `brew install graphviz`
-- GPU is optional; the vision scorer falls back to CPU/MPS.
+Cairo is required for SVG output (apt install libcairo2 or brew install
+cairo), and the graphviz format additionally needs the Graphviz binaries
+(apt install graphviz or brew install graphviz). A GPU is optional; the
+vision scorer falls back to CPU or MPS.
 
 Finally, set an API key for one provider:
 
@@ -67,8 +61,8 @@ export ANTHROPIC_API_KEY=...
 export GEMINI_API_KEY=...
 ```
 
-The provider is auto-detected from whichever key is set; override with
-`--provider {openai,anthropic,gemini}` if you have several.
+The provider is auto-detected from whichever key is set; override it with
+--provider {openai,anthropic,gemini} if you have several keys.
 
 ## Quickstart
 
@@ -97,7 +91,7 @@ vectrify diagram.png -o out.dot --format graphviz
 vectrify input.png --resume --resume-top 20
 ```
 
-Run `vectrify --help` for the full flag reference, organized into LLM
+Run vectrify --help for the full flag reference, organized into LLM
 provider, scoring, search strategy, epoch control, resume, output
 artifacts, and runtime sections.
 
@@ -107,7 +101,7 @@ vectrify runs an evolutionary loop over a pool of candidate vector
 representations. The pool is seeded with a few LLM-generated candidates.
 On each iteration a parent is sampled, and:
 
-- with probability 1 − `--llm-rate`, mutated locally (color tweaks, path
+- with probability 1 − --llm-rate, mutated locally (color tweaks, path
   nudges, crossover);
 - otherwise, sent to the LLM for a refined edit.
 
@@ -118,11 +112,10 @@ either replaces a worse pool member or is dropped.
 ### Search strategies
 
 The default NSGA-II uses non-dominated sorting and crowding distance to
-keep a diverse Pareto front, which is best when you have time for
-multiple epochs. Beam search instead runs several parallel
-hill-climbers with pruning, converging faster on a single
-good answer. NSGA-only flags: `--epoch-diversity`, `--epoch-variance`,
-`--epoch-seeds`. Beam-only flags: `--beams`, `--cull-keep`. The CLI
+keep a diverse Pareto front, worth it when you have time for several
+epochs. Beam search runs parallel hill-climbers with pruning instead, and
+converges faster on one good answer. NSGA-only flags are --epoch-diversity, --epoch-variance and
+--epoch-seeds; beam-only flags are --beams and --cull-keep. The CLI
 rejects mixed usage.
 
 ### NSGA-II objectives
@@ -137,33 +130,33 @@ Three normalized objectives are minimized in parallel:
 
 Each is scaled by its own maximum across the current pool, so they are
 directly comparable and NSGA trades them off by dominance alone, with no
-weighting to tune. Structural complexity is format-agnostic, so no
-backend is scored as free.
+weighting to tune. Structural complexity is format-agnostic, so no output
+format is scored as free.
 
 The constraint-first variant (Deb 2000) gates on visual error: only
 candidates better than the pool median are feasible, and infeasible ones
-are automatically dominated. Visual quality therefore stays the primary
-objective while the complexity measures act as tiebreakers among the
+are automatically dominated. Visual quality stays the primary objective
+while the complexity measures act as tiebreakers among the
 quality-leaders, biasing toward small, clean output instead of accreting
 detail once the image is already close.
 
-`--tournament-size` is the strongest lever on that bias. Parents are
-chosen by tournament, so raising it converges faster on visual quality
-but spends pool diversity, which also brings `--epoch-diversity`
-transitions forward.
+The strongest lever on that bias is --tournament-size. Parents are chosen
+by tournament, so raising it converges faster on visual quality but
+spends pool diversity, which also brings --epoch-diversity transitions
+forward.
 
-Metrics live in one registry, `METRICS` in `score/complexity.py`. The
-objective vector, node model, `lineage.csv` columns, and analysis scripts
-all derive from it, so adding one is a single entry. Be sparing:
-dominance dilutes as objectives multiply, and past about four nearly
-everything is non-dominated.
+Metrics live in one registry, METRICS in score/complexity.py. The
+objective vector, node model, lineage.csv columns, and analysis scripts
+all derive from it, so adding one is a single entry. Keep the count low:
+dominance weakens as objectives multiply, and past four or so almost
+nothing is dominated.
 
 ### Convergence and cost
 
 Each epoch ends as soon as one of these triggers fires; the next epoch
-re-seeds from the current Pareto front. The search stops once
-`--max-epochs` is reached, `--max-wall-seconds` runs out, or the global
-`--max-llm-calls` cap (if set) is hit.
+re-seeds from the current Pareto front. The search stops once it reaches
+--max-epochs, runs out of --max-wall-seconds, or hits the global
+--max-llm-calls cap, if one is set.
 
 | Flag                 | Default | Triggers when…                                                 |
 |----------------------|--------:|----------------------------------------------------------------|
@@ -180,19 +173,17 @@ the LLM (the llm-rate setting defaults to min(2/workers, 0.2), so roughly
 two LLM calls stay in flight regardless of how many workers you run). They
 run constantly and only rarely produce a new best score, so counting every
 task toward patience would burn it through in seconds.
-Patience and step counters therefore tick only on LLM-driven exploration
-tasks, which is what you actually pay for and what drives meaningful
-progress. A new best from any source, LLM or local, still resets the
-patience counter. Set `--epoch-variance` and `--epoch-diversity` to
+Patience and step counters tick only on LLM-driven exploration tasks, the
+ones you pay for. A new best from any source, LLM or local, still resets
+the patience counter. Set --epoch-variance and --epoch-diversity to
 non-zero values to add NSGA-specific stop criteria; their right
 thresholds depend on your scorer and image, so they're off by default.
 
-Those defaults also bound the API bill, since LLM calls per run cannot
-exceed roughly `max_epochs × epoch_steps` plus epoch-0 seeds and a little
-drain overhead, so `4 × 50 + ~10` is about 220. That is the worst case;
-most runs end earlier on `--epoch-patience`. For a strict ceiling in
-cost-sensitive automation, `--max-llm-calls` halts the run the moment the
-counter hits it, whatever epoch it is in.
+Those defaults also bound the API bill: LLM calls cannot exceed
+max_epochs × epoch_steps plus the epoch-0 seeds and a little drain
+overhead, so 4 × 50 + ~10 lands near 220, and most runs stop earlier on
+--epoch-patience. For a hard ceiling, --max-llm-calls halts the run the
+moment the counter reaches it.
 
 Each edit call sends three images (target, current render, diff heatmap)
 plus the current code as input (typically a few thousand tokens), and
@@ -205,7 +196,7 @@ is on the order of a US dollar on flagship models. Verify against the
 
 ### Output layout
 
-Given `--output sketch.svg`, vectrify writes:
+Given --output sketch.svg, vectrify writes:
 
 ```
 sketch.svg                       # the best final candidate (written at the end)
@@ -219,6 +210,6 @@ sketch/
             └── ...
 ```
 
-Disable artifacts you don't need with `--no-write-lineage` or
-`--no-save-raster`, or enable `--save-heatmap` to also dump perceptual
-diff maps next to each node.
+Disable artifacts you don't need with --no-write-lineage or
+--no-save-raster. Enable --save-heatmap to also dump perceptual diff maps
+next to each node.
