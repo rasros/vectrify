@@ -92,3 +92,40 @@ def test_crossover_falls_back_to_mutation_when_no_attrs_in_b():
     target = Image.new("RGB", (32, 32), color="red")
     result, _summary = crossover_with_micro_search(_DOT, dot_b, target, num_trials=3)
     assert isinstance(result, str)
+
+
+def test_crossover_survives_backslash_label_escapes():
+    """Regression: the donor attribute block was concatenated into an re.sub
+    *replacement template*, so its backslashes were interpreted. \\l, \\r and
+    \\N are ordinary Graphviz label escapes, and the crossover died with
+    `re.error: bad escape \\l`, silently failing the task.
+    """
+    from PIL import Image
+
+    from vectrify.formats.graphviz.operations import crossover_with_micro_search
+
+    donor = (
+        'digraph G {\n    node [shape=box, label="left\\lright\\l"];\n    a -> b;\n}'
+    )
+    target = "digraph G {\n    a -> b;\n}"
+    ref = Image.new("RGB", (64, 64), "white")
+
+    content, summary = crossover_with_micro_search(target, donor, ref, num_trials=3)
+
+    assert isinstance(content, str)
+    assert isinstance(summary, str)
+
+
+def test_insert_after_first_brace_keeps_escapes_literal():
+    from vectrify.formats.graphviz.operations import _insert_after_first_brace
+
+    block = 'node [label="a\\lb", tooltip="c\\Nd"];'
+    out = _insert_after_first_brace("digraph G {\n  a -> b;\n}", block)
+    assert block in out  # verbatim, not re-interpreted
+    assert out.index(block) > out.index("{")
+
+
+def test_insert_after_first_brace_without_a_brace_is_a_noop():
+    from vectrify.formats.graphviz.operations import _insert_after_first_brace
+
+    assert _insert_after_first_brace("not a graph", "node [];") == "not a graph"

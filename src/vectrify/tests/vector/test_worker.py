@@ -5,7 +5,7 @@ from PIL import Image
 
 from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
 from vectrify.tests.helpers import make_png as _make_png
-from vectrify.vector.worker import _use_llm
+from vectrify.vector.worker import _should_use_llm, _use_llm
 
 
 def test_use_llm_no_svg_uses_llm_when_rate_nonzero():
@@ -172,3 +172,46 @@ def test_worker_preview_preserves_small_image():
     _, b64 = preview.split(",", 1)
     img = Image.open(io.BytesIO(base64.b64decode(b64)))
     assert img.size == (32, 32)
+
+
+def test_should_use_llm_rate_zero_overrides_force_llm():
+    """Regression: epoch-0 seed tasks set force_llm, which bypassed the rate
+    entirely, so --llm-rate 0 still issued LLM calls and offline runs were
+    impossible.
+    """
+    assert (
+        _should_use_llm(
+            force_llm=True, has_content=False, llm_rate=0.0, llm_pressure=1.0
+        )
+        is False
+    )
+    assert (
+        _should_use_llm(
+            force_llm=True, has_content=True, llm_rate=0.0, llm_pressure=1.0
+        )
+        is False
+    )
+
+
+def test_should_use_llm_honours_force_llm_when_enabled():
+    assert (
+        _should_use_llm(
+            force_llm=True, has_content=True, llm_rate=0.01, llm_pressure=0.0
+        )
+        is True
+    )
+
+
+def test_should_use_llm_without_content_needs_a_nonzero_rate():
+    assert (
+        _should_use_llm(
+            force_llm=False, has_content=False, llm_rate=1.0, llm_pressure=1.0
+        )
+        is True
+    )
+    assert (
+        _should_use_llm(
+            force_llm=False, has_content=False, llm_rate=0.0, llm_pressure=1.0
+        )
+        is False
+    )

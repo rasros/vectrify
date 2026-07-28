@@ -328,3 +328,66 @@ def test_engine_score_fn_none_with_unscored_result_raises():
             max_wall_seconds=None,
             score_fn=None,
         )
+
+
+def test_engine_low_variance_epoch_end_does_not_crash():
+    """Regression: the low-variance branch compared the imported score_std
+    *function* to a float, so any positive --epoch-variance raised TypeError on
+    the first epoch-end check. Nothing covered this path, which is why it
+    shipped.
+    """
+    strat = FakeStrategy()
+    store = FakeStorage()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=store, max_total_tasks=1
+    )
+    engine.unscored_q.put(
+        Result(task_id=1, parent_id=1, valid=True, score=0.1, payload="p")
+    )
+    initial = SearchNode(
+        score=0.8, id=1, parent_id=0, state=ChainState(score=0.8, payload=None)
+    )
+
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_variance=0.05,  # the flag that used to crash the run
+        active_pool_size=1,
+    )
+
+    assert store.save_called is True
+
+
+def test_engine_aborts_when_every_epoch0_seed_fails():
+    """Regression: _dispatch_tasks stalls in epoch 0 until something is
+    accepted, so if every seed failed the run idled until --max-wall-seconds
+    and exited 0 with no output. It must surface the underlying error instead.
+    """
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=50
+    )
+    engine.unscored_q.put(
+        Result(
+            task_id=1,
+            parent_id=1,
+            valid=False,
+            score=float("inf"),
+            payload=None,
+            invalid_msg="AuthenticationError(401)",
+            llm_type="llm-generate",
+        )
+    )
+    initial = SearchNode(
+        score=float("inf"),
+        id=1,
+        parent_id=0,
+        state=ChainState(score=float("inf"), payload=None),
+    )
+
+    with pytest.raises(RuntimeError, match="seed task"):
+        engine.run(
+            initial_nodes=[initial],
+            max_wall_seconds=None,
+            seed_tasks=1,
+            active_pool_size=1,
+        )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import re
 from typing import TYPE_CHECKING, Protocol
 
@@ -8,25 +9,53 @@ from vectrify.image_utils import png_resize_exact
 if TYPE_CHECKING:
     import PIL.Image
 
+log = logging.getLogger(__name__)
+
 _SEARCH_REPLACE_RE = re.compile(
     r"<<<SEARCH>>>\n(.*?)\n<<<REPLACE>>>\n(.*?)\n<<<END>>>",
     re.DOTALL,
 )
 
 
+class NoEditAppliedError(ValueError):
+    """Raised when diff blocks were present but none matched the parent."""
+
+
 def apply_search_replace(parent: str, raw: str) -> str | None:
     """Apply search/replace blocks from *raw* onto *parent*.
 
-    Returns the patched string, or ``None`` if *raw* contained no blocks.
-    Blocks are applied in order; each replaces the first occurrence in the
-    current (already-patched) text.
+    Returns the patched string, or ``None`` if *raw* contained no blocks at all
+    -- that is the signal for callers to fall back to parsing a whole file out
+    of the response. Blocks are applied in order; each replaces the first
+    occurrence in the current (already-patched) text.
+
+    Raises NoEditAppliedError if blocks were present but none of their SEARCH
+    text was found. ``str.replace`` is silent in that case, so the parent used
+    to come back unchanged and be reported as a successful edit: a paid LLM call
+    produced a byte-identical child that still entered the pool, carrying its
+    parent's signature and dragging the measured genome diversity down until it
+    tripped an epoch transition.
     """
     blocks = _SEARCH_REPLACE_RE.findall(raw)
     if not blocks:
         return None
+
     result = parent
+    applied = 0
     for search, replace in blocks:
-        result = result.replace(search, replace, 1)
+        if search in result:
+            result = result.replace(search, replace, 1)
+            applied += 1
+
+    if applied == 0:
+        raise NoEditAppliedError(
+            f"none of the {len(blocks)} search/replace block(s) matched the parent"
+        )
+    if applied < len(blocks):
+        log.warning(
+            f"Applied {applied}/{len(blocks)} search/replace blocks; "
+            "the rest did not match the parent."
+        )
     return result
 
 

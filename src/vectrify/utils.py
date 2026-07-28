@@ -5,7 +5,20 @@ from logging.handlers import QueueHandler, QueueListener
 from pathlib import Path
 
 
-def setup_logger(level: str, log_file: Path | str | None = None) -> None:
+def setup_logger(
+    level: str,
+    log_file: Path | str | None = None,
+    console: bool = True,
+) -> None:
+    """Configure root logging to stderr and, when given, to *log_file*.
+
+    A log file is added alongside the console handler rather than replacing it:
+    this is called a second time once the run directory exists, and dropping
+    stderr there left piped or scripted runs with no output at all -- including
+    the "no valid candidate found" and "best candidate written" lines. Pass
+    ``console=False`` only when something else owns the terminal, i.e. the live
+    dashboard.
+    """
     lvl = getattr(logging, level.upper(), logging.INFO)
     fmt = logging.Formatter(
         "%(asctime)s | %(processName)s | %(levelname)s | %(message)s",
@@ -16,14 +29,15 @@ def setup_logger(level: str, log_file: Path | str | None = None) -> None:
     root.handlers.clear()
     root.setLevel(lvl)
 
+    if console:
+        sh = logging.StreamHandler(sys.stderr)
+        sh.setFormatter(fmt)
+        root.addHandler(sh)
+
     if log_file is not None:
         fh = logging.FileHandler(str(log_file), mode="a", encoding="utf-8")
         fh.setFormatter(fmt)
         root.addHandler(fh)
-    else:
-        sh = logging.StreamHandler(sys.stderr)
-        sh.setFormatter(fmt)
-        root.addHandler(sh)
 
 
 def start_log_listener() -> tuple[mp.Queue, QueueListener]:

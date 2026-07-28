@@ -33,6 +33,20 @@ def _diversity_color(pool_diversity: float, epoch_diversity: float) -> str:
     return "green"
 
 
+def _variance_fraction(epoch_variance: float, pool_score_std: float) -> float:
+    """Progress toward the low-variance epoch-end criterion, in [0, 1].
+
+    Ratio of threshold to current spread, so the bar fills as the pool collapses
+    toward the stop. Zero spread is the most collapsed the pool can be -- the
+    criterion is already satisfied -- so that reads full rather than empty.
+    """
+    if epoch_variance <= 0:
+        return 0.0
+    if pool_score_std <= 0:
+        return 1.0
+    return min(1.0, epoch_variance / pool_score_std)
+
+
 def _threshold_color(fraction: float) -> str:
     """Green while there is headroom, red as a stop threshold is approached."""
     if fraction > 0.8:
@@ -100,16 +114,8 @@ def _build_renderable(stats: SearchStats) -> Panel:
     # Pool stats: single line with diversity + variance values
     div_color = _diversity_color(s.pool_diversity, s.epoch_diversity)
 
-    if s.epoch_variance > 0:
-        var_frac = (
-            min(1.0, s.epoch_variance / s.pool_score_std)
-            if s.pool_score_std > 0
-            else 0.0
-        )
-        var_color = _threshold_color(var_frac)
-    else:
-        var_frac = 0.0
-        var_color = "cyan"
+    var_frac = _variance_fraction(s.epoch_variance, s.pool_score_std)
+    var_color = _threshold_color(var_frac) if s.epoch_variance > 0 else "cyan"
 
     pool_line = (
         f"  diversity [{div_color}]{s.pool_diversity:.3f}[/{div_color}]"

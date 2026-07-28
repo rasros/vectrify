@@ -265,3 +265,93 @@ def test_save_heatmap_content_is_valid_png(tmp_path):
     adapter.save_node(node)
     written = (adapter.nodes_dir / "0.500000_1.heatmap.png").read_bytes()
     assert written == original_png
+
+
+def test_no_write_lineage_suppresses_node_files_and_lineage(tmp_path, dummy_node):
+    """Regression: --no-write-lineage was documented as suppressing lineage.csv
+    and the per-node files, but the flag never reached storage at all.
+    """
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"), write_lineage=False)
+    adapter.initialize()
+    adapter.save_node(dummy_node)
+
+    assert adapter.lineage_csv is not None
+    assert not adapter.lineage_csv.exists()
+    assert adapter.nodes_dir is not None
+    assert list(adapter.nodes_dir.iterdir()) == []
+
+
+def test_write_lineage_true_still_writes(tmp_path, dummy_node):
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"), write_lineage=True)
+    adapter.initialize()
+    adapter.save_node(dummy_node)
+
+    assert adapter.lineage_csv is not None
+    assert adapter.lineage_csv.exists()
+    assert adapter.nodes_dir is not None
+    assert [p.name for p in adapter.nodes_dir.iterdir()] == ["0.123456_42.svg"]
+
+
+def test_extensionless_output_does_not_collide_with_the_project_dir(
+    tmp_path, dummy_node
+):
+    """Regression: project_dir was parent/stem, which for an extensionless path
+    *is* the output path. initialize() created it as a directory and save_best
+    could then never write the file -- a completed search produced no output and
+    no error, because the write failure was suppressed.
+    """
+    output = tmp_path / "myout"
+    adapter = FileStorageAdapter(str(output))
+    adapter.initialize()
+
+    assert adapter.project_dir != output
+    adapter.save_best(dummy_node)
+    assert output.is_file()
+    assert output.read_text(encoding="utf-8") == "<svg><circle r='10'/></svg>"
+
+
+def test_runs_started_in_the_same_second_get_distinct_directories(tmp_path):
+    """Regression: the run dir name is second-resolution and was created with
+    exist_ok=True, so concurrent runs shared one directory and interleaved
+    appends into a single stats.csv and lineage.csv.
+    """
+    dirs = set()
+    for _ in range(5):
+        adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
+        adapter.initialize()
+        dirs.add(adapter.current_run_dir)
+    assert len(dirs) == 5
+
+
+def test_resume_parses_inf_scored_node_files(tmp_path):
+    """save_node writes f"{score:.6f}", which renders INVALID_SCORE as a bare
+    "inf", so the filename grammar has to accept it.
+    """
+    nodes = tmp_path / "out" / "runs" / "2026-01-01_00-00-00" / "nodes"
+    nodes.mkdir(parents=True)
+    (nodes / "0.200000_2.svg").write_text("<svg id='2'/>", encoding="utf-8")
+    (nodes / "inf_7.svg").write_text("<svg id='7'/>", encoding="utf-8")
+
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"), resume=True)
+    resumed = adapter.load_resume_nodes()
+
+    assert {node_id for node_id, _ in resumed} == {2, 7}
+    assert adapter.max_node_id == 7
+
+
+def test_resume_top_tolerates_a_non_numeric_filename(tmp_path):
+    """Regression: the --resume-top sort re-parsed the score out of the stem, so
+    any file whose prefix was not a float raised an unhandled ValueError.
+    """
+    nodes = tmp_path / "out" / "runs" / "2026-01-01_00-00-00" / "nodes"
+    nodes.mkdir(parents=True)
+    (nodes / "0.100000_1.svg").write_text("<svg id='1'/>", encoding="utf-8")
+    (nodes / "0.900000_2.svg").write_text("<svg id='2'/>", encoding="utf-8")
+    (nodes / "handwritten.svg").write_text("<svg id='9'/>", encoding="utf-8")
+
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"), resume=True, resume_top=2)
+    resumed = adapter.load_resume_nodes()  # must not raise
+
+    # The best-scoring real node is kept; the unparseable one sorts last (inf).
+    assert 1 in {node_id for node_id, _ in resumed}
+    assert len(resumed) == 2
