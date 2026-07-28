@@ -3,6 +3,7 @@ import os
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
+from vectrify.formats import FORMAT_NAMES
 from vectrify.score import ScorerType
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import StrategyType
@@ -107,7 +108,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument(
         "--format",
         type=str,
-        choices=["svg", "graphviz", "typst"],
+        choices=list(FORMAT_NAMES),
         default=DEFAULT_FORMAT,
         help=f"Output vector format. Default: {DEFAULT_FORMAT}",
     )

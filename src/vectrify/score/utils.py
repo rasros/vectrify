@@ -1,3 +1,4 @@
+import io
 from functools import cache
 
 from PIL import Image, ImageChops, ImageCms, ImageStat
@@ -18,6 +19,27 @@ def _rgb_to_lab_transform() -> ImageCms.ImageCmsTransform:
     srgb = ImageCms.createProfile("sRGB")
     lab = ImageCms.createProfile("LAB")
     return ImageCms.buildTransformFromOpenProfiles(srgb, lab, "RGB", "LAB")
+
+
+MAX_SCORE = 1.0
+
+
+def clamp01(x: float) -> float:
+    """Clamp to the [0, 1] score range."""
+    return float(max(0.0, min(1.0, x)))
+
+
+def color_score(reference_rgb: Image.Image, candidate_png: bytes) -> float:
+    """Perceptual color distance between the reference and a candidate render.
+
+    The candidate is resized to the reference's size, which lab_l1 requires.
+    """
+    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+    if candidate.size != reference_rgb.size:
+        candidate = candidate.resize(
+            reference_rgb.size, resample=Image.Resampling.BILINEAR
+        )
+    return clamp01(lab_l1(reference_rgb, candidate))
 
 
 def lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:

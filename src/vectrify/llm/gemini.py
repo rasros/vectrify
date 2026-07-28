@@ -1,18 +1,20 @@
 import base64
-import os
 from typing import Any
 
 from google import genai
 from google.genai import types
 
-from vectrify.llm.base import LLMConfig, LLMProvider
+from vectrify.llm.base import (
+    LLMConfig,
+    LLMProvider,
+    resolve_api_key,
+    split_data_url,
+)
 
 
 class GeminiProvider(LLMProvider):
     def __init__(self, api_key: str | None = None):
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY")
-        if not self.api_key:
-            raise ValueError("GEMINI_API_KEY must be set.")
+        self.api_key = resolve_api_key("gemini", api_key)
         self.client = genai.Client(api_key=self.api_key)
 
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
@@ -22,13 +24,7 @@ class GeminiProvider(LLMProvider):
             if block["type"] == "input_text":
                 prompt_parts.append(block["text"])
             elif block["type"] == "input_image":
-                try:
-                    header, encoded = block["image_url"].split(",", 1)
-                    mime_type = header.split(";")[0].split(":")[1]
-                except (ValueError, IndexError) as e:
-                    raise ValueError(
-                        f"Malformed image data URL: {block['image_url'][:50]!r}"
-                    ) from e
+                mime_type, encoded = split_data_url(block["image_url"])
                 prompt_parts.append(
                     types.Part.from_bytes(
                         data=base64.b64decode(encoded), mime_type=mime_type

@@ -7,6 +7,11 @@ TState = TypeVar("TState")
 TResultPayload = TypeVar("TResultPayload")
 
 
+def valid_scores(nodes: "list[SearchNode]") -> list[float]:
+    """Scores of nodes that were successfully evaluated."""
+    return [n.score for n in nodes if n.score < INVALID_SCORE]
+
+
 @dataclasses.dataclass
 class ChainState(Generic[TState]):
     score: float | None

@@ -5,13 +5,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from PIL import Image
-from PIL.Image import Resampling
 
 from vectrify.image_utils import png_bytes_to_data_url
 from vectrify.llm import LLMConfig, get_provider
 from vectrify.llm.models import JUDGE_MODELS
-from vectrify.score.base import Scorer
-from vectrify.score.utils import lab_l1
+from vectrify.score.base import Scorer, safe_score
+from vectrify.score.utils import clamp01, color_score
 
 log = logging.getLogger(__name__)
 TIE_BREAKER_WEIGHT = 0.01
@@ -73,30 +72,19 @@ class LLMJudgeScorer(Scorer):
         data_url = png_bytes_to_data_url(buf.getvalue())
         return LLMReference(data_url=data_url, image=original_rgb)
 
+    @safe_score
     def score(self, reference: LLMReference, candidate_png: bytes) -> float:
         candidate_data_url = png_bytes_to_data_url(candidate_png)
         content_blocks = _build_judge_prompt(reference.data_url, candidate_data_url)
 
-        try:
-            response_text = self.client.generate(content_blocks, self.config)
+        response_text = self.client.generate(content_blocks, self.config)
 
-            result = json.loads(response_text)
-            similarity = float(result["similarity"])
-            llm_score = float(max(0.0, min(1.0, 1.0 - similarity)))
+        result = json.loads(response_text)
+        similarity = float(result["similarity"])
+        llm_score = clamp01(1.0 - similarity)
 
-            cand_img = Image.open(io.BytesIO(candidate_png)).convert("RGB")
-            if cand_img.size != reference.image.size:
-                cand_img = cand_img.resize(
-                    reference.image.size, resample=Resampling.BILINEAR
-                )
-
-            color_score = float(max(0.0, min(1.0, lab_l1(reference.image, cand_img))))
-            final_score = ((1.0 - TIE_BREAKER_WEIGHT) * llm_score) + (
-                TIE_BREAKER_WEIGHT * color_score
-            )
-
-            return float(max(0.0, min(1.0, final_score)))
-
-        except Exception as e:
-            log.error(f"LLM Judge scoring failed: {e}")
-            return 1.0
+        tie_breaker = color_score(reference.image, candidate_png)
+        final_score = ((1.0 - TIE_BREAKER_WEIGHT) * llm_score) + (
+            TIE_BREAKER_WEIGHT * tie_breaker
+        )
+        return clamp01(final_score)

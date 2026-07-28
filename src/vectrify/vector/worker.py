@@ -17,6 +17,7 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm import LLMConfig, get_provider
+from vectrify.llm.base import split_data_url
 from vectrify.score.complexity import complexity as blended_complexity
 from vectrify.search import INVALID_SCORE, Result
 from vectrify.search.diversity import simhash
@@ -98,20 +99,20 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
 
                     diff_data_url = parent.payload.heatmap_data_url
                     if diff_data_url is None:
+                        # Prefer the stored render; fall back to re-rasterizing.
+                        cand_bytes = None
                         if parent.payload.raster_data_url:
-                            _, encoded = parent.payload.raster_data_url.split(",", 1)
-                            cand_bytes = base64.b64decode(encoded)
-                            diff_data_url = generate_diff_data_url(
-                                ctx.original_png_bytes,
-                                cand_bytes,
-                                ctx.image_long_side,
+                            _, encoded = split_data_url(
+                                parent.payload.raster_data_url
                             )
+                            cand_bytes = base64.b64decode(encoded)
                         elif has_content:
                             cand_bytes = plugin.rasterize(
                                 parent.payload.content,
                                 out_w=ctx.original_w,
                                 out_h=ctx.original_h,
                             )
+                        if cand_bytes is not None:
                             diff_data_url = generate_diff_data_url(
                                 ctx.original_png_bytes,
                                 cand_bytes,

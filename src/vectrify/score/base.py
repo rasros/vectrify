@@ -1,10 +1,33 @@
+import functools
+import logging
 from abc import ABC, abstractmethod
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from PIL import Image
 
 from vectrify.image_utils import pixel_diff_png
+from vectrify.score.utils import MAX_SCORE
+
+log = logging.getLogger(__name__)
+
+
+def safe_score(fn: Callable[..., float]) -> Callable[..., float]:
+    """Return the worst possible score instead of raising.
+
+    A scorer failure must not kill the search: the candidate simply loses.
+    """
+
+    @functools.wraps(fn)
+    def wrapper(self, *args, **kwargs) -> float:
+        try:
+            return fn(self, *args, **kwargs)
+        except Exception as e:
+            log.error(f"{type(self).__name__} failed to score candidate: {e}")
+            return MAX_SCORE
+
+    return wrapper
 
 
 class Scorer(ABC):

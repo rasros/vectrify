@@ -1,4 +1,5 @@
 import logging
+from collections.abc import Callable
 from enum import Enum
 
 from vectrify.score.base import ScoreConfig, Scorer
@@ -16,12 +17,6 @@ class ScorerType(str, Enum):
     LLM = "llm"
 
 
-SCORER_REGISTRY: dict[ScorerType, type[Scorer]] = {
-    ScorerType.VISION: VisionScorer,
-    ScorerType.SIMPLE: SimpleFallbackScorer,
-    ScorerType.LLM: LLMJudgeScorer,
-}
-
 __all__ = ["ScoreConfig", "Scorer", "ScorerType", "get_scorer"]
 
 
@@ -34,13 +29,19 @@ def get_scorer(
     if isinstance(scorer_type, str):
         scorer_type = ScorerType(scorer_type.lower())
 
-    if scorer_type in SCORER_REGISTRY and scorer_type != ScorerType.AUTO:
+    # Every scorer takes different construction arguments, so the registry
+    # holds thunks rather than classes.
+    builders: dict[ScorerType, Callable[[], Scorer]] = {
+        ScorerType.VISION: lambda: VisionScorer(model_name=vision_model),
+        ScorerType.SIMPLE: SimpleFallbackScorer,
+        ScorerType.LLM: lambda: LLMJudgeScorer(
+            provider_name=provider_name, api_key=api_key
+        ),
+    }
+
+    if scorer_type in builders:
         log.info(f"Using {scorer_type.value} scorer.")
-        if scorer_type == ScorerType.LLM:
-            return LLMJudgeScorer(provider_name=provider_name, api_key=api_key)
-        if scorer_type == ScorerType.VISION:
-            return VisionScorer(model_name=vision_model)
-        return SCORER_REGISTRY[scorer_type]()
+        return builders[scorer_type]()
 
     log.info("AUTO mode: Attempting to initialize vision scorer...")
     try:

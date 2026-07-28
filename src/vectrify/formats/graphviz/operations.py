@@ -1,6 +1,7 @@
 import logging
 import random
 import re
+from collections.abc import Callable
 
 from PIL import Image
 
@@ -143,21 +144,19 @@ def _random_edge_attr_tweak(dot: str) -> str:
     return dot
 
 
+# Graph attribute -> random value generator, so the dispatch is exhaustive
+# by construction rather than by an if-chain with an unreachable fallthrough.
+_LAYOUT_ATTRS: list[tuple[str, Callable[[], str]]] = [
+    ("rankdir", lambda: random.choice(_RANK_DIRS)),
+    ("splines", lambda: random.choice(["true", "false", "ortho", "curved", "line"])),
+    ("nodesep", lambda: str(round(random.uniform(0.25, 1.5), 2))),
+    ("ranksep", lambda: str(round(random.uniform(0.3, 2.0), 2))),
+]
+
+
 def _random_layout_tweak(dot: str) -> str:
-    op = random.choice(["rankdir", "splines", "nodesep", "ranksep"])
-    if op == "rankdir":
-        val = random.choice(_RANK_DIRS)
-        return _set_graph_attr(dot, "rankdir", val)
-    if op == "splines":
-        val = random.choice(["true", "false", "ortho", "curved", "line"])
-        return _set_graph_attr(dot, "splines", val)
-    if op == "nodesep":
-        val = str(round(random.uniform(0.25, 1.5), 2))
-        return _set_graph_attr(dot, "nodesep", val)
-    if op == "ranksep":
-        val = str(round(random.uniform(0.3, 2.0), 2))
-        return _set_graph_attr(dot, "ranksep", val)
-    return dot
+    attr, make_value = random.choice(_LAYOUT_ATTRS)
+    return _set_graph_attr(dot, attr, make_value())
 
 
 def _remove_node(dot: str) -> str:

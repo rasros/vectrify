@@ -24,6 +24,7 @@ import matplotlib
 
 from vectrify.run_dirs import project_runs_dir, run_dirs_in
 from vectrify.search.nsga import pareto_front
+from vectrify.search.stats import derived_rates
 
 matplotlib.rcParams["figure.dpi"] = 192  # crisp on HiDPI / 4K displays
 matplotlib.use("Agg")  # safe default; switch_backend below upgrades to GUI if available
@@ -66,32 +67,27 @@ def load_stats(run_dir: Path) -> dict:
         except (ValueError, TypeError):
             return default
 
-    tasks = _float("tasks_completed") or 1
-    llm = _float("llm_call_count")
-    mut = _float("mutation_call_count")
-    acc = _float("accepted_count")
-    llm_acc = _float("llm_accepted_count")
-    llm_inv = _float("llm_invalid_count")
-    mut_acc = _float("mutation_accepted_count")
+    counts = {
+        name: _float(name)
+        for name in (
+            "tasks_completed",
+            "accepted_count",
+            "pool_rejected_count",
+            "invalid_count",
+            "llm_call_count",
+            "llm_accepted_count",
+            "llm_invalid_count",
+            "mutation_call_count",
+            "mutation_accepted_count",
+        )
+    }
 
     stats: dict = {
         "elapsed_seconds": _float("elapsed"),
         "best_score": _float("best_score", float("inf")),
-        "tasks_completed": tasks,
-        "accepted_count": acc,
-        "pool_rejected_count": _float("pool_rejected_count"),
-        "invalid_count": _float("invalid_count"),
-        "accept_rate": acc / tasks,
-        "pool_rejected_rate": _float("pool_rejected_count") / tasks,
-        "invalid_rate": _float("invalid_count") / tasks,
-        "llm_call_count": llm,
-        "llm_accepted_count": llm_acc,
-        "llm_invalid_count": llm_inv,
-        "llm_valid_rate": (llm - llm_inv) / llm if llm else 0.0,
-        "llm_accept_rate": llm_acc / llm if llm else 0.0,
-        "mutation_call_count": mut,
-        "mutation_accepted_count": mut_acc,
-        "mutation_accept_rate": mut_acc / mut if mut else 0.0,
+        **counts,
+        # Rates come from the same definitions the live dashboard uses.
+        **derived_rates(counts),
         "llm_rate": _float("llm_rate"),
         "llm_pressure_final": _float("llm_pressure"),
         "epochs_completed": _float("epoch"),
