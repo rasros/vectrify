@@ -59,9 +59,7 @@ System dependencies:
 - Graphviz binaries (for `--format graphviz`): `apt install graphviz` or `brew install graphviz`
 - GPU is optional; the vision scorer falls back to CPU/MPS.
 
-## Provider setup
-
-Set exactly one of the following environment variables:
+Finally, set an API key for one provider:
 
 ```bash
 export OPENAI_API_KEY=...
@@ -69,8 +67,8 @@ export ANTHROPIC_API_KEY=...
 export GEMINI_API_KEY=...
 ```
 
-Override with `--provider {openai,anthropic,gemini}` if you have multiple
-keys set.
+The provider is auto-detected from whichever key is set; override with
+`--provider {openai,anthropic,gemini}` if you have several.
 
 ## Quickstart
 
@@ -79,7 +77,8 @@ vectrify input.png -o output.svg
 ```
 
 The defaults run up to 4 NSGA-II epochs and stop early once the search
-stops finding improvements (see [Convergence](#convergence)). Worst case,
+stops finding improvements (see
+[Convergence and cost](#convergence-and-cost)). Worst case,
 it runs for an hour and gives up.
 
 A few useful variations:
@@ -159,7 +158,7 @@ all derive from it, so adding one is a single entry. Be sparing:
 dominance dilutes as objectives multiply, and past about four nearly
 everything is non-dominated.
 
-### Convergence
+### Convergence and cost
 
 Each epoch ends as soon as one of these triggers fires; the next epoch
 re-seeds from the current Pareto front. The search stops once
@@ -188,19 +187,12 @@ patience counter. Set `--epoch-variance` and `--epoch-diversity` to
 non-zero values to add NSGA-specific stop criteria; their right
 thresholds depend on your scorer and image, so they're off by default.
 
-### Bounding the API bill
-
-The defaults give an upper bound on LLM calls per run, computed as:
-
-```
-max LLM calls ≈ max_epochs × epoch_steps + epoch-0 seeds + drain overhead
-              = 4 × 50 + ~10 + a few ≈ 220
-```
-
-That's the worst case; typical runs end earlier on `--epoch-patience`.
-If you need a strict ceiling, e.g. for cost-sensitive automation, set
-`--max-llm-calls 200` and the engine will halt the run as soon as the
-counter hits that value, regardless of which epoch it's in.
+Those defaults also bound the API bill, since LLM calls per run cannot
+exceed roughly `max_epochs × epoch_steps` plus epoch-0 seeds and a little
+drain overhead, so `4 × 50 + ~10` is about 220. That is the worst case;
+most runs end earlier on `--epoch-patience`. For a strict ceiling in
+cost-sensitive automation, `--max-llm-calls` halts the run the moment the
+counter hits it, whatever epoch it is in.
 
 Each edit call sends three images (target, current render, diff heatmap)
 plus the current code as input (typically a few thousand tokens), and
