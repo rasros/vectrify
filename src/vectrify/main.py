@@ -138,6 +138,7 @@ def main():
             beams=args.beams,
             cull_keep=args.cull_keep,
             epoch_diversity=args.epoch_diversity,
+            tournament_size=args.tournament_size,
             epoch_variance=args.epoch_variance or None,
             max_epochs=args.max_epochs,
             epoch_pool_size=args.epoch_seeds or None,

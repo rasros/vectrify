@@ -225,10 +225,16 @@ class NsgaStrategy(Generic[TState]):
         pool_size: int = 20,
         crossover_distance_threshold: int = 10,
         epoch_diversity: float = 0.0,
+        tournament_size: int = 2,
     ):
         self.pool_size = pool_size
         self.crossover_distance_threshold = crossover_distance_threshold
         self.epoch_diversity = epoch_diversity
+        # Selection intensity is a function of the tournament size alone -- the
+        # winner's expected quantile is ~1/(size+1) -- so this is an absolute
+        # count rather than a fraction of the pool, and stays meaningful when
+        # pool_size changes.
+        self.tournament_size = max(2, tournament_size)
 
     def _is_duplicate(
         self, node: SearchNode[TState], other: SearchNode[TState]
@@ -268,12 +274,10 @@ class NsgaStrategy(Generic[TState]):
             candidates = [n for n in pool if n.id != exclude_id]
             if len(candidates) < 2:
                 return candidates[0] if candidates else pool[0]
-            a, b = random.sample(candidates, 2)
-            ra, da = rank[a.id], crowd[a.id]
-            rb, db = rank[b.id], crowd[b.id]
-            if ra < rb or (ra == rb and da > db):
-                return a
-            return b
+            sample = random.sample(
+                candidates, min(self.tournament_size, len(candidates))
+            )
+            return min(sample, key=lambda n: (rank[n.id], -crowd[n.id]))
 
         p1 = _tournament()
         if len(pool) >= 2:

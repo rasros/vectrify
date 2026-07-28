@@ -13,7 +13,12 @@ DEFAULT_PROVIDER = "auto"
 DEFAULT_SCORER = "auto"
 DEFAULT_STRATEGY = "nsga"
 BEAM_ONLY_PARAMS = {"beams", "cull_keep"}
-NSGA_ONLY_PARAMS = {"epoch_diversity", "epoch_variance", "epoch_seeds"}
+NSGA_ONLY_PARAMS = {
+    "epoch_diversity",
+    "epoch_variance",
+    "epoch_seeds",
+    "tournament_size",
+}
 DEFAULT_MAX_EPOCHS = 4
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
@@ -41,6 +46,7 @@ DEFAULT_EPOCH_SEEDS = 0
 DEFAULT_EPOCH_PATIENCE = 20
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
 DEFAULT_EPOCH_STEPS = 50
+DEFAULT_TOURNAMENT_SIZE = 2
 DEFAULT_MAX_LLM_CALLS = 0  # 0 = unlimited / off
 DEFAULT_MAX_TOTAL_TASKS = 10000
 DEFAULT_FORMAT = "svg"
@@ -277,6 +283,17 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="[nsga-only] End epoch when score std dev in the active pool "
         "drops below this threshold. 0 disables.",
     )
+    g_search.add_argument(
+        "--tournament-size",
+        type=int,
+        default=DEFAULT_TOURNAMENT_SIZE,
+        dest="tournament_size",
+        metavar="N",
+        help="[nsga-only] Candidates compared per parent-selection tournament. "
+        "Higher means stronger bias toward visual quality and faster "
+        "convergence, at the cost of pool diversity. "
+        f"Default: {DEFAULT_TOURNAMENT_SIZE}",
+    )
     g_epoch.add_argument(
         "--epoch-seeds",
         type=int,
@@ -409,6 +426,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if ns.llm_rate is None:
         ns.llm_rate = _default_llm_rate(ns.workers)
 
+    if ns.tournament_size < 2:
+        raise SystemExit("Error: --tournament-size must be at least 2")
+
     if not (0.0 < ns.cull_keep <= 1.0):
         raise SystemExit("Error: --cull-keep must be greater than 0.0 and at most 1.0")
 
@@ -420,8 +440,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
     is_beam = ns.strategy == StrategyType.BEAM.value
     if is_beam:
+        nsga_defaults = {
+            "epoch_diversity": DEFAULT_EPOCH_DIVERSITY,
+            "epoch_variance": DEFAULT_EPOCH_VARIANCE,
+            "epoch_seeds": DEFAULT_EPOCH_SEEDS,
+            "tournament_size": DEFAULT_TOURNAMENT_SIZE,
+        }
         nsga_set = {
-            p for p in NSGA_ONLY_PARAMS if getattr(ns, p, None) not in (None, 0, 0.0)
+            p
+            for p in NSGA_ONLY_PARAMS
+            if getattr(ns, p, None) not in (None, nsga_defaults[p])
         }
         if nsga_set:
             raise SystemExit(
