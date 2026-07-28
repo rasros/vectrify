@@ -24,6 +24,12 @@ from pathlib import Path
 import matplotlib
 
 from vectrify.run_dirs import project_runs_dir, run_dirs_in
+from vectrify.score.complexity import (
+    LEGACY_METRIC_COLUMN,
+    LEGACY_METRIC_TARGET,
+    METRIC_NAMES,
+    read_metrics,
+)
 from vectrify.search.nsga import pareto_front
 from vectrify.search.stats import derived_rates
 
@@ -155,15 +161,9 @@ def load_lineage(run_dir: Path) -> list[dict]:
                         "parent": int(row["parent"]),
                         "epoch": int(row.get("epoch", 0) or 0),
                         "score": float(row["score"]),
-                        # Runs written before complexity was split carry a
-                        # single "complexity" column; read it as the visual
-                        # objective, which is what it was mostly made of.
-                        "visual_complexity": float(
-                            row.get("visual_complexity") or row.get("complexity") or 0
-                        ),
-                        "structural_complexity": float(
-                            row.get("structural_complexity") or 0
-                        ),
+                        # Metric columns and the pre-split legacy mapping both
+                        # come from the registry.
+                        **read_metrics(row),
                     }
                 )
     return rows
@@ -223,12 +223,7 @@ def _pareto_top10(lin: list[dict], pool_ids: set[int] | None = None) -> list[dic
     if not valid:
         return []
     front = pareto_front(
-        valid,
-        key=lambda r: (
-            r["score"],
-            r["visual_complexity"],
-            r["structural_complexity"],
-        ),
+        valid, key=lambda r: (r["score"], *(r[m] for m in METRIC_NAMES))
     )
     return sorted(front, key=lambda r: r["score"])[:10]
 
@@ -264,7 +259,7 @@ def uses_legacy_complexity(run_dir: Path) -> bool:
         return False
     with path.open(encoding="utf-8", newline="") as f:
         header = next(csv.reader(f), [])
-    return "complexity" in header and "visual_complexity" not in header
+    return LEGACY_METRIC_COLUMN in header and LEGACY_METRIC_TARGET not in header
 
 
 def _label(run_dir: Path) -> str:
@@ -324,8 +319,13 @@ def plot_pareto(
     lineages: list[list[dict]],
     pool_ids_list: list[set[int] | None],
 ):
-    ax.set_title("Score vs visual complexity")
-    ax.set_xlabel("Visual complexity  (stars: 3-objective Pareto front)")
+    axis_metric = METRIC_NAMES[0]
+    axis_name = axis_metric.replace("_", " ")
+    ax.set_title(f"Score vs {axis_name}")
+    ax.set_xlabel(
+        f"{axis_name.capitalize()}  "
+        f"(stars: {len(METRIC_NAMES) + 1}-objective Pareto front)"
+    )
     ax.set_ylabel("Score")
     ax.grid(True, color="grey", alpha=0.15, linewidth=0.5)
 
@@ -340,7 +340,7 @@ def plot_pareto(
             continue
         color = COLORS[i % len(COLORS)]
         ax.scatter(
-            [r["visual_complexity"] for r in valid],
+            [r[axis_metric] for r in valid],
             [r["score"] for r in valid],
             s=6,
             alpha=0.3,
@@ -352,7 +352,7 @@ def plot_pareto(
         for j, node in enumerate(top10):
             pc = PARETO_COLORS[j % len(PARETO_COLORS)]
             ax.scatter(
-                [node["visual_complexity"]],
+                [node[axis_metric]],
                 [node["score"]],
                 marker="*",
                 s=160,
@@ -363,7 +363,7 @@ def plot_pareto(
             )
             ax.annotate(
                 f"#{node['id']}",
-                (node["visual_complexity"], node["score"]),
+                (node[axis_metric], node["score"]),
                 fontsize=8,
                 color=pc,
                 xytext=(4, 4),
@@ -491,15 +491,15 @@ def plot_summary_text(
         if top10:
             lines.append("")
             lines.append(f"  pareto top 10{pool_note}:")
-            lines.append(
-                f"  {'#':>2}  {'id':>6}  {'score':>10}"
-                f"  {'visual':>9}  {'struct':>8}  ep"
+            metric_head = "".join(
+                f"  {m.replace('_complexity', ''):>9}" for m in METRIC_NAMES
             )
+            lines.append(f"  {'#':>2}  {'id':>6}  {'score':>10}{metric_head}  ep")
             for rank, node in enumerate(top10, 1):
+                metric_cells = "".join(f"  {node[m]:>9.0f}" for m in METRIC_NAMES)
                 lines.append(
                     f"  {rank:>2}  {node['id']:>6}  {node['score']:>10.6f}"
-                    f"  {node['visual_complexity']:>9.0f}"
-                    f"  {node['structural_complexity']:>8.0f}  {node['epoch']}"
+                    f"{metric_cells}  {node['epoch']}"
                 )
         lines.append("")
     ax.text(

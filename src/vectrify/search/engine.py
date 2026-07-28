@@ -213,8 +213,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 parent_id=res.parent_id,
                 state=new_state,
                 secondary_parent_id=res.secondary_parent_id,
-                visual_complexity=res.visual_complexity,
-                structural_complexity=res.structural_complexity,
+                metrics=res.metrics,
                 signature=res.signature,
                 epoch=epoch,
             )

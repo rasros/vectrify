@@ -8,20 +8,22 @@ from pathlib import Path
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.llm.base import split_data_url
+from vectrify.score.complexity import METRIC_NAMES
 from vectrify.search import SearchNode
 
 log = logging.getLogger(__name__)
 
 # lineage.csv schema. The header and every row are written through this one
-# list, so a row can never fall out of alignment with the header.
+# list, so a row can never fall out of alignment with the header. The metric
+# columns come from the registry, so registering a metric adds its column here
+# without an edit.
 LINEAGE_COLUMNS = [
     "id",
     "parent",
     "secondary_parent",
     "epoch",
     "score",
-    "visual_complexity",
-    "structural_complexity",
+    *METRIC_NAMES,
     "summary",
     "content_md5",
     "evicted",
@@ -185,8 +187,7 @@ class FileStorageAdapter:
                 "secondary_parent": node.secondary_parent_id or "",
                 "epoch": node.epoch,
                 "score": f"{node.score:.6f}",
-                "visual_complexity": f"{node.visual_complexity:.0f}",
-                "structural_complexity": f"{node.structural_complexity:.0f}",
+                **{name: f"{node.metrics.get(name, 0.0):.0f}" for name in METRIC_NAMES},
                 "summary": node.state.payload.origin or "",
                 "content_md5": content_md5,
             }

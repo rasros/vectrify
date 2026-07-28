@@ -18,7 +18,7 @@ from vectrify.image_utils import (
 )
 from vectrify.llm import LLMConfig, get_provider
 from vectrify.llm.base import split_data_url
-from vectrify.score.complexity import structural_complexity, visual_complexity
+from vectrify.score.complexity import measure_all
 from vectrify.search import INVALID_SCORE, Result
 from vectrify.search.diversity import simhash
 from vectrify.utils import setup_worker_logger
@@ -182,8 +182,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                 out_w=ctx.original_w,
                 out_h=ctx.original_h,
             )
-            vis_complexity = visual_complexity(png)
-            str_complexity = structural_complexity(content)
+            metrics = measure_all(png, content)
             signature = simhash(content)
 
             full_img = Image.open(io.BytesIO(png)).convert("RGB")
@@ -205,8 +204,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                         raster_preview_data_url=preview_data_url,
                     ),
                     secondary_parent_id=task.secondary_parent_id,
-                    visual_complexity=vis_complexity,
-                    structural_complexity=str_complexity,
+                    metrics=metrics,
                     signature=signature,
                     llm_type=llm_type,
                 )

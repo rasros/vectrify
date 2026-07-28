@@ -24,8 +24,7 @@ def test_search_node_comparison_ignores_metadata():
         parent_id=99,
         state=ChainState(score=0.5, payload="a"),
         secondary_parent_id=7,
-        visual_complexity=123.0,
-        structural_complexity=45.0,
+        metrics={"visual_complexity": 123.0, "structural_complexity": 45.0},
         signature=42,
         epoch=3,
     )

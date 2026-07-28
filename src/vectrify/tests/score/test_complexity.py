@@ -99,3 +99,88 @@ def test_structural_complexity_does_not_discount_repetition():
         f"<svg>{diverse}</svg>"
     )
     assert ratio > 0.9, f"repetition discounted by {(1 - ratio) * 100:.0f}%"
+
+
+# ── metric registry ───────────────────────────────────────────────────────────
+
+
+def test_registry_covers_the_declared_metrics():
+    from vectrify.score.complexity import METRIC_NAMES, METRICS
+
+    assert tuple(METRICS) == METRIC_NAMES
+    assert set(METRIC_NAMES) == {"visual_complexity", "structural_complexity"}
+
+
+def test_measure_all_evaluates_every_registered_metric():
+    from vectrify.score.complexity import METRIC_NAMES, measure_all
+
+    metrics = measure_all(_make_png("red", size=32), _SIMPLE_SVG)
+    assert set(metrics) == set(METRIC_NAMES)
+    assert all(v > 0.0 for v in metrics.values())
+
+
+def test_lineage_columns_derive_from_the_registry():
+    """A registered metric must become a lineage.csv column with no edit there."""
+    from vectrify.score.complexity import METRIC_NAMES
+    from vectrify.vector.storage import LINEAGE_COLUMNS
+
+    for name in METRIC_NAMES:
+        assert name in LINEAGE_COLUMNS
+
+
+def test_objective_arity_follows_the_registry():
+    """The objective vector is score plus one entry per registered metric."""
+    from vectrify.score.complexity import METRIC_NAMES
+    from vectrify.search import ChainState, SearchNode
+    from vectrify.search.nsga import build_objectives
+
+    nodes = [
+        SearchNode(
+            score=0.1 * i,
+            id=i,
+            parent_id=0,
+            state=ChainState(score=0.1 * i, payload=None),
+            metrics=dict.fromkeys(METRIC_NAMES, float(i)),
+        )
+        for i in (1, 2)
+    ]
+    objectives = build_objectives(nodes)
+    assert all(len(v) == len(METRIC_NAMES) + 1 for v in objectives.values())
+
+
+def test_read_metrics_round_trips_a_written_row():
+    from vectrify.score.complexity import METRIC_NAMES, read_metrics
+
+    row = dict.fromkeys(METRIC_NAMES, "250")
+    assert read_metrics(row) == dict.fromkeys(METRIC_NAMES, 250.0)
+
+
+def test_read_metrics_defaults_absent_columns_to_zero():
+    """A row written before a metric was registered must stay readable."""
+    from vectrify.score.complexity import METRIC_NAMES, read_metrics
+
+    metrics = read_metrics({"visual_complexity": "100"})
+    assert set(metrics) == set(METRIC_NAMES)
+    assert metrics["visual_complexity"] == 100.0
+    assert metrics["structural_complexity"] == 0.0
+
+
+def test_read_metrics_maps_the_legacy_blended_column():
+    from vectrify.score.complexity import read_metrics
+
+    metrics = read_metrics({"complexity": "1500"})
+    assert metrics["visual_complexity"] == 1500.0
+    assert metrics["structural_complexity"] == 0.0
+
+
+def test_row_has_metrics_rejects_sparse_eviction_rows():
+    """An eviction row sets only id and evicted; reading it as metrics would
+    overwrite the node's real values with zeros."""
+    from vectrify.score.complexity import row_has_metrics
+
+    assert row_has_metrics({"visual_complexity": "100"}) is True
+    assert row_has_metrics({"complexity": "1500"}) is True
+    assert row_has_metrics({"id": "7", "evicted": "42"}) is False
+    assert (
+        row_has_metrics({"visual_complexity": "", "structural_complexity": ""}) is False
+    )

@@ -1,13 +1,18 @@
 """Complexity measures used as NSGA objectives alongside visual score.
 
-Two independent measures are reported rather than one blended number: a raster
+Independent measures are reported rather than one blended number: a raster
 measure of how much detail the render carries, and a source measure of how much
 text it takes to say it. They are separate objectives, so nothing here has to
 pick a weighting between them.
+
+METRICS is the single place a measure is declared. Adding one means adding an
+entry here: the node model, the objective vector, lineage.csv, and the analysis
+scripts all derive their columns from it.
 """
 
 import io
 import re
+from collections.abc import Callable, Mapping
 
 from PIL import Image
 
@@ -47,3 +52,56 @@ def structural_complexity(source: str) -> float:
     unpenalised on both objectives at once.
     """
     return float(len(_WHITESPACE_RE.sub("", source)))
+
+
+# Metric name -> measure over (rendered PNG, source text). Every consumer derives
+# its columns and objective ordering from this table, so a new metric is one
+# entry rather than an edit in each of nine files.
+#
+# `score` is deliberately absent: it comes from the configured scorer, not from
+# a complexity measure, and it is the constraint-gated primary objective rather
+# than one of the interchangeable tiebreakers.
+#
+# Be sparing. Dominance dilutes as objectives multiply, so past roughly four
+# nearly every candidate is non-dominated and the Pareto front stops
+# discriminating -- cheap to add is not the same as free to add.
+METRICS: Mapping[str, Callable[[bytes, str], float]] = {
+    "visual_complexity": lambda png, _source: visual_complexity(png),
+    "structural_complexity": lambda _png, source: structural_complexity(source),
+}
+
+METRIC_NAMES: tuple[str, ...] = tuple(METRICS)
+
+# Runs recorded before complexity was split into separate objectives carry a
+# single blended column. It was 70% the render's JPEG size, so it is read back as
+# the visual metric. Defined here so the analysis scripts do not each restate it.
+LEGACY_METRIC_COLUMN = "complexity"
+LEGACY_METRIC_TARGET = "visual_complexity"
+
+
+def measure_all(png_bytes: bytes, source: str) -> dict[str, float]:
+    """Evaluate every registered metric for one candidate."""
+    return {name: fn(png_bytes, source) for name, fn in METRICS.items()}
+
+
+def row_has_metrics(row: Mapping[str, str]) -> bool:
+    """Whether a lineage.csv row actually carries metric values.
+
+    Eviction rows are sparse: only ``id`` and ``evicted`` are set. Reading them
+    as metrics would overwrite the node's real values with zeros.
+    """
+    return any(row.get(name) for name in METRIC_NAMES) or bool(
+        row.get(LEGACY_METRIC_COLUMN)
+    )
+
+
+def read_metrics(row: Mapping[str, str]) -> dict[str, float]:
+    """Pull every registered metric out of a lineage.csv row.
+
+    Missing columns read as 0.0, so a row written before a metric existed stays
+    usable. A pre-split row is mapped through the legacy column.
+    """
+    metrics = {name: float(row.get(name) or 0.0) for name in METRIC_NAMES}
+    if not row.get(LEGACY_METRIC_TARGET) and row.get(LEGACY_METRIC_COLUMN):
+        metrics[LEGACY_METRIC_TARGET] = float(row[LEGACY_METRIC_COLUMN])
+    return metrics

@@ -138,12 +138,18 @@ Three normalized objectives are minimized in parallel:
 
 Each is scaled by its own maximum across the current pool, so the three
 are directly comparable and no weighting between them is needed. NSGA
-trades them off by dominance alone. The selection machinery itself is
-arity-agnostic: dominance, crowding distance, and the Pareto helpers all
-read the objective count off the data rather than assuming it. Adding a
-fourth objective still means threading the new measure through the
-worker, node model, and run artifacts, but the algorithm needs no
-changes.
+trades them off by dominance alone.
+
+Metrics are registered in one table, `METRICS` in
+`vectrify/score/complexity.py`, mapping a name to a measure over the
+rendered PNG and the source text. Everything downstream derives from it:
+the objective vector, the node model, the `lineage.csv` columns, and both
+analysis scripts. Adding an objective is one entry in that table, and the
+selection machinery needs no changes either, since dominance, crowding
+distance, and the Pareto helpers all read the objective count off the
+data rather than assuming it. Visual error is deliberately outside the
+registry: it comes from the configured scorer and is the constraint-gated
+primary objective rather than one of the interchangeable tiebreakers.
 
 Be sparing about it, though. Dominance dilutes as objectives multiply.
 On a 12-node pool the first front grows from 8 nodes at three objectives

@@ -28,8 +28,10 @@ def make_node(
         id=node_id,
         parent_id=0,
         state=state,
-        visual_complexity=visual_complexity,
-        structural_complexity=structural_complexity,
+        metrics={
+            "visual_complexity": visual_complexity,
+            "structural_complexity": structural_complexity,
+        },
         signature=simhash(content) if content else None,
     )
 
@@ -229,7 +231,7 @@ def test_select_parent_skips_invalid_nodes():
         id=0,
         parent_id=0,
         state=ChainState(score=float("inf"), payload=None),
-        visual_complexity=0.0,
+        metrics={"visual_complexity": 0.0, "structural_complexity": 0.0},
     )
     valid = make_node(1, 0.3, 200.0)
     pid, _ = strategy.select_parent([sentinel, valid])
@@ -243,7 +245,7 @@ def test_select_parent_only_invalid_falls_back():
         id=0,
         parent_id=0,
         state=ChainState(score=float("inf"), payload=None),
-        visual_complexity=0.0,
+        metrics={"visual_complexity": 0.0, "structural_complexity": 0.0},
     )
     pid, secondary = strategy.select_parent([sentinel])
     assert pid == 0
@@ -258,7 +260,7 @@ def test_create_new_state_propagates_score_and_payload():
         valid=True,
         score=0.42,
         payload="<svg/>",
-        visual_complexity=500.0,
+        metrics={"visual_complexity": 500.0},
     )
     state = strategy.create_new_state(result)
     assert state.score == 0.42

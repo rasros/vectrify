@@ -33,8 +33,7 @@ def _node(node_id: int, score: float, visual: float, structural: float) -> Searc
         id=node_id,
         parent_id=0,
         epoch=1,
-        visual_complexity=visual,
-        structural_complexity=structural,
+        metrics={"visual_complexity": visual, "structural_complexity": structural},
         state=ChainState(
             score=score,
             payload=VectorStatePayload(

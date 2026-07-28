@@ -21,6 +21,7 @@ import sys
 from pathlib import Path
 
 from vectrify.run_dirs import OUTPUT_EXTENSIONS, project_runs_dir, run_dirs_in
+from vectrify.score.complexity import METRIC_NAMES, read_metrics, row_has_metrics
 from vectrify.search.nsga import pareto_front
 
 
@@ -55,19 +56,17 @@ def collect_node_files(nodes_dir: Path) -> list[dict]:
                 "id": node_id,
                 "score": score,
                 "path": node_path,
-                "visual_complexity": None,
-                "structural_complexity": None,
+                **dict.fromkeys(METRIC_NAMES),
             }
         )
     return nodes
 
 
 def load_complexities_from_lineage(lineage_csv: Path, nodes: list[dict]) -> None:
-    """Fill in both complexity objectives from lineage.csv where available.
+    """Fill in every registered metric from lineage.csv where available.
 
-    Runs written before complexity was split carry a single ``complexity``
-    column; it is read into the visual objective, which is what it was mostly
-    made of (a 0.7/0.3 blend of visual and SVG-only structural).
+    Columns and legacy mapping both come from the metric registry, so a newly
+    registered metric is picked up without editing this function.
     """
     if not lineage_csv.exists():
         return
@@ -80,14 +79,10 @@ def load_complexities_from_lineage(lineage_csv: Path, nodes: list[dict]) -> None
                     node = id_to_node.get(int(row["id"]))
                     if node is None:
                         continue
-                    if row.get("visual_complexity"):
-                        node["visual_complexity"] = float(row["visual_complexity"])
-                        node["structural_complexity"] = float(
-                            row.get("structural_complexity") or 0.0
-                        )
-                    elif row.get("complexity"):  # legacy single-column runs
-                        node["visual_complexity"] = float(row["complexity"])
-                        node["structural_complexity"] = 0.0
+                    # Skip sparse eviction rows, which would zero the metrics
+                    # the node's real row already supplied.
+                    if row_has_metrics(row):
+                        node.update(read_metrics(row))
                 except (KeyError, ValueError):
                     pass
     except Exception as e:
@@ -108,9 +103,9 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
 
     load_complexities_from_lineage(run_dir / "lineage.csv", nodes)
     for node in nodes:
-        for key in ("visual_complexity", "structural_complexity"):
-            if node[key] is None:
-                node[key] = 0.0
+        for name in METRIC_NAMES:
+            if node[name] is None:
+                node[name] = 0.0
 
     valid = [n for n in nodes if n["score"] < float("inf")]
 
@@ -119,12 +114,7 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
     # Pareto front over the same three objectives the search selects on.
     if valid:
         for node in pareto_front(
-            valid,
-            key=lambda n: (
-                n["score"],
-                n["visual_complexity"],
-                n["structural_complexity"],
-            ),
+            valid, key=lambda n: (n["score"], *(n[m] for m in METRIC_NAMES))
         ):
             keep_ids.add(node["id"])
 
