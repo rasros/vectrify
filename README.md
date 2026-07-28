@@ -128,14 +128,34 @@ rejects mixed usage.
 
 ### NSGA-II objectives
 
-Two normalized objectives are minimized in parallel: visual error
-(scorer distance to source) and content complexity (code size / token
-cost). The constraint-first variant (Deb 2000) treats only candidates
-in the top 25% by visual error as feasible; everything else is
-automatically dominated. In practice, visual quality is the primary
-objective and complexity acts as a tiebreaker among the quality-leaders,
+Three normalized objectives are minimized in parallel:
+
+| Objective                | Measure                                        |
+|--------------------------|------------------------------------------------|
+| visual error             | scorer distance to the source image            |
+| visual complexity        | JPEG-compressed size of the render             |
+| structural complexity    | code size (whitespace-stripped source length)  |
+
+Each is scaled by its own maximum across the current pool, so the three
+are directly comparable and no weighting between them is needed — NSGA
+trades them off by dominance alone. Adding a fourth objective is a
+matter of extending the vector: dominance, crowding distance, and the
+Pareto helpers all read the arity off the data rather than assuming it.
+
+The constraint-first variant (Deb 2000) gates on visual error: a
+candidate is feasible only while its error beats a percentile of the
+pool, and infeasible candidates are automatically dominated by feasible
+ones. So visual quality stays the primary objective and the two
+complexity measures act as tiebreakers among the quality-leaders,
 biasing toward small, clean renderings instead of accreting detail
 forever once the image is already close.
+
+Structural complexity is deliberately format-agnostic, so it means the
+same thing for SVG, DOT and Typst and no backend is scored as free. It
+counts source characters rather than compressed size: every crossover
+operator injects elements from a *related* parent, so near-duplicate
+elements accumulate, and a compressed measure discounts exactly that
+kind of bloat by around 80%.
 
 ### Convergence
 
@@ -198,7 +218,7 @@ sketch.svg                       # the best final candidate (written at the end)
 sketch/
 └── runs/
     └── 2026-04-26_14-30-21/     # one directory per run, timestamped
-        ├── lineage.csv          # accepted node history (score, parent, ops)
+        ├── lineage.csv          # accepted node history (all three objectives, parent, ops)
         └── nodes/
             ├── 0.0421_0001.svg  # one file per accepted node, prefixed by score
             ├── 0.0421_0001.png  # rendered preview (--save-raster)
