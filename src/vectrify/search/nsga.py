@@ -159,14 +159,26 @@ def crowding_distance(
 
 
 def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
-    """Normalize (score, complexity) per node into unit-scaled objectives.
+    """Normalize (score, visual complexity, structural complexity) per node.
+
+    Each objective is scaled by its own population maximum, so the three are
+    directly comparable and no weighting between them is needed -- NSGA trades
+    them off by dominance instead.
 
     Callers must pass only valid nodes (score < INVALID_SCORE); an infinite
     score would corrupt the normalization for every other node.
     """
     max_score = max((n.score for n in nodes), default=1.0) or 1.0
-    max_complexity = max((n.complexity for n in nodes), default=1.0) or 1.0
-    return {n.id: (n.score / max_score, n.complexity / max_complexity) for n in nodes}
+    max_visual = max((n.visual_complexity for n in nodes), default=1.0) or 1.0
+    max_structural = max((n.structural_complexity for n in nodes), default=1.0) or 1.0
+    return {
+        n.id: (
+            n.score / max_score,
+            n.visual_complexity / max_visual,
+            n.structural_complexity / max_structural,
+        )
+        for n in nodes
+    }
 
 
 def pareto_select(

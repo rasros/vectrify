@@ -6,7 +6,7 @@ from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
-from vectrify.score.complexity import complexity as blended_complexity
+from vectrify.score.complexity import structural_complexity, visual_complexity
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -31,21 +31,22 @@ def prefilter_nodes(
 ) -> list:
     """Reduce candidates using SimpleFallbackScorer + complexity Pareto front.
 
-    Each entry in prepped_nodes is a tuple of
-    (old_id, content_text, png_bytes, preview_data_url, complexity, signature).
+    Each entry in prepped_nodes is a tuple of (old_id, content_text, png_bytes,
+    preview_data_url, visual_complexity, structural_complexity, signature).
     Returns at most max_keep entries from the Pareto-optimal front.
+
+    This selects on the same three objectives the search itself uses, so a
+    cheap prefilter cannot favour candidates the real selection would discard.
     """
     simple_scorer = SimpleFallbackScorer()
     simple_ref = simple_scorer.prepare_reference(original_img)
 
     simple_scores = []
-    for _, _, png, _, _, _ in prepped_nodes:
+    for _, _, png, _, _, _, _ in prepped_nodes:
         try:
             simple_scores.append(simple_scorer.score(simple_ref, png))
         except Exception:
             simple_scores.append(1.0)
-
-    complexities = [item[4] for item in prepped_nodes]
 
     temp_nodes = [
         SearchNode(
@@ -53,7 +54,8 @@ def prefilter_nodes(
             id=i,
             parent_id=0,
             state=ChainState(score=simple_scores[i], payload=None),
-            complexity=complexities[i],
+            visual_complexity=prepped_nodes[i][4],
+            structural_complexity=prepped_nodes[i][5],
         )
         for i in range(len(prepped_nodes))
     ]
@@ -98,8 +100,15 @@ def resume_nodes(
         old_id, content_text, sig = item
         png = format_plugin.rasterize(content_text, out_w=original_w, out_h=original_h)
         preview = make_preview_data_url(png, image_long_side)
-        comp = blended_complexity(png, content_text)
-        return old_id, content_text, png, preview, comp, sig
+        return (
+            old_id,
+            content_text,
+            png,
+            preview,
+            visual_complexity(png),
+            structural_complexity(content_text),
+            sig,
+        )
 
     prepped: list = []
     with concurrent.futures.ThreadPoolExecutor(max_workers=workers) as executor:
@@ -120,14 +129,15 @@ def resume_nodes(
 
     initial_nodes: list[SearchNode] = []
     current_new_id = 1
-    for old_id, content_text, png, preview, complexity, sig in prepped:
+    for old_id, content_text, png, preview, vis_comp, str_comp, sig in prepped:
         try:
             new_score = scorer.score(scoring_ref, png)
             node = SearchNode(
                 score=new_score,
                 id=current_new_id,
                 parent_id=0,
-                complexity=complexity,
+                visual_complexity=vis_comp,
+                structural_complexity=str_comp,
                 signature=sig,
                 state=ChainState(
                     score=new_score,

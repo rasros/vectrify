@@ -48,13 +48,24 @@ def collect_node_files(nodes_dir: Path) -> list[dict]:
             score = float("inf")
         node_id = int(m.group(2))
         nodes.append(
-            {"id": node_id, "score": score, "path": node_path, "complexity": None}
+            {
+                "id": node_id,
+                "score": score,
+                "path": node_path,
+                "visual_complexity": None,
+                "structural_complexity": None,
+            }
         )
     return nodes
 
 
 def load_complexities_from_lineage(lineage_csv: Path, nodes: list[dict]) -> None:
-    """Fill in complexity from lineage.csv where available."""
+    """Fill in both complexity objectives from lineage.csv where available.
+
+    Runs written before complexity was split carry a single ``complexity``
+    column; it is read into the visual objective, which is what it was mostly
+    made of (a 0.7/0.3 blend of visual and SVG-only structural).
+    """
     if not lineage_csv.exists():
         return
     id_to_node = {n["id"]: n for n in nodes}
@@ -63,10 +74,17 @@ def load_complexities_from_lineage(lineage_csv: Path, nodes: list[dict]) -> None
             reader = csv.DictReader(f)
             for row in reader:
                 try:
-                    node_id = int(row["id"])
-                    complexity = float(row["complexity"])
-                    if node_id in id_to_node:
-                        id_to_node[node_id]["complexity"] = complexity
+                    node = id_to_node.get(int(row["id"]))
+                    if node is None:
+                        continue
+                    if row.get("visual_complexity"):
+                        node["visual_complexity"] = float(row["visual_complexity"])
+                        node["structural_complexity"] = float(
+                            row.get("structural_complexity") or 0.0
+                        )
+                    elif row.get("complexity"):  # legacy single-column runs
+                        node["visual_complexity"] = float(row["complexity"])
+                        node["structural_complexity"] = 0.0
                 except (KeyError, ValueError):
                     pass
     except Exception as e:
@@ -87,16 +105,24 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
 
     load_complexities_from_lineage(run_dir / "lineage.csv", nodes)
     for node in nodes:
-        if node["complexity"] is None:
-            node["complexity"] = 0.0
+        for key in ("visual_complexity", "structural_complexity"):
+            if node[key] is None:
+                node[key] = 0.0
 
     valid = [n for n in nodes if n["score"] < float("inf")]
 
     keep_ids: set[int] = set()
 
-    # Pareto front (score vs complexity)
+    # Pareto front over the same three objectives the search selects on.
     if valid:
-        for node in pareto_front(valid, key=lambda n: (n["score"], n["complexity"])):
+        for node in pareto_front(
+            valid,
+            key=lambda n: (
+                n["score"],
+                n["visual_complexity"],
+                n["structural_complexity"],
+            ),
+        ):
             keep_ids.add(node["id"])
 
     # Top N by score

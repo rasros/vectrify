@@ -7,6 +7,7 @@ from vectrify.search.nsga import (
     _constrained_dominates,
     _dominates,
     _percentile_75,
+    build_objectives,
     crowding_distance,
     non_dominated_sort,
     pareto_front,
@@ -16,8 +17,9 @@ from vectrify.search.nsga import (
 def make_node(
     node_id: int,
     score: float,
-    complexity: float = 100.0,
+    visual_complexity: float = 100.0,
     content: str | None = None,
+    structural_complexity: float = 0.0,
 ) -> SearchNode:
     state = ChainState(score=score, payload=None)
     return SearchNode(
@@ -25,7 +27,8 @@ def make_node(
         id=node_id,
         parent_id=0,
         state=state,
-        complexity=complexity,
+        visual_complexity=visual_complexity,
+        structural_complexity=structural_complexity,
         signature=simhash(content) if content else None,
     )
 
@@ -112,6 +115,39 @@ def test_crowding_distance_reads_arity_from_the_vectors():
     assert dist[3] > dist[2] > 0.0
 
 
+def test_build_objectives_returns_three_normalized_objectives():
+    nodes = [
+        make_node(1, 0.5, 200.0, structural_complexity=1000.0),
+        make_node(2, 1.0, 400.0, structural_complexity=500.0),
+    ]
+    objectives = build_objectives(nodes)
+    assert all(len(v) == 3 for v in objectives.values())
+    # Each objective is scaled by its own population maximum, so the largest
+    # value in every column is exactly 1.0 -- that is what makes the three
+    # comparable without any weighting between them.
+    assert objectives[1] == (0.5, 0.5, 1.0)
+    assert objectives[2] == (1.0, 1.0, 0.5)
+
+
+def test_build_objectives_charges_for_source_size():
+    """Regression: structural complexity was SVG-only and scored 0.0 for DOT
+    and Typst, so a bloated non-SVG source was free. Two candidates alike in
+    score and render must now be separated by source size alone.
+    """
+    lean = make_node(1, 0.4, 100.0, structural_complexity=200.0)
+    bloated = make_node(2, 0.4, 100.0, structural_complexity=8000.0)
+    objectives = build_objectives([lean, bloated])
+    assert _dominates(objectives[lean.id], objectives[bloated.id])
+    assert not _dominates(objectives[bloated.id], objectives[lean.id])
+
+
+def test_build_objectives_survives_all_zero_objectives():
+    """An all-zero column must not divide by zero."""
+    nodes = [make_node(i, 0.0, 0.0, structural_complexity=0.0) for i in range(1, 4)]
+    objectives = build_objectives(nodes)
+    assert all(v == (0.0, 0.0, 0.0) for v in objectives.values())
+
+
 def test_non_dominated_sort_all_pareto():
     nodes = [make_node(1, 0.1), make_node(2, 0.5), make_node(3, 0.9)]
     objectives = {1: (0.1, 0.9), 2: (0.5, 0.5), 3: (0.9, 0.1)}
@@ -192,7 +228,7 @@ def test_select_parent_skips_invalid_nodes():
         id=0,
         parent_id=0,
         state=ChainState(score=float("inf"), payload=None),
-        complexity=0.0,
+        visual_complexity=0.0,
     )
     valid = make_node(1, 0.3, 200.0)
     pid, _ = strategy.select_parent([sentinel, valid])
@@ -206,7 +242,7 @@ def test_select_parent_only_invalid_falls_back():
         id=0,
         parent_id=0,
         state=ChainState(score=float("inf"), payload=None),
-        complexity=0.0,
+        visual_complexity=0.0,
     )
     pid, secondary = strategy.select_parent([sentinel])
     assert pid == 0
@@ -221,7 +257,7 @@ def test_create_new_state_propagates_score_and_payload():
         valid=True,
         score=0.42,
         payload="<svg/>",
-        complexity=500.0,
+        visual_complexity=500.0,
     )
     state = strategy.create_new_state(result)
     assert state.score == 0.42
@@ -266,8 +302,8 @@ def test_diversity_admits_node_with_no_content():
 
 
 def test_pareto_front_prefers_simpler_for_equal_quality():
-    n_simple = make_node(1, 0.3, complexity=100.0)
-    n_complex = make_node(2, 0.3, complexity=5000.0)
+    n_simple = make_node(1, 0.3, visual_complexity=100.0)
+    n_complex = make_node(2, 0.3, visual_complexity=5000.0)
     max_c = 5000.0
     objectives = {
         1: (0.3, 100.0 / max_c),
@@ -279,7 +315,10 @@ def test_pareto_front_prefers_simpler_for_equal_quality():
 
 def test_tournament_prefers_lower_rank():
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
-    nodes = [make_node(1, 0.1, complexity=100.0), make_node(2, 0.9, complexity=100.0)]
+    nodes = [
+        make_node(1, 0.1, visual_complexity=100.0),
+        make_node(2, 0.9, visual_complexity=100.0),
+    ]
     selected = {strategy.select_parent(nodes)[0] for _ in range(30)}
     assert 1 in selected
     assert 2 not in selected
@@ -287,7 +326,7 @@ def test_tournament_prefers_lower_rank():
 
 def test_tournament_single_pool_candidate_returns_it():
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
-    nodes = [make_node(1, 0.3, complexity=200.0)]
+    nodes = [make_node(1, 0.3, visual_complexity=200.0)]
     pid, secondary = strategy.select_parent(nodes)
     assert pid == 1
     assert secondary is None
@@ -295,7 +334,10 @@ def test_tournament_single_pool_candidate_returns_it():
 
 def test_tournament_constrained_dominance_prefers_better_score():
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
-    nodes = [make_node(1, 0.1, complexity=500.0), make_node(2, 0.9, complexity=10.0)]
+    nodes = [
+        make_node(1, 0.1, visual_complexity=500.0),
+        make_node(2, 0.9, visual_complexity=10.0),
+    ]
     selected = {strategy.select_parent(nodes)[0] for _ in range(50)}
     assert 1 in selected
     assert 2 not in selected
@@ -304,11 +346,11 @@ def test_tournament_constrained_dominance_prefers_better_score():
 def test_pool_size_limits_candidate_set():
     strategy = NsgaStrategy(pool_size=2, crossover_distance_threshold=65)
     nodes = [
-        make_node(1, 0.1, complexity=10.0),
-        make_node(2, 0.2, complexity=20.0),
-        make_node(3, 0.8, complexity=800.0),
-        make_node(4, 0.9, complexity=900.0),
-        make_node(5, 1.0, complexity=1000.0),
+        make_node(1, 0.1, visual_complexity=10.0),
+        make_node(2, 0.2, visual_complexity=20.0),
+        make_node(3, 0.8, visual_complexity=800.0),
+        make_node(4, 0.9, visual_complexity=900.0),
+        make_node(5, 1.0, visual_complexity=1000.0),
     ]
     selected = {strategy.select_parent(nodes)[0] for _ in range(50)}
     assert selected <= {1, 2}
@@ -316,7 +358,9 @@ def test_pool_size_limits_candidate_set():
 
 def test_pool_size_one_always_returns_same_node():
     strategy = NsgaStrategy(pool_size=1, crossover_distance_threshold=65)
-    nodes = [make_node(i, i * 0.1, complexity=float(i * 100)) for i in range(1, 6)]
+    nodes = [
+        make_node(i, i * 0.1, visual_complexity=float(i * 100)) for i in range(1, 6)
+    ]
     selected = {strategy.select_parent(nodes)[0] for _ in range(20)}
     assert selected == {1}
 
@@ -361,11 +405,11 @@ def test_should_not_diversify_too_few_nodes():
 def test_epoch_seeds_returns_pareto_front():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
-        make_node(1, 0.1, complexity=1000.0),  # good quality, complex
+        make_node(1, 0.1, visual_complexity=1000.0),  # good quality, complex
         make_node(
-            2, 0.5, complexity=100.0
+            2, 0.5, visual_complexity=100.0
         ),  # worse quality, simpler (dominates node 3)
-        make_node(3, 0.9, complexity=900.0),  # dominated by node 2
+        make_node(3, 0.9, visual_complexity=900.0),  # dominated by node 2
     ]
     seeds = strategy.epoch_seeds(nodes, max_seeds=2)
     seed_ids = {n.id for n in seeds}
@@ -376,7 +420,9 @@ def test_epoch_seeds_returns_pareto_front():
 
 def test_epoch_seeds_respects_max_seeds():
     strategy = NsgaStrategy(pool_size=10)
-    nodes = [make_node(i, i * 0.1, complexity=float(i * 100)) for i in range(1, 8)]
+    nodes = [
+        make_node(i, i * 0.1, visual_complexity=float(i * 100)) for i in range(1, 8)
+    ]
     seeds = strategy.epoch_seeds(nodes, max_seeds=3)
     assert len(seeds) == 3
 
@@ -384,10 +430,12 @@ def test_epoch_seeds_respects_max_seeds():
 def test_epoch_seeds_filters_exact_duplicates():
     content = "<svg>" + "".join(str(i) for i in range(500)) + "</svg>"
     strategy = NsgaStrategy(pool_size=10)
-    good = make_node(1, 0.1, complexity=100.0, content=content)
-    duplicate = make_node(2, 0.1, complexity=100.0, content=content)  # exact copy
+    good = make_node(1, 0.1, visual_complexity=100.0, content=content)
+    duplicate = make_node(
+        2, 0.1, visual_complexity=100.0, content=content
+    )  # exact copy
     different = make_node(
-        3, 0.2, complexity=200.0, content="<svg><completely different/></svg>"
+        3, 0.2, visual_complexity=200.0, content="<svg><completely different/></svg>"
     )
     seeds = strategy.epoch_seeds([good, duplicate, different], max_seeds=3)
     seed_ids = {n.id for n in seeds}
@@ -403,10 +451,10 @@ def test_epoch_seeds_empty_pool_returns_empty():
 def test_epoch_seeds_sorted_by_visual_score():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
-        make_node(1, 0.1, complexity=800.0),
-        make_node(2, 0.3, complexity=600.0),
-        make_node(3, 0.5, complexity=400.0),
-        make_node(4, 0.7, complexity=200.0),
+        make_node(1, 0.1, visual_complexity=800.0),
+        make_node(2, 0.3, visual_complexity=600.0),
+        make_node(3, 0.5, visual_complexity=400.0),
+        make_node(4, 0.7, visual_complexity=200.0),
     ]
     seeds = strategy.epoch_seeds(nodes, max_seeds=4)
     scores = [n.score for n in seeds]
@@ -463,8 +511,8 @@ def test_constrained_dominates_both_infeasible_falls_back_to_pareto():
 
 
 def test_non_dominated_sort_constrained_feasible_dominates_simple_but_bad():
-    n1 = make_node(1, score=0.1, complexity=5000.0)
-    n2 = make_node(2, score=0.9, complexity=10.0)
+    n1 = make_node(1, score=0.1, visual_complexity=5000.0)
+    n2 = make_node(2, score=0.9, visual_complexity=10.0)
     objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}  # n2 is simpler in objective space
     fronts = non_dominated_sort([n1, n2], objectives, score_threshold=0.5)
     assert fronts[0][0].id == 1
@@ -472,8 +520,8 @@ def test_non_dominated_sort_constrained_feasible_dominates_simple_but_bad():
 
 
 def test_non_dominated_sort_no_threshold_simple_dominates_complex():
-    n1 = make_node(1, score=0.1, complexity=5000.0)
-    n2 = make_node(2, score=0.9, complexity=10.0)
+    n1 = make_node(1, score=0.1, visual_complexity=5000.0)
+    n2 = make_node(2, score=0.9, visual_complexity=10.0)
     objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}
     fronts = non_dominated_sort([n1, n2], objectives)
     assert len(fronts) == 1

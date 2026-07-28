@@ -154,7 +154,15 @@ def load_lineage(run_dir: Path) -> list[dict]:
                         "parent": int(row["parent"]),
                         "epoch": int(row.get("epoch", 0) or 0),
                         "score": float(row["score"]),
-                        "complexity": float(row.get("complexity", 0) or 0),
+                        # Runs written before complexity was split carry a
+                        # single "complexity" column; read it as the visual
+                        # objective, which is what it was mostly made of.
+                        "visual_complexity": float(
+                            row.get("visual_complexity") or row.get("complexity") or 0
+                        ),
+                        "structural_complexity": float(
+                            row.get("structural_complexity") or 0
+                        ),
                     }
                 )
     return rows
@@ -199,8 +207,12 @@ def resolve_run_dirs(path: Path, top: int | None) -> list[Path]:
 
 
 def _pareto_top10(lin: list[dict], pool_ids: set[int] | None = None) -> list[dict]:
-    """Return up to 10 Pareto-front nodes (minimise score and complexity),
-    sorted by score.
+    """Return up to 10 Pareto-front nodes, sorted by score.
+
+    Minimises the same three objectives the search selects on: score, visual
+    complexity and structural complexity. Note the Pareto plot draws only two
+    of them, so a front node can look dominated in that 2-D projection while
+    being genuinely non-dominated in three.
 
     If *pool_ids* is provided only nodes in the final active pool are
     considered; otherwise all lineage nodes are used as a fallback.
@@ -209,7 +221,14 @@ def _pareto_top10(lin: list[dict], pool_ids: set[int] | None = None) -> list[dic
     valid = [r for r in candidates if r["score"] < float("inf")]
     if not valid:
         return []
-    front = pareto_front(valid, key=lambda r: (r["score"], r["complexity"]))
+    front = pareto_front(
+        valid,
+        key=lambda r: (
+            r["score"],
+            r["visual_complexity"],
+            r["structural_complexity"],
+        ),
+    )
     return sorted(front, key=lambda r: r["score"])[:10]
 
 
@@ -281,8 +300,8 @@ def plot_pareto(
     lineages: list[list[dict]],
     pool_ids_list: list[set[int] | None],
 ):
-    ax.set_title("Score vs complexity")
-    ax.set_xlabel("Complexity")
+    ax.set_title("Score vs visual complexity")
+    ax.set_xlabel("Visual complexity  (stars: 3-objective Pareto front)")
     ax.set_ylabel("Score")
     ax.grid(True, color="grey", alpha=0.15, linewidth=0.5)
 
@@ -297,7 +316,7 @@ def plot_pareto(
             continue
         color = COLORS[i % len(COLORS)]
         ax.scatter(
-            [r["complexity"] for r in valid],
+            [r["visual_complexity"] for r in valid],
             [r["score"] for r in valid],
             s=6,
             alpha=0.3,
@@ -309,7 +328,7 @@ def plot_pareto(
         for j, node in enumerate(top10):
             pc = PARETO_COLORS[j % len(PARETO_COLORS)]
             ax.scatter(
-                [node["complexity"]],
+                [node["visual_complexity"]],
                 [node["score"]],
                 marker="*",
                 s=160,
@@ -320,7 +339,7 @@ def plot_pareto(
             )
             ax.annotate(
                 f"#{node['id']}",
-                (node["complexity"], node["score"]),
+                (node["visual_complexity"], node["score"]),
                 fontsize=8,
                 color=pc,
                 xytext=(4, 4),
@@ -449,12 +468,14 @@ def plot_summary_text(
             lines.append("")
             lines.append(f"  pareto top 10{pool_note}:")
             lines.append(
-                f"  {'#':>2}  {'id':>6}  {'score':>10}  {'complexity':>10}  ep"
+                f"  {'#':>2}  {'id':>6}  {'score':>10}"
+                f"  {'visual':>9}  {'struct':>8}  ep"
             )
             for rank, node in enumerate(top10, 1):
                 lines.append(
                     f"  {rank:>2}  {node['id']:>6}  {node['score']:>10.6f}"
-                    f"  {node['complexity']:>10.0f}  {node['epoch']}"
+                    f"  {node['visual_complexity']:>9.0f}"
+                    f"  {node['structural_complexity']:>8.0f}  {node['epoch']}"
                 )
         lines.append("")
     ax.text(

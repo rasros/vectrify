@@ -2,7 +2,7 @@ import io
 
 from PIL import Image
 
-from vectrify.score.complexity import complexity, content_complexity, visual_complexity
+from vectrify.score.complexity import structural_complexity, visual_complexity
 from vectrify.tests.helpers import make_png as _make_png
 
 
@@ -44,78 +44,58 @@ def test_different_flat_colors_similar_complexity():
     assert 0.5 < ratio < 2.0
 
 
-# ── content_complexity ────────────────────────────────────────────────────────
+# ── structural_complexity ─────────────────────────────────────────────────────
 
 _SIMPLE_SVG = '<svg><rect fill="red" width="100" height="100"/></svg>'
 
-_COMPLEX_SVG = """
-<svg>
-  <defs>
-    <linearGradient id="g">
-      <stop offset="0%" stop-color="#ff0000"/>
-      <stop offset="100%" stop-color="#0000ff"/>
-    </linearGradient>
-    <filter id="f"><feGaussianBlur stdDeviation="2"/></filter>
-  </defs>
-  <path fill="#123456" d="M0 0 L100 0 C50 50 50 50 100 100 Z"/>
-  <path fill="#abcdef" d="M10 10 L90 10 L90 90 L10 90 Z"/>
-  <circle fill="green" cx="50" cy="50" r="40"/>
-  <rect fill="url(#g)" x="0" y="0" width="50" height="50" filter="url(#f)"/>
-</svg>
-"""
+_DOT = 'digraph G {\n  node [shape=box, fillcolor="lightblue"];\n  a -> b;\n}'
+
+_TYPST = "#set page(width: 200pt)\n#place(circle(radius: 40pt, fill: blue))\n"
 
 
-def test_content_complexity_positive():
-    assert content_complexity(_SIMPLE_SVG) > 0.0
+def test_structural_complexity_positive():
+    assert structural_complexity(_SIMPLE_SVG) > 0.0
 
 
-def test_content_complexity_empty_svg():
-    assert content_complexity("<svg></svg>") == 0.0
+def test_structural_complexity_empty_source_is_zero():
+    assert structural_complexity("") == 0.0
+    assert structural_complexity("   \n\t  ") == 0.0
 
 
-def test_content_complexity_complex_greater_than_simple():
-    assert content_complexity(_COMPLEX_SVG) > content_complexity(_SIMPLE_SVG)
+def test_structural_complexity_is_nonzero_for_every_format():
+    """Regression: the old SVG-regex measure scored DOT and Typst as exactly
+    0.0, silently removing the structural objective for two of three backends.
+    """
+    for source in (_SIMPLE_SVG, _DOT, _TYPST):
+        assert structural_complexity(source) > 0.0
 
 
-def test_content_complexity_more_paths_higher():
+def test_structural_complexity_grows_with_element_count():
     few = "<svg>" + '<path d="M0 0 L10 10"/>' * 3 + "</svg>"
     many = "<svg>" + '<path d="M0 0 L10 10"/>' * 20 + "</svg>"
-    assert content_complexity(many) > content_complexity(few)
+    assert structural_complexity(many) > structural_complexity(few)
 
 
-def test_content_complexity_path_commands_contribute():
-    short_path = '<svg><path fill="red" d="M0 0 L10 10"/></svg>'
-    long_path = (
-        '<svg><path fill="red"'
-        ' d="M0 0 C10 10 20 20 30 30 C40 40 50 50 60 60 L70 70 Z"/></svg>'
+def test_structural_complexity_ignores_indentation():
+    """Pretty-printing varies with whatever the model emitted and carries no
+    complexity information, so it must not shift the objective."""
+    minified = '<svg><rect fill="red"/><circle r="5"/></svg>'
+    pretty = '<svg>\n    <rect fill="red"/>\n    <circle r="5"/>\n</svg>\n'
+    assert structural_complexity(minified) == structural_complexity(pretty)
+
+
+def test_structural_complexity_does_not_discount_repetition():
+    """Why this is source length and not gzip: every crossover operator injects
+    elements from a related parent, so near-duplicate elements accumulate. A
+    compressed measure discounts that by ~80% and would leave the bloat this
+    objective exists to charge for effectively free.
+    """
+    n = 60
+    diverse = "".join(
+        f'<circle cx="{i * 3}" cy="{i * 7 % 251}" r="{i % 13 + 2}"/>' for i in range(n)
     )
-    assert content_complexity(long_path) > content_complexity(short_path)
-
-
-def test_content_complexity_gradients_and_filters_contribute():
-    no_extras = '<svg><path fill="red" d="M0 0 L10 10"/></svg>'
-    with_extras = _COMPLEX_SVG
-    assert content_complexity(with_extras) > content_complexity(no_extras)
-
-
-# ── complexity (blended) ──────────────────────────────────────────────────────
-
-
-def test_blended_complexity_positive():
-    png = _make_png("white")
-    assert complexity(png, _SIMPLE_SVG) > 0.0
-
-
-def test_blended_complexity_between_components():
-    png = _make_png("red")
-    v = visual_complexity(png)
-    c = content_complexity(_SIMPLE_SVG)
-    blended = complexity(png, _SIMPLE_SVG)
-    assert min(v, c) <= blended <= max(v, c)
-
-
-def test_blended_complexity_higher_for_complex_svg():
-    png = _make_png("red")
-    simple = complexity(png, _SIMPLE_SVG)
-    complex_ = complexity(png, _COMPLEX_SVG)
-    assert complex_ > simple
+    identical = '<circle cx="40" cy="40" r="9"/>' * n
+    ratio = structural_complexity(f"<svg>{identical}</svg>") / structural_complexity(
+        f"<svg>{diverse}</svg>"
+    )
+    assert ratio > 0.9, f"repetition discounted by {(1 - ratio) * 100:.0f}%"

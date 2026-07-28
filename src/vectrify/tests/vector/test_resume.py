@@ -19,14 +19,16 @@ def _make_png(color: str = "red", size: int = 16) -> bytes:
 def _make_node(
     node_id: int,
     score: float = 0.5,
-    complexity: float = 100.0,
+    visual_complexity: float = 100.0,
     content: str = "<svg/>",
+    structural_complexity: float = 0.0,
 ) -> SearchNode:
     return SearchNode(
         score=score,
         id=node_id,
         parent_id=0,
-        complexity=complexity,
+        visual_complexity=visual_complexity,
+        structural_complexity=structural_complexity,
         state=ChainState(
             score=score,
             payload=VectorStatePayload(
@@ -41,15 +43,17 @@ def _make_node(
 
 def _make_prepped(
     old_id: int = 1,
-    complexity: float = 100.0,
+    visual_complexity: float = 100.0,
     png: bytes | None = None,
+    structural_complexity: float = 0.0,
 ) -> tuple:
     return (
         old_id,
         f"<svg id='{old_id}'/>",
         png or _make_png(),
         "data:image/png;base64,PREVIEW",
-        complexity,
+        visual_complexity,
+        structural_complexity,
         None,
     )
 
@@ -62,7 +66,7 @@ def test_prefilter_returns_all_when_under_limit():
 
 
 def test_prefilter_caps_at_max_keep():
-    nodes = [_make_prepped(i, complexity=float(i * 10)) for i in range(20)]
+    nodes = [_make_prepped(i, visual_complexity=float(i * 10)) for i in range(20)]
     ref_img = Image.new("RGB", (16, 16), color="white")
     result = prefilter_nodes(nodes, ref_img, max_keep=5)
     assert len(result) <= 5
@@ -98,15 +102,16 @@ def test_filter_beam_sorts_by_score():
 
 def test_filter_nsga_returns_pool_size():
     nodes = [
-        _make_node(i, score=float(i) * 0.1, complexity=float(i) * 50) for i in range(10)
+        _make_node(i, score=float(i) * 0.1, visual_complexity=float(i) * 50)
+        for i in range(10)
     ]
     result = filter_to_pool_size(nodes, pool_size=4, strategy_type=StrategyType.NSGA)
     assert len(result) == 4
 
 
 def test_filter_nsga_prefers_pareto_front():
-    best = _make_node(1, score=0.1, complexity=10.0)  # dominates all others
-    worse = [_make_node(i + 2, score=0.9, complexity=900.0) for i in range(9)]
+    best = _make_node(1, score=0.1, visual_complexity=10.0)  # dominates all others
+    worse = [_make_node(i + 2, score=0.9, visual_complexity=900.0) for i in range(9)]
     result = filter_to_pool_size(
         [best, *worse], pool_size=3, strategy_type=StrategyType.NSGA
     )
