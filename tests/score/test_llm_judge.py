@@ -4,9 +4,9 @@ import json
 import pytest
 from PIL import Image
 
+from tests.helpers import TEST_MODEL
 from vectrify.llm import LLMConfig, get_provider
 from vectrify.score.llm_judge import LLMJudgeScorer
-from vectrify.tests.helpers import TEST_MODEL
 
 
 @pytest.mark.llm

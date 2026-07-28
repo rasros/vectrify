@@ -3,13 +3,13 @@ import io
 import pytest
 from PIL import Image
 
+from tests.helpers import TEST_MODEL as _MODEL
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.formats.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
 )
-from vectrify.tests.helpers import TEST_MODEL as _MODEL
 
 
 def _make_image_data_url(color: str = "blue", size: int = 32) -> str:

@@ -1,9 +1,9 @@
+from tests.helpers import image_urls, text_blocks
 from vectrify.formats.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
 )
-from vectrify.tests.helpers import image_urls, text_blocks
 
 _IMG_URL = "data:image/png;base64,abc"
 _RENDER_URL = "data:image/png;base64,def"

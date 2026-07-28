@@ -2,12 +2,12 @@ import shutil
 
 import pytest
 
+from tests.helpers import TEST_MODEL
 from vectrify.formats.graphviz.plugin import (
     GraphvizPlugin,
     _fix_html_labels,
     _sanitize_dot,
 )
-from vectrify.tests.helpers import TEST_MODEL
 
 _DOT_AVAILABLE = shutil.which("dot") is not None
 

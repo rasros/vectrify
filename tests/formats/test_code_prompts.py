@@ -8,9 +8,9 @@ from typing import NamedTuple
 
 import pytest
 
+from tests.helpers import image_urls, text_blocks
 from vectrify.formats.graphviz.prompts import build_dot_gen_prompt
 from vectrify.formats.typst.prompts import build_typst_gen_prompt
-from vectrify.tests.helpers import image_urls, text_blocks
 
 _IMG_URL = "data:image/png;base64,abc"
 _RENDER_URL = "data:image/png;base64,def"

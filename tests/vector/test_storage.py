@@ -3,10 +3,10 @@ import hashlib
 
 import pytest
 
+from tests.helpers import make_png
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import png_bytes_to_data_url
 from vectrify.search import ChainState, SearchNode
-from vectrify.tests.helpers import make_png
 from vectrify.vector.storage import LINEAGE_COLUMNS, FileStorageAdapter
 
 

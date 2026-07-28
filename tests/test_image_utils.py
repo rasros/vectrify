@@ -5,6 +5,7 @@ from textwrap import dedent
 import pytest
 from PIL import Image
 
+from tests.helpers import make_png
 from vectrify.image_utils import (
     downscale_png_bytes,
     generate_diff_data_url,
@@ -13,7 +14,6 @@ from vectrify.image_utils import (
     rasterize_svg_to_png_bytes,
     resize_long_side,
 )
-from vectrify.tests.helpers import make_png
 
 
 def create_test_image(width: int, height: int, color="red") -> bytes:

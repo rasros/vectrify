@@ -1,8 +1,8 @@
 """DOT-specific prompt content; common builder behavior is covered by
 tests/formats/test_code_prompts.py."""
 
+from tests.helpers import text_blocks
 from vectrify.formats.graphviz.prompts import build_dot_gen_prompt
-from vectrify.tests.helpers import text_blocks
 
 _IMG_URL = "data:image/png;base64,abc"
 
