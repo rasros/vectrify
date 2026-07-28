@@ -17,6 +17,7 @@ Options:
 import argparse
 import contextlib
 import csv
+import functools
 import sys
 from pathlib import Path
 
@@ -250,7 +251,30 @@ PARETO_COLORS = [
 ]
 
 
+@functools.cache
+def uses_legacy_complexity(run_dir: Path) -> bool:
+    """True if this run's lineage.csv predates the complexity split.
+
+    Such a run carries a single ``complexity`` column, a 0.7/0.3 blend of the
+    render's JPEG size and an SVG-only structural count, which is not on the
+    same scale as the current visual objective.
+    """
+    path = run_dir / "lineage.csv"
+    if not path.exists():
+        return False
+    with path.open(encoding="utf-8", newline="") as f:
+        header = next(csv.reader(f), [])
+    return "complexity" in header and "visual_complexity" not in header
+
+
 def _label(run_dir: Path) -> str:
+    """Legend label, flagged when the run's complexity scale is not comparable.
+
+    Overlaying old and new runs on one complexity axis silently mixes scales, so
+    say so on the artifact rather than drawing them as if they matched.
+    """
+    if uses_legacy_complexity(run_dir):
+        return f"{run_dir.name} (legacy complexity)"
     return run_dir.name
 
 
