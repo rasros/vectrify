@@ -1,6 +1,7 @@
-from typing import Any
+from typing import Any, cast
 
 import anthropic
+from anthropic.types import Message
 
 from vectrify.llm.base import (
     LLMConfig,
@@ -53,6 +54,9 @@ class AnthropicProvider(LLMProvider):
         if config.response_schema:
             kwargs["system"] = "You must respond with valid JSON."
 
-        message = self._client.messages.create(**kwargs)
+        # Same overload-narrowing problem as the OpenAI provider: the arguments
+        # are built as a dict, so the checker cannot tell this is the
+        # non-streaming form. Streaming is never enabled here.
+        message = cast(Message, self._client.messages.create(**kwargs))
 
         return "".join(block.text for block in message.content if block.type == "text")

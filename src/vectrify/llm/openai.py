@@ -1,6 +1,7 @@
-from typing import Any
+from typing import Any, cast
 
 from openai import OpenAI
+from openai.types.chat import ChatCompletion
 
 from vectrify.llm.base import LLMConfig, LLMProvider, resolve_api_key
 
@@ -42,5 +43,8 @@ class OpenAIProvider(LLMProvider):
         if config.temperature is not None:
             kwargs["temperature"] = config.temperature
 
-        response = self._client.chat.completions.create(**kwargs)
+        # The SDK overloads on the `stream` literal to decide between a
+        # ChatCompletion and a Stream, but building the arguments as a dict
+        # hides that from the type checker. Streaming is never enabled here.
+        response = cast(ChatCompletion, self._client.chat.completions.create(**kwargs))
         return response.choices[0].message.content or ""

@@ -44,6 +44,7 @@ def test_validate_reports_success_and_failure():
     assert plugin.validate("ok") == (True, None)
     valid, err = plugin.validate("bad")
     assert valid is False
+    assert err is not None
     assert "syntax error" in err
 
 
@@ -125,5 +126,6 @@ def test_apply_search_replace_allows_partial_application(caplog):
     )
     with caplog.at_level(logging.WARNING):
         out = apply_search_replace(parent, raw)
+    assert out is not None
     assert 'fill="blue"' in out
     assert "1/2" in caplog.text
