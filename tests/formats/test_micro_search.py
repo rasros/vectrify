@@ -7,8 +7,8 @@ selection logic is exercised without any real renderer.
 import pytest
 from PIL import Image
 
+from tests.helpers import make_png
 from vectrify.formats.micro_search import MAX_DISTANCE, fast_lab_l1, with_micro_search
-from vectrify.tests.helpers import make_png
 
 TARGET = Image.new("RGB", (32, 32), color="blue")
 

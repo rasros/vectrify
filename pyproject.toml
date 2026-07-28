@@ -92,20 +92,20 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
-exclude = ["vectrify.tests*"]
 
 [tool.pytest.ini_options]
 addopts = "-m 'not llm'"
-testpaths = ["src"]
+testpaths = ["tests"]
+pythonpath = ["."]
 markers = [
     "llm: marks tests that require live LLM API calls",
 ]
 
 [tool.pyrefly]
-project-includes = ["src/**/*.py"]
+project-includes = ["src/**/*.py", "tests/**/*.py"]
 # scripts/ is not an installed package, but the round-trip tests import the
 # analysis scripts directly to check they still read what storage writes.
-search-path = ["src", "scripts"]
+search-path = ["src", "scripts", "."]
 
 [[tool.uv.index]]
 name = "pytorch-cu126"
@@ -143,3 +143,8 @@ ignore = []
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "all"
+
+[tool.ruff.lint.isort]
+# tests/ is a top-level package now, not part of vectrify, so isort would
+# otherwise sort it as a third-party import.
+known-first-party = ["vectrify", "tests"]

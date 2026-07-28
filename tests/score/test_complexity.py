@@ -2,8 +2,8 @@ import io
 
 from PIL import Image
 
+from tests.helpers import make_png as _make_png
 from vectrify.score.complexity import structural_complexity, visual_complexity
-from vectrify.tests.helpers import make_png as _make_png
 
 
 def _noise_png(size: int = 64) -> bytes:

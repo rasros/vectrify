@@ -1,9 +1,9 @@
 import pytest
 from PIL import Image
 
+from tests.helpers import make_png
 from vectrify.score.base import safe_score
 from vectrify.score.utils import MAX_SCORE, clamp01, color_score
-from vectrify.tests.helpers import make_png
 
 
 @pytest.mark.parametrize(

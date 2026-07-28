@@ -3,11 +3,11 @@ import inspect
 import pytest
 from PIL import Image
 
+from tests.helpers import TEST_MODEL
 from vectrify import cli
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.score import ScorerType
 from vectrify.search import StrategyType
-from vectrify.tests.helpers import TEST_MODEL
 from vectrify.vector.runner import run_vector_search
 from vectrify.vector.storage import FileStorageAdapter
 

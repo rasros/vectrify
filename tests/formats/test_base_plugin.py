@@ -6,8 +6,8 @@ import io
 import pytest
 from PIL import Image
 
+from tests.helpers import make_png
 from vectrify.formats.base import BaseFormatPlugin
-from vectrify.tests.helpers import make_png
 
 
 class _StubPlugin(BaseFormatPlugin):

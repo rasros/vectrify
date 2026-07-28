@@ -33,7 +33,7 @@ jobs:
         run: uv sync --extra dev --extra graphviz --extra typst --extra vision
 
       - name: Lint
-        run: uv run ruff check src/
+        run: uv run ruff check src/ tests/ scripts/
 
       - name: Type check
         run: uv run pyrefly check

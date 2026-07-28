@@ -3,8 +3,8 @@ import io
 
 from PIL import Image
 
+from tests.helpers import make_png as _make_png
 from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
-from vectrify.tests.helpers import make_png as _make_png
 from vectrify.vector.worker import _should_use_llm, _use_llm
 
 

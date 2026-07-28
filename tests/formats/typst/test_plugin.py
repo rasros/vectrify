@@ -2,8 +2,8 @@ import importlib.util
 
 import pytest
 
+from tests.helpers import TEST_MODEL
 from vectrify.formats.typst.plugin import TypstPlugin
-from vectrify.tests.helpers import TEST_MODEL
 
 _TYPST_AVAILABLE = importlib.util.find_spec("typst") is not None
 
