@@ -25,8 +25,12 @@ class SearchNode(Generic[TState]):
     parent_id: int = dataclasses.field(compare=False)
     state: ChainState[TState] = dataclasses.field(compare=False)
     secondary_parent_id: int | None = dataclasses.field(default=None, compare=False)
-    visual_complexity: float = dataclasses.field(default=0.0, compare=False)
-    structural_complexity: float = dataclasses.field(default=0.0, compare=False)
+    # Registered complexity metrics, keyed by name (see score.complexity.METRICS).
+    # A dict rather than named fields so adding a metric does not ripple through
+    # every constructor call between the worker and the objective vector.
+    metrics: dict[str, float] = dataclasses.field(
+        default_factory=dict, compare=False, repr=False
+    )
     signature: int | None = dataclasses.field(default=None, compare=False)
     epoch: int = dataclasses.field(default=0, compare=False)
 
@@ -51,7 +55,6 @@ class Result(Generic[TResultPayload]):
     payload: TResultPayload
     invalid_msg: str | None = None
     secondary_parent_id: int | None = None
-    visual_complexity: float = 0.0
-    structural_complexity: float = 0.0
+    metrics: dict[str, float] = dataclasses.field(default_factory=dict)
     signature: int | None = None
     llm_type: str | None = None

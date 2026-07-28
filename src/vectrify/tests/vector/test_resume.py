@@ -6,7 +6,12 @@ from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.search import INVALID_SCORE, ChainState, SearchNode, StrategyType
-from vectrify.vector.resume import filter_to_pool_size, prefilter_nodes, resume_nodes
+from vectrify.vector.resume import (
+    PreppedNode,
+    filter_to_pool_size,
+    prefilter_nodes,
+    resume_nodes,
+)
 
 
 def _make_png(color: str = "red", size: int = 16) -> bytes:
@@ -27,8 +32,10 @@ def _make_node(
         score=score,
         id=node_id,
         parent_id=0,
-        visual_complexity=visual_complexity,
-        structural_complexity=structural_complexity,
+        metrics={
+            "visual_complexity": visual_complexity,
+            "structural_complexity": structural_complexity,
+        },
         state=ChainState(
             score=score,
             payload=VectorStatePayload(
@@ -46,15 +53,17 @@ def _make_prepped(
     visual_complexity: float = 100.0,
     png: bytes | None = None,
     structural_complexity: float = 0.0,
-) -> tuple:
-    return (
-        old_id,
-        f"<svg id='{old_id}'/>",
-        png or _make_png(),
-        "data:image/png;base64,PREVIEW",
-        visual_complexity,
-        structural_complexity,
-        None,
+) -> PreppedNode:
+    return PreppedNode(
+        old_id=old_id,
+        content=f"<svg id='{old_id}'/>",
+        png=png or _make_png(),
+        preview_data_url="data:image/png;base64,PREVIEW",
+        metrics={
+            "visual_complexity": visual_complexity,
+            "structural_complexity": structural_complexity,
+        },
+        signature=None,
     )
 
 
