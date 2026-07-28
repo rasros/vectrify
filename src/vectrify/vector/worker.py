@@ -102,9 +102,7 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
                         # Prefer the stored render; fall back to re-rasterizing.
                         cand_bytes = None
                         if parent.payload.raster_data_url:
-                            _, encoded = split_data_url(
-                                parent.payload.raster_data_url
-                            )
+                            _, encoded = split_data_url(parent.payload.raster_data_url)
                             cand_bytes = base64.b64decode(encoded)
                         elif has_content:
                             cand_bytes = plugin.rasterize(

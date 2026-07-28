@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+
 def _best_score(s: "SearchStats") -> float | str:
     """Blank rather than 'inf' so the CSV stays numeric for plotting."""
     return "" if s.best_score >= INVALID_SCORE else s.best_score
