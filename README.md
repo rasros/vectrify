@@ -136,58 +136,28 @@ Three normalized objectives are minimized in parallel:
 | visual complexity        | JPEG-compressed size of the render             |
 | structural complexity    | code size (whitespace-stripped source length)  |
 
-Each is scaled by its own maximum across the current pool, so the three
-are directly comparable and no weighting between them is needed. NSGA
-trades them off by dominance alone.
+Each is scaled by its own maximum across the current pool, so they are
+directly comparable and NSGA trades them off by dominance alone, with no
+weighting to tune. Structural complexity is format-agnostic, so no
+backend is scored as free.
 
-Metrics are registered in one table, `METRICS` in
-`vectrify/score/complexity.py`, mapping a name to a measure over the
-rendered PNG and the source text. Everything downstream derives from it:
-the objective vector, the node model, the `lineage.csv` columns, and both
-analysis scripts. Adding an objective is one entry in that table, and the
-selection machinery needs no changes either, since dominance, crowding
-distance, and the Pareto helpers all read the objective count off the
-data rather than assuming it. Visual error is deliberately outside the
-registry: it comes from the configured scorer and is the constraint-gated
-primary objective rather than one of the interchangeable tiebreakers.
+The constraint-first variant (Deb 2000) gates on visual error: only
+candidates better than the pool median are feasible, and infeasible ones
+are automatically dominated. Visual quality therefore stays the primary
+objective while the complexity measures act as tiebreakers among the
+quality-leaders, biasing toward small, clean output instead of accreting
+detail once the image is already close.
 
-Be sparing about it, though. Dominance dilutes as objectives multiply.
-On a 12-node pool the first front grows from 8 nodes at three objectives
-to 11 at five, so past about four, nearly everything is non-dominated
-and the front stops discriminating.
+`--tournament-size` is the strongest lever on that bias. Parents are
+chosen by tournament, so raising it converges faster on visual quality
+but spends pool diversity, which also brings `--epoch-diversity`
+transitions forward.
 
-The constraint-first variant (Deb 2000) gates on visual error: a
-candidate is feasible only while its error is better than the pool
-median, and infeasible candidates are automatically dominated by
-feasible ones. So visual quality stays the primary objective and the two
-complexity measures act as tiebreakers among the quality-leaders,
-biasing toward small, clean renderings instead of accreting detail
-forever once the image is already close.
-
-The median split is chosen rather than something stricter because a
-tighter gate is not automatically a stronger one: if the feasible group
-is very small, most binary-tournament comparisons are between two
-infeasible candidates, where the gate contributes nothing. Splitting at
-the median maximizes the share of comparisons the gate actually decides.
-
-If you want to push harder toward visual quality, `--tournament-size` is
-the stronger lever by a wide margin. Parents are chosen by tournament,
-and the winner's expected quality rises steeply with the number of
-candidates compared. On a 20-node pool, the share of parents drawn from
-the better-scoring half runs about 81% at the default of 2, 92% at 3, and
-97% at 4. It is an absolute count rather than a fraction of the pool,
-because selection intensity depends only on the tournament size, so the
-same value means the same thing at any pool size. Note the two are not
-perfectly orthogonal: at a very small pool the same size bites harder.
-Raising it converges faster but spends pool diversity, which also brings
-`--epoch-diversity` transitions forward.
-
-Structural complexity is deliberately format-agnostic, so it means the
-same thing for SVG, DOT and Typst and no backend is scored as free. It
-counts source characters rather than compressed size: every crossover
-operator injects elements from a *related* parent, so near-duplicate
-elements accumulate, and a compressed measure discounts exactly that
-kind of bloat by around 80%.
+Metrics live in one registry, `METRICS` in `score/complexity.py`. The
+objective vector, node model, `lineage.csv` columns, and analysis scripts
+all derive from it, so adding one is a single entry. Be sparing:
+dominance dilutes as objectives multiply, and past about four nearly
+everything is non-dominated.
 
 ### Convergence
 
