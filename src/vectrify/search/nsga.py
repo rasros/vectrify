@@ -63,11 +63,27 @@ def _constrained_dominates(
     return _dominates(a, b)
 
 
-def _percentile_75(scores: list[float]) -> float:
+# Fraction of the pool (best visual error first) the constraint-first gate
+# treats as feasible; the rest are automatically dominated. A median split is
+# not a compromise between the extremes, it measures better than either: at a
+# much tighter gate the feasible group is so small that most tournament
+# comparisons are infeasible-vs-infeasible, where the gate contributes nothing
+# and three-objective dominance is already weak; at a much looser one the gate
+# barely filters. Splitting at the median maximises the share of comparisons
+# the gate actually decides.
+FEASIBLE_FRACTION = 0.5
+
+
+def _feasibility_threshold(scores: list[float]) -> float:
+    """Visual error at or above which a candidate counts as infeasible.
+
+    Returns the score at the FEASIBLE_FRACTION quantile, so exactly that
+    fraction of the pool satisfies ``score < threshold``.
+    """
     if not scores:
         return INVALID_SCORE
     s = sorted(scores)
-    return s[min(int(0.75 * len(s)), len(s) - 1)]
+    return s[min(int(FEASIBLE_FRACTION * len(s)), len(s) - 1)]
 
 
 def non_dominated_sort(
@@ -228,7 +244,7 @@ class NsgaStrategy(Generic[TState]):
 
         objectives = build_objectives(valid)
 
-        score_threshold = _percentile_75([n.score for n in valid])
+        score_threshold = _feasibility_threshold([n.score for n in valid])
         fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
         rank: dict[int, int] = {}
         crowd: dict[int, float] = {}
@@ -282,7 +298,7 @@ class NsgaStrategy(Generic[TState]):
 
         objectives = build_objectives(valid)
 
-        score_threshold = _percentile_75([n.score for n in valid])
+        score_threshold = _feasibility_threshold([n.score for n in valid])
         fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
 
         pareto_nodes: list[SearchNode[TState]] = []

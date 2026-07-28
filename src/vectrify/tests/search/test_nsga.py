@@ -3,10 +3,11 @@ import pytest
 from vectrify.search import ChainState, Result, SearchNode
 from vectrify.search.diversity import simhash
 from vectrify.search.nsga import (
+    FEASIBLE_FRACTION,
     NsgaStrategy,
     _constrained_dominates,
     _dominates,
-    _percentile_75,
+    _feasibility_threshold,
     build_objectives,
     crowding_distance,
     non_dominated_sort,
@@ -469,17 +470,38 @@ def test_epoch_seeds_all_invalid_falls_back():
     assert len(seeds) == 3
 
 
-def test_percentile_75_empty():
-    assert _percentile_75([]) == float("inf")
+def test_feasibility_threshold_empty():
+    assert _feasibility_threshold([]) == float("inf")
 
 
-def test_percentile_75_single():
-    assert _percentile_75([0.5]) == 0.5
+def test_feasibility_threshold_single():
+    assert _feasibility_threshold([0.5]) == 0.5
 
 
-def test_percentile_75_four_values():
-    # sorted: [0.1, 0.2, 0.3, 0.4]; index = int(0.75*4)=3 → 0.4
-    assert _percentile_75([0.4, 0.1, 0.3, 0.2]) == 0.4
+def test_feasibility_threshold_four_values():
+    # sorted: [0.1, 0.2, 0.3, 0.4]; index = int(0.5*4)=2 → 0.3
+    assert _feasibility_threshold([0.4, 0.1, 0.3, 0.2]) == 0.3
+
+
+def test_feasibility_threshold_admits_exactly_the_configured_fraction():
+    """The gate is what keeps visual error the primary objective, so the share
+    of the pool it admits must match FEASIBLE_FRACTION rather than drift."""
+    scores = [round(0.1 * i, 2) for i in range(1, 11)]  # 0.1 best .. 1.0 worst
+    threshold = _feasibility_threshold(scores)
+    feasible = [s for s in scores if s < threshold]
+    assert len(feasible) == int(FEASIBLE_FRACTION * len(scores))
+    # and they are the *best*-scoring ones, not an arbitrary subset
+    assert feasible == sorted(scores)[: len(feasible)]
+
+
+def test_feasibility_threshold_is_scale_free():
+    """Errors are unbounded in principle; the gate must be a quantile of the
+    pool, not a fixed error value."""
+    small = [0.001 * i for i in range(1, 11)]
+    large = [100.0 * i for i in range(1, 11)]
+    for scores in (small, large):
+        threshold = _feasibility_threshold(scores)
+        assert len([s for s in scores if s < threshold]) == 5
 
 
 def test_constrained_dominates_feasible_over_infeasible():
