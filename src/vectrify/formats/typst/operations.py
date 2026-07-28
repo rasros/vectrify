@@ -77,6 +77,20 @@ def _mutate_color(typst_code: str) -> str:
     return typst_code[:start] + new_color + typst_code[end:]
 
 
+def _split_lines(typst_code: str) -> list[str]:
+    """Split into lines that each end with a newline.
+
+    Splicing with ``keepends=True`` alone fuses two elements onto one physical
+    line whenever the moved line is the last one and lacks a trailing newline.
+    A fused line then no longer matches _ELEMENT_LINE_RE, which is anchored per
+    line, so the hidden element becomes unreachable by every later mutation.
+    """
+    return [
+        line if line.endswith("\n") else line + "\n"
+        for line in typst_code.splitlines(keepends=True)
+    ]
+
+
 def _remove_element(typst_code: str) -> str:
     """Remove a random shape element line, keeping at least one."""
     lines = typst_code.splitlines(keepends=True)
@@ -92,7 +106,7 @@ def _remove_element(typst_code: str) -> str:
 
 def _reorder_elements(typst_code: str) -> str:
     """Swap two element lines to change rendering order."""
-    lines = typst_code.splitlines(keepends=True)
+    lines = _split_lines(typst_code)
     element_indices = [
         i for i, line in enumerate(lines) if _ELEMENT_LINE_RE.match(line)
     ]
@@ -162,12 +176,8 @@ def crossover_with_micro_search(
     num_trials: int = 15,
 ) -> tuple[str, str]:
     # Extract non-empty element lines from B to inject into A
-    lines_b = [
-        line
-        for line in code_b.splitlines(keepends=True)
-        if _ELEMENT_LINE_RE.match(line)
-    ]
-    lines_a = code_a.splitlines(keepends=True)
+    lines_b = [line for line in _split_lines(code_b) if _ELEMENT_LINE_RE.match(line)]
+    lines_a = _split_lines(code_a)
     element_indices_a = [
         i for i, line in enumerate(lines_a) if _ELEMENT_LINE_RE.match(line)
     ]

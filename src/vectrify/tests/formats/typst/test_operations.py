@@ -202,3 +202,62 @@ def test_crossover_falls_back_to_mutation_when_no_elements_in_b():
     target = Image.new("RGB", (32, 32), color="red")
     result, _ = crossover_with_micro_search(_TYPST_CODE, code_b, target, num_trials=3)
     assert "#set page" in result
+
+
+def test_reorder_keeps_every_element_addressable_without_trailing_newline():
+    """Regression: splicing with keepends=True fused two elements onto one line
+    when the moved line was last and lacked a newline. _ELEMENT_LINE_RE is
+    anchored per line, so the fused element became invisible to every later
+    mutation -- permanently losing a mutable site.
+    """
+    import random
+
+    from vectrify.formats.typst.operations import _ELEMENT_LINE_RE, _reorder_elements
+
+    code = "#set page(width: 100pt)\n#rect(width: 10pt)\n#circle(radius: 5pt)"
+    assert len(_ELEMENT_LINE_RE.findall(code)) == 2
+
+    random.seed(0)
+    changed = None
+    for _ in range(20):
+        out = _reorder_elements(code)
+        if out != code:
+            changed = out
+            break
+
+    assert changed is not None, "reorder never produced a change"
+    assert len(_ELEMENT_LINE_RE.findall(changed)) == 2
+    assert "5pt)#rect" not in changed
+
+
+def test_crossover_keeps_every_element_addressable():
+    from PIL import Image
+
+    from vectrify.formats.typst.operations import (
+        _ELEMENT_LINE_RE,
+        crossover_with_micro_search,
+    )
+
+    a = "#set page(width: 100pt)\n#rect(width: 10pt)\n#circle(radius: 5pt)"
+    b = "#set page(width: 100pt)\n#polygon()\n#line(length: 9pt)"  # last line bare
+    ref = Image.new("RGB", (64, 64), "white")
+
+    content, _ = crossover_with_micro_search(a, b, ref, num_trials=4)
+
+    for line in content.splitlines():
+        assert (
+            line.count("#rect(")
+            + line.count("#circle(")
+            + line.count("#line(")
+            + line.count("#polygon(")
+            <= 1
+        ), f"elements fused onto one line: {line!r}"
+    assert _ELEMENT_LINE_RE.findall(content)
+
+
+def test_split_lines_normalizes_the_final_newline():
+    from vectrify.formats.typst.operations import _split_lines
+
+    assert _split_lines("a\nb") == ["a\n", "b\n"]
+    assert _split_lines("a\nb\n") == ["a\n", "b\n"]
+    assert _split_lines("") == []

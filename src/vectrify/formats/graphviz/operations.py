@@ -203,6 +203,21 @@ def _rasterize_dot(dot: str) -> bytes | None:
 _ATTR_BLOCK_RE = re.compile(r"^\s*(?:node|edge|graph)\s*\[[^\]]*\];?\s*$", re.MULTILINE)
 
 
+def _insert_after_first_brace(dot: str, block: str) -> str:
+    """Splice *block* in just after the graph's opening brace.
+
+    Done with slicing rather than re.sub because *block* is lifted verbatim from
+    another candidate: as an re replacement template its backslashes would be
+    interpreted, and \\l, \\r and \\N are ordinary Graphviz label escapes, so
+    `bad escape \\l` would abort the crossover.
+    """
+    brace = dot.find("{")
+    if brace == -1:
+        return dot
+    cut = brace + 1
+    return f"{dot[:cut]}\n{block}{dot[cut:]}"
+
+
 def mutate_with_micro_search(
     parent_dot: str,
     orig_img_fast: Image.Image,
@@ -232,7 +247,7 @@ def crossover_with_micro_search(
 
     def _op() -> tuple[str, str]:
         attr = random.choice(attrs_b)
-        return re.sub(r"(\{)", r"\1\n" + attr, dot_a, count=1), "Crossover: attributes"
+        return _insert_after_first_brace(dot_a, attr), "Crossover: attributes"
 
     return with_micro_search(
         _op,

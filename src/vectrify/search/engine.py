@@ -126,6 +126,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         tasks_completed = 0
         accepted_count = 0
         in_flight = 0
+        last_invalid_msg = "unknown error"
 
         next_node_id = max(
             self.storage.max_node_id, max((n.id for n in initial_nodes), default=0)
@@ -354,7 +355,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             low_variance = (
                 epoch_variance is not None
                 and epoch_variance > 0
-                and score_std < epoch_variance
+                and pool_std < epoch_variance
             )
 
             if staleness or steps_exhausted or low_diversity or low_variance:
@@ -370,7 +371,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 elif low_diversity:
                     reason = f"low diversity ({pool_diversity:.4f})"
                 else:
-                    reason = f"low variance ({score_std:.6f} < {epoch_variance})"
+                    reason = f"low variance ({pool_std:.6f} < {epoch_variance})"
 
                 if llm_in_flight == 0:
                     epoch_drain_reason = reason
@@ -435,6 +436,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
 
                 if not res.valid:
+                    last_invalid_msg = res.invalid_msg or "unknown error"
                     if res.llm_type:
                         log.info(
                             f"[{res.llm_type.upper()} INVALID] "
@@ -444,6 +446,22 @@ class MultiprocessSearchEngine(Generic[TState]):
                         log.debug(f"Task {res.task_id} rejected: {res.invalid_msg}")
                     if collector is not None:
                         collector.on_invalid(res)
+
+                    # _dispatch_tasks stalls in epoch 0 until something is
+                    # accepted, so if every seed failed nothing would ever be
+                    # dispatched again and the run would idle until the wall
+                    # clock. Surface the underlying failure instead.
+                    if (
+                        epoch == 0
+                        and seed_tasks > 0
+                        and accepted_count == 0
+                        and epoch0_seeds_completed >= seed_tasks
+                        and in_flight == 0
+                    ):
+                        raise RuntimeError(
+                            f"All {seed_tasks} epoch-0 seed task(s) failed and no "
+                            f"candidate was accepted; last error: {last_invalid_msg}"
+                        )
                     continue
 
                 _process_valid_result(res)
@@ -451,8 +469,13 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         finally:
             if best_node is not None:
-                with contextlib.suppress(Exception):
+                # Still swallowed so a save failure cannot mask an in-flight
+                # exception during shutdown, but never silently: this is the
+                # run's single most important artifact.
+                try:
                     self.storage.save_best(best_node)
+                except Exception as e:
+                    log.error(f"Failed to write the best candidate: {e!r}")
             if collector is not None:
                 collector.on_shutdown()
             self._shutdown()

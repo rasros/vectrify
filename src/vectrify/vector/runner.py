@@ -166,7 +166,9 @@ def run_vector_search(
     storage.initialize()
     assert storage.current_run_dir is not None
     run_log_file = storage.current_run_dir / "search.log"
-    setup_logger(log_level, log_file=run_log_file)
+    # The dashboard owns the terminal, so console logging is suppressed only
+    # then; otherwise stderr keeps receiving records alongside the log file.
+    setup_logger(log_level, log_file=run_log_file, console=dashboard is None)
     log_queue, log_listener = start_log_listener()
 
     # Suppress tqdm / HF noise before any library imports or workers spawn.
@@ -234,6 +236,18 @@ def run_vector_search(
             storage=storage,
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size, strategy_type)
+
+    # With the LLM disabled the search can only mutate existing candidates, so
+    # without at least one it would dispatch nothing and idle until the wall
+    # clock. Fail immediately with the reason instead.
+    if llm_rate <= 0 and not any(
+        n.state.payload.content for n in initial_nodes if n.state.payload
+    ):
+        raise ValueError(
+            "--llm-rate 0 disables all LLM calls, but there are no existing "
+            "candidates to mutate. Resume a previous run with --resume, or "
+            "allow LLM calls so the first candidate can be generated."
+        )
 
     if not initial_nodes:
         initial_nodes.append(

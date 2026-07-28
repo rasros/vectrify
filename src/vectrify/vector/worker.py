@@ -52,6 +52,20 @@ def _use_llm(has_content: bool, llm_rate: float, llm_pressure: float) -> bool:
     return not has_content or random.random() < llm_rate * llm_pressure
 
 
+def _should_use_llm(
+    force_llm: bool, has_content: bool, llm_rate: float, llm_pressure: float
+) -> bool:
+    """Whether this task calls the LLM.
+
+    ``llm_rate <= 0`` is a hard off switch and overrides *force_llm*: epoch-0
+    seed tasks set force_llm, so without this ``--llm-rate 0`` still issued LLM
+    calls and there was no way to run offline.
+    """
+    if llm_rate <= 0:
+        return False
+    return force_llm or _use_llm(has_content, llm_rate, llm_pressure)
+
+
 def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     setup_worker_logger(ctx.log_level, ctx.log_queue)
@@ -80,8 +94,8 @@ def worker_loop(task_q: mp.Queue, result_q: mp.Queue, ctx: WorkerContext):
         parent = task.parent_state
         has_content = bool(parent.payload.content)
 
-        use_llm = task.force_llm or _use_llm(
-            has_content, ctx.llm_rate, task.llm_pressure
+        use_llm = _should_use_llm(
+            task.force_llm, has_content, ctx.llm_rate, task.llm_pressure
         )
         llm_type = None
 

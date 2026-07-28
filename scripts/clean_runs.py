@@ -33,7 +33,10 @@ def collect_node_files(nodes_dir: Path) -> list[dict]:
     """
     ext_pattern = "|".join(re.escape(e) for e in OUTPUT_EXTENSIONS)
     # New format: plain score_id.ext
-    _new = re.compile(rf"^([0-9.]+(?:inf)?)_(\d+)(?:{ext_pattern})$")
+    # `inf` must be its own alternative: storage writes f"{score:.6f}", which
+    # yields a bare "inf" for INVALID_SCORE, so requiring digits first made the
+    # optional (?:inf)? branch dead and left inf_*.svg files unmatched entirely.
+    _new = re.compile(rf"^(inf|[0-9.]+)_(\d+)(?:{ext_pattern})$")
     # Old format: score00000.069113_node00002_parent00000.svg
     _old = re.compile(rf"^score([0-9.]+)_node(\d+)_parent\d+(?:{ext_pattern})$")
 

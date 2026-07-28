@@ -105,6 +105,7 @@ def main():
         resume_top=args.resume_top,
         save_raster=args.save_raster,
         save_heatmap=args.save_heatmap,
+        write_lineage=args.write_lineage,
     )
 
     use_dashboard = args.dashboard and sys.stdout.isatty()
