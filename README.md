@@ -137,7 +137,7 @@ Three normalized objectives are minimized in parallel:
 | structural complexity    | code size (whitespace-stripped source length)  |
 
 Each is scaled by its own maximum across the current pool, so the three
-are directly comparable and no weighting between them is needed — NSGA
+are directly comparable and no weighting between them is needed. NSGA
 trades them off by dominance alone. The selection machinery itself is
 arity-agnostic: dominance, crowding distance, and the Pareto helpers all
 read the objective count off the data rather than assuming it. Adding a
@@ -145,9 +145,9 @@ fourth objective still means threading the new measure through the
 worker, node model, and run artifacts, but the algorithm needs no
 changes.
 
-Be sparing about it, though. Dominance dilutes as objectives multiply —
-on a 12-node pool the first front grows from 8 nodes at three objectives
-to 11 at five — so past about four, nearly everything is non-dominated
+Be sparing about it, though. Dominance dilutes as objectives multiply.
+On a 12-node pool the first front grows from 8 nodes at three objectives
+to 11 at five, so past about four, nearly everything is non-dominated
 and the front stops discriminating.
 
 The constraint-first variant (Deb 2000) gates on visual error: a
@@ -158,24 +158,23 @@ complexity measures act as tiebreakers among the quality-leaders,
 biasing toward small, clean renderings instead of accreting detail
 forever once the image is already close.
 
-The median split (`FEASIBLE_FRACTION`) is chosen rather than something
-stricter because a tighter gate is not automatically a stronger one: if
-the feasible group is very small, most binary-tournament comparisons are
-between two infeasible candidates, where the gate contributes nothing.
-Splitting at the median maximises the share of comparisons the gate
-actually decides.
+The median split is chosen rather than something stricter because a
+tighter gate is not automatically a stronger one: if the feasible group
+is very small, most binary-tournament comparisons are between two
+infeasible candidates, where the gate contributes nothing. Splitting at
+the median maximizes the share of comparisons the gate actually decides.
 
 If you want to push harder toward visual quality, `--tournament-size` is
-the stronger lever by a wide margin — parents are chosen by tournament,
+the stronger lever by a wide margin. Parents are chosen by tournament,
 and the winner's expected quality rises steeply with the number of
 candidates compared. On a 20-node pool, the share of parents drawn from
 the better-scoring half runs about 81% at the default of 2, 92% at 3, and
 97% at 4. It is an absolute count rather than a fraction of the pool,
 because selection intensity depends only on the tournament size, so the
-same value means the same thing at any `--pool-size`. Note the two are
-not perfectly orthogonal: at a very small pool the same size bites
-harder. Raising it converges faster but spends pool diversity, which
-also brings `--epoch-diversity` transitions forward.
+same value means the same thing at any pool size. Note the two are not
+perfectly orthogonal: at a very small pool the same size bites harder.
+Raising it converges faster but spends pool diversity, which also brings
+`--epoch-diversity` transitions forward.
 
 Structural complexity is deliberately format-agnostic, so it means the
 same thing for SVG, DOT and Typst and no backend is scored as free. It
