@@ -1,3 +1,5 @@
+import pytest
+
 from vectrify.search import ChainState, Result, SearchNode
 from vectrify.search.diversity import simhash
 from vectrify.search.nsga import (
@@ -7,6 +9,7 @@ from vectrify.search.nsga import (
     _percentile_75,
     crowding_distance,
     non_dominated_sort,
+    pareto_front,
 )
 
 
@@ -43,6 +46,70 @@ def test_dominates_better_in_one_equal_in_other():
 def test_dominates_incomparable():
     assert not _dominates((0.1, 0.5), (0.3, 0.2))
     assert not _dominates((0.3, 0.2), (0.1, 0.5))
+
+
+def test_dominates_honours_every_objective():
+    """Regression: the comparison used to hardcode indices 0 and 1, so a third
+    objective was silently ignored and a worse vector could 'dominate'."""
+    # Better in the first two, worse in the third -> not dominance.
+    assert not _dominates((0.1, 0.1, 0.9), (0.2, 0.2, 0.1))
+    assert not _dominates((0.2, 0.2, 0.1), (0.1, 0.1, 0.9))
+    # Better in all three -> dominance.
+    assert _dominates((0.1, 0.1, 0.1), (0.2, 0.2, 0.2))
+    # Equal in two, strictly better in the third -> dominance.
+    assert _dominates((0.2, 0.2, 0.1), (0.2, 0.2, 0.2))
+
+
+@pytest.mark.parametrize("arity", [1, 2, 3, 5])
+def test_dominates_supports_any_arity(arity):
+    better = tuple([0.1] * arity)
+    worse = tuple([0.2] * arity)
+    assert _dominates(better, worse)
+    assert not _dominates(worse, better)
+    assert not _dominates(better, better)
+
+
+def test_dominates_rejects_mismatched_arity():
+    """Silently comparing only the shared prefix would drop objectives."""
+    with pytest.raises(ValueError, match="argument 2 is longer"):
+        _dominates((0.1, 0.2), (0.1, 0.2, 0.3))
+
+
+def test_pareto_front_supports_three_objectives():
+    items = [
+        {"n": "best", "o": (0.1, 0.1, 0.1)},
+        {"n": "dominated", "o": (0.2, 0.2, 0.2)},
+        # Worse on the first two but best on the third -> incomparable, so it
+        # survives only if the third objective is actually considered.
+        {"n": "third_only", "o": (0.9, 0.9, 0.0)},
+    ]
+    front = pareto_front(items, key=lambda it: it["o"])
+    assert {it["n"] for it in front} == {"best", "third_only"}
+
+
+def test_non_dominated_sort_with_three_objectives():
+    nodes = [make_node(i, float(i)) for i in range(1, 4)]
+    objectives = {1: (0.1, 0.1, 0.1), 2: (0.2, 0.2, 0.2), 3: (0.3, 0.3, 0.3)}
+    fronts = non_dominated_sort(nodes, objectives)
+    assert [[n.id for n in f] for f in fronts] == [[1], [2], [3]]
+
+
+def test_crowding_distance_reads_arity_from_the_vectors():
+    """With a hardcoded arity of 2 the third objective's spread was ignored."""
+    nodes = [make_node(i, float(i)) for i in range(1, 5)]
+    # Identical in the first two objectives, spread only in the third.
+    objectives = {
+        1: (0.5, 0.5, 0.0),
+        2: (0.5, 0.5, 0.1),
+        3: (0.5, 0.5, 0.7),
+        4: (0.5, 0.5, 1.0),
+    }
+    dist = crowding_distance(nodes, objectives)
+    assert dist[1] == float("inf")
+    assert dist[4] == float("inf")
+    # Node 3 sits in a sparser neighbourhood than node 2, so it must score
+    # higher -- which is only true if objective 3 was measured at all.
+    assert dist[3] > dist[2] > 0.0
 
 
 def test_non_dominated_sort_all_pareto():

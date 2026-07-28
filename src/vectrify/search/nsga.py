@@ -10,17 +10,30 @@ log = logging.getLogger(__name__)
 
 TState = TypeVar("TState")
 
-Objectives = tuple[float, float]
+# An objective vector; lower is better in every component. Any arity is
+# accepted so callers can trade off two or more objectives without this module
+# needing to know how many.
+Objectives = tuple[float, ...]
 
 
 def _dominates(a: Objectives, b: Objectives) -> bool:
-    """True if a Pareto-dominates b (better/equal in all, strictly better in one)."""
-    return a[0] <= b[0] and a[1] <= b[1] and (a[0] < b[0] or a[1] < b[1])
+    """True if a Pareto-dominates b (better/equal in all, strictly better in one).
+
+    *a* and *b* must have the same arity; ``strict=True`` makes a mismatch an
+    error rather than silently comparing only the shared prefix and ignoring
+    the remaining objectives.
+    """
+    pairs = list(zip(a, b, strict=True))
+    return all(x <= y for x, y in pairs) and any(x < y for x, y in pairs)
 
 
 def pareto_front(items: list, key: "Callable[[Any], Objectives]") -> list:
-    """Return the items whose key(item) = (a, b) tuple is not Pareto-dominated
-    by any other item's (lower is better for both objectives)."""
+    """Return the items whose key(item) vector is not Pareto-dominated by any
+    other item's (lower is better in every objective).
+
+    *key* may return a vector of any arity as long as it is the same for every
+    item.
+    """
     points = [key(it) for it in items]
     return [
         items[i]
@@ -113,12 +126,16 @@ def crowding_distance(
     front: list[SearchNode],
     objectives: dict[int, Objectives],
 ) -> dict[int, float]:
-    """Compute crowding distance to maintain diversity within a front."""
+    """Compute crowding distance to maintain diversity within a front.
+
+    Works for any objective arity; the count is read off the vectors rather
+    than assumed.
+    """
     if len(front) <= 2:
         return {n.id: INVALID_SCORE for n in front}
 
     distances: dict[int, float] = {n.id: 0.0 for n in front}
-    n_objectives = 2
+    n_objectives = len(objectives[front[0].id])
 
     for m in range(n_objectives):
         sorted_front = sorted(front, key=lambda n: objectives[n.id][m])
