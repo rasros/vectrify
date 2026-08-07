@@ -21,6 +21,7 @@ def make_node(
     visual_complexity: float = 100.0,
     content: str | None = None,
     structural_complexity: float = 0.0,
+    worst_region: float = 0.0,
 ) -> SearchNode:
     state = ChainState(score=score, payload=None)
     return SearchNode(
@@ -31,6 +32,7 @@ def make_node(
         metrics={
             "visual_complexity": visual_complexity,
             "structural_complexity": structural_complexity,
+            "worst_region": worst_region,
         },
         signature=simhash(content) if content else None,
     )
@@ -118,18 +120,20 @@ def test_crowding_distance_reads_arity_from_the_vectors():
     assert dist[3] > dist[2] > 0.0
 
 
-def test_build_objectives_returns_three_normalized_objectives():
+def test_build_objectives_normalizes_every_registered_metric():
+    from vectrify.score.complexity import METRIC_NAMES
+
     nodes = [
-        make_node(1, 0.5, 200.0, structural_complexity=1000.0),
-        make_node(2, 1.0, 400.0, structural_complexity=500.0),
+        make_node(1, 0.5, 200.0, structural_complexity=1000.0, worst_region=0.2),
+        make_node(2, 1.0, 400.0, structural_complexity=500.0, worst_region=0.4),
     ]
     objectives = build_objectives(nodes)
-    assert all(len(v) == 3 for v in objectives.values())
+    assert all(len(v) == len(METRIC_NAMES) + 1 for v in objectives.values())
     # Each objective is scaled by its own population maximum, so the largest
-    # value in every column is exactly 1.0 -- that is what makes the three
+    # value in every column is exactly 1.0 -- that is what makes them
     # comparable without any weighting between them.
-    assert objectives[1] == (0.5, 0.5, 1.0)
-    assert objectives[2] == (1.0, 1.0, 0.5)
+    assert objectives[1] == (0.5, 0.5, 1.0, 0.5)
+    assert objectives[2] == (1.0, 1.0, 0.5, 1.0)
 
 
 def test_build_objectives_charges_for_source_size():
@@ -146,9 +150,12 @@ def test_build_objectives_charges_for_source_size():
 
 def test_build_objectives_survives_all_zero_objectives():
     """An all-zero column must not divide by zero."""
+    from vectrify.score.complexity import METRIC_NAMES
+
     nodes = [make_node(i, 0.0, 0.0, structural_complexity=0.0) for i in range(1, 4)]
     objectives = build_objectives(nodes)
-    assert all(v == (0.0, 0.0, 0.0) for v in objectives.values())
+    zeros = (0.0,) * (len(METRIC_NAMES) + 1)
+    assert all(v == zeros for v in objectives.values())
 
 
 def test_non_dominated_sort_all_pareto():

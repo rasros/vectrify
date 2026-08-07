@@ -7,7 +7,8 @@ from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
-from vectrify.score.complexity import measure_all
+from vectrify.score.complexity import WORST_REGION, measure_all
+from vectrify.score.regions import worst_region_score
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -143,11 +144,19 @@ def resume_nodes(
     for item in prepped:
         try:
             new_score = scorer.score(scoring_ref, item.png)
+            # Resumed nodes compete directly against freshly scored ones, so
+            # they need the scorer-side metrics too. Leaving them absent would
+            # read as 0.0 -- best possible for a minimised objective -- and let
+            # every import dominate the candidates actually being measured.
+            metrics = dict(item.metrics)
+            grid = scorer.region_distance_grid(scoring_ref, item.png)
+            if grid is not None:
+                metrics[WORST_REGION] = worst_region_score(grid)
             node = SearchNode(
                 score=new_score,
                 id=current_new_id,
                 parent_id=0,
-                metrics=item.metrics,
+                metrics=metrics,
                 signature=item.signature,
                 state=ChainState(
                     score=new_score,

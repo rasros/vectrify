@@ -1,6 +1,7 @@
 import io
 from functools import cache
 
+import numpy as np
 from PIL import Image, ImageChops, ImageCms, ImageStat
 
 
@@ -22,6 +23,18 @@ def _rgb_to_lab_transform() -> ImageCms.ImageCmsTransform:
 
 
 MAX_SCORE = 1.0
+
+
+def lab_array(img_rgb: Image.Image) -> np.ndarray:
+    """RGB image as a float32 Lab array, for per-pixel arithmetic.
+
+    ``lab_l1`` collapses straight to a single mean; callers that need the
+    spatial layout preserved (per-region distances) use this instead.
+    """
+    lab = ImageCms.applyTransform(img_rgb, _rgb_to_lab_transform())
+    if lab is None:
+        raise RuntimeError("ImageCms.applyTransform returned None")
+    return np.asarray(lab, dtype=np.float32)
 
 
 def clamp01(x: float) -> float:

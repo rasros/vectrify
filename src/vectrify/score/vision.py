@@ -149,35 +149,36 @@ class VisionScorer(Scorer):
             return MAX_SCORE
         return clamp01(score)
 
-    def diff_heatmap(
-        self,
-        reference: VisionReference,
-        candidate_png: bytes,
-        long_side: int,
-    ) -> bytes | None:
-        """Generate a perceptual diff heatmap using SigLIP patch embeddings.
+    def region_distance_grid(
+        self, reference: VisionReference, candidate_png: bytes
+    ) -> np.ndarray | None:
+        """Per-patch cosine distance to the reference, shaped to the patch grid.
 
-        Returns a PNG (hot colormap, black=similar → red → yellow → white=different),
-        or None when patch embeddings are unavailable for the loaded model.
+        This is the granularity SigLIP itself reasons at, so no tiling has to be
+        invented. Falls back to the base block-wise grid when the loaded model
+        exposes no usable patch embeddings, which keeps ``worst_region``
+        populated for every candidate rather than only for some -- a metric
+        present on part of the population would compare against zero for the
+        rest and hand them an unearned best-possible value.
         """
         if reference.patch_embeddings is None or reference.grid_hw is None:
-            return None
+            return super().region_distance_grid(reference, candidate_png)
 
         self._load_dependencies()
 
         cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
         patch_result = self._embed_patches(cand)
         if patch_result is None:
-            return None
+            return super().region_distance_grid(reference, candidate_png)
         cand_patch_embs, cand_grid_hw = patch_result
 
         if cand_grid_hw != reference.grid_hw:
             log.warning(
-                "Patch grid mismatch: ref=%s cand=%s; skipping heatmap.",
+                "Patch grid mismatch: ref=%s cand=%s; using block distances.",
                 reference.grid_hw,
                 cand_grid_hw,
             )
-            return None
+            return super().region_distance_grid(reference, candidate_png)
 
         h, w = reference.grid_hw
 
@@ -185,7 +186,28 @@ class VisionScorer(Scorer):
         cos_sim = (reference.patch_embeddings * cand_patch_embs).sum(dim=-1)
         distances = (1.0 - cos_sim).clamp(0.0, 2.0) / 2.0
 
-        grid = distances.cpu().float().numpy().reshape(h, w)
+        return distances.cpu().float().numpy().reshape(h, w)
+
+    def diff_heatmap(
+        self,
+        reference: VisionReference,
+        candidate_png: bytes,
+        long_side: int,
+        grid: np.ndarray | None = None,
+    ) -> bytes | None:
+        """Generate a perceptual diff heatmap using SigLIP patch embeddings.
+
+        Returns a PNG (hot colormap, black=similar → red → yellow → white=different),
+        or None when patch distances are unavailable for the loaded model.
+
+        *grid* lets the caller pass distances it already computed for the
+        ``worst_region`` metric. Recomputing them here would mean a second
+        vision forward pass per candidate purely to draw the same numbers.
+        """
+        if grid is None:
+            grid = self.region_distance_grid(reference, candidate_png)
+        if grid is None:
+            return None
 
         # Boost contrast (3x scale)
         grid = np.clip(grid * 3.0, 0.0, 1.0)

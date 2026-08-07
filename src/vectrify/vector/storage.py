@@ -187,7 +187,10 @@ class FileStorageAdapter:
                 "secondary_parent": node.secondary_parent_id or "",
                 "epoch": node.epoch,
                 "score": f"{node.score:.6f}",
-                **{name: f"{node.metrics.get(name, 0.0):.0f}" for name in METRIC_NAMES},
+                # `.6g` rather than `.0f`: the complexity metrics are byte and
+                # character counts, but region distances live in [0, 1] and an
+                # integer format would write every one of them as "0".
+                **{name: f"{node.metrics.get(name, 0.0):.6g}" for name in METRIC_NAMES},
                 "summary": node.state.payload.origin or "",
                 "content_md5": content_md5,
             }

@@ -26,6 +26,8 @@ from vectrify.image_utils import (
 )
 from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
+from vectrify.score.complexity import WORST_REGION
+from vectrify.score.regions import worst_region_score
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
@@ -344,8 +346,15 @@ def run_vector_search(
         ref = _scoring_ref[0]
         result = scorer.score(ref, res.payload.raster_png)
         if res.payload.raster_png:
+            # One grid serves both consumers: the worst_region objective and the
+            # heatmap drawn from the same distances. Computing it here rather
+            # than inside diff_heatmap is what keeps this to a single extra
+            # vision pass instead of two.
+            grid = scorer.region_distance_grid(ref, res.payload.raster_png)
+            if grid is not None:
+                res.metrics[WORST_REGION] = worst_region_score(grid)
             res.payload.heatmap_png = scorer.diff_heatmap(
-                ref, res.payload.raster_png, long_side=image_long_side
+                ref, res.payload.raster_png, long_side=image_long_side, grid=grid
             )
         return result
 

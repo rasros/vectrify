@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from vectrify.score.regions import REGION_GRID
 from vectrify.score.vision import VisionScorer, _apply_hot_colormap
 
 
@@ -195,7 +196,7 @@ def test_hot_colormap_output_shape_matches_input():
     assert rgb.dtype == np.uint8
 
 
-def test_diff_heatmap_returns_none_when_patch_embeddings_none(scorer):
+def test_diff_heatmap_falls_back_when_patch_embeddings_none(scorer):
     from vectrify.score.vision import VisionReference
 
     ref_img = Image.new("RGB", (32, 32), color="red")
@@ -208,11 +209,14 @@ def test_diff_heatmap_returns_none_when_patch_embeddings_none(scorer):
         patch_embeddings=None,
         grid_hw=None,
     )
+    # Falls back to block distances rather than giving up: the same grid feeds
+    # the worst_region objective, which must stay populated for every candidate.
     result = scorer.diff_heatmap(ref_no_patches, _png("blue"), long_side=32)
-    assert result is None
+    assert result is not None
+    assert scorer.region_distance_grid(ref_no_patches, _png("blue")) is not None
 
 
-def test_diff_heatmap_returns_none_on_grid_mismatch(scorer):
+def test_diff_heatmap_falls_back_on_grid_mismatch(scorer):
     import torch
 
     from vectrify.score.vision import VisionReference
@@ -230,5 +234,10 @@ def test_diff_heatmap_returns_none_on_grid_mismatch(scorer):
         patch_embeddings=fake_patch_embs,
         grid_hw=(2, 2),
     )
+    # A grid mismatch means the patch distances cannot be trusted, so it drops
+    # to block distances instead of dropping the measurement entirely.
     result = scorer.diff_heatmap(ref_wrong_grid, _png("blue"), long_side=32)
-    assert result is None
+    assert result is not None
+    grid = scorer.region_distance_grid(ref_wrong_grid, _png("blue"))
+    assert grid is not None
+    assert grid.shape == REGION_GRID

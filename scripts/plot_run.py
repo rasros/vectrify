@@ -496,7 +496,9 @@ def plot_summary_text(
             )
             lines.append(f"  {'#':>2}  {'id':>6}  {'score':>10}{metric_head}  ep")
             for rank, node in enumerate(top10, 1):
-                metric_cells = "".join(f"  {node[m]:>9.0f}" for m in METRIC_NAMES)
+                # `.4g` keeps the byte-count metrics readable while still
+                # showing the sub-1.0 region distances as something but zero.
+                metric_cells = "".join(f"  {node[m]:>9.4g}" for m in METRIC_NAMES)
                 lines.append(
                     f"  {rank:>2}  {node['id']:>6}  {node['score']:>10.6f}"
                     f"{metric_cells}  {node['epoch']}"

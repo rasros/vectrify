@@ -105,18 +105,37 @@ def test_structural_complexity_does_not_discount_repetition():
 
 
 def test_registry_covers_the_declared_metrics():
+    from vectrify.score.complexity import METRIC_NAMES, METRICS, SCORER_METRICS
+
+    assert tuple(METRICS) + SCORER_METRICS == METRIC_NAMES
+    assert set(METRIC_NAMES) == {
+        "visual_complexity",
+        "structural_complexity",
+        "worst_region",
+    }
+
+
+def test_worker_metrics_precede_scorer_metrics():
+    """Objective-vector order must stay stable for runs recorded earlier."""
     from vectrify.score.complexity import METRIC_NAMES, METRICS
 
-    assert tuple(METRICS) == METRIC_NAMES
-    assert set(METRIC_NAMES) == {"visual_complexity", "structural_complexity"}
+    assert METRIC_NAMES[: len(METRICS)] == tuple(METRICS)
 
 
-def test_measure_all_evaluates_every_registered_metric():
-    from vectrify.score.complexity import METRIC_NAMES, measure_all
+def test_measure_all_evaluates_every_worker_metric():
+    from vectrify.score.complexity import METRICS, measure_all
 
     metrics = measure_all(_make_png("red", size=32), _SIMPLE_SVG)
-    assert set(metrics) == set(METRIC_NAMES)
+    assert set(metrics) == set(METRICS)
     assert all(v > 0.0 for v in metrics.values())
+
+
+def test_measure_all_omits_scorer_metrics():
+    """They need the reference image, which workers do not carry."""
+    from vectrify.score.complexity import SCORER_METRICS, measure_all
+
+    metrics = measure_all(_make_png("red", size=32), _SIMPLE_SVG)
+    assert not set(metrics) & set(SCORER_METRICS)
 
 
 def test_lineage_columns_derive_from_the_registry():
