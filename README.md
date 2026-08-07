@@ -119,18 +119,21 @@ mixed usage.
 
 ### NSGA-II objectives
 
-The search minimizes three objectives at once:
+The search minimizes four objectives at once:
 
-| Objective             | Measure                                       |
-|-----------------------|-----------------------------------------------|
-| visual error          | scorer distance to the source image           |
-| visual complexity     | JPEG-compressed size of the render            |
-| structural complexity | code size (whitespace-stripped source length) |
+| Objective             | Measure                                        |
+|-----------------------|------------------------------------------------|
+| visual error          | scorer distance to the source image            |
+| visual complexity     | JPEG-compressed size of the render             |
+| structural complexity | code size (whitespace-stripped source length)  |
+| worst region          | distance over the worst areas of the render    |
 
 Visual error is the primary objective; the complexity measures only break
 ties among the best-scoring candidates, biasing toward small, clean output
-once the image is already close. Raising tournament-size pushes harder
-toward visual quality at the cost of pool diversity.
+once the image is already close. Worst region counters visual error being an
+average, under which a small defect in a mostly-correct image is too cheap to
+be worth fixing. Raising tournament-size pushes harder toward visual quality
+at the cost of pool diversity.
 
 ### Convergence and cost
 
@@ -166,7 +169,7 @@ sketch.svg                       # the best final candidate (written at the end)
 sketch/
 └── runs/
     └── 2026-04-26_14-30-21/     # one directory per run, timestamped
-        ├── lineage.csv          # accepted node history (all three objectives, parent, ops)
+        ├── lineage.csv          # accepted node history (all four objectives, parent, ops)
         └── nodes/
             ├── 0.0421_0001.svg  # one file per accepted node, prefixed by score
             ├── 0.0421_0001.png  # rendered preview (--save-raster)
