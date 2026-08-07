@@ -70,7 +70,24 @@ METRICS: Mapping[str, Callable[[bytes, str], float]] = {
     "structural_complexity": lambda _png, source: structural_complexity(source),
 }
 
-METRIC_NAMES: tuple[str, ...] = tuple(METRICS)
+# Metrics that cannot live in METRICS because they are comparative: they need
+# the reference image, which workers do not carry and which would mean shipping
+# torch into every worker process. The scoring thread already holds the scorer
+# and the prepared reference, so it fills these in after `measure_all` runs.
+#
+# They are still objectives like any other, so they belong in METRIC_NAMES and
+# get a lineage column. Anything added here must be written for *every* scored
+# node: a metric present on only part of the population reads as 0.0 for the
+# rest, which is the best attainable value for a minimised objective and would
+# make unmeasured candidates dominate measured ones.
+WORST_REGION = "worst_region"
+
+SCORER_METRICS: tuple[str, ...] = (WORST_REGION,)
+
+# Worker-side metrics first so the registry order (and therefore the objective
+# vector and every derived column) stays stable for runs recorded before the
+# scorer-side metrics existed.
+METRIC_NAMES: tuple[str, ...] = tuple(METRICS) + SCORER_METRICS
 
 # Runs recorded before complexity was split into separate objectives carry a
 # single blended column. It was 70% the render's JPEG size, so it is read back as
@@ -80,7 +97,11 @@ LEGACY_METRIC_TARGET = "visual_complexity"
 
 
 def measure_all(png_bytes: bytes, source: str) -> dict[str, float]:
-    """Evaluate every registered metric for one candidate."""
+    """Evaluate every worker-side metric for one candidate.
+
+    Excludes SCORER_METRICS, which need the reference image; the scoring thread
+    adds those to the same dict once it has scored the candidate.
+    """
     return {name: fn(png_bytes, source) for name, fn in METRICS.items()}
 
 
