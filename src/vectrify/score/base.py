@@ -86,5 +86,23 @@ class ScoreConfig:
     w_vision: float = 0.85
     w_color: float = 0.15
 
+    # Scoring resolution. One whole-image pass sees a 700px drawing at 384px,
+    # so a 7px numeral lands under SigLIP's 14px patch and cannot be told from
+    # a smudge. Scoring a grid of crops instead keeps that detail above the
+    # patch size. tiles=1 is the untiled scorer.
+    #
+    # Crops are cut at exactly this size and fed in unresampled, so scaling
+    # introduces no artifact the scorer could mistake for candidate error.
+    # None means the model's own input size, which is the only size that needs
+    # no resampling at all. The crop count follows from the image.
+    tile_size: int | None = None
+    tile_overlap: float = 0.5
+
+    # Fraction of tiles averaged into the primary score, worst-first. Averaging
+    # every tile re-dilutes a localised defect across the mostly-blank ones,
+    # which is the problem tiling was meant to fix; scoring only the worst
+    # share keeps the pressure where the error is.
+    score_tile_fraction: float = 0.5
+
 
 DEFAULT_CONFIG = ScoreConfig()

@@ -9,6 +9,7 @@ from PIL import Image
 
 from vectrify.image_utils import resize_long_side
 from vectrify.score.base import DEFAULT_CONFIG, Scorer
+from vectrify.score.regions import tile_boxes, tile_key
 from vectrify.score.utils import MAX_SCORE, clamp01, color_score, get_device
 
 if TYPE_CHECKING:
@@ -25,6 +26,11 @@ class VisionReference:
     embedding: "torch.Tensor"
     patch_embeddings: "torch.Tensor | None" = field(default=None)
     grid_hw: "tuple[int, int] | None" = field(default=None)
+    # Reference tiles are embedded once per run: they never change, so only the
+    # candidate side costs anything per candidate.
+    tile_embeddings: "torch.Tensor | None" = field(default=None)
+    tile_boxes: list[tuple[int, int, int, int]] = field(default_factory=list)
+    full_size: tuple[int, int] = (0, 0)
 
 
 class VisionScorer(Scorer):
@@ -39,6 +45,11 @@ class VisionScorer(Scorer):
         self._processor: Any = None
         self._torch: Any = None
         self._device_str: str | None = None
+        # tile key -> distance. Unbounded on purpose: an entry is 16 bytes of
+        # key plus a float, and candidates repeat heavily (measured ~69% of
+        # tiles already seen, and ~25% of whole renders identical to an earlier
+        # one), so evicting would throw away the hit rate that pays for tiling.
+        self._tile_cache: dict[bytes, float] = {}
 
     def _load_dependencies(self) -> None:
         if self._model is not None:
@@ -62,6 +73,75 @@ class VisionScorer(Scorer):
                 f"transformers or torch not installed or failed to load: {e}. "
                 "Run 'pip install transformers torch'."
             ) from e
+
+    def _input_size(self) -> int:
+        """The model's expected input edge, read from the loaded processor."""
+        size = getattr(self._processor, "size", None) or {}
+        if isinstance(size, dict):
+            edge = size.get("height") or size.get("width") or size.get("shortest_edge")
+            if edge:
+                return int(edge)
+        return 384
+
+    def _embed_many(self, images: list[Image.Image]) -> "torch.Tensor":
+        """Embed a batch of images in one forward pass, L2-normalised."""
+        import torch.nn.functional as functional
+
+        inputs = self._processor(images=images, return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(self._device_str)
+
+        with self._torch.no_grad():
+            if hasattr(self._model, "get_image_features"):
+                features = self._model.get_image_features(pixel_values=pixel_values)
+            else:
+                features = self._model(pixel_values=pixel_values)
+            if not isinstance(features, self._torch.Tensor):
+                features = features.pooler_output
+            return functional.normalize(features, dim=-1)
+
+    def _tile_distances(
+        self, reference: VisionReference, candidate: Image.Image
+    ) -> np.ndarray | None:
+        """Cosine distance per tile, computing only the tiles not already known.
+
+        The cache is what makes tiling affordable: a tile's distance depends
+        only on its own pixels, and candidates share tiles heavily -- both with
+        their parents (mutations are local) and with unrelated candidates
+        (blank areas hash identically).
+        """
+        if reference.tile_embeddings is None or not reference.tile_boxes:
+            return None
+
+        if candidate.size != reference.full_size:
+            candidate = candidate.resize(
+                reference.full_size, resample=Image.Resampling.BILINEAR
+            )
+
+        distances: list[float | None] = []
+        pending: list[Image.Image] = []
+        pending_at: list[int] = []
+        keys: list[bytes] = []
+
+        for i, box in enumerate(reference.tile_boxes):
+            tile = candidate.crop(box)
+            key = tile_key(i, tile)
+            keys.append(key)
+            hit = self._tile_cache.get(key)
+            distances.append(hit)
+            if hit is None:
+                pending.append(tile)
+                pending_at.append(i)
+
+        if pending:
+            embs = self._embed_many(pending)
+            ref = reference.tile_embeddings[pending_at]
+            cos = (ref * embs).sum(dim=-1)
+            fresh = ((1.0 - cos).clamp(0.0, 2.0) / 2.0).cpu().float().numpy()
+            for slot, value in zip(pending_at, fresh, strict=True):
+                distances[slot] = float(value)
+                self._tile_cache[keys[slot]] = float(value)
+
+        return np.array(distances, dtype=np.float64)
 
     def _embed(self, image: Image.Image) -> "torch.Tensor":
         import torch.nn.functional as functional
@@ -123,22 +203,46 @@ class VisionScorer(Scorer):
         patch_embeddings, grid_hw = (
             patch_result if patch_result is not None else (None, None)
         )
+        tile_size = DEFAULT_CONFIG.tile_size or self._input_size()
+        boxes = tile_boxes(original_rgb.size, tile_size, DEFAULT_CONFIG.tile_overlap)
+        crop_w = boxes[0][2] - boxes[0][0]
+        log.info(
+            "Scoring on %d crop(s) of %dpx at native resolution (model input %dpx).",
+            len(boxes),
+            crop_w,
+            tile_size,
+        )
+        tile_embeddings = (
+            self._embed_many([original_rgb.crop(b) for b in boxes]) if boxes else None
+        )
+
         return VisionReference(
             image=ref_small,
             embedding=embedding,
             patch_embeddings=patch_embeddings,
             grid_hw=grid_hw,
+            tile_embeddings=tile_embeddings,
+            tile_boxes=boxes,
+            full_size=original_rgb.size,
         )
 
     def score(self, reference: VisionReference, candidate_png: bytes) -> float:
         self._load_dependencies()
 
         cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
-        cand_embedding = self._embed(cand)
 
-        # Dot product of L2-normalised vectors = cosine similarity
-        cos_sim = float((reference.embedding * cand_embedding).sum().item())
-        struct_score = clamp01(1.0 - cos_sim)
+        tiles = self._tile_distances(reference, cand)
+        if tiles is not None and tiles.size:
+            # Worst-first over the configured share. A whole-image cosine is
+            # just the tiles=1 case of this, so nothing special-cases it.
+            k = max(1, round(tiles.size * DEFAULT_CONFIG.score_tile_fraction))
+            struct_score = clamp01(float(np.partition(tiles, -k)[-k:].mean()))
+        else:
+            cand_embedding = self._embed(cand)
+            # Dot product of L2-normalised vectors = cosine similarity
+            cos_sim = float((reference.embedding * cand_embedding).sum().item())
+            struct_score = clamp01(1.0 - cos_sim)
+
         color = color_score(reference.image, candidate_png)
 
         score = (DEFAULT_CONFIG.w_vision * struct_score) + (
@@ -152,15 +256,24 @@ class VisionScorer(Scorer):
     def region_distance_grid(
         self, reference: VisionReference, candidate_png: bytes
     ) -> np.ndarray | None:
-        """Per-patch cosine distance to the reference, shaped to the patch grid.
+        """Per-region distances, from the same tiles the score is built on.
 
-        This is the granularity SigLIP itself reasons at, so no tiling has to be
-        invented. Falls back to the base block-wise grid when the loaded model
-        exposes no usable patch embeddings, which keeps ``worst_region``
-        populated for every candidate rather than only for some -- a metric
-        present on part of the population would compare against zero for the
-        rest and hand them an unearned best-possible value.
+        Deliberately not a second tiling. The regions the objective points at
+        are exactly the crops the scorer measured, so "the worst region" names
+        something the score actually saw. With more than one tile these come
+        free from the score's own cached distances; with ``tiles=1`` there is
+        no spatial information in them, so it falls back to the finer SigLIP
+        patch grid rather than reporting a single number as a "region".
         """
+        if len(reference.tile_boxes) > 1:
+            cand = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+            tiles = self._tile_distances(reference, cand)
+            if tiles is not None and tiles.size:
+                # Square where the geometry allows it, so the heatmap can
+                # upsample the grid back over the canvas it came from.
+                side = math.isqrt(tiles.size)
+                return tiles.reshape(side, side) if side * side == tiles.size else tiles
+
         if reference.patch_embeddings is None or reference.grid_hw is None:
             return super().region_distance_grid(reference, candidate_png)
 
