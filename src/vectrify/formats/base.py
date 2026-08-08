@@ -91,8 +91,16 @@ class FormatPlugin(Protocol):
         raster_preview_url: str | None,
         goal: str | None,
         diff_data_url: str | None,
+        canvas: tuple[int, int],
     ) -> list[dict]:
-        """Build the LLM generation/refinement prompt as content blocks."""
+        """Build the LLM generation/refinement prompt as content blocks.
+
+        *canvas* is the raster size the candidate will be rendered and scored
+        at. Formats with their own coordinate space must pin it to this, so
+        every candidate in the pool shares one space: the genetic operators
+        graft elements between parents, and coordinates that meant different
+        things in different spaces are silently misplaced by the graft.
+        """
         ...
 
     def mutate(self, content: str, orig_img_fast: PIL.Image.Image) -> tuple[str, str]:

@@ -117,17 +117,20 @@ model's patch size and reads as a smudge. The scorer instead cuts the raster
 into crops of exactly that input size and scores each unresampled, so detail
 reaches the model intact and nothing is scaled in either direction.
 
-image-long-side sets the raster, and everything else follows from it: it is
-rounded up to a whole number of crops so they tile exactly, which keeps every
-pixel weighted the same and fixes the crop count. Larger rasters resolve finer
-detail and cost proportionally more per candidate.
+resolution sets the raster, and everything else follows from it: it is rounded
+up to a whole number of crops so they tile exactly, which keeps every pixel
+weighted the same and fixes the crop count. It also fixes the coordinate space
+candidates are written in — the SVG viewBox and the Typst page are pinned to it,
+so the genetic operators can graft elements between parents without misplacing
+them. Larger rasters resolve finer detail and cost proportionally more per
+candidate.
 
-| image-long-side | raster | crops per candidate |
-|----------------:|-------:|--------------------:|
-| 384             | 384    | 1                   |
-| 768 (default)   | 768    | 4                   |
-| 1000            | 1152   | 9                   |
-| 1500            | 1536   | 16                  |
+| resolution    | raster | crops per candidate |
+|--------------:|-------:|--------------------:|
+| 384           | 384    | 1                   |
+| 768 (default) | 768    | 4                   |
+| 1000          | 1152   | 9                   |
+| 1500          | 1536   | 16                  |
 
 Per-crop distances are cached by content hash, so a candidate only pays for the
 crops that actually changed — usually a small share, since local mutations

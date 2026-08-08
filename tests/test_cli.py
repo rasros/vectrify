@@ -36,14 +36,14 @@ def test_pool_size_zero_raises():
         parse_args(["img.png", "--pool-size", "0"])
 
 
-def test_image_long_side_negative_raises():
+def test_resolution_negative_raises():
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--image-long-side", "-1"])
+        parse_args(["img.png", "--resolution", "-1"])
 
 
-def test_image_long_side_zero_raises():
+def test_resolution_zero_raises():
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--image-long-side", "0"])
+        parse_args(["img.png", "--resolution", "0"])
 
 
 @pytest.mark.parametrize("rate", ["-0.1", "1.5"])

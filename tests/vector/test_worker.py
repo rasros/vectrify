@@ -130,7 +130,7 @@ def test_use_llm_takes_priority_over_crossover(monkeypatch):
         original_png_bytes=png,
         original_w=32,
         original_h=32,
-        image_long_side=16,
+        resolution=16,
         log_level="ERROR",
         log_file=None,
         goal=None,

@@ -128,3 +128,18 @@ def test_gen_prompt_diff_format_instructions_in_edit():
     assert "<<<SEARCH>>>" in text
     assert "<<<REPLACE>>>" in text
     assert "<<<END>>>" in text
+
+
+def test_gen_prompt_pins_the_viewbox_to_the_canvas():
+    """Left to itself the model copies the prompt image's dimensions, so the
+    coordinate space changes with the raster size — and crossover grafts
+    elements between parents without rescaling them."""
+    blocks = build_svg_gen_prompt(
+        "data:image/png;base64,abc",
+        1,
+        svg_prev=None,
+        canvas=(768, 512),
+    )
+    text = "\n".join(b["text"] for b in blocks if b["type"] == "input_text")
+    assert "viewBox='0 0 768 512'" in text
+    assert "0 0 W H" not in text

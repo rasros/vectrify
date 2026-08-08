@@ -118,7 +118,7 @@ def main():
             image_path=args.image,
             storage=storage,
             workers=args.workers,
-            image_long_side=args.image_long_side,
+            resolution=args.resolution,
             max_wall_seconds=args.max_wall_seconds,
             log_level=args.log_level,
             scorer_type=args.scorer,

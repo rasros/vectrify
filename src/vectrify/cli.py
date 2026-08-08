@@ -27,7 +27,7 @@ DEFAULT_WRITE_LINEAGE = True
 DEFAULT_SAVE_RASTER = True
 DEFAULT_SAVE_HEATMAP = False
 DEFAULT_DASHBOARD = True
-DEFAULT_IMAGE_LONG_SIDE = 768
+DEFAULT_RESOLUTION = 768
 DEFAULT_REASONING = "medium"
 
 
@@ -380,13 +380,17 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"across the entire run. Default: {DEFAULT_MAX_TOTAL_TASKS}",
     )
     g_runtime.add_argument(
-        "--image-long-side",
+        "--resolution",
         type=int,
-        default=DEFAULT_IMAGE_LONG_SIDE,
+        default=DEFAULT_RESOLUTION,
         metavar="PX",
-        help="Raster size for the run: the reference and every candidate are "
-        "rendered and scored at this long-side, and the scorer's crop count "
-        f"follows from it. Default: {DEFAULT_IMAGE_LONG_SIDE}",
+        help="Working resolution for the whole run, and the parameter that "
+        "most affects output quality and cost. The reference and every "
+        "candidate are rendered and scored at this long-side; it is rounded up "
+        "to a whole number of scorer crops, and it fixes the coordinate space "
+        "candidates are written in (SVG viewBox, Typst page). Higher resolves "
+        f"finer detail and costs proportionally more. Default: "
+        f"{DEFAULT_RESOLUTION}",
     )
     g_runtime.add_argument(
         "--dashboard",
@@ -417,8 +421,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --max-epochs must be at least 1")
     if ns.workers <= 0 or ns.pool_size <= 0:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
-    if ns.image_long_side <= 0:
-        raise SystemExit("Error: --image-long-side must be > 0")
+    if ns.resolution <= 0:
+        raise SystemExit("Error: --resolution must be > 0")
     if ns.max_total_tasks <= 0:
         raise SystemExit("Error: --max-total-tasks must be > 0")
 
