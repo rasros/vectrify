@@ -84,7 +84,7 @@ def resume_nodes(
     original_img: Image.Image,
     original_w: int,
     original_h: int,
-    image_long_side: int,
+    resolution: int,
     pool_size: int,
     workers: int,
     scorer: Any,
@@ -117,7 +117,7 @@ def resume_nodes(
             old_id=old_id,
             content=content_text,
             png=png,
-            preview_data_url=make_preview_data_url(png, image_long_side),
+            preview_data_url=make_preview_data_url(png, resolution),
             metrics=measure_all(png, content_text),
             signature=sig,
         )

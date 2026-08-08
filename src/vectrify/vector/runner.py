@@ -137,7 +137,7 @@ def run_vector_search(
     image_path: str,
     storage: StorageAdapter,
     workers: int,
-    image_long_side: int,
+    resolution: int,
     max_wall_seconds: float | None,
     log_level: str,
     scorer_type: ScorerType,
@@ -174,7 +174,7 @@ def run_vector_search(
     # Validate the reference image up front so a missing or corrupt input fails
     # before storage.initialize() creates the output directory tree.
     original_img, original_png_bytes, original_w, original_h = _load_image(
-        image_path, image_long_side
+        image_path, resolution
     )
 
     storage.initialize()
@@ -242,7 +242,7 @@ def run_vector_search(
             original_img=original_img,
             original_w=original_w,
             original_h=original_h,
-            image_long_side=image_long_side,
+            resolution=resolution,
             pool_size=pool_size,
             workers=workers,
             scorer=_scorer[0],
@@ -318,7 +318,7 @@ def run_vector_search(
     )
 
     strategy = VectorStrategyAdapter(
-        base_strategy, image_long_side, write_lineage, save_raster
+        base_strategy, resolution, write_lineage, save_raster
     )
     engine = MultiprocessSearchEngine(
         workers=workers,
@@ -327,14 +327,14 @@ def run_vector_search(
         max_total_tasks=max_total_tasks,
     )
 
-    model_png = downscale_png_bytes(original_png_bytes, image_long_side)
+    model_png = downscale_png_bytes(original_png_bytes, resolution)
     worker_ctx = WorkerContext(
         format_plugin=format_plugin,
         image_data_url=png_bytes_to_data_url(model_png),
         original_png_bytes=original_png_bytes,
         original_w=original_w,
         original_h=original_h,
-        image_long_side=image_long_side,
+        resolution=resolution,
         log_level=log_level,
         log_file=str(run_log_file),
         goal=goal,
@@ -364,7 +364,7 @@ def run_vector_search(
             if grid is not None:
                 res.metrics[WORST_REGION] = worst_region_score(grid)
             res.payload.heatmap_png = scorer.diff_heatmap(
-                ref, res.payload.raster_png, long_side=image_long_side, grid=grid
+                ref, res.payload.raster_png, long_side=resolution, grid=grid
             )
         return result
 

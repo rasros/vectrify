@@ -38,6 +38,7 @@ class SvgPlugin:
         raster_preview_url: str | None,
         goal: str | None,
         diff_data_url: str | None,
+        canvas: tuple[int, int],
     ) -> list[dict]:
         return build_svg_gen_prompt(
             image_data_url,
@@ -46,6 +47,7 @@ class SvgPlugin:
             rasterized_svg_data_url=raster_preview_url if content_prev else None,
             goal=goal,
             diff_data_url=diff_data_url,
+            canvas=canvas,
         )
 
     def mutate(self, content: str, orig_img_fast: Image.Image) -> tuple[str, str]:

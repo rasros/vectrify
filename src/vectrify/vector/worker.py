@@ -32,7 +32,7 @@ class WorkerContext:
     original_png_bytes: bytes
     original_w: int
     original_h: int
-    image_long_side: int
+    resolution: int
     log_level: str
     log_file: str | None
     goal: str | None
@@ -143,7 +143,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                             diff_data_url = generate_diff_data_url(
                                 ctx.original_png_bytes,
                                 cand_bytes,
-                                ctx.image_long_side,
+                                ctx.resolution,
                             )
 
                     gen_config = LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
@@ -154,6 +154,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         raster_preview_url=parent_preview if has_content else None,
                         goal=ctx.goal,
                         diff_data_url=diff_data_url,
+                        canvas=(ctx.original_w, ctx.original_h),
                     )
                     log.debug(
                         f"LLM call [generate] task={task.task_id} "
@@ -201,7 +202,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
             signature = simhash(content)
 
             full_img = Image.open(io.BytesIO(png)).convert("RGB")
-            preview_img = resize_long_side(full_img, ctx.image_long_side)
+            preview_img = resize_long_side(full_img, ctx.resolution)
             preview_buf = io.BytesIO()
             preview_img.save(preview_buf, format="PNG")
             preview_data_url = png_bytes_to_data_url(preview_buf.getvalue())

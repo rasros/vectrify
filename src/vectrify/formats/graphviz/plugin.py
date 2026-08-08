@@ -133,6 +133,10 @@ class GraphvizPlugin(BaseFormatPlugin):
         raster_preview_url: str | None,
         goal: str | None,
         diff_data_url: str | None,
+        # DOT positions are computed by the layout engine, not written in the
+        # source, so there is no coordinate space to pin and grafting between
+        # parents cannot misplace anything.
+        canvas: tuple[int, int],  # noqa: ARG002 - layout engine owns positions
     ) -> list[dict]:
         return build_dot_gen_prompt(
             image_data_url=image_data_url,

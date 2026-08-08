@@ -15,15 +15,24 @@ def build_svg_gen_prompt(
     rasterized_svg_data_url: str | None = None,
     goal: str | None = None,
     diff_data_url: str | None = None,
+    canvas: tuple[int, int] = (0, 0),
 ) -> list[dict[str, Any]]:
-    """Build LLM prompt for SVG generation/refinement."""
+    """Build LLM prompt for SVG generation/refinement.
+
+    *canvas* pins the viewBox. Left to itself the model copies whatever
+    dimensions the prompt image happens to have, so changing the raster size
+    silently changes the coordinate space candidates are written in -- and
+    crossover grafts elements between parents without rescaling them.
+    """
     is_edit = svg_prev is not None
+    view_w, view_h = canvas
 
     lines = [
         "Reproduce the target image as SVG code, matching colors, shapes,"
         " positions, and proportions as closely as possible.",
-        "- Always include `xmlns='http://www.w3.org/2000/svg'` and a"
-        " `viewBox='0 0 W H'` on the root <svg> element.",
+        "- Always include `xmlns='http://www.w3.org/2000/svg'` and"
+        f" `viewBox='0 0 {view_w} {view_h}'` on the root <svg> element."
+        " Use exactly this viewBox and express every coordinate in it.",
         "- Wrap related elements in <g id='name'>.",
         f"Iteration #{iter_index}.",
     ]
