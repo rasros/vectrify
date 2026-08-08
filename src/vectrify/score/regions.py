@@ -119,10 +119,21 @@ def tile_boxes(
         raise ValueError(f"overlap must be in [0, 1), got {overlap}")
 
     def axis(extent: int) -> tuple[list[int], int]:
-        # Smaller than one crop: there is nothing to cut, and padding out to
-        # the model size would invent content. The caller resizes this case.
+        # Shorter than one crop: still emit a full-size box and let crop_tile
+        # pad it. Returning a short box would hand the model a non-square crop
+        # to stretch into its square input, distorting the very geometry the
+        # candidate is being judged on.
         if extent <= tile_size:
-            return [0], extent
+            return [0], tile_size
+        if overlap == 0.0:
+            # Butt the crops together and let the last one hang over the edge,
+            # padded by crop_tile. Spacing them inside the extent instead would
+            # overlap whenever the axis is not a whole number of crops -- which
+            # is the normal case for the short axis, since only the long side is
+            # snapped -- and overlap is what weights some pixels above others.
+            return [i * tile_size for i in range(math.ceil(extent / tile_size))], (
+                tile_size
+            )
         stride = max(1, round(tile_size * (1.0 - overlap)))
         count = math.ceil((extent - tile_size) / stride) + 1
         return _spaced(extent, tile_size, count)
@@ -150,6 +161,29 @@ def grid_boxes(size: tuple[int, int], cells: int) -> list[tuple[int, int, int, i
     xs, step_x = axis(size[0])
     ys, step_y = axis(size[1])
     return [(x, y, x + step_x, y + step_y) for y in ys for x in xs]
+
+
+def crop_tile(
+    image: Image.Image, box: tuple[int, int, int, int], fill: str = "white"
+) -> Image.Image:
+    """Crop *box*, padding with *fill* where it hangs past the edge.
+
+    The last crop on an axis overhangs whenever the axis is not a whole number
+    of crops. Padding just that overhang keeps the raster at its true aspect
+    ratio and every real pixel measured exactly once; padding the raster itself
+    would either distort the aspect or blank out a third of a wide image.
+
+    The reference and every candidate are padded identically, so a crop that is
+    mostly padding compares equal and contributes nothing either way.
+    """
+    x0, y0, x1, y1 = box
+    if x1 <= image.width and y1 <= image.height:
+        return image.crop(box)
+    tile = Image.new("RGB", (x1 - x0, y1 - y0), fill)
+    tile.paste(
+        image.crop((x0, y0, min(x1, image.width), min(y1, image.height))), (0, 0)
+    )
+    return tile
 
 
 def tile_key(index: int, tile: Image.Image) -> bytes:
