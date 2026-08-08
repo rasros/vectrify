@@ -27,7 +27,7 @@ DEFAULT_WRITE_LINEAGE = True
 DEFAULT_SAVE_RASTER = True
 DEFAULT_SAVE_HEATMAP = False
 DEFAULT_DASHBOARD = True
-DEFAULT_IMAGE_LONG_SIDE = 512
+DEFAULT_IMAGE_LONG_SIDE = 768
 DEFAULT_REASONING = "medium"
 
 
@@ -384,8 +384,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=DEFAULT_IMAGE_LONG_SIDE,
         metavar="PX",
-        help="Downscale reference and preview images to this long-side. "
-        f"Default: {DEFAULT_IMAGE_LONG_SIDE}",
+        help="Raster size for the run: the reference and every candidate are "
+        "rendered and scored at this long-side, and the scorer's crop count "
+        f"follows from it. Default: {DEFAULT_IMAGE_LONG_SIDE}",
     )
     g_runtime.add_argument(
         "--dashboard",
