@@ -109,6 +109,30 @@ The new candidate is scored against the source image (perceptual via
 vision-transformer embeddings, pixel-space, or LLM-as-judge), then
 either replaces a worse pool member or is dropped.
 
+### Scoring resolution
+
+Vision models take a fixed input size, so scoring a whole image downscales it
+and small detail — thin strokes, numerals, annotations — drops below the
+model's patch size and reads as a smudge. The scorer instead cuts the raster
+into crops of exactly that input size and scores each unresampled, so detail
+reaches the model intact and nothing is scaled in either direction.
+
+image-long-side sets the raster, and everything else follows from it: it is
+rounded up to a whole number of crops so they tile exactly, which keeps every
+pixel weighted the same and fixes the crop count. Larger rasters resolve finer
+detail and cost proportionally more per candidate.
+
+| image-long-side | raster | crops per candidate |
+|----------------:|-------:|--------------------:|
+| 384             | 384    | 1                   |
+| 768 (default)   | 768    | 4                   |
+| 1000            | 1152   | 9                   |
+| 1500            | 1536   | 16                  |
+
+Per-crop distances are cached by content hash, so a candidate only pays for the
+crops that actually changed — usually a small share, since local mutations
+leave most of the canvas byte-identical.
+
 ### Search strategies
 
 NSGA-II, the default, keeps a diverse Pareto front and does better when
@@ -126,14 +150,15 @@ The search minimizes four objectives at once:
 | visual error          | scorer distance to the source image            |
 | visual complexity     | JPEG-compressed size of the render             |
 | structural complexity | code size (whitespace-stripped source length)  |
-| worst region          | distance over the worst areas of the render    |
+| worst region          | distance over the worst crops of the render    |
 
 Visual error is the primary objective; the complexity measures only break
 ties among the best-scoring candidates, biasing toward small, clean output
 once the image is already close. Worst region counters visual error being an
 average, under which a small defect in a mostly-correct image is too cheap to
-be worth fixing. Raising tournament-size pushes harder toward visual quality
-at the cost of pool diversity.
+be worth fixing; it reads the same crops the score is built from, so the region
+it names is always one the score measured. Raising tournament-size pushes
+harder toward visual quality at the cost of pool diversity.
 
 ### Convergence and cost
 
