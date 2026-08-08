@@ -9,6 +9,7 @@ from vectrify.score.base import Scorer
 from vectrify.score.regions import (
     REGION_GRID,
     block_distance_grid,
+    crop_tile,
     grid_boxes,
     snap_raster,
     tile_boxes,
@@ -179,8 +180,8 @@ def test_tiles_cover_the_whole_canvas():
     boxes = tile_boxes((700, 700), 384, 0.5)
     assert min(b[0] for b in boxes) == 0
     assert min(b[1] for b in boxes) == 0
-    assert max(b[2] for b in boxes) == 700
-    assert max(b[3] for b in boxes) == 700
+    assert max(b[2] for b in boxes) >= 700
+    assert max(b[3] for b in boxes) >= 700
 
 
 def test_uneven_sizes_become_extra_overlap_not_stretched_tiles():
@@ -192,9 +193,9 @@ def test_uneven_sizes_become_extra_overlap_not_stretched_tiles():
     assert all(b[2] - b[0] == 384 for b in boxes)
 
 
-def test_image_smaller_than_a_tile_yields_one_box():
-    """Nothing to cut, and padding would invent content the source lacks."""
-    assert tile_boxes((300, 300), 384, 0.5) == [(0, 0, 300, 300)]
+def test_image_smaller_than_a_tile_still_yields_a_full_size_box():
+    """A short box would be stretched into the model's square input."""
+    assert tile_boxes((300, 300), 384, 0.5) == [(0, 0, 384, 384)]
 
 
 def test_tile_count_follows_from_raster_size():
@@ -267,3 +268,42 @@ def test_overlapping_tiles_are_the_biased_case_snapping_avoids():
         coverage[y0:y1, x0:x1] += 1
     assert coverage[0, 0] == 1
     assert coverage[px // 2, px // 2] > coverage[0, 0]
+
+
+# ── non-square rasters ────────────────────────────────────────────────────────
+
+
+def test_every_crop_is_tile_sized_at_any_aspect_ratio():
+    """Only the long side is snapped, so the short side is normally a fraction
+    of a crop. A short box would be stretched into the model's square input."""
+    for size in ((768, 480), (768, 576), (768, 269), (768, 128), (768, 768)):
+        for box in tile_boxes(size, 384, 0.0):
+            assert box[2] - box[0] == 384
+            assert box[3] - box[1] == 384
+
+
+def test_coverage_is_uniform_over_real_pixels_at_any_aspect_ratio():
+    """The reason for overhanging rather than re-spacing: fitting the crops
+    inside a short axis would overlap them and weight those pixels higher."""
+    for w, h in ((768, 480), (768, 576), (768, 269), (1152, 864)):
+        coverage = np.zeros((h, w), dtype=int)
+        for x0, y0, x1, y1 in tile_boxes((w, h), 384, 0.0):
+            coverage[y0 : min(y1, h), x0 : min(x1, w)] += 1
+        assert coverage.min() == 1
+        assert coverage.max() == 1
+
+
+def test_crop_tile_pads_the_overhang_instead_of_returning_a_short_tile():
+    img = _white(500)
+    tile = crop_tile(img, (384, 384, 768, 768))
+    assert tile.size == (384, 384)
+    # The real pixels are white and so is the pad, so a padded crop compares
+    # equal between reference and candidate and contributes nothing.
+    assert tile.getpixel((0, 0)) == (255, 255, 255)
+    assert tile.getpixel((383, 383)) == (255, 255, 255)
+
+
+def test_crop_tile_leaves_in_bounds_boxes_untouched():
+    img = _white_with_blot(500)
+    box = (0, 0, 384, 384)
+    assert crop_tile(img, box).tobytes() == img.crop(box).tobytes()

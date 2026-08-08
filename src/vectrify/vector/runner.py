@@ -27,8 +27,9 @@ from vectrify.image_utils import (
 )
 from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
+from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.complexity import WORST_REGION
-from vectrify.score.regions import snap_raster, worst_region_score
+from vectrify.score.regions import DEFAULT_TILE_SIZE, snap_raster, worst_region_score
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
@@ -80,7 +81,9 @@ def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, in
         raise ValueError(
             f"input image could not be read as an image: {image_path} ({exc})"
         ) from exc
-    img = resize_long_side(img, snap_raster(long_side))
+    img = resize_long_side(
+        img, snap_raster(long_side, DEFAULT_CONFIG.tile_size or DEFAULT_TILE_SIZE)
+    )
     w, h = img.size
     buf = io.BytesIO()
     img.save(buf, format="PNG")

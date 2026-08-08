@@ -9,7 +9,7 @@ from PIL import Image
 
 from vectrify.image_utils import resize_long_side
 from vectrify.score.base import DEFAULT_CONFIG, Scorer
-from vectrify.score.regions import tile_boxes, tile_key
+from vectrify.score.regions import crop_tile, tile_boxes, tile_key
 from vectrify.score.utils import MAX_SCORE, clamp01, color_score, get_device
 
 if TYPE_CHECKING:
@@ -123,7 +123,7 @@ class VisionScorer(Scorer):
         keys: list[bytes] = []
 
         for i, box in enumerate(reference.tile_boxes):
-            tile = candidate.crop(box)
+            tile = crop_tile(candidate, box)
             key = tile_key(i, tile)
             keys.append(key)
             hit = self._tile_cache.get(key)
@@ -205,15 +205,33 @@ class VisionScorer(Scorer):
         )
         tile_size = DEFAULT_CONFIG.tile_size or self._input_size()
         boxes = tile_boxes(original_rgb.size, tile_size, DEFAULT_CONFIG.tile_overlap)
-        crop_w = boxes[0][2] - boxes[0][0]
         log.info(
-            "Scoring on %d crop(s) of %dpx at native resolution (model input %dpx).",
+            "Scoring on %d crop(s) of %dpx at native resolution.",
             len(boxes),
-            crop_w,
             tile_size,
         )
+        # Coverage stays uniform either way -- the last crop on an axis
+        # overhangs and is padded -- but a raster that is not a whole number of
+        # crops spends part of every edge pass on padding rather than image.
+        real = sum(
+            (min(x1, original_rgb.width) - x0) * (min(y1, original_rgb.height) - y0)
+            for x0, y0, x1, y1 in boxes
+        )
+        useful = real / (len(boxes) * tile_size * tile_size)
+        if useful < 0.95:
+            log.warning(
+                "Raster %dx%d is not a whole number of %dpx crops: %.0f%% of each "
+                "scoring pass is padding. Set resolution to a multiple of %d.",
+                original_rgb.width,
+                original_rgb.height,
+                tile_size,
+                100 * (1 - useful),
+                tile_size,
+            )
         tile_embeddings = (
-            self._embed_many([original_rgb.crop(b) for b in boxes]) if boxes else None
+            self._embed_many([crop_tile(original_rgb, b) for b in boxes])
+            if boxes
+            else None
         )
 
         return VisionReference(
