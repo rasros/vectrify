@@ -96,7 +96,11 @@ class ScoreConfig:
     # None means the model's own input size, which is the only size that needs
     # no resampling at all. The crop count follows from the image.
     tile_size: int | None = None
-    tile_overlap: float = 0.5
+
+    # Zero, so crops tile the raster exactly and every pixel is weighted the
+    # same. Overlap only earns its cost when the raster is not a whole number
+    # of crops, where it absorbs the remainder rather than stretching a crop.
+    tile_overlap: float = 0.0
 
     # Fraction of tiles averaged into the primary score, worst-first. Averaging
     # every tile re-dilutes a localised defect across the mostly-blank ones,

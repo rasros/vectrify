@@ -23,11 +23,12 @@ from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import (
     downscale_png_bytes,
     png_bytes_to_data_url,
+    resize_long_side,
 )
 from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
 from vectrify.score.complexity import WORST_REGION
-from vectrify.score.regions import worst_region_score
+from vectrify.score.regions import snap_raster, worst_region_score
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
@@ -59,8 +60,14 @@ class _EngineParams:
     epoch_steps: int | None
 
 
-def _load_image(image_path: str) -> tuple[Image.Image, bytes, int, int]:
+def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, int, int]:
     """Open the reference image and return (img, png_bytes, width, height).
+
+    Downscaled to *long_side*, which makes the raster the single resolution in
+    the run: candidates are rendered at this size, scored at this size, and the
+    scorer's crop count follows from it. A source image's own dimensions would
+    otherwise silently set the cost -- a 2000px input is 100 crops per
+    candidate against 9 for a 700px one.
 
     Raises FileNotFoundError if the path does not exist and ValueError if the
     file exists but is not a decodable image.
@@ -73,6 +80,7 @@ def _load_image(image_path: str) -> tuple[Image.Image, bytes, int, int]:
         raise ValueError(
             f"input image could not be read as an image: {image_path} ({exc})"
         ) from exc
+    img = resize_long_side(img, snap_raster(long_side))
     w, h = img.size
     buf = io.BytesIO()
     img.save(buf, format="PNG")
@@ -165,7 +173,9 @@ def run_vector_search(
 
     # Validate the reference image up front so a missing or corrupt input fails
     # before storage.initialize() creates the output directory tree.
-    original_img, original_png_bytes, original_w, original_h = _load_image(image_path)
+    original_img, original_png_bytes, original_w, original_h = _load_image(
+        image_path, image_long_side
+    )
 
     storage.initialize()
     assert storage.current_run_dir is not None

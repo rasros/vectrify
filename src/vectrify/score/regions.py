@@ -40,6 +40,32 @@ from vectrify.score.utils import lab_array
 # comparable across a resume that switches scorers.
 REGION_GRID: tuple[int, int] = (27, 27)
 
+# Input edge of the default vision model, and the crop size the raster is
+# snapped against. A model with a different input still tiles correctly -- the
+# leftover just becomes overlap -- but only a raster that is a whole multiple
+# of the crop size tiles with every pixel counted exactly once.
+DEFAULT_TILE_SIZE = 384
+
+
+def snap_raster(long_side: int, tile_size: int = DEFAULT_TILE_SIZE) -> int:
+    """Round *long_side* to a whole number of crops.
+
+    Overlapping crops weight the canvas unevenly: with crops at 0/158/316 on a
+    700px raster a corner pixel falls in one crop and a centre pixel in nine,
+    so the middle of the image counts up to 9x the edges. That is not a
+    tolerable bias when the detail being chased -- labels, annotations, borders
+    -- tends to live at the edges.
+
+    Snapping to a multiple lets the crops tile exactly, so every pixel is
+    measured once and position carries no weight. It is also cheaper: 768px
+    covers the canvas in 4 crops where 700px needed 9 overlapping ones.
+
+    Rounds up, never down: the request is a resolution floor, and rounding 512
+    down to a single 384 crop would quietly score at less detail than asked
+    for.
+    """
+    return max(tile_size, math.ceil(long_side / tile_size) * tile_size)
+
 
 def _spaced(extent: int, box: int, count: int) -> tuple[list[int], int]:
     """*count* boxes of *box* px spaced evenly across *extent*.

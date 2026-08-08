@@ -10,6 +10,7 @@ from vectrify.score.regions import (
     REGION_GRID,
     block_distance_grid,
     grid_boxes,
+    snap_raster,
     tile_boxes,
     tile_key,
     worst_k,
@@ -225,3 +226,44 @@ def test_tile_key_distinguishes_position():
 
 def test_tile_key_distinguishes_content():
     assert tile_key(0, _white(64)) != tile_key(0, _white_with_blot(64, 8))
+
+
+# ── raster snapping ───────────────────────────────────────────────────────────
+
+
+def test_snap_raster_rounds_up_to_whole_crops():
+    """A request is a resolution floor; rounding down would score at less."""
+    assert snap_raster(512, 384) == 768
+    assert snap_raster(700, 384) == 768
+    assert snap_raster(768, 384) == 768
+    assert snap_raster(1000, 384) == 1152
+
+
+def test_snap_raster_never_goes_below_one_crop():
+    assert snap_raster(100, 384) == 384
+    assert snap_raster(1, 384) == 384
+
+
+def test_snapped_rasters_tile_with_uniform_coverage():
+    """The reason for snapping: position must carry no weight.
+
+    Overlapping crops count a centre pixel up to 9x a corner one, which biases
+    against exactly the edge detail this is meant to resolve.
+    """
+    for request in (512, 700, 1000, 1500):
+        px = snap_raster(request, 384)
+        coverage = np.zeros((px, px), dtype=int)
+        for x0, y0, x1, y1 in tile_boxes((px, px), 384, 0.0):
+            coverage[y0:y1, x0:x1] += 1
+        assert coverage.min() == 1
+        assert coverage.max() == 1
+
+
+def test_overlapping_tiles_are_the_biased_case_snapping_avoids():
+    """Documents why overlap is not the default."""
+    px = 700
+    coverage = np.zeros((px, px), dtype=int)
+    for x0, y0, x1, y1 in tile_boxes((px, px), 384, 0.5):
+        coverage[y0:y1, x0:x1] += 1
+    assert coverage[0, 0] == 1
+    assert coverage[px // 2, px // 2] > coverage[0, 0]
