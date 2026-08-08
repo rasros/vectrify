@@ -1,4 +1,5 @@
 import io
+from itertools import pairwise
 
 import numpy as np
 import pytest
@@ -8,6 +9,9 @@ from vectrify.score.base import Scorer
 from vectrify.score.regions import (
     REGION_GRID,
     block_distance_grid,
+    grid_boxes,
+    tile_boxes,
+    tile_key,
     worst_k,
     worst_region_score,
 )
@@ -157,3 +161,67 @@ def test_localised_defect_scores_worse_than_a_faint_global_one():
     assert washed_grid is not None
 
     assert worst_region_score(local_grid) > worst_region_score(washed_grid)
+
+
+# ── tiling geometry ───────────────────────────────────────────────────────────
+
+
+def test_tiles_are_exactly_the_requested_size():
+    """No resampling: a crop fed to the model must already be its input size."""
+    for w, h in ((700, 700), (1024, 768), (801, 399)):
+        for box in tile_boxes((w, h), 384, 0.5):
+            assert box[2] - box[0] == 384
+            assert box[3] - box[1] == 384
+
+
+def test_tiles_cover_the_whole_canvas():
+    boxes = tile_boxes((700, 700), 384, 0.5)
+    assert min(b[0] for b in boxes) == 0
+    assert min(b[1] for b in boxes) == 0
+    assert max(b[2] for b in boxes) == 700
+    assert max(b[3] for b in boxes) == 700
+
+
+def test_uneven_sizes_become_extra_overlap_not_stretched_tiles():
+    """A size that does not divide evenly must overlap more, never resize."""
+    boxes = tile_boxes((701, 701), 384, 0.5)
+    xs = sorted({b[0] for b in boxes})
+    gaps = [b - a for a, b in pairwise(xs)]
+    assert all(g <= 384 * 0.5 for g in gaps)  # at least the requested overlap
+    assert all(b[2] - b[0] == 384 for b in boxes)
+
+
+def test_image_smaller_than_a_tile_yields_one_box():
+    """Nothing to cut, and padding would invent content the source lacks."""
+    assert tile_boxes((300, 300), 384, 0.5) == [(0, 0, 300, 300)]
+
+
+def test_tile_count_follows_from_raster_size():
+    """Raster size is the only knob; the tiling derives itself."""
+    counts = [len(tile_boxes((px, px), 384, 0.5)) for px in (384, 700, 1024, 1400)]
+    assert counts == sorted(counts)
+    assert counts[0] == 1
+    assert len(set(counts)) > 1
+
+
+def test_grid_boxes_honours_the_requested_cell_count():
+    assert len(grid_boxes((256, 256), 27)) == 27 * 27
+    assert len(grid_boxes((100, 61), 27)) == 27 * 27
+
+
+def test_overlap_must_be_a_fraction():
+    with pytest.raises(ValueError, match="overlap"):
+        tile_boxes((700, 700), 384, 1.0)
+    with pytest.raises(ValueError, match="overlap"):
+        tile_boxes((700, 700), 384, -0.1)
+
+
+def test_tile_key_distinguishes_position():
+    """Identical pixels elsewhere compare against a different reference tile."""
+    tile = _white(64)
+    assert tile_key(0, tile) != tile_key(1, tile)
+    assert tile_key(0, tile) == tile_key(0, _white(64))
+
+
+def test_tile_key_distinguishes_content():
+    assert tile_key(0, _white(64)) != tile_key(0, _white_with_blot(64, 8))
