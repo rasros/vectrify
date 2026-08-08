@@ -1,29 +1,40 @@
-"""Region-level fidelity: *where* a candidate is wrong, not just how wrong overall.
+"""Tiling and region-level fidelity: *where* a candidate is wrong.
 
-The primary score averages error across the whole canvas, so a small defect is
-diluted until it cannot be selected for. On a 700x700 drawing a misdrawn bill
-covers roughly 900 dark pixels out of 490,000; closing its contours moves the
-global score less than a coordinate nudge somewhere else does, so every
-candidate that fixes it is dominated and discarded. The search is not ignoring
-the defect -- it is correctly optimising an objective that barely mentions it.
+Two problems, one geometry.
 
-``worst_region`` restores that pressure by collapsing a grid of per-region
-distances into the mean of its worst *k*. Nothing has to name a region up
-front: whichever tiles are worst *are* the region, recomputed per candidate, so
-the objective follows the defect around instead of being pinned to a box. Fix
-the worst area and this improves; polish an already-good area and it does not.
+Resolution. A whole-image pass squashes the raster into the model's fixed input
+-- 768px into 384 -- and SigLIP then divides *that* into 14px patches, so a 7px
+numeral is sub-patch and reads as a smudge no matter how finely it is
+subdivided afterwards. Subdividing an already-downscaled image cannot recover
+what the downscale destroyed. Cutting the raster into crops of exactly the
+model's input size and feeding them in unresampled does: the detail arrives at
+the tokenizer intact. Nothing is scaled in either direction, so no resampling
+artifact can be mistaken for candidate error.
 
-Two grids feed it, with the same shape either way so the objective means the
-same thing across scorers:
+Selection. The primary score averages error across the canvas, so a small
+defect is diluted until it cannot be selected for. A misdrawn bill covering
+~900 dark pixels in a 490,000-pixel frame moves the global score less than a
+coordinate nudge elsewhere, so every candidate that fixes it is dominated and
+discarded -- the search is correctly optimising an objective that barely
+mentions the defect. ``worst_region`` restores that pressure by collapsing the
+per-region distances into the mean of the worst *k*. Nothing names a region up
+front: whichever crops are worst *are* the region, recomputed per candidate.
 
-- SigLIP patch cosine distances, when a vision scorer is loaded. This is the
-  granularity the model itself reasons at and it is already being computed for
-  the diff heatmap, so it costs nothing extra.
-- Block-wise Lab L1 otherwise, so ``--scorer simple`` (and any run without
-  torch installed) still produces the objective. A metric that silently
-  vanished on the fallback path would read as 0.0 -- the *best* possible value
-  for a minimised objective -- and would quietly hand untested candidates a
-  perfect score on it.
+The two share ``tile_boxes``, so the regions the objective points at are
+exactly the crops the score was built from -- "the worst region" always names
+something the score separately measured.
+
+Crops tile the raster exactly rather than overlapping. Overlap weights the
+canvas unevenly: at 700px a corner pixel falls in one crop and a centre pixel
+in nine, which biases against the edge detail this exists to resolve. Snapping
+the raster to a whole number of crops removes the bias and costs less -- 768px
+covers the canvas in 4 crops where 700px needed 9.
+
+Without torch, block-wise Lab L1 over the same geometry stands in, so
+``--scorer simple`` still produces the objective. That fallback is not
+optional: a metric absent on some candidates reads as 0.0 -- the *best* value
+for a minimised objective -- and would let unmeasured candidates dominate
+measured ones.
 """
 
 import hashlib
