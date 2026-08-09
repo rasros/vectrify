@@ -41,6 +41,7 @@ class WorkerContext:
     reasoning: str
     api_key: str | None
     llm_rate: float
+    diff_map: bool = False
     log_queue: Any = None
     llm_in_flight: Any = None
 
@@ -126,8 +127,12 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         or parent.payload.raster_data_url
                     )
 
-                    diff_data_url = parent.payload.heatmap_data_url
-                    if diff_data_url is None:
+                    # Off by default: a paired test found the map made edits
+                    # significantly worse while costing ~12% more tokens.
+                    diff_data_url = None
+                    if ctx.diff_map:
+                        diff_data_url = parent.payload.heatmap_data_url
+                    if ctx.diff_map and diff_data_url is None:
                         # Prefer the stored render; fall back to re-rasterizing.
                         cand_bytes = None
                         if parent.payload.raster_data_url:

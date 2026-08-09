@@ -136,10 +136,16 @@ resolution only ever downscales the source, so it acts as a ceiling: a 700px
 input stays 700px however high you set it.
 
 The images sent to the LLM are sized separately by resolution-llm, which
-defaults to 512 and has no effect on scoring. Each refinement prompt carries
-three images — the target, the current render and a difference map — and vision
-pricing tiles at 512px, so raising it past that triples the cost of all three
-for detail the scorer never sees.
+defaults to 512 and has no effect on scoring. Vision pricing tiles at 512px, so
+raising it past that triples the cost of every prompt image for detail the
+scorer never sees.
+
+Refinement prompts carry the target and the current render. A difference map
+highlighting where the two disagree can be added with diff-map, but it is off by
+default: in a paired test — the identical prompt sent 35 times with and without
+it — the map made edits significantly worse (median paired difference -0.0102,
+better in only 4 of 35 pairs, p=0.00001) while adding ~12% to prompt tokens.
+scripts/eval_diff_map.py reproduces the measurement.
 
 Per-crop distances are cached by content hash, so a candidate only pays for the
 crops that actually changed — usually a small share, since local mutations

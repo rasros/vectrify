@@ -152,6 +152,7 @@ def run_vector_search(
     reasoning: str,
     format_plugin: "FormatPlugin",
     resolution_llm: int = DEFAULT_RESOLUTION_LLM,
+    diff_map: bool = False,
     write_lineage: bool = True,
     save_raster: bool = False,
     epoch_patience: int | None = None,
@@ -343,6 +344,7 @@ def run_vector_search(
         original_w=original_w,
         original_h=original_h,
         resolution_llm=resolution_llm,
+        diff_map=diff_map,
         log_level=log_level,
         log_file=str(run_log_file),
         goal=goal,
@@ -371,11 +373,15 @@ def run_vector_search(
             grid = scorer.region_distance_grid(ref, res.payload.raster_png)
             if grid is not None:
                 res.metrics[WORST_REGION] = worst_region_score(grid)
-            res.payload.heatmap_png = scorer.diff_heatmap(
-                ref,
-                res.payload.raster_png,
-                long_side=resolution_llm,
-                grid=grid,
+            res.payload.heatmap_png = (
+                scorer.diff_heatmap(
+                    ref,
+                    res.payload.raster_png,
+                    long_side=resolution_llm,
+                    grid=grid,
+                )
+                if diff_map
+                else None
             )
         return result
 
