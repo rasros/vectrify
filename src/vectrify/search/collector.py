@@ -40,8 +40,9 @@ STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "mutation_accepted_count": lambda s: s.mutation_accepted_count,
     "epoch": lambda s: s.epoch,
     "epoch_no_improve": lambda s: s.epoch_no_improve,
-    "llm_pressure": _rounded("llm_pressure", 4),
-    "llm_rate": _rounded("llm_rate", 4),
+    "phase": lambda s: s.phase,
+    "seeds_completed": lambda s: s.seeds_completed,
+    "seeds_target": lambda s: s.seeds_target,
     "pool_diversity": _rounded("pool_diversity", 4),
     "pool_score_std": _rounded("pool_score_std", 6),
     "epoch_patience": lambda s: s.epoch_patience,
@@ -60,7 +61,7 @@ class StatCollector:
     - Every LLM call completion.
     - Every 100th task completion.
     - Every new-best score.
-    - Every epoch transition.
+    - Every epoch transition and every seed/local phase change.
     - On shutdown.
     """
 
@@ -72,16 +73,12 @@ class StatCollector:
     def configure_run(
         self,
         *,
-        llm_rate: float,
         epoch_diversity: float,
         epoch_variance: float,
-        epoch_steps: int = 0,
     ) -> None:
         s = self._stats
-        s.llm_rate = llm_rate
         s.epoch_diversity = epoch_diversity
         s.epoch_variance = epoch_variance
-        s.epoch_steps = epoch_steps
 
     def seed_initial_score(self, best_score: float) -> None:
         s = self._stats
@@ -98,8 +95,13 @@ class StatCollector:
         self._stats.shutting_down = True
         self._flush_row()
 
-    def on_llm_pressure(self, pressure: float) -> None:
-        self._stats.llm_pressure = pressure
+    def on_phase(self, phase: str, seeds_target: int) -> None:
+        s = self._stats
+        s.phase = phase
+        s.seeds_target = seeds_target
+        if phase == "seed":
+            s.seeds_completed = 0
+        self._flush_row()
 
     def on_result(
         self,
@@ -107,14 +109,14 @@ class StatCollector:
         *,
         tasks_completed: int,
         epoch_no_improve: int,
-        epoch_tasks: int,
+        seeds_completed: int,
         llm_in_flight: int,
     ) -> None:
         """Called for every completed result (before accept/reject decision)."""
         s = self._stats
         s.tasks_completed = tasks_completed
         s.epoch_no_improve = epoch_no_improve
-        s.epoch_tasks = epoch_tasks
+        s.seeds_completed = seeds_completed
         s.llm_calls_in_flight = llm_in_flight
         if res.llm_type:
             s.llm_call_count += 1
@@ -167,7 +169,6 @@ class StatCollector:
         s = self._stats
         s.epoch = epoch
         s.epoch_no_improve = 0
-        s.epoch_tasks = 0
         self._flush_row()
 
     def on_idle(self, *, llm_in_flight: int, valid_scores: list[float]) -> None:

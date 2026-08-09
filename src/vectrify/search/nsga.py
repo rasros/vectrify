@@ -296,13 +296,13 @@ class NsgaStrategy(Generic[TState]):
 
         return p1.id, None
 
-    def epoch_seeds(
-        self, pool: list[SearchNode[TState]], max_seeds: int
+    def epoch_parents(
+        self, pool: list[SearchNode[TState]], max_parents: int
     ) -> list[SearchNode[TState]]:
-        """Return a diverse Pareto-front subset to seed the next epoch."""
+        """Return a diverse Pareto-front subset for the next epoch's LLM edits."""
         valid = [n for n in pool if n.score < INVALID_SCORE]
         if not valid:
-            return pool[:max_seeds]
+            return pool[:max_parents]
 
         objectives = build_objectives(valid)
 
@@ -316,8 +316,8 @@ class NsgaStrategy(Generic[TState]):
                     pareto_nodes.append(node)
 
         pareto_nodes.sort(key=lambda n: n.score)
-        seeds = pareto_nodes[:max_seeds]
-        return seeds or valid[:max_seeds]
+        parents = pareto_nodes[:max_parents]
+        return parents or valid[:max_parents]
 
     def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:
         diversity = pool_diversity(pool)

@@ -7,7 +7,6 @@ from tests.helpers import TEST_MODEL
 from vectrify import cli
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.score import ScorerType
-from vectrify.search import StrategyType
 from vectrify.vector.runner import run_vector_search
 from vectrify.vector.storage import FileStorageAdapter
 
@@ -20,8 +19,9 @@ def test_runner_defaults_match_cli_defaults():
     assert defaults["pool_size"] == cli.DEFAULT_POOL_SIZE
     assert defaults["epoch_diversity"] == cli.DEFAULT_EPOCH_DIVERSITY
     assert defaults["vision_model"] == cli.DEFAULT_VISION_MODEL
-    # llm_rate has no static default; it is derived from --workers at call time.
-    assert defaults["llm_rate"] is None
+    # seeds has no static default; the runner derives it from pool_size so the
+    # per-epoch LLM batch scales with the pool it has to fill.
+    assert defaults["seeds"] is None
 
 
 def _make_storage(tmp_path):
@@ -43,7 +43,6 @@ def _run(image_path, plugin, storage):
         max_wall_seconds=1.0,
         log_level="ERROR",
         scorer_type=ScorerType.SIMPLE,
-        strategy_type=StrategyType.BEAM,
         goal=None,
         reasoning="none",
         llm_provider="openai",
@@ -92,7 +91,6 @@ def test_run_svg_search_end_to_end(tmp_path):
         max_wall_seconds=10.0,
         log_level="DEBUG",
         scorer_type=ScorerType.SIMPLE,
-        strategy_type=StrategyType.BEAM,
         goal="Generate a simple blue rectangle.",
         reasoning="none",
         llm_provider="openai",

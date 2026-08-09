@@ -15,7 +15,6 @@ from vectrify.search import (
     ChainState,
     SearchNode,
     StorageAdapter,
-    StrategyType,
 )
 from vectrify.search.diversity import simhash
 from vectrify.search.nsga import build_objectives, pareto_select
@@ -180,24 +179,20 @@ def resume_nodes(
 def filter_to_pool_size(
     nodes: list[SearchNode],
     pool_size: int,
-    strategy_type: StrategyType,
 ) -> list[SearchNode]:
-    """Trim nodes down to pool_size using NSGA Pareto selection or score sorting."""
+    """Trim nodes down to pool_size using NSGA Pareto selection."""
     if len(nodes) <= pool_size:
         return nodes
 
     log.info(f"Filtering {len(nodes)} rescored nodes down to {pool_size}...")
 
-    if strategy_type == StrategyType.NSGA:
-        # Pareto-select among valid nodes only (an infinite score would
-        # corrupt the normalization); top up with invalid ones if short,
-        # matching the old behavior where they sorted into the last fronts.
-        valid = [n for n in nodes if n.score < INVALID_SCORE]
-        filtered = pareto_select(valid, build_objectives(valid), pool_size)
-        if len(filtered) < pool_size:
-            kept_ids = {n.id for n in filtered}
-            invalid = [n for n in nodes if n.id not in kept_ids]
-            filtered.extend(invalid[: pool_size - len(filtered)])
-        return filtered
-
-    return sorted(nodes, key=lambda n: n.score)[:pool_size]
+    # Pareto-select among valid nodes only (an infinite score would corrupt the
+    # normalization); top up with invalid ones if short, matching the old
+    # behavior where they sorted into the last fronts.
+    valid = [n for n in nodes if n.score < INVALID_SCORE]
+    filtered = pareto_select(valid, build_objectives(valid), pool_size)
+    if len(filtered) < pool_size:
+        kept_ids = {n.id for n in filtered}
+        invalid = [n for n in nodes if n.id not in kept_ids]
+        filtered.extend(invalid[: pool_size - len(filtered)])
+    return filtered

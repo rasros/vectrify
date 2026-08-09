@@ -17,8 +17,8 @@ The output is human-readable code you can keep editing by hand.
 
 - Output formats: SVG (default), Graphviz DOT, Typst. HTML and TikZ planned.
 - LLM providers: OpenAI, Anthropic, Google Gemini, auto-detected from env vars.
-- Search strategies: NSGA-II for diversity-preserving multi-objective
-  optimization, or beam search for a cheaper single-best run.
+- Search: NSGA-II for diversity-preserving multi-objective optimization,
+  with LLM proposals and local refinement split into separate phases.
 - Scoring: local vision-model embeddings (perceptual), with pixel-diff
   and LLM-as-judge as alternatives.
 - Resumable runs: pick up where you left off, or fork from the top-N
@@ -70,7 +70,7 @@ The provider is auto-detected from whichever key is set; override it with
 vectrify input.png -o output.svg
 ```
 
-The defaults run up to 4 NSGA-II epochs and stop early once the search
+The defaults run up to 2 NSGA-II epochs and stop early once the search
 stops finding improvements (see
 [Convergence and cost](#convergence-and-cost)). Worst case,
 it runs for an hour and gives up.
@@ -78,8 +78,8 @@ it runs for an hour and gives up.
 A few useful variations:
 
 ```bash
-# Bigger budget, longer runs
-vectrify photo.jpg -o sketch.svg --epoch-patience 60 --max-wall-seconds 1800
+# Bigger LLM batch per epoch, longer runs
+vectrify photo.jpg -o sketch.svg --seeds 20 --max-wall-seconds 1800
 
 # Steer the search with a goal
 vectrify logo.png --goal "Use thick strokes only and avoid gradients"
@@ -98,16 +98,27 @@ artifacts, and runtime sections.
 ## How it works
 
 vectrify runs an evolutionary loop over a pool of candidate vector
-representations. The pool is seeded with a few LLM-generated candidates.
-On each iteration a parent is sampled, and:
+representations, split into epochs of two phases:
 
-- with probability 1 − llm-rate, mutated locally (color tweaks, path
-  nudges, crossover);
-- otherwise, sent to the LLM for a refined edit.
+- **Seed.** The LLM produces seeds candidates — generated from scratch in
+  epoch 0, edited from the previous epoch's Pareto front afterwards.
+  Their children become the epoch's pool; from epoch 1 on, whatever was
+  in the pool before is discarded.
+- **Refine.** Only local operators run — color tweaks, path nudges,
+  crossover — until the epoch stops improving.
 
-The new candidate is scored against the source image (perceptual via
-vision-transformer embeddings, pixel-space, or LLM-as-judge), then
-either replaces a worse pool member or is dropped.
+Every candidate is scored against the source image (perceptual via
+vision-transformer embeddings, pixel-space, or LLM-as-judge), then either
+replaces a worse pool member or is dropped. The best candidate of the
+whole run is tracked separately, so an epoch restart never loses it.
+
+The phases are separate because the operators are not interchangeable. An
+LLM edit degrades the median parent about four times as much as a local
+mutation and costs roughly a thousand times more per attempt, so mixing
+them into every task spent the expensive operator competing against
+best-of-15 local moves. As restart points they instead do the one thing
+local search cannot: leave the basin it is stuck in. Total LLM calls are
+therefore bounded by max-epochs × seeds.
 
 ### Scoring resolution
 
@@ -131,14 +142,6 @@ resolution-llm sizes the images sent to the LLM and has no effect on scoring.
 Vision pricing tiles at 512px, the default, so raising it triples the cost of
 every prompt image.
 
-### Search strategies
-
-NSGA-II, the default, keeps a diverse Pareto front and does better when
-you can afford several epochs. Beam search converges faster on a single
-answer. NSGA-only flags are epoch-diversity, epoch-variance and
-epoch-seeds; beam-only flags are beams and cull-keep. The CLI rejects
-mixed usage.
-
 ### NSGA-II objectives
 
 The search minimizes four objectives at once:
@@ -160,29 +163,27 @@ harder toward visual quality at the cost of pool diversity.
 
 ### Convergence and cost
 
-Each epoch ends when one of these fires; the next re-seeds from the
-current Pareto front. The run stops at max-epochs, max-wall-seconds, or
-the max-llm-calls cap.
+An epoch's refine phase ends when one of these fires; the next epoch then
+re-seeds from the current Pareto front. The run stops at max-epochs,
+max-wall-seconds, or the max-llm-calls cap.
 
-| Flag             | Default | Triggers when…                                          |
-|------------------|--------:|---------------------------------------------------------|
-| max-epochs       |       2 | hard cap on epoch count                                 |
-| epoch-patience   |     200 | this many tasks in a row produce no improvement         |
-| epoch-steps      |      50 | this many LLM calls have run in the current epoch       |
-| epoch-variance   |       0 | (NSGA-only) score std-dev in the pool drops below value |
-| epoch-diversity  |       0 | (NSGA-only) mean pairwise diversity drops below value   |
-| max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch     |
-| max-llm-calls    |       0 | hard cap on total LLM calls; 0 disables                 |
+| Flag             | Default | Triggers when…                                      |
+|------------------|--------:|-----------------------------------------------------|
+| max-epochs       |       2 | hard cap on epoch count                             |
+| epoch-patience   |     200 | this many local tasks in a row produce no improvement |
+| epoch-variance   |       0 | score std-dev in the pool drops below value         |
+| epoch-diversity  |       0 | mean pairwise diversity drops below value           |
+| max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch |
+| max-llm-calls    |       0 | hard cap on total LLM calls; 0 disables             |
 
-Patience counts every task, so epoch length does not move with llm-rate;
-epoch-steps still counts LLM calls, since it caps the expensive resource. A
-new best resets patience. The two NSGA stop criteria are off by default;
-good thresholds depend on your scorer and image.
+Patience counts local tasks only — a seed batch is not a hill-climb and
+cannot go stale — and a new best resets it. The variance and diversity
+criteria are off by default; good thresholds depend on your scorer and image.
 
-The defaults cap LLM calls near max_epochs × epoch_steps, so around 110, and
-most runs stop well before that. Later epochs return little — on the
-reference image epoch 0 produced 82% of the total gain and epochs 2-3 only
-3.7% — so max-epochs defaults to 2. Set max-llm-calls for a hard ceiling.
+LLM calls are bounded by max-epochs × seeds, so 20 at the defaults, all of
+them spent on restart points. Later epochs return little — on the reference
+image epoch 0 produced 82% of the total gain and epochs 2-3 only 3.7% — so
+max-epochs defaults to 2. Set max-llm-calls for a hard ceiling.
 
 ### Output layout
 

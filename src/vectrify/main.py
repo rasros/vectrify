@@ -8,7 +8,6 @@ from vectrify.cli import parse_args
 from vectrify.dashboard import Dashboard
 from vectrify.formats import get_plugin
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, api_key_env
-from vectrify.search.base import StrategyType
 from vectrify.search.stats import SearchStats
 from vectrify.utils import setup_logger
 from vectrify.vector.runner import run_vector_search
@@ -93,7 +92,7 @@ def main():
         logger.warning(mismatch)
 
     stats = SearchStats(
-        strategy_name=args.strategy,
+        strategy_name="nsga",
         model_name=model,
         epoch_patience=args.epoch_patience or 0,
     )
@@ -123,7 +122,6 @@ def main():
             max_wall_seconds=args.max_wall_seconds,
             log_level=args.log_level,
             scorer_type=args.scorer,
-            strategy_type=StrategyType(args.strategy),
             goal=args.goal,
             llm_provider=provider,
             llm_model=model,
@@ -133,17 +131,12 @@ def main():
             save_raster=args.save_raster,
             epoch_patience=args.epoch_patience or None,
             epoch_min_delta=args.epoch_min_delta,
-            llm_rate=args.llm_rate,
             pool_size=args.pool_size,
             seeds=args.seeds,
-            beams=args.beams,
-            cull_keep=args.cull_keep,
             epoch_diversity=args.epoch_diversity,
             tournament_size=args.tournament_size,
             epoch_variance=args.epoch_variance or None,
             max_epochs=args.max_epochs,
-            epoch_pool_size=args.epoch_seeds or None,
-            epoch_steps=args.epoch_steps or None,
             max_llm_calls=args.max_llm_calls or None,
             max_total_tasks=args.max_total_tasks,
             vision_model=args.vision_model,

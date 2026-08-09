@@ -2,7 +2,6 @@ import contextlib
 import dataclasses
 import io
 import logging
-import random
 import signal
 from typing import Any, Protocol
 
@@ -37,29 +36,8 @@ class WorkerContext:
     llm_model: str
     reasoning: str
     api_key: str | None
-    llm_rate: float
     log_queue: Any = None
     llm_in_flight: Any = None
-
-
-def _use_llm(has_content: bool, llm_rate: float, llm_pressure: float) -> bool:
-    if llm_rate <= 0:
-        return False
-    return not has_content or random.random() < llm_rate * llm_pressure
-
-
-def _should_use_llm(
-    force_llm: bool, has_content: bool, llm_rate: float, llm_pressure: float
-) -> bool:
-    """Whether this task calls the LLM.
-
-    ``llm_rate <= 0`` is a hard off switch and overrides *force_llm*: epoch-0
-    seed tasks set force_llm, so without this ``--llm-rate 0`` still issued LLM
-    calls and there was no way to run offline.
-    """
-    if llm_rate <= 0:
-        return False
-    return force_llm or _use_llm(has_content, llm_rate, llm_pressure)
 
 
 class MessageQueue(Protocol):
@@ -106,9 +84,9 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
         parent = task.parent_state
         has_content = bool(parent.payload.content)
 
-        use_llm = _should_use_llm(
-            task.force_llm, has_content, ctx.llm_rate, task.llm_pressure
-        )
+        # The engine decides: LLM calls happen only in an epoch's seed batch,
+        # every other task is a local move. The worker no longer rolls dice.
+        use_llm = task.force_llm
         llm_type = None
 
         try:

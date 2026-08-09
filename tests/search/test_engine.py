@@ -1,3 +1,4 @@
+import logging
 import time
 
 import pytest
@@ -27,8 +28,10 @@ class FakeStrategy:
         _ = pool
         return False, 1.0
 
-    def epoch_seeds(self, pool: list[SearchNode], max_seeds: int) -> list[SearchNode]:
-        return pool[:max_seeds]
+    def epoch_parents(
+        self, pool: list[SearchNode], max_parents: int
+    ) -> list[SearchNode]:
+        return pool[:max_parents]
 
 
 class FakeStorage:
@@ -134,11 +137,11 @@ def test_engine_epoch_patience_triggers_transition():
 
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
-            self.epoch_seeds_calls = 0
+            self.epoch_parents_calls = 0
 
-        def epoch_seeds(self, pool, max_seeds):
-            self.epoch_seeds_calls += 1
-            return pool[:max_seeds]
+        def epoch_parents(self, pool, max_parents):
+            self.epoch_parents_calls += 1
+            return pool[:max_parents]
 
     strat = TrackingStrategy()
     store = FakeStorage()
@@ -166,18 +169,18 @@ def test_engine_epoch_patience_triggers_transition():
         epoch_patience=3,
         epoch_min_delta=0.1,
     )
-    assert strat.epoch_seeds_calls >= 1
+    assert strat.epoch_parents_calls >= 1
     assert store.save_called
 
 
 def test_engine_epoch_patience_resets_on_improvement():
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
-            self.epoch_seeds_calls = 0
+            self.epoch_parents_calls = 0
 
-        def epoch_seeds(self, pool, max_seeds):
-            self.epoch_seeds_calls += 1
-            return pool[:max_seeds]
+        def epoch_parents(self, pool, max_parents):
+            self.epoch_parents_calls += 1
+            return pool[:max_parents]
 
     strat = TrackingStrategy()
     store = FakeStorage()
@@ -208,7 +211,7 @@ def test_engine_epoch_patience_resets_on_improvement():
         epoch_patience=2,
         epoch_min_delta=0.1,
     )
-    assert strat.epoch_seeds_calls == 0
+    assert strat.epoch_parents_calls == 0
     assert store.save_called
 
 
@@ -216,11 +219,11 @@ def test_engine_epoch_patience_none_no_transitions():
 
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
-            self.epoch_seeds_calls = 0
+            self.epoch_parents_calls = 0
 
-        def epoch_seeds(self, pool, max_seeds):
-            self.epoch_seeds_calls += 1
-            return pool[:max_seeds]
+        def epoch_parents(self, pool, max_parents):
+            self.epoch_parents_calls += 1
+            return pool[:max_parents]
 
     strat = TrackingStrategy()
     engine = MultiprocessSearchEngine(
@@ -237,7 +240,7 @@ def test_engine_epoch_patience_none_no_transitions():
         max_wall_seconds=None,
         epoch_patience=None,
     )
-    assert strat.epoch_seeds_calls == 0
+    assert strat.epoch_parents_calls == 0
 
 
 def test_engine_respects_max_total_tasks():
@@ -359,9 +362,11 @@ def test_engine_low_variance_epoch_end_does_not_crash():
 
 
 def test_engine_aborts_when_every_epoch0_seed_fails():
-    """Regression: _dispatch_tasks stalls in epoch 0 until something is
-    accepted, so if every seed failed the run idled until --max-wall-seconds
-    and exited 0 with no output. It must surface the underlying error instead.
+    """Epoch 0 has nothing to fall back to, so a wholly failed seed batch is
+    fatal and must say why.
+
+    Regression: the run used to idle until --max-wall-seconds and exit 0 with
+    no output, hiding whatever the LLM actually returned (often a 401).
     """
     engine = MultiprocessSearchEngine(
         workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=50
@@ -388,6 +393,166 @@ def test_engine_aborts_when_every_epoch0_seed_fails():
         engine.run(
             initial_nodes=[initial],
             max_wall_seconds=None,
-            seed_tasks=1,
+            epoch_seeds=1,
             active_pool_size=1,
         )
+
+
+def _seed_result(task_id: int, score: float) -> Result:
+    return Result(
+        task_id=task_id,
+        parent_id=1,
+        valid=True,
+        score=score,
+        payload="p",
+        llm_type="llm-generate",
+    )
+
+
+def test_seed_batch_does_not_consult_the_parent_selector():
+    """Seed parents come from the outgoing front, not from tournament selection.
+
+    Routing them through select_parent would let the epoch's LLM calls all land
+    on whichever candidate the tournament favours, collapsing the batch's
+    diversity to one lineage.
+    """
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.select_calls = 0
+
+        def select_parent(self, nodes):
+            self.select_calls += 1
+            return nodes[0].id, None
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+    )
+    for i, score in enumerate((0.4, 0.3), start=1):
+        engine.unscored_q.put(_seed_result(i, score))
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=2)
+
+    assert strat.select_calls == 0
+
+
+def test_seed_phase_cannot_go_stale():
+    """Patience counts local tasks only, so a slow batch cannot end its own epoch.
+
+    Counting seed results too would transition the epoch before its children
+    were ever refined, spending LLM calls on restarts that never got explored.
+    """
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.epoch_parents_calls = 0
+
+        def epoch_parents(self, pool, max_parents):
+            self.epoch_parents_calls += 1
+            return pool[:max_parents]
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=3
+    )
+    for i, score in enumerate((0.49, 0.48, 0.47), start=1):
+        engine.unscored_q.put(_seed_result(i, score))
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_seeds=3,
+        epoch_patience=1,
+        epoch_min_delta=0.1,
+    )
+
+    assert strat.epoch_parents_calls == 0
+
+
+def test_epoch_zero_keeps_resumed_nodes_alongside_seed_children():
+    """Epoch 0 adds to the pool; only later epochs replace it.
+
+    A resumed candidate is usually better than any fresh LLM edit of it, so
+    clearing the pool here would throw away exactly what --resume restored.
+    """
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.pools_seen = []
+
+        def select_parent(self, nodes):
+            self.pools_seen.append({n.id for n in nodes})
+            return nodes[0].id, None
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+    )
+    engine.unscored_q.put(_seed_result(1, 0.3))
+    engine.unscored_q.put(
+        Result(task_id=2, parent_id=2, valid=True, score=0.4, payload="p")
+    )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=1)
+
+    # The local task that follows the batch sees the seed child (id 2) and the
+    # carried-in node (id 1).
+    assert strat.pools_seen == [{1, 2}]
+
+
+def test_local_results_that_outlive_their_epoch_do_not_count_as_seeds(caplog):
+    """An epoch can transition with local tasks still in flight.
+
+    Those results land during the next seed phase. Counting them toward the
+    batch ends it before its LLM children arrive, so the epoch refines a pool
+    built from leftovers of the pool it just discarded -- observed as an epoch
+    reporting more candidates to refine than it had seeds.
+    """
+    engine = MultiprocessSearchEngine(
+        workers=4, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=6
+    )
+
+    # Epoch 0: seed (task 1), then four local tasks (2-5). Patience of 1 ends
+    # the epoch on the first local result, leaving 3, 4 and 5 in flight; they
+    # arrive after epoch 1 has already opened its batch (task 6).
+    engine.unscored_q.put(_seed_result(1, 0.4))
+    engine.unscored_q.put(
+        Result(task_id=2, parent_id=1, valid=True, score=0.45, payload="p")
+    )
+    for tid in (3, 4):
+        engine.unscored_q.put(
+            Result(task_id=tid, parent_id=1, valid=True, score=0.9, payload="p")
+        )
+    engine.unscored_q.put(_seed_result(6, 0.35))
+    engine.unscored_q.put(
+        Result(task_id=5, parent_id=1, valid=True, score=0.9, payload="p")
+    )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    with caplog.at_level(logging.INFO, logger="vectrify.search.engine"):
+        engine.run(
+            initial_nodes=[initial],
+            max_wall_seconds=None,
+            epoch_seeds=1,
+            epoch_patience=1,
+            epoch_min_delta=0.1,
+            active_pool_size=2,
+            max_epochs=5,
+        )
+
+    refines = [m for m in caplog.messages if "refining" in m]
+    # Epoch 1 was seeded once, so it has exactly one candidate to refine. The
+    # three stale locals must not have been mistaken for seed children.
+    assert refines[-1].startswith("Epoch 1: refining 1 candidate")
