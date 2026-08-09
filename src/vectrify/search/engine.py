@@ -361,7 +361,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if staleness:
                     reason = (
                         f"staleness ({epoch_no_improve} >="
-                        f" {epoch_patience} LLM calls without improvement)"
+                        f" {epoch_patience} tasks without improvement)"
                     )
                 elif steps_exhausted:
                     reason = (
@@ -415,8 +415,13 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                 in_flight -= 1
                 tasks_completed += 1
+                # Staleness counts every completed task, not just LLM ones.
+                # Counting LLM calls made epoch length a function of
+                # --llm-rate: the same patience meant ~200 tasks at rate 0.1
+                # and ~27 at 0.75, so tuning the rate silently rescaled how
+                # long a stalled epoch ran.
+                epoch_no_improve += 1
                 if res.llm_type:
-                    epoch_no_improve += 1
                     epoch_tasks += 1
                     total_llm_completions += 1
                 if epoch == 0 and seed_tasks > 0 and res.task_id <= seed_tasks:

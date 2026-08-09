@@ -166,22 +166,23 @@ the max-llm-calls cap.
 
 | Flag             | Default | Triggers when…                                          |
 |------------------|--------:|---------------------------------------------------------|
-| max-epochs       |       4 | hard cap on epoch count                                 |
-| epoch-patience   |      20 | this many LLM calls in a row produce no improvement     |
+| max-epochs       |       2 | hard cap on epoch count                                 |
+| epoch-patience   |     200 | this many tasks in a row produce no improvement         |
 | epoch-steps      |      50 | this many LLM calls have run in the current epoch       |
 | epoch-variance   |       0 | (NSGA-only) score std-dev in the pool drops below value |
 | epoch-diversity  |       0 | (NSGA-only) mean pairwise diversity drops below value   |
 | max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch     |
 | max-llm-calls    |       0 | hard cap on total LLM calls; 0 disables                 |
 
-Patience and step counters only tick on LLM calls, not on the cheap local
-mutations that make up most tasks, and a new best resets patience. The two
-NSGA stop criteria are off by default; good thresholds depend on your
-scorer and image.
+Patience counts every task, so epoch length does not move with llm-rate;
+epoch-steps still counts LLM calls, since it caps the expensive resource. A
+new best resets patience. The two NSGA stop criteria are off by default;
+good thresholds depend on your scorer and image.
 
-The defaults cap LLM calls near max_epochs × epoch_steps, so around 220,
-and most runs stop well before that. A full run costs on the order of a
-dollar on flagship models; set max-llm-calls for a hard ceiling.
+The defaults cap LLM calls near max_epochs × epoch_steps, so around 110, and
+most runs stop well before that. Later epochs return little — on the
+reference image epoch 0 produced 82% of the total gain and epochs 2-3 only
+3.7% — so max-epochs defaults to 2. Set max-llm-calls for a hard ceiling.
 
 ### Output layout
 
