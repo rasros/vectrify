@@ -19,7 +19,7 @@ NSGA_ONLY_PARAMS = {
     "epoch_seeds",
     "tournament_size",
 }
-DEFAULT_MAX_EPOCHS = 4
+DEFAULT_MAX_EPOCHS = 2
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
 DEFAULT_RESUME = False
@@ -44,7 +44,7 @@ DEFAULT_CULL_KEEP = 0.5
 DEFAULT_EPOCH_DIVERSITY = 0.0
 DEFAULT_EPOCH_VARIANCE = 0.0
 DEFAULT_EPOCH_SEEDS = 0
-DEFAULT_EPOCH_PATIENCE = 20
+DEFAULT_EPOCH_PATIENCE = 200
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
 DEFAULT_EPOCH_STEPS = 50
 DEFAULT_TOURNAMENT_SIZE = 2
@@ -244,7 +244,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         dest="epoch_patience",
         metavar="N",
         help="End the epoch and re-seed if best score does not improve by "
-        "--epoch-min-delta over this many consecutive LLM calls "
+        "--epoch-min-delta over this many consecutive tasks "
         "(local mutations are not counted). 0 disables. "
         f"Default: {DEFAULT_EPOCH_PATIENCE}",
     )

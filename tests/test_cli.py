@@ -74,8 +74,12 @@ def test_defaults_pinned():
     args = parse_args(["img.png"])
     assert args.pool_size == 100
     assert args.epoch_diversity == 0.0
-    assert args.epoch_patience == 20
-    assert args.max_epochs == 4
+    # Patience counts tasks, not LLM calls: 200 tasks is roughly what 20 LLM
+    # calls came to at the default rate, but no longer moves with --llm-rate.
+    assert args.epoch_patience == 200
+    # Epoch 0 produced 82% of the total gain on the reference image and
+    # epochs 2-3 produced 3.7% for a third of the wall clock.
+    assert args.max_epochs == 2
 
 
 def test_default_llm_rate_tracks_workers():
