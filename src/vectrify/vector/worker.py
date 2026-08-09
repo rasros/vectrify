@@ -1,4 +1,3 @@
-import base64
 import contextlib
 import dataclasses
 import io
@@ -11,12 +10,10 @@ from PIL import Image
 
 from vectrify.formats.models import VectorResultPayload
 from vectrify.image_utils import (
-    generate_diff_data_url,
     png_bytes_to_data_url,
     resize_long_side,
 )
 from vectrify.llm import LLMConfig, get_provider
-from vectrify.llm.base import split_data_url
 from vectrify.score.complexity import measure_all
 from vectrify.search import INVALID_SCORE, Result
 from vectrify.search.diversity import simhash
@@ -41,7 +38,6 @@ class WorkerContext:
     reasoning: str
     api_key: str | None
     llm_rate: float
-    diff_map: bool = False
     log_queue: Any = None
     llm_in_flight: Any = None
 
@@ -127,30 +123,6 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         or parent.payload.raster_data_url
                     )
 
-                    # Off by default: a paired test found the map made edits
-                    # significantly worse while costing ~12% more tokens.
-                    diff_data_url = None
-                    if ctx.diff_map:
-                        diff_data_url = parent.payload.heatmap_data_url
-                    if ctx.diff_map and diff_data_url is None:
-                        # Prefer the stored render; fall back to re-rasterizing.
-                        cand_bytes = None
-                        if parent.payload.raster_data_url:
-                            _, encoded = split_data_url(parent.payload.raster_data_url)
-                            cand_bytes = base64.b64decode(encoded)
-                        elif has_content:
-                            cand_bytes = plugin.rasterize(
-                                parent.payload.content,
-                                out_w=ctx.original_w,
-                                out_h=ctx.original_h,
-                            )
-                        if cand_bytes is not None:
-                            diff_data_url = generate_diff_data_url(
-                                ctx.original_png_bytes,
-                                cand_bytes,
-                                ctx.resolution_llm,
-                            )
-
                     gen_config = LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
                     gen_prompt = plugin.build_generate_prompt(
                         ctx.image_data_url,
@@ -158,7 +130,6 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         content_prev=parent.payload.content,
                         raster_preview_url=parent_preview if has_content else None,
                         goal=ctx.goal,
-                        diff_data_url=diff_data_url,
                         canvas=(ctx.original_w, ctx.original_h),
                     )
                     log.debug(

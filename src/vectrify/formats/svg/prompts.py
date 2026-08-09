@@ -14,7 +14,6 @@ def build_svg_gen_prompt(
     svg_prev: str | None = None,
     rasterized_svg_data_url: str | None = None,
     goal: str | None = None,
-    diff_data_url: str | None = None,
     canvas: tuple[int, int] = (0, 0),
 ) -> list[dict[str, Any]]:
     """Build LLM prompt for SVG generation/refinement.
@@ -62,15 +61,6 @@ def build_svg_gen_prompt(
     if rasterized_svg_data_url:
         content.append({"type": "input_text", "text": "Your Current SVG Render:"})
         content.append({"type": "input_image", "image_url": rasterized_svg_data_url})
-
-    if diff_data_url:
-        content.append(
-            {
-                "type": "input_text",
-                "text": "Difference Map (bright = mismatch — focus edits here):",
-            }
-        )
-        content.append({"type": "input_image", "image_url": diff_data_url})
 
     return content
 

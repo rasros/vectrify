@@ -26,7 +26,6 @@ def build_dot_gen_prompt(
     dot_prev: str | None,
     rasterized_dot_data_url: str | None,
     goal: str | None,
-    diff_data_url: str | None,
 ) -> list[dict]:
     """Build LLM prompt for DOT graph generation/refinement."""
     return build_code_gen_prompt(
@@ -35,7 +34,6 @@ def build_dot_gen_prompt(
         code_prev=dot_prev,
         rasterized_data_url=rasterized_dot_data_url,
         goal=goal,
-        diff_data_url=diff_data_url,
         lang="DOT",
         lang_display="Graphviz DOT",
         fence="dot",

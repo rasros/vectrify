@@ -48,7 +48,6 @@ class TypstPlugin(BaseFormatPlugin):
         content_prev: str | None,
         raster_preview_url: str | None,
         goal: str | None,
-        diff_data_url: str | None,
         canvas: tuple[int, int],
     ) -> list[dict]:
         return build_typst_gen_prompt(
@@ -57,7 +56,6 @@ class TypstPlugin(BaseFormatPlugin):
             typst_prev=content_prev,
             rasterized_data_url=raster_preview_url,
             goal=goal,
-            diff_data_url=diff_data_url,
             canvas=canvas,
         )
 

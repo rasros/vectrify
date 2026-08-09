@@ -140,12 +140,12 @@ defaults to 512 and has no effect on scoring. Vision pricing tiles at 512px, so
 raising it past that triples the cost of every prompt image for detail the
 scorer never sees.
 
-Refinement prompts carry the target and the current render. A difference map
-highlighting where the two disagree can be added with diff-map, but it is off by
-default: in a paired test — the identical prompt sent 35 times with and without
-it — the map made edits significantly worse (median paired difference -0.0102,
-better in only 4 of 35 pairs, p=0.00001) while adding ~12% to prompt tokens.
-scripts/eval_diff_map.py reproduces the measurement.
+Refinement prompts carry two images: the target and the current render. A third,
+a difference map highlighting where they disagree, was removed after being
+measured — in a paired test sending the identical prompt 35 times with and
+without it, the map made edits significantly worse (median paired difference
+-0.0102, better in only 4 of 35 pairs, p=0.00001) while adding ~12% to prompt
+tokens. scripts/eval_diff_map.py reproduces the measurement.
 
 Per-crop distances are cached by content hash, so a candidate only pays for the
 crops that actually changed — usually a small share, since local mutations

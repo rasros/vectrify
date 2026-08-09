@@ -37,7 +37,6 @@ class SvgPlugin:
         content_prev: str | None,
         raster_preview_url: str | None,
         goal: str | None,
-        diff_data_url: str | None,
         canvas: tuple[int, int],
     ) -> list[dict]:
         return build_svg_gen_prompt(
@@ -46,7 +45,6 @@ class SvgPlugin:
             svg_prev=content_prev,
             rasterized_svg_data_url=raster_preview_url if content_prev else None,
             goal=goal,
-            diff_data_url=diff_data_url,
             canvas=canvas,
         )
 

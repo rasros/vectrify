@@ -14,7 +14,6 @@ def _first_iteration_text(canvas: tuple[int, int] = (768, 768)) -> str:
         typst_prev=None,
         rasterized_data_url=None,
         goal=None,
-        diff_data_url=None,
         canvas=canvas,
     )
     return "\n".join(text_blocks(blocks))

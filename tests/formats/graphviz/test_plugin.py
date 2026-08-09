@@ -195,7 +195,6 @@ def test_llm_dot_generation_produces_valid_dot():
         dot_prev=None,
         rasterized_dot_data_url=None,
         goal=None,
-        diff_data_url=None,
     )
     raw = client.generate(prompt, LLMConfig(model=TEST_MODEL))
     dot = GraphvizPlugin().extract_from_llm(raw)
@@ -231,7 +230,6 @@ def test_llm_dot_refinement_produces_valid_dot():
         dot_prev=parent_dot,
         rasterized_dot_data_url=None,
         goal="Add a node C connected to B.",
-        diff_data_url=None,
     )
     raw = client.generate(prompt, LLMConfig(model=TEST_MODEL))
     dot = plugin.apply_edit(parent_dot, raw)
