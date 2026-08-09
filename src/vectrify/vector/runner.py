@@ -16,6 +16,7 @@ from vectrify.cli import (
     DEFAULT_EPOCH_DIVERSITY,
     DEFAULT_MAX_TOTAL_TASKS,
     DEFAULT_POOL_SIZE,
+    DEFAULT_RESOLUTION_LLM,
     DEFAULT_TOURNAMENT_SIZE,
     _default_llm_rate,
 )
@@ -150,6 +151,7 @@ def run_vector_search(
     llm_model: str,
     reasoning: str,
     format_plugin: "FormatPlugin",
+    resolution_llm: int = DEFAULT_RESOLUTION_LLM,
     write_lineage: bool = True,
     save_raster: bool = False,
     epoch_patience: int | None = None,
@@ -245,7 +247,7 @@ def run_vector_search(
             original_img=original_img,
             original_w=original_w,
             original_h=original_h,
-            resolution=resolution,
+            resolution_llm=resolution_llm,
             pool_size=pool_size,
             workers=workers,
             scorer=_scorer[0],
@@ -321,7 +323,7 @@ def run_vector_search(
     )
 
     strategy = VectorStrategyAdapter(
-        base_strategy, resolution, write_lineage, save_raster
+        base_strategy, resolution_llm, write_lineage, save_raster
     )
     engine = MultiprocessSearchEngine(
         workers=workers,
@@ -330,14 +332,17 @@ def run_vector_search(
         max_total_tasks=max_total_tasks,
     )
 
-    model_png = downscale_png_bytes(original_png_bytes, resolution)
+    # What the LLM sees, deliberately not the raster: vision billing tiles at
+    # 512px, so a 700px prompt image costs 3x a 512px one for detail the model
+    # does not need — scoring reads the full-resolution raster, not this.
+    model_png = downscale_png_bytes(original_png_bytes, resolution_llm)
     worker_ctx = WorkerContext(
         format_plugin=format_plugin,
         image_data_url=png_bytes_to_data_url(model_png),
         original_png_bytes=original_png_bytes,
         original_w=original_w,
         original_h=original_h,
-        resolution=resolution,
+        resolution_llm=resolution_llm,
         log_level=log_level,
         log_file=str(run_log_file),
         goal=goal,
@@ -367,7 +372,10 @@ def run_vector_search(
             if grid is not None:
                 res.metrics[WORST_REGION] = worst_region_score(grid)
             res.payload.heatmap_png = scorer.diff_heatmap(
-                ref, res.payload.raster_png, long_side=resolution, grid=grid
+                ref,
+                res.payload.raster_png,
+                long_side=resolution_llm,
+                grid=grid,
             )
         return result
 

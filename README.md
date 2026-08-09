@@ -132,6 +132,15 @@ candidate.
 | 1000          | 1152   | 9                   |
 | 1500          | 1536   | 16                  |
 
+resolution only ever downscales the source, so it acts as a ceiling: a 700px
+input stays 700px however high you set it.
+
+The images sent to the LLM are sized separately by resolution-llm, which
+defaults to 512 and has no effect on scoring. Each refinement prompt carries
+three images — the target, the current render and a difference map — and vision
+pricing tiles at 512px, so raising it past that triples the cost of all three
+for detail the scorer never sees.
+
 Per-crop distances are cached by content hash, so a candidate only pays for the
 crops that actually changed — usually a small share, since local mutations
 leave most of the canvas byte-identical.

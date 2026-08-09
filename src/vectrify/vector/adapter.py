@@ -8,7 +8,7 @@ from vectrify.search import ChainState, Result, SearchNode, SearchStrategy
 @dataclasses.dataclass
 class VectorStrategyAdapter:
     base_strategy: SearchStrategy[VectorStatePayload]
-    resolution: int
+    resolution_llm: int
     write_lineage: bool
     save_raster: bool = False
 
@@ -38,7 +38,7 @@ class VectorStrategyAdapter:
         preview_data_url = result_payload.raster_preview_data_url
         if preview_data_url is None and result_payload.raster_png:
             preview_data_url = make_preview_data_url(
-                result_payload.raster_png, self.resolution
+                result_payload.raster_png, self.resolution_llm
             )
 
         heatmap_data_url = None
