@@ -28,6 +28,7 @@ DEFAULT_SAVE_RASTER = True
 DEFAULT_SAVE_HEATMAP = False
 DEFAULT_DASHBOARD = True
 DEFAULT_RESOLUTION = 768
+DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
 
@@ -393,6 +394,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"{DEFAULT_RESOLUTION}",
     )
     g_runtime.add_argument(
+        "--resolution-llm",
+        type=int,
+        default=DEFAULT_RESOLUTION_LLM,
+        metavar="PX",
+        help="Long-side of the images sent to the LLM (target, current render, "
+        "difference map). Separate from resolution because it does not affect "
+        "scoring at all, and vision pricing tiles at 512px, so going above that "
+        f"triples the cost of every image. Default: {DEFAULT_RESOLUTION_LLM}",
+    )
+    g_runtime.add_argument(
         "--dashboard",
         dest="dashboard",
         action=argparse.BooleanOptionalAction,
@@ -423,6 +434,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
     if ns.resolution <= 0:
         raise SystemExit("Error: --resolution must be > 0")
+    if ns.resolution_llm <= 0:
+        raise SystemExit("Error: --resolution-llm must be > 0")
     if ns.max_total_tasks <= 0:
         raise SystemExit("Error: --max-total-tasks must be > 0")
 

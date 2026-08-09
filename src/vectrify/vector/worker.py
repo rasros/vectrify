@@ -32,7 +32,7 @@ class WorkerContext:
     original_png_bytes: bytes
     original_w: int
     original_h: int
-    resolution: int
+    resolution_llm: int
     log_level: str
     log_file: str | None
     goal: str | None
@@ -143,7 +143,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                             diff_data_url = generate_diff_data_url(
                                 ctx.original_png_bytes,
                                 cand_bytes,
-                                ctx.resolution,
+                                ctx.resolution_llm,
                             )
 
                     gen_config = LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
@@ -202,7 +202,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
             signature = simhash(content)
 
             full_img = Image.open(io.BytesIO(png)).convert("RGB")
-            preview_img = resize_long_side(full_img, ctx.resolution)
+            preview_img = resize_long_side(full_img, ctx.resolution_llm)
             preview_buf = io.BytesIO()
             preview_img.save(preview_buf, format="PNG")
             preview_data_url = png_bytes_to_data_url(preview_buf.getvalue())

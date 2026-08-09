@@ -76,8 +76,8 @@ def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> byte
     return out.getvalue()
 
 
-def make_preview_data_url(full_png: bytes, resolution: int) -> str:
-    preview_png = downscale_png_bytes(full_png, resolution)
+def make_preview_data_url(full_png: bytes, resolution_llm: int) -> str:
+    preview_png = downscale_png_bytes(full_png, resolution_llm)
     return png_bytes_to_data_url(preview_png)
 
 
