@@ -14,7 +14,6 @@ def _first_iteration_text() -> str:
         dot_prev=None,
         rasterized_dot_data_url=None,
         goal=None,
-        diff_data_url=None,
     )
     return "\n".join(text_blocks(blocks))
 

@@ -36,7 +36,6 @@ def build_code_gen_prompt(
     code_prev: str | None,
     rasterized_data_url: str | None,
     goal: str | None,
-    diff_data_url: str | None,
     lang: str,
     fence: str,
     syntax_rules: str,
@@ -80,15 +79,6 @@ def build_code_gen_prompt(
     if rasterized_data_url:
         blocks.append({"type": "input_text", "text": "Current rendered output:"})
         blocks.append({"type": "input_image", "image_url": rasterized_data_url})
-
-    if diff_data_url:
-        blocks.append(
-            {
-                "type": "input_text",
-                "text": "Difference map (bright = mismatch — focus edits here):",
-            }
-        )
-        blocks.append({"type": "input_image", "image_url": diff_data_url})
 
     edit_text = (
         f"Iteration #{node_index}. "

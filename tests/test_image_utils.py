@@ -1,4 +1,3 @@
-import base64
 import io
 from textwrap import dedent
 
@@ -8,7 +7,6 @@ from PIL import Image
 from tests.helpers import make_png
 from vectrify.image_utils import (
     downscale_png_bytes,
-    generate_diff_data_url,
     pixel_diff_png,
     png_bytes_to_data_url,
     rasterize_svg_to_png_bytes,
@@ -77,18 +75,6 @@ def test_rasterize_svg_to_png_bytes_invalid_dimensions():
     svg = "<svg></svg>"
     with pytest.raises(ValueError, match="Invalid raster target size"):
         rasterize_svg_to_png_bytes(svg, out_w=-10, out_h=100)
-
-
-# generate_diff_data_url is a thin wrapper over pixel_diff_png (tested below),
-# so a single test covering the data-URL encoding is enough.
-def test_diff_data_url_wraps_pixel_diff_as_data_url():
-    ref = create_test_image(64, 64, color="red")
-    cand = create_test_image(64, 64, color="blue")
-    result = generate_diff_data_url(ref, cand, long_side=64)
-    assert result.startswith("data:image/png;base64,")
-    _, b64 = result.split(",", 1)
-    img = Image.open(io.BytesIO(base64.b64decode(b64)))
-    assert img.mode == "RGB"
 
 
 def test_pixel_diff_png_returns_valid_png():

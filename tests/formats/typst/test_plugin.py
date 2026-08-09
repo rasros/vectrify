@@ -101,7 +101,6 @@ def test_llm_typst_generation_produces_valid_typst():
         typst_prev=None,
         rasterized_data_url=None,
         goal=None,
-        diff_data_url=None,
     )
     raw = client.generate(prompt, LLMConfig(model=TEST_MODEL))
     code = TypstPlugin().extract_from_llm(raw)

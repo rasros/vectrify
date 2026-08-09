@@ -107,19 +107,17 @@ def test_gen_prompt_render_url_absent_when_not_provided():
     assert _RENDER_URL not in _image_blocks(blocks)
 
 
-def test_gen_prompt_diff_url_added_when_provided():
+def test_no_difference_map_is_ever_sent():
+    """Removed after a paired test: it made edits significantly worse (median
+    paired difference -0.0102, p=0.00001) while adding ~12% to prompt tokens."""
     blocks = build_svg_gen_prompt(
-        _IMG_URL, iter_index=2, svg_prev=_SVG, diff_data_url=_DIFF_URL
+        _IMG_URL,
+        1,
+        svg_prev="<svg/>",
+        rasterized_svg_data_url=_RENDER_URL,
     )
-    images = _image_blocks(blocks)
-    assert _DIFF_URL in images
-    text = "\n".join(_text_blocks(blocks))
-    assert "Difference Map" in text
-
-
-def test_gen_prompt_diff_url_absent_when_not_provided():
-    blocks = build_svg_gen_prompt(_IMG_URL, iter_index=1)
-    assert _DIFF_URL not in _image_blocks(blocks)
+    assert len(_image_blocks(blocks)) <= 2
+    assert "ifference Map" not in "\n".join(_text_blocks(blocks))
 
 
 def test_gen_prompt_diff_format_instructions_in_edit():

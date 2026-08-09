@@ -90,7 +90,6 @@ class FormatPlugin(Protocol):
         content_prev: str | None,
         raster_preview_url: str | None,
         goal: str | None,
-        diff_data_url: str | None,
         canvas: tuple[int, int],
     ) -> list[dict]:
         """Build the LLM generation/refinement prompt as content blocks.

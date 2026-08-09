@@ -169,10 +169,7 @@ def test_resolution_and_resolution_llm_are_independent():
     assert ns.resolution_llm == 384
 
 
-def test_diff_map_defaults_off():
-    """A paired test found it made edits worse while costing ~12% more tokens."""
-    assert parse_args(["img.png"]).diff_map is False
-
-
-def test_diff_map_can_be_enabled():
-    assert parse_args(["img.png", "--diff-map"]).diff_map is True
+def test_diff_map_flag_is_gone():
+    """Removed after a paired test showed it made edits significantly worse."""
+    with pytest.raises(SystemExit):
+        parse_args(["img.png", "--diff-map"])

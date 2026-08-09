@@ -30,7 +30,7 @@ from pathlib import Path
 from PIL import Image
 
 from vectrify.formats.svg.plugin import SvgPlugin
-from vectrify.image_utils import generate_diff_data_url, png_bytes_to_data_url
+from vectrify.image_utils import pixel_diff_png, png_bytes_to_data_url
 from vectrify.llm import LLMConfig
 from vectrify.llm.models import DEFAULT_MODELS
 from vectrify.llm.openai import OpenAIProvider
@@ -135,7 +135,9 @@ def main() -> int:
     for idx, (parent_score, parent_svg) in enumerate(parents, 1):
         parent_png = plugin.rasterize(parent_svg, out_w=w, out_h=h)
         preview_url = png_bytes_to_data_url(_downscale(parent_png, args.resolution_llm))
-        diff_url = generate_diff_data_url(original_png, parent_png, args.resolution_llm)
+        diff_url = png_bytes_to_data_url(
+            pixel_diff_png(original, parent_png, args.resolution_llm)
+        )
 
         row: dict = {"parent_score": parent_score, "index": idx}
         for arm, dmap in (("with_map", diff_url), ("without_map", None)):
@@ -146,9 +148,18 @@ def main() -> int:
                     content_prev=parent_svg,
                     raster_preview_url=preview_url,
                     goal=None,
-                    diff_data_url=dmap,
                     canvas=(w, h),
                 )
+                if dmap is not None:
+                    # Spliced in here rather than by the prompt builder: the
+                    # map lost its measurement and was removed from the
+                    # product, so reproducing the comparison means the harness
+                    # adding the third image itself.
+                    blocks = [
+                        *blocks,
+                        {"type": "input_text", "text": "Difference Map:"},
+                        {"type": "input_image", "image_url": dmap},
+                    ]
                 raw = provider.generate(blocks, config)
                 usage = dict(provider.last_usage)
                 child = plugin.apply_edit(parent_svg, raw)

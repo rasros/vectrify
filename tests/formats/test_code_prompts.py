@@ -17,25 +17,23 @@ _RENDER_URL = "data:image/png;base64,def"
 _DIFF_URL = "data:image/png;base64,ghi"
 
 
-def _build_dot(img, node_index, prev, render, goal, diff):
+def _build_dot(img, node_index, prev, render, goal):
     return build_dot_gen_prompt(
         img,
         node_index=node_index,
         dot_prev=prev,
         rasterized_dot_data_url=render,
         goal=goal,
-        diff_data_url=diff,
     )
 
 
-def _build_typst(img, node_index, prev, render, goal, diff):
+def _build_typst(img, node_index, prev, render, goal):
     return build_typst_gen_prompt(
         img,
         node_index=node_index,
         typst_prev=prev,
         rasterized_data_url=render,
         goal=goal,
-        diff_data_url=diff,
     )
 
 
@@ -53,7 +51,7 @@ CASES = [
 
 @pytest.mark.parametrize("case", CASES)
 def test_first_iteration_asks_for_fenced_code(case):
-    blocks = case.build(_IMG_URL, 1, None, None, None, None)
+    blocks = case.build(_IMG_URL, 1, None, None, None)
     text = "\n".join(text_blocks(blocks))
     assert "iteration #1" in text.lower()
     assert case.fence in text
@@ -64,7 +62,7 @@ def test_first_iteration_asks_for_fenced_code(case):
 def test_fence_example_uses_real_newlines(case):
     """The wrap-in-fence example must contain actual newlines, not a literal
     backslash-n, which the DOT prompt used to emit."""
-    blocks = case.build(_IMG_URL, 1, None, None, None, None)
+    blocks = case.build(_IMG_URL, 1, None, None, None)
     text = "\n".join(text_blocks(blocks))
     assert f"{case.fence}\n...\n```" in text
     assert "\\n...\\n" not in text
@@ -72,7 +70,7 @@ def test_fence_example_uses_real_newlines(case):
 
 @pytest.mark.parametrize("case", CASES)
 def test_refinement_includes_previous_code(case):
-    blocks = case.build(_IMG_URL, 3, case.sample, None, None, None)
+    blocks = case.build(_IMG_URL, 3, case.sample, None, None)
     text = "\n".join(text_blocks(blocks))
     assert case.sample in text
     assert "Iteration #3" in text
@@ -80,28 +78,29 @@ def test_refinement_includes_previous_code(case):
 
 @pytest.mark.parametrize("case", CASES)
 def test_render_url_included(case):
-    blocks = case.build(_IMG_URL, 2, case.sample, _RENDER_URL, None, None)
+    blocks = case.build(_IMG_URL, 2, case.sample, _RENDER_URL, None)
     assert _RENDER_URL in image_urls(blocks)
 
 
 @pytest.mark.parametrize("case", CASES)
-def test_diff_url_included(case):
-    blocks = case.build(_IMG_URL, 2, case.sample, None, None, _DIFF_URL)
-    assert _DIFF_URL in image_urls(blocks)
-    text = "\n".join(text_blocks(blocks))
-    assert "Difference map" in text
+def test_no_difference_map_is_ever_sent(case):
+    """Removed after a paired test: it made edits significantly worse (median
+    paired difference -0.0102, p=0.00001) while adding ~12% to prompt tokens."""
+    blocks = case.build(_IMG_URL, 2, case.sample, _RENDER_URL, None)
+    assert len(image_urls(blocks)) <= 2
+    assert "ifference map" not in "\n".join(text_blocks(blocks))
 
 
 @pytest.mark.parametrize("case", CASES)
 def test_goal_included(case):
-    blocks = case.build(_IMG_URL, 2, case.sample, None, "match the target", None)
+    blocks = case.build(_IMG_URL, 2, case.sample, None, "match the target")
     text = "\n".join(text_blocks(blocks))
     assert "match the target" in text
 
 
 @pytest.mark.parametrize("case", CASES)
 def test_diff_format_instructions_in_edit(case):
-    blocks = case.build(_IMG_URL, 2, case.sample, None, None, None)
+    blocks = case.build(_IMG_URL, 2, case.sample, None, None)
     text = "\n".join(text_blocks(blocks))
     assert "<<<SEARCH>>>" in text
     assert "<<<REPLACE>>>" in text

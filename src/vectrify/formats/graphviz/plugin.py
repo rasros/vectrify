@@ -132,7 +132,6 @@ class GraphvizPlugin(BaseFormatPlugin):
         content_prev: str | None,
         raster_preview_url: str | None,
         goal: str | None,
-        diff_data_url: str | None,
         # DOT positions are computed by the layout engine, not written in the
         # source, so there is no coordinate space to pin and grafting between
         # parents cannot misplace anything.
@@ -144,7 +143,6 @@ class GraphvizPlugin(BaseFormatPlugin):
             dot_prev=content_prev,
             rasterized_dot_data_url=raster_preview_url,
             goal=goal,
-            diff_data_url=diff_data_url,
         )
 
     def mutate(self, content: str, orig_img_fast: PIL.Image.Image) -> tuple[str, str]:

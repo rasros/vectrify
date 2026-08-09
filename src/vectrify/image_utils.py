@@ -93,9 +93,3 @@ def pixel_diff_png(ref_img: Image.Image, cand_png: bytes, long_side: int) -> byt
     buf = io.BytesIO()
     diff.save(buf, format="PNG")
     return buf.getvalue()
-
-
-def generate_diff_data_url(ref_bytes: bytes, cand_bytes: bytes, long_side: int) -> str:
-    """Generates a high-contrast diff map between the reference and the candidate."""
-    ref_img = Image.open(io.BytesIO(ref_bytes)).convert("RGB")
-    return png_bytes_to_data_url(pixel_diff_png(ref_img, cand_bytes, long_side))
