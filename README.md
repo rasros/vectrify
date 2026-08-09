@@ -112,18 +112,13 @@ either replaces a worse pool member or is dropped.
 ### Scoring resolution
 
 Vision models take a fixed input size, so scoring a whole image downscales it
-and small detail — thin strokes, numerals, annotations — drops below the
-model's patch size and reads as a smudge. The scorer instead cuts the raster
-into crops of exactly that input size and scores each unresampled, so detail
-reaches the model intact and nothing is scaled in either direction.
+and fine detail drops below the model's patch size. The scorer instead cuts the
+raster into crops of exactly that input size and scores each unresampled.
 
-resolution sets the raster, and everything else follows from it: it is rounded
-up to a whole number of crops so they tile exactly, which keeps every pixel
-weighted the same and fixes the crop count. It also fixes the coordinate space
-candidates are written in — the SVG viewBox and the Typst page are pinned to it,
-so the genetic operators can graft elements between parents without misplacing
-them. Larger rasters resolve finer detail and cost proportionally more per
-candidate.
+resolution sets the raster and everything follows from it: it is rounded up to a
+whole number of crops so they tile exactly, and it fixes the coordinate space
+candidates are written in (SVG viewBox, Typst page). It only downscales, so a
+700px source stays 700px however high you set it.
 
 | resolution    | raster | crops per candidate |
 |--------------:|-------:|--------------------:|
@@ -132,24 +127,9 @@ candidate.
 | 1000          | 1152   | 9                   |
 | 1500          | 1536   | 16                  |
 
-resolution only ever downscales the source, so it acts as a ceiling: a 700px
-input stays 700px however high you set it.
-
-The images sent to the LLM are sized separately by resolution-llm, which
-defaults to 512 and has no effect on scoring. Vision pricing tiles at 512px, so
-raising it past that triples the cost of every prompt image for detail the
-scorer never sees.
-
-Refinement prompts carry two images: the target and the current render. A third,
-a difference map highlighting where they disagree, was removed after being
-measured — in a paired test sending the identical prompt 35 times with and
-without it, the map made edits significantly worse (median paired difference
--0.0102, better in only 4 of 35 pairs, p=0.00001) while adding ~12% to prompt
-tokens.
-
-Per-crop distances are cached by content hash, so a candidate only pays for the
-crops that actually changed — usually a small share, since local mutations
-leave most of the canvas byte-identical.
+resolution-llm sizes the images sent to the LLM and has no effect on scoring.
+Vision pricing tiles at 512px, the default, so raising it triples the cost of
+every prompt image.
 
 ### Search strategies
 

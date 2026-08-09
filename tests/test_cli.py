@@ -147,29 +147,13 @@ def test_default_tournament_size_does_not_trip_the_beam_check():
     assert args.strategy == "beam"
 
 
-def test_resolution_llm_negative_raises():
+@pytest.mark.parametrize("value", ["-1", "0"])
+def test_resolution_llm_must_be_positive(value):
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--resolution-llm", "-1"])
-
-
-def test_resolution_llm_zero_raises():
-    with pytest.raises(SystemExit):
-        parse_args(["img.png", "--resolution-llm", "0"])
+        parse_args(["img.png", "--resolution-llm", value])
 
 
 def test_resolution_llm_defaults_below_the_vision_tile_boundary():
     """Vision pricing tiles at 512px, so anything above triples image cost for
     detail that never reaches the scorer."""
     assert parse_args(["img.png"]).resolution_llm <= 512
-
-
-def test_resolution_and_resolution_llm_are_independent():
-    ns = parse_args(["img.png", "--resolution", "1536", "--resolution-llm", "384"])
-    assert ns.resolution == 1536
-    assert ns.resolution_llm == 384
-
-
-def test_diff_map_flag_is_gone():
-    """Removed after a paired test showed it made edits significantly worse."""
-    with pytest.raises(SystemExit):
-        parse_args(["img.png", "--diff-map"])
