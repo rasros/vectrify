@@ -78,10 +78,12 @@ def _fmt_elapsed(seconds: float) -> str:
 def _build_renderable(stats: SearchStats) -> Panel:
     s = stats
 
+    phase_color = "magenta" if s.phase == "seed" else "cyan"
     header = (
         f"[bold]{s.strategy_name or '—'}[/bold]"
         f"  ·  model: [cyan]{s.model_name or '—'}[/cyan]"
         f"  ·  epoch [bold]{s.epoch}[/bold]"
+        f" [{phase_color}]{s.phase}[/{phase_color}]"
         f"  ·  [dim]{_fmt_elapsed(s.elapsed())}[/dim]"
     )
 
@@ -103,7 +105,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
         f"  calls [bold]{s.llm_call_count:,}[/bold]{in_flight_str}"
         f"   valid [green]{s.llm_valid_rate() * 100:.1f}%[/green]"
         f"   pool-acc [cyan]{s.llm_accept_rate() * 100:.1f}%[/cyan]"
-        f"   rate [yellow]{s.effective_llm_rate() * 100:.2f}%[/yellow]"
+        f"   batch [yellow]{s.seeds_completed}/{s.seeds_target}[/yellow]"
     )
 
     mut_line = (
@@ -120,7 +122,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
     pool_line = (
         f"  diversity [{div_color}]{s.pool_diversity:.3f}[/{div_color}]"
         f"   variance [{var_color}]{s.pool_score_std:.4f}[/{var_color}]"
-        f"   llm-stale [dim]{s.epoch_no_improve:,}[/dim]"
+        f"   stale [dim]{s.epoch_no_improve:,}[/dim]"
     )
 
     # Stop criteria rows (only when enabled)
@@ -147,19 +149,20 @@ def _build_renderable(stats: SearchStats) -> Panel:
             )
         )
 
-    if s.epoch_steps > 0:
+    if s.phase == "seed" and s.seeds_target > 0:
+        # Not a stop criterion but the same shape of progress: the seed batch
+        # is what the epoch is waiting on before local refinement can start.
         stop_rows.append(
             _stop_row(
-                "llm steps",
-                min(1.0, s.epoch_tasks / s.epoch_steps),
-                f"{s.epoch_tasks}/{s.epoch_steps}",
+                "seeding",
+                s.seed_fraction(),
+                f"{s.seeds_completed}/{s.seeds_target}",
             )
         )
-
-    if s.epoch_patience > 0:
+    elif s.epoch_patience > 0:
         stop_rows.append(
             _stop_row(
-                "llm stale",
+                "stale",
                 s.stagnation_fraction(),
                 f"{s.epoch_no_improve}/{s.epoch_patience}",
             )

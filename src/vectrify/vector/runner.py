@@ -1,4 +1,3 @@
-import dataclasses
 import io
 import logging
 import os
@@ -18,7 +17,6 @@ from vectrify.cli import (
     DEFAULT_POOL_SIZE,
     DEFAULT_RESOLUTION_LLM,
     DEFAULT_TOURNAMENT_SIZE,
-    _default_llm_rate,
 )
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import (
@@ -34,13 +32,11 @@ from vectrify.score.regions import DEFAULT_TILE_SIZE, snap_raster, worst_region_
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
-    BeamSearchStrategy,
     ChainState,
     MultiprocessSearchEngine,
     NsgaStrategy,
     SearchNode,
     StorageAdapter,
-    StrategyType,
 )
 from vectrify.search.collector import StatCollector
 from vectrify.utils import setup_logger, start_log_listener
@@ -49,17 +45,6 @@ from vectrify.vector.resume import filter_to_pool_size, resume_nodes
 from vectrify.vector.worker import WorkerContext, worker_loop
 
 log = logging.getLogger("main")
-
-
-@dataclasses.dataclass
-class _EngineParams:
-    pool_size: int
-    seed_tasks: int
-    epoch_patience: int | None
-    epoch_min_delta: float
-    max_epochs: int | None
-    epoch_pool_size: int | None
-    epoch_steps: int | None
 
 
 def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, int, int]:
@@ -91,50 +76,19 @@ def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, in
     return img, buf.getvalue(), w, h
 
 
-def _build_engine_params(
-    strategy_type: StrategyType,
-    pool_size: int,
-    seeds: int,
-    beams: int,
-    initial_nodes: list[SearchNode],
-    epoch_patience: int | None,
-    epoch_min_delta: float,
-    max_epochs: int | None,
-    epoch_pool_size: int | None,
-    epoch_steps: int | None,
-) -> _EngineParams:
-    """Compute engine configuration from search parameters."""
-    is_beam = strategy_type == StrategyType.BEAM
+def resolve_seeds(seeds: int | None, pool_size: int) -> int:
+    """LLM calls that open each epoch; None means derive from the pool size."""
+    return pool_size // 10 if seeds is None else max(0, seeds)
 
-    if is_beam:
-        return _EngineParams(
-            pool_size=beams,
-            seed_tasks=beams,
-            epoch_patience=epoch_patience,
-            epoch_min_delta=epoch_min_delta,
-            max_epochs=max_epochs,
-            epoch_pool_size=None,
-            epoch_steps=epoch_steps,
-        )
 
-    seed_target = pool_size // 10 if seeds == 0 else seeds
+def initial_seed_tasks(epoch_seeds: int, initial_nodes: list[SearchNode]) -> int:
+    """Epoch 0's batch size, discounted by candidates already carried in.
+
+    A resumed node is a seed that has already been paid for, so a resume that
+    restores a full batch should spend nothing on generating another.
+    """
     seeded = sum(1 for n in initial_nodes if n.state.payload.content)
-    seed_tasks = max(0, seed_target - seeded)
-    if seed_tasks > 0:
-        log.info(
-            f"Epoch 0: {seed_tasks} LLM seed tasks "
-            f"(target={seed_target}, already seeded={seeded})"
-        )
-
-    return _EngineParams(
-        pool_size=pool_size,
-        seed_tasks=seed_tasks,
-        epoch_patience=epoch_patience,
-        epoch_min_delta=epoch_min_delta,
-        max_epochs=max_epochs,
-        epoch_pool_size=epoch_pool_size,
-        epoch_steps=epoch_steps,
-    )
+    return max(0, epoch_seeds - seeded)
 
 
 def run_vector_search(
@@ -145,7 +99,6 @@ def run_vector_search(
     max_wall_seconds: float | None,
     log_level: str,
     scorer_type: ScorerType,
-    strategy_type: StrategyType,
     goal: str | None,
     llm_provider: str,
     llm_model: str,
@@ -156,25 +109,19 @@ def run_vector_search(
     save_raster: bool = False,
     epoch_patience: int | None = None,
     epoch_min_delta: float = 1e-4,
-    llm_rate: float | None = None,
     pool_size: int = DEFAULT_POOL_SIZE,
-    seeds: int = 0,
-    beams: int = 10,
-    cull_keep: float = 0.5,
+    seeds: int | None = None,
     epoch_diversity: float = DEFAULT_EPOCH_DIVERSITY,
     tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
     epoch_variance: float | None = None,
     max_epochs: int | None = None,
-    epoch_pool_size: int | None = None,
-    epoch_steps: int | None = None,
     max_llm_calls: int | None = None,
     max_total_tasks: int = DEFAULT_MAX_TOTAL_TASKS,
     vision_model: str = DEFAULT_VISION_MODEL,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
 ) -> None:
-    if llm_rate is None:
-        llm_rate = _default_llm_rate(workers)
+    epoch_seeds = resolve_seeds(seeds, pool_size)
 
     # Validate the reference image up front so a missing or corrupt input fails
     # before storage.initialize() creates the output directory tree.
@@ -254,16 +201,16 @@ def run_vector_search(
             scoring_ref=_scoring_ref[0],
             storage=storage,
         )
-        initial_nodes = filter_to_pool_size(initial_nodes, pool_size, strategy_type)
+        initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
 
     # With the LLM disabled the search can only mutate existing candidates, so
     # without at least one it would dispatch nothing and idle until the wall
     # clock. Fail immediately with the reason instead.
-    if llm_rate <= 0 and not any(
+    if epoch_seeds <= 0 and not any(
         n.state.payload.content for n in initial_nodes if n.state.payload
     ):
         raise ValueError(
-            "--llm-rate 0 disables all LLM calls, but there are no existing "
+            "--seeds 0 disables all LLM calls, but there are no existing "
             "candidates to mutate. Resume a previous run with --resume, or "
             "allow LLM calls so the first candidate can be generated."
         )
@@ -288,39 +235,26 @@ def run_vector_search(
     )
     if collector is not None:
         collector.configure_run(
-            llm_rate=llm_rate,
             epoch_diversity=epoch_diversity,
             epoch_variance=epoch_variance or 0.0,
-            epoch_steps=epoch_steps or 0,
         )
         valid = [n for n in initial_nodes if n.score < INVALID_SCORE]
         if valid:
             collector.seed_initial_score(min(valid, key=lambda n: n.score).score)
 
-    is_beam = strategy_type == StrategyType.BEAM
-    base_strategy = (
-        BeamSearchStrategy[VectorStatePayload](beams=beams, cull_keep=cull_keep)
-        if is_beam
-        else NsgaStrategy[VectorStatePayload](
-            pool_size=pool_size,
-            crossover_distance_threshold=10,
-            epoch_diversity=epoch_diversity,
-            tournament_size=tournament_size,
-        )
+    base_strategy = NsgaStrategy[VectorStatePayload](
+        pool_size=pool_size,
+        crossover_distance_threshold=10,
+        epoch_diversity=epoch_diversity,
+        tournament_size=tournament_size,
     )
 
-    ep = _build_engine_params(
-        strategy_type=strategy_type,
-        pool_size=pool_size,
-        seeds=seeds,
-        beams=beams,
-        initial_nodes=initial_nodes,
-        epoch_patience=epoch_patience,
-        epoch_min_delta=epoch_min_delta,
-        max_epochs=max_epochs,
-        epoch_pool_size=epoch_pool_size,
-        epoch_steps=epoch_steps,
-    )
+    first_batch = initial_seed_tasks(epoch_seeds, initial_nodes)
+    if first_batch < epoch_seeds:
+        log.info(
+            f"Epoch 0: {first_batch} LLM seed task(s) "
+            f"(batch={epoch_seeds}, already seeded={epoch_seeds - first_batch})"
+        )
 
     strategy = VectorStrategyAdapter(
         base_strategy, resolution_llm, write_lineage, save_raster
@@ -350,7 +284,6 @@ def run_vector_search(
         llm_model=llm_model,
         reasoning=reasoning,
         api_key=api_key,
-        llm_rate=llm_rate,
         log_queue=log_queue,
     )
 
@@ -404,15 +337,14 @@ def run_vector_search(
         engine.run(
             initial_nodes,
             max_wall_seconds=max_wall_seconds,
-            epoch_patience=ep.epoch_patience,
-            epoch_min_delta=ep.epoch_min_delta,
-            active_pool_size=ep.pool_size,
+            epoch_patience=epoch_patience,
+            epoch_min_delta=epoch_min_delta,
+            active_pool_size=pool_size,
             score_fn=score_fn,
-            seed_tasks=ep.seed_tasks,
-            max_epochs=ep.max_epochs,
-            epoch_pool_size=ep.epoch_pool_size,
+            epoch_seeds=epoch_seeds,
+            initial_seeds=first_batch,
+            max_epochs=max_epochs,
             epoch_variance=epoch_variance,
-            epoch_steps=ep.epoch_steps,
             max_llm_calls=max_llm_calls,
             collector=collector,
         )

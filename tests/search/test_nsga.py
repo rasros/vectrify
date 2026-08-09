@@ -412,7 +412,7 @@ def test_should_not_diversify_too_few_nodes():
     assert diversity == 1.0
 
 
-def test_epoch_seeds_returns_pareto_front():
+def test_epoch_parents_returns_pareto_front():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
         make_node(1, 0.1, visual_complexity=1000.0),  # good quality, complex
@@ -421,23 +421,23 @@ def test_epoch_seeds_returns_pareto_front():
         ),  # worse quality, simpler (dominates node 3)
         make_node(3, 0.9, visual_complexity=900.0),  # dominated by node 2
     ]
-    seeds = strategy.epoch_seeds(nodes, max_seeds=2)
+    seeds = strategy.epoch_parents(nodes, max_parents=2)
     seed_ids = {n.id for n in seeds}
     assert 1 in seed_ids
     assert 2 in seed_ids
     assert 3 not in seed_ids
 
 
-def test_epoch_seeds_respects_max_seeds():
+def test_epoch_parents_respects_max_parents():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
         make_node(i, i * 0.1, visual_complexity=float(i * 100)) for i in range(1, 8)
     ]
-    seeds = strategy.epoch_seeds(nodes, max_seeds=3)
+    seeds = strategy.epoch_parents(nodes, max_parents=3)
     assert len(seeds) == 3
 
 
-def test_epoch_seeds_filters_exact_duplicates():
+def test_epoch_parents_filters_exact_duplicates():
     content = "<svg>" + "".join(str(i) for i in range(500)) + "</svg>"
     strategy = NsgaStrategy(pool_size=10)
     good = make_node(1, 0.1, visual_complexity=100.0, content=content)
@@ -447,18 +447,18 @@ def test_epoch_seeds_filters_exact_duplicates():
     different = make_node(
         3, 0.2, visual_complexity=200.0, content="<svg><completely different/></svg>"
     )
-    seeds = strategy.epoch_seeds([good, duplicate, different], max_seeds=3)
+    seeds = strategy.epoch_parents([good, duplicate, different], max_parents=3)
     seed_ids = {n.id for n in seeds}
     assert not (1 in seed_ids and 2 in seed_ids)
 
 
-def test_epoch_seeds_empty_pool_returns_empty():
+def test_epoch_parents_empty_pool_returns_empty():
     strategy = NsgaStrategy(pool_size=10)
-    seeds = strategy.epoch_seeds([], max_seeds=5)
+    seeds = strategy.epoch_parents([], max_parents=5)
     assert seeds == []
 
 
-def test_epoch_seeds_sorted_by_visual_score():
+def test_epoch_parents_sorted_by_visual_score():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
         make_node(1, 0.1, visual_complexity=800.0),
@@ -466,16 +466,16 @@ def test_epoch_seeds_sorted_by_visual_score():
         make_node(3, 0.5, visual_complexity=400.0),
         make_node(4, 0.7, visual_complexity=200.0),
     ]
-    seeds = strategy.epoch_seeds(nodes, max_seeds=4)
+    seeds = strategy.epoch_parents(nodes, max_parents=4)
     scores = [n.score for n in seeds]
     assert scores == sorted(scores)
     assert seeds[0].id == 1
 
 
-def test_epoch_seeds_all_invalid_falls_back():
+def test_epoch_parents_all_invalid_falls_back():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [make_node(i, float("inf")) for i in range(1, 4)]
-    seeds = strategy.epoch_seeds(nodes, max_seeds=5)
+    seeds = strategy.epoch_parents(nodes, max_parents=5)
     assert len(seeds) == 3
 
 

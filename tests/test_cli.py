@@ -1,14 +1,12 @@
 import pytest
 
 from vectrify.cli import parse_args
-from vectrify.search import StrategyType
 
 
 def test_parse_args_basic():
     args = parse_args(["input.png", "--workers", "4"])
     assert args.image == "input.png"
     assert args.workers == 4
-    assert args.strategy == StrategyType.NSGA.value
 
 
 def test_max_wall_seconds_zero_becomes_none():
@@ -46,26 +44,28 @@ def test_resolution_zero_raises():
         parse_args(["img.png", "--resolution", "0"])
 
 
-@pytest.mark.parametrize("rate", ["-0.1", "1.5"])
-def test_llm_rate_out_of_range_raises(rate):
+def test_seeds_defaults_to_none_so_the_runner_derives_it():
+    assert parse_args(["img.png"]).seeds is None
+
+
+def test_seeds_is_accepted():
+    assert parse_args(["img.png", "--seeds", "20"]).seeds == 20
+
+
+def test_negative_seeds_raises():
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--llm-rate", rate])
+        parse_args(["img.png", "--seeds", "-1"])
 
 
-@pytest.mark.parametrize("rate", ["0.0", "1.0", "0.5"])
-def test_llm_rate_in_range_accepted(rate):
-    assert parse_args(["img.png", "--llm-rate", rate]).llm_rate == float(rate)
+def test_seeds_zero_requires_resume():
+    """--seeds 0 is the offline switch, and offline needs something to mutate.
 
-
-@pytest.mark.parametrize("keep", ["0", "0.0", "-0.5", "1.1"])
-def test_cull_keep_out_of_range_raises(keep):
+    Without it the run dispatches nothing and idles until the wall clock, so
+    the failure is worth catching at parse time rather than an hour later.
+    """
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--strategy", "beam", "--cull-keep", keep])
-
-
-def test_cull_keep_upper_bound_accepted():
-    args = parse_args(["img.png", "--strategy", "beam", "--cull-keep", "1.0"])
-    assert args.cull_keep == 1.0
+        parse_args(["img.png", "--seeds", "0"])
+    assert parse_args(["img.png", "--seeds", "0", "--resume"]).seeds == 0
 
 
 # Defaults are pinned as literals so a change to any default is a visible,
@@ -74,24 +74,12 @@ def test_defaults_pinned():
     args = parse_args(["img.png"])
     assert args.pool_size == 100
     assert args.epoch_diversity == 0.0
-    # Patience counts tasks, not LLM calls: 200 tasks is roughly what 20 LLM
-    # calls came to at the default rate, but no longer moves with --llm-rate.
+    # Patience counts local tasks only; a seed batch is not a hill-climb and
+    # cannot go stale.
     assert args.epoch_patience == 200
     # Epoch 0 produced 82% of the total gain on the reference image and
     # epochs 2-3 produced 3.7% for a third of the wall clock.
     assert args.max_epochs == 2
-
-
-def test_default_llm_rate_tracks_workers():
-    # Small worker count: 2/4 = 0.5 clamped to the 0.2 cap.
-    assert parse_args(["img.png", "--workers", "4"]).llm_rate == 0.2
-    # Larger worker count derives below the cap and scales with --workers.
-    assert parse_args(["img.png", "--workers", "40"]).llm_rate == 2 / 40
-
-
-def test_explicit_llm_rate_overrides_workers_derivation():
-    args = parse_args(["img.png", "--workers", "40", "--llm-rate", "0.5"])
-    assert args.llm_rate == 0.5
 
 
 @pytest.mark.parametrize(
@@ -136,19 +124,6 @@ def test_tournament_size_is_accepted():
 def test_tournament_size_below_two_is_rejected():
     with pytest.raises(SystemExit):
         parse_args(["in.png", "--tournament-size", "1"])
-
-
-def test_tournament_size_is_nsga_only():
-    with pytest.raises(SystemExit):
-        parse_args(["in.png", "--strategy", "beam", "--tournament-size", "4"])
-
-
-def test_default_tournament_size_does_not_trip_the_beam_check():
-    """The nsga-only guard must compare against the default, not against zero --
-    a default of 2 would otherwise look 'set' and break every beam run.
-    """
-    args = parse_args(["in.png", "--strategy", "beam"])
-    assert args.strategy == "beam"
 
 
 @pytest.mark.parametrize("value", ["-1", "0"])

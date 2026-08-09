@@ -6,19 +6,10 @@ from importlib.metadata import version as _pkg_version
 from vectrify.formats import FORMAT_NAMES
 from vectrify.score import ScorerType
 from vectrify.score.vision import DEFAULT_VISION_MODEL
-from vectrify.search import StrategyType
 
 DEFAULT_OUTPUT = "output.svg"
 DEFAULT_PROVIDER = "auto"
 DEFAULT_SCORER = "auto"
-DEFAULT_STRATEGY = "nsga"
-BEAM_ONLY_PARAMS = {"beams", "cull_keep"}
-NSGA_ONLY_PARAMS = {
-    "epoch_diversity",
-    "epoch_variance",
-    "epoch_seeds",
-    "tournament_size",
-}
 DEFAULT_MAX_EPOCHS = 2
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
@@ -31,22 +22,11 @@ DEFAULT_RESOLUTION = 768
 DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
-
-def _default_llm_rate(workers: int) -> float:
-    """Target ~2 concurrent LLM calls regardless of worker count, capped at 0.2."""
-    return min(2 / workers, 0.2)
-
-
 DEFAULT_POOL_SIZE = 100
-DEFAULT_SEEDS = 0
-DEFAULT_BEAMS = 10
-DEFAULT_CULL_KEEP = 0.5
 DEFAULT_EPOCH_DIVERSITY = 0.0
 DEFAULT_EPOCH_VARIANCE = 0.0
-DEFAULT_EPOCH_SEEDS = 0
 DEFAULT_EPOCH_PATIENCE = 200
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
-DEFAULT_EPOCH_STEPS = 50
 DEFAULT_TOURNAMENT_SIZE = 2
 DEFAULT_MAX_LLM_CALLS = 0  # 0 = unlimited / off
 DEFAULT_MAX_TOTAL_TASKS = 10000
@@ -55,7 +35,8 @@ DEFAULT_LOG_LEVEL = "INFO"
 
 DESCRIPTION = (
     "Vectorize raster images into SVG, Graphviz, or Typst by combining vision "
-    "LLMs with NSGA-II multi-objective evolutionary search."
+    "LLMs with NSGA-II multi-objective evolutionary search. Each epoch opens "
+    "with a batch of LLM candidates and then refines them with local search."
 )
 
 EPILOG = """\
@@ -65,8 +46,8 @@ Examples
               $ANTHROPIC_API_KEY / $GEMINI_API_KEY):
       vectrify input.png -o output.svg
 
-  Bigger LLM budget per epoch, longer wall-clock cap:
-      vectrify photo.jpg -o sketch.svg --epoch-patience 60 --max-wall-seconds 1800
+  Bigger LLM batch per epoch, longer wall-clock cap:
+      vectrify photo.jpg -o sketch.svg --seeds 20 --max-wall-seconds 1800
 
   Steer the search with a custom goal:
       vectrify logo.png --goal "Use thick strokes only and avoid gradients"
@@ -171,13 +152,6 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
     g_search = parser.add_argument_group("Search strategy")
     g_search.add_argument(
-        "--strategy",
-        type=str,
-        choices=[e.value for e in StrategyType],
-        default=DEFAULT_STRATEGY,
-        help=f"Search algorithm. Default: {DEFAULT_STRATEGY}",
-    )
-    g_search.add_argument(
         "--goal",
         default=None,
         metavar="TEXT",
@@ -195,37 +169,15 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     g_search.add_argument(
         "--seeds",
         type=int,
-        default=DEFAULT_SEEDS,
+        default=None,
         dest="seeds",
         metavar="N",
-        help="Target LLM-seeded nodes for epoch 0. Resumed nodes count "
-        "toward this. 0 uses pool-size // 10.",
-    )
-    g_search.add_argument(
-        "--llm-rate",
-        type=float,
-        default=None,
-        metavar="RATE",
-        help="Fraction of tasks (0.0-1.0) that call the LLM; the rest run "
-        "local mutations and crossover. Defaults to min(2/workers, 0.2) so "
-        "roughly two LLM calls stay in flight regardless of --workers.",
-    )
-    g_search.add_argument(
-        "--beams",
-        type=int,
-        default=DEFAULT_BEAMS,
-        metavar="N",
-        help="[beam-only] Parallel hill-climbers; each epoch starts with "
-        f"this many fresh LLM seeds. Default: {DEFAULT_BEAMS}",
-    )
-    g_search.add_argument(
-        "--cull-keep",
-        type=float,
-        default=DEFAULT_CULL_KEEP,
-        dest="cull_keep",
-        metavar="FRAC",
-        help="[beam-only] Fraction of beams eligible for expansion. Lower "
-        f"values prune harder; 1.0 disables culling. Default: {DEFAULT_CULL_KEEP}",
+        help="LLM calls that open every epoch. Their children become that "
+        "epoch's entire pool, which local mutation and crossover then refine; "
+        "no other task calls the LLM, so total calls are at most "
+        "max-epochs x seeds. Resumed candidates count toward epoch 0's batch. "
+        "0 disables the LLM entirely (requires --resume). "
+        "Defaults to pool-size // 10.",
     )
 
     g_epoch = parser.add_argument_group("Epoch control")
@@ -243,9 +195,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_PATIENCE,
         dest="epoch_patience",
         metavar="N",
-        help="End the epoch and re-seed if best score does not improve by "
-        "--epoch-min-delta over this many consecutive tasks "
-        "(local mutations are not counted). 0 disables. "
+        help="End the epoch and re-seed if the best score does not improve by "
+        "--epoch-min-delta over this many consecutive local tasks. 0 disables. "
         f"Default: {DEFAULT_EPOCH_PATIENCE}",
     )
     g_epoch.add_argument(
@@ -257,22 +208,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"Default: {DEFAULT_EPOCH_MIN_DELTA}",
     )
     g_epoch.add_argument(
-        "--epoch-steps",
-        type=int,
-        default=DEFAULT_EPOCH_STEPS,
-        dest="epoch_steps",
-        metavar="N",
-        help="Hard cap on LLM calls per epoch before forcing transition "
-        "(local mutations are not counted). 0 means unlimited. "
-        f"Default: {DEFAULT_EPOCH_STEPS}",
-    )
-    g_epoch.add_argument(
         "--epoch-diversity",
         type=float,
         default=DEFAULT_EPOCH_DIVERSITY,
         dest="epoch_diversity",
         metavar="THR",
-        help="[nsga-only] End epoch when mean pairwise genome diversity "
+        help="End epoch when mean pairwise genome diversity "
         "drops below this threshold. 0 disables.",
     )
     g_epoch.add_argument(
@@ -281,7 +222,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_VARIANCE,
         dest="epoch_variance",
         metavar="THR",
-        help="[nsga-only] End epoch when score std dev in the active pool "
+        help="End epoch when score std dev in the active pool "
         "drops below this threshold. 0 disables.",
     )
     g_search.add_argument(
@@ -290,19 +231,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_TOURNAMENT_SIZE,
         dest="tournament_size",
         metavar="N",
-        help="[nsga-only] Candidates compared per parent-selection tournament. "
+        help="Candidates compared per parent-selection tournament. "
         "Higher means stronger bias toward visual quality and faster "
         "convergence, at the cost of pool diversity. "
         f"Default: {DEFAULT_TOURNAMENT_SIZE}",
-    )
-    g_epoch.add_argument(
-        "--epoch-seeds",
-        type=int,
-        default=DEFAULT_EPOCH_SEEDS,
-        dest="epoch_seeds",
-        metavar="N",
-        help="[nsga-only] Pareto-front nodes carried into each new epoch. "
-        "0 uses pool-size // 4.",
     )
 
     g_resume = parser.add_argument_group("Resume")
@@ -439,48 +371,19 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if ns.max_total_tasks <= 0:
         raise SystemExit("Error: --max-total-tasks must be > 0")
 
-    if ns.llm_rate is not None and not (0.0 <= ns.llm_rate <= 1.0):
-        raise SystemExit("Error: --llm-rate must be between 0.0 and 1.0")
-    if ns.llm_rate is None:
-        ns.llm_rate = _default_llm_rate(ns.workers)
+    if ns.seeds is not None and ns.seeds < 0:
+        raise SystemExit("Error: --seeds must be 0 or greater")
+    if ns.seeds == 0 and not ns.resume and ns.resume_top is None:
+        raise SystemExit(
+            "Error: --seeds 0 disables every LLM call, so the search has "
+            "nothing to mutate unless it starts from existing candidates. "
+            "Add --resume, or raise --seeds."
+        )
 
     if ns.tournament_size < 2:
         raise SystemExit("Error: --tournament-size must be at least 2")
 
-    if not (0.0 < ns.cull_keep <= 1.0):
-        raise SystemExit("Error: --cull-keep must be greater than 0.0 and at most 1.0")
-
     if ns.resume_top is not None:
         ns.resume = True
-
-    def _flags(params):
-        return ", ".join("--" + p.replace("_", "-") for p in sorted(params))
-
-    is_beam = ns.strategy == StrategyType.BEAM.value
-    if is_beam:
-        nsga_defaults = {
-            "epoch_diversity": DEFAULT_EPOCH_DIVERSITY,
-            "epoch_variance": DEFAULT_EPOCH_VARIANCE,
-            "epoch_seeds": DEFAULT_EPOCH_SEEDS,
-            "tournament_size": DEFAULT_TOURNAMENT_SIZE,
-        }
-        nsga_set = {
-            p
-            for p in NSGA_ONLY_PARAMS
-            if getattr(ns, p, None) not in (None, nsga_defaults[p])
-        }
-        if nsga_set:
-            raise SystemExit(
-                f"Error: {_flags(nsga_set)} are nsga-only parameters"
-                " and cannot be used with --strategy beam."
-            )
-    else:
-        beam_defaults = {"beams": DEFAULT_BEAMS, "cull_keep": DEFAULT_CULL_KEEP}
-        beam_set = {p for p in BEAM_ONLY_PARAMS if getattr(ns, p) != beam_defaults[p]}
-        if beam_set:
-            raise SystemExit(
-                f"Error: {_flags(beam_set)} are beam-only parameters"
-                " and cannot be used with --strategy nsga."
-            )
 
     return ns

@@ -5,7 +5,7 @@ import pytest
 from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
-from vectrify.search import INVALID_SCORE, ChainState, SearchNode, StrategyType
+from vectrify.search import INVALID_SCORE, ChainState, SearchNode
 from vectrify.vector.resume import (
     PreppedNode,
     filter_to_pool_size,
@@ -97,16 +97,8 @@ def test_prefilter_returns_original_items():
 
 def test_filter_no_op_when_within_pool():
     nodes = [_make_node(i, score=float(i) * 0.1) for i in range(3)]
-    result = filter_to_pool_size(nodes, pool_size=5, strategy_type=StrategyType.NSGA)
+    result = filter_to_pool_size(nodes, pool_size=5)
     assert result == nodes
-
-
-def test_filter_beam_sorts_by_score():
-    nodes = [_make_node(i, score=1.0 - i * 0.1) for i in range(5)]
-    result = filter_to_pool_size(nodes, pool_size=3, strategy_type=StrategyType.BEAM)
-    assert len(result) == 3
-    scores = [n.score for n in result]
-    assert scores == sorted(scores)
 
 
 def test_filter_nsga_returns_pool_size():
@@ -114,16 +106,14 @@ def test_filter_nsga_returns_pool_size():
         _make_node(i, score=float(i) * 0.1, visual_complexity=float(i) * 50)
         for i in range(10)
     ]
-    result = filter_to_pool_size(nodes, pool_size=4, strategy_type=StrategyType.NSGA)
+    result = filter_to_pool_size(nodes, pool_size=4)
     assert len(result) == 4
 
 
 def test_filter_nsga_prefers_pareto_front():
     best = _make_node(1, score=0.1, visual_complexity=10.0)  # dominates all others
     worse = [_make_node(i + 2, score=0.9, visual_complexity=900.0) for i in range(9)]
-    result = filter_to_pool_size(
-        [best, *worse], pool_size=3, strategy_type=StrategyType.NSGA
-    )
+    result = filter_to_pool_size([best, *worse], pool_size=3)
     assert best in result
 
 
@@ -133,7 +123,7 @@ def test_filter_handles_invalid_scores():
         _make_node(2, score=0.3),
         _make_node(3, score=0.5),
     ]
-    result = filter_to_pool_size(nodes, pool_size=2, strategy_type=StrategyType.BEAM)
+    result = filter_to_pool_size(nodes, pool_size=2)
     assert len(result) == 2
     assert all(n.score < INVALID_SCORE for n in result)
 

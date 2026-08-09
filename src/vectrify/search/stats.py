@@ -59,7 +59,11 @@ class SearchStats:
 
     epoch: int = 0
     epoch_no_improve: int = 0
-    llm_pressure: float = 0.0
+    # "seed" while the epoch's LLM batch is running, "local" while its children
+    # are being refined by mutation and crossover.
+    phase: str = "seed"
+    seeds_completed: int = 0
+    seeds_target: int = 0
     pool_diversity: float = 1.0
     epoch_diversity: float = 0.0
 
@@ -68,7 +72,6 @@ class SearchStats:
     pool_rejected_count: int = 0
     invalid_count: int = 0
 
-    llm_rate: float = 0.0
     llm_call_count: int = 0
     llm_calls_in_flight: int = 0
     llm_invalid_count: int = 0
@@ -80,8 +83,6 @@ class SearchStats:
     shutting_down: bool = False
     pool_score_std: float = 0.0
     epoch_variance: float = 0.0
-    epoch_steps: int = 0
-    epoch_tasks: int = 0
 
     best_score: float = INVALID_SCORE
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))
@@ -121,9 +122,11 @@ class SearchStats:
     def mutation_accept_rate(self) -> float:
         return self._rate_of("mutation_accept_rate")
 
-    def effective_llm_rate(self) -> float:
-        """Actual fraction of tasks that call the LLM (pressure * llm_rate)."""
-        return self.llm_pressure * self.llm_rate
+    def seed_fraction(self) -> float:
+        """Progress through the current epoch's LLM seed batch, in [0, 1]."""
+        if self.seeds_target <= 0:
+            return 1.0
+        return min(1.0, self.seeds_completed / self.seeds_target)
 
     def stagnation_fraction(self) -> float:
         if self.epoch_patience <= 0:

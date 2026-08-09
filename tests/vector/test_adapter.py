@@ -3,7 +3,7 @@ import io
 from PIL import Image
 
 from vectrify.formats.models import VectorResultPayload, VectorStatePayload
-from vectrify.search import BeamSearchStrategy
+from vectrify.search import NsgaStrategy
 from vectrify.search.models import Result
 from vectrify.vector.adapter import VectorStrategyAdapter
 
@@ -17,7 +17,7 @@ def _make_png(color: str = "red", size: int = 16) -> bytes:
 
 def _make_adapter(write_lineage: bool = False) -> VectorStrategyAdapter:
     return VectorStrategyAdapter(
-        base_strategy=BeamSearchStrategy(),
+        base_strategy=NsgaStrategy(),
         resolution_llm=64,
         write_lineage=write_lineage,
     )
@@ -117,7 +117,7 @@ def test_create_new_state_heatmap_data_url_none_when_no_png():
 
 def test_create_new_state_heatmap_independent_of_save_raster():
     adapter = VectorStrategyAdapter(
-        base_strategy=BeamSearchStrategy(),
+        base_strategy=NsgaStrategy(),
         resolution_llm=64,
         write_lineage=False,
         save_raster=False,

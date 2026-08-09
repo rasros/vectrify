@@ -43,7 +43,6 @@ class Task(Generic[TState]):
     secondary_parent_id: int | None = None
     secondary_parent_state: ChainState[TState] | None = None
     force_llm: bool = False
-    llm_pressure: float = 0.0
 
 
 @dataclasses.dataclass

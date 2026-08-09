@@ -95,8 +95,7 @@ def load_stats(run_dir: Path) -> dict:
         **counts,
         # Rates come from the same definitions the live dashboard uses.
         **derived_rates(counts),
-        "llm_rate": _float("llm_rate"),
-        "llm_pressure_final": _float("llm_pressure"),
+        "seeds_target": _float("seeds_target"),
         "epochs_completed": _float("epoch"),
         "epoch_patience_config": _float("epoch_patience"),
         "epoch_diversity_config": _float("epoch_diversity"),
@@ -123,7 +122,7 @@ def load_stats(run_dir: Path) -> dict:
     stats["score_history"] = history
 
     # Convergence + rates time series:
-    # (elapsed, pool_diversity, pool_score_std, epoch, llm_pressure, accept_rate)
+    # (elapsed, pool_diversity, pool_score_std, epoch, accept_rate)
     convergence = []
     for row in rows:
         try:
@@ -135,7 +134,6 @@ def load_stats(run_dir: Path) -> dict:
                     float(row.get("pool_diversity", 0) or 0),
                     float(row.get("pool_score_std", 0) or 0),
                     int(float(row.get("epoch", 0) or 0)),
-                    float(row.get("llm_pressure", 0) or 0),
                     a_comp / t_comp if t_comp else 0.0,
                 )
             )
@@ -298,7 +296,7 @@ def plot_score_history(ax, runs: list[tuple[Path, dict]], lineages: list[list[di
         # Epoch transition lines
         ch = stats.get("convergence_history", [])
         prev_epoch = ch[0][3] if ch else 0
-        for elapsed, _div, _std, ep, _pr, _ar in ch:
+        for elapsed, _div, _std, ep, _ar in ch:
             if ep != prev_epoch:
                 ax.axvline(
                     elapsed, color="grey", linewidth=0.8, linestyle=":", alpha=0.8
@@ -414,7 +412,7 @@ def plot_convergence(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict
         )
 
         prev_epoch = ch[0][3] if ch else 0
-        for elapsed, _div, _std, ep, _pr, _ar in ch:
+        for elapsed, _div, _std, ep, _ar in ch:
             if ep != prev_epoch:
                 ax.axvline(
                     elapsed, color="grey", linewidth=0.8, linestyle=":", alpha=0.8
@@ -474,7 +472,7 @@ def plot_summary_text(
         lines.append(f"  llm calls       {int(stats.get('llm_call_count') or 0):,}")
         lines.append(f"  llm valid       {stats.get('llm_valid_rate', 0) * 100:.1f}%")
         lines.append(f"  llm accept      {stats.get('llm_accept_rate', 0) * 100:.1f}%")
-        lines.append(f"  llm pressure    {stats.get('llm_pressure_final', 0):.3f}")
+        lines.append(f"  seeds/epoch     {int(stats.get('seeds_target') or 0)}")
         lines.append(
             f"  mut calls       {int(stats.get('mutation_call_count') or 0):,}"
         )

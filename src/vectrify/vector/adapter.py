@@ -22,10 +22,10 @@ class VectorStrategyAdapter:
     ) -> tuple[bool, float]:
         return self.base_strategy.should_diversify(pool)
 
-    def epoch_seeds(
-        self, pool: list[SearchNode[VectorStatePayload]], max_seeds: int
+    def epoch_parents(
+        self, pool: list[SearchNode[VectorStatePayload]], max_parents: int
     ) -> list[SearchNode[VectorStatePayload]]:
-        return self.base_strategy.epoch_seeds(pool, max_seeds)
+        return self.base_strategy.epoch_parents(pool, max_parents)
 
     def create_new_state(self, result: Result) -> ChainState[VectorStatePayload]:
         new_state = self.base_strategy.create_new_state(result)

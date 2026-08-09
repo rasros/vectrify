@@ -1,15 +1,9 @@
-from enum import Enum
 from pathlib import Path
 from typing import Protocol, TypeVar
 
 from vectrify.search.models import ChainState, Result, SearchNode
 
 TState = TypeVar("TState")
-
-
-class StrategyType(str, Enum):
-    BEAM = "beam"
-    NSGA = "nsga"
 
 
 class SearchStrategy(Protocol[TState]):
@@ -26,10 +20,15 @@ class SearchStrategy(Protocol[TState]):
         """
         ...
 
-    def epoch_seeds(
-        self, pool: list[SearchNode[TState]], max_seeds: int
+    def epoch_parents(
+        self, pool: list[SearchNode[TState]], max_parents: int
     ) -> list[SearchNode[TState]]:
-        """Select diverse nodes from the pool to seed the next epoch."""
+        """Select the nodes the next epoch's LLM edits should start from.
+
+        These are parents, not pool members: the epoch's pool is built from
+        their edited children, so a node returned here survives only through
+        whatever the LLM makes of it.
+        """
         ...
 
 
