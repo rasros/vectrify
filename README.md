@@ -145,7 +145,7 @@ a difference map highlighting where they disagree, was removed after being
 measured — in a paired test sending the identical prompt 35 times with and
 without it, the map made edits significantly worse (median paired difference
 -0.0102, better in only 4 of 35 pairs, p=0.00001) while adding ~12% to prompt
-tokens. scripts/eval_diff_map.py reproduces the measurement.
+tokens.
 
 Per-crop distances are cached by content hash, so a candidate only pays for the
 crops that actually changed — usually a small share, since local mutations
