@@ -120,6 +120,7 @@ def main():
             workers=args.workers,
             resolution=args.resolution,
             resolution_llm=args.resolution_llm,
+            diff_map=args.diff_map,
             max_wall_seconds=args.max_wall_seconds,
             log_level=args.log_level,
             scorer_type=args.scorer,

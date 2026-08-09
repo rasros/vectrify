@@ -167,3 +167,12 @@ def test_resolution_and_resolution_llm_are_independent():
     ns = parse_args(["img.png", "--resolution", "1536", "--resolution-llm", "384"])
     assert ns.resolution == 1536
     assert ns.resolution_llm == 384
+
+
+def test_diff_map_defaults_off():
+    """A paired test found it made edits worse while costing ~12% more tokens."""
+    assert parse_args(["img.png"]).diff_map is False
+
+
+def test_diff_map_can_be_enabled():
+    assert parse_args(["img.png", "--diff-map"]).diff_map is True

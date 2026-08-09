@@ -404,6 +404,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"triples the cost of every image. Default: {DEFAULT_RESOLUTION_LLM}",
     )
     g_runtime.add_argument(
+        "--diff-map",
+        action=argparse.BooleanOptionalAction,
+        default=False,
+        help="Include a difference map as a third image in refinement prompts. "
+        "Off by default: measured over 35 paired calls (identical prompt with "
+        "and without it) the map made edits significantly worse -- median "
+        "paired difference -0.0102, better in only 4/35 pairs, p=0.00001 -- "
+        "while adding ~12%% to prompt tokens.",
+    )
+    g_runtime.add_argument(
         "--dashboard",
         dest="dashboard",
         action=argparse.BooleanOptionalAction,
