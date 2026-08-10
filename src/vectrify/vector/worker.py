@@ -2,6 +2,7 @@ import contextlib
 import dataclasses
 import io
 import logging
+import random
 import signal
 from typing import Any, Protocol
 
@@ -36,6 +37,9 @@ class WorkerContext:
     llm_model: str
     reasoning: str
     api_key: str | None
+    # Set it and a single-worker run repeats exactly.
+    random_seed: int | None = None
+    worker_index: int = 0
     log_queue: Any = None
     llm_in_flight: Any = None
 
@@ -63,15 +67,21 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
 
     try:
         plugin = ctx.format_plugin
-        client = get_provider(ctx.llm_provider, ctx.api_key)
 
         orig_img = Image.open(io.BytesIO(ctx.original_png_bytes)).convert("RGB")
         fast_eval_side = 128
         orig_img_fast = resize_long_side(orig_img, fast_eval_side)
 
+        if ctx.random_seed is not None:
+            random.seed(ctx.random_seed + ctx.worker_index)
+
     except Exception as e:
         log.critical(f"Worker failed initialization: {e!r}")
         return
+
+    # Built on first use: constructing one resolves an API key, which a run that
+    # never calls the LLM should not need.
+    client: Any = None
 
     while True:
         try:
@@ -91,6 +101,8 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
         try:
             if use_llm:
                 llm_type = "llm-generate"
+                if client is None:
+                    client = get_provider(ctx.llm_provider, ctx.api_key)
                 if ctx.llm_in_flight is not None:
                     with ctx.llm_in_flight.get_lock():
                         ctx.llm_in_flight.value += 1

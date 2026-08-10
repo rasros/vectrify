@@ -68,7 +68,11 @@ class MultiprocessSearchEngine(Generic[TState]):
             worker_params["llm_in_flight"] = self._llm_in_flight
         else:
             worker_params.llm_in_flight = self._llm_in_flight
-        for _ in range(max(1, self.workers)):
+        for index in range(max(1, self.workers)):
+            if isinstance(worker_params, dict):
+                worker_params["worker_index"] = index
+            elif hasattr(worker_params, "worker_index"):
+                worker_params.worker_index = index
             p = self.ctx.Process(
                 target=worker_target,
                 args=(self.task_q, self.unscored_q, worker_params),
