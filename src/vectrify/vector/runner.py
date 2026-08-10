@@ -155,8 +155,6 @@ def run_vector_search(
         try:
             s = get_scorer(
                 scorer_type,
-                provider_name=llm_provider,
-                api_key=api_key,
                 vision_model=vision_model,
             )
             ref = s.prepare_reference(original_img)
