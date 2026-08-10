@@ -20,7 +20,7 @@ The output is human-readable code you can keep editing by hand.
 - Search: NSGA-II for diversity-preserving multi-objective optimization,
   with LLM proposals and local refinement split into separate phases.
 - Scoring: local vision-model embeddings (perceptual), with pixel-diff
-  and LLM-as-judge as alternatives.
+  as an alternative.
 - Resumable runs: pick up where you left off, or fork from the top-N
   nodes of a previous run.
 - Live dashboard: pool stats, scoring, and convergence criteria.
@@ -108,7 +108,7 @@ representations, split into epochs of two phases:
   crossover — until the epoch stops improving.
 
 Every candidate is scored against the source image (perceptual via
-vision-transformer embeddings, pixel-space, or LLM-as-judge), then either
+vision-transformer embeddings, or pixel-space), then either
 replaces a worse pool member or is dropped. The best candidate of the
 whole run is tracked separately, so an epoch restart never loses it.
 
