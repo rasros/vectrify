@@ -40,8 +40,8 @@ from vectrify.search import (
 )
 from vectrify.search.collector import StatCollector
 from vectrify.utils import setup_logger, start_log_listener
-from vectrify.vector.adapter import VectorStrategyAdapter
 from vectrify.vector.resume import filter_to_pool_size, resume_nodes
+from vectrify.vector.state import VectorStateBuilder
 from vectrify.vector.worker import WorkerContext, worker_loop
 
 log = logging.getLogger("main")
@@ -241,13 +241,6 @@ def run_vector_search(
         if valid:
             collector.seed_initial_score(min(valid, key=lambda n: n.score).score)
 
-    base_strategy = NsgaStrategy[VectorStatePayload](
-        pool_size=pool_size,
-        crossover_distance_threshold=10,
-        epoch_diversity=epoch_diversity,
-        tournament_size=tournament_size,
-    )
-
     first_batch = initial_seed_tasks(epoch_seeds, initial_nodes)
     if first_batch < epoch_seeds:
         log.info(
@@ -255,14 +248,20 @@ def run_vector_search(
             f"(batch={epoch_seeds}, already seeded={epoch_seeds - first_batch})"
         )
 
-    strategy = VectorStrategyAdapter(
-        base_strategy, resolution_llm, write_lineage, save_raster
-    )
     engine = MultiprocessSearchEngine(
         workers=workers,
-        strategy=strategy,
+        strategy=NsgaStrategy[VectorStatePayload](
+            pool_size=pool_size,
+            epoch_diversity=epoch_diversity,
+            tournament_size=tournament_size,
+        ),
         storage=storage,
         max_total_tasks=max_total_tasks,
+        make_state=VectorStateBuilder(
+            resolution_llm=resolution_llm,
+            write_lineage=write_lineage,
+            save_raster=save_raster,
+        ),
     )
 
     # What the LLM sees, deliberately not the raster: vision billing tiles at

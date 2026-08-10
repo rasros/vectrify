@@ -1,6 +1,6 @@
 import pytest
 
-from vectrify.search import ChainState, Result, SearchNode
+from vectrify.search import ChainState, SearchNode
 from vectrify.search.diversity import simhash
 from vectrify.search.nsga import (
     FEASIBLE_FRACTION,
@@ -257,21 +257,6 @@ def test_select_parent_only_invalid_falls_back():
     pid, secondary = strategy.select_parent([sentinel])
     assert pid == 0
     assert secondary is None
-
-
-def test_create_new_state_propagates_score_and_payload():
-    strategy = NsgaStrategy()
-    result = Result(
-        task_id=1,
-        parent_id=1,
-        valid=True,
-        score=0.42,
-        payload="<svg/>",
-        metrics={"visual_complexity": 500.0},
-    )
-    state = strategy.create_new_state(result)
-    assert state.score == 0.42
-    assert state.payload == "<svg/>"
 
 
 def test_diversity_admits_distinct_nodes():

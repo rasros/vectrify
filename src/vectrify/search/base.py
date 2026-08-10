@@ -1,7 +1,7 @@
 from pathlib import Path
 from typing import Protocol, TypeVar
 
-from vectrify.search.models import ChainState, Result, SearchNode
+from vectrify.search.models import SearchNode
 
 TState = TypeVar("TState")
 
@@ -10,8 +10,6 @@ class SearchStrategy(Protocol[TState]):
     def select_parent(
         self, nodes: list[SearchNode[TState]]
     ) -> tuple[int, int | None]: ...
-
-    def create_new_state(self, result: Result[TState]) -> ChainState[TState]: ...
 
     def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
         """Return (trigger_epoch, diversity).

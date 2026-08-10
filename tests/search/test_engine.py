@@ -15,15 +15,6 @@ class FakeStrategy:
         _ = nodes
         return 1, None
 
-    def create_new_state(
-        self,
-        result: Result,
-    ) -> ChainState:
-        return ChainState(
-            score=result.score,
-            payload="new_fake_payload",
-        )
-
     def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
         _ = pool
         return False, 1.0

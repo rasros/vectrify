@@ -3,9 +3,8 @@ import io
 from PIL import Image
 
 from vectrify.formats.models import VectorResultPayload, VectorStatePayload
-from vectrify.search import NsgaStrategy
 from vectrify.search.models import Result
-from vectrify.vector.adapter import VectorStrategyAdapter
+from vectrify.vector.state import VectorStateBuilder
 
 
 def _make_png(color: str = "red", size: int = 16) -> bytes:
@@ -15,9 +14,8 @@ def _make_png(color: str = "red", size: int = 16) -> bytes:
     return buf.getvalue()
 
 
-def _make_adapter(write_lineage: bool = False) -> VectorStrategyAdapter:
-    return VectorStrategyAdapter(
-        base_strategy=NsgaStrategy(),
+def _make_builder(write_lineage: bool = False) -> VectorStateBuilder:
+    return VectorStateBuilder(
         resolution_llm=64,
         write_lineage=write_lineage,
     )
@@ -53,75 +51,74 @@ def create_payload(content_text: str | None) -> VectorStatePayload:
     )
 
 
-def test_create_new_state_uses_precomputed_preview():
-    adapter = _make_adapter()
+def test_uses_precomputed_preview():
+    build = _make_builder()
     precomputed = "data:image/png;base64,PRECOMPUTED"
     result = _make_result(preview_data_url=precomputed)
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.raster_preview_data_url == precomputed
 
 
-def test_create_new_state_falls_back_to_computing_preview():
-    adapter = _make_adapter()
+def test_falls_back_to_computing_preview():
+    build = _make_builder()
     png = _make_png()
     result = _make_result(raster_png=png, preview_data_url=None)
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.raster_preview_data_url is not None
     assert state.payload.raster_preview_data_url.startswith("data:image/png;base64,")
 
 
-def test_create_new_state_no_png_no_preview():
-    adapter = _make_adapter()
+def test_no_png_no_preview():
+    build = _make_builder()
     result = _make_result(raster_png=None, preview_data_url=None)
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.raster_preview_data_url is None
 
 
-def test_create_new_state_precomputed_takes_priority_over_raster_png():
-    adapter = _make_adapter()
+def test_precomputed_takes_priority_over_raster_png():
+    build = _make_builder()
     precomputed = "data:image/png;base64,WINNER"
     result = _make_result(raster_png=_make_png(), preview_data_url=precomputed)
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.raster_preview_data_url == precomputed
 
 
-def test_create_new_state_write_lineage_sets_raster_data_url():
-    adapter = _make_adapter(write_lineage=True)
+def test_write_lineage_sets_raster_data_url():
+    build = _make_builder(write_lineage=True)
     result = _make_result(raster_png=_make_png())
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.raster_data_url is not None
     assert state.payload.raster_data_url.startswith("data:image/png;base64,")
 
 
-def test_create_new_state_no_lineage_raster_data_url_is_none():
-    adapter = _make_adapter(write_lineage=False)
+def test_no_lineage_raster_data_url_is_none():
+    build = _make_builder(write_lineage=False)
     result = _make_result(raster_png=_make_png())
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.raster_data_url is None
 
 
-def test_create_new_state_heatmap_data_url_set_when_png_present():
-    adapter = _make_adapter()
+def test_heatmap_data_url_set_when_png_present():
+    build = _make_builder()
     result = _make_result(heatmap_png=_make_png("blue"))
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.heatmap_data_url is not None
     assert state.payload.heatmap_data_url.startswith("data:image/png;base64,")
 
 
-def test_create_new_state_heatmap_data_url_none_when_no_png():
-    adapter = _make_adapter()
+def test_heatmap_data_url_none_when_no_png():
+    build = _make_builder()
     result = _make_result(heatmap_png=None)
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.heatmap_data_url is None
 
 
-def test_create_new_state_heatmap_independent_of_save_raster():
-    adapter = VectorStrategyAdapter(
-        base_strategy=NsgaStrategy(),
+def test_heatmap_independent_of_save_raster():
+    build = VectorStateBuilder(
         resolution_llm=64,
         write_lineage=False,
         save_raster=False,
     )
     result = _make_result(heatmap_png=_make_png("green"))
-    state = adapter.create_new_state(result)
+    state = build(result)
     assert state.payload.heatmap_data_url is not None
