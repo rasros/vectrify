@@ -1,3 +1,5 @@
+import re
+
 from tests.helpers import image_urls, text_blocks
 from vectrify.formats.svg.prompts import (
     build_svg_gen_prompt,
@@ -159,3 +161,45 @@ def test_svg_edit_never_mentions_the_removed_difference_map():
     text = "\n".join(_text_blocks(blocks)).lower()
     assert "difference map" not in text
     assert "diff map" not in text
+
+
+def test_prompt_asks_for_geometry_and_colors_in_mutable_places():
+    """<polygon points> renders identically to a path and is mutable by nothing,
+    so a candidate built from it looks fine and never improves again."""
+    blocks = build_svg_gen_prompt(_IMG_URL, 1, canvas=(384, 384))
+    text = "\n".join(_text_blocks(blocks))
+    assert "`<path d=" in text
+    assert "`stroke-width`" in text
+    assert "stop-color" in text
+
+
+def test_edit_prompt_also_carries_the_mutable_markup_rules():
+    blocks = build_svg_gen_prompt(
+        _IMG_URL,
+        2,
+        svg_prev=_SVG,
+        rasterized_svg_data_url=_RENDER_URL,
+        canvas=(384, 384),
+    )
+    assert "`<path d=" in "\n".join(_text_blocks(blocks))
+
+
+def test_prompt_states_only_preferences():
+    """Naming what to avoid teaches the model the forbidden markup exists."""
+    from vectrify.formats.svg.prompts import MUTABLE_SVG
+
+    lowered = MUTABLE_SVG.lower()
+    for banned in ("never", "do not", "don't", "avoid", "instead of", "polygon"):
+        assert banned not in lowered
+
+
+def test_mutable_svg_rules_name_only_attributes_an_operator_reaches():
+    """The rules are a promise about the optimizer; if the two drift apart the
+    prompt starts steering the model toward markup nothing can move."""
+    from vectrify.formats.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
+    from vectrify.formats.svg.prompts import MUTABLE_SVG
+
+    quoted = set(re.findall(r"`([a-z-]+)`", MUTABLE_SVG))
+    attrs = {a for a in quoted if a not in {"transform", "d"}}
+    assert attrs
+    assert attrs <= (_NUMERIC_ATTRS | _COLOR_ATTRS)
