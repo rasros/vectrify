@@ -116,6 +116,7 @@ def run_vector_search(
     epoch_variance: float | None = None,
     epochs: int | None = None,
     max_total_tasks: int = DEFAULT_MAX_TOTAL_TASKS,
+    random_seed: int | None = None,
     vision_model: str = DEFAULT_VISION_MODEL,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
@@ -280,6 +281,7 @@ def run_vector_search(
         llm_model=llm_model,
         reasoning=reasoning,
         api_key=api_key,
+        random_seed=random_seed,
         log_queue=log_queue,
     )
 

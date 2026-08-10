@@ -18,7 +18,7 @@ def clear_keys(monkeypatch):
 
 
 def _args(**kwargs):
-    defaults = {"provider": "auto", "model": None}
+    defaults = {"provider": "auto", "model": None, "seeds": None}
     defaults.update(kwargs)
     return argparse.Namespace(**defaults)
 
@@ -111,3 +111,10 @@ def test_fail_with_debug_prints_traceback(capsys):
     assert "Error: boom" in err
     assert "Traceback" in err
     assert "ValueError: boom" in err
+
+
+@pytest.mark.usefixtures("clear_keys")
+def test_seeds_zero_needs_no_api_key():
+    provider, model = determine_provider_and_model(_args(seeds=0))
+    assert provider in ("openai", "anthropic", "gemini")
+    assert model == ""

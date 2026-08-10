@@ -335,6 +335,15 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "stdout is not a terminal (e.g. piped or redirected).",
     )
     g_runtime.add_argument(
+        "--random-seed",
+        type=int,
+        default=None,
+        dest="random_seed",
+        metavar="N",
+        help="Seed the mutation/crossover RNG. With --workers 1 this makes a "
+        "run reproducible; above that, scheduling still varies. Default: unseeded",
+    )
+    g_runtime.add_argument(
         "--log-level",
         default=DEFAULT_LOG_LEVEL,
         choices=["DEBUG", "INFO", "WARNING", "ERROR"],

@@ -18,6 +18,10 @@ def determine_provider_and_model(args) -> tuple[str, str]:
     provider = args.provider
     model = args.model
 
+    # --seeds 0 never calls the LLM, so it needs no key.
+    if args.seeds == 0:
+        return provider if provider != "auto" else PROVIDERS[0], model or ""
+
     if provider == "auto":
         provider = next(
             (p for p in PROVIDERS if os.getenv(api_key_env(p))),
@@ -138,6 +142,7 @@ def main():
             epoch_variance=args.epoch_variance or None,
             epochs=args.epochs,
             max_total_tasks=args.max_total_tasks,
+            random_seed=args.random_seed,
             vision_model=args.vision_model,
             stats=stats,
             dashboard=dashboard,
