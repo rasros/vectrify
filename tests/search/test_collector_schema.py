@@ -16,7 +16,6 @@ def test_columns_derive_from_fields():
 
 
 def test_written_row_matches_the_header(tmp_path):
-    """Header and row are generated from one table, so they cannot misalign."""
     row = _row(SearchStats(), tmp_path)
     assert list(row) == STATS_COLUMNS
     assert None not in row.values()  # no extra/short fields

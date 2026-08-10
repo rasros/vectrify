@@ -52,7 +52,6 @@ def test_worst_region_averages_only_the_worst_k():
 
 
 def test_worst_region_ignores_a_good_global_average():
-    """The whole point: a tiny defect must not be averaged away."""
     localised = np.zeros((27, 27))
     localised.ravel()[: worst_k(729)] = 1.0
 
@@ -123,7 +122,6 @@ def test_block_grid_resizes_a_mismatched_candidate():
 
 
 def test_simple_scorer_produces_a_region_grid_without_torch():
-    """The fallback path must still yield the objective."""
     scorer = SimpleFallbackScorer()
     ref = scorer.prepare_reference(_white())
     grid = scorer.region_distance_grid(ref, _png(_white_with_blot()))
@@ -169,7 +167,6 @@ def test_localised_defect_scores_worse_than_a_faint_global_one():
 
 
 def test_tiles_are_exactly_the_requested_size():
-    """No resampling: a crop fed to the model must already be its input size."""
     for w, h in ((700, 700), (1024, 768), (801, 399)):
         for box in tile_boxes((w, h), 384, 0.5):
             assert box[2] - box[0] == 384
@@ -185,7 +182,6 @@ def test_tiles_cover_the_whole_canvas():
 
 
 def test_uneven_sizes_become_extra_overlap_not_stretched_tiles():
-    """A size that does not divide evenly must overlap more, never resize."""
     boxes = tile_boxes((701, 701), 384, 0.5)
     xs = sorted({b[0] for b in boxes})
     gaps = [b - a for a, b in pairwise(xs)]
@@ -199,7 +195,6 @@ def test_image_smaller_than_a_tile_still_yields_a_full_size_box():
 
 
 def test_tile_count_follows_from_raster_size():
-    """Raster size is the only knob; the tiling derives itself."""
     counts = [len(tile_boxes((px, px), 384, 0.5)) for px in (384, 700, 1024, 1400)]
     assert counts == sorted(counts)
     assert counts[0] == 1
@@ -261,7 +256,6 @@ def test_snapped_rasters_tile_with_uniform_coverage():
 
 
 def test_overlapping_tiles_are_the_biased_case_snapping_avoids():
-    """Documents why overlap is not the default."""
     px = 700
     coverage = np.zeros((px, px), dtype=int)
     for x0, y0, x1, y1 in tile_boxes((px, px), 384, 0.5):

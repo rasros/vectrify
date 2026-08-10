@@ -131,7 +131,6 @@ def test_build_objectives_charges_for_source_size():
 
 
 def test_build_objectives_survives_all_zero_objectives():
-    """An all-zero column must not divide by zero."""
     from vectrify.score.complexity import METRIC_NAMES
 
     nodes = [make_node(i, 0.0, 0.0, structural_complexity=0.0) for i in range(1, 4)]
