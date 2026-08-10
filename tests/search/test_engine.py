@@ -549,7 +549,7 @@ def test_local_results_that_outlive_their_epoch_do_not_count_as_seeds(caplog):
             epoch_patience=1,
             epoch_min_delta=0.1,
             active_pool_size=2,
-            max_epochs=5,
+            epochs=5,
         )
 
     refines = [m for m in caplog.messages if "refining" in m]

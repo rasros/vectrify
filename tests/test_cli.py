@@ -79,7 +79,7 @@ def test_defaults_pinned():
     assert args.epoch_patience == 200
     # Epoch 0 produced 82% of the total gain on the reference image and
     # epochs 2-3 produced 3.7% for a third of the wall clock.
-    assert args.max_epochs == 2
+    assert args.epochs == 2
 
 
 @pytest.mark.parametrize(
@@ -94,19 +94,19 @@ def test_boolean_flags(flag, attr, default, flagged):
     assert getattr(parse_args(["img.png", flag]), attr) is flagged
 
 
-def test_max_epochs_parsed():
-    args = parse_args(["img.png", "--max-epochs", "10"])
-    assert args.max_epochs == 10
+def test_epochs_parsed():
+    args = parse_args(["img.png", "--epochs", "10"])
+    assert args.epochs == 10
 
 
-def test_max_epochs_zero_raises():
+def test_epochs_zero_raises():
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--max-epochs", "0"])
+        parse_args(["img.png", "--epochs", "0"])
 
 
-def test_max_epochs_negative_raises():
+def test_epochs_negative_raises():
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--max-epochs", "-1"])
+        parse_args(["img.png", "--epochs", "-1"])
 
 
 def test_tournament_size_defaults_to_two():

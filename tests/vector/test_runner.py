@@ -49,7 +49,7 @@ def _run(image_path, plugin, storage):
         llm_model=TEST_MODEL,
         format_plugin=plugin,
         write_lineage=False,
-        max_epochs=None,
+        epochs=None,
     )
 
 
@@ -97,7 +97,7 @@ def test_run_svg_search_end_to_end(tmp_path):
         llm_model=TEST_MODEL,
         format_plugin=plugin,
         write_lineage=False,
-        max_epochs=None,
+        epochs=None,
     )
 
     assert storage.nodes_dir is not None
