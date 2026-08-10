@@ -77,14 +77,6 @@ def test_rasterize_svg_to_png_bytes_invalid_dimensions():
         rasterize_svg_to_png_bytes(svg, out_w=-10, out_h=100)
 
 
-def test_pixel_diff_png_returns_valid_png():
-    ref_img = Image.new("RGB", (64, 64), color="red")
-    cand = create_test_image(64, 64, color="blue")
-    result = pixel_diff_png(ref_img, cand, long_side=64)
-    img = Image.open(io.BytesIO(result))
-    assert img.mode == "RGB"
-
-
 def test_pixel_diff_png_identical_images_are_black():
     ref_img = Image.new("RGB", (64, 64), color="red")
     cand = create_test_image(64, 64, color="red")

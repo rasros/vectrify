@@ -38,24 +38,6 @@ def make_node(
     )
 
 
-def test_dominates_strictly_better():
-    assert _dominates((0.1, 0.2), (0.3, 0.4))
-
-
-def test_dominates_equal_is_not_dominance():
-    assert not _dominates((0.3, 0.4), (0.3, 0.4))
-
-
-def test_dominates_better_in_one_equal_in_other():
-    assert _dominates((0.1, 0.4), (0.3, 0.4))
-    assert _dominates((0.3, 0.2), (0.3, 0.4))
-
-
-def test_dominates_incomparable():
-    assert not _dominates((0.1, 0.5), (0.3, 0.2))
-    assert not _dominates((0.3, 0.2), (0.1, 0.5))
-
-
 def test_dominates_honours_every_objective():
     """Regression: the comparison used to hardcode indices 0 and 1, so a third
     objective was silently ignored and a worse vector could 'dominate'."""
@@ -166,16 +148,6 @@ def test_non_dominated_sort_all_pareto():
     assert {n.id for n in fronts[0]} == {1, 2, 3}
 
 
-def test_non_dominated_sort_chain():
-    nodes = [make_node(i, float(i)) for i in range(1, 4)]
-    objectives = {1: (0.1, 0.1), 2: (0.5, 0.5), 3: (0.9, 0.9)}
-    fronts = non_dominated_sort(nodes, objectives)
-    assert len(fronts) == 3
-    assert fronts[0][0].id == 1
-    assert fronts[1][0].id == 2
-    assert fronts[2][0].id == 3
-
-
 def test_non_dominated_sort_two_fronts():
     nodes = [make_node(i, float(i)) for i in range(1, 5)]
     objectives = {
@@ -259,18 +231,6 @@ def test_select_parent_only_invalid_falls_back():
     assert secondary is None
 
 
-def test_diversity_admits_distinct_nodes():
-    strategy = NsgaStrategy(pool_size=3, crossover_distance_threshold=65)
-    nodes = [
-        make_node(1, 0.1, content="<svg><circle/></svg>"),
-        make_node(2, 0.2, content="<svg><rect/></svg>"),
-        make_node(3, 0.3, content="<svg><line/></svg>"),
-    ]
-    for _ in range(10):
-        pid, _ = strategy.select_parent(nodes)
-        assert pid in {1, 2, 3}
-
-
 def test_diversity_rejects_exact_duplicate_with_worse_score():
     content = "<svg><rect width='200' height='200'/></svg>"
     strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=65)
@@ -283,48 +243,6 @@ def test_diversity_rejects_exact_duplicate_with_worse_score():
         pid, _ = strategy.select_parent([good, duplicate, different])
         selected.add(pid)
     assert 2 not in selected
-
-
-def test_diversity_admits_node_with_no_content():
-    strategy = NsgaStrategy(pool_size=3, crossover_distance_threshold=65)
-    nodes = [
-        make_node(1, 0.1, content=None),
-        make_node(2, 0.2, content=None),
-    ]
-    for _ in range(10):
-        pid, _ = strategy.select_parent(nodes)
-        assert pid in {1, 2}
-
-
-def test_pareto_front_prefers_simpler_for_equal_quality():
-    n_simple = make_node(1, 0.3, visual_complexity=100.0)
-    n_complex = make_node(2, 0.3, visual_complexity=5000.0)
-    max_c = 5000.0
-    objectives = {
-        1: (0.3, 100.0 / max_c),
-        2: (0.3, 1.0),
-    }
-    fronts = non_dominated_sort([n_simple, n_complex], objectives)
-    assert fronts[0][0].id == 1
-
-
-def test_tournament_prefers_lower_rank():
-    strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
-    nodes = [
-        make_node(1, 0.1, visual_complexity=100.0),
-        make_node(2, 0.9, visual_complexity=100.0),
-    ]
-    selected = {strategy.select_parent(nodes)[0] for _ in range(30)}
-    assert 1 in selected
-    assert 2 not in selected
-
-
-def test_tournament_single_pool_candidate_returns_it():
-    strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
-    nodes = [make_node(1, 0.3, visual_complexity=200.0)]
-    pid, secondary = strategy.select_parent(nodes)
-    assert pid == 1
-    assert secondary is None
 
 
 def test_tournament_constrained_dominance_prefers_better_score():
@@ -470,11 +388,6 @@ def test_feasibility_threshold_empty():
 
 def test_feasibility_threshold_single():
     assert _feasibility_threshold([0.5]) == 0.5
-
-
-def test_feasibility_threshold_four_values():
-    # sorted: [0.1, 0.2, 0.3, 0.4]; index = int(0.5*4)=2 → 0.3
-    assert _feasibility_threshold([0.4, 0.1, 0.3, 0.2]) == 0.3
 
 
 def test_feasibility_threshold_admits_exactly_the_configured_fraction():

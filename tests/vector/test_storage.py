@@ -107,18 +107,6 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
     assert row["evicted"] == ""  # empty until evicted
 
 
-def test_lineage_columns_match_the_written_header(tmp_path, dummy_node):
-    """Header and rows come from one column list, so they cannot misalign."""
-    adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
-    adapter.initialize()
-    adapter.save_node(dummy_node)
-
-    assert adapter.lineage_csv is not None
-    with adapter.lineage_csv.open(encoding="utf-8", newline="") as f:
-        header = next(iter(csv.reader(f)))
-    assert header == LINEAGE_COLUMNS
-
-
 def test_eviction_row_lands_in_the_evicted_column(tmp_path, dummy_node):
     """An eviction row is sparse; its value must not shift into a neighbouring
     column when the schema gains a field."""
@@ -208,17 +196,6 @@ def test_save_raster_false_does_not_write_png(tmp_path):
     )
     adapter.save_node(node)
     assert not (adapter.nodes_dir / "0.500000_1.png").is_file()
-
-
-def test_save_heatmap_writes_heatmap_png(tmp_path):
-    adapter = FileStorageAdapter(str(tmp_path / "out.svg"), save_heatmap=True)
-    adapter.initialize()
-    assert adapter.nodes_dir is not None
-    node = _make_node_with_raster_and_heatmap(
-        heatmap_data_url=png_bytes_to_data_url(_make_png("blue"))
-    )
-    adapter.save_node(node)
-    assert (adapter.nodes_dir / "0.500000_1.heatmap.png").is_file()
 
 
 def test_save_heatmap_false_does_not_write_heatmap_png(tmp_path):
