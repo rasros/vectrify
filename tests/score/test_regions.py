@@ -31,7 +31,6 @@ def _white(size: int = 128) -> Image.Image:
 
 
 def _white_with_blot(size: int = 128, blot: int = 12) -> Image.Image:
-    """A white canvas with one small dark square — a localised defect."""
     img = _white(size)
     img.paste(Image.new("RGB", (blot, blot), "black"), (4, 4))
     return img
@@ -91,7 +90,6 @@ def test_block_grid_has_the_requested_shape():
 
 
 def test_block_grid_shape_holds_when_size_does_not_divide_evenly():
-    """The reference is resized to a long side that rarely divides by 27."""
     grid = block_distance_grid(Image.new("RGB", (100, 61), "white"), _png(_white(100)))
     assert grid.shape == REGION_GRID
 
@@ -132,7 +130,6 @@ def test_simple_scorer_produces_a_region_grid_without_torch():
 
 
 def test_region_grid_is_none_without_a_reference_image():
-    """None means 'not measured' — callers must not read it as a zero distance."""
 
     class _Refless(Scorer):
         def prepare_reference(self, original_rgb):  # noqa: ARG002 - override contract
@@ -145,11 +142,6 @@ def test_region_grid_is_none_without_a_reference_image():
 
 
 def test_localised_defect_scores_worse_than_a_faint_global_one():
-    """End-to-end: the case the metric exists to catch.
-
-    A small hard defect and a faint wash carry comparable total error, so the
-    primary colour score barely separates them. worst_region must.
-    """
     scorer = SimpleFallbackScorer()
     ref = scorer.prepare_reference(_white())
 
@@ -190,7 +182,6 @@ def test_uneven_sizes_become_extra_overlap_not_stretched_tiles():
 
 
 def test_image_smaller_than_a_tile_still_yields_a_full_size_box():
-    """A short box would be stretched into the model's square input."""
     assert tile_boxes((300, 300), 384, 0.5) == [(0, 0, 384, 384)]
 
 
@@ -214,7 +205,6 @@ def test_overlap_must_be_a_fraction():
 
 
 def test_tile_key_distinguishes_position():
-    """Identical pixels elsewhere compare against a different reference tile."""
     tile = _white(64)
     assert tile_key(0, tile) != tile_key(1, tile)
     assert tile_key(0, tile) == tile_key(0, _white(64))
@@ -228,7 +218,6 @@ def test_tile_key_distinguishes_content():
 
 
 def test_snap_raster_rounds_up_to_whole_crops():
-    """A request is a resolution floor; rounding down would score at less."""
     assert snap_raster(512, 384) == 768
     assert snap_raster(700, 384) == 768
     assert snap_raster(768, 384) == 768
@@ -268,8 +257,6 @@ def test_overlapping_tiles_are_the_biased_case_snapping_avoids():
 
 
 def test_every_crop_is_tile_sized_at_any_aspect_ratio():
-    """Only the long side is snapped, so the short side is normally a fraction
-    of a crop. A short box would be stretched into the model's square input."""
     for size in ((768, 480), (768, 576), (768, 269), (768, 128), (768, 768)):
         for box in tile_boxes(size, 384, 0.0):
             assert box[2] - box[0] == 384
@@ -277,8 +264,6 @@ def test_every_crop_is_tile_sized_at_any_aspect_ratio():
 
 
 def test_coverage_is_uniform_over_real_pixels_at_any_aspect_ratio():
-    """The reason for overhanging rather than re-spacing: fitting the crops
-    inside a short axis would overlap them and weight those pixels higher."""
     for w, h in ((768, 480), (768, 576), (768, 269), (1152, 864)):
         coverage = np.zeros((h, w), dtype=int)
         for x0, y0, x1, y1 in tile_boxes((w, h), 384, 0.0):

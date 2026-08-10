@@ -49,7 +49,6 @@ def _node(node_id: int, score: float, visual: float, structural: float) -> Searc
 
 @pytest.fixture
 def written_run(tmp_path):
-    """A real run directory with two saved nodes and one eviction."""
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
     adapter.initialize()
     adapter.save_node(_node(1, 0.25, 1000.0, 300.0))
@@ -73,9 +72,6 @@ def test_plot_run_reads_back_what_storage_wrote(written_run):
 
 
 def test_plot_run_reader_covers_every_column_it_needs(written_run):
-    """Guards against a one-sided rename: each key the reader produces must come
-    from a column the writer actually emits.
-    """
     from plot_run import load_lineage
 
     rows = load_lineage(written_run)
@@ -107,9 +103,6 @@ def test_clean_runs_reads_back_what_storage_wrote(written_run):
 
 
 def test_legacy_single_column_runs_still_read(tmp_path):
-    """Pre-split runs carry one 'complexity' column; it must survive as the
-    visual objective rather than silently reading as zero.
-    """
     from plot_run import load_lineage
 
     run = tmp_path / "runs" / "2026-01-01_00-00-00"
@@ -126,9 +119,6 @@ def test_legacy_single_column_runs_still_read(tmp_path):
 
 
 def test_legacy_runs_are_labelled_in_plots(tmp_path):
-    """Old and new runs are not on the same complexity scale, so an overlay must
-    say so instead of drawing them as if they matched.
-    """
     from plot_run import _label, uses_legacy_complexity
 
     legacy = tmp_path / "runs" / "2026-01-01_00-00-00"

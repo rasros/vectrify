@@ -40,6 +40,4 @@ def test_unknown_format_raises():
 
 
 def test_registry_entries_are_lazy():
-    """Values are factories, not instances, so importing the registry does not
-    import graphviz/typst/cairo."""
     assert all(callable(v) for v in FORMAT_PLUGINS.values())

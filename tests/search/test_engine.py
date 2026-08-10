@@ -400,11 +400,6 @@ def _seed_result(task_id: int, score: float) -> Result:
 
 
 def test_seed_batch_does_not_consult_the_parent_selector():
-    """Seed parents come from the outgoing front, not tournament selection.
-
-    Routing them through select_parent would land every LLM call of the batch
-    on whichever candidate the tournament favours.
-    """
 
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
@@ -430,11 +425,6 @@ def test_seed_batch_does_not_consult_the_parent_selector():
 
 
 def test_seed_phase_cannot_go_stale():
-    """Patience counts local tasks only, so a batch cannot end its own epoch.
-
-    Otherwise the epoch transitions before its children are ever refined,
-    spending LLM calls on restarts that never get explored.
-    """
 
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
@@ -466,11 +456,6 @@ def test_seed_phase_cannot_go_stale():
 
 
 def test_epoch_zero_keeps_resumed_nodes_alongside_seed_children():
-    """Epoch 0 adds to the pool; only later epochs replace it.
-
-    A resumed candidate usually beats any fresh LLM edit of it, so clearing
-    here would throw away exactly what --resume restored.
-    """
 
     class TrackingStrategy(FakeStrategy):
         def __init__(self):

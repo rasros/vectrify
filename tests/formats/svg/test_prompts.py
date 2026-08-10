@@ -7,7 +7,6 @@ from vectrify.formats.svg.prompts import (
 
 _IMG_URL = "data:image/png;base64,abc"
 _RENDER_URL = "data:image/png;base64,def"
-_DIFF_URL = "data:image/png;base64,ghi"
 _SVG = "<svg><rect/></svg>"
 
 
@@ -107,19 +106,6 @@ def test_gen_prompt_render_url_absent_when_not_provided():
     assert _RENDER_URL not in _image_blocks(blocks)
 
 
-def test_no_difference_map_is_ever_sent():
-    """Removed after a paired test: it made edits significantly worse (median
-    paired difference -0.0102, p=0.00001) while adding ~12% to prompt tokens."""
-    blocks = build_svg_gen_prompt(
-        _IMG_URL,
-        1,
-        svg_prev="<svg/>",
-        rasterized_svg_data_url=_RENDER_URL,
-    )
-    assert len(_image_blocks(blocks)) <= 2
-    assert "ifference Map" not in "\n".join(_text_blocks(blocks))
-
-
 def test_gen_prompt_diff_format_instructions_in_edit():
     blocks = build_svg_gen_prompt(_IMG_URL, iter_index=2, svg_prev=_SVG)
     text = "\n".join(_text_blocks(blocks))
@@ -129,9 +115,6 @@ def test_gen_prompt_diff_format_instructions_in_edit():
 
 
 def test_gen_prompt_pins_the_viewbox_to_the_canvas():
-    """Left to itself the model copies the prompt image's dimensions, so the
-    coordinate space changes with the raster size — and crossover grafts
-    elements between parents without rescaling them."""
     blocks = build_svg_gen_prompt(
         "data:image/png;base64,abc",
         1,

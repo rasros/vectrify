@@ -434,7 +434,6 @@ def test_mutate_path_nudges_exactly_one_coordinate():
 
 
 def test_mutate_path_separates_the_nudged_number_from_its_neighbours():
-    """Compact path data has no separators ("L3.5.5"), so a replacement can fuse."""
     svg = f'<svg xmlns="{NS}"><path d="M0 0L3.5.5Z"/></svg>'
     before = [0.0, 0.0, 3.5, 0.5]
     for seed in range(50):

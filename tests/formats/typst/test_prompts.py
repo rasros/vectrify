@@ -25,9 +25,6 @@ def test_gen_prompt_system_text_mentions_typst_rules():
 
 
 def test_gen_prompt_pins_the_page_to_the_canvas():
-    """An auto-sized page leaves the coordinate space implicit, so the same
-    #place means different positions in different candidates and crossover
-    silently rescales what it grafts."""
     text = _first_iteration_text((768, 512))
     assert "#set page(width: 768pt, height: 512pt, margin: 0pt)" in text
     assert "width: auto" not in text

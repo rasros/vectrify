@@ -60,7 +60,6 @@ def test_dominates_supports_any_arity(arity):
 
 
 def test_dominates_rejects_mismatched_arity():
-    """Silently comparing only the shared prefix would drop objectives."""
     with pytest.raises(ValueError, match="argument 2 is longer"):
         _dominates((0.1, 0.2), (0.1, 0.2, 0.3))
 
@@ -390,8 +389,6 @@ def test_feasibility_threshold_single():
 
 
 def test_feasibility_threshold_admits_exactly_the_configured_fraction():
-    """The gate is what keeps visual error the primary objective, so the share
-    of the pool it admits must match FEASIBLE_FRACTION rather than drift."""
     scores = [round(0.1 * i, 2) for i in range(1, 11)]  # 0.1 best .. 1.0 worst
     threshold = _feasibility_threshold(scores)
     feasible = [s for s in scores if s < threshold]
@@ -401,8 +398,6 @@ def test_feasibility_threshold_admits_exactly_the_configured_fraction():
 
 
 def test_feasibility_threshold_is_scale_free():
-    """Errors are unbounded in principle; the gate must be a quantile of the
-    pool, not a fixed error value."""
     small = [0.001 * i for i in range(1, 11)]
     large = [100.0 * i for i in range(1, 11)]
     for scores in (small, large):
@@ -461,14 +456,11 @@ def test_tournament_size_defaults_to_two():
 
 
 def test_tournament_size_is_clamped_to_a_usable_minimum():
-    """A tournament of one is not a tournament -- it would select uniformly at
-    random and silently remove all selection pressure."""
     assert NsgaStrategy(tournament_size=1).tournament_size == 2
     assert NsgaStrategy(tournament_size=0).tournament_size == 2
 
 
 def test_tournament_size_larger_than_the_pool_is_safe():
-    """random.sample raises if asked for more items than exist."""
     strategy = NsgaStrategy(pool_size=10, tournament_size=50)
     nodes = [make_node(i, i * 0.1) for i in range(1, 4)]
     pid, _ = strategy.select_parent(nodes)
@@ -482,9 +474,6 @@ def test_tournament_size_of_one_node_pool_is_safe():
 
 
 def test_larger_tournament_biases_harder_toward_score():
-    """Selection intensity rises with tournament size; this is the lever that
-    keeps visual error primary, far more than the feasibility gate does.
-    """
     import random as _random
 
     def better_half_rate(size: int, trials: int = 1500) -> float:

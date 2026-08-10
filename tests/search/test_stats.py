@@ -30,8 +30,6 @@ def test_derived_rates_values():
 
 
 def test_methods_agree_with_derived_rates():
-    """The individual accessors the dashboard calls and the dict form the
-    plotting script uses must never disagree."""
     s = _populated()
     rates = s.derived_rates()
     assert s.accept_rate() == rates["accept_rate"]
@@ -55,7 +53,6 @@ def test_rates_are_zero_with_no_activity():
 
 
 def test_derived_rates_accepts_a_plain_mapping():
-    """The plotting script feeds in a stats.csv row rather than a SearchStats."""
     rates = derived_rates({"tasks_completed": 10.0, "accepted_count": 4.0})
     assert rates["accept_rate"] == pytest.approx(0.4)
     assert rates["llm_accept_rate"] == 0.0  # missing counters degrade to zero

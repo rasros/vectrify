@@ -14,7 +14,6 @@ TARGET = Image.new("RGB", (32, 32), color="blue")
 
 
 def _fake_rasterize(content: str) -> bytes | None:
-    """Render "<color>" to a flat image; anything else fails to render."""
     if not content.startswith("color:"):
         return None
     return make_png(content.removeprefix("color:"), 32)
@@ -98,12 +97,6 @@ def test_fast_lab_l1_unreadable_png_is_max_distance():
 
 
 def test_fast_lab_l1_compares_whole_image_despite_aspect_mismatch():
-    """A render whose aspect differs must still be compared in full.
-
-    PIL crops to the overlap when sizes differ, so without resizing, a
-    candidate that only covers part of the target would have the rest of
-    the target silently excluded from the score.
-    """
     # Target: top half blue, bottom half red.
     target = Image.new("RGB", (32, 32), color="blue")
     for y in range(16, 32):

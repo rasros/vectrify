@@ -69,8 +69,6 @@ def test_structural_complexity_grows_with_element_count():
 
 
 def test_structural_complexity_ignores_indentation():
-    """Pretty-printing varies with whatever the model emitted and carries no
-    complexity information, so it must not shift the objective."""
     minified = '<svg><rect fill="red"/><circle r="5"/></svg>'
     pretty = '<svg>\n    <rect fill="red"/>\n    <circle r="5"/>\n</svg>\n'
     assert structural_complexity(minified) == structural_complexity(pretty)
@@ -108,7 +106,6 @@ def test_registry_covers_the_declared_metrics():
 
 
 def test_worker_metrics_precede_scorer_metrics():
-    """Objective-vector order must stay stable for runs recorded earlier."""
     from vectrify.score.complexity import METRIC_NAMES, METRICS
 
     assert METRIC_NAMES[: len(METRICS)] == tuple(METRICS)
@@ -123,7 +120,6 @@ def test_measure_all_evaluates_every_worker_metric():
 
 
 def test_measure_all_omits_scorer_metrics():
-    """They need the reference image, which workers do not carry."""
     from vectrify.score.complexity import SCORER_METRICS, measure_all
 
     metrics = measure_all(_make_png("red", size=32), _SIMPLE_SVG)
@@ -165,7 +161,6 @@ def test_read_metrics_round_trips_a_written_row():
 
 
 def test_read_metrics_defaults_absent_columns_to_zero():
-    """A row written before a metric was registered must stay readable."""
     from vectrify.score.complexity import METRIC_NAMES, read_metrics
 
     metrics = read_metrics({"visual_complexity": "100"})
@@ -183,8 +178,6 @@ def test_read_metrics_maps_the_legacy_blended_column():
 
 
 def test_row_has_metrics_rejects_sparse_eviction_rows():
-    """An eviction row sets only id and evicted; reading it as metrics would
-    overwrite the node's real values with zeros."""
     from vectrify.score.complexity import row_has_metrics
 
     assert row_has_metrics({"visual_complexity": "100"}) is True
