@@ -71,7 +71,9 @@ _NAMED_SVG_COLORS = [
 ]
 
 _NUM_RE = re.compile(r"^(-?\d+(?:\.\d+)?)([a-z%]*)$")
-_PATH_NUM_RE = re.compile(r"(-?\d+(?:\.\d+)?)")
+# Path data writes numbers with a leading dot and no separators ("M.5.5"), so
+# an anchorless \d+ pattern would match the middle of a coordinate pair.
+_PATH_NUM_RE = re.compile(r"(-?(?:\d+\.\d+|\.\d+|\d+))")
 _HEX_COLOR_RE = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
 
 
@@ -333,7 +335,15 @@ def mutate_path(root: ET.Element) -> None:
     magnitude = max(2.0, abs(val) * 0.15)
     new_val = val + random.uniform(-magnitude, magnitude)
     new_str = f"{new_val:.1f}".rstrip("0").rstrip(".")
-    el.set("d", d[: m.start()] + new_str + d[m.end() :])
+    # Neighbouring numbers may abut the replaced one; without a separator the
+    # new text would merge with them into a different number, silently shifting
+    # every coordinate that follows.
+    before, after = d[: m.start()], d[m.end() :]
+    if before and (before[-1].isdigit() or before[-1] == "."):
+        before += " "
+    if after and (after[0].isdigit() or after[0] == "."):
+        after = " " + after
+    el.set("d", before + new_str + after)
 
 
 @svg_transform
