@@ -18,8 +18,6 @@ def _node(content: str | None) -> SearchNode:
 
 
 def test_seeds_default_to_a_tenth_of_the_pool():
-    """Seeds are the run's LLM bill; deriving them from the pool keeps a bigger
-    pool from silently multiplying cost per epoch."""
     assert resolve_seeds(None, 40) == 4
 
 
@@ -28,8 +26,6 @@ def test_an_explicit_seed_count_wins_over_the_pool_size():
 
 
 def test_zero_seeds_is_allowed():
-    """--seeds 0 is the mutation-only run, so it must not fall back to a
-    pool-derived default."""
     assert resolve_seeds(0, 40) == 0
 
 
@@ -42,8 +38,6 @@ def test_a_small_pool_still_derives_a_seed_count():
 
 
 def test_resumed_nodes_pay_for_themselves():
-    """A resumed candidate is a seed already bought; regenerating one per
-    resumed node would double the cost of every restart."""
     assert initial_seed_tasks(4, [_node("<svg/>"), _node("<svg/>")]) == 2
 
 
@@ -56,8 +50,6 @@ def test_more_resumed_nodes_than_seeds_never_goes_negative():
 
 
 def test_contentless_nodes_do_not_count_as_seeds():
-    """A placeholder node has nothing to refine, so the epoch still needs its
-    full batch of generated candidates."""
     assert initial_seed_tasks(3, [_node(None), _node("")]) == 3
 
 

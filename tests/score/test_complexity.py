@@ -131,7 +131,6 @@ def test_measure_all_omits_scorer_metrics():
 
 
 def test_lineage_columns_derive_from_the_registry():
-    """A registered metric must become a lineage.csv column with no edit there."""
     from vectrify.score.complexity import METRIC_NAMES
     from vectrify.vector.storage import LINEAGE_COLUMNS
 
@@ -140,7 +139,6 @@ def test_lineage_columns_derive_from_the_registry():
 
 
 def test_objective_arity_follows_the_registry():
-    """The objective vector is score plus one entry per registered metric."""
     from vectrify.score.complexity import METRIC_NAMES
     from vectrify.search import ChainState, SearchNode
     from vectrify.search.nsga import build_objectives

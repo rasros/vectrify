@@ -43,16 +43,12 @@ def _collector(tmp_path: Path) -> tuple[StatCollector, SearchStats]:
 
 
 def test_configure_run_records_the_epoch_thresholds(tmp_path):
-    """These land in every row and are how a finished run's stagnation
-    thresholds can be read back off stats.csv."""
     collector, stats = _collector(tmp_path)
     collector.configure_run(epoch_diversity=0.3, epoch_variance=0.02)
     assert (stats.epoch_diversity, stats.epoch_variance) == (0.3, 0.02)
 
 
 def test_seed_initial_score_anchors_the_history_at_zero():
-    """Without a t=0 point the score curve starts at the first improvement and
-    the plotted run appears to begin already optimized."""
     stats = SearchStats()
     StatCollector(stats, None).seed_initial_score(0.8)
     assert stats.best_score == 0.8
@@ -67,7 +63,6 @@ def test_on_run_start_sets_the_clock_and_patience():
 
 
 def test_on_shutdown_writes_a_final_row(tmp_path):
-    """The last row is the only record of where a killed run ended up."""
     collector, stats = _collector(tmp_path)
     collector.on_shutdown()
     assert stats.shutting_down
@@ -83,8 +78,6 @@ def test_on_phase_seed_resets_the_seed_counter_and_flushes(tmp_path):
 
 
 def test_on_phase_local_keeps_the_seed_counter(tmp_path):
-    """Only a new seed batch restarts the count; zeroing it on the local phase
-    would make the dashboard's seed progress jump backwards."""
     collector, stats = _collector(tmp_path)
     stats.seeds_completed = 4
     collector.on_phase("local", 6)
@@ -92,8 +85,6 @@ def test_on_phase_local_keeps_the_seed_counter(tmp_path):
 
 
 def test_on_result_splits_llm_and_mutation_calls(tmp_path):
-    """The two call counts are the denominators of the accept rates that decide
-    whether the LLM is earning its cost."""
     collector, stats = _collector(tmp_path)
     collector.on_result(
         _result(llm_type="generate"),
@@ -117,8 +108,6 @@ def test_on_result_splits_llm_and_mutation_calls(tmp_path):
 
 
 def test_on_result_does_not_write_a_row(tmp_path):
-    """Every completed task writing a row would make stats.csv enormous; rows
-    come from the flush events instead."""
     collector, _ = _collector(tmp_path)
     collector.on_result(
         _result(llm_type="generate"),
@@ -131,8 +120,6 @@ def test_on_result_does_not_write_a_row(tmp_path):
 
 
 def test_on_invalid_counts_llm_failures_separately(tmp_path):
-    """An LLM that returns unparseable output is a different problem from a
-    mutation that breaks the document, and only this split tells them apart."""
     collector, stats = _collector(tmp_path)
     collector.on_invalid(_result(llm_type="generate"))
     collector.on_invalid(_result())
@@ -161,8 +148,6 @@ def test_on_pool_rejected_counts_and_follows_the_flush_rule(tmp_path):
 
 
 def test_every_hundredth_task_flushes(tmp_path):
-    """Mutation-only stretches would otherwise leave stats.csv frozen for the
-    whole local phase."""
     collector, stats = _collector(tmp_path)
     stats.tasks_completed = 100
     collector.on_pool_rejected()
@@ -179,8 +164,6 @@ def test_on_accepted_splits_llm_and_mutation_acceptances(tmp_path):
 
 
 def test_a_new_best_records_the_score_and_writes_a_row(tmp_path):
-    """Improvements are the run's headline result; missing one loses the point
-    on the score curve that shows when progress happened."""
     collector, stats = _collector(tmp_path)
     collector.on_accepted(_node(0.25), is_new_best=True, elapsed=4.5, llm_type=None)
     assert stats.best_score == 0.25
@@ -209,8 +192,6 @@ def test_on_pool_state_records_diversity_and_spread():
 
 
 def test_epoch_transition_resets_stagnation_and_writes_a_row(tmp_path):
-    """A new epoch that inherited the old no-improve count would trip the
-    patience check immediately and restart again."""
     collector, stats = _collector(tmp_path)
     stats.epoch_no_improve = 5
     collector.on_epoch_transition(3)
@@ -226,8 +207,6 @@ def test_on_idle_updates_in_flight_and_pool_spread():
 
 
 def test_on_idle_keeps_the_last_spread_when_the_pool_is_too_small():
-    """One sample has no standard deviation; overwriting with 0.0 would read as
-    a fully converged pool and trigger a diversity restart."""
     stats = SearchStats()
     stats.pool_score_std = 0.05
     StatCollector(stats, None).on_idle(llm_in_flight=0, valid_scores=[0.2])
@@ -235,8 +214,6 @@ def test_on_idle_keeps_the_last_spread_when_the_pool_is_too_small():
 
 
 def test_header_is_written_once_across_many_flushes(tmp_path):
-    """The file is opened in append mode per row, so a repeated header would
-    show up as garbage rows in the middle of every plot."""
     collector, _ = _collector(tmp_path)
     for epoch in range(3):
         collector.on_epoch_transition(epoch)
@@ -247,7 +224,6 @@ def test_header_is_written_once_across_many_flushes(tmp_path):
 
 
 def test_an_unwritable_run_dir_does_not_kill_the_search(tmp_path):
-    """Stats are diagnostics; losing them must never lose the run's results."""
     stats = SearchStats()
     StatCollector(stats, tmp_path / "does" / "not" / "exist").on_epoch_transition(1)
     assert stats.epoch == 1  # the event still took effect

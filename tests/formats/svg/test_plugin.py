@@ -26,16 +26,12 @@ def _make_image_data_url(color: str = "blue", size: int = 32) -> str:
 
 
 def test_plugin_identity_matches_the_files_it_writes():
-    """The registry looks the plugin up by name and storage builds filenames
-    from the extension, so a mismatch writes unopenable output."""
     plugin = SvgPlugin()
     assert plugin.name == "svg"
     assert plugin.file_extension == ".svg"
 
 
 def test_rasterize_renders_at_the_requested_size():
-    """Scoring compares candidate and reference pixel for pixel, so a render
-    at the wrong size makes every score meaningless."""
     png = SvgPlugin().rasterize(SVG, out_w=24, out_h=16)
     assert Image.open(io.BytesIO(png)).size == (24, 16)
 
@@ -49,8 +45,6 @@ def test_validate_accepts_svg_and_rejects_other_roots():
 
 
 def test_validate_reports_a_parse_error():
-    """The message goes into the invalid-result record, which is the only way
-    to tell a truncated response from a wrong one."""
     ok, err = SvgPlugin().validate("<svg><rect></svg>")
     assert not ok
     assert err is not None
@@ -63,8 +57,6 @@ def test_extract_from_llm_strips_prose_and_fences():
 
 
 def test_apply_edit_patches_the_parent_with_a_diff_block():
-    """Refinement responses are diffs; applying them to the parent is what
-    keeps an edit from throwing away the rest of the drawing."""
     raw = '<<<SEARCH>>>\n<rect width="32"\n<<<REPLACE>>>\n<rect width="16"\n<<<END>>>'
     result = SvgPlugin().apply_edit(SVG, raw)
     assert 'width="16"' in result
@@ -72,8 +64,6 @@ def test_apply_edit_patches_the_parent_with_a_diff_block():
 
 
 def test_apply_edit_falls_back_to_a_whole_document():
-    """Models ignore the diff instruction and return a full file often enough
-    that treating it as a failed edit would waste the call."""
     whole = f'<svg xmlns="{NS}"><circle r="4"/></svg>'
     assert SvgPlugin().apply_edit(SVG, f"Here it is:\n{whole}") == whole
 
@@ -95,8 +85,6 @@ def test_generate_prompt_carries_the_target_image_and_canvas():
 
 
 def test_the_render_preview_is_only_sent_with_a_parent():
-    """Without a parent there is nothing rendered yet; sending a stale preview
-    would show the model an image that belongs to a different candidate."""
     plugin = SvgPlugin()
     target, preview = _make_image_data_url("red"), _make_image_data_url("green")
     fresh = plugin.build_generate_prompt(
@@ -123,8 +111,6 @@ def test_the_render_preview_is_only_sent_with_a_parent():
 
 
 def test_mutate_returns_valid_svg_and_a_summary():
-    """The summary is what the lineage log records; an empty one leaves a run
-    with no account of which operator produced which node."""
     content, summary = SvgPlugin().mutate(SVG, Image.new("RGB", (8, 8), "blue"))
     assert SvgPlugin().validate(content)[0]
     assert summary.strip()

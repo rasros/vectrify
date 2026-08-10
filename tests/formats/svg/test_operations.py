@@ -225,8 +225,6 @@ def test_mutate_with_micro_search():
 
 
 def test_micro_search_survives_an_unrenderable_candidate():
-    """A candidate the rasterizer rejects must cost the parent nothing; an
-    exception here escapes into the worker and kills the whole task."""
     target_img = Image.new("RGB", (8, 8), color="blue")
     broken = f'<svg xmlns="{NS}" viewBox="a b c d"><rect width="8" height="8"/></svg>'
 
@@ -288,8 +286,6 @@ def _channels(hex_color: str) -> tuple[int, int, int]:
 
 
 def test_mutate_color_nudges_hex_channels_near_the_original():
-    """A colour mutation is meant to explore around the parent's palette; a
-    wholesale jump makes the operator a random restart, not a local step."""
     for seed in range(30):
         random.seed(seed)
         new = _find(mutate_color(SVG_HEX), "rect").get("fill", "")
@@ -300,7 +296,6 @@ def test_mutate_color_nudges_hex_channels_near_the_original():
 
 
 def test_mutate_color_expands_a_three_digit_hex():
-    """#f00 must be read as ff0000, not as the channels f0/0?/??."""
     random.seed(0)
     new = _find(mutate_color(SVG_SHORT_HEX), "rect").get("fill", "")
     r, g, b = _channels(new)
@@ -325,8 +320,6 @@ def test_mutate_color_leaves_the_rest_of_the_element_alone():
 
 
 def test_mutate_color_rewrites_a_style_property_and_keeps_the_others():
-    """The style attribute is rebuilt from scratch, so a bug there drops every
-    other declaration on the element."""
     random.seed(0)
     rect = _find(mutate_color(SVG_COLOR_STYLE), "rect")
     props = dict(
@@ -348,8 +341,6 @@ def test_mutate_color_changes_exactly_one_element():
 
 
 def test_mutate_color_ignores_non_colors():
-    """'none' and 'inherit' are not colours; overwriting them would repaint
-    shapes the parent deliberately left unpainted."""
     svg = f'<svg xmlns="{NS}"><rect fill="none" stroke="inherit" width="4"/></svg>'
     assert mutate_color(svg) == svg
 
@@ -373,8 +364,6 @@ SVG_UNSTROKED = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></s
 
 
 def test_mutate_stroke_adds_a_stroke_and_a_width():
-    """A shape given a stroke colour but no width would render with the SVG
-    default, so the mutation would not be visible in the score at all."""
     random.seed(1)
     rect = _find(mutate_stroke(SVG_UNSTROKED), "rect")
     assert rect.get("stroke") in _NAMED_SVG_COLORS
@@ -403,8 +392,6 @@ def test_mutate_stroke_touches_nothing_but_the_stroke():
 
 
 def test_mutate_stroke_only_targets_shapes():
-    """Stroking a <g> or <defs> paints every descendant at once, which is a
-    far bigger edit than the operator advertises."""
     svg = f'<svg xmlns="{NS}"><defs><g id="a"/></defs></svg>'
     result = mutate_stroke(svg)
     assert "stroke" not in result
@@ -428,9 +415,8 @@ def _path_numbers(svg: str) -> list[float]:
 
 
 def test_mutate_path_nudges_exactly_one_coordinate():
-    """A replacement that merges with a neighbouring number changes how many
-    coordinates the path has, reshaping it wholesale instead of moving one
-    point -- and the SVG still parses, so nothing downstream notices."""
+    """A merged replacement changes how many coordinates the path has, reshaping
+    it wholesale -- and it still parses, so nothing downstream notices."""
     before = [1.0, 0.5, 10.0, 20.0]
     nudged = 0
     for seed in range(50):
@@ -448,8 +434,7 @@ def test_mutate_path_nudges_exactly_one_coordinate():
 
 
 def test_mutate_path_separates_the_nudged_number_from_its_neighbours():
-    """Compact path data writes coordinates with no separator at all ("L3.5.5"),
-    and an unseparated replacement fuses with the number next to it."""
+    """Compact path data has no separators ("L3.5.5"), so a replacement can fuse."""
     svg = f'<svg xmlns="{NS}"><path d="M0 0L3.5.5Z"/></svg>'
     before = [0.0, 0.0, 3.5, 0.5]
     for seed in range(50):
@@ -495,8 +480,6 @@ def _ids(svg: str) -> list[str | None]:
 
 
 def test_mutate_reorder_swaps_two_adjacent_siblings():
-    """Z-order is the only thing this operator may change; dropping or
-    duplicating a child would silently delete part of the drawing."""
     orders = set()
     for seed in range(20):
         random.seed(seed)
