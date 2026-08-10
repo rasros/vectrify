@@ -106,3 +106,28 @@ def test_diff_format_instructions_in_edit(case):
     assert "<<<REPLACE>>>" in text
     assert "<<<END>>>" in text
     assert "search/replace diff blocks" in text
+
+
+@pytest.mark.parametrize("case", CASES)
+@pytest.mark.parametrize("prev", [None, "sample"], ids=["seed", "edit"])
+def test_states_the_division_of_labour_with_local_search(case, prev):
+    """Both call kinds must say what the local optimizer already covers.
+
+    The LLM gets one call per epoch against thousands of local steps, so any
+    effort it spends on values those steps already tune is the call wasted.
+    """
+    code = case.sample if prev else None
+    blocks = case.build(_IMG_URL, 1, code, None, None)
+    text = "\n".join(text_blocks(blocks))
+    assert "local optimizer" in text
+    assert "Rough coordinates and approximate colors are fine" in text
+
+
+@pytest.mark.parametrize("case", CASES)
+def test_refinement_asks_for_structural_change_not_tuning(case):
+    """The parent of an edit is already a local optimum in the numeric
+    directions, so 'adjust the colors' is advice it has exhausted."""
+    blocks = case.build(_IMG_URL, 2, case.sample, _RENDER_URL, None)
+    text = "\n".join(text_blocks(blocks))
+    assert "structurally" in text
+    assert "missing or extra" in text

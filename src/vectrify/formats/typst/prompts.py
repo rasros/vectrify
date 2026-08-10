@@ -45,5 +45,10 @@ def build_typst_gen_prompt(
         lang="Typst",
         fence="typst",
         syntax_rules=_typst_syntax_rules(canvas),
-        focus_hint="alignment, sizes, paddings, and colors",
+        # Was "alignment, sizes, paddings, and colors" -- a list of exactly the
+        # numeric properties mutation already tunes best-of-15 per step.
+        focus_hint=(
+            "missing or extra elements, blocks that should be a different kind "
+            "of element, and nesting that does not match the target's layout"
+        ),
     )

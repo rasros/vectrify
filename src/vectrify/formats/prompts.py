@@ -1,5 +1,33 @@
 """Prompt building blocks shared by the format backends."""
 
+# What the local operators can and cannot reach, stated to the model so it
+# spends its one call on the other half. Mutation nudges numbers, shifts
+# colors and stroke widths, reorders siblings and deletes elements that do not
+# pay for themselves, each pick chosen best-of-15 against the target; crossover
+# grafts subtrees between candidates. None of that invents a shape that was
+# never proposed or changes what an existing one is, so a candidate that is
+# structurally right and numerically sloppy converges and one that is
+# structurally wrong stays wrong however long it is polished.
+STRUCTURE_FIRST = """\
+Your output is a starting point, not a final answer: a local optimizer then \
+spends thousands of steps on it, nudging coordinates and sizes, adjusting \
+colors and stroke widths, reordering elements, and deleting ones that do not \
+earn their place. What it cannot do is invent a shape you left out, remove a \
+structure you invented, or change what a shape fundamentally is.
+
+So spend your effort where only you can:
+- Every distinct part of the target is present, and nothing extra is.
+- Each part is the right kind of thing: an outline that closes is one closed \
+path, not two strokes that nearly meet; a filled region is a fill, not a \
+thick stroke.
+- Counts are exact. Ten circles means ten, not "about ten".
+- The arrangement, proportions and relative positions read correctly at a \
+glance.
+
+Rough coordinates and approximate colors are fine — they get optimized away. \
+Being roughly right in the right place beats being precisely wrong. Do not \
+spend effort deriving exact pixel values or exact hex codes."""
+
 
 def diff_format_instructions(
     lang: str,
@@ -53,7 +81,7 @@ def build_code_gen_prompt(
 
     system_text = (
         f"Write {lang_display or lang} code that, when rendered, visually"
-        f" matches the target image.\n\n{syntax_rules}"
+        f" matches the target image.\n\n{STRUCTURE_FIRST}\n\n{syntax_rules}"
     )
     if is_edit:
         system_text += "\n- Output ONLY search/replace diff blocks, no full file"
@@ -80,10 +108,14 @@ def build_code_gen_prompt(
         blocks.append({"type": "input_text", "text": "Current rendered output:"})
         blocks.append({"type": "input_image", "image_url": rasterized_data_url})
 
+    # The render is already a local optimum in the numeric directions -- it got
+    # there by hill-climbing -- so asking for structural change is asking for
+    # the only thing left that the next few thousand local steps cannot reach.
     edit_text = (
         f"Iteration #{node_index}. "
-        f"Improve the {lang} code to better match the target. "
-        f"Focus on {focus_hint}.\n"
+        f"The current render below has already been numerically optimized, so "
+        f"tuning its values further gains nothing. Find what is structurally "
+        f"wrong or missing against the target and fix that: {focus_hint}.\n"
     )
     if goal:
         edit_text += f"\nUser goal (highest priority): {goal}\n"

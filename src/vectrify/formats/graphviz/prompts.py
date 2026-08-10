@@ -38,5 +38,8 @@ def build_dot_gen_prompt(
         lang_display="Graphviz DOT",
         fence="dot",
         syntax_rules=_DOT_SYNTAX_RULES,
-        focus_hint="structure, layout, label text, node/edge attributes, and colors",
+        focus_hint=(
+            "missing or extra nodes and edges, wrong edge direction, wrong "
+            "label text, and shapes that misread the kind of node they mark"
+        ),
     )
