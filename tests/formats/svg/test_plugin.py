@@ -11,6 +11,9 @@ from vectrify.formats.svg.prompts import (
     is_valid_svg,
 )
 
+NS = "http://www.w3.org/2000/svg"
+SVG = f'<svg xmlns="{NS}" viewBox="0 0 32 32"><rect width="32" height="32"/></svg>'
+
 
 def _make_image_data_url(color: str = "blue", size: int = 32) -> str:
     import base64
@@ -20,6 +23,120 @@ def _make_image_data_url(color: str = "blue", size: int = 32) -> str:
     img.save(buf, format="PNG")
     b64 = base64.b64encode(buf.getvalue()).decode()
     return f"data:image/png;base64,{b64}"
+
+
+def test_plugin_identity_matches_the_files_it_writes():
+    """The registry looks the plugin up by name and storage builds filenames
+    from the extension, so a mismatch writes unopenable output."""
+    plugin = SvgPlugin()
+    assert plugin.name == "svg"
+    assert plugin.file_extension == ".svg"
+
+
+def test_rasterize_renders_at_the_requested_size():
+    """Scoring compares candidate and reference pixel for pixel, so a render
+    at the wrong size makes every score meaningless."""
+    png = SvgPlugin().rasterize(SVG, out_w=24, out_h=16)
+    assert Image.open(io.BytesIO(png)).size == (24, 16)
+
+
+def test_validate_accepts_svg_and_rejects_other_roots():
+    plugin = SvgPlugin()
+    assert plugin.validate(SVG) == (True, None)
+    ok, err = plugin.validate("<html></html>")
+    assert not ok
+    assert err
+
+
+def test_validate_reports_a_parse_error():
+    """The message goes into the invalid-result record, which is the only way
+    to tell a truncated response from a wrong one."""
+    ok, err = SvgPlugin().validate("<svg><rect></svg>")
+    assert not ok
+    assert err is not None
+    assert "parse error" in err
+
+
+def test_extract_from_llm_strips_prose_and_fences():
+    raw = f"Sure, here you go:\n```xml\n{SVG}\n```\nHope that helps!"
+    assert SvgPlugin().extract_from_llm(raw) == SVG
+
+
+def test_apply_edit_patches_the_parent_with_a_diff_block():
+    """Refinement responses are diffs; applying them to the parent is what
+    keeps an edit from throwing away the rest of the drawing."""
+    raw = '<<<SEARCH>>>\n<rect width="32"\n<<<REPLACE>>>\n<rect width="16"\n<<<END>>>'
+    result = SvgPlugin().apply_edit(SVG, raw)
+    assert 'width="16"' in result
+    assert result.startswith("<svg")
+
+
+def test_apply_edit_falls_back_to_a_whole_document():
+    """Models ignore the diff instruction and return a full file often enough
+    that treating it as a failed edit would waste the call."""
+    whole = f'<svg xmlns="{NS}"><circle r="4"/></svg>'
+    assert SvgPlugin().apply_edit(SVG, f"Here it is:\n{whole}") == whole
+
+
+def test_generate_prompt_carries_the_target_image_and_canvas():
+    url = _make_image_data_url()
+    blocks = SvgPlugin().build_generate_prompt(
+        url,
+        node_index=1,
+        content_prev=None,
+        raster_preview_url=None,
+        goal="make it blue",
+        canvas=(64, 48),
+    )
+    text = "\n".join(b["text"] for b in blocks if b["type"] == "input_text")
+    assert "viewBox='0 0 64 48'" in text
+    assert "make it blue" in text
+    assert [b["image_url"] for b in blocks if b["type"] == "input_image"] == [url]
+
+
+def test_the_render_preview_is_only_sent_with_a_parent():
+    """Without a parent there is nothing rendered yet; sending a stale preview
+    would show the model an image that belongs to a different candidate."""
+    plugin = SvgPlugin()
+    target, preview = _make_image_data_url("red"), _make_image_data_url("green")
+    fresh = plugin.build_generate_prompt(
+        target,
+        node_index=1,
+        content_prev=None,
+        raster_preview_url=preview,
+        goal=None,
+        canvas=(32, 32),
+    )
+    refine = plugin.build_generate_prompt(
+        target,
+        node_index=2,
+        content_prev=SVG,
+        raster_preview_url=preview,
+        goal=None,
+        canvas=(32, 32),
+    )
+    assert [b["image_url"] for b in fresh if b["type"] == "input_image"] == [target]
+    assert [b["image_url"] for b in refine if b["type"] == "input_image"] == [
+        target,
+        preview,
+    ]
+
+
+def test_mutate_returns_valid_svg_and_a_summary():
+    """The summary is what the lineage log records; an empty one leaves a run
+    with no account of which operator produced which node."""
+    content, summary = SvgPlugin().mutate(SVG, Image.new("RGB", (8, 8), "blue"))
+    assert SvgPlugin().validate(content)[0]
+    assert summary.strip()
+
+
+def test_crossover_returns_valid_svg_and_a_summary():
+    other = f'<svg xmlns="{NS}" viewBox="0 0 32 32"><circle r="8"/></svg>'
+    content, summary = SvgPlugin().crossover(
+        SVG, other, Image.new("RGB", (8, 8), "blue")
+    )
+    assert SvgPlugin().validate(content)[0]
+    assert summary.strip()
 
 
 @pytest.mark.llm
