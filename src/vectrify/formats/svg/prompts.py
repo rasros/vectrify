@@ -7,6 +7,18 @@ _DIFF_FORMAT_INSTRUCTIONS = diff_format_instructions(
     "SVG", unit="fragment", subject="SVG"
 )
 
+# The attributes named here are the ones the operators mutate (_NUMERIC_ATTRS,
+# _COLOR_ATTRS and mutate_path in formats/svg/operations.py). Keep them in step.
+MUTABLE_SVG = """\
+Write the SVG this way:
+- Geometry in `<path d="...">`.
+- Numbers in attributes: `x`, `y`, `cx`, `cy`, `r`, `rx`, `ry`, `width`, \
+`height`, `x1`, `y1`, `x2`, `y2`, `font-size`, `stroke-width`, `opacity`.
+- Coordinates written out directly, already in the viewBox above.
+- Colors in `fill` and `stroke` as hex; gradient stops in `stop-color`.
+- Each shape its own element, with its own attributes.
+- Many small explicit elements rather than one clever construction."""
+
 
 def build_svg_gen_prompt(
     original_data_url: str,
@@ -36,6 +48,8 @@ def build_svg_gen_prompt(
         " the target's own parts.",
         "",
         STRUCTURE_FIRST,
+        "",
+        MUTABLE_SVG,
         "",
         f"Iteration #{iter_index}.",
     ]
