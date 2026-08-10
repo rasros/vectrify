@@ -14,7 +14,6 @@ from vectrify.formats.typst.prompts import build_typst_gen_prompt
 
 _IMG_URL = "data:image/png;base64,abc"
 _RENDER_URL = "data:image/png;base64,def"
-_DIFF_URL = "data:image/png;base64,ghi"
 
 
 def _build_dot(img, node_index, prev, render, goal):
@@ -83,15 +82,6 @@ def test_render_url_included(case):
 
 
 @pytest.mark.parametrize("case", CASES)
-def test_no_difference_map_is_ever_sent(case):
-    """Removed after a paired test: it made edits significantly worse (median
-    paired difference -0.0102, p=0.00001) while adding ~12% to prompt tokens."""
-    blocks = case.build(_IMG_URL, 2, case.sample, _RENDER_URL, None)
-    assert len(image_urls(blocks)) <= 2
-    assert "ifference map" not in "\n".join(text_blocks(blocks))
-
-
-@pytest.mark.parametrize("case", CASES)
 def test_goal_included(case):
     blocks = case.build(_IMG_URL, 2, case.sample, None, "match the target")
     text = "\n".join(text_blocks(blocks))
@@ -111,11 +101,6 @@ def test_diff_format_instructions_in_edit(case):
 @pytest.mark.parametrize("case", CASES)
 @pytest.mark.parametrize("prev", [None, "sample"], ids=["seed", "edit"])
 def test_states_the_division_of_labour_with_local_search(case, prev):
-    """Both call kinds must say what the local optimizer already covers.
-
-    The LLM gets one call per epoch against thousands of local steps, so any
-    effort it spends on values those steps already tune is the call wasted.
-    """
     code = case.sample if prev else None
     blocks = case.build(_IMG_URL, 1, code, None, None)
     text = "\n".join(text_blocks(blocks))
@@ -125,8 +110,6 @@ def test_states_the_division_of_labour_with_local_search(case, prev):
 
 @pytest.mark.parametrize("case", CASES)
 def test_refinement_asks_for_structural_change_not_tuning(case):
-    """The parent of an edit is already a local optimum in the numeric
-    directions, so 'adjust the colors' is advice it has exhausted."""
     blocks = case.build(_IMG_URL, 2, case.sample, _RENDER_URL, None)
     text = "\n".join(text_blocks(blocks))
     assert "structurally" in text

@@ -29,7 +29,6 @@ def test_color_score_different_is_positive():
 
 
 def test_color_score_resizes_mismatched_candidate():
-    """lab_l1 needs equal sizes; a differently sized render must still score."""
     ref = Image.new("RGB", (32, 32), color="red")
     assert color_score(ref, make_png("red", 64)) == pytest.approx(0.0)
 
@@ -52,5 +51,4 @@ def test_safe_score_passes_through_success():
 
 
 def test_safe_score_returns_worst_score_on_failure():
-    """A scorer failure must lose the candidate, not kill the search."""
     assert _Scorer().score(fail=True) == MAX_SCORE

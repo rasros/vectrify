@@ -108,8 +108,6 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
 
 
 def test_eviction_row_lands_in_the_evicted_column(tmp_path, dummy_node):
-    """An eviction row is sparse; its value must not shift into a neighbouring
-    column when the schema gains a field."""
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
     adapter.initialize()
     adapter.save_node(dummy_node)
@@ -301,9 +299,6 @@ def test_runs_started_in_the_same_second_get_distinct_directories(tmp_path):
 
 
 def test_resume_parses_inf_scored_node_files(tmp_path):
-    """save_node writes f"{score:.6f}", which renders INVALID_SCORE as a bare
-    "inf", so the filename grammar has to accept it.
-    """
     nodes = tmp_path / "out" / "runs" / "2026-01-01_00-00-00" / "nodes"
     nodes.mkdir(parents=True)
     (nodes / "0.200000_2.svg").write_text("<svg id='2'/>", encoding="utf-8")

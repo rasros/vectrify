@@ -33,7 +33,6 @@ def test_counters_are_written_through(tmp_path):
 
 
 def test_infinite_best_score_is_written_blank(tmp_path):
-    """'inf' would poison the numeric column the plot script reads."""
     s = SearchStats()
     s.best_score = INVALID_SCORE
     assert _row(s, tmp_path)["best_score"] == ""

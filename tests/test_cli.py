@@ -58,11 +58,6 @@ def test_negative_seeds_raises():
 
 
 def test_seeds_zero_requires_resume():
-    """--seeds 0 is the offline switch, and offline needs something to mutate.
-
-    Without it the run dispatches nothing and idles until the wall clock, so
-    the failure is worth catching at parse time rather than an hour later.
-    """
     with pytest.raises(SystemExit):
         parse_args(["img.png", "--seeds", "0"])
     assert parse_args(["img.png", "--seeds", "0", "--resume"]).seeds == 0

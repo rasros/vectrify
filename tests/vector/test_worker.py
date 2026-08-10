@@ -60,7 +60,6 @@ class FakePlugin:
 
 
 def _run_one(task: Task, monkeypatch) -> tuple[Result, FakeClient, FakePlugin]:
-    """Drive worker_loop through a single task and return (result, client, plugin)."""
     png = _make_png()
     client, plugin = FakeClient(), FakePlugin(png)
     monkeypatch.setattr(worker_module, "get_provider", lambda *_a, **_kw: client)
@@ -105,11 +104,6 @@ def parent_state():
 def test_force_llm_calls_the_model_even_when_crossover_is_possible(
     parent_state, monkeypatch
 ):
-    """force_llm selects the LLM and wins outright.
-
-    A seed task always has a usable secondary parent, so if crossover were
-    checked first the whole seed batch would silently run locally.
-    """
     task = Task(
         task_id=1,
         parent_id=1,
@@ -126,11 +120,6 @@ def test_force_llm_calls_the_model_even_when_crossover_is_possible(
 
 
 def test_local_task_never_calls_the_model(parent_state, monkeypatch):
-    """Without force_llm the worker has no path to the LLM at all.
-
-    The engine owns that decision, so a local task calling out would break the
-    per-epoch call budget.
-    """
     task = Task(
         task_id=1,
         parent_id=1,

@@ -81,9 +81,6 @@ def test_apply_search_replace_raises_when_no_block_matches():
 
 
 def test_apply_search_replace_returns_none_when_there_are_no_blocks():
-    """Distinct from a failed match: None is the signal to fall back to parsing
-    a whole file out of the response, and must keep working.
-    """
     from vectrify.formats.base import apply_search_replace
 
     assert apply_search_replace("<svg/>", "here is some prose") is None
@@ -104,9 +101,6 @@ def test_apply_search_replace_applies_a_matching_block():
 
 
 def test_apply_search_replace_allows_partial_application(caplog):
-    """One block matching and another not is not a duplicate, so it is applied
-    and warned about rather than rejected.
-    """
     import logging
 
     from vectrify.formats.base import apply_search_replace
