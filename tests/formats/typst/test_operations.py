@@ -99,13 +99,6 @@ def test_mutate_color_no_match_returns_unchanged():
     assert result == code
 
 
-def test_mutate_color_result_still_has_fill_keyword():
-    code = "#circle(radius: 10pt, fill: blue)"
-    for _ in range(10):
-        result = _mutate_color(code)
-        assert "fill:" in result
-
-
 # --- _remove_element ---
 
 

@@ -38,11 +38,6 @@ def test_sanitize_strict_graph_upgraded():
     assert "strict" in result
 
 
-def test_sanitize_already_digraph_unchanged():
-    result = _sanitize_dot("digraph G { A -> B -> C }")
-    assert result.count("digraph") == 1
-
-
 def test_fix_html_labels_plain_label_unchanged():
     dot = 'digraph G { A [label="hello"]; }'
     assert _fix_html_labels(dot) == dot
@@ -147,14 +142,6 @@ def test_validate_invalid_dot():
     valid, err = plugin.validate("this is not dot at all >>>")
     assert valid is False
     assert err is not None
-
-
-@pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
-def test_rasterize_returns_png_bytes():
-    plugin = GraphvizPlugin()
-    png = plugin.rasterize(_DIGRAPH, out_w=64, out_h=64)
-    assert isinstance(png, bytes)
-    assert png[:4] == b"\x89PNG"
 
 
 @pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")

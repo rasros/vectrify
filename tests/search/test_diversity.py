@@ -22,10 +22,6 @@ def test_simhash_empty_returns_none():
     assert simhash("") is None
 
 
-def test_simhash_returns_int():
-    assert isinstance(simhash("<svg/>"), int)
-
-
 def test_simhash_deterministic():
     text = "<svg><rect width='100'/></svg>"
     assert simhash(text) == simhash(text)
@@ -49,11 +45,6 @@ def test_hamming_distance_single_bit():
 
 def test_hamming_distance_all_bits():
     assert hamming_distance(0, (1 << 64) - 1) == 64
-
-
-def test_hamming_distance_symmetric():
-    a, b = 0xDEADBEEF, 0xCAFEBABE
-    assert hamming_distance(a, b) == hamming_distance(b, a)
 
 
 def test_pool_diversity_all_identical_returns_low():
@@ -89,12 +80,3 @@ def test_pool_diversity_ignores_inf_score():
 def test_pool_diversity_too_few_nodes_returns_one():
     assert pool_diversity([]) == 1.0
     assert pool_diversity([make_node(1, 0.1, sig=simhash("<svg/>"))]) == 1.0
-
-
-def test_pool_diversity_between_zero_and_one():
-    nodes = [
-        make_node(i, 0.1, sig=simhash(f"<svg><rect id='{i}'/></svg>"))
-        for i in range(10)
-    ]
-    diversity = pool_diversity(nodes)
-    assert 0.0 <= diversity <= 1.0

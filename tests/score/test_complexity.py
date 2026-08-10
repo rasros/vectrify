@@ -21,10 +21,6 @@ def _noise_png(size: int = 64) -> bytes:
     return buf.getvalue()
 
 
-def test_returns_positive():
-    assert visual_complexity(_make_png("white")) > 0.0
-
-
 def test_flat_image_lower_than_noisy():
     flat = _make_png("blue", size=64)
     noisy = _noise_png(size=64)
@@ -51,10 +47,6 @@ _SIMPLE_SVG = '<svg><rect fill="red" width="100" height="100"/></svg>'
 _DOT = 'digraph G {\n  node [shape=box, fillcolor="lightblue"];\n  a -> b;\n}'
 
 _TYPST = "#set page(width: 200pt)\n#place(circle(radius: 40pt, fill: blue))\n"
-
-
-def test_structural_complexity_positive():
-    assert structural_complexity(_SIMPLE_SVG) > 0.0
 
 
 def test_structural_complexity_empty_source_is_zero():

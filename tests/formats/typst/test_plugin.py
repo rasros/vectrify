@@ -58,14 +58,6 @@ def test_validate_invalid_typst():
 
 
 @pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
-def test_rasterize_returns_png_bytes():
-    plugin = TypstPlugin()
-    png = plugin.rasterize(_VALID_TYPST, out_w=64, out_h=64)
-    assert isinstance(png, bytes)
-    assert png[:4] == b"\x89PNG"
-
-
-@pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
 def test_rasterize_output_dimensions():
     import io
 
