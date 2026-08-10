@@ -107,10 +107,10 @@ representations, split into epochs of two phases:
 - **Refine.** Only local operators run — color tweaks, path nudges,
   crossover — until the epoch stops improving.
 
-Every candidate is scored against the source image (perceptual via
-vision-transformer embeddings, or pixel-space), then either
-replaces a worse pool member or is dropped. The best candidate of the
-whole run is tracked separately, so an epoch restart never loses it.
+Every candidate is scored against the source image, perceptually via
+vision-transformer embeddings or in pixel space, then either replaces a
+worse pool member or is dropped. The best candidate of the whole run is
+tracked separately, so an epoch restart never loses it.
 
 The phases are separate because the operators are not interchangeable. An
 LLM edit degrades the median parent about four times as much as a local
