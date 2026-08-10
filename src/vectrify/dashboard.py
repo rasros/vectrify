@@ -150,8 +150,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
         )
 
     if s.phase == "seed" and s.seeds_target > 0:
-        # Not a stop criterion but the same shape of progress: the seed batch
-        # is what the epoch is waiting on before local refinement can start.
+        # Not a stop criterion, but the epoch is waiting on it all the same.
         stop_rows.append(
             _stop_row(
                 "seeding",

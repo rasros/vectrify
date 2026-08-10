@@ -84,8 +84,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
         parent = task.parent_state
         has_content = bool(parent.payload.content)
 
-        # The engine decides: LLM calls happen only in an epoch's seed batch,
-        # every other task is a local move. The worker no longer rolls dice.
+        # LLM calls happen only in an epoch's seed batch; the engine decides.
         use_llm = task.force_llm
         llm_type = None
 

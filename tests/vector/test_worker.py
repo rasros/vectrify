@@ -105,10 +105,10 @@ def parent_state():
 def test_force_llm_calls_the_model_even_when_crossover_is_possible(
     parent_state, monkeypatch
 ):
-    """force_llm is the only thing that selects the LLM, and it wins outright.
+    """force_llm selects the LLM and wins outright.
 
-    A seed task always has a usable secondary parent available, so if crossover
-    were checked first the epoch's whole seed batch would silently run locally.
+    A seed task always has a usable secondary parent, so if crossover were
+    checked first the whole seed batch would silently run locally.
     """
     task = Task(
         task_id=1,
@@ -128,8 +128,8 @@ def test_force_llm_calls_the_model_even_when_crossover_is_possible(
 def test_local_task_never_calls_the_model(parent_state, monkeypatch):
     """Without force_llm the worker has no path to the LLM at all.
 
-    The rate-based dice roll is gone: the engine decides which tasks are LLM
-    tasks, so a local task calling out would break the per-epoch call budget.
+    The engine owns that decision, so a local task calling out would break the
+    per-epoch call budget.
     """
     task = Task(
         task_id=1,
