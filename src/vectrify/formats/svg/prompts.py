@@ -1,7 +1,7 @@
 import xml.etree.ElementTree as ET
 from typing import Any
 
-from vectrify.formats.prompts import diff_format_instructions
+from vectrify.formats.prompts import STRUCTURE_FIRST, diff_format_instructions
 
 _DIFF_FORMAT_INSTRUCTIONS = diff_format_instructions(
     "SVG", unit="fragment", subject="SVG"
@@ -27,12 +27,16 @@ def build_svg_gen_prompt(
     view_w, view_h = canvas
 
     lines = [
-        "Reproduce the target image as SVG code, matching colors, shapes,"
-        " positions, and proportions as closely as possible.",
+        "Reproduce the target image as SVG code.",
         "- Always include `xmlns='http://www.w3.org/2000/svg'` and"
         f" `viewBox='0 0 {view_w} {view_h}'` on the root <svg> element."
         " Use exactly this viewBox and express every coordinate in it.",
-        "- Wrap related elements in <g id='name'>.",
+        "- Wrap related elements in <g id='name'>: the groups are what later"
+        " edits and crossover graft between candidates, so they should follow"
+        " the target's own parts.",
+        "",
+        STRUCTURE_FIRST,
+        "",
         f"Iteration #{iter_index}.",
     ]
 
@@ -40,8 +44,11 @@ def build_svg_gen_prompt(
         lines.append("Output ONLY the raw <svg>...</svg>. No markdown.")
     else:
         lines.append(
-            "Output ONLY search/replace diff blocks. "
-            "No full file. Only modify elements visible in the difference map."
+            "The render below has already been numerically optimized, so"
+            " nudging its coordinates and colors gains nothing. Change what is"
+            " structurally wrong: shapes that are missing, extra, or the wrong"
+            " kind of thing. Output ONLY search/replace diff blocks, no full"
+            " file."
         )
 
     if goal:

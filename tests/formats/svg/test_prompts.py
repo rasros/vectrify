@@ -141,3 +141,38 @@ def test_gen_prompt_pins_the_viewbox_to_the_canvas():
     text = "\n".join(b["text"] for b in blocks if b["type"] == "input_text")
     assert "viewBox='0 0 768 512'" in text
     assert "0 0 W H" not in text
+
+
+def test_svg_prompt_states_the_division_of_labour_with_local_search():
+    blocks = build_svg_gen_prompt(_IMG_URL, 1, canvas=(512, 512))
+    text = "\n".join(_text_blocks(blocks))
+    assert "local optimizer" in text
+    assert "Rough coordinates and approximate colors are fine" in text
+
+
+def test_svg_edit_asks_for_structural_change_not_tuning():
+    blocks = build_svg_gen_prompt(
+        _IMG_URL,
+        2,
+        svg_prev=_SVG,
+        rasterized_svg_data_url=_RENDER_URL,
+        canvas=(512, 512),
+    )
+    text = "\n".join(_text_blocks(blocks))
+    assert "structurally wrong" in text
+
+
+def test_svg_edit_never_mentions_the_removed_difference_map():
+    """Regression: the edit prompt told the model to 'only modify elements
+    visible in the difference map' long after that image stopped being sent,
+    scoping every edit to something the model could not see."""
+    blocks = build_svg_gen_prompt(
+        _IMG_URL,
+        2,
+        svg_prev=_SVG,
+        rasterized_svg_data_url=_RENDER_URL,
+        canvas=(512, 512),
+    )
+    text = "\n".join(_text_blocks(blocks)).lower()
+    assert "difference map" not in text
+    assert "diff map" not in text
