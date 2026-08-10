@@ -8,6 +8,7 @@ DEFAULT_MODELS: dict[str, str] = {
     "gemini": "gemini-3.1-pro-preview",
 }
 
+
 def api_key_env(provider: str) -> str:
     """Environment variable holding the API key for *provider*."""
     return f"{provider.upper()}_API_KEY"
