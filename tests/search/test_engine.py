@@ -353,11 +353,10 @@ def test_engine_low_variance_epoch_end_does_not_crash():
 
 
 def test_engine_aborts_when_every_epoch0_seed_fails():
-    """Epoch 0 has nothing to fall back to, so a wholly failed seed batch is
-    fatal and must say why.
+    """Epoch 0 has nothing to fall back to, so a failed batch must say why.
 
     Regression: the run used to idle until --max-wall-seconds and exit 0 with
-    no output, hiding whatever the LLM actually returned (often a 401).
+    no output, hiding whatever the LLM returned (often a 401).
     """
     engine = MultiprocessSearchEngine(
         workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=50
@@ -401,11 +400,10 @@ def _seed_result(task_id: int, score: float) -> Result:
 
 
 def test_seed_batch_does_not_consult_the_parent_selector():
-    """Seed parents come from the outgoing front, not from tournament selection.
+    """Seed parents come from the outgoing front, not tournament selection.
 
-    Routing them through select_parent would let the epoch's LLM calls all land
-    on whichever candidate the tournament favours, collapsing the batch's
-    diversity to one lineage.
+    Routing them through select_parent would land every LLM call of the batch
+    on whichever candidate the tournament favours.
     """
 
     class TrackingStrategy(FakeStrategy):
@@ -432,10 +430,10 @@ def test_seed_batch_does_not_consult_the_parent_selector():
 
 
 def test_seed_phase_cannot_go_stale():
-    """Patience counts local tasks only, so a slow batch cannot end its own epoch.
+    """Patience counts local tasks only, so a batch cannot end its own epoch.
 
-    Counting seed results too would transition the epoch before its children
-    were ever refined, spending LLM calls on restarts that never got explored.
+    Otherwise the epoch transitions before its children are ever refined,
+    spending LLM calls on restarts that never get explored.
     """
 
     class TrackingStrategy(FakeStrategy):
@@ -470,8 +468,8 @@ def test_seed_phase_cannot_go_stale():
 def test_epoch_zero_keeps_resumed_nodes_alongside_seed_children():
     """Epoch 0 adds to the pool; only later epochs replace it.
 
-    A resumed candidate is usually better than any fresh LLM edit of it, so
-    clearing the pool here would throw away exactly what --resume restored.
+    A resumed candidate usually beats any fresh LLM edit of it, so clearing
+    here would throw away exactly what --resume restored.
     """
 
     class TrackingStrategy(FakeStrategy):
@@ -504,10 +502,9 @@ def test_epoch_zero_keeps_resumed_nodes_alongside_seed_children():
 def test_local_results_that_outlive_their_epoch_do_not_count_as_seeds(caplog):
     """An epoch can transition with local tasks still in flight.
 
-    Those results land during the next seed phase. Counting them toward the
-    batch ends it before its LLM children arrive, so the epoch refines a pool
-    built from leftovers of the pool it just discarded -- observed as an epoch
-    reporting more candidates to refine than it had seeds.
+    Those results land during the next seed phase. Counted toward the batch
+    they end it before its LLM children arrive, leaving the epoch refining
+    leftovers of the pool it just discarded.
     """
     engine = MultiprocessSearchEngine(
         workers=4, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=6
