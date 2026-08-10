@@ -118,7 +118,7 @@ mutation and costs roughly a thousand times more per attempt, so mixing
 them into every task spent the expensive operator competing against
 best-of-15 local moves. As restart points they instead do the one thing
 local search cannot: leave the basin it is stuck in. Total LLM calls are
-therefore bounded by max-epochs × seeds.
+therefore bounded by epochs × seeds.
 
 ### Scoring resolution
 
@@ -164,26 +164,24 @@ harder toward visual quality at the cost of pool diversity.
 ### Convergence and cost
 
 An epoch's refine phase ends when one of these fires; the next epoch then
-re-seeds from the current Pareto front. The run stops at max-epochs,
-max-wall-seconds, or the max-llm-calls cap.
+re-seeds from the current Pareto front. The run stops at epochs or
+max-wall-seconds.
 
-| Flag             | Default | Triggers when…                                      |
-|------------------|--------:|-----------------------------------------------------|
-| max-epochs       |       2 | hard cap on epoch count                             |
+| Flag             | Default | Triggers when…                                        |
+|------------------|--------:|-------------------------------------------------------|
+| epochs           |       2 | hard cap on epoch count                               |
 | epoch-patience   |     200 | this many local tasks in a row produce no improvement |
-| epoch-variance   |       0 | score std-dev in the pool drops below value         |
-| epoch-diversity  |       0 | mean pairwise diversity drops below value           |
-| max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch |
-| max-llm-calls    |       0 | hard cap on total LLM calls; 0 disables             |
+| epoch-variance   |       0 | score std-dev in the pool drops below value           |
+| epoch-diversity  |       0 | mean pairwise diversity drops below value             |
+| max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch   |
 
 Patience counts local tasks only — a seed batch is not a hill-climb and
 cannot go stale — and a new best resets it. The variance and diversity
 criteria are off by default; good thresholds depend on your scorer and image.
 
-LLM calls are bounded by max-epochs × seeds, so 20 at the defaults, all of
-them spent on restart points. Later epochs return little — on the reference
-image epoch 0 produced 82% of the total gain and epochs 2-3 only 3.7% — so
-max-epochs defaults to 2. Set max-llm-calls for a hard ceiling.
+LLM spend is exactly epochs × seeds — 20 at the defaults — so the two flags
+that set it are the whole cost model. More epochs give diminishing returns, so
+epochs defaults to 2.
 
 ### Output layout
 

@@ -86,9 +86,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         score_fn: Callable[[Result], float] | None = None,
         epoch_seeds: int = 0,
         initial_seeds: int | None = None,
-        max_epochs: int | None = None,
+        epochs: int | None = None,
         epoch_variance: float | None = None,
-        max_llm_calls: int | None = None,
         collector: StatCollector | None = None,
     ) -> None:
         start_time = time.monotonic()
@@ -128,7 +127,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         epoch = 0
         epoch_no_improve = 0
-        total_llm_completions = 0
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
@@ -138,8 +136,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         # Epoch 0's batch is sized separately: resumed candidates already count
         # as seeds, so a resumed run should not pay for a full batch again.
         first_batch = epoch_seeds if initial_seeds is None else initial_seeds
-        if max_llm_calls is not None:
-            first_batch = min(first_batch, max_llm_calls)
         phase = SEED_PHASE if first_batch > 0 else LOCAL_PHASE
         seed_parents: list[SearchNode[TState]] = list(active_pool)
         seed_children: list[SearchNode[TState]] = []
@@ -172,11 +168,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         if collector is not None:
             collector.on_phase(phase, seeds_target)
 
-        def _llm_budget_left() -> int | None:
-            if max_llm_calls is None:
-                return None
-            return max(0, max_llm_calls - total_llm_completions)
-
         def _begin_seed_phase() -> None:
             """Open an epoch with a batch of LLM edits of the current front."""
             nonlocal \
@@ -198,9 +189,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             seeds_dispatched = 0
             seeds_completed = 0
             seeds_target = epoch_seeds
-            budget = _llm_budget_left()
-            if budget is not None:
-                seeds_target = min(seeds_target, budget)
 
             if seeds_target <= 0 or not seed_parents:
                 phase = LOCAL_PHASE
@@ -407,7 +395,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             epoch += 1
             if collector is not None:
                 collector.on_epoch_transition(epoch)
-            if max_epochs is not None and epoch >= max_epochs:
+            if epochs is not None and epoch >= epochs:
                 # The run loop is about to stop. Opening a batch here would
                 # log an epoch that never happens, and any seed dispatched
                 # before the next loop check would be paid for and discarded.
@@ -462,8 +450,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if tasks_completed >= self.max_total_tasks:
                     log.warning("Max task limit reached.")
                     break
-                if max_epochs is not None and epoch >= max_epochs:
-                    log.info(f"Max epochs ({max_epochs}) reached.")
+                if epochs is not None and epoch >= epochs:
+                    log.info(f"Max epochs ({epochs}) reached.")
                     break
 
                 _dispatch_tasks()
@@ -476,8 +464,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                 in_flight -= 1
                 tasks_completed += 1
-                if res.llm_type:
-                    total_llm_completions += 1
 
                 in_batch = res.task_id in seed_task_ids
                 # A local result that outlived its epoch: the pool it was

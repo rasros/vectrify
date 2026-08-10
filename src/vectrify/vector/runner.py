@@ -114,8 +114,7 @@ def run_vector_search(
     epoch_diversity: float = DEFAULT_EPOCH_DIVERSITY,
     tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
     epoch_variance: float | None = None,
-    max_epochs: int | None = None,
-    max_llm_calls: int | None = None,
+    epochs: int | None = None,
     max_total_tasks: int = DEFAULT_MAX_TOTAL_TASKS,
     vision_model: str = DEFAULT_VISION_MODEL,
     stats: "SearchStats | None" = None,
@@ -343,9 +342,8 @@ def run_vector_search(
             score_fn=score_fn,
             epoch_seeds=epoch_seeds,
             initial_seeds=first_batch,
-            max_epochs=max_epochs,
+            epochs=epochs,
             epoch_variance=epoch_variance,
-            max_llm_calls=max_llm_calls,
             collector=collector,
         )
     finally:

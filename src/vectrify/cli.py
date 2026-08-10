@@ -10,7 +10,7 @@ from vectrify.score.vision import DEFAULT_VISION_MODEL
 DEFAULT_OUTPUT = "output.svg"
 DEFAULT_PROVIDER = "auto"
 DEFAULT_SCORER = "auto"
-DEFAULT_MAX_EPOCHS = 2
+DEFAULT_EPOCHS = 2
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
 DEFAULT_RESUME = False
@@ -28,7 +28,6 @@ DEFAULT_EPOCH_VARIANCE = 0.0
 DEFAULT_EPOCH_PATIENCE = 200
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
 DEFAULT_TOURNAMENT_SIZE = 2
-DEFAULT_MAX_LLM_CALLS = 0  # 0 = unlimited / off
 DEFAULT_MAX_TOTAL_TASKS = 10000
 DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
@@ -175,19 +174,21 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="LLM calls that open every epoch. Their children become that "
         "epoch's entire pool, which local mutation and crossover then refine; "
         "no other task calls the LLM, so total calls are at most "
-        "max-epochs x seeds. Resumed candidates count toward epoch 0's batch. "
+        "epochs x seeds. Resumed candidates count toward epoch 0's batch. "
         "0 disables the LLM entirely (requires --resume). "
         "Defaults to pool-size // 10.",
     )
 
     g_epoch = parser.add_argument_group("Epoch control")
     g_epoch.add_argument(
-        "--max-epochs",
+        "--epochs",
         type=int,
-        default=DEFAULT_MAX_EPOCHS,
-        dest="max_epochs",
+        default=DEFAULT_EPOCHS,
+        dest="epochs",
         metavar="N",
-        help=f"Maximum epochs to run. Default: {DEFAULT_MAX_EPOCHS}",
+        help="Epochs to run. Each one opens with a batch of seeds LLM calls, "
+        "so this and --seeds together fix the run's entire LLM spend. "
+        f"Default: {DEFAULT_EPOCHS}",
     )
     g_epoch.add_argument(
         "--epoch-patience",
@@ -294,16 +295,6 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"Default: {DEFAULT_MAX_WALL_SECONDS}s",
     )
     g_runtime.add_argument(
-        "--max-llm-calls",
-        type=int,
-        default=DEFAULT_MAX_LLM_CALLS,
-        dest="max_llm_calls",
-        metavar="N",
-        help="Hard cap on total LLM calls across the entire run; ends the "
-        "run as soon as it is reached. 0 disables. Useful as a strict "
-        f"cost bound. Default: {DEFAULT_MAX_LLM_CALLS} (unlimited)",
-    )
-    g_runtime.add_argument(
         "--max-total-tasks",
         type=int,
         default=DEFAULT_MAX_TOTAL_TASKS,
@@ -360,8 +351,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     if ns.max_wall_seconds is not None and ns.max_wall_seconds <= 0:
         ns.max_wall_seconds = None
 
-    if ns.max_epochs < 1:
-        raise SystemExit("Error: --max-epochs must be at least 1")
+    if ns.epochs < 1:
+        raise SystemExit("Error: --epochs must be at least 1")
     if ns.workers <= 0 or ns.pool_size <= 0:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
     if ns.resolution <= 0:
