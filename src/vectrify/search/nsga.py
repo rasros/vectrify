@@ -5,7 +5,7 @@ from typing import Any, Generic, TypeVar
 
 from vectrify.score.complexity import METRIC_NAMES
 from vectrify.search.diversity import hamming_distance, pool_diversity
-from vectrify.search.models import INVALID_SCORE, ChainState, Result, SearchNode
+from vectrify.search.models import INVALID_SCORE, SearchNode
 
 log = logging.getLogger(__name__)
 
@@ -322,6 +322,3 @@ class NsgaStrategy(Generic[TState]):
     def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:
         diversity = pool_diversity(pool)
         return self.epoch_diversity > 0 and diversity < self.epoch_diversity, diversity
-
-    def create_new_state(self, result: Result[TState]) -> ChainState[TState]:
-        return ChainState(score=result.score, payload=result.payload)

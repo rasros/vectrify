@@ -11,6 +11,7 @@ from vectrify.search.base import SearchStrategy, StorageAdapter
 from vectrify.search.collector import StatCollector
 from vectrify.search.models import (
     INVALID_SCORE,
+    ChainState,
     Result,
     SearchNode,
     Task,
@@ -25,21 +26,19 @@ SEED_PHASE = "seed"
 LOCAL_PHASE = "local"
 
 
+def keep_payload(result: Result) -> ChainState:
+    """Default state builder: carry the worker's payload through unchanged."""
+    return ChainState(score=result.score, payload=result.payload)
+
+
 class MultiprocessSearchEngine(Generic[TState]):
     """Alternating LLM-seed / local-refine epochs.
 
-    Every epoch opens with a fixed batch of LLM calls and then runs local
-    mutation and crossover only, until it converges. The two operators are
-    never interleaved: the LLM sets the starting points, local search exploits
-    them, and the epoch boundary is where the LLM gets to look at the result
-    and propose somewhere else to start.
-
-    The split exists because the operators are not interchangeable. Measured on
-    the reference image, an LLM edit degrades the median parent about four
-    times as much as a local mutation does and costs roughly a thousand times
-    more per attempt, so spending them as a fraction of every task wasted them
-    competing against best-of-15 local moves. As a batch of restart points they
-    do the one thing local search cannot: leave the basin it is stuck in.
+    Every epoch opens with a batch of LLM calls and then runs local mutation
+    and crossover only, until it converges. The operators are never mixed: an
+    LLM edit degrades the median parent ~4x as much as a local mutation at
+    ~1000x the cost, so it earns its keep as a restart point rather than as a
+    move competing against best-of-15 local ones.
     """
 
     def __init__(
@@ -48,11 +47,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         strategy: SearchStrategy[TState],
         storage: StorageAdapter[TState],
         max_total_tasks: int = 10000,
+        make_state: Callable[[Result], ChainState[TState]] = keep_payload,
     ):
         self.workers = workers
         self.strategy = strategy
         self.storage = storage
         self.max_total_tasks = max_total_tasks
+        self.make_state = make_state
 
         self.ctx = mp.get_context("spawn")
         self.task_q = self.ctx.Queue(maxsize=max(64, workers * 8))
@@ -130,11 +131,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
-        # Seed-phase state. The children accumulate outside active_pool: they
-        # replace it wholesale once the batch lands, so letting them compete
-        # against the outgoing pool on the way in would defeat the restart.
-        # Epoch 0's batch is sized separately: resumed candidates already count
-        # as seeds, so a resumed run should not pay for a full batch again.
+        # Children accumulate outside active_pool: they replace it wholesale
+        # once the batch lands. Epoch 0's batch is sized separately because
+        # resumed candidates already count as seeds.
         first_batch = epoch_seeds if initial_seeds is None else initial_seeds
         phase = SEED_PHASE if first_batch > 0 else LOCAL_PHASE
         seed_parents: list[SearchNode[TState]] = list(active_pool)
@@ -142,10 +141,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         seeds_target = first_batch
         seeds_dispatched = 0
         seeds_completed = 0
-        # Which task ids belong to the current batch. An epoch can transition
-        # with local tasks still in flight, and those results arrive during the
-        # next seed phase; without this they would be counted as seeds, ending
-        # the batch before its LLM children had even landed.
+        # An epoch can transition with local tasks still in flight, and those
+        # results land during the next seed phase. Without this they count as
+        # seeds and end the batch before its LLM children arrive.
         seed_task_ids: set[int] = set()
 
         next_task_id = 1
@@ -221,17 +219,16 @@ class MultiprocessSearchEngine(Generic[TState]):
                         f"All {seeds_target} epoch-0 seed task(s) failed and no "
                         f"candidate was accepted; last error: {last_invalid_msg}"
                     )
-                # A failed batch mid-run is not fatal: keep refining the pool
-                # the edits were derived from rather than ending the run.
+                # Not fatal mid-run: keep refining the pool the edits came from.
                 log.warning(
                     f"Epoch {epoch}: every seed edit failed; "
                     "continuing from the previous pool."
                 )
             else:
                 if epoch == 0:
-                    # Nothing to restart from yet, and discarding resumed nodes
-                    # here would throw away the work --resume exists to carry
-                    # forward. Later epochs do replace the pool outright.
+                    # Nothing to restart from yet, and clearing here would
+                    # discard what --resume just restored. Later epochs do
+                    # replace the pool outright.
                     carried = [n for n in active_pool if n.score < INVALID_SCORE]
                     new_pool = valid_children + carried
                 else:
@@ -260,7 +257,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if phase == SEED_PHASE:
                     if seeds_dispatched >= seeds_target:
                         return
-                    # Round-robin so a front smaller than the batch still gets
+                    # Round-robin: a front smaller than the batch still gets
                     # every parent edited before any is edited twice.
                     parent = seed_parents[seeds_dispatched % len(seed_parents)]
                     task = Task(
@@ -313,7 +310,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 score=res.score,
                 id=next_node_id,
                 parent_id=res.parent_id,
-                state=self.strategy.create_new_state(res),
+                state=self.make_state(res),
                 secondary_parent_id=res.secondary_parent_id,
                 metrics=res.metrics,
                 signature=res.signature,
@@ -396,9 +393,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             if collector is not None:
                 collector.on_epoch_transition(epoch)
             if epochs is not None and epoch >= epochs:
-                # The run loop is about to stop. Opening a batch here would
-                # log an epoch that never happens, and any seed dispatched
-                # before the next loop check would be paid for and discarded.
+                # The run loop is about to stop; a batch opened here would be
+                # paid for and discarded.
                 return
             _begin_seed_phase()
 
@@ -466,15 +462,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                 tasks_completed += 1
 
                 in_batch = res.task_id in seed_task_ids
-                # A local result that outlived its epoch: the pool it was
-                # measured against no longer exists, so it is neither a seed
-                # nor evidence about the current one. Drop it.
+                # Outlived its epoch: the pool it was measured against is gone.
                 stale = phase == SEED_PHASE and not in_batch
                 if in_batch:
                     seeds_completed += 1
                 elif not stale:
-                    # Staleness is a property of the local phase only: it asks
-                    # how long hill-climbing has gone without progress.
+                    # Staleness asks how long hill-climbing has stalled, so
+                    # only local tasks count.
                     epoch_no_improve += 1
 
                 llm_in_flight = (
