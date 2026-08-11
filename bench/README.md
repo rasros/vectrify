@@ -18,9 +18,16 @@ bootstrap 95% CI. Lower is better; a CI entirely below zero is an improvement.
 
 ## How a case runs
 
-Each case is a `target.png` and a `seed.svg`. The harness plants the seed as a
-previous run in a temp dir and invokes `vectrify --seeds 0 --resume`, so the
-pool starts from that one candidate and only local operators touch it.
+Each case is a `target.png` and five seeds in `seeds/`. The harness plants all
+of them as a previous run in a temp dir and invokes `vectrify --seeds 0
+--resume`, so the pool starts from those candidates and only local operators
+touch it.
+
+Five, not one, because crossover grafts subtrees *between* candidates: a pool
+descended from a single ancestor gives it nothing to recombine, which is not
+the regime a real epoch runs in. Measured on this corpus crossover is worth
+-0.00087 on final error, 95% CI [-0.00149, -0.00019]; measured against a single
+seed it looked worthless.
 
 `--workers 1 --random-seed N` makes a run reproducible. Above one worker the
 task interleaving varies and it is not, which is why the default is one worker
@@ -54,10 +61,18 @@ that no shipped SVG encodes. There is deliberately no ground-truth SVG.
 | `connect-dots` | numbered puzzle   | 22 dots and 22 numerals at glyph scale |
 
 **Seeds are structurally complete.** Every element the target needs is already
-in the seed, with the wrong colours, sizes, positions, stroke widths and font
+in every seed, with the wrong colours, sizes, positions, stroke widths and font
 sizes. That is the whole design: local search can move a number and shift a
 colour but cannot invent a shape, so a seed missing an element would measure an
 unreachable ceiling instead of the operators' actual job.
+
+**The five seeds of a case are different decompositions**, not one drawing
+re-jittered — a ring as one stroked circle or as two filled discs, a word as
+one `<text>` or one per letter, different grouping and element counts. No
+single seed can win either: each is deliberately unable to converge on some
+part (a straight-`<line>` mouth that never bows, a `<rect>` with no `rx` whose
+corners never round), so the best reachable drawing is a merge taking each part
+from whichever lineage drew it right. Seeds live in `bench/seeds.py`.
 
 Every perturbed attribute is one an operator can reach, which constrains how
 the seeds may be written:
