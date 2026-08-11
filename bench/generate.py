@@ -1,21 +1,15 @@
 """Regenerate the benchmark corpus.
 
-Each case is a target.png the search must reproduce and a seed.svg it starts
-from. Targets are drawn as raster at 4x and downsampled, so they carry
-anti-aliased edges and a gradient that no shipped SVG encodes.
-
-Seeds are structurally complete: every element the target needs is already
-present, with the wrong colours, sizes, positions, stroke widths and font
-sizes. Local search can move a number and shift a colour but cannot invent a
-shape, so a seed missing an element would measure an unreachable ceiling
-instead of the operators' actual job. Every attribute perturbed below is one
-mutate_numeric or mutate_color can reach.
+Targets are drawn here as raster at 4x and downsampled, so they carry
+anti-aliased edges and gradients that no shipped SVG encodes. The seeds each
+case starts from live in bench/seeds.py.
 
 Run from the repo root: uv run python bench/generate.py
 """
 
 import itertools
 import math
+import sys
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFilter, ImageFont
@@ -468,6 +462,10 @@ CASES = {
 
 
 def main() -> None:
+    # Running this as a script puts bench/ on sys.path rather than the repo
+    # root, so `from bench.seeds` needs the root added either way.
+    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
     from bench.seeds import SEEDS
     from vectrify.formats.svg.plugin import SvgPlugin
 
