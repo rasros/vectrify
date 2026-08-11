@@ -1,3 +1,5 @@
+import contextlib
+import hashlib
 import io
 import logging
 import math
@@ -50,6 +52,48 @@ class VisionScorer(Scorer):
         # tiles already seen, and ~25% of whole renders identical to an earlier
         # one), so evicting would throw away the hit rate that pays for tiling.
         self._tile_cache: dict[bytes, float] = {}
+        # Last single-image forward, as (key, pooled, patches). score() wants
+        # the pooled vector and region_distance_grid() the patch grid, and at
+        # one crop both run on the same pixels -- but the pooled vector is
+        # derived from the patches, so the second pass was recomputing what the
+        # first already had. Measured 1248 ms per candidate against 614 ms for
+        # one forward.
+        self._forward_memo: tuple[bytes, Any, Any] | None = None
+
+    def _forward_single(
+        self, image: Image.Image
+    ) -> "tuple[torch.Tensor, torch.Tensor] | None":
+        """One pass returning (pooled, patches), both L2-normalised."""
+        import torch.nn.functional as functional
+
+        if not hasattr(self._model, "vision_model"):
+            return None
+
+        key = hashlib.blake2b(image.tobytes(), digest_size=16).digest()
+        memo = self._forward_memo
+        if memo is not None and memo[0] == key:
+            return memo[1], memo[2]
+
+        inputs = self._processor(images=[image], return_tensors="pt")
+        pixel_values = inputs["pixel_values"].to(self._device_str)
+        with self._torch.no_grad(), self._inference():
+            output = self._model.vision_model(pixel_values=pixel_values)
+            pooled = functional.normalize(output.pooler_output.float(), dim=-1)
+            patches = functional.normalize(output.last_hidden_state[0].float(), dim=-1)
+
+        self._forward_memo = (key, pooled, patches)
+        return pooled, patches
+
+    def _inference(self):
+        """Run forwards in half precision on CUDA.
+
+        The scorer's whole output is a cosine distance, and fp16 and fp32
+        embeddings of the same image agree to a cosine of 0.999998, so the
+        precision is free here while the tower is ~3x faster.
+        """
+        if self._device_str == "cuda":
+            return self._torch.autocast("cuda", dtype=self._torch.float16)
+        return contextlib.nullcontext()
 
     def _load_dependencies(self) -> None:
         if self._model is not None:
@@ -57,6 +101,11 @@ class VisionScorer(Scorer):
         try:
             import torch
             from transformers import AutoImageProcessor, AutoModel
+
+            # Free on Ampere and later, and it covers the paths autocast does
+            # not (CPU offload, older torch without CUDA autocast).
+            torch.backends.cuda.matmul.allow_tf32 = True
+            torch.backends.cudnn.allow_tf32 = True
 
             device = self._device or get_device()
             processor = AutoImageProcessor.from_pretrained(self._model_name)
@@ -87,17 +136,22 @@ class VisionScorer(Scorer):
         """Embed a batch of images in one forward pass, L2-normalised."""
         import torch.nn.functional as functional
 
+        if len(images) == 1:
+            single = self._forward_single(images[0])
+            if single is not None:
+                return single[0]
+
         inputs = self._processor(images=images, return_tensors="pt")
         pixel_values = inputs["pixel_values"].to(self._device_str)
 
-        with self._torch.no_grad():
+        with self._torch.no_grad(), self._inference():
             if hasattr(self._model, "get_image_features"):
                 features = self._model.get_image_features(pixel_values=pixel_values)
             else:
                 features = self._model(pixel_values=pixel_values)
             if not isinstance(features, self._torch.Tensor):
                 features = features.pooler_output
-            return functional.normalize(features, dim=-1)
+            return functional.normalize(features.float(), dim=-1)
 
     def _tile_distances(
         self, reference: VisionReference, candidate: Image.Image
@@ -149,7 +203,7 @@ class VisionScorer(Scorer):
         inputs = self._processor(images=image, return_tensors="pt")
         pixel_values = inputs["pixel_values"].to(self._device_str)
 
-        with self._torch.no_grad():
+        with self._torch.no_grad(), self._inference():
             if hasattr(self._model, "get_image_features"):
                 features = self._model.get_image_features(pixel_values=pixel_values)
             else:
@@ -159,7 +213,7 @@ class VisionScorer(Scorer):
             if not isinstance(features, self._torch.Tensor):
                 features = features.pooler_output
 
-            return functional.normalize(features, dim=-1)
+            return functional.normalize(features.float(), dim=-1)
 
     def _embed_patches(
         self, image: Image.Image
@@ -169,18 +223,10 @@ class VisionScorer(Scorer):
         patch_embeddings: [num_patches, hidden_size], L2-normalised
         grid_hw: (h_patches, w_patches) spatial layout of patches
         """
-        import torch.nn.functional as functional
-
-        if not hasattr(self._model, "vision_model"):
+        single = self._forward_single(image)
+        if single is None:
             return None
-
-        inputs = self._processor(images=image, return_tensors="pt")
-        pixel_values = inputs["pixel_values"].to(self._device_str)
-
-        with self._torch.no_grad():
-            output = self._model.vision_model(pixel_values=pixel_values)
-            patch_embs = output.last_hidden_state[0]
-            patch_embs = functional.normalize(patch_embs, dim=-1)
+        patch_embs = single[1]
 
         n = patch_embs.shape[0]
         h = w = math.isqrt(n)
