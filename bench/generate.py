@@ -468,24 +468,27 @@ CASES = {
 
 
 def main() -> None:
+    from bench.seeds import SEEDS
     from vectrify.formats.svg.plugin import SvgPlugin
 
     plugin = SvgPlugin()
     root = Path(__file__).parent / "cases"
-    for name, (target, seed) in CASES.items():
-        svg = seed()
-        ok, err = plugin.validate(svg)
-        if not ok:
-            raise SystemExit(f"{name}/seed.svg is invalid: {err}")
-
+    for name, (target, _legacy_seed) in CASES.items():
         case_dir = root / name
-        case_dir.mkdir(parents=True, exist_ok=True)
-        target().save(case_dir / "target.png")
-        (case_dir / "seed.svg").write_text(svg, encoding="utf-8")
-        stale = case_dir / "truth.svg"
-        if stale.exists():
+        seeds_dir = case_dir / "seeds"
+        seeds_dir.mkdir(parents=True, exist_ok=True)
+        for stale in (*case_dir.glob("*.svg"), *seeds_dir.glob("*.svg")):
             stale.unlink()
-        print(f"{name}: wrote target.png, seed.svg")
+
+        variants = SEEDS[name]
+        for index, svg in enumerate(variants, start=1):
+            ok, err = plugin.validate(svg)
+            if not ok:
+                raise SystemExit(f"{name}/seeds/{index}.svg is invalid: {err}")
+            (seeds_dir / f"{index}.svg").write_text(svg, encoding="utf-8")
+
+        target().save(case_dir / "target.png")
+        print(f"{name}: wrote target.png and {len(variants)} seeds")
 
 
 if __name__ == "__main__":

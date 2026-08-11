@@ -287,8 +287,16 @@ class NsgaStrategy(Generic[TState]):
         if len(pool) >= 2:
             p2_candidate = _tournament(exclude_id=p1.id)
             sig1, sig2 = p1.signature, p2_candidate.signature
+            # Two nodes of one lineage are the same drawing at different
+            # stages, so grafting between them mostly reshuffles a candidate
+            # into itself: measured on the bench, crossover in a single-seed
+            # pool took the largest share of the task budget for 1-10% of the
+            # gain. Root 0 means the caller tracks no lineage, which must not
+            # read as "all one lineage" and disable crossover outright.
+            same_lineage = p1.root_id != 0 and p1.root_id == p2_candidate.root_id
             if (
-                sig1 is not None
+                not same_lineage
+                and sig1 is not None
                 and sig2 is not None
                 and hamming_distance(sig1, sig2) > self.crossover_distance_threshold
             ):

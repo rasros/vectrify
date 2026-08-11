@@ -126,6 +126,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         scorer_thread.start()
 
         node_states = {n.id: n.state for n in initial_nodes}
+        # Each starting candidate is its own lineage; children inherit it.
+        node_roots = {n.id: n.root_id or n.id for n in initial_nodes}
         sorted_initial = sorted(initial_nodes, key=lambda n: n.score)
         active_pool: list[SearchNode[TState]] = sorted_initial[:active_pool_size]
         best_node = sorted_initial[0] if sorted_initial else None
@@ -303,13 +305,21 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
                 return True, None
 
-        def _make_node(res: Result) -> SearchNode[TState]:
+        def _make_node(res: Result, *, new_lineage: bool = False) -> SearchNode[TState]:
             nonlocal next_node_id
 
             if res.score is None:
                 raise RuntimeError("Result has no score and no score_fn provided")
 
             next_node_id += 1
+            # An LLM seed is an independent attempt at the picture, so it opens
+            # a lineage; a local child continues its parent's.
+            root = (
+                next_node_id
+                if new_lineage
+                else node_roots.get(res.parent_id, next_node_id)
+            )
+            node_roots[next_node_id] = root
             return SearchNode(
                 score=res.score,
                 id=next_node_id,
@@ -319,6 +329,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 metrics=res.metrics,
                 signature=res.signature,
                 epoch=epoch,
+                root_id=root,
             )
 
         def _note_best(new_node: SearchNode[TState], res: Result) -> bool:
@@ -348,7 +359,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             return is_new_best
 
         def _process_seed_result(res: Result) -> None:
-            new_node = _make_node(res)
+            new_node = _make_node(res, new_lineage=True)
             seed_children.append(new_node)
             node_states[new_node.id] = new_node.state
             _note_best(new_node, res)

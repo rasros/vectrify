@@ -500,3 +500,42 @@ def test_larger_tournament_biases_harder_toward_score():
         return hits / trials
 
     assert better_half_rate(4) > better_half_rate(2) > 0.5
+
+
+def test_crossover_is_skipped_within_one_lineage():
+    """Two nodes of one lineage are the same drawing at different stages, so
+    grafting between them recombines a candidate with itself."""
+    strategy = NsgaStrategy(pool_size=4, crossover_distance_threshold=0)
+    nodes = [
+        make_node(i, 0.1 * i, content=f"<svg><rect id='{i}'/></svg>")
+        for i in range(1, 5)
+    ]
+    for n in nodes:
+        n.root_id = 7
+
+    for _ in range(20):
+        assert strategy.select_parent(nodes)[1] is None
+
+
+def test_crossover_fires_across_lineages():
+    strategy = NsgaStrategy(pool_size=4, crossover_distance_threshold=0)
+    nodes = [
+        make_node(i, 0.1 * i, content=f"<svg><rect id='{i}'/></svg>")
+        for i in range(1, 5)
+    ]
+    for n in nodes:
+        n.root_id = n.id
+
+    assert any(strategy.select_parent(nodes)[1] is not None for _ in range(20))
+
+
+def test_untracked_lineage_leaves_crossover_enabled():
+    """root_id 0 means the caller tracks no lineage; reading that as one shared
+    lineage would disable crossover for every caller outside the engine."""
+    strategy = NsgaStrategy(pool_size=4, crossover_distance_threshold=0)
+    nodes = [
+        make_node(i, 0.1 * i, content=f"<svg><rect id='{i}'/></svg>")
+        for i in range(1, 5)
+    ]
+    assert all(n.root_id == 0 for n in nodes)
+    assert any(strategy.select_parent(nodes)[1] is not None for _ in range(20))

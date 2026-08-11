@@ -26,23 +26,31 @@ DEFAULT_CASES = REPO / "bench" / "cases"
 SEED_RUN = "1970-01-01_00-00-00"
 
 
+def case_seeds(case: Path) -> list[Path]:
+    return sorted((case / "seeds").glob("*.svg"))
+
+
 def discover_cases(cases_dir: Path) -> list[Path]:
     found = sorted(
-        d
-        for d in cases_dir.iterdir()
-        if (d / "target.png").is_file() and (d / "seed.svg").is_file()
+        d for d in cases_dir.iterdir() if (d / "target.png").is_file() and case_seeds(d)
     )
     if not found:
-        raise SystemExit(f"no cases with target.png + seed.svg under {cases_dir}")
+        raise SystemExit(f"no cases with target.png + seeds/*.svg under {cases_dir}")
     return found
 
 
-def plant_seed(work: Path, seed_svg: Path) -> Path:
-    """Lay out a fake previous run so --resume picks the seed up."""
+def plant_seed(work: Path, case: Path) -> Path:
+    """Lay out a fake previous run so --resume picks every seed up.
+
+    All of them, not one: a pool descended from a single ancestor gives
+    crossover nothing to recombine, which is not the regime a real epoch runs
+    in -- an epoch opens with several independent LLM candidates.
+    """
     project = work / "out"
     nodes = project / "runs" / SEED_RUN / "nodes"
     nodes.mkdir(parents=True)
-    (nodes / "1.000000_1.svg").write_text(seed_svg.read_text(encoding="utf-8"))
+    for index, seed in enumerate(case_seeds(case), start=1):
+        (nodes / f"1.000000_{index}.svg").write_text(seed.read_text(encoding="utf-8"))
     return work / "out.svg"
 
 
@@ -72,7 +80,7 @@ def read_curve(project: Path) -> list[float]:
 def run_case(case: Path, seed: int, args) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
-        output = plant_seed(work, case / "seed.svg")
+        output = plant_seed(work, case)
         cmd = [
             "vectrify",
             str(case / "target.png"),
