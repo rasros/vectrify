@@ -34,22 +34,31 @@ def test_curve_reads_the_newest_run(tmp_path):
     assert read_curve(tmp_path) == [0.2]
 
 
-def test_plant_seed_lays_out_a_resumable_run(tmp_path):
-    seed = tmp_path / "seed.svg"
-    seed.write_text("<svg/>")
-    output = plant_seed(tmp_path / "work", seed)
+def _make_case(root: Path, name: str, seeds: int = 2, target: bool = True) -> Path:
+    case = root / name
+    (case / "seeds").mkdir(parents=True)
+    if target:
+        (case / "target.png").write_bytes(b"x")
+    for i in range(seeds):
+        (case / "seeds" / f"{i + 1}.svg").write_text(f"<svg id='{i}'/>")
+    return case
+
+
+def test_plant_seed_plants_every_seed(tmp_path):
+    """The pool must start as several lineages; planting one would leave
+    crossover recombining a candidate with itself."""
+    case = _make_case(tmp_path, "case", seeds=3)
+    output = plant_seed(tmp_path / "work", case)
     planted = list((tmp_path / "work" / "out" / "runs").glob("*/nodes/*.svg"))
-    assert len(planted) == 1
-    assert planted[0].read_text() == "<svg/>"
+    assert len(planted) == 3
+    assert {p.read_text() for p in planted} == {f"<svg id='{i}'/>" for i in range(3)}
     assert output.suffix == ".svg"
 
 
-def test_discover_cases_requires_both_files(tmp_path):
-    (tmp_path / "good").mkdir()
-    (tmp_path / "good" / "target.png").write_bytes(b"x")
-    (tmp_path / "good" / "seed.svg").write_text("<svg/>")
-    (tmp_path / "partial").mkdir()
-    (tmp_path / "partial" / "seed.svg").write_text("<svg/>")
+def test_discover_cases_requires_a_target_and_seeds(tmp_path):
+    _make_case(tmp_path, "good")
+    _make_case(tmp_path, "no-target", target=False)
+    _make_case(tmp_path, "no-seeds", seeds=0)
     assert [c.name for c in discover_cases(tmp_path)] == ["good"]
 
 

@@ -529,3 +529,38 @@ def test_local_results_that_outlive_their_epoch_do_not_count_as_seeds(caplog):
     # Epoch 1 was seeded once, so it has exactly one candidate to refine. The
     # three stale locals must not have been mistaken for seed children.
     assert refines[-1].startswith("Epoch 1: refining 1 candidate")
+
+
+def test_seed_children_open_lineages_and_local_children_inherit():
+    """Crossover pairs only across lineages, so the engine has to assign them:
+    every LLM seed is an independent attempt, its descendants are not."""
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.roots = []
+
+        def select_parent(self, nodes):
+            self.roots.append({n.id: n.root_id for n in nodes})
+            return nodes[0].id, None
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=4
+    )
+    engine.unscored_q.put(_seed_result(1, 0.4))
+    engine.unscored_q.put(_seed_result(2, 0.3))
+    for tid in (3, 4):
+        engine.unscored_q.put(
+            Result(task_id=tid, parent_id=2, valid=True, score=0.35, payload="p")
+        )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=2)
+
+    seen = strat.roots[-1]
+    # The two seed children carry different lineages, and the local child that
+    # followed carries its parent's rather than a new one.
+    assert len(set(seen.values())) >= 2
+    assert len(seen) > len(set(seen.values()))

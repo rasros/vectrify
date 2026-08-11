@@ -33,6 +33,10 @@ class SearchNode(Generic[TState]):
     )
     signature: int | None = dataclasses.field(default=None, compare=False)
     epoch: int = dataclasses.field(default=0, compare=False)
+    # The seed this node descends from. Crossover between two nodes of the same
+    # lineage recombines a candidate with itself, so selection uses this to pair
+    # only across lineages.
+    root_id: int = dataclasses.field(default=0, compare=False)
 
 
 @dataclasses.dataclass
