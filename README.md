@@ -144,22 +144,34 @@ every prompt image.
 
 ### NSGA-II objectives
 
-The search minimizes four objectives at once:
+The search minimizes five objectives at once:
 
-| Objective             | Measure                                        |
-|-----------------------|------------------------------------------------|
-| visual error          | scorer distance to the source image            |
-| visual complexity     | JPEG-compressed size of the render             |
-| structural complexity | code size (whitespace-stripped source length)  |
-| worst region          | distance over the worst crops of the render    |
+| Objective     | Measure                                                    |
+|---------------|------------------------------------------------------------|
+| score         | pixel distance to the source image                         |
+| worst quarter | distance over the worst of 4 regions                       |
+| worst 16th    | distance over the worst of 16 regions                      |
+| zip ratio     | compressed size of the render, per unit of error removed   |
+| node ratio    | element count, per unit of error removed                   |
 
-Visual error is the primary objective; the complexity measures only break
-ties among the best-scoring candidates, biasing toward small, clean output
-once the image is already close. Worst region counters visual error being an
-average, under which a small defect in a mostly-correct image is too cheap to
-be worth fixing; it reads the same crops the score is built from, so the region
-it names is always one the score measured. Raising tournament-size pushes
-harder toward visual quality at the cost of pool diversity.
+No objective is privileged: dominance compares the whole vector, which is what
+lets a complexity measure actually shape the front rather than break ties among
+candidates already sorted by score. The two region scales counter score being
+an average, under which a small defect in a mostly-correct image is too cheap
+to be worth fixing — quarters catch a whole area being wrong, sixteenths catch
+a localised defect.
+
+The complexity measures are ratios rather than raw counts because an empty
+canvas beats everything on a raw count and so is never dominated, which would
+park it on the front for the whole run. Charging complexity against the error
+it removes puts its ratio at the ceiling instead. A candidate that removes less
+than half the available error is pinned there too, which rules out the other
+degenerate winner: a flat rectangle of the average colour.
+
+Parent selection is a tournament on non-dominated rank then crowding distance;
+survival is the same comparison applied to parents and children together, once
+per generation. Raising tournament-size pushes harder toward the front at the
+cost of pool diversity.
 
 ### Convergence and cost
 

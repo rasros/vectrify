@@ -2,6 +2,7 @@ import pytest
 
 from vectrify.search import ChainState, SearchNode
 from vectrify.search.diversity import simhash
+from vectrify.search.models import INVALID_SCORE
 from vectrify.search.nsga import (
     NsgaStrategy,
     _dominates,
@@ -485,3 +486,36 @@ def test_untracked_lineage_leaves_crossover_enabled():
     ]
     assert all(n.root_id == 0 for n in nodes)
     assert any(strategy.select_parent(nodes)[1] is not None for _ in range(20))
+
+
+def test_select_survivors_keeps_a_node_no_other_dominates():
+    """Regression: survival used to evict the worst score outright, so the four
+    objectives only reached parent selection and the pool collapsed onto L1."""
+    strategy = NsgaStrategy()
+    best_score = make_node(1, 0.1, worst_region_4=0.5, zip_ratio=5.0)
+    dominated = make_node(2, 0.2, worst_region_4=0.6, zip_ratio=6.0)
+    worst_score = make_node(3, 0.9, worst_region_4=0.9, zip_ratio=1.0)
+
+    kept = {
+        n.id for n in strategy.select_survivors([best_score, dominated, worst_score], 2)
+    }
+
+    assert kept == {1, 3}
+
+
+def test_select_survivors_drops_unscored_nodes_first():
+    """An infinite score would normalise every other objective to zero."""
+    strategy = NsgaStrategy()
+    scored = [make_node(1, 0.1), make_node(2, 0.2)]
+    unscored = make_node(3, INVALID_SCORE)
+
+    kept = strategy.select_survivors([*scored, unscored], 2)
+
+    assert [n.id for n in kept] == [1, 2]
+
+
+def test_select_survivors_keeps_everything_that_fits():
+    strategy = NsgaStrategy()
+    nodes = [make_node(i, 0.1 * i) for i in range(1, 4)]
+
+    assert len(strategy.select_survivors(nodes, 5)) == 3

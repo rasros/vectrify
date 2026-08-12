@@ -59,8 +59,8 @@ def node_complexity(source: str) -> float:
 # entry rather than an edit in each of nine files.
 #
 # `score` is deliberately absent: it comes from the configured scorer, not from
-# a complexity measure, and it is the constraint-gated primary objective rather
-# than one of the interchangeable tiebreakers.
+# a complexity measure. It is an objective like any other -- dominance does not
+# privilege it -- it just is not measured here.
 #
 # Be sparing. Dominance dilutes as objectives multiply, so past roughly four
 # nearly every candidate is non-dominated and the Pareto front stops

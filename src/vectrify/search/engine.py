@@ -100,6 +100,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_patience: int | None = None,
         epoch_min_delta: float = 1e-4,
         active_pool_size: int = 20,
+        generation_size: int | None = None,
         score_fn: Callable[[Result], float] | None = None,
         epoch_seeds: int = 0,
         initial_seeds: int | None = None,
@@ -143,6 +144,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         sorted_initial = sorted(initial_nodes, key=lambda n: n.score)
         active_pool: list[SearchNode[TState]] = sorted_initial[:active_pool_size]
         best_node = sorted_initial[0] if sorted_initial else None
+
+        # Children are held back and merged as a generation, NSGA-II's mu+lambda
+        # replacement: the truncation is a whole-population sort, so paying it
+        # once per lambda children rather than once per child keeps the engine
+        # from becoming the bottleneck.
+        pending_children: list[SearchNode[TState]] = []
+        lambda_size = max(1, generation_size or active_pool_size)
 
         epoch = 0
         epoch_no_improve = 0
@@ -209,6 +217,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             seed_parents = parents
             seed_children = []
+            pending_children.clear()
             seed_task_ids = set()
             seeds_dispatched = 0
             seeds_completed = 0
@@ -385,31 +394,57 @@ class MultiprocessSearchEngine(Generic[TState]):
             _note_best(new_node, res)
             self.storage.save_node(new_node)
 
+        def _close_generation() -> None:
+            """Merge the finished batch of children into the pool.
+
+            Survival is an NSGA-II truncation of parents+children by
+            non-dominated rank then crowding distance, the same comparison
+            parent selection uses. Doing it per arriving child would mean a
+            full sort per result, which at pool size 20 costs about as much as
+            producing the candidate did.
+            """
+            nonlocal active_pool
+
+            if not pending_children:
+                return
+
+            combined = active_pool + pending_children
+            survivors = self.strategy.select_survivors(combined, active_pool_size)
+            kept = {n.id for n in survivors}
+
+            for child in pending_children:
+                if child.id in kept:
+                    node_states[child.id] = child.state
+                    self.storage.save_node(child)
+                    continue
+                # A child can be the run's best and still lose its generation on
+                # another objective. Save it anyway: save_best is about to write
+                # it out, and lineage.csv should not omit the winner.
+                if child is best_node:
+                    self.storage.save_node(child)
+                log.debug(
+                    f"[REJECTED] node={child.id} "
+                    f"score={child.score:.6f} (dominated by the pool)"
+                )
+                if collector is not None:
+                    collector.on_pool_rejected(is_llm=False)
+
+            for node in active_pool:
+                if node.id not in kept:
+                    node_states.pop(node.id, None)
+                    self.storage.record_eviction(node.id, tasks_completed)
+
+            # Keep arrival order rather than the selector's rank order: the
+            # pool is an unordered set to every reader, and reshuffling it each
+            # generation would churn the dashboard for nothing.
+            active_pool = [n for n in combined if n.id in kept]
+            pending_children.clear()
+
         def _process_local_result(res: Result) -> None:
             nonlocal epoch_patience_best, epoch_no_improve
 
             new_node = _make_node(res)
-
-            active_pool.append(new_node)
-            if len(active_pool) > active_pool_size:
-                worst_idx = max(
-                    range(len(active_pool)), key=lambda i: active_pool[i].score
-                )
-                evicted_node = active_pool.pop(worst_idx)
-                node_states.pop(evicted_node.id, None)
-
-                if evicted_node is new_node:
-                    log.debug(
-                        f"[REJECTED] node={new_node.id} "
-                        f"score={new_node.score:.6f} (worse than pool)"
-                    )
-                    if collector is not None:
-                        collector.on_pool_rejected(is_llm=False)
-                    return
-
-                self.storage.record_eviction(evicted_node.id, tasks_completed)
-
-            node_states[new_node.id] = new_node.state
+            pending_children.append(new_node)
             _note_best(new_node, res)
 
             if new_node.score <= epoch_patience_best - epoch_min_delta:
@@ -418,10 +453,15 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if collector is not None:
                     collector.on_no_improve_reset()
 
-            self.storage.save_node(new_node)
+            if len(pending_children) >= lambda_size:
+                _close_generation()
 
         def _do_epoch_transition(reason: str) -> None:
             nonlocal epoch
+
+            # The next seed batch edits this pool's front, so the children that
+            # arrived since the last generation have to land in it first.
+            _close_generation()
 
             log.info(f"Epoch {epoch} → {epoch + 1}: {reason}")
             epoch += 1
@@ -545,6 +585,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                     _check_epoch_end()
 
         finally:
+            # Record the partial generation the run stopped in the middle of,
+            # so lineage.csv covers every candidate that was paid for.
+            with contextlib.suppress(Exception):
+                _close_generation()
             if best_node is not None:
                 # Still swallowed so a save failure cannot mask an in-flight
                 # exception during shutdown, but never silently: this is the

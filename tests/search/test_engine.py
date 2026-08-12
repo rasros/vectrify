@@ -19,6 +19,11 @@ class FakeStrategy:
         _ = pool
         return False, 1.0
 
+    def select_survivors(
+        self, nodes: list[SearchNode], max_keep: int
+    ) -> list[SearchNode]:
+        return sorted(nodes, key=lambda n: n.score)[:max_keep]
+
     def epoch_parents(
         self, pool: list[SearchNode], max_parents: int
     ) -> list[SearchNode]:
@@ -557,7 +562,12 @@ def test_seed_children_open_lineages_and_local_children_inherit():
     initial = SearchNode(
         score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
     )
-    engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=2)
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_seeds=2,
+        generation_size=1,
+    )
 
     seen = strat.roots[-1]
     # The two seed children carry different lineages, and the local child that
@@ -644,3 +654,74 @@ def test_a_failing_evaluator_does_not_stop_the_run():
         active_pool_size=2,
         epochs=4,
     )
+
+
+def test_children_join_the_pool_only_when_the_generation_closes():
+    """Survival is a sort over the whole population, so it is paid once per
+    generation rather than once per child; until then children are held back."""
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.pools = []
+
+        def select_parent(self, nodes):
+            self.pools.append({n.id for n in nodes})
+            return nodes[0].id, None
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=5
+    )
+    for tid in range(1, 6):
+        engine.unscored_q.put(
+            Result(task_id=tid, parent_id=1, valid=True, score=0.1, payload="p")
+        )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        active_pool_size=4,
+        generation_size=4,
+    )
+
+    assert strat.pools[:4] == [{1}] * 4
+    assert len(strat.pools[4]) > 1
+
+
+def test_epoch_transition_closes_the_open_generation():
+    """The next batch edits this pool's front, so children that arrived since
+    the last generation have to land before the front is read."""
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.epoch_pools = []
+
+        def epoch_parents(self, pool, max_parents):
+            self.epoch_pools.append({n.id for n in pool})
+            return pool[:max_parents]
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+    )
+    for tid in (1, 2):
+        engine.unscored_q.put(
+            Result(task_id=tid, parent_id=1, valid=True, score=0.9, payload="p")
+        )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_patience=1,
+        active_pool_size=4,
+        generation_size=10,
+    )
+
+    assert strat.epoch_pools
+    assert strat.epoch_pools[0] == {1, 2}
