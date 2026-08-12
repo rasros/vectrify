@@ -251,6 +251,21 @@ class NsgaStrategy(Generic[TState]):
 
         return p1.id, None
 
+    def select_survivors(
+        self, nodes: list[SearchNode[TState]], max_keep: int
+    ) -> list[SearchNode[TState]]:
+        """Truncate parents+children by non-dominated rank, then crowding.
+
+        Nodes that failed to score go first: they have no usable objective
+        vector, and a single infinite score would corrupt the population
+        normalization build_objectives applies to everyone else.
+        """
+        valid = [n for n in nodes if n.score < INVALID_SCORE]
+        if len(valid) <= max_keep:
+            invalid = [n for n in nodes if n.score >= INVALID_SCORE]
+            return valid + invalid[: max_keep - len(valid)]
+        return pareto_select(valid, build_objectives(valid), max_keep)
+
     def epoch_parents(
         self, pool: list[SearchNode[TState]], max_parents: int
     ) -> list[SearchNode[TState]]:

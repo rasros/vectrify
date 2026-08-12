@@ -18,6 +18,16 @@ class SearchStrategy(Protocol[TState]):
         """
         ...
 
+    def select_survivors(
+        self, nodes: list[SearchNode[TState]], max_keep: int
+    ) -> list[SearchNode[TState]]:
+        """Cut a combined parent+child population down to *max_keep* members.
+
+        Called once per generation rather than once per child, so an
+        implementation may do work proportional to the whole population.
+        """
+        ...
+
     def epoch_parents(
         self, pool: list[SearchNode[TState]], max_parents: int
     ) -> list[SearchNode[TState]]:
