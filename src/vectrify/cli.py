@@ -28,6 +28,7 @@ DEFAULT_EPOCH_VARIANCE = 0.0
 DEFAULT_EPOCH_PATIENCE = 200
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
 DEFAULT_TOURNAMENT_SIZE = 2
+DEFAULT_ADAPTIVE_OPERATORS = True
 DEFAULT_MAX_TOTAL_TASKS = 10000
 DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
@@ -236,6 +237,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "Higher means stronger bias toward visual quality and faster "
         "convergence, at the cost of pool diversity. "
         f"Default: {DEFAULT_TOURNAMENT_SIZE}",
+    )
+
+    g_search.add_argument(
+        "--adaptive-operators",
+        dest="adaptive_operators",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_ADAPTIVE_OPERATORS,
+        help="Learn which mutation operators are working on this image and "
+        "shift towards them, instead of drawing from one fixed weight table. "
+        f"Default: {'on' if DEFAULT_ADAPTIVE_OPERATORS else 'off'}",
     )
 
     g_resume = parser.add_argument_group("Resume")
