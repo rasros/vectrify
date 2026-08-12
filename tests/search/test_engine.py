@@ -774,3 +774,57 @@ def test_the_engine_picks_the_operator_and_hears_how_it_did():
     assert [engine.task_q.get().operator for _ in range(2)] == ["op", "op"]
     # The pool holds one node, so the better child survives and the worse does not.
     assert policy.updates == [("op", True), ("op", False)]
+
+
+def _engine_with_evaluator(store, rank_front):
+    return MultiprocessSearchEngine(
+        workers=1,
+        strategy=FakeStrategy(),
+        storage=store,
+        max_total_tasks=2,
+        rank_front=rank_front,
+    )
+
+
+def _run_two_children(engine):
+    for tid, score in ((1, 0.1), (2, 0.2)):
+        engine.unscored_q.put(
+            Result(task_id=tid, parent_id=1, valid=True, score=score, payload="p")
+        )
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+            )
+        ],
+        max_wall_seconds=None,
+        active_pool_size=3,
+        generation_size=1,
+    )
+
+
+def test_the_final_artifact_is_chosen_by_the_evaluator():
+    """The round score is a proxy that ranks candidates at about rho 0.83, and
+    the evaluator finds roughly a 2x spread inside one front -- so writing out
+    the proxy's winner is close to picking arbitrarily among the good ones."""
+    store = FakeStorage()
+    # An evaluator that prefers the worst round score, which the proxy never would.
+    engine = _engine_with_evaluator(
+        store, lambda nodes: sorted(nodes, key=lambda n: -n.score)
+    )
+    _run_two_children(engine)
+
+    assert store.best_saved.score == 0.5
+
+
+def test_a_failing_evaluator_falls_back_to_the_best_score():
+    """Losing the run's single most important artifact to a scorer error at
+    shutdown would be the worst possible time for it."""
+
+    def explode(_nodes):
+        raise RuntimeError("no")
+
+    store = FakeStorage()
+    _run_two_children(_engine_with_evaluator(store, explode))
+
+    assert store.best_saved.score == 0.1
