@@ -7,8 +7,14 @@ from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
-from vectrify.score.complexity import WORST_REGION, measure_all
-from vectrify.score.regions import worst_region_score
+from vectrify.score.complexity import (
+    NODE_RATIO,
+    WORST_REGION_4,
+    WORST_REGION_16,
+    ZIP_RATIO,
+    measure_all,
+)
+from vectrify.score.regions import complexity_ratio, region_worst_scores
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -88,6 +94,7 @@ def resume_nodes(
     workers: int,
     scorer: Any,
     scoring_ref: Any,
+    blank_error: float,
     storage: StorageAdapter,
 ) -> list[SearchNode]:
     """Deduplicate, rasterize, pre-filter, and re-score a set of resumed nodes.
@@ -148,9 +155,15 @@ def resume_nodes(
             # read as 0.0 -- best possible for a minimised objective -- and let
             # every import dominate the candidates actually being measured.
             metrics = dict(item.metrics)
-            grid = scorer.region_distance_grid(scoring_ref, item.png)
-            if grid is not None:
-                metrics[WORST_REGION] = worst_region_score(grid)
+            worst = region_worst_scores(scoring_ref.image, item.png)
+            metrics[WORST_REGION_4] = worst[2]
+            metrics[WORST_REGION_16] = worst[4]
+            metrics[ZIP_RATIO] = complexity_ratio(
+                metrics.get("zip_complexity", 0.0), new_score, blank_error
+            )
+            metrics[NODE_RATIO] = complexity_ratio(
+                metrics.get("node_complexity", 0.0), new_score, blank_error
+            )
             node = SearchNode(
                 score=new_score,
                 id=current_new_id,

@@ -258,3 +258,69 @@ def block_distance_grid(
     side = math.isqrt(len(values))
     grid = np.array(values, dtype=np.float64)
     return grid.reshape(side, side) if side * side == len(values) else grid
+
+
+# Region scales the objective vector uses. Quarters catch a whole area being
+# wrong; sixteenths catch a localised defect. They disagree in exactly the
+# cases a single scale handled badly, so both are objectives.
+REGION_SCALES: tuple[int, ...] = (2, 4)
+
+
+def region_worst_scores(
+    reference_rgb: Image.Image,
+    candidate_png: bytes,
+    scales: tuple[int, ...] = REGION_SCALES,
+) -> dict[int, float]:
+    """worst_region at each scale, from one Lab difference.
+
+    The per-pixel difference is the expensive part, so it is computed once and
+    reduced at every scale rather than re-read per grid.
+    """
+    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+    if candidate.size != reference_rgb.size:
+        candidate = candidate.resize(
+            reference_rgb.size, resample=Image.Resampling.BILINEAR
+        )
+    diff = np.abs(lab_array(reference_rgb) - lab_array(candidate)).mean(axis=2) / 255.0
+
+    out: dict[int, float] = {}
+    for cells in scales:
+        boxes = grid_boxes(reference_rgb.size, cells)
+        values = np.array(
+            [float(diff[y0:y1, x0:x1].mean()) for x0, y0, x1, y1 in boxes],
+            dtype=np.float64,
+        )
+        out[cells] = worst_region_score(values)
+    return out
+
+
+def complexity_ratio(
+    complexity: float,
+    score: float,
+    blank_error: float,
+    min_gain_fraction: float = 0.5,
+    ceiling: float = 1e6,
+) -> float:
+    """Complexity charged against the error it removes.
+
+    Raw complexity cannot be an objective on its own: an empty canvas beats
+    everything on it and so is never dominated, and it holds a pool slot and
+    gets picked as a parent. Multiplying by quality does not help either --
+    any complexity * f(score) tends to zero as complexity does, so the blank
+    canvas wins by the largest margin. Only a denominator that vanishes for the
+    blank canvas excludes it.
+
+    Below *min_gain_fraction* of the available error the ratio is pinned to
+    *ceiling*, which also rules out a single flat rectangle of the average
+    colour: it earns a real gain and a fine ratio, but it is not raw material
+    the search can build on, and it would otherwise absorb parent selections
+    for a whole round.
+
+    Never returns infinity: build_objectives normalises by the population
+    maximum, so one infinite value would drive every other candidate's
+    normalised value to zero and silently destroy the objective.
+    """
+    gain = blank_error - score
+    if blank_error <= 0.0 or gain < min_gain_fraction * blank_error:
+        return ceiling
+    return min(complexity / gain, ceiling)

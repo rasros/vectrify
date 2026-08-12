@@ -3,7 +3,7 @@ import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.complexity import METRIC_NAMES
+from vectrify.score.complexity import OBJECTIVE_NAMES
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
@@ -126,7 +126,7 @@ def crowding_distance(
 def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
     """Normalize score plus every registered metric into an objective vector.
 
-    The vector is ``(score, *METRIC_NAMES)`` in registry order. Each objective is
+    The vector is ``(score, *OBJECTIVE_NAMES)`` in registry order. Each objective is
     scaled by its own population maximum, so they are directly comparable and no
     weighting between them is needed -- NSGA trades them off by dominance
     instead. Adding a metric to the registry lengthens the vector, which the
@@ -138,12 +138,12 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
     max_score = max((n.score for n in nodes), default=1.0) or 1.0
     maxima = {
         name: max((n.metrics.get(name, 0.0) for n in nodes), default=1.0) or 1.0
-        for name in METRIC_NAMES
+        for name in OBJECTIVE_NAMES
     }
     return {
         n.id: (
             n.score / max_score,
-            *(n.metrics.get(name, 0.0) / maxima[name] for name in METRIC_NAMES),
+            *(n.metrics.get(name, 0.0) / maxima[name] for name in OBJECTIVE_NAMES),
         )
         for n in nodes
     }

@@ -1,9 +1,10 @@
 import io
+import math
 from itertools import pairwise
 
 import numpy as np
 import pytest
-from PIL import Image
+from PIL import Image, ImageDraw
 
 from vectrify.score.base import Scorer
 from vectrify.score.regions import (
@@ -286,3 +287,66 @@ def test_crop_tile_leaves_in_bounds_boxes_untouched():
     img = _white_with_blot(500)
     box = (0, 0, 384, 384)
     assert crop_tile(img, box).tobytes() == img.crop(box).tobytes()
+
+
+# ── objective metrics ─────────────────────────────────────────────────────────
+
+
+def test_region_worst_scores_returns_every_requested_scale():
+    from vectrify.score.regions import region_worst_scores
+
+    ref = Image.new("RGB", (64, 64), "white")
+    cand = Image.new("RGB", (64, 64), "white")
+    ImageDraw.Draw(cand).rectangle([0, 0, 15, 15], fill="black")
+    buf = io.BytesIO()
+    cand.save(buf, format="PNG")
+
+    scores = region_worst_scores(ref, buf.getvalue())
+    assert set(scores) == {2, 4}
+    # A defect filling one sixteenth of the canvas is a whole cell at 4x4 and a
+    # quarter of one at 2x2, so the finer scale must report it as worse. That
+    # difference is the reason both scales are objectives.
+    assert scores[4] > scores[2]
+
+
+def test_complexity_ratio_excludes_the_blank_canvas():
+    """Raw complexity puts an empty canvas on the front permanently: nothing
+    beats it, so it is never dominated and it eats a pool slot."""
+    from vectrify.score.regions import complexity_ratio
+
+    blank_error = 0.2
+    assert complexity_ratio(0.0, blank_error, blank_error) >= 1e6
+    assert complexity_ratio(0.0, 0.5, blank_error) >= 1e6  # worse than blank
+
+
+def test_complexity_ratio_pins_candidates_below_the_gain_floor():
+    """A flat rectangle of the average colour earns a real gain and a fine
+    ratio, but it is not raw material the search can build on."""
+    from vectrify.score.regions import complexity_ratio
+
+    blank_error = 0.2
+    barely = complexity_ratio(1.0, blank_error * 0.6, blank_error)
+    useful = complexity_ratio(1.0, blank_error * 0.2, blank_error)
+    assert barely >= 1e6
+    assert useful < 1e6
+
+
+def test_complexity_ratio_orders_by_complexity_once_past_the_floor():
+    from vectrify.score.regions import complexity_ratio
+
+    blank_error, score = 0.2, 0.02
+    lean = complexity_ratio(100.0, score, blank_error)
+    bloated = complexity_ratio(900.0, score, blank_error)
+    assert lean < bloated
+
+
+def test_complexity_ratio_never_returns_infinity():
+    """build_objectives normalises by the population maximum, so one infinite
+    value would drive every other candidate's normalised value to zero and
+    silently destroy the objective."""
+    from vectrify.score.regions import complexity_ratio
+
+    for score in (0.0, 0.2, 1.0):
+        for blank in (0.0, 0.2):
+            value = complexity_ratio(1e12, score, blank)
+            assert math.isfinite(value)

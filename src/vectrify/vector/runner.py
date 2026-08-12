@@ -26,8 +26,18 @@ from vectrify.image_utils import (
 from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType
 from vectrify.score.base import DEFAULT_CONFIG
-from vectrify.score.complexity import WORST_REGION
-from vectrify.score.regions import DEFAULT_TILE_SIZE, snap_raster, worst_region_score
+from vectrify.score.complexity import (
+    NODE_RATIO,
+    WORST_REGION_4,
+    WORST_REGION_16,
+    ZIP_RATIO,
+)
+from vectrify.score.regions import (
+    DEFAULT_TILE_SIZE,
+    complexity_ratio,
+    region_worst_scores,
+    snap_raster,
+)
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
@@ -152,6 +162,15 @@ def run_vector_search(
     # the converged Pareto front instead, which runs once per epoch.
     loop_scorer = SimpleFallbackScorer()
     loop_ref = loop_scorer.prepare_reference(original_img)
+
+    # The zero-complexity candidate's error. Every complexity ratio is charged
+    # against how much of this a candidate removes, so it is what stops a blank
+    # canvas -- which removes none of it -- from owning a Pareto front slot.
+    blank = Image.new("RGB", original_img.size, "white")
+    blank_buf = io.BytesIO()
+    blank.save(blank_buf, format="PNG")
+    blank_error = loop_scorer.score(loop_ref, blank_buf.getvalue())
+    log.info(f"Blank-canvas error: {blank_error:.6f}")
     log.info(
         f"Round scoring: pixel L1. Front evaluator: {ScorerType(scorer_type).value}"
         f" ({vision_model})."
@@ -173,6 +192,7 @@ def run_vector_search(
             workers=workers,
             scorer=loop_scorer,
             scoring_ref=loop_ref,
+            blank_error=blank_error,
             storage=storage,
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
@@ -263,17 +283,19 @@ def run_vector_search(
 
     def score_fn(res):
         result = loop_scorer.score(loop_ref, res.payload.raster_png)
-        if res.payload.raster_png:
-            grid = loop_scorer.region_distance_grid(loop_ref, res.payload.raster_png)
-            if grid is not None:
-                res.metrics[WORST_REGION] = worst_region_score(grid)
+        png = res.payload.raster_png
+        if png:
+            worst = region_worst_scores(loop_ref.image, png)
+            res.metrics[WORST_REGION_4] = worst[2]
+            res.metrics[WORST_REGION_16] = worst[4]
+            res.metrics[ZIP_RATIO] = complexity_ratio(
+                res.metrics.get("zip_complexity", 0.0), result, blank_error
+            )
+            res.metrics[NODE_RATIO] = complexity_ratio(
+                res.metrics.get("node_complexity", 0.0), result, blank_error
+            )
             res.payload.heatmap_png = (
-                loop_scorer.diff_heatmap(
-                    loop_ref,
-                    res.payload.raster_png,
-                    long_side=resolution_llm,
-                    grid=grid,
-                )
+                loop_scorer.diff_heatmap(loop_ref, png, long_side=resolution_llm)
                 if getattr(storage, "save_heatmap", False)
                 else None
             )
