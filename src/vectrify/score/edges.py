@@ -59,8 +59,22 @@ def edge_map(image_rgb: Image.Image) -> np.ndarray:
     return np.asarray(blurred, dtype=np.float32) / 255.0
 
 
+def overlap_distance(reference: np.ndarray, candidate: np.ndarray) -> float:
+    """One minus the overlap of two edge maps, over whatever area they cover.
+
+    Takes arrays rather than images so a caller can reduce the same maps over
+    the whole canvas or over one grid cell without rebuilding them.
+    """
+    total = float(reference.sum() + candidate.sum())
+    if total == 0.0:
+        # No boundary anywhere on either side: two flat areas do match.
+        return 0.0
+    shared = float(np.minimum(reference, candidate).sum())
+    return clamp01(1.0 - 2.0 * shared / total)
+
+
 def edge_score(reference_rgb: Image.Image, candidate_png: bytes) -> float:
-    """One minus the overlap between the two images' edge maps.
+    """Structural distance between a reference image and a rendered candidate.
 
     Zero when the structure matches, however wrong the colours are; one when
     the candidate shares no boundary with the target, which is what a blank
@@ -71,12 +85,4 @@ def edge_score(reference_rgb: Image.Image, candidate_png: bytes) -> float:
         candidate = candidate.resize(
             reference_rgb.size, resample=Image.Resampling.BILINEAR
         )
-    reference_edges = edge_map(reference_rgb)
-    candidate_edges = edge_map(candidate)
-
-    total = float(reference_edges.sum() + candidate_edges.sum())
-    if total == 0.0:
-        # Neither image has a boundary anywhere: two flat canvases do match.
-        return 0.0
-    shared = float(np.minimum(reference_edges, candidate_edges).sum())
-    return clamp01(1.0 - 2.0 * shared / total)
+    return overlap_distance(edge_map(reference_rgb), edge_map(candidate))

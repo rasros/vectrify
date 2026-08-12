@@ -25,6 +25,7 @@ from vectrify.image_utils import (
 )
 from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
+from vectrify.score.compare import compare
 from vectrify.score.complexity import (
     FRONT_SCORE,
     NODE_RATIO,
@@ -184,7 +185,6 @@ def run_vector_search(
             resolution_llm=resolution_llm,
             pool_size=pool_size,
             workers=workers,
-            scorer=loop_scorer,
             scoring_ref=loop_ref,
             blank_error=blank_error,
             storage=storage,
@@ -319,23 +319,35 @@ def run_vector_search(
     )
 
     def score_fn(res):
-        result = loop_scorer.score(loop_ref, res.payload.raster_png)
         png = res.payload.raster_png
-        if png:
-            worst = region_worst_scores(loop_ref.image, png)
-            res.metrics[WORST_REGION_4] = worst[2]
-            res.metrics[WORST_REGION_16] = worst[4]
-            res.metrics[ZIP_RATIO] = complexity_ratio(
-                res.metrics.get("zip_complexity", 0.0), result, blank_error
-            )
-            res.metrics[NODE_RATIO] = complexity_ratio(
-                res.metrics.get("node_complexity", 0.0), result, blank_error
-            )
-            res.payload.heatmap_png = (
-                loop_scorer.diff_heatmap(loop_ref, png, long_side=resolution_llm)
-                if getattr(storage, "save_heatmap", False)
-                else None
-            )
+        if not png:
+            return loop_scorer.score(loop_ref, png)
+
+        try:
+            # One comparison feeds every objective: the score is it reduced
+            # over the whole canvas, the region metrics the same reduction per
+            # grid cell.
+            comparison = compare(loop_ref, png)
+        except Exception:
+            # An unreadable render scores worst rather than failing the task,
+            # which is what the scorer's own error handling did before.
+            return loop_scorer.score(loop_ref, png)
+
+        result = comparison.blend()
+        worst = region_worst_scores(comparison, loop_ref.image.size)
+        res.metrics[WORST_REGION_4] = worst[2]
+        res.metrics[WORST_REGION_16] = worst[4]
+        res.metrics[ZIP_RATIO] = complexity_ratio(
+            res.metrics.get("zip_complexity", 0.0), result, blank_error
+        )
+        res.metrics[NODE_RATIO] = complexity_ratio(
+            res.metrics.get("node_complexity", 0.0), result, blank_error
+        )
+        res.payload.heatmap_png = (
+            loop_scorer.diff_heatmap(loop_ref, png, long_side=resolution_llm)
+            if getattr(storage, "save_heatmap", False)
+            else None
+        )
         return result
 
     if dashboard is not None:
