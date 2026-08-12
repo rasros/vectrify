@@ -1,5 +1,12 @@
+from collections.abc import Mapping
+
 from vectrify.formats.base import apply_search_replace
-from vectrify.formats.svg.operations import apply_crossover, apply_mutation
+from vectrify.formats.mutations import operator_weights
+from vectrify.formats.svg.operations import (
+    MUTATIONS,
+    apply_crossover,
+    apply_mutation,
+)
 from vectrify.formats.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
@@ -43,8 +50,11 @@ class SvgPlugin:
             canvas=canvas,
         )
 
-    def mutate(self, content: str) -> tuple[str, str]:
-        return apply_mutation(content)
+    def mutation_weights(self) -> Mapping[str, float]:
+        return operator_weights(MUTATIONS)
+
+    def mutate(self, content: str, operator: str | None = None) -> tuple[str, str]:
+        return apply_mutation(content, operator)
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         return apply_crossover(content_a, content_b)

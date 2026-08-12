@@ -37,6 +37,9 @@ class SearchNode(Generic[TState]):
     # lineage recombines a candidate with itself, so selection uses this to pair
     # only across lineages.
     root_id: int = dataclasses.field(default=0, compare=False)
+    # Which mutation operator produced this node, so the policy that picked it
+    # can be told whether it survived. None for seeds and crossover children.
+    operator: str | None = dataclasses.field(default=None, compare=False)
 
 
 @dataclasses.dataclass
@@ -47,6 +50,9 @@ class Task(Generic[TState]):
     secondary_parent_id: int | None = None
     secondary_parent_state: ChainState[TState] | None = None
     force_llm: bool = False
+    # The mutation operator to apply. The engine picks it so one policy sees
+    # every outcome; None lets the backend choose for itself.
+    operator: str | None = None
 
 
 @dataclasses.dataclass
@@ -61,3 +67,6 @@ class Result(Generic[TResultPayload]):
     metrics: dict[str, float] = dataclasses.field(default_factory=dict)
     signature: int | None = None
     llm_type: str | None = None
+    # Echoed back from the task: results arrive out of order and some never
+    # arrive at all, so carrying it beats a pending-task map in the engine.
+    operator: str | None = None

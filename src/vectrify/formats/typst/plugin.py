@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 
 from vectrify.formats.base import BaseFormatPlugin
+from vectrify.formats.mutations import operator_weights
 from vectrify.formats.typst.operations import (
+    MUTATIONS,
     apply_crossover,
     apply_mutation,
     render_typst_png,
@@ -57,8 +60,11 @@ class TypstPlugin(BaseFormatPlugin):
             canvas=canvas,
         )
 
-    def mutate(self, content: str) -> tuple[str, str]:
-        return apply_mutation(content)
+    def mutation_weights(self) -> Mapping[str, float]:
+        return operator_weights(MUTATIONS)
+
+    def mutate(self, content: str, operator: str | None = None) -> tuple[str, str]:
+        return apply_mutation(content, operator)
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         return apply_crossover(content_a, content_b)

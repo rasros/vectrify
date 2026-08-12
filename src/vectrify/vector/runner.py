@@ -44,6 +44,7 @@ from vectrify.search import (
     StorageAdapter,
 )
 from vectrify.search.collector import StatCollector
+from vectrify.search.operators import FixedWeightPolicy
 from vectrify.utils import setup_logger, start_log_listener
 from vectrify.vector.resume import filter_to_pool_size, resume_nodes
 from vectrify.vector.state import VectorStateBuilder
@@ -358,6 +359,7 @@ def run_vector_search(
             initial_seeds=first_batch,
             epochs=epochs,
             epoch_variance=epoch_variance,
+            operator_policy=FixedWeightPolicy(format_plugin.mutation_weights()),
             collector=collector,
         )
     finally:
