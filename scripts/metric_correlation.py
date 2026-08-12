@@ -68,10 +68,29 @@ def thumbnail_score(reference_rgb: Image.Image, candidate_png: bytes) -> float:
     return color_score(small, buffer.getvalue())
 
 
+def blend(structure_weight: float):
+    """Structure and colour mixed the way the vision score mixes them.
+
+    The model's own score is 0.85 embedding cosine plus 0.15 colour distance,
+    so a cheap stand-in for it should be composed the same way -- the open
+    question is only what the weight should be, which is what this measures.
+    """
+
+    def scored(reference, candidate_png: bytes) -> float:
+        return structure_weight * edge_score(reference, candidate_png) + (
+            1.0 - structure_weight
+        ) * color_score(reference, candidate_png)
+
+    return scored
+
+
 METRICS = {
     "l1": color_score,
     "edge": edge_score,
     "thumb32": thumbnail_score,
+    "mix.50": blend(0.50),
+    "mix.70": blend(0.70),
+    "mix.85": blend(0.85),
 }
 
 

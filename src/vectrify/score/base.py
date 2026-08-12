@@ -58,6 +58,12 @@ class ScoreConfig:
     target_long_side: int = 256
     w_vision: float = 0.85
     w_color: float = 0.15
+    # The cheap scorer's split between structure and colour. Measured against
+    # the vision model over mutation chains on the bench corpus: colour alone
+    # ranks candidates at rho 0.48, structure alone at 0.83, and every mix from
+    # 0.5 to 0.85 lands within noise of each other. Half and half because pure
+    # structure is colour-blind -- it scores a recoloured drawing as perfect.
+    w_structure: float = 0.5
 
 
 DEFAULT_CONFIG = ScoreConfig()
