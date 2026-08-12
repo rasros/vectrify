@@ -61,3 +61,23 @@ def test_edge_score_of_an_inverted_image_is_small():
     reference = _square("black")
     inverted = _square("white", background="black")
     assert edge_score(reference, _png(inverted)) < 0.05
+
+
+def test_erasing_structure_is_worse_than_getting_it_slightly_wrong():
+    """Regression: comparing the maps by difference instead of overlap made a
+    blank canvas cheaper than a shape two pixels off, because a blank has no
+    boundaries to mismatch. Measured, that inverted the metric -- it correlated
+    with the vision score at -0.50, rewarding the search for deleting things."""
+    reference = _square("black")
+    misplaced = edge_score(reference, _png(_square("black", box=(10, 10, 26, 26))))
+    blank = edge_score(reference, _png(Image.new("RGB", (32, 32), "white")))
+    assert misplaced < blank
+
+
+def test_edge_distance_grows_with_displacement_within_tolerance():
+    """Without the blur the overlap is all-or-nothing, so every candidate whose
+    boundaries miss scores the same and the search has nothing to follow."""
+    reference = _square("black", box=(8, 8, 24, 24))
+    near = edge_score(reference, _png(_square("black", box=(10, 10, 26, 26))))
+    far = edge_score(reference, _png(_square("black", box=(14, 14, 30, 30))))
+    assert 0.0 < near < far < 1.0

@@ -102,3 +102,35 @@ def test_diff_heatmap_respects_long_side():
     assert result is not None
     img = Image.open(io.BytesIO(result))
     assert max(img.size) <= 32
+
+
+def _png(image: Image.Image) -> bytes:
+    buffer = io.BytesIO()
+    image.save(buffer, format="PNG")
+    return buffer.getvalue()
+
+
+def test_erasing_fine_detail_no_longer_beats_drawing_it_slightly_wrong():
+    """Colour distance is an average over pixels, so thin strokes are cheap to
+    delete and expensive to get slightly wrong: on this figure colour alone
+    scores erasing every stroke at 0.037 against 0.074 for keeping them one
+    pixel off. That is the wordmark and connect-the-dots failure -- a search
+    optimising colour alone drove their vision scores several times worse over
+    4000 tasks. Mixing structure in reverses the ordering."""
+    from PIL import ImageDraw
+
+    reference = Image.new("RGB", (64, 64), "white")
+    draw = ImageDraw.Draw(reference)
+    for x in range(4, 64, 8):
+        draw.line((x, 4, x, 60), fill="black", width=1)
+
+    one_pixel_off = Image.new("RGB", (64, 64), "white")
+    draw = ImageDraw.Draw(one_pixel_off)
+    for x in range(5, 64, 8):
+        draw.line((x, 4, x, 60), fill="black", width=1)
+
+    erased = Image.new("RGB", (64, 64), "white")
+
+    scorer = SimpleFallbackScorer()
+    ref = scorer.prepare_reference(reference)
+    assert scorer.score(ref, _png(one_pixel_off)) < scorer.score(ref, _png(erased))
