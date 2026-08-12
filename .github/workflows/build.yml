@@ -3,8 +3,9 @@ name: build
 on:
   push:
     branches: [ main ]
+  # Every pull request, not just those targeting main: a stacked PR is based
+  # on the branch below it, and filtering by base meant none of a stack ran.
   pull_request:
-    branches: [ main ]
   workflow_dispatch:
 
 jobs:
