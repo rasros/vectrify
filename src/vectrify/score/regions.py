@@ -6,12 +6,9 @@ whole-image score is an average, and averages forgive exactly the localised
 errors worth fixing.
 """
 
-import io
-
 import numpy as np
-from PIL import Image
 
-from vectrify.score.utils import lab_array
+from vectrify.score.compare import Comparison
 
 
 def _spaced(extent: int, box: int, count: int) -> tuple[list[int], int]:
@@ -84,27 +81,19 @@ REGION_SCALES: tuple[int, ...] = (2, 4)
 
 
 def region_worst_scores(
-    reference_rgb: Image.Image,
-    candidate_png: bytes,
+    comparison: Comparison,
+    size: tuple[int, int],
     scales: tuple[int, ...] = REGION_SCALES,
 ) -> dict[int, float]:
-    """worst_region at each scale, from one Lab difference.
+    """worst_region at each scale, from one already-computed comparison.
 
-    The per-pixel difference is the expensive part, so it is computed once and
-    reduced at every scale rather than re-read per grid.
+    Cells are scored on colour: see Comparison.colour_mean for why structure
+    is left out here even though the whole-canvas score includes it.
     """
-    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
-    if candidate.size != reference_rgb.size:
-        candidate = candidate.resize(
-            reference_rgb.size, resample=Image.Resampling.BILINEAR
-        )
-    diff = np.abs(lab_array(reference_rgb) - lab_array(candidate)).mean(axis=2) / 255.0
-
     out: dict[int, float] = {}
     for cells in scales:
-        boxes = grid_boxes(reference_rgb.size, cells)
         values = np.array(
-            [float(diff[y0:y1, x0:x1].mean()) for x0, y0, x1, y1 in boxes],
+            [comparison.colour_mean(box) for box in grid_boxes(size, cells)],
             dtype=np.float64,
         )
         out[cells] = worst_region_score(values)

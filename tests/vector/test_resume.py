@@ -1,10 +1,10 @@
 import io
 from unittest.mock import MagicMock
 
-import pytest
 from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
+from vectrify.score.compare import Reference, prepare
 from vectrify.search import INVALID_SCORE, ChainState, SearchNode
 from vectrify.vector.resume import (
     PreppedNode,
@@ -134,14 +134,10 @@ def _make_mock_plugin(png: bytes | None = None) -> MagicMock:
     return plugin
 
 
-def _make_mock_scorer(score: float = 0.4) -> tuple[MagicMock, MagicMock]:
-    scorer = MagicMock()
-    ref = MagicMock()
-    # Resume re-derives the region and ratio metrics so imported nodes are
-    # comparable with loop-scored ones, and that needs a real reference image.
-    ref.image = Image.new("RGB", (16, 16), color="blue")
-    scorer.score.return_value = score
-    return scorer, ref
+def _make_reference() -> Reference:
+    """A real reference: resume reduces one comparison into the score and the
+    region metrics, so there is nothing left to mock usefully."""
+    return prepare(Image.new("RGB", (16, 16), color="blue"))
 
 
 def _make_mock_storage() -> MagicMock:
@@ -152,7 +148,7 @@ def _make_mock_storage() -> MagicMock:
 
 def test_resume_nodes_returns_one_node_per_item():
     plugin = _make_mock_plugin()
-    scorer, ref = _make_mock_scorer(0.3)
+    ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32), color="blue")
 
@@ -166,7 +162,6 @@ def test_resume_nodes_returns_one_node_per_item():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scorer=scorer,
         scoring_ref=ref,
         blank_error=0.5,
         storage=storage,
@@ -178,7 +173,7 @@ def test_resume_nodes_returns_one_node_per_item():
 
 def test_resume_nodes_assigns_sequential_ids():
     plugin = _make_mock_plugin()
-    scorer, ref = _make_mock_scorer()
+    ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
 
@@ -192,7 +187,6 @@ def test_resume_nodes_assigns_sequential_ids():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scorer=scorer,
         scoring_ref=ref,
         blank_error=0.5,
         storage=storage,
@@ -204,7 +198,7 @@ def test_resume_nodes_assigns_sequential_ids():
 
 def test_resume_nodes_deduplicates_identical_content():
     plugin = _make_mock_plugin()
-    scorer, ref = _make_mock_scorer()
+    ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
 
@@ -219,7 +213,6 @@ def test_resume_nodes_deduplicates_identical_content():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scorer=scorer,
         scoring_ref=ref,
         blank_error=0.5,
         storage=storage,
@@ -230,7 +223,7 @@ def test_resume_nodes_deduplicates_identical_content():
 
 def test_resume_nodes_stores_origin_with_old_id():
     plugin = _make_mock_plugin()
-    scorer, ref = _make_mock_scorer()
+    ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
 
@@ -244,7 +237,6 @@ def test_resume_nodes_stores_origin_with_old_id():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scorer=scorer,
         scoring_ref=ref,
         blank_error=0.5,
         storage=storage,
@@ -253,12 +245,24 @@ def test_resume_nodes_stores_origin_with_old_id():
     assert result[0].state.payload.origin == "Imported from Node 99"
 
 
-def test_resume_nodes_skips_failed_scoring():
+def test_resume_nodes_skips_failed_scoring(monkeypatch):
+    """A resumed node that cannot be scored is dropped, not carried in with a
+    missing score that would read as best-possible on every objective."""
+    import vectrify.vector.resume as resume_module
+
+    real_compare = resume_module.compare
+    calls = {"n": 0}
+
+    def flaky(reference, png):
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise ValueError("bad")
+        return real_compare(reference, png)
+
+    monkeypatch.setattr(resume_module, "compare", flaky)
+
     plugin = _make_mock_plugin()
-    scorer = MagicMock()
-    scorer.score.side_effect = [ValueError("bad"), 0.5]
-    ref = MagicMock()
-    ref.image = Image.new("RGB", (16, 16), color="blue")
+    ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
 
@@ -272,14 +276,13 @@ def test_resume_nodes_skips_failed_scoring():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scorer=scorer,
         scoring_ref=ref,
         blank_error=0.5,
         storage=storage,
     )
 
     assert len(result) == 1
-    assert result[0].score == pytest.approx(0.5)
+    assert result[0].score < INVALID_SCORE
 
 
 def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
@@ -297,7 +300,7 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
 
     monkeypatch.setattr(resume_module, "prefilter_nodes", spy_prefilter)
     plugin = _make_mock_plugin()
-    scorer, ref = _make_mock_scorer(0.2)
+    ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
 
@@ -311,7 +314,6 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
         resolution_llm=16,
         pool_size=pool_size,
         workers=2,
-        scorer=scorer,
         scoring_ref=ref,
         blank_error=0.5,
         storage=storage,

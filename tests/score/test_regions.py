@@ -94,6 +94,7 @@ def test_grid_boxes_honours_the_requested_cell_count():
 
 
 def test_region_worst_scores_returns_every_requested_scale():
+    from vectrify.score.compare import compare, prepare
     from vectrify.score.regions import region_worst_scores
 
     ref = Image.new("RGB", (64, 64), "white")
@@ -102,7 +103,7 @@ def test_region_worst_scores_returns_every_requested_scale():
     buf = io.BytesIO()
     cand.save(buf, format="PNG")
 
-    scores = region_worst_scores(ref, buf.getvalue())
+    scores = region_worst_scores(compare(prepare(ref), buf.getvalue()), ref.size)
     assert set(scores) == {2, 4}
     # A defect filling one sixteenth of the canvas is a whole cell at 4x4 and a
     # quarter of one at 2x2, so the finer scale must report it as worse. That
@@ -151,3 +152,37 @@ def test_complexity_ratio_never_returns_infinity():
         for blank in (0.0, 0.2):
             value = complexity_ratio(1e12, score, blank)
             assert math.isfinite(value)
+
+
+def test_region_scores_read_colour_only():
+    """The whole-canvas score blends structure in; the region metrics do not.
+    Measured, structure-aware cells were neutral on the vision score and
+    significantly worse on the round score -- a cell is small enough that edge
+    overlap inside it is close to binary. This pins the decision so the two
+    do not drift back together by accident."""
+    import io
+
+    from PIL import Image, ImageDraw
+
+    from vectrify.score.compare import compare, prepare
+    from vectrify.score.regions import region_worst_scores
+
+    def png(image: Image.Image) -> bytes:
+        buffer = io.BytesIO()
+        image.save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    # Same colours everywhere, different structure: a recoloured-free redraw
+    # that moves every boundary. Colour-only cells cannot tell these apart by
+    # much, and that is the documented behaviour.
+    reference = Image.new("RGB", (64, 64), "white")
+    ImageDraw.Draw(reference).rectangle((8, 8, 24, 24), fill="black")
+
+    shifted = Image.new("RGB", (64, 64), "white")
+    ImageDraw.Draw(shifted).rectangle((10, 10, 26, 26), fill="black")
+
+    prepared = prepare(reference)
+    scores = region_worst_scores(compare(prepared, png(shifted)), (64, 64))
+
+    # A colour-only cell reads a two-pixel shift as a small colour difference.
+    assert 0.0 < scores[4] < 0.5

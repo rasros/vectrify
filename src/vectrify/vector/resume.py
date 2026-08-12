@@ -7,6 +7,7 @@ from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
+from vectrify.score.compare import compare
 from vectrify.score.complexity import (
     NODE_RATIO,
     WORST_REGION_4,
@@ -92,7 +93,6 @@ def resume_nodes(
     resolution_llm: int,
     pool_size: int,
     workers: int,
-    scorer: Any,
     scoring_ref: Any,
     blank_error: float,
     storage: StorageAdapter,
@@ -149,13 +149,14 @@ def resume_nodes(
     current_new_id = 1
     for item in prepped:
         try:
-            new_score = scorer.score(scoring_ref, item.png)
+            comparison = compare(scoring_ref, item.png)
+            new_score = comparison.blend()
             # Resumed nodes compete directly against freshly scored ones, so
             # they need the scorer-side metrics too. Leaving them absent would
             # read as 0.0 -- best possible for a minimised objective -- and let
             # every import dominate the candidates actually being measured.
             metrics = dict(item.metrics)
-            worst = region_worst_scores(scoring_ref.image, item.png)
+            worst = region_worst_scores(comparison, scoring_ref.image.size)
             metrics[WORST_REGION_4] = worst[2]
             metrics[WORST_REGION_16] = worst[4]
             metrics[ZIP_RATIO] = complexity_ratio(
