@@ -1,15 +1,12 @@
 import importlib.util
 
-import pytest
-from PIL import Image
-
 from vectrify.formats.typst.operations import (
     _mutate_color,
     _random_numeric_tweak,
     _remove_element,
     _reorder_elements,
-    crossover_with_micro_search,
-    mutate_with_micro_search,
+    apply_crossover,
+    apply_mutation,
 )
 
 _TYPST_AVAILABLE = importlib.util.find_spec("typst") is not None
@@ -149,52 +146,35 @@ def test_reorder_elements_single_element_unchanged():
     assert result == code
 
 
-# --- mutate_with_micro_search ---
-
-
-@pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
-def test_mutate_with_micro_search_returns_typst_string():
-    target = Image.new("RGB", (32, 32), color="red")
-    result, _summary = mutate_with_micro_search(_TYPST_CODE, target, num_trials=3)
+def test_apply_mutation_returns_typst_string():
+    result, _summary = apply_mutation(_TYPST_CODE)
     assert "#set page" in result
 
 
-@pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
-def test_mutate_with_micro_search_returns_valid_label():
-    target = Image.new("RGB", (64, 64), color=(200, 100, 50))
-    _, summary = mutate_with_micro_search(_TYPST_CODE, target, num_trials=5)
-    valid_labels = {
+def test_apply_mutation_returns_valid_label():
+    _, summary = apply_mutation(_TYPST_CODE)
+    assert summary in {
         "Mutation: color tweak",
         "Mutation: numeric tweak",
         "Mutation: removed element",
         "Mutation: reordered elements",
-        "Mutation: no improvement",
     }
-    assert summary in valid_labels
 
 
-# --- crossover_with_micro_search ---
-
-
-@pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
-def test_crossover_with_micro_search_returns_typst_string():
+def test_apply_crossover_returns_typst_string():
     code_b = (
         "#set page(width: auto, height: auto, margin: 0pt)\n#polygon(fill: green)\n"
     )
-    target = Image.new("RGB", (32, 32), color="green")
-    result, summary = crossover_with_micro_search(
-        _TYPST_CODE, code_b, target, num_trials=3
-    )
+    result, summary = apply_crossover(_TYPST_CODE, code_b)
     assert "#set page" in result
-    assert summary in ("Crossover: element injection", "Mutation: no improvement")
+    assert summary == "Crossover: element injection"
 
 
-@pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
 def test_crossover_falls_back_to_mutation_when_no_elements_in_b():
     code_b = "#set page(width: auto, height: auto, margin: 0pt)\n"
-    target = Image.new("RGB", (32, 32), color="red")
-    result, _ = crossover_with_micro_search(_TYPST_CODE, code_b, target, num_trials=3)
+    result, summary = apply_crossover(_TYPST_CODE, code_b)
     assert "#set page" in result
+    assert summary.startswith("Mutation: ")
 
 
 def test_reorder_keeps_every_element_addressable_without_trailing_newline():
@@ -224,18 +204,15 @@ def test_reorder_keeps_every_element_addressable_without_trailing_newline():
 
 
 def test_crossover_keeps_every_element_addressable():
-    from PIL import Image
 
     from vectrify.formats.typst.operations import (
         _ELEMENT_LINE_RE,
-        crossover_with_micro_search,
+        apply_crossover,
     )
 
     a = "#set page(width: 100pt)\n#rect(width: 10pt)\n#circle(radius: 5pt)"
     b = "#set page(width: 100pt)\n#polygon()\n#line(length: 9pt)"  # last line bare
-    ref = Image.new("RGB", (64, 64), "white")
-
-    content, _ = crossover_with_micro_search(a, b, ref, num_trials=4)
+    content, _ = apply_crossover(a, b)
 
     for line in content.splitlines():
         assert (

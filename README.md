@@ -7,9 +7,9 @@
 LLMs still struggle to generate perfect vector images from a reference
 raster in one shot. vectrify turns raster images into editable vector
 code by treating vectorization as a search problem: an LLM proposes
-candidate SVG/Graphviz/Typst code, a vision scorer ranks how close each
-candidate looks to the source, and an optimization loop iteratively
-refines the best candidates.
+candidate SVG/Graphviz/Typst code, a scorer ranks how close each candidate
+looks to the source, and an optimization loop iteratively refines the best
+candidates.
 
 The output is human-readable code you can keep editing by hand.
 
@@ -19,8 +19,8 @@ The output is human-readable code you can keep editing by hand.
 - LLM providers: OpenAI, Anthropic, Google Gemini, auto-detected from env vars.
 - Search: NSGA-II for diversity-preserving multi-objective optimization,
   with LLM proposals and local refinement split into separate phases.
-- Scoring: local vision-model embeddings (perceptual), with pixel-diff
-  as an alternative.
+- Scoring: pixel distance in the search loop, local vision-model
+  embeddings (perceptual) at each epoch boundary.
 - Resumable runs: pick up where you left off, or fork from the top-N
   nodes of a previous run.
 - Live dashboard: pool stats, scoring, and convergence criteria.
@@ -107,36 +107,32 @@ representations, split into epochs of two phases:
 - **Refine.** Only local operators run — color tweaks, path nudges,
   crossover — until the epoch stops improving.
 
-Every candidate is scored against the source image, perceptually via
-vision-transformer embeddings or in pixel space, then either replaces a
-worse pool member or is dropped. The best candidate of the whole run is
-tracked separately, so an epoch restart never loses it.
+Every candidate is scored in pixel space during the round and joins the
+next generation only if the pool does not dominate it. The vision model is
+reserved for the converged front at each epoch boundary, where it decides
+which candidates the next batch of LLM edits starts from — it costs roughly
+300x a pixel score, which is worth paying a few times per epoch and not once
+per candidate. The best candidate of the whole run is tracked separately, so
+an epoch restart never loses it.
 
 The phases are separate because the operators are not interchangeable. An
 LLM edit degrades the median parent about four times as much as a local
 mutation and costs roughly a thousand times more per attempt, so mixing
-them into every task spent the expensive operator competing against
-best-of-15 local moves. As restart points they instead do the one thing
-local search cannot: leave the basin it is stuck in. Total LLM calls are
-therefore bounded by epochs × seeds.
+them into every task spent the expensive operator competing against local
+moves. As restart points they instead do the one thing local search cannot:
+leave the basin it is stuck in. Total LLM calls are therefore bounded by
+epochs × seeds.
 
-### Scoring resolution
+### Resolution
 
-Vision models take a fixed input size, so scoring a whole image downscales it
-and fine detail drops below the model's patch size. The scorer instead cuts the
-raster into crops of exactly that input size and scores each unresampled.
+resolution sets the long side every candidate is rendered at, and with it the
+coordinate space candidates are written in (SVG viewBox, Typst page). It only
+downscales, so a 700px source stays 700px however high you set it.
 
-resolution sets the raster and everything follows from it: it is rounded up to a
-whole number of crops so they tile exactly, and it fixes the coordinate space
-candidates are written in (SVG viewBox, Typst page). It only downscales, so a
-700px source stays 700px however high you set it.
-
-| resolution    | raster | crops per candidate |
-|--------------:|-------:|--------------------:|
-| 384           | 384    | 1                   |
-| 768 (default) | 768    | 4                   |
-| 1000          | 1152   | 9                   |
-| 1500          | 1536   | 16                  |
+Both scorers work from that raster at their own fixed size — the pixel score
+downscales it, the vision model resizes to its input edge — so raising
+resolution buys finer geometry in the output rather than a finer-grained
+score, and costs proportionally more to rasterize.
 
 resolution-llm sizes the images sent to the LLM and has no effect on scoring.
 Vision pricing tiles at 512px, the default, so raising it triples the cost of

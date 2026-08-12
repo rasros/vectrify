@@ -3,12 +3,12 @@ import re
 import xml.etree.ElementTree as ET
 
 import pytest
-from PIL import Image
 
 from vectrify.formats.svg.operations import (
     _NAMED_SVG_COLORS,
+    apply_crossover,
+    apply_mutation,
     crossover,
-    crossover_with_micro_search,
     mutate_color,
     mutate_drop_style_property,
     mutate_numeric,
@@ -16,7 +16,6 @@ from vectrify.formats.svg.operations import (
     mutate_remove_node,
     mutate_reorder,
     mutate_stroke,
-    mutate_with_micro_search,
     with_retries,
 )
 
@@ -203,34 +202,28 @@ def test_with_retries_exhausts_all_attempts():
     assert len(calls) == 4
 
 
-def test_crossover_with_micro_search():
-    target_img = Image.new("RGB", (10, 10), color="blue")
+def test_apply_crossover():
     svg_a = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
     svg_b = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
 
-    res, summary = crossover_with_micro_search(svg_a, svg_b, target_img, num_trials=2)
-    assert isinstance(res, str)
+    res, summary = apply_crossover(svg_a, svg_b)
     assert "<svg" in res
     assert "crossover" in summary.lower()
 
 
-def test_mutate_with_micro_search():
-    target_img = Image.new("RGB", (10, 10), color="blue")
+def test_apply_mutation():
     svg_a = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
 
-    res, summary = mutate_with_micro_search(svg_a, target_img, num_trials=2)
-    assert isinstance(res, str)
+    res, summary = apply_mutation(svg_a)
     assert "<svg" in res
     assert "mutation" in summary.lower()
 
 
-def test_micro_search_survives_an_unrenderable_candidate():
-    target_img = Image.new("RGB", (8, 8), color="blue")
-    broken = f'<svg xmlns="{NS}" viewBox="a b c d"><rect width="8" height="8"/></svg>'
+def test_apply_mutation_falls_back_to_the_parent_when_the_operator_fails():
+    unmutable = f'<svg xmlns="{NS}"/>'
 
-    res, summary = mutate_with_micro_search(broken, target_img, num_trials=2)
-    assert res == broken
-    assert "no improvement" in summary.lower()
+    for _ in range(20):
+        assert apply_mutation(unmutable)[0] == unmutable
 
 
 SVG_STYLED = (

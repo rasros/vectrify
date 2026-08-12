@@ -5,11 +5,6 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 
-from PIL import Image
-
-from vectrify.formats.micro_search import with_micro_search
-from vectrify.image_utils import rasterize_svg_to_png_bytes
-
 SVG_NS = "http://www.w3.org/2000/svg"
 
 _NUMERIC_ATTRS = frozenset(
@@ -130,20 +125,6 @@ def with_retries(
         except Exception:
             pass
     return fallback
-
-
-def _svg_rasterizer(orig_img_fast: Image.Image) -> Callable[[str], bytes | None]:
-    """Rasterizer that renders straight to the target's size (cairosvg picks
-    the output size, unlike the graphviz/typst renderers)."""
-    out_w, out_h = orig_img_fast.size
-
-    def _rasterize(svg: str) -> bytes | None:
-        try:
-            return rasterize_svg_to_png_bytes(svg, out_w=out_w, out_h=out_h)
-        except Exception:
-            return None
-
-    return _rasterize
 
 
 def crossover(svg_a: str, svg_b: str, k: int = 2) -> str:
@@ -363,54 +344,30 @@ def mutate_reorder(root: ET.Element) -> None:
         parent.append(child)
 
 
-def crossover_with_micro_search(
-    svg_a: str,
-    svg_b: str,
-    orig_img_fast: Image.Image,
-    num_trials: int = 15,
-) -> tuple[str, str]:
-    def _op():
-        cand = with_retries(lambda: crossover(svg_a, svg_b), fallback=svg_a)
-        return cand, "Local crossover"
-
-    return with_micro_search(
-        _op,
-        fallback=svg_a,
-        rasterize=_svg_rasterizer(orig_img_fast),
-        orig_img_fast=orig_img_fast,
-        num_trials=num_trials,
-        default_summary="Crossover: no improvement",
-    )
+# One weight table for every image and every stage of a run. Adaptive
+# selection replaces this.
+MUTATIONS: tuple[tuple[Callable[[str], str], str, float], ...] = (
+    (mutate_color, "Mutation: color tweak", 0.25),
+    (mutate_numeric, "Mutation: numeric tweak", 0.20),
+    (mutate_path, "Mutation: path nudge", 0.15),
+    (mutate_remove_node, "Mutation: removed node", 0.15),
+    (mutate_stroke, "Mutation: stroke change", 0.10),
+    (mutate_reorder, "Mutation: reordered elements", 0.10),
+    (mutate_drop_style_property, "Mutation: dropped style property", 0.05),
+)
 
 
-def mutate_with_micro_search(
-    parent_svg: str,
-    orig_img_fast: Image.Image,
-    num_trials: int = 15,
-) -> tuple[str, str]:
-    _ops = [
-        (mutate_color, "Mutation: color tweak", 0.25),
-        (mutate_numeric, "Mutation: numeric tweak", 0.20),
-        (mutate_path, "Mutation: path nudge", 0.15),
-        (mutate_remove_node, "Mutation: removed node", 0.15),
-        (mutate_stroke, "Mutation: stroke change", 0.10),
-        (mutate_reorder, "Mutation: reordered elements", 0.10),
-        (mutate_drop_style_property, "Mutation: dropped style property", 0.05),
-    ]
-    fns, labels, weights = zip(*_ops, strict=True)
+def apply_mutation(parent_svg: str) -> tuple[str, str]:
+    """Apply one weighted-random operator to *parent_svg*."""
+    fns, labels, weights = zip(*MUTATIONS, strict=True)
+    fn, label = random.choices(
+        list(zip(fns, labels, strict=True)), weights=list(weights), k=1
+    )[0]
+    return with_retries(lambda: fn(parent_svg), fallback=parent_svg), label
 
-    def _op():
-        fn, label = random.choices(
-            list(zip(fns, labels, strict=True)), weights=list(weights), k=1
-        )[0]
-        cand = with_retries(lambda: fn(parent_svg), fallback=parent_svg)
-        return cand, label
 
-    return with_micro_search(
-        _op,
-        fallback=parent_svg,
-        rasterize=_svg_rasterizer(orig_img_fast),
-        orig_img_fast=orig_img_fast,
-        num_trials=num_trials,
-        default_summary="Mutation: no improvement",
+def apply_crossover(svg_a: str, svg_b: str) -> tuple[str, str]:
+    return (
+        with_retries(lambda: crossover(svg_a, svg_b), fallback=svg_a),
+        "Local crossover",
     )

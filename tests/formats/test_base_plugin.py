@@ -33,12 +33,6 @@ def test_rasterize_resizes_to_requested_dimensions():
     assert Image.open(io.BytesIO(png)).size == (64, 48)
 
 
-def test_render_png_or_none_swallows_render_errors():
-    plugin = _StubPlugin()
-    assert plugin.render_png_or_none("ok") is not None
-    assert plugin.render_png_or_none("boom") is None
-
-
 def test_validate_reports_success_and_failure():
     plugin = _StubPlugin()
     assert plugin.validate("ok") == (True, None)

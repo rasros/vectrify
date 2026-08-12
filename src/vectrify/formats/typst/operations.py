@@ -1,10 +1,6 @@
 import random
 import re
 
-from PIL import Image
-
-from vectrify.formats.micro_search import with_micro_search
-
 # Matches numeric values with Typst units: 12pt, 1.5em, 50%, 3mm, etc.
 _NUM_RE = re.compile(r"(\b|-)(\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)\b")
 
@@ -118,7 +114,7 @@ def _reorder_elements(typst_code: str) -> str:
     return "".join(lines)
 
 
-def _apply_one_mutation(typst_code: str) -> tuple[str, str]:
+def apply_mutation(typst_code: str) -> tuple[str, str]:
     _ops = [
         (_mutate_color, "Mutation: color tweak", 0.30),
         (_random_numeric_tweak, "Mutation: numeric tweak", 0.30),
@@ -147,58 +143,20 @@ def render_typst_png(typst_code: str) -> bytes:
     raise ValueError("Failed to rasterize Typst to PNG bytes.")
 
 
-def _rasterize_typst(typst_code: str) -> bytes | None:
-    try:
-        return render_typst_png(typst_code)
-    except Exception:
-        return None
-
-
-def mutate_with_micro_search(
-    parent_code: str,
-    orig_img_fast: Image.Image,
-    num_trials: int = 15,
-) -> tuple[str, str]:
-    return with_micro_search(
-        lambda: _apply_one_mutation(parent_code),
-        fallback=parent_code,
-        rasterize=_rasterize_typst,
-        orig_img_fast=orig_img_fast,
-        num_trials=num_trials,
-        default_summary="Mutation: no improvement",
-    )
-
-
-def crossover_with_micro_search(
-    code_a: str,
-    code_b: str,
-    orig_img_fast: Image.Image,
-    num_trials: int = 15,
-) -> tuple[str, str]:
-    # Extract non-empty element lines from B to inject into A
+def apply_crossover(code_a: str, code_b: str) -> tuple[str, str]:
+    """Inject one element line from *code_b* into *code_a*."""
     lines_b = [line for line in _split_lines(code_b) if _ELEMENT_LINE_RE.match(line)]
     lines_a = _split_lines(code_a)
     element_indices_a = [
         i for i, line in enumerate(lines_a) if _ELEMENT_LINE_RE.match(line)
     ]
-
     if not lines_b or not element_indices_a:
-        return mutate_with_micro_search(code_a, orig_img_fast, num_trials)
+        return apply_mutation(code_a)
 
-    def _op() -> tuple[str, str]:
-        insert_after = random.choice(element_indices_a)
-        candidate_lines = [
-            *lines_a[: insert_after + 1],
-            random.choice(lines_b),
-            *lines_a[insert_after + 1 :],
-        ]
-        return "".join(candidate_lines), "Crossover: element injection"
-
-    return with_micro_search(
-        _op,
-        fallback=code_a,
-        rasterize=_rasterize_typst,
-        orig_img_fast=orig_img_fast,
-        num_trials=num_trials,
-        default_summary="Crossover: no improvement",
-    )
+    insert_after = random.choice(element_indices_a)
+    candidate_lines = [
+        *lines_a[: insert_after + 1],
+        random.choice(lines_b),
+        *lines_a[insert_after + 1 :],
+    ]
+    return "".join(candidate_lines), "Crossover: element injection"

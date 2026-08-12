@@ -3,12 +3,10 @@ from __future__ import annotations
 import logging
 import re
 
-import PIL.Image
-
 from vectrify.formats.base import BaseFormatPlugin
 from vectrify.formats.typst.operations import (
-    crossover_with_micro_search,
-    mutate_with_micro_search,
+    apply_crossover,
+    apply_mutation,
     render_typst_png,
 )
 from vectrify.formats.typst.prompts import build_typst_gen_prompt
@@ -59,17 +57,8 @@ class TypstPlugin(BaseFormatPlugin):
             canvas=canvas,
         )
 
-    def mutate(self, content: str, orig_img_fast: PIL.Image.Image) -> tuple[str, str]:
-        return mutate_with_micro_search(
-            parent_code=content, orig_img_fast=orig_img_fast, num_trials=15
-        )
+    def mutate(self, content: str) -> tuple[str, str]:
+        return apply_mutation(content)
 
-    def crossover(
-        self, content_a: str, content_b: str, orig_img_fast: PIL.Image.Image
-    ) -> tuple[str, str]:
-        return crossover_with_micro_search(
-            code_a=content_a,
-            code_b=content_b,
-            orig_img_fast=orig_img_fast,
-            num_trials=15,
-        )
+    def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
+        return apply_crossover(content_a, content_b)

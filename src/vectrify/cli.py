@@ -308,12 +308,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=DEFAULT_RESOLUTION,
         metavar="PX",
-        help="Working resolution for the whole run, and the parameter that "
-        "most affects output quality and cost. The reference and every "
-        "candidate are rendered and scored at this long-side; it is rounded up "
-        "to a whole number of scorer crops, and it fixes the coordinate space "
-        "candidates are written in (SVG viewBox, Typst page). Higher resolves "
-        f"finer detail and costs proportionally more. Default: "
+        help="Working resolution for the whole run. The reference and every "
+        "candidate are rendered at this long-side, and it fixes the coordinate "
+        "space candidates are written in (SVG viewBox, Typst page). Higher "
+        "resolves finer geometry and costs proportionally more. Default: "
         f"{DEFAULT_RESOLUTION}",
     )
     g_runtime.add_argument(

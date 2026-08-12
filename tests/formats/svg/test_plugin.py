@@ -111,16 +111,14 @@ def test_the_render_preview_is_only_sent_with_a_parent():
 
 
 def test_mutate_returns_valid_svg_and_a_summary():
-    content, summary = SvgPlugin().mutate(SVG, Image.new("RGB", (8, 8), "blue"))
+    content, summary = SvgPlugin().mutate(SVG)
     assert SvgPlugin().validate(content)[0]
     assert summary.strip()
 
 
 def test_crossover_returns_valid_svg_and_a_summary():
     other = f'<svg xmlns="{NS}" viewBox="0 0 32 32"><circle r="8"/></svg>'
-    content, summary = SvgPlugin().crossover(
-        SVG, other, Image.new("RGB", (8, 8), "blue")
-    )
+    content, summary = SvgPlugin().crossover(SVG, other)
     assert SvgPlugin().validate(content)[0]
     assert summary.strip()
 

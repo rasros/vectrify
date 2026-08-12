@@ -3,10 +3,6 @@ import random
 import re
 from collections.abc import Callable
 
-from PIL import Image
-
-from vectrify.formats.micro_search import with_micro_search
-
 log = logging.getLogger(__name__)
 
 _NODE_SHAPES = [
@@ -178,7 +174,7 @@ _MUTATIONS = [
 ]
 
 
-def _apply_one_mutation(dot: str) -> tuple[str, str]:
+def apply_mutation(dot: str) -> tuple[str, str]:
     fns, labels, weights = zip(*_MUTATIONS, strict=True)
     fn, label = random.choices(
         list(zip(fns, labels, strict=True)), weights=list(weights), k=1
@@ -191,13 +187,6 @@ def render_dot_png(dot: str) -> bytes:
     import graphviz
 
     return graphviz.Source(dot).pipe(format="png", quiet=True)
-
-
-def _rasterize_dot(dot: str) -> bytes | None:
-    try:
-        return render_dot_png(dot)
-    except Exception:
-        return None
 
 
 _ATTR_BLOCK_RE = re.compile(r"^\s*(?:node|edge|graph)\s*\[[^\]]*\];?\s*$", re.MULTILINE)
@@ -218,42 +207,12 @@ def _insert_after_first_brace(dot: str, block: str) -> str:
     return f"{dot[:cut]}\n{block}{dot[cut:]}"
 
 
-def mutate_with_micro_search(
-    parent_dot: str,
-    orig_img_fast: Image.Image,
-    num_trials: int = 15,
-) -> tuple[str, str]:
-    """Generate num_trials mutations, pick the one closest to target."""
-    return with_micro_search(
-        lambda: _apply_one_mutation(parent_dot),
-        fallback=parent_dot,
-        rasterize=_rasterize_dot,
-        orig_img_fast=orig_img_fast,
-        num_trials=num_trials,
-        default_summary="Mutation: no improvement",
-    )
-
-
-def crossover_with_micro_search(
-    dot_a: str,
-    dot_b: str,
-    orig_img_fast: Image.Image,
-    num_trials: int = 15,
-) -> tuple[str, str]:
-    """Crossover: try swapping attribute blocks between two DOT sources."""
+def apply_crossover(dot_a: str, dot_b: str) -> tuple[str, str]:
+    """Graft one attribute block from *dot_b* into *dot_a*."""
     attrs_b = _ATTR_BLOCK_RE.findall(dot_b)
     if not attrs_b:
-        return mutate_with_micro_search(dot_a, orig_img_fast, num_trials)
-
-    def _op() -> tuple[str, str]:
-        attr = random.choice(attrs_b)
-        return _insert_after_first_brace(dot_a, attr), "Crossover: attributes"
-
-    return with_micro_search(
-        _op,
-        fallback=dot_a,
-        rasterize=_rasterize_dot,
-        orig_img_fast=orig_img_fast,
-        num_trials=num_trials,
-        default_summary="Crossover: no improvement",
+        return apply_mutation(dot_a)
+    return (
+        _insert_after_first_brace(dot_a, random.choice(attrs_b)),
+        "Crossover: attributes",
     )

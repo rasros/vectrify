@@ -56,10 +56,9 @@ def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, in
     """Open the reference image and return (img, png_bytes, width, height).
 
     Downscaled to *long_side*, which makes the raster the single resolution in
-    the run: candidates are rendered at this size, scored at this size, and the
-    scorer's crop count follows from it. A source image's own dimensions would
-    otherwise silently set the cost -- a 2000px input is 100 crops per
-    candidate against 9 for a 700px one.
+    the run: candidates are rendered at this size and written in its coordinate
+    space. A source image's own dimensions would otherwise silently set the
+    cost of every rasterization in the run.
 
     Raises FileNotFoundError if the path does not exist and ValueError if the
     file exists but is not a decodable image.

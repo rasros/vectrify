@@ -1,7 +1,6 @@
 import shutil
 
 import pytest
-from PIL import Image
 
 from vectrify.formats.graphviz.operations import (
     _parse_node_names,
@@ -9,8 +8,8 @@ from vectrify.formats.graphviz.operations import (
     _random_layout_tweak,
     _random_node_attr_tweak,
     _set_graph_attr,
-    crossover_with_micro_search,
-    mutate_with_micro_search,
+    apply_crossover,
+    apply_mutation,
 )
 
 _DOT_AVAILABLE = shutil.which("dot") is not None
@@ -65,33 +64,26 @@ def test_random_layout_tweak_changes_something():
     assert changed
 
 
-@pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
-def test_mutate_with_micro_search_returns_dot_string():
-    target = Image.new("RGB", (32, 32), color="blue")
-    result, summary = mutate_with_micro_search(_DOT, target, num_trials=3)
+def test_apply_mutation_returns_dot_string():
+    result, summary = apply_mutation(_DOT)
     assert "digraph" in result or "graph" in result
-    # The per-operator label now survives instead of a constant string.
     assert summary.startswith("Mutation: ")
 
 
-@pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
-def test_crossover_with_micro_search_returns_dot_string():
+def test_apply_crossover_returns_dot_string():
     dot_b = """digraph H {
         node [shape=ellipse, fillcolor=lightgreen];
         X -> Y;
     }"""
-    target = Image.new("RGB", (32, 32), color="green")
-    result, summary = crossover_with_micro_search(_DOT, dot_b, target, num_trials=3)
+    result, summary = apply_crossover(_DOT, dot_b)
     assert "digraph" in result
-    assert summary.startswith(("Crossover: ", "Mutation: "))
+    assert summary == "Crossover: attributes"
 
 
-@pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
 def test_crossover_falls_back_to_mutation_when_no_attrs_in_b():
     dot_b = "digraph H { X -> Y; }"  # no attribute blocks
-    target = Image.new("RGB", (32, 32), color="red")
-    result, _summary = crossover_with_micro_search(_DOT, dot_b, target, num_trials=3)
-    assert isinstance(result, str)
+    _result, summary = apply_crossover(_DOT, dot_b)
+    assert summary.startswith("Mutation: ")
 
 
 def test_crossover_survives_backslash_label_escapes():
@@ -100,17 +92,14 @@ def test_crossover_survives_backslash_label_escapes():
     \\N are ordinary Graphviz label escapes, and the crossover died with
     `re.error: bad escape \\l`, silently failing the task.
     """
-    from PIL import Image
-
-    from vectrify.formats.graphviz.operations import crossover_with_micro_search
+    from vectrify.formats.graphviz.operations import apply_crossover
 
     donor = (
         'digraph G {\n    node [shape=box, label="left\\lright\\l"];\n    a -> b;\n}'
     )
     target = "digraph G {\n    a -> b;\n}"
-    ref = Image.new("RGB", (64, 64), "white")
 
-    content, summary = crossover_with_micro_search(target, donor, ref, num_trials=3)
+    content, summary = apply_crossover(target, donor)
 
     assert isinstance(content, str)
     assert isinstance(summary, str)

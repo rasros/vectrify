@@ -40,13 +40,12 @@ class FakePlugin:
     def extract_from_llm(self, raw):
         return raw
 
-    def crossover(self, a, b, orig_img_fast):
-        _ = (b, orig_img_fast)
+    def crossover(self, a, b):
+        _ = b
         self.crossover_calls += 1
         return a, "crossover"
 
-    def mutate(self, content, orig_img_fast):
-        _ = orig_img_fast
+    def mutate(self, content):
         self.mutate_calls += 1
         return content, "mutation"
 

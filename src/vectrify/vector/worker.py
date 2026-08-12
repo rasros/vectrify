@@ -68,10 +68,6 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
     try:
         plugin = ctx.format_plugin
 
-        orig_img = Image.open(io.BytesIO(ctx.original_png_bytes)).convert("RGB")
-        fast_eval_side = 128
-        orig_img_fast = resize_long_side(orig_img, fast_eval_side)
-
         if ctx.random_seed is not None:
             random.seed(ctx.random_seed + ctx.worker_index)
 
@@ -145,14 +141,10 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                 content, origin = plugin.crossover(
                     parent.payload.content,
                     secondary_content,
-                    orig_img_fast,
                 )
 
             else:
-                content, origin = plugin.mutate(
-                    parent.payload.content,
-                    orig_img_fast,
-                )
+                content, origin = plugin.mutate(parent.payload.content)
 
             valid, err = plugin.validate(content)
             if not valid:
