@@ -244,11 +244,15 @@ def main() -> None:
     run = sub.add_parser("run", help="run the corpus and write results JSON")
     run.add_argument("--out", required=True, metavar="PATH")
     run.add_argument("--cases", default=str(DEFAULT_CASES), metavar="DIR")
-    run.add_argument("--tasks", type=int, default=600, metavar="N")
+    # The round scores on pixels now, so a task costs ~1 ms rather than ~300 ms
+    # and a meaningful budget is thousands of tasks rather than hundreds.
+    run.add_argument("--tasks", type=int, default=4000, metavar="N")
     run.add_argument("--reps", type=int, default=3, metavar="N")
     run.add_argument("--workers", type=int, default=1, metavar="N")
     run.add_argument("--resolution", type=int, default=384, metavar="PX")
-    run.add_argument("--scorer", default="simple", choices=["simple", "vision"])
+    # Selects the evaluator that ranks a converged front, not the round's
+    # scorer: the round is always pixel L1.
+    run.add_argument("--scorer", default="vision", choices=["simple", "vision"])
     run.add_argument("--epochs", type=int, default=1, metavar="N")
     run.add_argument("--seed-base", type=int, default=1000, dest="seed_base")
     run.set_defaults(func=cmd_run)
