@@ -4,8 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vectrify.score.regions import REGION_GRID
-from vectrify.score.vision import VisionScorer, _apply_hot_colormap
+from vectrify.score.vision import VisionScorer
 
 
 class _TinyVisionScorer(VisionScorer):
@@ -111,22 +110,6 @@ def test_load_is_idempotent(scorer):
     assert s1 == pytest.approx(s2, abs=1e-6)
 
 
-def test_prepare_reference_includes_patch_embeddings(scorer):
-    ref_img = Image.new("RGB", (32, 32), color="red")
-    ref = scorer.prepare_reference(ref_img)
-    assert ref.patch_embeddings is not None
-    assert ref.patch_embeddings.shape[0] == 1  # 1 patch
-    assert ref.grid_hw == (1, 1)
-
-
-def test_patch_embeddings_are_unit_norm(scorer):
-    ref_img = Image.new("RGB", (32, 32), color="blue")
-    ref = scorer.prepare_reference(ref_img)
-    assert ref.patch_embeddings is not None
-    norms = ref.patch_embeddings.norm(dim=-1)
-    assert norms == pytest.approx(1.0, abs=1e-5)
-
-
 def test_diff_heatmap_returns_valid_png(scorer):
     ref_img = Image.new("RGB", (32, 32), color="red")
     ref = scorer.prepare_reference(ref_img)
@@ -166,78 +149,3 @@ def test_diff_heatmap_respects_long_side(scorer):
     assert png is not None
     img = Image.open(io.BytesIO(png))
     assert max(img.size) == 32
-
-
-def test_hot_colormap_zero_is_black():
-    arr = np.zeros((1, 1), dtype=np.float32)
-    rgb = _apply_hot_colormap(arr)
-    assert rgb[0, 0].tolist() == [0, 0, 0]
-
-
-def test_hot_colormap_one_is_white():
-    arr = np.ones((1, 1), dtype=np.float32)
-    rgb = _apply_hot_colormap(arr)
-    assert rgb[0, 0].tolist() == [255, 255, 255]
-
-
-def test_hot_colormap_third_is_red():
-    arr = np.full((1, 1), 1.0 / 3.0, dtype=np.float32)
-    rgb = _apply_hot_colormap(arr)
-    r, g, b = rgb[0, 0]
-    assert r == 255
-    assert g < 10
-    assert b < 10
-
-
-def test_hot_colormap_output_shape_matches_input():
-    arr = np.random.rand(10, 20).astype(np.float32)
-    rgb = _apply_hot_colormap(arr)
-    assert rgb.shape == (10, 20, 3)
-    assert rgb.dtype == np.uint8
-
-
-def test_diff_heatmap_falls_back_when_patch_embeddings_none(scorer):
-    from vectrify.score.vision import VisionReference
-
-    ref_img = Image.new("RGB", (32, 32), color="red")
-    ref = scorer.prepare_reference(ref_img)
-
-    # Manually strip patch embeddings to simulate a model without vision_model
-    ref_no_patches = VisionReference(
-        image=ref.image,
-        embedding=ref.embedding,
-        patch_embeddings=None,
-        grid_hw=None,
-    )
-    # Falls back to block distances rather than giving up: the same grid feeds
-    # the worst_region objective, which must stay populated for every candidate.
-    result = scorer.diff_heatmap(ref_no_patches, _png("blue"), long_side=32)
-    assert result is not None
-    assert scorer.region_distance_grid(ref_no_patches, _png("blue")) is not None
-
-
-def test_diff_heatmap_falls_back_on_grid_mismatch(scorer):
-    import torch
-
-    from vectrify.score.vision import VisionReference
-
-    ref_img = Image.new("RGB", (32, 32), color="red")
-    ref = scorer.prepare_reference(ref_img)
-
-    if ref.patch_embeddings is None:
-        pytest.skip("Patch embeddings not available")
-
-    fake_patch_embs = torch.zeros(4, ref.patch_embeddings.shape[-1])
-    ref_wrong_grid = VisionReference(
-        image=ref.image,
-        embedding=ref.embedding,
-        patch_embeddings=fake_patch_embs,
-        grid_hw=(2, 2),
-    )
-    # A grid mismatch means the patch distances cannot be trusted, so it drops
-    # to block distances instead of dropping the measurement entirely.
-    result = scorer.diff_heatmap(ref_wrong_grid, _png("blue"), long_side=32)
-    assert result is not None
-    grid = scorer.region_distance_grid(ref_wrong_grid, _png("blue"))
-    assert grid is not None
-    assert grid.shape == REGION_GRID

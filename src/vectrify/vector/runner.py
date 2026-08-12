@@ -25,7 +25,6 @@ from vectrify.image_utils import (
 )
 from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
-from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.complexity import (
     FRONT_SCORE,
     NODE_RATIO,
@@ -33,12 +32,7 @@ from vectrify.score.complexity import (
     WORST_REGION_16,
     ZIP_RATIO,
 )
-from vectrify.score.regions import (
-    DEFAULT_TILE_SIZE,
-    complexity_ratio,
-    region_worst_scores,
-    snap_raster,
-)
+from vectrify.score.regions import complexity_ratio, region_worst_scores
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
@@ -78,9 +72,7 @@ def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, in
         raise ValueError(
             f"input image could not be read as an image: {image_path} ({exc})"
         ) from exc
-    img = resize_long_side(
-        img, snap_raster(long_side, DEFAULT_CONFIG.tile_size or DEFAULT_TILE_SIZE)
-    )
+    img = resize_long_side(img, long_side)
     w, h = img.size
     buf = io.BytesIO()
     img.save(buf, format="PNG")
