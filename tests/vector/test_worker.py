@@ -27,6 +27,7 @@ class FakePlugin:
     def __init__(self, png: bytes):
         self.png = png
         self.crossover_calls = 0
+        self.mutate_ops = []
         self.mutate_calls = 0
 
     def build_generate_prompt(self, *args, **kwargs):
@@ -45,7 +46,8 @@ class FakePlugin:
         self.crossover_calls += 1
         return a, "crossover"
 
-    def mutate(self, content):
+    def mutate(self, content, operator=None):
+        self.mutate_ops.append(operator)
         self.mutate_calls += 1
         return content, "mutation"
 

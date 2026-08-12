@@ -725,3 +725,52 @@ def test_epoch_transition_closes_the_open_generation():
 
     assert strat.epoch_pools
     assert strat.epoch_pools[0] == {1, 2}
+
+
+def test_the_engine_picks_the_operator_and_hears_how_it_did():
+    """Eight workers each running their own policy could never learn anything:
+    none of them sees whether its own children survived."""
+
+    class RecordingPolicy:
+        def __init__(self):
+            self.selects = 0
+            self.updates = []
+
+        def select(self):
+            self.selects += 1
+            return "op"
+
+        def update(self, operator, survived):
+            self.updates.append((operator, survived))
+
+    policy = RecordingPolicy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
+    )
+    for tid, score in ((1, 0.1), (2, 0.9)):
+        engine.unscored_q.put(
+            Result(
+                task_id=tid,
+                parent_id=1,
+                valid=True,
+                score=score,
+                payload="p",
+                operator="op",
+            )
+        )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        active_pool_size=1,
+        generation_size=2,
+        operator_policy=policy,
+    )
+
+    assert policy.selects == 2
+    assert [engine.task_q.get().operator for _ in range(2)] == ["op", "op"]
+    # The pool holds one node, so the better child survives and the worse does not.
+    assert policy.updates == [("op", True), ("op", False)]

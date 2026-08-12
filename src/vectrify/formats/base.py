@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Mapping
 from typing import Protocol
 
 from vectrify.image_utils import png_resize_exact
@@ -99,8 +100,20 @@ class FormatPlugin(Protocol):
         """
         ...
 
-    def mutate(self, content: str) -> tuple[str, str]:
-        """Mutate existing content. Return (new_content, origin)."""
+    def mutation_weights(self) -> Mapping[str, float]:
+        """This backend's mutation operators and their default weights.
+
+        The names are what a policy selects by and what results are attributed
+        to, so they must be stable across a run.
+        """
+        ...
+
+    def mutate(self, content: str, operator: str | None = None) -> tuple[str, str]:
+        """Mutate existing content. Return (new_content, origin).
+
+        *operator* names one of ``mutation_weights``; None lets the backend
+        pick for itself.
+        """
         ...
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:

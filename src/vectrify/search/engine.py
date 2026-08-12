@@ -17,6 +17,7 @@ from vectrify.search.models import (
     Task,
     valid_scores,
 )
+from vectrify.search.operators import OperatorPolicy
 from vectrify.search.stats import score_std
 
 TState = TypeVar("TState")
@@ -106,6 +107,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_seeds: int | None = None,
         epochs: int | None = None,
         epoch_variance: float | None = None,
+        operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
     ) -> None:
         start_time = time.monotonic()
@@ -312,6 +314,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                         secondary_parent_id=pid2,
                         secondary_parent_state=node_states[pid2] if pid2 else None,
                         force_llm=False,
+                        # Crossover ignores it, but the worker falls back to
+                        # mutation when the second parent turns out unusable.
+                        operator=(
+                            operator_policy.select()
+                            if operator_policy is not None
+                            else None
+                        ),
                     )
 
                 self.task_q.put(task)
@@ -359,6 +368,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 signature=res.signature,
                 epoch=epoch,
                 root_id=root,
+                operator=res.operator,
             )
 
         def _note_best(new_node: SearchNode[TState], res: Result) -> bool:
@@ -413,6 +423,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             kept = {n.id for n in survivors}
 
             for child in pending_children:
+                if operator_policy is not None:
+                    operator_policy.update(child.operator, child.id in kept)
                 if child.id in kept:
                     node_states[child.id] = child.state
                     self.storage.save_node(child)

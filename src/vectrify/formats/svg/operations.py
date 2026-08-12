@@ -5,6 +5,8 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 
+from vectrify.formats.mutations import MutationTable, pick_operator
+
 SVG_NS = "http://www.w3.org/2000/svg"
 
 _NUMERIC_ATTRS = frozenset(
@@ -344,9 +346,8 @@ def mutate_reorder(root: ET.Element) -> None:
         parent.append(child)
 
 
-# One weight table for every image and every stage of a run. Adaptive
-# selection replaces this.
-MUTATIONS: tuple[tuple[Callable[[str], str], str, float], ...] = (
+# Default weights, used when no policy names an operator.
+MUTATIONS: MutationTable = (
     (mutate_color, "Mutation: color tweak", 0.25),
     (mutate_numeric, "Mutation: numeric tweak", 0.20),
     (mutate_path, "Mutation: path nudge", 0.15),
@@ -357,13 +358,10 @@ MUTATIONS: tuple[tuple[Callable[[str], str], str, float], ...] = (
 )
 
 
-def apply_mutation(parent_svg: str) -> tuple[str, str]:
-    """Apply one weighted-random operator to *parent_svg*."""
-    fns, labels, weights = zip(*MUTATIONS, strict=True)
-    fn, label = random.choices(
-        list(zip(fns, labels, strict=True)), weights=list(weights), k=1
-    )[0]
-    return with_retries(lambda: fn(parent_svg), fallback=parent_svg), label
+def apply_mutation(parent_svg: str, operator: str | None = None) -> tuple[str, str]:
+    """Apply *operator* to *parent_svg*, or a weighted-random one if None."""
+    fn, name = pick_operator(MUTATIONS, operator)
+    return with_retries(lambda: fn(parent_svg), fallback=parent_svg), name
 
 
 def apply_crossover(svg_a: str, svg_b: str) -> tuple[str, str]:

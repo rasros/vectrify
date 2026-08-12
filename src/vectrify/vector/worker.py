@@ -144,7 +144,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                 )
 
             else:
-                content, origin = plugin.mutate(parent.payload.content)
+                content, origin = plugin.mutate(parent.payload.content, task.operator)
 
             valid, err = plugin.validate(content)
             if not valid:
@@ -180,6 +180,10 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                     metrics=metrics,
                     signature=signature,
                     llm_type=llm_type,
+                    # What actually ran, not what was asked for: crossover can
+                    # fall back to mutation, and a task can name an operator
+                    # this backend does not have.
+                    operator=None if use_llm else origin,
                 )
             )
 

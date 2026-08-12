@@ -1,6 +1,8 @@
 import random
 import re
 
+from vectrify.formats.mutations import MutationTable, pick_operator
+
 # Matches numeric values with Typst units: 12pt, 1.5em, 50%, 3mm, etc.
 _NUM_RE = re.compile(r"(\b|-)(\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)\b")
 
@@ -114,18 +116,17 @@ def _reorder_elements(typst_code: str) -> str:
     return "".join(lines)
 
 
-def apply_mutation(typst_code: str) -> tuple[str, str]:
-    _ops = [
-        (_mutate_color, "Mutation: color tweak", 0.30),
-        (_random_numeric_tweak, "Mutation: numeric tweak", 0.30),
-        (_remove_element, "Mutation: removed element", 0.20),
-        (_reorder_elements, "Mutation: reordered elements", 0.20),
-    ]
-    fns, labels, weights = zip(*_ops, strict=True)
-    fn, label = random.choices(
-        list(zip(fns, labels, strict=True)), weights=list(weights), k=1
-    )[0]
-    return fn(typst_code), label
+MUTATIONS: MutationTable = (
+    (_mutate_color, "Mutation: color tweak", 0.30),
+    (_random_numeric_tweak, "Mutation: numeric tweak", 0.30),
+    (_remove_element, "Mutation: removed element", 0.20),
+    (_reorder_elements, "Mutation: reordered elements", 0.20),
+)
+
+
+def apply_mutation(typst_code: str, operator: str | None = None) -> tuple[str, str]:
+    fn, name = pick_operator(MUTATIONS, operator)
+    return fn(typst_code), name
 
 
 def render_typst_png(typst_code: str) -> bytes:

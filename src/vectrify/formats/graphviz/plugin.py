@@ -1,12 +1,15 @@
 import logging
 import re
+from collections.abc import Mapping
 
 from vectrify.formats.base import BaseFormatPlugin
 from vectrify.formats.graphviz.operations import (
+    MUTATIONS,
     apply_crossover,
     apply_mutation,
 )
 from vectrify.formats.graphviz.prompts import build_dot_gen_prompt
+from vectrify.formats.mutations import operator_weights
 
 log = logging.getLogger(__name__)
 
@@ -143,8 +146,11 @@ class GraphvizPlugin(BaseFormatPlugin):
             goal=goal,
         )
 
-    def mutate(self, content: str) -> tuple[str, str]:
-        return apply_mutation(content)
+    def mutation_weights(self) -> Mapping[str, float]:
+        return operator_weights(MUTATIONS)
+
+    def mutate(self, content: str, operator: str | None = None) -> tuple[str, str]:
+        return apply_mutation(content, operator)
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         return apply_crossover(content_a, content_b)

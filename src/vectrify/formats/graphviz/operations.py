@@ -3,6 +3,8 @@ import random
 import re
 from collections.abc import Callable
 
+from vectrify.formats.mutations import MutationTable, pick_operator
+
 log = logging.getLogger(__name__)
 
 _NODE_SHAPES = [
@@ -166,20 +168,17 @@ def _remove_node(dot: str) -> str:
     return "".join(line for line in lines if not re.search(rf'\b"?{esc}"?\b', line))
 
 
-_MUTATIONS = [
+MUTATIONS: MutationTable = (
     (_random_node_attr_tweak, "Mutation: node attributes", 3),
     (_random_edge_attr_tweak, "Mutation: edge attributes", 3),
     (_random_layout_tweak, "Mutation: layout tweak", 3),
     (_remove_node, "Mutation: removed node", 1),
-]
+)
 
 
-def apply_mutation(dot: str) -> tuple[str, str]:
-    fns, labels, weights = zip(*_MUTATIONS, strict=True)
-    fn, label = random.choices(
-        list(zip(fns, labels, strict=True)), weights=list(weights), k=1
-    )[0]
-    return fn(dot), label
+def apply_mutation(dot: str, operator: str | None = None) -> tuple[str, str]:
+    fn, name = pick_operator(MUTATIONS, operator)
+    return fn(dot), name
 
 
 def render_dot_png(dot: str) -> bytes:
