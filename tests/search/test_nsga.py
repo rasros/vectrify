@@ -3,11 +3,8 @@ import pytest
 from vectrify.search import ChainState, SearchNode
 from vectrify.search.diversity import simhash
 from vectrify.search.nsga import (
-    FEASIBLE_FRACTION,
     NsgaStrategy,
-    _constrained_dominates,
     _dominates,
-    _feasibility_threshold,
     build_objectives,
     crowding_distance,
     non_dominated_sort,
@@ -243,15 +240,17 @@ def test_diversity_rejects_exact_duplicate_with_worse_score():
     assert 2 not in selected
 
 
-def test_tournament_constrained_dominance_prefers_better_score():
+def test_tournament_treats_every_objective_equally():
+    """No objective is privileged. Visual error used to be gated ahead of the
+    rest, which made it primary and left the others as tie-breakers; a
+    complexity term cannot shape the front while that is true."""
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [
         make_node(1, 0.1, visual_complexity=500.0),
         make_node(2, 0.9, visual_complexity=10.0),
     ]
     selected = {strategy.select_parent(nodes)[0] for _ in range(50)}
-    assert 1 in selected
-    assert 2 not in selected
+    assert selected == {1, 2}
 
 
 def test_pool_size_limits_candidate_set():
@@ -380,66 +379,15 @@ def test_epoch_parents_all_invalid_falls_back():
     assert len(seeds) == 3
 
 
-def test_feasibility_threshold_empty():
-    assert _feasibility_threshold([]) == float("inf")
-
-
-def test_feasibility_threshold_single():
-    assert _feasibility_threshold([0.5]) == 0.5
-
-
-def test_feasibility_threshold_admits_exactly_the_configured_fraction():
-    scores = [round(0.1 * i, 2) for i in range(1, 11)]  # 0.1 best .. 1.0 worst
-    threshold = _feasibility_threshold(scores)
-    feasible = [s for s in scores if s < threshold]
-    assert len(feasible) == int(FEASIBLE_FRACTION * len(scores))
-    # and they are the *best*-scoring ones, not an arbitrary subset
-    assert feasible == sorted(scores)[: len(feasible)]
-
-
-def test_feasibility_threshold_is_scale_free():
-    small = [0.001 * i for i in range(1, 11)]
-    large = [100.0 * i for i in range(1, 11)]
-    for scores in (small, large):
-        threshold = _feasibility_threshold(scores)
-        assert len([s for s in scores if s < threshold]) == 5
-
-
-def test_constrained_dominates_feasible_over_infeasible():
-    assert _constrained_dominates(
-        (0.9, 0.9), (0.1, 0.1), a_score=0.2, b_score=0.8, threshold=0.5
-    )
-
-
-def test_constrained_dominates_infeasible_does_not_dominate_feasible():
-    assert not _constrained_dominates(
-        (0.1, 0.1), (0.9, 0.9), a_score=0.8, b_score=0.2, threshold=0.5
-    )
-
-
-def test_constrained_dominates_both_feasible_falls_back_to_pareto():
-    assert _constrained_dominates(
-        (0.1, 0.2), (0.3, 0.4), a_score=0.1, b_score=0.3, threshold=0.5
-    )
-    # both feasible; incomparable → neither dominates
-    assert not _constrained_dominates(
-        (0.1, 0.5), (0.3, 0.2), a_score=0.1, b_score=0.3, threshold=0.5
-    )
-
-
-def test_constrained_dominates_both_infeasible_falls_back_to_pareto():
-    assert _constrained_dominates(
-        (0.6, 0.7), (0.8, 0.9), a_score=0.7, b_score=0.9, threshold=0.5
-    )
-
-
-def test_non_dominated_sort_constrained_feasible_dominates_simple_but_bad():
+def test_accurate_and_simple_candidates_share_the_front():
+    """Neither dominates: one wins on error, the other on complexity. Under the
+    old feasibility gate the accurate one was promoted outright."""
     n1 = make_node(1, score=0.1, visual_complexity=5000.0)
     n2 = make_node(2, score=0.9, visual_complexity=10.0)
-    objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}  # n2 is simpler in objective space
-    fronts = non_dominated_sort([n1, n2], objectives, score_threshold=0.5)
-    assert fronts[0][0].id == 1
-    assert fronts[1][0].id == 2
+    objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}
+    fronts = non_dominated_sort([n1, n2], objectives)
+    assert len(fronts) == 1
+    assert {n.id for n in fronts[0]} == {1, 2}
 
 
 def test_non_dominated_sort_no_threshold_simple_dominates_complex():
