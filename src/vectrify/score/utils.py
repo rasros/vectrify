@@ -2,7 +2,7 @@ import io
 from functools import cache
 
 import numpy as np
-from PIL import Image, ImageChops, ImageCms, ImageStat
+from PIL import Image, ImageCms
 
 
 def get_device() -> str:
@@ -56,12 +56,14 @@ def color_score(reference_rgb: Image.Image, candidate_png: bytes) -> float:
 
 
 def lab_l1(a_rgb: Image.Image, b_rgb: Image.Image) -> float:
-    t = _rgb_to_lab_transform()
-    a_lab = ImageCms.applyTransform(a_rgb, t)
-    b_lab = ImageCms.applyTransform(b_rgb, t)
-    if a_lab is None or b_lab is None:
-        raise RuntimeError("ImageCms.applyTransform returned None")
-    diff = ImageChops.difference(a_lab, b_lab)
-    stat = ImageStat.Stat(diff)
-    mean_abs = float(sum(stat.mean) / 3.0)
-    return mean_abs / 255.0
+    """Mean absolute Lab difference, normalised to [0, 1].
+
+    Computed in numpy rather than through ImageChops and ImageStat. PIL stores
+    Lab's a and b channels offset-encoded, and that path reduces them to a
+    *signed* mean, so opposite-sign chroma errors cancel between pixels and
+    only lightness survives intact: a candidate half too blue and half too
+    yellow used to read 0.0739 against a true 0.3484, barely distinguishable
+    from being uniformly too blue. Colour distance was mostly a lightness
+    distance.
+    """
+    return float(np.abs(lab_array(a_rgb) - lab_array(b_rgb)).mean()) / 255.0
