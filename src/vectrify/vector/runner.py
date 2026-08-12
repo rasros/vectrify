@@ -1,8 +1,7 @@
 import io
 import logging
 import os
-import threading
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from vectrify.dashboard import Dashboard
@@ -25,10 +24,11 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm.models import api_key_env
-from vectrify.score import ScorerType, get_scorer
+from vectrify.score import ScorerType
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.complexity import WORST_REGION
 from vectrify.score.regions import DEFAULT_TILE_SIZE, snap_raster, worst_region_score
+from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
@@ -98,6 +98,8 @@ def run_vector_search(
     resolution: int,
     max_wall_seconds: float | None,
     log_level: str,
+    # Selects the evaluator that ranks the converged Pareto front, not the
+    # round's scorer -- the round is always pixel L1.
     scorer_type: ScorerType,
     goal: str | None,
     llm_provider: str,
@@ -117,7 +119,7 @@ def run_vector_search(
     epochs: int | None = None,
     max_total_tasks: int = DEFAULT_MAX_TOTAL_TASKS,
     random_seed: int | None = None,
-    vision_model: str = DEFAULT_VISION_MODEL,
+    vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
 ) -> None:
@@ -145,47 +147,21 @@ def run_vector_search(
 
     api_key = os.getenv(api_key_env(llm_provider))
 
-    # Load the scoring model in the background so epoch-0 LLM seeding can run
-    # concurrently with (potentially slow) HuggingFace model downloads/init.
-    _scorer: list[Any] = []
-    _scoring_ref: list[Any] = []
-    _scorer_error: list[Exception] = []
-    scorer_ready = threading.Event()
-
-    def _init_scorer() -> None:
-        try:
-            s = get_scorer(
-                scorer_type,
-                vision_model=vision_model,
-            )
-            ref = s.prepare_reference(original_img)
-            _scorer.append(s)
-            _scoring_ref.append(ref)
-            log.info("Scoring model ready.")
-        except Exception as exc:
-            _scorer_error.append(exc)
-            log.error(f"Scorer initialisation failed: {exc}")
-        finally:
-            scorer_ready.set()
-
-    def _start_scorer_thread() -> None:
-        threading.Thread(target=_init_scorer, daemon=True, name="ScorerInit").start()
+    # The round scores on pixels, so there is no model to load and nothing to
+    # overlap it with. The configured --scorer selects the evaluator that ranks
+    # the converged Pareto front instead, which runs once per epoch.
+    loop_scorer = SimpleFallbackScorer()
+    loop_ref = loop_scorer.prepare_reference(original_img)
+    log.info(
+        f"Round scoring: pixel L1. Front evaluator: {ScorerType(scorer_type).value}"
+        f" ({vision_model})."
+    )
 
     resumed_items = storage.load_resume_nodes()
-    if resumed_items:
-        # Resume path: scorer needed before engine starts — kick it off now
-        # and wait for it just before scoring the resumed nodes.
-        _start_scorer_thread()
 
     initial_nodes: list[SearchNode] = []
 
     if resumed_items:
-        scorer_ready.wait()
-        if _scorer_error:
-            raise RuntimeError(
-                f"Scorer failed to initialise: {_scorer_error[0]}"
-            ) from _scorer_error[0]
-
         initial_nodes = resume_nodes(
             resumed_items=resumed_items,
             format_plugin=format_plugin,
@@ -195,8 +171,8 @@ def run_vector_search(
             resolution_llm=resolution_llm,
             pool_size=pool_size,
             workers=workers,
-            scorer=_scorer[0],
-            scoring_ref=_scoring_ref[0],
+            scorer=loop_scorer,
+            scoring_ref=loop_ref,
             storage=storage,
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
@@ -286,27 +262,14 @@ def run_vector_search(
     )
 
     def score_fn(res):
-        scorer_ready.wait()
-        if _scorer_error:
-            raise RuntimeError(
-                f"Scorer failed to initialise: {_scorer_error[0]}"
-            ) from _scorer_error[0]
-        scorer = _scorer[0]
-        ref = _scoring_ref[0]
-        result = scorer.score(ref, res.payload.raster_png)
+        result = loop_scorer.score(loop_ref, res.payload.raster_png)
         if res.payload.raster_png:
-            # One grid serves both consumers: the worst_region objective and the
-            # heatmap drawn from the same distances. Computing it here rather
-            # than inside diff_heatmap is what keeps this to a single extra
-            # vision pass instead of two.
-            grid = scorer.region_distance_grid(ref, res.payload.raster_png)
+            grid = loop_scorer.region_distance_grid(loop_ref, res.payload.raster_png)
             if grid is not None:
                 res.metrics[WORST_REGION] = worst_region_score(grid)
-            # Only for the --save-heatmap sidecar now that no prompt carries
-            # a difference map; skipped entirely otherwise.
             res.payload.heatmap_png = (
-                scorer.diff_heatmap(
-                    ref,
+                loop_scorer.diff_heatmap(
+                    loop_ref,
                     res.payload.raster_png,
                     long_side=resolution_llm,
                     grid=grid,
@@ -324,11 +287,6 @@ def run_vector_search(
         if dashboard is not None:
             dashboard.__enter__()
             dashboard_entered = True
-
-        if not resumed_items:
-            # Fresh start: start scorer after dashboard so HF output doesn't
-            # appear above the Live display.
-            _start_scorer_thread()
 
         engine.start_workers(worker_loop, worker_ctx)
 
