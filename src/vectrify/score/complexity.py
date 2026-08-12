@@ -12,46 +12,46 @@ scripts all derive their columns from it.
 
 import io
 import re
+import zlib
 from collections.abc import Callable, Mapping
+from xml.etree import ElementTree as ET
 
 from PIL import Image
 
-_WHITESPACE_RE = re.compile(r"\s+")
+_TAG_RE = re.compile(r"<[A-Za-z]")
 
 
-def visual_complexity(png_bytes: bytes) -> float:
-    """Visual complexity measured as JPEG compressed size.
+def zip_complexity(png_bytes: bytes) -> float:
+    """Visual complexity as the compressed size of the raw render.
 
-    JPEG encodes spatial redundancy the same way the human visual system weighs
-    detail: a flat-coloured region compresses to almost nothing; a region with
-    fine detail or many colour transitions requires many more bytes.  This gives
-    a perceptual complexity score that is immune to source-level tricks (e.g.
-    a single large rectangle matching the dominant colour scores near zero even
-    if the source itself is small).
+    Deflate over the raw RGB bytes rather than over the PNG, which is already
+    deflated and would mostly measure the encoder's choices. A flat region
+    compresses to almost nothing; fine detail and many colour transitions do
+    not, so this charges for detail the way a viewer perceives it and is immune
+    to source-level tricks.
     """
     img = Image.open(io.BytesIO(png_bytes)).convert("RGB")
-    buf = io.BytesIO()
-    img.save(buf, format="JPEG", quality=85)
-    return float(len(buf.getvalue()))
+    return float(len(zlib.compress(img.tobytes(), 6)))
 
 
-def structural_complexity(source: str) -> float:
-    """Source complexity as whitespace-stripped character count.
+def node_complexity(source: str) -> float:
+    """Structural complexity as element count.
 
-    Deliberately format-agnostic: it means the same thing for SVG, DOT and
-    Typst, so no backend can be silently scored as free. Stripping whitespace
-    makes it indifferent to indentation and pretty-printing, which vary with
-    whatever the model happened to emit and carry no complexity information.
+    Counts drawn elements, not characters: a model that writes verbose
+    attributes says the same thing at the same cost.
 
-    A compressed size (gzip) was the obvious alternative and was rejected: it
-    discounts repetitive source by ~80%, and every crossover operator injects
-    elements from a *related* parent, so accumulating near-duplicate elements
-    is the norm rather than the exception. That is exactly the bloat this
-    objective exists to charge for, and ``visual_complexity`` already forgives
-    visual repetition, so a compressible-source measure would leave redundancy
-    unpenalised on both objectives at once.
+    Non-XML backends fall back to statement count, which has to be non-zero:
+    a measure that reads as 0 for DOT or Typst would be the best attainable
+    value for a minimised objective and would let those candidates dominate
+    every SVG one.
     """
-    return float(len(_WHITESPACE_RE.sub("", source)))
+    try:
+        root = ET.fromstring(source)
+    except ET.ParseError:
+        tags = len(_TAG_RE.findall(source))
+        statements = len([line for line in source.splitlines() if line.strip()])
+        return float(max(tags, statements))
+    return float(sum(1 for _ in root.iter()))
 
 
 # Metric name -> measure over (rendered PNG, source text). Every consumer derives
@@ -66,8 +66,8 @@ def structural_complexity(source: str) -> float:
 # nearly every candidate is non-dominated and the Pareto front stops
 # discriminating -- cheap to add is not the same as free to add.
 METRICS: Mapping[str, Callable[[bytes, str], float]] = {
-    "visual_complexity": lambda png, _source: visual_complexity(png),
-    "structural_complexity": lambda _png, source: structural_complexity(source),
+    "zip_complexity": lambda png, _source: zip_complexity(png),
+    "node_complexity": lambda _png, source: node_complexity(source),
 }
 
 # Metrics that cannot live in METRICS because they are comparative: they need
@@ -80,20 +80,30 @@ METRICS: Mapping[str, Callable[[bytes, str], float]] = {
 # node: a metric present on only part of the population reads as 0.0 for the
 # rest, which is the best attainable value for a minimised objective and would
 # make unmeasured candidates dominate measured ones.
-WORST_REGION = "worst_region"
+WORST_REGION_4 = "worst_region_4"
+WORST_REGION_16 = "worst_region_16"
+ZIP_RATIO = "zip_ratio"
+NODE_RATIO = "node_ratio"
 
-SCORER_METRICS: tuple[str, ...] = (WORST_REGION,)
+SCORER_METRICS: tuple[str, ...] = (
+    WORST_REGION_4,
+    WORST_REGION_16,
+    ZIP_RATIO,
+    NODE_RATIO,
+)
+
+# What build_objectives trades off, alongside score. The raw complexities are
+# recorded for readability but are not objectives: on their own they put an
+# empty canvas permanently on the front, since nothing beats it on complexity
+# and it is therefore never dominated. The ratios charge complexity against the
+# error it actually removes, which the blank canvas removes none of.
+OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
 
 # Worker-side metrics first so the registry order (and therefore the objective
 # vector and every derived column) stays stable for runs recorded before the
 # scorer-side metrics existed.
+# Every column lineage.csv carries: the raw measures plus the derived ones.
 METRIC_NAMES: tuple[str, ...] = tuple(METRICS) + SCORER_METRICS
-
-# Runs recorded before complexity was split into separate objectives carry a
-# single blended column. It was 70% the render's JPEG size, so it is read back as
-# the visual metric. Defined here so the analysis scripts do not each restate it.
-LEGACY_METRIC_COLUMN = "complexity"
-LEGACY_METRIC_TARGET = "visual_complexity"
 
 
 def measure_all(png_bytes: bytes, source: str) -> dict[str, float]:
@@ -111,18 +121,13 @@ def row_has_metrics(row: Mapping[str, str]) -> bool:
     Eviction rows are sparse: only ``id`` and ``evicted`` are set. Reading them
     as metrics would overwrite the node's real values with zeros.
     """
-    return any(row.get(name) for name in METRIC_NAMES) or bool(
-        row.get(LEGACY_METRIC_COLUMN)
-    )
+    return any(row.get(name) for name in METRIC_NAMES)
 
 
 def read_metrics(row: Mapping[str, str]) -> dict[str, float]:
     """Pull every registered metric out of a lineage.csv row.
 
     Missing columns read as 0.0, so a row written before a metric existed stays
-    usable. A pre-split row is mapped through the legacy column.
+    usable.
     """
-    metrics = {name: float(row.get(name) or 0.0) for name in METRIC_NAMES}
-    if not row.get(LEGACY_METRIC_TARGET) and row.get(LEGACY_METRIC_COLUMN):
-        metrics[LEGACY_METRIC_TARGET] = float(row[LEGACY_METRIC_COLUMN])
-    return metrics
+    return {name: float(row.get(name) or 0.0) for name in METRIC_NAMES}

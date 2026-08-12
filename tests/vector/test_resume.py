@@ -24,17 +24,17 @@ def _make_png(color: str = "red", size: int = 16) -> bytes:
 def _make_node(
     node_id: int,
     score: float = 0.5,
-    visual_complexity: float = 100.0,
+    zip_complexity: float = 100.0,
     content: str = "<svg/>",
-    structural_complexity: float = 0.0,
+    node_complexity: float = 0.0,
 ) -> SearchNode:
     return SearchNode(
         score=score,
         id=node_id,
         parent_id=0,
         metrics={
-            "visual_complexity": visual_complexity,
-            "structural_complexity": structural_complexity,
+            "zip_complexity": zip_complexity,
+            "node_complexity": node_complexity,
         },
         state=ChainState(
             score=score,
@@ -50,9 +50,9 @@ def _make_node(
 
 def _make_prepped(
     old_id: int = 1,
-    visual_complexity: float = 100.0,
+    zip_complexity: float = 100.0,
     png: bytes | None = None,
-    structural_complexity: float = 0.0,
+    node_complexity: float = 0.0,
 ) -> PreppedNode:
     return PreppedNode(
         old_id=old_id,
@@ -60,8 +60,8 @@ def _make_prepped(
         png=png or _make_png(),
         preview_data_url="data:image/png;base64,PREVIEW",
         metrics={
-            "visual_complexity": visual_complexity,
-            "structural_complexity": structural_complexity,
+            "zip_complexity": zip_complexity,
+            "node_complexity": node_complexity,
         },
         signature=None,
     )
@@ -75,7 +75,7 @@ def test_prefilter_returns_all_when_under_limit():
 
 
 def test_prefilter_caps_at_max_keep():
-    nodes = [_make_prepped(i, visual_complexity=float(i * 10)) for i in range(20)]
+    nodes = [_make_prepped(i, zip_complexity=float(i * 10)) for i in range(20)]
     ref_img = Image.new("RGB", (16, 16), color="white")
     result = prefilter_nodes(nodes, ref_img, max_keep=5)
     assert len(result) <= 5
@@ -103,7 +103,7 @@ def test_filter_no_op_when_within_pool():
 
 def test_filter_nsga_returns_pool_size():
     nodes = [
-        _make_node(i, score=float(i) * 0.1, visual_complexity=float(i) * 50)
+        _make_node(i, score=float(i) * 0.1, zip_complexity=float(i) * 50)
         for i in range(10)
     ]
     result = filter_to_pool_size(nodes, pool_size=4)
@@ -111,8 +111,8 @@ def test_filter_nsga_returns_pool_size():
 
 
 def test_filter_nsga_prefers_pareto_front():
-    best = _make_node(1, score=0.1, visual_complexity=10.0)  # dominates all others
-    worse = [_make_node(i + 2, score=0.9, visual_complexity=900.0) for i in range(9)]
+    best = _make_node(1, score=0.1, zip_complexity=10.0)  # dominates all others
+    worse = [_make_node(i + 2, score=0.9, zip_complexity=900.0) for i in range(9)]
     result = filter_to_pool_size([best, *worse], pool_size=3)
     assert best in result
 
@@ -137,6 +137,9 @@ def _make_mock_plugin(png: bytes | None = None) -> MagicMock:
 def _make_mock_scorer(score: float = 0.4) -> tuple[MagicMock, MagicMock]:
     scorer = MagicMock()
     ref = MagicMock()
+    # Resume re-derives the region and ratio metrics so imported nodes are
+    # comparable with loop-scored ones, and that needs a real reference image.
+    ref.image = Image.new("RGB", (16, 16), color="blue")
     scorer.score.return_value = score
     return scorer, ref
 
@@ -165,6 +168,7 @@ def test_resume_nodes_returns_one_node_per_item():
         workers=1,
         scorer=scorer,
         scoring_ref=ref,
+        blank_error=0.5,
         storage=storage,
     )
 
@@ -190,6 +194,7 @@ def test_resume_nodes_assigns_sequential_ids():
         workers=1,
         scorer=scorer,
         scoring_ref=ref,
+        blank_error=0.5,
         storage=storage,
     )
 
@@ -216,6 +221,7 @@ def test_resume_nodes_deduplicates_identical_content():
         workers=1,
         scorer=scorer,
         scoring_ref=ref,
+        blank_error=0.5,
         storage=storage,
     )
 
@@ -240,6 +246,7 @@ def test_resume_nodes_stores_origin_with_old_id():
         workers=1,
         scorer=scorer,
         scoring_ref=ref,
+        blank_error=0.5,
         storage=storage,
     )
 
@@ -251,6 +258,7 @@ def test_resume_nodes_skips_failed_scoring():
     scorer = MagicMock()
     scorer.score.side_effect = [ValueError("bad"), 0.5]
     ref = MagicMock()
+    ref.image = Image.new("RGB", (16, 16), color="blue")
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
 
@@ -266,6 +274,7 @@ def test_resume_nodes_skips_failed_scoring():
         workers=1,
         scorer=scorer,
         scoring_ref=ref,
+        blank_error=0.5,
         storage=storage,
     )
 
@@ -304,6 +313,7 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
         workers=2,
         scorer=scorer,
         scoring_ref=ref,
+        blank_error=0.5,
         storage=storage,
     )
 

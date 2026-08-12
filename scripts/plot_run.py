@@ -25,8 +25,6 @@ import matplotlib
 
 from vectrify.run_dirs import project_runs_dir, run_dirs_in
 from vectrify.score.complexity import (
-    LEGACY_METRIC_COLUMN,
-    LEGACY_METRIC_TARGET,
     METRIC_NAMES,
     read_metrics,
 )
@@ -257,7 +255,10 @@ def uses_legacy_complexity(run_dir: Path) -> bool:
         return False
     with path.open(encoding="utf-8", newline="") as f:
         header = next(csv.reader(f), [])
-    return LEGACY_METRIC_COLUMN in header and LEGACY_METRIC_TARGET not in header
+    # Any run whose lineage predates the current objective set. The columns
+    # were renamed and the complexity measures replaced by ratios, so the two
+    # cannot share an axis.
+    return "zip_ratio" not in header
 
 
 def _label(run_dir: Path) -> str:
