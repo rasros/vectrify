@@ -43,73 +43,21 @@ def pareto_front(items: list, key: "Callable[[Any], Objectives]") -> list:
     ]
 
 
-def _constrained_dominates(
-    a: Objectives,
-    b: Objectives,
-    a_score: float,
-    b_score: float,
-    threshold: float,
-) -> bool:
-    """Dominance with a score constraint (constraint-first NSGA-II, Deb 2000).
-
-    A solution whose score is strictly better than *threshold* is considered
-    feasible; a feasible solution always dominates an infeasible one.
-    """
-    a_feasible = a_score < threshold
-    b_feasible = b_score < threshold
-    if a_feasible and not b_feasible:
-        return True
-    if not a_feasible and b_feasible:
-        return False
-    return _dominates(a, b)
-
-
-# Fraction of the pool (best visual error first) the constraint-first gate
-# treats as feasible; the rest are automatically dominated. A median split is
-# not a compromise between the extremes, it measures better than either: at a
-# much tighter gate the feasible group is so small that most tournament
-# comparisons are infeasible-vs-infeasible, where the gate contributes nothing
-# and three-objective dominance is already weak; at a much looser one the gate
-# barely filters. Splitting at the median maximises the share of comparisons
-# the gate actually decides.
-FEASIBLE_FRACTION = 0.5
-
-
-def _feasibility_threshold(scores: list[float]) -> float:
-    """Visual error at or above which a candidate counts as infeasible.
-
-    Returns the score at the FEASIBLE_FRACTION quantile, so exactly that
-    fraction of the pool satisfies ``score < threshold``.
-    """
-    if not scores:
-        return INVALID_SCORE
-    s = sorted(scores)
-    return s[min(int(FEASIBLE_FRACTION * len(s)), len(s) - 1)]
-
-
 def non_dominated_sort(
     nodes: list[SearchNode],
     objectives: Mapping[int, Objectives],
-    score_threshold: float | None = None,
 ) -> list[list[SearchNode]]:
-    """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front."""
+    """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front.
+
+    Textbook dominance over the whole objective vector: no objective is
+    privileged. Visual error used to be gated ahead of the others, which made
+    it primary and the rest tie-breakers; keeping every objective equal is
+    what lets a metric like a complexity ratio actually shape the front.
+    """
     id_to_node = {n.id: n for n in nodes}
 
-    if score_threshold is not None:
-        raw: dict[int, float] = {n.id: n.score for n in nodes}
-
-        def _dom(a_id: int, b_id: int) -> bool:
-            return _constrained_dominates(
-                objectives[a_id],
-                objectives[b_id],
-                raw[a_id],
-                raw[b_id],
-                score_threshold,
-            )
-    else:
-
-        def _dom(a_id: int, b_id: int) -> bool:
-            return _dominates(objectives[a_id], objectives[b_id])
+    def _dom(a_id: int, b_id: int) -> bool:
+        return _dominates(objectives[a_id], objectives[b_id])
 
     domination_count: dict[int, int] = {n.id: 0 for n in nodes}
     dominated_set: dict[int, list[int]] = {n.id: [] for n in nodes}
@@ -254,8 +202,7 @@ class NsgaStrategy(Generic[TState]):
 
         objectives = build_objectives(valid)
 
-        score_threshold = _feasibility_threshold([n.score for n in valid])
-        fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
+        fronts = non_dominated_sort(valid, objectives)
         rank: dict[int, int] = {}
         crowd: dict[int, float] = {}
         for front_idx, front in enumerate(fronts):
@@ -314,8 +261,7 @@ class NsgaStrategy(Generic[TState]):
 
         objectives = build_objectives(valid)
 
-        score_threshold = _feasibility_threshold([n.score for n in valid])
-        fronts = non_dominated_sort(valid, objectives, score_threshold=score_threshold)
+        fronts = non_dominated_sort(valid, objectives)
 
         pareto_nodes: list[SearchNode[TState]] = []
         for front in fronts:
