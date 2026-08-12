@@ -564,3 +564,83 @@ def test_seed_children_open_lineages_and_local_children_inherit():
     # followed carries its parent's rather than a new one.
     assert len(set(seen.values())) >= 2
     assert len(seen) > len(set(seen.values()))
+
+
+def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
+    """The round optimises pixel L1 because it is ~300x cheaper than the real
+    objective. If the evaluator's verdict did not decide seed order, the epoch
+    boundary would carry the cheap proxy's opinion into the next round."""
+
+    class TrackingStrategy(FakeStrategy):
+        def select_parent(self, nodes):
+            return nodes[0].id, None
+
+        def epoch_parents(self, pool, max_parents):
+            return pool[:max_parents]
+
+    seen: list[list[int]] = []
+
+    def rank_front(nodes):
+        seen.append([n.id for n in nodes])
+        return sorted(nodes, key=lambda n: -n.score)  # deliberately reversed
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1,
+        strategy=strat,
+        storage=FakeStorage(),
+        max_total_tasks=4,
+        rank_front=rank_front,
+    )
+    engine.unscored_q.put(_seed_result(1, 0.4))
+    for tid, score in ((2, 0.30), (3, 0.20), (4, 0.10)):
+        engine.unscored_q.put(
+            Result(task_id=tid, parent_id=1, valid=True, score=score, payload="p")
+        )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_seeds=1,
+        epoch_patience=1,
+        epoch_min_delta=0.1,
+        active_pool_size=2,
+        epochs=5,
+    )
+    assert seen, "the evaluator was never consulted"
+
+
+def _explode(_nodes):
+    raise RuntimeError("no cuda")
+
+
+def test_a_failing_evaluator_does_not_stop_the_run():
+    """It runs a model at an epoch boundary; a load failure there must cost the
+    ordering, not the run."""
+    engine = MultiprocessSearchEngine(
+        workers=1,
+        strategy=FakeStrategy(),
+        storage=FakeStorage(),
+        max_total_tasks=3,
+        rank_front=_explode,
+    )
+    engine.unscored_q.put(_seed_result(1, 0.4))
+    for tid in (2, 3):
+        engine.unscored_q.put(
+            Result(task_id=tid, parent_id=1, valid=True, score=0.35, payload="p")
+        )
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_seeds=1,
+        epoch_patience=1,
+        epoch_min_delta=0.1,
+        active_pool_size=2,
+        epochs=4,
+    )
