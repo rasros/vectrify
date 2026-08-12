@@ -46,7 +46,7 @@ def build_typst_gen_prompt(
         fence="typst",
         syntax_rules=_typst_syntax_rules(canvas),
         # Was "alignment, sizes, paddings, and colors" -- a list of exactly the
-        # numeric properties mutation already tunes best-of-15 per step.
+        # numeric properties mutation already tunes on its own.
         focus_hint=(
             "missing or extra elements, blocks that should be a different kind "
             "of element, and nesting that does not match the target's layout"

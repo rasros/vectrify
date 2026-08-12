@@ -1,10 +1,5 @@
-from PIL import Image
-
 from vectrify.formats.base import apply_search_replace
-from vectrify.formats.svg.operations import (
-    crossover_with_micro_search,
-    mutate_with_micro_search,
-)
+from vectrify.formats.svg.operations import apply_crossover, apply_mutation
 from vectrify.formats.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
@@ -48,17 +43,8 @@ class SvgPlugin:
             canvas=canvas,
         )
 
-    def mutate(self, content: str, orig_img_fast: Image.Image) -> tuple[str, str]:
-        return mutate_with_micro_search(
-            parent_svg=content, orig_img_fast=orig_img_fast, num_trials=15
-        )
+    def mutate(self, content: str) -> tuple[str, str]:
+        return apply_mutation(content)
 
-    def crossover(
-        self, content_a: str, content_b: str, orig_img_fast: Image.Image
-    ) -> tuple[str, str]:
-        return crossover_with_micro_search(
-            svg_a=content_a,
-            svg_b=content_b,
-            orig_img_fast=orig_img_fast,
-            num_trials=15,
-        )
+    def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
+        return apply_crossover(content_a, content_b)

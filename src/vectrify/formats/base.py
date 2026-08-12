@@ -2,12 +2,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Protocol
+from typing import Protocol
 
 from vectrify.image_utils import png_resize_exact
-
-if TYPE_CHECKING:
-    import PIL.Image
 
 log = logging.getLogger(__name__)
 
@@ -102,16 +99,11 @@ class FormatPlugin(Protocol):
         """
         ...
 
-    def mutate(self, content: str, orig_img_fast: PIL.Image.Image) -> tuple[str, str]:
+    def mutate(self, content: str) -> tuple[str, str]:
         """Mutate existing content. Return (new_content, origin)."""
         ...
 
-    def crossover(
-        self,
-        content_a: str,
-        content_b: str,
-        orig_img_fast: PIL.Image.Image,
-    ) -> tuple[str, str]:
+    def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         """Crossover two contents. Return (new_content, origin)."""
         ...
 
@@ -140,13 +132,6 @@ class BaseFormatPlugin:
 
     def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
         return png_resize_exact(self._render_png(content), out_w, out_h)
-
-    def render_png_or_none(self, content: str) -> bytes | None:
-        """Render without raising — the shape micro-search expects."""
-        try:
-            return self._render_png(content)
-        except Exception:
-            return None
 
     def validate(self, content: str) -> tuple[bool, str | None]:
         try:

@@ -1,7 +1,7 @@
 # Local-search benchmark
 
 A fixed corpus and harness for measuring changes to the **non-LLM** search:
-mutation, crossover, micro-search and Pareto selection. No LLM call is made and
+mutation, crossover and Pareto selection. No LLM call is made and
 no API key is needed.
 
 ## Running it

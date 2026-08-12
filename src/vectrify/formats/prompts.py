@@ -3,11 +3,11 @@
 # What the local operators can and cannot reach, stated to the model so it
 # spends its one call on the other half. Mutation nudges numbers, shifts
 # colors and stroke widths, reorders siblings and deletes elements that do not
-# pay for themselves, each pick chosen best-of-15 against the target; crossover
-# grafts subtrees between candidates. None of that invents a shape that was
-# never proposed or changes what an existing one is, so a candidate that is
-# structurally right and numerically sloppy converges and one that is
-# structurally wrong stays wrong however long it is polished.
+# pay for themselves; crossover grafts subtrees between candidates. None of
+# that invents a shape that was never proposed or changes what an existing one
+# is, so a candidate that is structurally right and numerically sloppy
+# converges and one that is structurally wrong stays wrong however long it is
+# polished.
 STRUCTURE_FIRST = """\
 Your output is a starting point, not a final answer: a local optimizer then \
 spends thousands of steps on it, nudging coordinates and sizes, adjusting \

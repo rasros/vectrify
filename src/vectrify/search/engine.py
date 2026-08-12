@@ -43,7 +43,7 @@ class MultiprocessSearchEngine(Generic[TState]):
     and crossover only, until it converges. The operators are never mixed: an
     LLM edit degrades the median parent ~4x as much as a local mutation at
     ~1000x the cost, so it earns its keep as a restart point rather than as a
-    move competing against best-of-15 local ones.
+    move competing against local ones.
     """
 
     def __init__(
