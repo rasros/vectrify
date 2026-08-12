@@ -1,8 +1,8 @@
 # Local-search benchmark
 
 A fixed corpus and harness for measuring changes to the **non-LLM** search:
-mutation, crossover and Pareto selection. No LLM call is made and
-no API key is needed.
+mutation, crossover, operator selection and Pareto survival. No LLM call is
+made and no API key is needed.
 
 ## Running it
 
@@ -35,15 +35,21 @@ and several seeds rather than one seed and many workers.
 
 ## Metrics
 
-| Metric | Meaning |
-|--------|---------|
-| `final` | best score at the end of the budget |
-| `auc`   | mean of the running best over the run — rewards getting there sooner |
-| `gain`  | fraction of the seed's error removed |
+| Metric   | Meaning |
+|----------|---------|
+| `vision` | the vision model's distance to the target, on the artifact the run wrote |
+| `final`  | best pixel score at the end of the budget |
+| `auc`    | mean of the running best over the run — rewards getting there sooner |
+| `gain`   | fraction of the seed's pixel error removed |
 
-`auc` is the one to watch for operator changes: two searches can end at the
-same score with very different convergence, and a change that only helps at the
-very end of a long budget usually will not survive a shorter one.
+`vision` is the one that decides whether a change is worth keeping. The other
+three measure pixel L1, which is what the round optimises: fair for comparing
+two searches, but a search can lower it without the result looking any better.
+
+Among the pixel metrics `auc` is the informative one for operator changes: two
+searches can end at the same score with very different convergence, and a
+change that only helps at the very end of a long budget usually will not
+survive a shorter one.
 
 ## The corpus
 
@@ -90,6 +96,14 @@ unreachable gap silently caps the whole case.
 
 ## Caveats
 
-`--scorer simple` is the default because it is fast and CPU-only. It is a
-pixel-space proxy for the vision scorer that real runs use, so confirm anything
-you intend to keep with `--scorer vision` before believing it.
+`vision` is scored on whatever the run wrote as its artifact, and the run picks
+that by pixel score — so a change can improve the pool without the pick
+following.
+
+`--scorer` selects the evaluator that ranks a converged front during a run, and
+at `--epochs 1` the run ends before any front is handed over, so it changes
+nothing here. The `vision` metric is scored by the harness afterwards either
+way.
+
+`--no-adaptive-operators` pins the operator mix to the fixed weight table,
+which is how the adaptive policy was measured against it.

@@ -139,6 +139,7 @@ def main():
             seeds=args.seeds,
             epoch_diversity=args.epoch_diversity,
             tournament_size=args.tournament_size,
+            adaptive_operators=args.adaptive_operators,
             epoch_variance=args.epoch_variance or None,
             epochs=args.epochs,
             max_total_tasks=args.max_total_tasks,

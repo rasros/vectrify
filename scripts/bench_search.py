@@ -21,6 +21,8 @@ import sys
 import tempfile
 from pathlib import Path
 
+from vectrify.formats.svg.plugin import SvgPlugin
+
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_CASES = REPO / "bench" / "cases"
 SEED_RUN = "1970-01-01_00-00-00"
@@ -77,6 +79,45 @@ def read_curve(project: Path) -> list[float]:
     return curve
 
 
+_VISION: dict[str, object] = {}
+
+
+def vision_score(target_png: Path, artifact: Path, resolution: int) -> float:
+    """Score the run's final artifact the way a real run's evaluator would.
+
+    The pixel curve measures what the round optimises, which makes two searches
+    comparable but says nothing about whether a gain is visible. This is the
+    objective that actually matters, so it is what a change has to move.
+
+    The model is loaded once per bench process and the reference embedded once
+    per case; both are far too expensive to redo per run.
+    """
+    from PIL import Image
+
+    from vectrify.image_utils import resize_long_side
+    from vectrify.score.vision import VisionScorer
+
+    scorer = _VISION.get("scorer")
+    if scorer is None:
+        scorer = VisionScorer()
+        _VISION["scorer"] = scorer
+
+    key = str(target_png)
+    if _VISION.get("reference_key") != key:
+        target = resize_long_side(
+            Image.open(target_png).convert("RGB"), resolution
+        )
+        _VISION["reference"] = scorer.prepare_reference(target)
+        _VISION["reference_key"] = key
+        _VISION["size"] = target.size
+
+    width, height = _VISION["size"]
+    png = SvgPlugin().rasterize(
+        artifact.read_text(encoding="utf-8"), out_w=width, out_h=height
+    )
+    return scorer.score(_VISION["reference"], png)
+
+
 def run_case(case: Path, seed: int, args) -> dict:
     with tempfile.TemporaryDirectory() as tmp:
         work = Path(tmp)
@@ -110,6 +151,8 @@ def run_case(case: Path, seed: int, args) -> dict:
             "--log-level",
             "ERROR",
         ]
+        if not args.adaptive_operators:
+            cmd.append("--no-adaptive-operators")
         done = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO)
         if done.returncode != 0:
             raise SystemExit(
@@ -117,6 +160,7 @@ def run_case(case: Path, seed: int, args) -> dict:
                 f"{done.stderr[-2000:]}"
             )
         curve = read_curve(work / "out")
+        vision = vision_score(case / "target.png", output, args.resolution)
 
     if not curve:
         raise SystemExit(f"{case.name} seed={seed} produced no scored nodes")
@@ -127,6 +171,7 @@ def run_case(case: Path, seed: int, args) -> dict:
         "nodes": len(curve),
         "start": start,
         "final": final,
+        "vision": vision,
         # Mean of the running best: rewards reaching a score early, not just
         # ending there, so a faster search scores better at equal final value.
         "auc": statistics.fmean(curve),
@@ -144,7 +189,8 @@ def cmd_run(args) -> None:
             print(
                 f"{result['case']:<14} seed={result['seed']:<3} "
                 f"nodes={result['nodes']:<4} {result['start']:.6f} -> "
-                f"{result['final']:.6f}  auc={result['auc']:.6f}",
+                f"{result['final']:.6f}  auc={result['auc']:.6f}  "
+                f"vision={result['vision']:.6f}",
                 flush=True,
             )
 
@@ -166,18 +212,20 @@ def cmd_run(args) -> None:
 
 
 def _summarise(runs: list[dict]) -> None:
-    print(f"\n{'case':<14} {'final':>10} {'auc':>10} {'gain':>8}")
+    print(f"\n{'case':<14} {'vision':>10} {'final':>10} {'auc':>10} {'gain':>8}")
     by_case: dict[str, list[dict]] = {}
     for r in runs:
         by_case.setdefault(r["case"], []).append(r)
     for case, rows in by_case.items():
         print(
-            f"{case:<14} {statistics.fmean(r['final'] for r in rows):>10.6f} "
+            f"{case:<14} {statistics.fmean(r['vision'] for r in rows):>10.6f} "
+            f"{statistics.fmean(r['final'] for r in rows):>10.6f} "
             f"{statistics.fmean(r['auc'] for r in rows):>10.6f} "
             f"{statistics.fmean(r['gain'] for r in rows):>7.1%}"
         )
     print(
-        f"{'OVERALL':<14} {statistics.fmean(r['final'] for r in runs):>10.6f} "
+        f"{'OVERALL':<14} {statistics.fmean(r['vision'] for r in runs):>10.6f} "
+        f"{statistics.fmean(r['final'] for r in runs):>10.6f} "
         f"{statistics.fmean(r['auc'] for r in runs):>10.6f} "
         f"{statistics.fmean(r['gain'] for r in runs):>7.1%}"
     )
@@ -213,7 +261,7 @@ def cmd_compare(args) -> None:
 
     print(f"{len(pairs)} paired runs\n")
     print(f"{'metric':<8} {'before':>10} {'after':>10} {'delta':>11}  95% CI")
-    for metric in ("final", "auc"):
+    for metric in ("vision", "final", "auc"):
         deltas = [a[metric] - b[metric] for b, a in pairs]
         lo, hi = _bootstrap_ci(deltas)
         mean = statistics.fmean(deltas)
@@ -225,13 +273,14 @@ def cmd_compare(args) -> None:
         )
 
     print("\nlower is better; a CI entirely below 0 is an improvement")
-    print(f"\n{'case':<14} {'final delta':>13} {'auc delta':>12}")
+    print(f"\n{'case':<14} {'vision delta':>13} {'final delta':>13} {'auc delta':>12}")
     by_case: dict[str, list[tuple[dict, dict]]] = {}
     for b, a in pairs:
         by_case.setdefault(a["case"], []).append((b, a))
     for case, rows in by_case.items():
         print(
             f"{case:<14} "
+            f"{statistics.fmean(a['vision'] - b['vision'] for b, a in rows):>+13.6f} "
             f"{statistics.fmean(a['final'] - b['final'] for b, a in rows):>+13.6f} "
             f"{statistics.fmean(a['auc'] - b['auc'] for b, a in rows):>+12.6f}"
         )
@@ -251,10 +300,18 @@ def main() -> None:
     run.add_argument("--workers", type=int, default=1, metavar="N")
     run.add_argument("--resolution", type=int, default=384, metavar="PX")
     # Selects the evaluator that ranks a converged front, not the round's
-    # scorer: the round is always pixel L1.
-    run.add_argument("--scorer", default="vision", choices=["simple", "vision"])
+    # scorer: the round is always pixel L1. At --epochs 1 the run ends before
+    # any front is handed over, so the default avoids loading torch for a model
+    # that never runs.
+    run.add_argument("--scorer", default="simple", choices=["simple", "vision"])
     run.add_argument("--epochs", type=int, default=1, metavar="N")
     run.add_argument("--seed-base", type=int, default=1000, dest="seed_base")
+    run.add_argument(
+        "--adaptive-operators",
+        dest="adaptive_operators",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+    )
     run.set_defaults(func=cmd_run)
 
     cmp_ = sub.add_parser("compare", help="paired comparison of two results files")
