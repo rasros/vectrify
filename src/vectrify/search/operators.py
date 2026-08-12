@@ -5,7 +5,9 @@ outcome: eight worker processes each running their own copy could never learn
 anything, since none of them observes whether its own children survived.
 """
 
+import math
 import random
+from collections import deque
 from collections.abc import Mapping
 from typing import Protocol
 
@@ -43,3 +45,96 @@ class FixedWeightPolicy:
 
     def update(self, operator: str | None, survived: bool) -> None:
         _ = operator, survived
+
+
+# Exploration rate. EXP3 mixes this much uniform noise into every draw, which
+# also fixes the floor under each operator at gamma / len(operators): one that
+# looks useless early must survive to the phase it is good for.
+DEFAULT_GAMMA = 0.15
+
+# Per-update share of total weight redistributed uniformly (the .S in EXP3.S).
+# This is the forgetting: without it the weights converge and the policy stops
+# tracking, which is the same failure as the fixed table it replaces. 0.001
+# keeps roughly the last thousand outcomes, a few dozen generations.
+DEFAULT_ALPHA = 0.001
+
+
+class Exp3Policy:
+    """EXP3.S over the mutation operators.
+
+    Survival is not an i.i.d. draw per operator: a child competes against the
+    pool the policy itself just filled, so the payoff for nudging a number
+    depends on what the other operators have been producing, and it drifts as
+    the drawing gets closer. That is an adaptive adversary rather than a fixed
+    stochastic bandit, which is what EXP3 assumes and what a Beta-Bernoulli
+    posterior does not.
+
+    Rewards are importance-weighted by the probability the arm was drawn with,
+    so evidence about a rarely-picked operator is not diluted by how often the
+    others were picked -- the correction a discounted-counts scheme lacks.
+    """
+
+    def __init__(
+        self,
+        operators: Mapping[str, float] | list[str],
+        gamma: float = DEFAULT_GAMMA,
+        alpha: float = DEFAULT_ALPHA,
+    ):
+        self._names = list(operators)
+        self._weights = dict.fromkeys(self._names, 1.0)
+        self._gamma = gamma
+        self._alpha = alpha
+        # The probability each outstanding draw was made with. Results come
+        # back long after selection and out of order, so the probability has to
+        # be remembered per draw rather than recomputed at update time.
+        self._drawn_with: dict[str, deque[float]] = {
+            name: deque() for name in self._names
+        }
+
+    def probabilities(self) -> dict[str, float]:
+        """The current selection distribution, for reporting and for drawing."""
+        count = len(self._names)
+        if count == 0:
+            return {}
+        total = sum(self._weights.values()) or 1.0
+        return {
+            name: (1.0 - self._gamma) * weight / total + self._gamma / count
+            for name, weight in self._weights.items()
+        }
+
+    def select(self) -> str | None:
+        if not self._names:
+            return None
+        probs = self.probabilities()
+        name = random.choices(self._names, weights=[probs[n] for n in self._names])[0]
+        self._drawn_with[name].append(probs[name])
+        return name
+
+    def update(self, operator: str | None, survived: bool) -> None:
+        if operator not in self._weights:
+            return
+
+        drawn = self._drawn_with[operator]
+        # Empty when the worker substituted an operator for the one drawn, so
+        # this outcome belongs to no draw of ours. Fall back to the current
+        # probability rather than discarding the observation.
+        probability = drawn.popleft() if drawn else self.probabilities()[operator]
+
+        count = len(self._names)
+        reward = 1.0 if survived else 0.0
+        self._weights[operator] *= math.exp(
+            self._gamma * (reward / probability) / count
+        )
+
+        # Redistribute a share of the total weight uniformly: an operator whose
+        # weight has collapsed can climb back when its phase arrives.
+        total = sum(self._weights.values())
+        share = math.e * self._alpha / count * total
+        for name in self._names:
+            self._weights[name] += share
+
+        # Rescale to keep exp() away from overflow. Only the ratios matter.
+        largest = max(self._weights.values())
+        if largest > 1e6:
+            for name in self._names:
+                self._weights[name] /= largest

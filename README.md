@@ -169,6 +169,28 @@ survival is the same comparison applied to parents and children together, once
 per generation. Raising tournament-size pushes harder toward the front at the
 cost of pool diversity.
 
+### Mutation operators
+
+Local refinement draws from a handful of operators — nudge a number, tweak a
+color, change a stroke, reorder siblings, drop an element, graft a subtree.
+Which of them pays off is not fixed: it depends on the image, and it changes
+within a single run as structural edits give way to nudges.
+
+So the search learns the mix as it goes. Each mutation records whether its
+child survived the generation, and EXP3.S over those outcomes decides what to
+try next. EXP3 rather than a stochastic bandit because survival is not an
+i.i.d. draw per operator: a child competes against the pool the policy itself
+just filled, so the payoff for nudging a number depends on what the other
+operators have been producing, and it drifts as the drawing gets closer.
+
+Rewards are weighted by the probability the operator was drawn with, so
+evidence about a rarely-picked one is not diluted by how often the others were
+picked. A share of the weight is redistributed uniformly each update, which
+both keeps the policy tracking the current phase and holds a floor under every
+operator so none is starved before the phase it is good for arrives.
+
+Pass --no-adaptive-operators to draw from one fixed weight table instead.
+
 ### Convergence and cost
 
 An epoch's refine phase ends when one of these fires; the next epoch then
@@ -200,7 +222,7 @@ sketch.svg                       # the best final candidate (written at the end)
 sketch/
 └── runs/
     └── 2026-04-26_14-30-21/     # one directory per run, timestamped
-        ├── lineage.csv          # accepted node history (all four objectives, parent, ops)
+        ├── lineage.csv          # accepted node history (every objective, parent, ops)
         └── nodes/
             ├── 0.0421_0001.svg  # one file per accepted node, prefixed by score
             ├── 0.0421_0001.png  # rendered preview (--save-raster)

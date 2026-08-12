@@ -44,7 +44,7 @@ from vectrify.search import (
     StorageAdapter,
 )
 from vectrify.search.collector import StatCollector
-from vectrify.search.operators import FixedWeightPolicy
+from vectrify.search.operators import Exp3Policy, FixedWeightPolicy
 from vectrify.utils import setup_logger, start_log_listener
 from vectrify.vector.resume import filter_to_pool_size, resume_nodes
 from vectrify.vector.state import VectorStateBuilder
@@ -118,6 +118,7 @@ def run_vector_search(
     seeds: int | None = None,
     epoch_diversity: float = DEFAULT_EPOCH_DIVERSITY,
     tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
+    adaptive_operators: bool = True,
     epoch_variance: float | None = None,
     epochs: int | None = None,
     max_total_tasks: int = DEFAULT_MAX_TOTAL_TASKS,
@@ -346,6 +347,11 @@ def run_vector_search(
             dashboard.__enter__()
             dashboard_entered = True
 
+        weights = format_plugin.mutation_weights()
+        operator_policy = (
+            Exp3Policy(weights) if adaptive_operators else FixedWeightPolicy(weights)
+        )
+
         engine.start_workers(worker_loop, worker_ctx)
 
         engine.run(
@@ -359,9 +365,19 @@ def run_vector_search(
             initial_seeds=first_batch,
             epochs=epochs,
             epoch_variance=epoch_variance,
-            operator_policy=FixedWeightPolicy(format_plugin.mutation_weights()),
+            operator_policy=operator_policy,
             collector=collector,
         )
+
+        if isinstance(operator_policy, Exp3Policy):
+            probs = operator_policy.probabilities()
+            log.info(
+                "Final operator mix: "
+                + ", ".join(
+                    f"{name}={p:.2f}"
+                    for name, p in sorted(probs.items(), key=lambda kv: -kv[1])
+                )
+            )
     finally:
         log_listener.stop()
         if dashboard is not None and dashboard_entered:
