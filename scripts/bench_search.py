@@ -104,9 +104,7 @@ def vision_score(target_png: Path, artifact: Path, resolution: int) -> float:
 
     key = str(target_png)
     if _VISION.get("reference_key") != key:
-        target = resize_long_side(
-            Image.open(target_png).convert("RGB"), resolution
-        )
+        target = resize_long_side(Image.open(target_png).convert("RGB"), resolution)
         _VISION["reference"] = scorer.prepare_reference(target)
         _VISION["reference_key"] = key
         _VISION["size"] = target.size
