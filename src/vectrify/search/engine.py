@@ -150,7 +150,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         # Children are held back and merged as a generation, NSGA-II's mu+lambda
         # replacement: the truncation is a whole-population sort, so paying it
         # once per lambda children rather than once per child keeps the engine
-        # from becoming the bottleneck.
+        # from becoming the bottleneck. At the pool size runs actually use it
+        # costs ~23 ms, against ~13 ms to produce a candidate -- per child that
+        # would make selection, not search, the thing the run spends its time on.
         pending_children: list[SearchNode[TState]] = []
         lambda_size = max(1, generation_size or active_pool_size)
 
@@ -522,6 +524,42 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             _do_epoch_transition(reason)
 
+        def _final_artifact() -> SearchNode[TState] | None:
+            """The candidate to write out, chosen by the evaluator.
+
+            best_node is the winner on the round's score, which is a cheap
+            stand-in for the real objective and ranks candidates at about rho
+            0.83 against it. Within one front the evaluator finds roughly a 2x
+            spread, so trusting the proxy here is close to picking arbitrarily
+            among the good candidates -- and the run has already paid for every
+            one of them.
+
+            best_node is included in the comparison rather than replaced, so
+            this cannot do worse by the evaluator's own judgement than the
+            score-based pick did.
+
+            The whole pool is evaluated, not the capped front an epoch boundary
+            gets: FRONT_EVAL_CAP exists because a boundary pays that cost every
+            epoch, and this happens once. Measured on the bench, restricting it
+            to the front would have left most of the gap unclaimed -- on one
+            case the pool held a candidate the evaluator scored 8x better than
+            the one the round score picked.
+            """
+            if self.rank_front is None or not active_pool:
+                return best_node
+
+            finalists = [n for n in active_pool if n.score < INVALID_SCORE]
+            if best_node is not None and all(n.id != best_node.id for n in finalists):
+                finalists.append(best_node)
+            if not finalists:
+                return best_node
+
+            try:
+                return self.rank_front(finalists)[0]
+            except Exception as exc:
+                log.warning(f"Final evaluation failed, keeping the best score: {exc}")
+                return best_node
+
         try:
             while True:
                 if (
@@ -601,6 +639,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             # so lineage.csv covers every candidate that was paid for.
             with contextlib.suppress(Exception):
                 _close_generation()
+            with contextlib.suppress(Exception):
+                best_node = _final_artifact()
             if best_node is not None:
                 # Still swallowed so a save failure cannot mask an in-flight
                 # exception during shutdown, but never silently: this is the
