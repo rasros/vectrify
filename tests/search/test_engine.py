@@ -33,7 +33,7 @@ class FakeStrategy:
 class FakeStorage:
     def __init__(self):
         self.save_called = False
-        self.best_saved = None
+        self.best_saved: SearchNode | None = None
         self.max_node_id = 1
         self.current_run_dir = None
 
@@ -814,6 +814,7 @@ def test_the_final_artifact_is_chosen_by_the_evaluator():
     )
     _run_two_children(engine)
 
+    assert store.best_saved is not None
     assert store.best_saved.score == 0.5
 
 
@@ -827,4 +828,5 @@ def test_a_failing_evaluator_falls_back_to_the_best_score():
     store = FakeStorage()
     _run_two_children(_engine_with_evaluator(store, explode))
 
+    assert store.best_saved is not None
     assert store.best_saved.score == 0.1
