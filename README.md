@@ -115,6 +115,12 @@ which candidates the next batch of LLM edits starts from — it costs roughly
 per candidate. The best candidate of the whole run is tracked separately, so
 an epoch restart never loses it.
 
+Which candidate gets written out is decided by the vision model, not by the
+round score. The round score is a stand-in that ranks candidates at about rho
+0.83 against the model, and within one pool the model finds several times that
+much spread — trusting the stand-in for the final pick cost more perceptual
+quality on the bench than the whole rest of the search gained.
+
 The phases are separate because the operators are not interchangeable. An
 LLM edit degrades the median parent about four times as much as a local
 mutation and costs roughly a thousand times more per attempt, so mixing
@@ -218,7 +224,7 @@ epochs defaults to 2.
 Given --output sketch.svg, vectrify writes:
 
 ```
-sketch.svg                       # the best final candidate (written at the end)
+sketch.svg                       # the final candidate, picked by the scorer at the end
 sketch/
 └── runs/
     └── 2026-04-26_14-30-21/     # one directory per run, timestamped
