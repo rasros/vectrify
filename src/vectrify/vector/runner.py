@@ -1,7 +1,7 @@
 import io
 import logging
 import os
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vectrify.dashboard import Dashboard
@@ -24,9 +24,10 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm.models import api_key_env
-from vectrify.score import ScorerType
+from vectrify.score import ScorerType, get_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.complexity import (
+    FRONT_SCORE,
     NODE_RATIO,
     WORST_REGION_4,
     WORST_REGION_16,
@@ -243,6 +244,48 @@ def run_vector_search(
             f"(batch={epoch_seeds}, already seeded={epoch_seeds - first_batch})"
         )
 
+    # Built on first use so a run that never reaches an epoch boundary -- and a
+    # machine without CUDA using --scorer simple -- never pays for the model.
+    _front: list[Any] = []
+
+    def _front_scorer() -> tuple[Any, Any]:
+        if not _front:
+            scorer = get_scorer(scorer_type, vision_model=vision_model)
+            _front.extend([scorer, scorer.prepare_reference(original_img)])
+        return _front[0], _front[1]
+
+    def rank_front(nodes: list[SearchNode]) -> list[SearchNode]:
+        """Order a converged front by the run's real objective.
+
+        Re-rasterises rather than reading the node's stored render, which is
+        only kept when --write-lineage or --save-raster is on.
+        """
+        scorer, ref = _front_scorer()
+        scored: list[tuple[float, SearchNode]] = []
+        for node in nodes:
+            content = getattr(node.state.payload, "content", None)
+            if not content:
+                continue
+            try:
+                png = format_plugin.rasterize(
+                    content, out_w=original_w, out_h=original_h
+                )
+                value = scorer.score(ref, png)
+            except Exception as exc:
+                log.debug(f"Front evaluation skipped node {node.id}: {exc}")
+                continue
+            node.metrics[FRONT_SCORE] = value
+            scored.append((value, node))
+
+        if not scored:
+            return nodes
+        scored.sort(key=lambda pair: pair[0])
+        log.info(
+            f"Front evaluated: {len(scored)} candidate(s), "
+            f"best {scored[0][0]:.6f}, worst {scored[-1][0]:.6f}"
+        )
+        return [node for _value, node in scored]
+
     engine = MultiprocessSearchEngine(
         workers=workers,
         strategy=NsgaStrategy[VectorStatePayload](
@@ -252,6 +295,7 @@ def run_vector_search(
         ),
         storage=storage,
         max_total_tasks=max_total_tasks,
+        rank_front=rank_front,
         make_state=VectorStateBuilder(
             resolution_llm=resolution_llm,
             write_lineage=write_lineage,

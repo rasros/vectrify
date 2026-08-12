@@ -97,7 +97,7 @@ def test_node_complexity_does_not_discount_repetition():
 def test_registry_covers_the_declared_metrics():
     from vectrify.score.complexity import METRIC_NAMES, METRICS, SCORER_METRICS
 
-    assert tuple(METRICS) + SCORER_METRICS == METRIC_NAMES
+    assert tuple(METRICS) + SCORER_METRICS + ("front_score",) == METRIC_NAMES
     assert set(METRIC_NAMES) == {
         "zip_complexity",
         "node_complexity",
@@ -105,6 +105,7 @@ def test_registry_covers_the_declared_metrics():
         "worst_region_16",
         "zip_ratio",
         "node_ratio",
+        "front_score",
     }
 
 

@@ -99,11 +99,18 @@ SCORER_METRICS: tuple[str, ...] = (
 # error it actually removes, which the blank canvas removes none of.
 OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
 
+# The evaluator's verdict on a converged front member. Recorded so a run can be
+# read back, and deliberately NOT an objective: it exists on a handful of nodes
+# per epoch, and a metric present on only part of the population reads as 0.0
+# for the rest -- the best attainable value for a minimised objective, which
+# would let every unevaluated candidate dominate every evaluated one.
+FRONT_SCORE = "front_score"
+
 # Worker-side metrics first so the registry order (and therefore the objective
 # vector and every derived column) stays stable for runs recorded before the
 # scorer-side metrics existed.
 # Every column lineage.csv carries: the raw measures plus the derived ones.
-METRIC_NAMES: tuple[str, ...] = tuple(METRICS) + SCORER_METRICS
+METRIC_NAMES: tuple[str, ...] = tuple(METRICS) + SCORER_METRICS + (FRONT_SCORE,)
 
 
 def measure_all(png_bytes: bytes, source: str) -> dict[str, float]:

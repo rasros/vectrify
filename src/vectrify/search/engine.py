@@ -25,6 +25,11 @@ log = logging.getLogger(__name__)
 SEED_PHASE = "seed"
 LOCAL_PHASE = "local"
 
+# How much of a converged front to hand the evaluator. The front can be large
+# and the evaluator is the expensive part of the run, so it sees the best few
+# by the round's own objective rather than all of them.
+FRONT_EVAL_CAP = 24
+
 
 def keep_payload(result: Result) -> ChainState:
     """Default state builder: carry the worker's payload through unchanged."""
@@ -48,12 +53,19 @@ class MultiprocessSearchEngine(Generic[TState]):
         storage: StorageAdapter[TState],
         max_total_tasks: int = 10000,
         make_state: Callable[[Result], ChainState[TState]] = keep_payload,
+        rank_front: Callable[[list[SearchNode[TState]]], list[SearchNode[TState]]]
+        | None = None,
     ):
         self.workers = workers
         self.strategy = strategy
         self.storage = storage
         self.max_total_tasks = max_total_tasks
         self.make_state = make_state
+        # Orders a converged front by the run's real objective. The round
+        # optimises pixel L1 because it is ~300x cheaper; this is where
+        # perceptual judgement decides direction, once per epoch over a front
+        # of tens rather than once per task over thousands.
+        self.rank_front = rank_front
 
         self.ctx = mp.get_context("spawn")
         self.task_q = self.ctx.Queue(maxsize=max(64, workers * 8))
@@ -183,7 +195,15 @@ class MultiprocessSearchEngine(Generic[TState]):
                 seeds_completed, \
                 seed_task_ids
 
-            parents = self.strategy.epoch_parents(active_pool, epoch_seeds)
+            parents = self.strategy.epoch_parents(
+                active_pool, max(epoch_seeds, FRONT_EVAL_CAP)
+            )
+            if parents and self.rank_front is not None:
+                try:
+                    parents = self.rank_front(parents)
+                except Exception as exc:
+                    log.warning(f"Front evaluation failed, keeping L1 order: {exc}")
+            parents = parents[:epoch_seeds]
             if not parents:
                 parents = list(active_pool)
 
