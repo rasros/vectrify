@@ -134,6 +134,14 @@ def _make_mock_plugin(png: bytes | None = None) -> MagicMock:
     return plugin
 
 
+class _FakeEmbeddingScorer:
+    """Stands in for the encoder: resume only needs a number back."""
+
+    def score(self, reference, candidate_png: bytes) -> float:
+        _ = reference, candidate_png
+        return 0.25
+
+
 def _make_reference() -> Reference:
     """A real reference: resume reduces one comparison into the score and the
     region metrics, so there is nothing left to mock usefully."""
@@ -163,7 +171,8 @@ def test_resume_nodes_returns_one_node_per_item():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
-        blank_error=0.5,
+        scorer=_FakeEmbeddingScorer(),
+        embedding_ref=object(),
         storage=storage,
     )
 
@@ -188,7 +197,8 @@ def test_resume_nodes_assigns_sequential_ids():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
-        blank_error=0.5,
+        scorer=_FakeEmbeddingScorer(),
+        embedding_ref=object(),
         storage=storage,
     )
 
@@ -214,7 +224,8 @@ def test_resume_nodes_deduplicates_identical_content():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
-        blank_error=0.5,
+        scorer=_FakeEmbeddingScorer(),
+        embedding_ref=object(),
         storage=storage,
     )
 
@@ -238,7 +249,8 @@ def test_resume_nodes_stores_origin_with_old_id():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
-        blank_error=0.5,
+        scorer=_FakeEmbeddingScorer(),
+        embedding_ref=object(),
         storage=storage,
     )
 
@@ -277,7 +289,8 @@ def test_resume_nodes_skips_failed_scoring(monkeypatch):
         pool_size=10,
         workers=1,
         scoring_ref=ref,
-        blank_error=0.5,
+        scorer=_FakeEmbeddingScorer(),
+        embedding_ref=object(),
         storage=storage,
     )
 
@@ -315,7 +328,8 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
         pool_size=pool_size,
         workers=2,
         scoring_ref=ref,
-        blank_error=0.5,
+        scorer=_FakeEmbeddingScorer(),
+        embedding_ref=object(),
         storage=storage,
     )
 

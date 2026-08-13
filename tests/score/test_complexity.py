@@ -101,10 +101,8 @@ def test_registry_covers_the_declared_metrics():
     assert set(METRIC_NAMES) == {
         "zip_complexity",
         "node_complexity",
-        "worst_region_4",
-        "worst_region_16",
-        "zip_ratio",
-        "node_ratio",
+        "edge",
+        "colour",
         "front_score",
     }
 
