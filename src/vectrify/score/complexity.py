@@ -80,23 +80,25 @@ METRICS: Mapping[str, Callable[[bytes, str], float]] = {
 # node: a metric present on only part of the population reads as 0.0 for the
 # rest, which is the best attainable value for a minimised objective and would
 # make unmeasured candidates dominate measured ones.
-WORST_REGION_4 = "worst_region_4"
-WORST_REGION_16 = "worst_region_16"
-ZIP_RATIO = "zip_ratio"
-NODE_RATIO = "node_ratio"
+EDGE = "edge"
+COLOUR = "colour"
 
-SCORER_METRICS: tuple[str, ...] = (
-    WORST_REGION_4,
-    WORST_REGION_16,
-    ZIP_RATIO,
-    NODE_RATIO,
-)
+SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR)
 
-# What build_objectives trades off, alongside score. The raw complexities are
-# recorded for readability but are not objectives: on their own they put an
-# empty canvas permanently on the front, since nothing beats it on complexity
-# and it is therefore never dominated. The ratios charge complexity against the
-# error it actually removes, which the blank canvas removes none of.
+# What build_objectives trades off, alongside score, which is the embedding
+# distance. Three measures, one of each kind: semantic, structural, chromatic.
+#
+# They are chosen for being wrong in different places rather than for being
+# individually best. Measured one mutation from a parent, each is wrong about
+# 15-20% of the time on its own but any two of them are wrong together only
+# 5-7% of the time, so a majority of three calls 50% of its accepted mutations
+# right where the best single measure manages 35%.
+#
+# The complexity measures are recorded but are not objectives. Nothing in the
+# operator set adds an element, so element count only ever falls and a ratio
+# built on it carries no information the score does not already have; and with
+# no complexity objective at all, an empty canvas is simply far from the target
+# on all three measures rather than unbeatable on a fourth.
 OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
 
 # The evaluator's verdict on a converged front member. Recorded so a run can be

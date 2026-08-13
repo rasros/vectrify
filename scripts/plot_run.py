@@ -255,10 +255,10 @@ def uses_legacy_complexity(run_dir: Path) -> bool:
         return False
     with path.open(encoding="utf-8", newline="") as f:
         header = next(csv.reader(f), [])
-    # Any run whose lineage predates the current objective set. The columns
-    # were renamed and the complexity measures replaced by ratios, so the two
-    # cannot share an axis.
-    return "zip_ratio" not in header
+    # Any run whose lineage predates the current objective set. The objectives
+    # were replaced -- the score is an embedding distance now, beside a
+    # structural and a chromatic measure -- so the two cannot share an axis.
+    return "edge" not in header
 
 
 def _label(run_dir: Path) -> str:

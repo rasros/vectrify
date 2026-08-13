@@ -25,16 +25,11 @@ from vectrify.image_utils import (
 )
 from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
-from vectrify.score.compare import compare
-from vectrify.score.complexity import (
-    FRONT_SCORE,
-    NODE_RATIO,
-    WORST_REGION_4,
-    WORST_REGION_16,
-    ZIP_RATIO,
-)
-from vectrify.score.regions import complexity_ratio, region_worst_scores
-from vectrify.score.simple import SimpleFallbackScorer
+from vectrify.score.base import DEFAULT_CONFIG
+from vectrify.score.compare import compare, prepare
+from vectrify.score.complexity import COLOUR, EDGE, FRONT_SCORE
+from vectrify.score.edges import overlap_distance
+from vectrify.score.embedding import DEFAULT_EMBED_MODEL, EmbeddingScorer
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
@@ -152,23 +147,16 @@ def run_vector_search(
 
     api_key = os.getenv(api_key_env(llm_provider))
 
-    # The round scores on pixels, so there is no model to load and nothing to
-    # overlap it with. The configured --scorer selects the evaluator that ranks
-    # the converged Pareto front instead, which runs once per epoch.
-    loop_scorer = SimpleFallbackScorer()
+    # A small encoder rather than a pixel measure: where selection decides, one
+    # mutation from the parent, it is right about its accepted mutations far
+    # more often, and that ratio is what the search compounds. The configured
+    # --scorer still selects the evaluator that ranks a converged front.
+    loop_scorer = EmbeddingScorer()
     loop_ref = loop_scorer.prepare_reference(original_img)
-
-    # The zero-complexity candidate's error. Every complexity ratio is charged
-    # against how much of this a candidate removes, so it is what stops a blank
-    # canvas -- which removes none of it -- from owning a Pareto front slot.
-    blank = Image.new("RGB", original_img.size, "white")
-    blank_buf = io.BytesIO()
-    blank.save(blank_buf, format="PNG")
-    blank_error = loop_scorer.score(loop_ref, blank_buf.getvalue())
-    log.info(f"Blank-canvas error: {blank_error:.6f}")
+    pixel_ref = prepare(resize_long_side(original_img, DEFAULT_CONFIG.target_long_side))
     log.info(
-        f"Round scoring: pixel L1. Front evaluator: {ScorerType(scorer_type).value}"
-        f" ({vision_model})."
+        f"Round scoring: {DEFAULT_EMBED_MODEL}. "
+        f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model})."
     )
 
     resumed_items = storage.load_resume_nodes()
@@ -185,8 +173,9 @@ def run_vector_search(
             resolution_llm=resolution_llm,
             pool_size=pool_size,
             workers=workers,
-            scoring_ref=loop_ref,
-            blank_error=blank_error,
+            scoring_ref=pixel_ref,
+            scorer=loop_scorer,
+            embedding_ref=loop_ref,
             storage=storage,
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
@@ -323,32 +312,20 @@ def run_vector_search(
         if not png:
             return loop_scorer.score(loop_ref, png)
 
+        # Three objectives of different kinds, so that a majority of them is
+        # right more often than the best of them alone: the embedding is the
+        # score, and one comparison supplies the structural and chromatic
+        # measures beside it.
         try:
-            # One comparison feeds every objective: the score is it reduced
-            # over the whole canvas, the region metrics the same reduction per
-            # grid cell.
-            comparison = compare(loop_ref, png)
-        except Exception:
-            # An unreadable render scores worst rather than failing the task,
-            # which is what the scorer's own error handling did before.
-            return loop_scorer.score(loop_ref, png)
+            comparison = compare(pixel_ref, png)
+            res.metrics[EDGE] = overlap_distance(
+                comparison.reference_edges, comparison.candidate_edges
+            )
+            res.metrics[COLOUR] = float(comparison.colour.mean())
+        except Exception as exc:
+            log.debug(f"Pixel objectives skipped: {exc}")
 
-        result = comparison.blend()
-        worst = region_worst_scores(comparison, loop_ref.image.size)
-        res.metrics[WORST_REGION_4] = worst[2]
-        res.metrics[WORST_REGION_16] = worst[4]
-        res.metrics[ZIP_RATIO] = complexity_ratio(
-            res.metrics.get("zip_complexity", 0.0), result, blank_error
-        )
-        res.metrics[NODE_RATIO] = complexity_ratio(
-            res.metrics.get("node_complexity", 0.0), result, blank_error
-        )
-        res.payload.heatmap_png = (
-            loop_scorer.diff_heatmap(loop_ref, png, long_side=resolution_llm)
-            if getattr(storage, "save_heatmap", False)
-            else None
-        )
-        return result
+        return loop_scorer.score(loop_ref, png)
 
     if dashboard is not None:
         logging.getLogger().addHandler(dashboard.log_handler)

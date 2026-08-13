@@ -8,14 +8,8 @@ from PIL import Image
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
 from vectrify.score.compare import compare
-from vectrify.score.complexity import (
-    NODE_RATIO,
-    WORST_REGION_4,
-    WORST_REGION_16,
-    ZIP_RATIO,
-    measure_all,
-)
-from vectrify.score.regions import complexity_ratio, region_worst_scores
+from vectrify.score.complexity import COLOUR, EDGE, measure_all
+from vectrify.score.edges import overlap_distance
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -94,7 +88,8 @@ def resume_nodes(
     pool_size: int,
     workers: int,
     scoring_ref: Any,
-    blank_error: float,
+    scorer: Any,
+    embedding_ref: Any,
     storage: StorageAdapter,
 ) -> list[SearchNode]:
     """Deduplicate, rasterize, pre-filter, and re-score a set of resumed nodes.
@@ -149,22 +144,17 @@ def resume_nodes(
     current_new_id = 1
     for item in prepped:
         try:
-            comparison = compare(scoring_ref, item.png)
-            new_score = comparison.blend()
+            new_score = scorer.score(embedding_ref, item.png)
             # Resumed nodes compete directly against freshly scored ones, so
             # they need the scorer-side metrics too. Leaving them absent would
             # read as 0.0 -- best possible for a minimised objective -- and let
             # every import dominate the candidates actually being measured.
+            comparison = compare(scoring_ref, item.png)
             metrics = dict(item.metrics)
-            worst = region_worst_scores(comparison, scoring_ref.image.size)
-            metrics[WORST_REGION_4] = worst[2]
-            metrics[WORST_REGION_16] = worst[4]
-            metrics[ZIP_RATIO] = complexity_ratio(
-                metrics.get("zip_complexity", 0.0), new_score, blank_error
+            metrics[EDGE] = overlap_distance(
+                comparison.reference_edges, comparison.candidate_edges
             )
-            metrics[NODE_RATIO] = complexity_ratio(
-                metrics.get("node_complexity", 0.0), new_score, blank_error
-            )
+            metrics[COLOUR] = float(comparison.colour.mean())
             node = SearchNode(
                 score=new_score,
                 id=current_new_id,
