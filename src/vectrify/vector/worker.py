@@ -1,5 +1,6 @@
 import contextlib
 import dataclasses
+import hashlib
 import io
 import logging
 import random
@@ -67,6 +68,9 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
 
     try:
         plugin = ctx.format_plugin
+        # Attribution costs two renders, and a parent is reused across many
+        # tasks, so it is computed once per parent rather than once per task.
+        target_cache: dict[str, dict[int, float]] = {}
 
         if ctx.random_seed is not None:
             random.seed(ctx.random_seed + ctx.worker_index)
@@ -144,7 +148,21 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                 )
 
             else:
-                content, origin = plugin.mutate(parent.payload.content, task.operator)
+                source = parent.payload.content
+                key = hashlib.blake2b(source.encode(), digest_size=16).hexdigest()
+                if key not in target_cache:
+                    if len(target_cache) > 64:
+                        target_cache.clear()
+                    try:
+                        target_cache[key] = plugin.element_targets(
+                            source, ctx.original_png_bytes
+                        )
+                    except Exception as exc:
+                        log.debug(f"Error attribution failed: {exc}")
+                        target_cache[key] = {}
+                content, origin = plugin.mutate(
+                    source, task.operator, target_cache[key]
+                )
 
             valid, err = plugin.validate(content)
             if not valid:

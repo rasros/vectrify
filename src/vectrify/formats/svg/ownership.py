@@ -149,3 +149,32 @@ def overlaps(
     smaller = np.minimum(area_a[:, None], area_b[None, :])
     similar = np.divide(smaller, larger, out=np.zeros_like(larger), where=larger > 0)
     return np.where(similar >= SIZE_RATIO_LIMIT, iou, 0.0)
+
+
+def element_error(
+    root: ET.Element,
+    reference: np.ndarray,
+    render: np.ndarray,
+    size: int = MASK_SIZE,
+) -> list[float]:
+    """Error each element is responsible for, over the pixels it still owns.
+
+    An element that was drawn over answers for nothing, and a ring answers for
+    its visible annulus rather than its whole disc -- which is the point of
+    resolving ownership rather than using bounding boxes.
+
+    *reference* and *render* are the target and the candidate at *size*.
+    """
+    labels = owner_labels(root, size=size)
+    difference = np.abs(reference.astype(np.float32) - render.astype(np.float32))
+    if difference.ndim == 3:
+        difference = difference.mean(axis=2)
+
+    count = len(drawable_elements(root))
+    if count == 0:
+        return []
+
+    owned = labels != UNOWNED
+    flat = labels[owned].ravel()
+    totals = np.bincount(flat, weights=difference[owned].ravel(), minlength=count)
+    return [float(value) for value in totals]

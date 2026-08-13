@@ -63,7 +63,13 @@ class TypstPlugin(BaseFormatPlugin):
     def mutation_weights(self) -> Mapping[str, float]:
         return operator_weights(MUTATIONS)
 
-    def mutate(self, content: str, operator: str | None = None) -> tuple[str, str]:
+    def mutate(
+        self,
+        content: str,
+        operator: str | None = None,
+        targets: dict[int, float] | None = None,
+    ) -> tuple[str, str]:
+        _ = targets
         return apply_mutation(content, operator)
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:

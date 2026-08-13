@@ -86,6 +86,82 @@ def blend(structure_weight: float):
     return scored
 
 
+# A small convolutional embedding, as the cheap stand-in for the vision model:
+# 2.2M parameters against SigLIP-so400m's 400M, and no torchvision dependency.
+_MOBILENET: dict[str, object] = {}
+
+
+def _mobilenet_embed(image: Image.Image):
+    import torch
+    from transformers import AutoImageProcessor, AutoModel
+
+    if not _MOBILENET:
+        name = "google/mobilenet_v2_1.0_224"
+        _MOBILENET["processor"] = AutoImageProcessor.from_pretrained(name)
+        model = AutoModel.from_pretrained(name).eval()
+        _MOBILENET["model"] = model.to("cuda" if torch.cuda.is_available() else "cpu")
+
+    processor, model = _MOBILENET["processor"], _MOBILENET["model"]
+    inputs = processor(images=image, return_tensors="pt")
+    pixel_values = inputs["pixel_values"].to(next(model.parameters()).device)
+    with torch.no_grad():
+        out = model(pixel_values=pixel_values)
+    features = getattr(out, "pooler_output", None)
+    if features is None:
+        features = out.last_hidden_state.mean(dim=(2, 3))
+    return torch.nn.functional.normalize(features.float(), dim=-1)
+
+
+def mobilenet_score(reference: Image.Image, candidate_png: bytes) -> float:
+    """Cosine distance between small-CNN embeddings."""
+
+    key = id(reference)
+    if key not in _MOBILENET_REFS:
+        _MOBILENET_REFS[key] = _mobilenet_embed(reference)
+    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+    similarity = (_MOBILENET_REFS[key] * _mobilenet_embed(candidate)).sum().item()
+    return float(1.0 - similarity)
+
+
+_MOBILENET_REFS: dict[int, object] = {}
+
+
+def gist_score(reference: Image.Image, candidate_png: bytes) -> float:
+    """Orientation histograms on a spatial grid: a GIST-flavoured descriptor.
+
+    Pure numpy and no model at all -- the honest floor for "cheap embedding".
+    """
+    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+    if candidate.size != reference.size:
+        candidate = candidate.resize(reference.size, Image.Resampling.BILINEAR)
+
+    def descriptor(image: Image.Image) -> np.ndarray:
+        grey = np.asarray(image.convert("L"), dtype=np.float64)
+        gy, gx = np.gradient(grey)
+        angle = np.arctan2(gy, gx)
+        magnitude = np.hypot(gx, gy)
+        cells, bins = 4, 8
+        height, width = grey.shape
+        out = []
+        for row in range(cells):
+            for col in range(cells):
+                ys = slice(row * height // cells, (row + 1) * height // cells)
+                xs = slice(col * width // cells, (col + 1) * width // cells)
+                hist, _ = np.histogram(
+                    angle[ys, xs],
+                    bins=bins,
+                    range=(-np.pi, np.pi),
+                    weights=magnitude[ys, xs],
+                )
+                out.append(hist)
+        vector = np.concatenate(out)
+        norm = np.linalg.norm(vector)
+        return vector / norm if norm else vector
+
+    a, b = descriptor(reference), descriptor(candidate)
+    return float(1.0 - (a * b).sum())
+
+
 _PREPARED: dict[int, Reference] = {}
 
 
@@ -105,6 +181,8 @@ METRICS = {
     "round (new)": round_score,
     "regions": coverage_score,
     "gmsd": gmsd,
+    "gist": gist_score,
+    "mobilenet": mobilenet_score,
 }
 
 
