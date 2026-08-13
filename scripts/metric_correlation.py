@@ -20,10 +20,12 @@ from pathlib import Path
 
 import numpy as np
 from PIL import Image
+from score_screen import coverage_score, gmsd
 
 from vectrify.formats.svg.operations import apply_mutation
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.image_utils import resize_long_side
+from vectrify.score.compare import Reference, compare, prepare
 from vectrify.score.edges import edge_score
 from vectrify.score.utils import color_score
 from vectrify.score.vision import VisionScorer
@@ -84,13 +86,25 @@ def blend(structure_weight: float):
     return scored
 
 
+_PREPARED: dict[int, Reference] = {}
+
+
+def round_score(reference, candidate_png: bytes) -> float:
+    """The scorer the search actually uses, region-weighted and blended."""
+    key = id(reference)
+    if key not in _PREPARED:
+        _PREPARED[key] = prepare(reference)
+    return compare(_PREPARED[key], candidate_png).blend()
+
+
 METRICS = {
     "l1": color_score,
     "edge": edge_score,
     "thumb32": thumbnail_score,
-    "mix.50": blend(0.50),
-    "mix.70": blend(0.70),
-    "mix.85": blend(0.85),
+    "old mix.50": blend(0.50),
+    "round (new)": round_score,
+    "regions": coverage_score,
+    "gmsd": gmsd,
 }
 
 
