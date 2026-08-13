@@ -46,7 +46,12 @@ class FakePlugin:
         self.crossover_calls += 1
         return a, "crossover"
 
-    def mutate(self, content, operator=None):
+    def element_targets(self, content, reference_png):
+        _ = content, reference_png
+        return {}
+
+    def mutate(self, content, operator=None, targets=None):
+        _ = targets
         self.mutate_ops.append(operator)
         self.mutate_calls += 1
         return content, "mutation"

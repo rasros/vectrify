@@ -108,11 +108,25 @@ class FormatPlugin(Protocol):
         """
         ...
 
-    def mutate(self, content: str, operator: str | None = None) -> tuple[str, str]:
+    def mutate(
+        self,
+        content: str,
+        operator: str | None = None,
+        targets: dict[int, float] | None = None,
+    ) -> tuple[str, str]:
         """Mutate existing content. Return (new_content, origin).
 
         *operator* names one of ``mutation_weights``; None lets the backend
-        pick for itself.
+        pick for itself. *targets* weights which element to work on, by its
+        position among the drawable elements.
+        """
+        ...
+
+    def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
+        """How much error each element of *content* answers for.
+
+        Backends that cannot attribute error return an empty mapping, which
+        leaves mutation choosing its target uniformly.
         """
         ...
 
@@ -156,3 +170,13 @@ class BaseFormatPlugin:
     def apply_edit(self, parent: str, raw: str) -> str:
         patched = apply_search_replace(parent, raw)
         return patched if patched is not None else self.extract_from_llm(raw)
+
+    def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
+        """No attribution: mutation picks its target uniformly.
+
+        Resolving which element owns which pixel needs a renderer that can draw
+        one element at a time in a chosen colour, which these backends hand off
+        to an external tool.
+        """
+        _ = content, reference_png
+        return {}

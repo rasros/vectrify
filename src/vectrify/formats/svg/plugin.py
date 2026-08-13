@@ -12,6 +12,7 @@ from vectrify.formats.svg.prompts import (
     extract_svg_fragment,
     is_valid_svg,
 )
+from vectrify.formats.svg.targets import element_targets
 from vectrify.image_utils import rasterize_svg_to_png_bytes
 
 
@@ -53,8 +54,16 @@ class SvgPlugin:
     def mutation_weights(self) -> Mapping[str, float]:
         return operator_weights(MUTATIONS)
 
-    def mutate(self, content: str, operator: str | None = None) -> tuple[str, str]:
-        return apply_mutation(content, operator)
+    def mutate(
+        self,
+        content: str,
+        operator: str | None = None,
+        targets: dict[int, float] | None = None,
+    ) -> tuple[str, str]:
+        return apply_mutation(content, operator, targets)
+
+    def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
+        return element_targets(content, reference_png)
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         return apply_crossover(content_a, content_b)

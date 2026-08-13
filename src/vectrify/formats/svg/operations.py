@@ -97,6 +97,55 @@ class _NoChangeError(Exception):
     """Raised by an operator when there is nothing it can mutate."""
 
 
+# How much error each element answers for, by its position among the drawable
+# elements. A module-level channel rather than an argument because every
+# operator picks its own target in its own way, and threading a table through
+# all of them would touch each one twice.
+#
+# Keyed by position, not identity: every operator re-parses the SVG, so the
+# element objects a caller could point at are not the ones being mutated.
+_TARGET_BY_INDEX: dict[int, float] = {}
+
+# Resolved against the parse the operator is actually working on.
+_TARGET_WEIGHTS: dict[int, float] = {}
+
+
+def _pick(candidates: list):
+    """Choose an element to mutate, favouring the ones answering for the error.
+
+    Uniform choice spends most of a run on elements that are already right. On
+    an emblem seed the background answers for 57% of the error and the star for
+    3.5%, and picking uniformly gives them equal attention forever.
+    """
+    if not candidates:
+        raise _NoChangeError
+    if not _TARGET_WEIGHTS:
+        return random.choice(candidates)
+
+    weights = [_TARGET_WEIGHTS.get(id(_element_of(item)), 0.0) for item in candidates]
+    total = sum(weights)
+    if total <= 0.0:
+        return random.choice(candidates)
+    # A floor under every candidate: attributed error says where the error is
+    # now, not where a fix is available, so nothing should be unreachable.
+    floor = total * _TARGET_FLOOR / len(candidates)
+    return random.choices(candidates, weights=[w + floor for w in weights], k=1)[0]
+
+
+def _element_of(item):
+    """Operators offer elements, or tuples with the element first or second."""
+    if isinstance(item, tuple):
+        for part in item:
+            if isinstance(part, ET.Element):
+                return part
+        return item[0]
+    return item
+
+
+# Share of the selection mass spread evenly over every candidate.
+_TARGET_FLOOR = 0.25
+
+
 def svg_transform(fn: Callable[[ET.Element], None]) -> Callable[[str], str]:
     """Turn an in-place root-element edit into an SVG-string mutation.
 
@@ -111,10 +160,17 @@ def svg_transform(fn: Callable[[ET.Element], None]) -> Callable[[str], str]:
             root = ET.fromstring(svg)
         except ET.ParseError:
             return svg
+
+        _TARGET_WEIGHTS.clear()
+        if _TARGET_BY_INDEX:
+            for index, (_chain, element) in enumerate(drawable_elements(root)):
+                _TARGET_WEIGHTS[id(element)] = _TARGET_BY_INDEX.get(index, 0.0)
         try:
             fn(root)
         except _NoChangeError:
             return svg
+        finally:
+            _TARGET_WEIGHTS.clear()
         ET.register_namespace("", SVG_NS)
         return ET.tostring(root, encoding="unicode", method="xml")
 
@@ -243,7 +299,7 @@ def mutate_remove_node(root: ET.Element) -> None:
     if not pairs:
         raise _NoChangeError
 
-    parent_elem, child = random.choice(pairs)
+    parent_elem, child = _pick(pairs)
     parent_elem.remove(child)
 
 
@@ -253,7 +309,7 @@ def mutate_drop_style_property(root: ET.Element) -> None:
     if not styled:
         raise _NoChangeError
 
-    el = random.choice(styled)
+    el = _pick(styled)
     props = [p.strip() for p in el.get("style", "").split(";") if p.strip()]
     if len(props) <= 1:
         raise _NoChangeError
@@ -277,7 +333,7 @@ def mutate_numeric(root: ET.Element) -> None:
     if not candidates:
         raise _NoChangeError
 
-    elem, attr, num, unit = random.choice(candidates)
+    elem, attr, num, unit = _pick(candidates)
     factor = random.uniform(0.7, 1.3)
     new_num = num * factor
 
@@ -316,7 +372,7 @@ def mutate_color(root: ET.Element) -> None:
     if not candidates:
         raise _NoChangeError
 
-    elem, source, key, val = random.choice(candidates)
+    elem, source, key, val = _pick(candidates)
 
     hex_match = _HEX_COLOR_RE.search(val)
     if hex_match:
@@ -350,7 +406,7 @@ def mutate_stroke(root: ET.Element) -> None:
     if not shapes:
         raise _NoChangeError
 
-    el = random.choice(shapes)
+    el = _pick(shapes)
     has_stroke = el.get("stroke") not in (None, "none", "")
 
     op = random.choice(["add", "remove", "change"])
@@ -369,7 +425,7 @@ def mutate_path(root: ET.Element) -> None:
     if not paths:
         raise _NoChangeError
 
-    el = random.choice(paths)
+    el = _pick(paths)
     d = el.get("d", "")
     nums = list(_PATH_NUM_RE.finditer(d))
     if not nums:
@@ -421,10 +477,27 @@ MUTATIONS: MutationTable = (
 )
 
 
-def apply_mutation(parent_svg: str, operator: str | None = None) -> tuple[str, str]:
-    """Apply *operator* to *parent_svg*, or a weighted-random one if None."""
+def apply_mutation(
+    parent_svg: str,
+    operator: str | None = None,
+    targets: dict[int, float] | None = None,
+) -> tuple[str, str]:
+    """Apply *operator* to *parent_svg*, or a weighted-random one if None.
+
+    *targets* weights elements by the error they answer for, keyed by their
+    index among the drawable elements in document order.
+    """
     fn, name = pick_operator(MUTATIONS, operator)
-    return with_retries(lambda: fn(parent_svg), fallback=parent_svg), name
+
+    def run() -> str:
+        _TARGET_BY_INDEX.clear()
+        _TARGET_BY_INDEX.update(targets or {})
+        try:
+            return fn(parent_svg)
+        finally:
+            _TARGET_BY_INDEX.clear()
+
+    return with_retries(run, fallback=parent_svg), name
 
 
 def apply_crossover(svg_a: str, svg_b: str) -> tuple[str, str]:
