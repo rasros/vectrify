@@ -5,7 +5,14 @@ import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 
+import numpy as np
+
 from vectrify.formats.mutations import MutationTable, pick_operator
+from vectrify.formats.svg.ownership import (
+    drawable_elements,
+    overlaps,
+    owner_labels,
+)
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -129,45 +136,101 @@ def with_retries(
     return fallback
 
 
-def crossover(svg_a: str, svg_b: str, k: int = 2) -> str:
-    """
-    K-point crossover: split top-level children into k+1 contiguous segments,
-    alternating which parent contributes each segment.
+# How much two elements must overlap to count as the same thing. Below this
+# they are separate features that happen to sit near each other.
+_MATCH_OVERLAP = 0.4
+
+# How much of each parent must find a partner before the two are considered the
+# same drawing. Below this they decompose the picture differently -- one splits
+# a leaf blade into two paths where the other uses one -- and no element-wise
+# swap between them is meaningful: taking the whole blade in exchange for half
+# of it emptied the drawing.
+_CORRESPONDENCE = 0.8
+
+
+def _rebuild(root: ET.Element, units: list[tuple[tuple, ET.Element]]) -> str:
+    """Reassemble elements into A's structure, recreating each group once."""
+    new_root = ET.Element(root.tag, dict(root.attrib))
+    wrappers: dict[tuple, ET.Element] = {(): new_root}
+
+    for chain, element in units:
+        parent = new_root
+        path: tuple = ()
+        for step in chain:
+            path = (*path, step)
+            if path not in wrappers:
+                wrappers[path] = ET.SubElement(parent, step[0], dict(step[1]))
+            parent = wrappers[path]
+        parent.append(copy.deepcopy(element))
+
+    ET.register_namespace("", SVG_NS)
+    return ET.tostring(new_root, encoding="unicode", method="xml")
+
+
+def crossover(svg_a: str, svg_b: str) -> str:
+    """Swap elements that draw the same thing between two parents.
+
+    Recombination needs to know which element of A corresponds to which element
+    of B, and every cheap answer is wrong here. Document order assumes the
+    parents list their elements in the same sequence, which independent
+    drawings do not -- splicing by index dropped 23 circles and 16 numerals
+    from a 63-element seed. Element type assumes they encode things the same
+    way, but a dot is a <circle> in one lineage and a <path> in another.
+    Canvas region assumes a geometry that has to be guessed, and guessing it
+    wrongly empties whole drawings.
+
+    What the parents do share is the picture, so elements are matched on the
+    pixels they own in the finished render -- occlusion included, so a ring
+    matches a ring by its visible annulus. A matched pair contributes exactly
+    one element and an unmatched one is carried through untouched, which makes
+    losing content impossible: the child has as many elements as A had.
     """
     try:
         root_a = ET.fromstring(svg_a)
         root_b = ET.fromstring(svg_b)
-
-        children_a = list(root_a)
-        children_b = list(root_b)
-        max_len = max(len(children_a), len(children_b))
-
-        new_root = ET.Element(root_a.tag, root_a.attrib)
-
-        if max_len <= 1:
-            src = children_a or children_b
-            for child in src:
-                new_root.append(copy.deepcopy(child))
-            ET.register_namespace("", SVG_NS)
-            return ET.tostring(new_root, encoding="unicode", method="xml")
-
-        actual_k = min(k, max_len - 1)
-        cuts = sorted(random.sample(range(1, max_len), actual_k))
-
-        segment = 0
-        use_a = True
-        for i in range(max_len):
-            while segment < len(cuts) and i >= cuts[segment]:
-                use_a = not use_a
-                segment += 1
-            children = children_a if use_a else children_b
-            if i < len(children):
-                new_root.append(copy.deepcopy(children[i]))
-
-        ET.register_namespace("", SVG_NS)
-        return ET.tostring(new_root, encoding="unicode", method="xml")
     except ET.ParseError:
         return svg_a
+
+    units_a = drawable_elements(root_a)
+    units_b = drawable_elements(root_b)
+    if not units_a or not units_b:
+        return svg_a
+
+    labels_a = owner_labels(root_a)
+    labels_b = owner_labels(root_b)
+    scores = overlaps(labels_a, labels_b, len(units_a), len(units_b))
+
+    # Best pairs first, each element used once: an optimal assignment costs
+    # more than it buys when most pairs are either obvious or unrelated.
+    order = np.argsort(scores, axis=None)[::-1]
+    taken_a: set[int] = set()
+    taken_b: set[int] = set()
+    swapped: dict[int, int] = {}
+    for flat in order:
+        i, j = divmod(int(flat), len(units_b))
+        if scores[i, j] < _MATCH_OVERLAP:
+            break
+        if i in taken_a or j in taken_b:
+            continue
+        taken_a.add(i)
+        taken_b.add(j)
+        if random.random() < 0.5:
+            swapped[i] = j
+
+    drawn_a = sum(1 for i in range(len(units_a)) if (labels_a == i).any())
+    drawn_b = sum(1 for j in range(len(units_b)) if (labels_b == j).any())
+    covered = min(
+        len(taken_a) / max(drawn_a, 1),
+        len(taken_b) / max(drawn_b, 1),
+    )
+    if covered < _CORRESPONDENCE or not swapped:
+        return svg_a
+
+    kept = [
+        (chain, units_b[swapped[i]][1] if i in swapped else element)
+        for i, (chain, element) in enumerate(units_a)
+    ]
+    return _rebuild(root_a, kept)
 
 
 @svg_transform

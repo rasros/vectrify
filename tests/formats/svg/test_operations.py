@@ -47,20 +47,13 @@ def test_crossover_children_only_from_parents():
     assert tags <= {"circle", "rect", "ellipse", "line"}
 
 
-def test_crossover_unequal_lengths():
+def test_crossover_of_unequal_parents_keeps_the_first_parent_intact():
+    """This used to assert the child could shrink to a fifth of its parent,
+    which was the bug rather than the contract: elements the shorter parent
+    lacked at a given index were simply dropped."""
     long_a = f'<svg xmlns="{NS}"><rect/><circle/><ellipse/><line/><path/></svg>'
-    result = crossover(long_a, SVG_B, k=2)
-    root = ET.fromstring(result)
-    assert 1 <= len(list(root)) <= 5
-
-
-def test_crossover_k_clamped_to_max():
-    result = crossover(SVG_A, SVG_B, k=100)
-    root = ET.fromstring(result)
-    children = list(root)
-    tags = {c.tag.split("}")[-1] for c in children}
-    assert children
-    assert tags <= {"circle", "rect", "ellipse", "line"}
+    result = crossover(long_a, SVG_B)
+    assert len(list(ET.fromstring(result))) == 5
 
 
 def test_crossover_degenerate_single_element():
@@ -504,3 +497,56 @@ def test_mutate_reorder_single_child_unchanged():
 
 def test_mutate_reorder_invalid_svg_unchanged():
     assert mutate_reorder("not xml") == "not xml"
+
+
+def test_crossover_keeps_every_element_of_the_first_parent():
+    """Regression: splicing by document order dropped whatever the shorter
+    parent lacked at each index -- 23 circles and 16 numerals out of a
+    63-element seed. Matching elements to each other makes loss impossible: a
+    matched pair contributes one element, an unmatched one is carried."""
+    from pathlib import Path
+
+    seeds = sorted(Path("bench/cases/connect-dots/seeds").glob("*.svg"))
+    a, b = seeds[0].read_text(), seeds[3].read_text()
+
+    for _ in range(8):
+        child = crossover(a, b)
+        assert len(re.findall(r"<[a-zA-Z]", child)) == len(re.findall(r"<[a-zA-Z]", a))
+
+
+def test_crossover_refuses_parents_that_decompose_differently():
+    """One drawing splits a blade into two paths where the other uses one, so
+    no element-wise swap between them is meaningful -- taking the whole blade
+    in exchange for half of it emptied the drawing."""
+    one_piece = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<rect x="8" y="8" width="48" height="48" fill="#336699"/>'
+        "</svg>"
+    )
+    two_pieces = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<rect x="8" y="8" width="24" height="48" fill="#336699"/>'
+        '<rect x="32" y="8" width="24" height="48" fill="#336699"/>'
+        "</svg>"
+    )
+
+    assert crossover(one_piece, two_pieces) == one_piece
+
+
+def test_crossover_swaps_matching_elements_between_parents():
+    red = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<circle cx="32" cy="32" r="16" fill="#ff0000"/>'
+        "</svg>"
+    )
+    blue = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<circle cx="32" cy="32" r="16" fill="#0000ff"/>'
+        "</svg>"
+    )
+
+    assert any("#0000ff" in crossover(red, blue) for _ in range(20))
