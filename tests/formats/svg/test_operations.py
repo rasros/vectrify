@@ -112,7 +112,7 @@ def test_mutate_numeric_no_numeric_attrs_unchanged():
 @pytest.mark.parametrize(
     "op",
     [
-            mutate_numeric,
+        mutate_numeric,
         mutate_drop_style_property,
         mutate_color,
         mutate_stroke,
