@@ -13,12 +13,12 @@ import sys
 from collections import Counter
 from pathlib import Path
 
+# Where this checkout lives, so repo frames print relative rather than absolute.
+REPO = Path(__file__).resolve().parent.parent
+
 
 def shorten_path(path: str) -> str:
-    for prefix in [
-        "/home/rasmus/Workspaces/image-to-svg/src/",
-        "/home/rasmus/Workspaces/image-to-svg/",
-    ]:
+    for prefix in (f"{REPO}/src/", f"{REPO}/"):
         if path.startswith(prefix):
             return path[len(prefix) :]
     if "site-packages/" in path:

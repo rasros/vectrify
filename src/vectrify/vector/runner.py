@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -151,6 +152,12 @@ def run_vector_search(
     # mutation from the parent, it is right about its accepted mutations far
     # more often, and that ratio is what the search compounds. The configured
     # --scorer still selects the evaluator that ranks a converged front.
+    # Sized against the scorer thread's own work rather than the worker count:
+    # it is one batch of candidates at a time, and oversubscribing here would
+    # only take cores from the workers producing them.
+    pixel_pool = ThreadPoolExecutor(
+        max_workers=min(8, (os.cpu_count() or 4)), thread_name_prefix="pixel"
+    )
     loop_scorer = EmbeddingScorer()
     loop_ref = loop_scorer.prepare_reference(original_img)
     pixel_ref = prepare(resize_long_side(original_img, DEFAULT_CONFIG.target_long_side))
@@ -327,23 +334,35 @@ def run_vector_search(
         log_queue=log_queue,
     )
 
+    def _pixel_objectives(res) -> None:
+        png = res.payload.raster_png
+        if not png:
+            return
+        try:
+            comparison = compare(pixel_ref, png)
+            res.metrics[EDGE] = overlap_distance(
+                comparison.reference_edges, comparison.candidate_edges
+            )
+            res.metrics[COLOUR] = float(comparison.colour.mean())
+        except Exception as exc:
+            log.debug(f"Pixel objectives skipped: {exc}")
+
     def score_fn(results):
         # Three objectives of different kinds, so that a majority of them is
         # right more often than the best of them alone: the embedding is the
         # score, and one comparison supplies the structural and chromatic
         # measures beside it.
-        for res in results:
-            png = res.payload.raster_png
-            if not png:
-                continue
-            try:
-                comparison = compare(pixel_ref, png)
-                res.metrics[EDGE] = overlap_distance(
-                    comparison.reference_edges, comparison.candidate_edges
-                )
-                res.metrics[COLOUR] = float(comparison.colour.mean())
-            except Exception as exc:
-                log.debug(f"Pixel objectives skipped: {exc}")
+        #
+        # Spread across threads because these run on the one scorer thread, in
+        # a decode-resize-convolve pass per candidate that is where a run's
+        # throughput was going: profiled, workers sat idle above four of them
+        # while this serialised. The work is numpy and Pillow, both of which
+        # drop the GIL, so threads genuinely overlap here.
+        if len(results) > 1:
+            list(pixel_pool.map(_pixel_objectives, results))
+        else:
+            for res in results:
+                _pixel_objectives(res)
 
         # The embedding runs once for the whole batch, which is where the round
         # spends most of its scoring time.
