@@ -496,15 +496,25 @@ def test_untracked_lineage_leaves_crossover_enabled():
 def test_select_survivors_does_not_simply_keep_the_best_score():
     """Regression: survival used to evict the worst score outright, so the other
     objectives only reached parent selection and the pool collapsed onto one
-    measure. A candidate carrying the worst score still wins if it takes the
-    majority of the rest."""
+    measure. A candidate carrying the worst score still wins a place if it
+    takes the majority of the rest.
+
+    Elitism reserves one slot for the best score, so the point is tested on the
+    slots elitism does not claim."""
     strategy = NsgaStrategy()
     best_score = make_node(1, 0.1, edge=0.9, colour=0.9)
     wins_the_rest = make_node(2, 0.9, edge=0.1, colour=0.1)
+    middling = [
+        make_node(3, 0.5, edge=0.5, colour=0.5),
+        make_node(4, 0.6, edge=0.6, colour=0.6),
+    ]
 
-    kept = {n.id for n in strategy.select_survivors([best_score, wins_the_rest], 1)}
+    kept = {
+        n.id
+        for n in strategy.select_survivors([best_score, wins_the_rest, *middling], 2)
+    }
 
-    assert kept == {2}
+    assert kept == {1, 2}
 
 
 def test_select_survivors_drops_unscored_nodes_first():
@@ -562,3 +572,17 @@ def test_a_three_way_cycle_ties_rather_than_vanishing():
 
     assert [len(f) for f in fronts] == [3]
     assert {n.id for n in fronts[0]} == {1, 2, 3}
+
+
+def test_the_best_node_always_survives_its_generation():
+    """NSGA-II is elitist because the best node sits in front 0 under Pareto
+    dominance. The majority relation has no such guarantee -- two objectives
+    can outvote the one the run is judged on -- and a generation that evicts
+    the best candidate loses ground it never recovers."""
+    best = make_node(1, 0.01, edge=1000.0)
+    crowd = [make_node(i, 0.5 + 0.01 * i, edge=float(i)) for i in range(2, 12)]
+
+    survivors = NsgaStrategy(pool_size=5).select_survivors([best, *crowd], max_keep=5)
+
+    assert len(survivors) == 5
+    assert best.id in {n.id for n in survivors}
