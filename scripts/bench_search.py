@@ -23,6 +23,7 @@ from pathlib import Path
 
 from vectrify.cli import DEFAULT_POOL_SIZE
 from vectrify.formats.svg.plugin import SvgPlugin
+from vectrify.score import ScorerType
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_CASES = REPO / "bench" / "cases"
@@ -313,7 +314,14 @@ def main() -> None:
     # scorer: the round is always pixel L1. At --epochs 1 the run ends before
     # any front is handed over, so the default avoids loading torch for a model
     # that never runs.
-    run.add_argument("--scorer", default="simple", choices=["simple", "vision"])
+    #
+    # The reported `vision` column is the evaluator panel's mean distance
+    # across its members, which is not on the same scale as the single-model
+    # number older result files carry: compare within a set of runs, not across
+    # the change.
+    run.add_argument(
+        "--scorer", default="simple", choices=[e.value for e in ScorerType]
+    )
     run.add_argument("--epochs", type=int, default=1, metavar="N")
     run.add_argument("--seed-base", type=int, default=1000, dest="seed_base")
     run.add_argument(
