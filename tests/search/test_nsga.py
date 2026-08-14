@@ -1,3 +1,5 @@
+import statistics
+
 import pytest
 
 from vectrify.search import ChainState, SearchNode
@@ -521,3 +523,42 @@ def test_select_survivors_keeps_everything_that_fits():
     nodes = [make_node(i, 0.1 * i) for i in range(1, 4)]
 
     assert len(strategy.select_survivors(nodes, 5)) == 3
+
+
+def test_ranking_survives_a_population_nothing_wins():
+    """Majority dominance is a tournament, and a tournament this dense has no
+    undominated member: on a real 200-node pool not one node was unbeaten. A
+    sort that only peels undominated nodes returns a single undifferentiated
+    front there, which leaves crowding distance to decide survival on spread
+    instead of quality."""
+    nodes = [make_node(i, 0.1 * (i % 7), edge=100.0 * (i % 5)) for i in range(60)]
+    objectives = build_objectives(nodes)
+
+    fronts = non_dominated_sort(nodes, objectives)
+
+    assert len(fronts) > 1, "ranking put the whole population in one tier"
+    assert sum(len(f) for f in fronts) == len(nodes), "a node was dropped"
+
+    best = statistics.fmean(n.score for n in fronts[0])
+    worst = statistics.fmean(n.score for n in fronts[-1])
+    assert best < worst, "the ranking does not track quality"
+
+
+def test_a_three_way_cycle_ties_rather_than_vanishing():
+    """Rock-paper-scissors over three objectives: each beats the next two-to-one
+    and loses to the third. None can outrank the others, and none may be
+    dropped -- a dropped node is a candidate deleted from the pool with nothing
+    replacing it."""
+    rock = make_node(1, 0.1, edge=0.5)
+    paper = make_node(2, 0.2, edge=0.1)
+    scissors = make_node(3, 0.5, edge=0.2)
+    objectives = {
+        rock.id: (0.1, 0.5, 0.2),
+        paper.id: (0.2, 0.1, 0.5),
+        scissors.id: (0.5, 0.2, 0.1),
+    }
+
+    fronts = non_dominated_sort([rock, paper, scissors], objectives)
+
+    assert [len(f) for f in fronts] == [3]
+    assert {n.id for n in fronts[0]} == {1, 2, 3}

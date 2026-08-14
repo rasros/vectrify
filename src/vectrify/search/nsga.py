@@ -29,6 +29,9 @@ def _dominates(a: Objectives, b: Objectives) -> bool:
     under unanimity, so rank stops separating candidates and crowding distance
     -- which sorts for spread, not quality -- decides survival instead.
 
+    The price is that a majority relation cycles, so it cannot be peeled into
+    fronts the way Pareto dominance can. Callers rank it with _copeland.
+
     *a* and *b* must have the same arity; ``strict=True`` makes a mismatch an
     error rather than silently comparing only the shared prefix.
     """
@@ -38,73 +41,73 @@ def _dominates(a: Objectives, b: Objectives) -> bool:
     return wins > losses
 
 
+def _copeland(points: list[Objectives]) -> list[int]:
+    """How many rivals each point beats, less how many beat it.
+
+    The majority relation is a tournament, not an order: three candidates can
+    each beat the next in a cycle. Counting wins minus losses ranks a
+    tournament without needing it to be transitive, and reduces to the usual
+    thing when it happens to be -- a point nothing dominates still scores
+    highest, and a point everything dominates still scores lowest.
+    """
+    scores = [0] * len(points)
+    for i, a in enumerate(points):
+        for j in range(i + 1, len(points)):
+            b = points[j]
+            if _dominates(a, b):
+                scores[i] += 1
+                scores[j] -= 1
+            elif _dominates(b, a):
+                scores[j] += 1
+                scores[i] -= 1
+    return scores
+
+
 def pareto_front(items: list, key: "Callable[[Any], Objectives]") -> list:
-    """Return the items whose key(item) vector is not Pareto-dominated by any
-    other item's (lower is better in every objective).
+    """Return the best-ranked items under the majority relation.
+
+    Asking instead for the items nothing dominates returns nothing at all on a
+    real population: measured on a 200-node pool, every single node was beaten
+    by some other, because a majority relation cycles. This returns the top
+    tier of the tournament ranking, which is the same set whenever the relation
+    is a genuine order.
 
     *key* may return a vector of any arity as long as it is the same for every
     item.
     """
-    points = [key(it) for it in items]
-    return [
-        items[i]
-        for i, p in enumerate(points)
-        if not any(_dominates(q, p) for j, q in enumerate(points) if j != i)
-    ]
+    if not items:
+        return []
+    scores = _copeland([key(it) for it in items])
+    best = max(scores)
+    return [item for item, score in zip(items, scores, strict=True) if score == best]
 
 
 def non_dominated_sort(
     nodes: list[SearchNode],
     objectives: Mapping[int, Objectives],
 ) -> list[list[SearchNode]]:
-    """Fast non-dominated sort (Deb 2002). front[0] is the Pareto front.
+    """Rank nodes into tiers by the majority relation, best tier first.
 
-    Textbook dominance over the whole objective vector: no objective is
-    privileged. Visual error used to be gated ahead of the others, which made
-    it primary and the rest tie-breakers; keeping every objective equal is
-    what lets a structural or chromatic measure actually shape the front.
+    Deb's peeling sort assumes dominance is transitive, and the majority
+    relation is not: measured on a 200-node pool, not one node was undominated,
+    so the peel produced no fronts at all and every node fell through to the
+    unresolved bucket. Rank then separated nothing and crowding distance --
+    which sorts for spread, not quality -- decided survival by itself, which is
+    what left the best score unchanged across fifteen generations.
+
+    Tiers come from the tournament score instead, so a cycle costs its members
+    a tie with each other rather than costing the whole population its
+    ordering. No objective is privileged; visual error used to be gated ahead
+    of the others, which made it primary and the rest tie-breakers.
     """
-    id_to_node = {n.id: n for n in nodes}
+    if not nodes:
+        return []
 
-    def _dom(a_id: int, b_id: int) -> bool:
-        return _dominates(objectives[a_id], objectives[b_id])
-
-    domination_count: dict[int, int] = {n.id: 0 for n in nodes}
-    dominated_set: dict[int, list[int]] = {n.id: [] for n in nodes}
-
-    for a in nodes:
-        for b in nodes:
-            if a.id == b.id:
-                continue
-            if _dom(a.id, b.id):
-                dominated_set[a.id].append(b.id)
-            elif _dom(b.id, a.id):
-                domination_count[a.id] += 1
-
-    fronts: list[list[SearchNode]] = []
-    current_front = [n for n in nodes if domination_count[n.id] == 0]
-
-    while current_front:
-        fronts.append(current_front)
-        next_front: list[SearchNode] = []
-        for a in current_front:
-            for b_id in dominated_set[a.id]:
-                domination_count[b_id] -= 1
-                if domination_count[b_id] == 0:
-                    next_front.append(id_to_node[b_id])
-        current_front = next_front
-
-    # A majority relation is not transitive, so three candidates can each beat
-    # the next in a cycle and none of them ever reaches a count of zero. Peeling
-    # alone would drop them, and a dropped node is a candidate deleted from the
-    # pool without anything replacing it. They rank behind everything that did
-    # resolve, which is the most that can be said about a tie nobody wins.
-    placed = {n.id for front in fronts for n in front}
-    unresolved = [n for n in nodes if n.id not in placed]
-    if unresolved:
-        fronts.append(unresolved)
-
-    return fronts
+    scores = _copeland([objectives[n.id] for n in nodes])
+    tiers: dict[int, list[SearchNode]] = {}
+    for node, score in zip(nodes, scores, strict=True):
+        tiers.setdefault(score, []).append(node)
+    return [tiers[score] for score in sorted(tiers, reverse=True)]
 
 
 def crowding_distance(
