@@ -15,7 +15,6 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm import LLMConfig, get_provider
-from vectrify.score.complexity import measure_all
 from vectrify.search import INVALID_SCORE, Result
 from vectrify.search.diversity import simhash
 from vectrify.utils import setup_worker_logger
@@ -173,7 +172,6 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                 out_w=ctx.original_w,
                 out_h=ctx.original_h,
             )
-            metrics = measure_all(png, content)
             signature = simhash(content)
 
             full_img = Image.open(io.BytesIO(png)).convert("RGB")
@@ -195,7 +193,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         raster_preview_data_url=preview_data_url,
                     ),
                     secondary_parent_id=task.secondary_parent_id,
-                    metrics=metrics,
+                    metrics={},
                     signature=signature,
                     llm_type=llm_type,
                     # What actually ran, not what was asked for: crossover can

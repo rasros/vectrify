@@ -8,8 +8,8 @@ from PIL import Image
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
 from vectrify.score.compare import compare
-from vectrify.score.complexity import COLOUR, EDGE, measure_all
 from vectrify.score.edges import overlap_distance
+from vectrify.score.metrics import COLOUR, EDGE
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -47,7 +47,7 @@ def prefilter_nodes(
     original_img: Image.Image,
     max_keep: int,
 ) -> list[PreppedNode]:
-    """Reduce candidates using SimpleFallbackScorer + a complexity Pareto front.
+    """Reduce candidates using SimpleFallbackScorer + a front over the metrics.
 
     Returns at most max_keep entries from the Pareto-optimal front. This selects
     on the same objectives the search itself uses, so a cheap prefilter cannot
@@ -119,7 +119,7 @@ def resume_nodes(
             content=content_text,
             png=png,
             preview_data_url=make_preview_data_url(png, resolution_llm),
-            metrics=measure_all(png, content_text),
+            metrics={},
             signature=sig,
         )
 
@@ -135,7 +135,7 @@ def resume_nodes(
     if len(prepped) > 2 * pool_size:
         log.info(
             f"Pre-filtering {len(prepped)} resume nodes "
-            f"to {2 * pool_size} using simple scorer + complexity Pareto front..."
+            f"to {2 * pool_size} using simple scorer + metric front..."
         )
         prepped = prefilter_nodes(prepped, original_img, 2 * pool_size)
         log.info(f"Pre-filter done: {len(prepped)} nodes selected.")

@@ -100,8 +100,8 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
     assert row["id"] == "42"
     assert row["epoch"] == "0"
     assert row["summary"] == "Fixed circle"
-    assert row["zip_complexity"] == "0"
-    assert row["node_complexity"] == "0"
+    assert row["edge"] == "0"
+    assert row["colour"] == "0"
     expected_md5 = hashlib.md5(b"<svg><circle r='10'/></svg>").hexdigest()
     assert row["content_md5"] == expected_md5
     assert row["evicted"] == ""  # empty until evicted
@@ -124,7 +124,7 @@ def test_eviction_row_lands_in_the_evicted_column(tmp_path, dummy_node):
     # content_md5, which is where a hand-built positional row would have put it.
     assert eviction["content_md5"] == ""
     assert eviction["score"] == ""
-    assert eviction["node_complexity"] == ""
+    assert eviction["colour"] == ""
 
 
 def test_load_resume_nodes(tmp_path):
