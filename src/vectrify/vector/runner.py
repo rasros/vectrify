@@ -307,25 +307,31 @@ def run_vector_search(
         log_queue=log_queue,
     )
 
-    def score_fn(res):
-        png = res.payload.raster_png
-        if not png:
-            return loop_scorer.score(loop_ref, png)
-
+    def score_fn(results):
         # Three objectives of different kinds, so that a majority of them is
         # right more often than the best of them alone: the embedding is the
         # score, and one comparison supplies the structural and chromatic
         # measures beside it.
-        try:
-            comparison = compare(pixel_ref, png)
-            res.metrics[EDGE] = overlap_distance(
-                comparison.reference_edges, comparison.candidate_edges
-            )
-            res.metrics[COLOUR] = float(comparison.colour.mean())
-        except Exception as exc:
-            log.debug(f"Pixel objectives skipped: {exc}")
+        for res in results:
+            png = res.payload.raster_png
+            if not png:
+                continue
+            try:
+                comparison = compare(pixel_ref, png)
+                res.metrics[EDGE] = overlap_distance(
+                    comparison.reference_edges, comparison.candidate_edges
+                )
+                res.metrics[COLOUR] = float(comparison.colour.mean())
+            except Exception as exc:
+                log.debug(f"Pixel objectives skipped: {exc}")
 
-        return loop_scorer.score(loop_ref, png)
+        # The embedding runs once for the whole batch, which is where the round
+        # spends most of its scoring time.
+        scores = loop_scorer.score_many(
+            loop_ref, [res.payload.raster_png for res in results]
+        )
+        for res, score in zip(results, scores, strict=True):
+            res.score = score
 
     if dashboard is not None:
         logging.getLogger().addHandler(dashboard.log_handler)

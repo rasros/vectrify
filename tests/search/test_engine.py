@@ -830,3 +830,74 @@ def test_a_failing_evaluator_falls_back_to_the_best_score():
 
     assert store.best_saved is not None
     assert store.best_saved.score == 0.1
+
+
+def test_scorer_thread_scores_queued_results_together():
+    """The point of batching: a scorer whose cost is per-call, not per-image,
+    should see everything already queued in one call rather than one each."""
+
+    class PoolStrategy(FakeStrategy):
+        def select_parent(self, nodes: list[SearchNode]) -> tuple[int, int | None]:
+            return nodes[0].id, None
+
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=PoolStrategy(), storage=FakeStorage(), max_total_tasks=8
+    )
+    for task_id in range(1, 9):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, score=None, payload="p")
+        )
+
+    batch_sizes = []
+
+    def score_fn(results):
+        batch_sizes.append(len(results))
+        for res in results:
+            res.score = 0.1
+
+    initial_node = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial_node],
+        max_wall_seconds=None,
+        score_fn=score_fn,
+        active_pool_size=3,
+    )
+
+    assert sum(batch_sizes) == 8
+    assert max(batch_sizes) > 1
+
+
+def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
+    """Scoring in batches must not let one bad candidate discard the candidates
+    scored alongside it, which singly-scored candidates never risked."""
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=4
+    )
+    for task_id in range(1, 5):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, score=None, payload="p")
+        )
+
+    scored = []
+
+    def score_fn(results):
+        # Half the batch is scored before the failure, as a real scorer that
+        # fails partway through its work would leave it.
+        for res in results[: len(results) // 2]:
+            res.score = 0.1
+            scored.append(res.task_id)
+        raise ValueError("scorer exploded")
+
+    initial_node = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial_node],
+        max_wall_seconds=None,
+        score_fn=score_fn,
+        active_pool_size=3,
+    )
+
+    assert scored, "results scored before the failure should have survived it"

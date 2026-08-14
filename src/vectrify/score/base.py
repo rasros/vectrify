@@ -37,6 +37,16 @@ class Scorer(ABC):
     @abstractmethod
     def score(self, reference: Any, candidate_png: bytes) -> float: ...
 
+    def score_many(self, reference: Any, candidate_pngs: list[bytes]) -> list[float]:
+        """Score several candidates at once.
+
+        Defaults to scoring them one by one, which is what a scorer with no
+        fixed per-call overhead wants. A model-backed scorer overrides this:
+        its cost is dominated by the forward pass, so one pass over a batch is
+        far cheaper than a pass each.
+        """
+        return [self.score(reference, png) for png in candidate_pngs]
+
     def diff_heatmap(
         self,
         reference: Any,
