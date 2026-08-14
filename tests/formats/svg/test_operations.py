@@ -487,10 +487,11 @@ def test_crossover_keeps_every_element_of_the_first_parent():
         assert len(re.findall(r"<[a-zA-Z]", child)) == len(re.findall(r"<[a-zA-Z]", a))
 
 
-def test_crossover_refuses_parents_that_decompose_differently():
-    """One drawing splits a blade into two paths where the other uses one, so
-    no element-wise swap between them is meaningful -- taking the whole blade
-    in exchange for half of it emptied the drawing."""
+def test_crossover_will_not_swap_an_element_for_a_piece_of_itself():
+    """One drawing splits a blade into two paths where the other uses one.
+    Half a blade covers half of the whole blade, which is enough overlap to
+    look like a match, and taking the whole in exchange for the half is how a
+    drawing loses content."""
     one_piece = (
         f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
         '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
@@ -505,7 +506,9 @@ def test_crossover_refuses_parents_that_decompose_differently():
         "</svg>"
     )
 
-    assert crossover(one_piece, two_pieces) == one_piece
+    for seed in range(20):
+        random.seed(seed)
+        assert 'width="24"' not in crossover(one_piece, two_pieces)
 
 
 def test_crossover_swaps_matching_elements_between_parents():

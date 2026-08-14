@@ -193,15 +193,14 @@ def with_retries(
 
 
 # How much two elements must overlap to count as the same thing. Below this
-# they are separate features that happen to sit near each other.
-_MATCH_OVERLAP = 0.4
-
-# How much of each parent must find a partner before the two are considered the
-# same drawing. Below this they decompose the picture differently -- one splits
-# a leaf blade into two paths where the other uses one -- and no element-wise
-# swap between them is meaningful: taking the whole blade in exchange for half
-# of it emptied the drawing.
-_CORRESPONDENCE = 0.8
+# they are separate features that happen to sit near each other, or one is a
+# piece of the other: half a blade covers 0.5 of the whole blade, and swapping
+# the whole for the half is how a picture loses content. It also carries the
+# safety the old whole-document correspondence gate used to provide, at a
+# fraction of its cost -- that gate demanded 80% of both parents find partners,
+# which no seed pair in the corpus managed on four of six cases, so crossover
+# never ran there at all.
+_MATCH_OVERLAP = 0.7
 
 
 def _rebuild(root: ET.Element, units: list[tuple[tuple, ET.Element]]) -> str:
@@ -229,11 +228,11 @@ def crossover(svg_a: str, svg_b: str) -> str:
     Recombination needs to know which element of A corresponds to which element
     of B, and every cheap answer is wrong here. Document order assumes the
     parents list their elements in the same sequence, which independent
-    drawings do not -- splicing by index dropped 23 circles and 16 numerals
-    from a 63-element seed. Element type assumes they encode things the same
-    way, but a dot is a <circle> in one lineage and a <path> in another.
-    Canvas region assumes a geometry that has to be guessed, and guessing it
-    wrongly empties whole drawings.
+    drawings do not -- splicing by index left children holding a fraction of
+    the elements they started with. Element type assumes they encode things
+    the same way, but a dot is a <circle> in one lineage and a <path> in
+    another. Canvas region assumes a geometry that has to be guessed, and
+    guessing it wrongly empties whole drawings.
 
     What the parents do share is the picture, so elements are matched on the
     pixels they own in the finished render -- occlusion included, so a ring
@@ -273,13 +272,7 @@ def crossover(svg_a: str, svg_b: str) -> str:
         if random.random() < 0.5:
             swapped[i] = j
 
-    drawn_a = sum(1 for i in range(len(units_a)) if (labels_a == i).any())
-    drawn_b = sum(1 for j in range(len(units_b)) if (labels_b == j).any())
-    covered = min(
-        len(taken_a) / max(drawn_a, 1),
-        len(taken_b) / max(drawn_b, 1),
-    )
-    if covered < _CORRESPONDENCE or not swapped:
+    if not swapped:
         return svg_a
 
     kept = [
