@@ -73,10 +73,21 @@ class EmbeddingScorer(Scorer):
             enabled=self._device_str == "cuda",
         )
         with self._torch.no_grad(), autocast:
-            result = self._model(pixel_values=pixel_values)
-        features = getattr(result, "pooler_output", None)
-        if features is None:
-            features = result.last_hidden_state.mean(dim=1)
+            # A CLIP or SigLIP checkpoint is a two-tower model whose forward
+            # wants text as well, so the image tower has to be asked for
+            # directly; DINOv2 has no such method and answers a plain forward.
+            if hasattr(self._model, "get_image_features"):
+                features = self._model.get_image_features(pixel_values=pixel_values)
+            else:
+                features = self._model(pixel_values=pixel_values)
+
+        # Depending on the checkpoint this is already a tensor, a pooled output
+        # wrapper, or only per-patch states that have to be pooled here.
+        if not isinstance(features, self._torch.Tensor):
+            pooled = getattr(features, "pooler_output", None)
+            features = (
+                pooled if pooled is not None else features.last_hidden_state.mean(dim=1)
+            )
         return functional.normalize(features.float(), dim=-1)
 
     def validate_environment(self) -> None:

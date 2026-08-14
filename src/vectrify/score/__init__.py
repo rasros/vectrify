@@ -3,6 +3,7 @@ from collections.abc import Callable
 from enum import Enum
 
 from vectrify.score.base import ScoreConfig, Scorer
+from vectrify.score.ensemble import EnsembleScorer
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.score.vision import DEFAULT_VISION_MODEL, VisionScorer
 
@@ -11,6 +12,7 @@ log = logging.getLogger(__name__)
 
 class ScorerType(str, Enum):
     AUTO = "auto"
+    PANEL = "panel"
     VISION = "vision"
     SIMPLE = "simple"
 
@@ -28,6 +30,7 @@ def get_scorer(
     # Every scorer takes different construction arguments, so the registry
     # holds thunks rather than classes.
     builders: dict[ScorerType, Callable[[], Scorer]] = {
+        ScorerType.PANEL: EnsembleScorer,
         ScorerType.VISION: lambda: VisionScorer(model_name=vision_model),
         ScorerType.SIMPLE: SimpleFallbackScorer,
     }
@@ -36,11 +39,11 @@ def get_scorer(
         log.info(f"Using {scorer_type.value} scorer.")
         return builders[scorer_type]()
 
-    log.info("AUTO mode: Attempting to initialize vision scorer...")
+    log.info("AUTO mode: Attempting to initialize the evaluator panel...")
     try:
-        scorer = VisionScorer(model_name=vision_model)
+        scorer = EnsembleScorer()
         scorer.validate_environment()
-        log.info("AUTO: Vision scorer initialized successfully.")
+        log.info("AUTO: Evaluator panel initialized successfully.")
         return scorer
     except Exception as e:
         log.warning(

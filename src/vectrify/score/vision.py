@@ -17,7 +17,13 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-DEFAULT_VISION_MODEL = "google/siglip-so400m-patch14-384"
+# Only used by --scorer vision, which pits a single encoder against the field
+# where the default panel votes. SigLIP-so400m held this slot because the
+# alternatives were screened by correlating them against SigLIP, which made it
+# the winner by construction; on MIEB's NIGHTS task, built on human similarity
+# judgements, it places near the bottom of 55 models where dinov2-small places
+# fifth.
+DEFAULT_VISION_MODEL = "facebook/dinov2-small"
 
 
 @dataclass

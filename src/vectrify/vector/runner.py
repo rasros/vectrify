@@ -243,19 +243,39 @@ def run_vector_search(
         only kept when --write-lineage or --save-raster is on.
         """
         scorer, ref = _front_scorer()
-        scored: list[tuple[float, SearchNode]] = []
+        renders: list[tuple[bytes, SearchNode]] = []
         for node in nodes:
             content = getattr(node.state.payload, "content", None)
             if not content:
                 continue
             try:
-                png = format_plugin.rasterize(
-                    content, out_w=original_w, out_h=original_h
+                renders.append(
+                    (
+                        format_plugin.rasterize(
+                            content, out_w=original_w, out_h=original_h
+                        ),
+                        node,
+                    )
                 )
-                value = scorer.score(ref, png)
             except Exception as exc:
                 log.debug(f"Front evaluation skipped node {node.id}: {exc}")
-                continue
+
+        if not renders:
+            return nodes
+
+        pngs = [png for png, _ in renders]
+        try:
+            # A panel ranks the field as a whole, because a majority vote needs
+            # candidates to compare; a single scorer just scores each one.
+            values = scorer.rank(ref, pngs)
+        except AttributeError:
+            values = [scorer.score(ref, png) for png in pngs]
+        except Exception as exc:
+            log.warning(f"Front evaluation failed, keeping round order: {exc}")
+            return nodes
+
+        scored: list[tuple[float, SearchNode]] = []
+        for value, (_png, node) in zip(values, renders, strict=True):
             node.metrics[FRONT_SCORE] = value
             scored.append((value, node))
 

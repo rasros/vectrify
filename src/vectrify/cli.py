@@ -137,8 +137,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         type=str,
         choices=[e.value for e in ScorerType],
         default=DEFAULT_SCORER,
-        help="Perceptual scorer. 'auto' uses 'vision' if torch+transformers "
-        f"are installed, else 'simple'. Default: {DEFAULT_SCORER}",
+        help="Front evaluator, which orders a converged front. 'panel' puts "
+        "every pair to five image encoders and takes the majority; 'vision' "
+        "uses one encoder; 'auto' uses 'panel' if torch+transformers are "
+        f"installed, else 'simple'. Default: {DEFAULT_SCORER}",
     )
     g_score.add_argument(
         "--vision-model",
@@ -146,7 +148,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_VISION_MODEL,
         dest="vision_model",
         metavar="HF_REPO",
-        help="HuggingFace model id for the vision scorer (CLIP/SigLIP-style). "
+        help="HuggingFace model id for the vision scorer, any image encoder "
+        "transformers can load. "
         f"Default: {DEFAULT_VISION_MODEL}",
     )
 

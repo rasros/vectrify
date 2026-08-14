@@ -460,9 +460,7 @@ def plot_summary_text(
         if top10:
             lines.append("")
             lines.append(f"  pareto top 10{pool_note}:")
-            metric_head = "".join(
-                f"  {m:>9}" for m in METRIC_NAMES
-            )
+            metric_head = "".join(f"  {m:>9}" for m in METRIC_NAMES)
             lines.append(f"  {'#':>2}  {'id':>6}  {'score':>10}{metric_head}  ep")
             for rank, node in enumerate(top10, 1):
                 # `.4g` keeps the byte-count metrics readable while still

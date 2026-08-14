@@ -43,7 +43,7 @@ extras add the rest:
 
 | Extra    | What it adds                                                   |
 |----------|----------------------------------------------------------------|
-| vision   | torch + transformers for the perceptual (CLIP/SigLIP) scorer   |
+| vision   | torch + transformers for the perceptual (image encoder) scorer |
 | graphviz | the graphviz Python bindings (system Graphviz still required)  |
 | typst    | the typst Python compiler                                      |
 | all      | vision + graphviz + typst                                      |
