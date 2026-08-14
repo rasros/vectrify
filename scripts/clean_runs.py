@@ -62,11 +62,11 @@ def collect_node_files(nodes_dir: Path) -> list[dict]:
     return nodes
 
 
-def load_complexities_from_lineage(lineage_csv: Path, nodes: list[dict]) -> None:
+def load_metrics_from_lineage(lineage_csv: Path, nodes: list[dict]) -> None:
     """Fill in every registered metric from lineage.csv where available.
 
-    Columns and legacy mapping both come from the metric registry, so a newly
-    registered metric is picked up without editing this function.
+    Columns come from the metric registry, so a newly registered metric is
+    picked up without editing this function.
     """
     if not lineage_csv.exists():
         return
@@ -101,7 +101,7 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
     if not nodes:
         return 0, 0
 
-    load_complexities_from_lineage(run_dir / "lineage.csv", nodes)
+    load_metrics_from_lineage(run_dir / "lineage.csv", nodes)
     for node in nodes:
         for name in METRIC_NAMES:
             if node[name] is None:

@@ -157,8 +157,7 @@ def load_lineage(run_dir: Path) -> list[dict]:
                         "parent": int(row["parent"]),
                         "epoch": int(row.get("epoch", 0) or 0),
                         "score": float(row["score"]),
-                        # Metric columns and the pre-split legacy mapping both
-                        # come from the registry.
+                        # Metric columns come from the registry.
                         **read_metrics(row),
                     }
                 )
@@ -243,35 +242,6 @@ PARETO_COLORS = [
 
 
 @functools.cache
-def uses_legacy_metrics(run_dir: Path) -> bool:
-    """True if this run's lineage.csv predates the current objectives.
-
-    Such a run carries columns that are not on the same scale as the ones drawn
-    now -- the score was a pixel measure rather than an embedding distance, and
-    the objectives beside it were different measures entirely.
-    """
-    path = run_dir / "lineage.csv"
-    if not path.exists():
-        return False
-    with path.open(encoding="utf-8", newline="") as f:
-        header = next(csv.reader(f), [])
-    # Any run whose lineage predates the current objective set. The objectives
-    # were replaced -- the score is an embedding distance now, beside a
-    # structural and a chromatic measure -- so the two cannot share an axis.
-    return "edge" not in header
-
-
-def _label(run_dir: Path) -> str:
-    """Legend label, flagged when the run's metric scale is not comparable.
-
-    Overlaying old and new runs on one axis silently mixes scales, so
-    say so on the artifact rather than drawing them as if they matched.
-    """
-    if uses_legacy_metrics(run_dir):
-        return f"{run_dir.name} (legacy metrics)"
-    return run_dir.name
-
-
 def plot_score_history(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
     ax.set_title("Best score over time")
     ax.set_xlabel("Elapsed (s)")
@@ -285,7 +255,7 @@ def plot_score_history(ax, runs: list[tuple[Path, dict]], lineages: list[list[di
         xs = [0.0] + [t for t, _ in history]
         ys = [history[0][1]] + [s for _, s in history]
         color = COLORS[i % len(COLORS)]
-        ax.step(xs, ys, where="post", color=color, label=_label(run_dir), linewidth=1.5)
+        ax.step(xs, ys, where="post", color=color, label=run_dir.name, linewidth=1.5)
         ax.scatter(
             [t for t, _ in history],
             [s for _, s in history],
@@ -344,7 +314,7 @@ def plot_pareto(
             s=6,
             alpha=0.3,
             color=color,
-            label=_label(run_dir) if len(runs) > 1 else None,
+            label=run_dir.name if len(runs) > 1 else None,
         )
 
         top10 = _pareto_top10(lin, pool_ids)
@@ -401,7 +371,7 @@ def plot_convergence(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict
             diversities,
             color=color_div,
             linewidth=1.2,
-            label=f"{_label(run_dir)} diversity",
+            label=f"{run_dir.name} diversity",
         )
         ax2.plot(
             xs,
@@ -409,7 +379,7 @@ def plot_convergence(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict
             color=color_std,
             linewidth=1.2,
             linestyle="--",
-            label=f"{_label(run_dir)} score variance",
+            label=f"{run_dir.name} score variance",
         )
 
         prev_epoch = ch[0][3] if ch else 0
@@ -451,7 +421,7 @@ def plot_summary_text(
             continue
         best = stats.get("best_score")
         best_str = f"{best:.6f}" if best is not None and best < float("inf") else "—"
-        lines.append(f"[{_label(run_dir)}]")
+        lines.append(f"[{run_dir.name}]")
         lines.append(f"  best score      {best_str}")
         lines.append(f"  elapsed         {stats.get('elapsed_seconds', 0):.0f}s")
         lines.append(f"  tasks           {int(stats.get('tasks_completed') or 0):,}")

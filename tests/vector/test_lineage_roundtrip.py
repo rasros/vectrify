@@ -90,10 +90,10 @@ def test_eviction_round_trips_into_the_final_pool(written_run):
 
 
 def test_clean_runs_reads_back_what_storage_wrote(written_run):
-    from clean_runs import collect_node_files, load_complexities_from_lineage
+    from clean_runs import collect_node_files, load_metrics_from_lineage
 
     nodes = collect_node_files(written_run / "nodes")
-    load_complexities_from_lineage(written_run / "lineage.csv", nodes)
+    load_metrics_from_lineage(written_run / "lineage.csv", nodes)
     by_id = {n["id"]: n for n in nodes}
 
     assert by_id[1]["edge"] == pytest.approx(1000.0)
@@ -102,23 +102,3 @@ def test_clean_runs_reads_back_what_storage_wrote(written_run):
     assert by_id[2]["colour"] == pytest.approx(800.0)
 
 
-def test_legacy_runs_are_labelled_in_plots(tmp_path):
-    from plot_run import _label, uses_legacy_metrics
-
-    legacy = tmp_path / "runs" / "2026-01-01_00-00-00"
-    legacy.mkdir(parents=True)
-    (legacy / "lineage.csv").write_text(
-        "id,parent,secondary_parent,epoch,score,complexity,summary,content_md5,evicted\n"
-        "1,0,,0,0.400000,1500,seed,abc,\n",
-        encoding="utf-8",
-    )
-
-    assert uses_legacy_metrics(legacy) is True
-    assert "legacy metrics" in _label(legacy)
-
-
-def test_current_runs_are_not_labelled_legacy(written_run):
-    from plot_run import _label, uses_legacy_metrics
-
-    assert uses_legacy_metrics(written_run) is False
-    assert _label(written_run) == written_run.name
