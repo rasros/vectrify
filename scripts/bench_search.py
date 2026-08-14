@@ -96,11 +96,13 @@ def vision_score(target_png: Path, artifact: Path, resolution: int) -> float:
     from PIL import Image
 
     from vectrify.image_utils import resize_long_side
-    from vectrify.score.vision import VisionScorer
+    from vectrify.score.ensemble import EnsembleScorer
 
     scorer = _VISION.get("scorer")
     if scorer is None:
-        scorer = VisionScorer()
+        # The same panel the run is judged by. A finished artifact is a single
+        # candidate, so there is no vote to take and this is the panel's mean.
+        scorer = EnsembleScorer()
         _VISION["scorer"] = scorer
 
     key = str(target_png)
