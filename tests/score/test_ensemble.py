@@ -82,3 +82,39 @@ def test_a_single_candidate_falls_back_to_the_mean_distance():
 
     assert scorer.rank(reference, [b"0"]) == [(0.2 + 0.4) / 2]
     assert scorer.rank(reference, []) == []
+
+
+def test_a_tie_on_votes_is_settled_by_mean_rank():
+    """Wins are integers, so a front of tens ties often, and the caller keeps
+    only the best few as parents. Leaving ties to fall through to pool order
+    would decide the next epoch arbitrarily."""
+    # Every member ranks 0 and 1 adjacently but 2 last, so 0 and 1 tie on wins
+    # against each other while every member places 0 ahead of 1.
+    scorer, reference = _panel(
+        [0.10, 0.11, 0.90],
+        [0.10, 0.11, 0.90],
+        [0.10, 0.11, 0.90],
+    )
+
+    ranked = scorer.rank(reference, CANDIDATES)
+
+    assert ranked[0] < ranked[1] < ranked[2]
+    assert len(set(ranked)) == 3, "candidates were left tied"
+
+
+def test_the_tie_break_never_overrides_a_vote():
+    """A candidate the majority puts ahead must stay ahead however lopsided the
+    mean ranks are, or the tie-break has quietly become the ranking."""
+    # 0 wins the majority (three members of five), while the two dissenting
+    # members rank it dead last by a wide margin.
+    scorer, reference = _panel(
+        [0.10, 0.20, 0.30],
+        [0.10, 0.20, 0.30],
+        [0.10, 0.20, 0.30],
+        [0.99, 0.01, 0.02],
+        [0.99, 0.01, 0.02],
+    )
+
+    ranked = scorer.rank(reference, CANDIDATES)
+
+    assert ranked[0] < ranked[1], "the tie-break reordered across a majority"
