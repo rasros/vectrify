@@ -316,6 +316,17 @@ def mutate_numeric(root: ET.Element) -> None:
     factor = random.uniform(0.7, 1.3)
     new_num = num * factor
 
+    if not unit and num == int(num) and new_num >= 0:
+        rounded = round(new_num)
+        if rounded == num:
+            # A proportional nudge cannot move a small integer once it is
+            # rounded back: rx="1" maps to 1 for every factor in the range, so
+            # a rounded corner that drifted down to 1 stays square forever, and
+            # 0 is worse still. Step by one in the direction the factor chose,
+            # so small values are as free to grow as to shrink.
+            rounded = max(0, int(num) + (1 if factor >= 1.0 else -1))
+        new_num = float(rounded)
+
     if "opacity" in attr:
         new_num = max(0.0, min(1.0, new_num))
 

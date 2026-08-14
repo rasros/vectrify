@@ -526,3 +526,25 @@ def test_crossover_swaps_matching_elements_between_parents():
     )
 
     assert any("#0000ff" in crossover(red, blue) for _ in range(20))
+
+
+def test_a_small_integer_attribute_can_still_grow():
+    """A proportional nudge rounded back to an integer cannot move a value of
+    1: every factor in the range maps it to 1 again. A rounded corner that
+    drifted down to rx="1" was square for the rest of the run, with no mutation
+    able to undo it."""
+    svg = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="8" y="8" width="28" height="18" rx="1" ry="9" fill="#eb93a6"/>'
+        "</svg>"
+    )
+
+    seen = set()
+    for seed in range(60):
+        random.seed(seed)
+        out = mutate_numeric(svg)
+        found = re.search(r'rx="(\d+)"', out)
+        if found:
+            seen.add(int(found.group(1)))
+
+    assert max(seen) > 1, f"rx never grew past 1, only saw {sorted(seen)}"
