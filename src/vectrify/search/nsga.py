@@ -287,7 +287,18 @@ class NsgaStrategy(Generic[TState]):
         if len(valid) <= max_keep:
             invalid = [n for n in nodes if n.score >= INVALID_SCORE]
             return valid + invalid[: max_keep - len(valid)]
-        return pareto_select(valid, build_objectives(valid), max_keep)
+
+        survivors = pareto_select(valid, build_objectives(valid), max_keep)
+
+        # Elitism, which NSGA-II normally gets for free: under Pareto dominance
+        # the best node is in front 0 by construction, but the majority
+        # relation can outvote it two objectives to one and evict it. Measured,
+        # it did -- a generation dropped the run's best candidate and the pool
+        # never recovered its score. The best node keeps its place explicitly.
+        best = min(valid, key=lambda n: n.score)
+        if best.id not in {n.id for n in survivors}:
+            survivors[-1] = best
+        return survivors
 
     def epoch_parents(
         self, pool: list[SearchNode[TState]], max_parents: int
