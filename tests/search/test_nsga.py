@@ -31,16 +31,32 @@ def make_node(
     )
 
 
-def test_dominates_honours_every_objective():
-    """Regression: the comparison used to hardcode indices 0 and 1, so a third
-    objective was silently ignored and a worse vector could 'dominate'."""
-    # Better in the first two, worse in the third -> not dominance.
-    assert not _dominates((0.1, 0.1, 0.9), (0.2, 0.2, 0.1))
+def test_dominates_is_decided_by_a_majority_of_the_objectives():
+    """Unanimity leaves almost nothing dominating anything, so rank stops
+    separating candidates and crowding distance decides survival instead."""
+    # Wins two, loses one -> a majority, so it dominates.
+    assert _dominates((0.1, 0.1, 0.9), (0.2, 0.2, 0.1))
     assert not _dominates((0.2, 0.2, 0.1), (0.1, 0.1, 0.9))
-    # Better in all three -> dominance.
+    # Better in all three.
     assert _dominates((0.1, 0.1, 0.1), (0.2, 0.2, 0.2))
-    # Equal in two, strictly better in the third -> dominance.
+    # Equal in two, better in the third: one win, no losses.
     assert _dominates((0.2, 0.2, 0.1), (0.2, 0.2, 0.2))
+    # One win against one loss is not a majority.
+    assert not _dominates((0.1, 0.2, 0.5), (0.2, 0.1, 0.5))
+
+
+def test_a_cycle_of_majorities_still_leaves_every_node_ranked():
+    """A majority relation is not transitive: three candidates can each beat
+    the next. Peeling fronts alone would never place them, and a node dropped
+    from the sort is one deleted from the pool with nothing replacing it."""
+    nodes = [make_node(i, float(i)) for i in range(1, 4)]
+    objectives = {
+        1: (0.0, 1.0, 2.0),
+        2: (2.0, 0.0, 1.0),
+        3: (1.0, 2.0, 0.0),
+    }
+    fronts = non_dominated_sort(nodes, objectives)
+    assert sorted(n.id for front in fronts for n in front) == [1, 2, 3]
 
 
 @pytest.mark.parametrize("arity", [1, 2, 3, 5])
@@ -57,16 +73,16 @@ def test_dominates_rejects_mismatched_arity():
         _dominates((0.1, 0.2), (0.1, 0.2, 0.3))
 
 
-def test_pareto_front_supports_three_objectives():
+def test_front_keeps_what_a_majority_cannot_beat():
     items = [
-        {"n": "best", "o": (0.1, 0.1, 0.1)},
-        {"n": "dominated", "o": (0.2, 0.2, 0.2)},
-        # Worse on the first two but best on the third -> incomparable, so it
-        # survives only if the third objective is actually considered.
-        {"n": "third_only", "o": (0.9, 0.9, 0.0)},
+        # One win and one loss against each other, so neither takes a majority.
+        {"n": "sharper", "o": (0.1, 0.9, 0.5)},
+        {"n": "truer_colour", "o": (0.9, 0.1, 0.5)},
+        # Loses a majority to both.
+        {"n": "beaten", "o": (0.2, 0.95, 0.6)},
     ]
     front = pareto_front(items, key=lambda it: it["o"])
-    assert {it["n"] for it in front} == {"best", "third_only"}
+    assert {it["n"] for it in front} == {"sharper", "truer_colour"}
 
 
 def test_non_dominated_sort_with_three_objectives():
@@ -477,19 +493,18 @@ def test_untracked_lineage_leaves_crossover_enabled():
     assert any(strategy.select_parent(nodes)[1] is not None for _ in range(20))
 
 
-def test_select_survivors_keeps_a_node_no_other_dominates():
-    """Regression: survival used to evict the worst score outright, so the four
-    objectives only reached parent selection and the pool collapsed onto L1."""
+def test_select_survivors_does_not_simply_keep_the_best_score():
+    """Regression: survival used to evict the worst score outright, so the other
+    objectives only reached parent selection and the pool collapsed onto one
+    measure. A candidate carrying the worst score still wins if it takes the
+    majority of the rest."""
     strategy = NsgaStrategy()
-    best_score = make_node(1, 0.1, edge=0.5, colour=0.5)
-    dominated = make_node(2, 0.2, edge=0.6, colour=0.6)
-    worst_score = make_node(3, 0.9, edge=0.9, colour=0.1)
+    best_score = make_node(1, 0.1, edge=0.9, colour=0.9)
+    wins_the_rest = make_node(2, 0.9, edge=0.1, colour=0.1)
 
-    kept = {
-        n.id for n in strategy.select_survivors([best_score, dominated, worst_score], 2)
-    }
+    kept = {n.id for n in strategy.select_survivors([best_score, wins_the_rest], 1)}
 
-    assert kept == {1, 3}
+    assert kept == {2}
 
 
 def test_select_survivors_drops_unscored_nodes_first():
