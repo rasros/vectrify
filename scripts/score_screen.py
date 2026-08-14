@@ -30,10 +30,36 @@ from vectrify.image_utils import resize_long_side
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
 from vectrify.score.edges import edge_score
-from vectrify.score.regions import grid_boxes, worst_region_score
 from vectrify.score.utils import color_score, lab_array
 
 REPO = Path(__file__).resolve().parent.parent
+
+# Kept here rather than in the package: the product no longer scores by region,
+# and these exist only so region-based measures stay screenable against the ones
+# that replaced them.
+WORST_FRACTION = 0.01
+MIN_WORST_REGIONS = 4
+
+
+def grid_boxes(size: tuple[int, int], cells: int) -> list[tuple[int, int, int, int]]:
+    """*cells* x *cells* boxes tiling the image."""
+    width, height = size
+    step_x, step_y = max(1, width // cells), max(1, height // cells)
+    return [
+        (x, y, min(x + step_x, width), min(y + step_y, height))
+        for y in range(0, height - step_y + 1, step_y)
+        for x in range(0, width - step_x + 1, step_x)
+    ]
+
+
+def worst_region_score(grid: np.ndarray) -> float:
+    """Mean over the worst k regions -- not the single maximum, which is noisy."""
+    flat = np.asarray(grid, dtype=np.float64).ravel()
+    if flat.size == 0:
+        return 0.0
+    keep = min(max(MIN_WORST_REGIONS, round(flat.size * WORST_FRACTION)), flat.size)
+    value = float(np.partition(flat, -keep)[-keep:].mean())
+    return value if np.isfinite(value) else 0.0
 plugin = SvgPlugin()
 
 

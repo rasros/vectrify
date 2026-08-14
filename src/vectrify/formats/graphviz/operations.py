@@ -181,13 +181,6 @@ def apply_mutation(dot: str, operator: str | None = None) -> tuple[str, str]:
     return fn(dot), name
 
 
-def render_dot_png(dot: str) -> bytes:
-    """Render DOT source to PNG bytes at graphviz's natural size."""
-    import graphviz
-
-    return graphviz.Source(dot).pipe(format="png", quiet=True)
-
-
 _ATTR_BLOCK_RE = re.compile(r"^\s*(?:node|edge|graph)\s*\[[^\]]*\];?\s*$", re.MULTILINE)
 
 
