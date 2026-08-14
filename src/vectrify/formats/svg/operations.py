@@ -438,6 +438,53 @@ def mutate_path(root: ET.Element) -> None:
     el.set("d", before + new_str + after)
 
 
+def _canvas_span(root: ET.Element) -> float:
+    """Rough canvas size, for sizing a move in the drawing's own units."""
+    box = root.get("viewBox", "").replace(",", " ").split()
+    if len(box) == 4:
+        try:
+            return max(abs(float(box[2])), abs(float(box[3]))) or 100.0
+        except ValueError:
+            pass
+    for attr in ("width", "height"):
+        m = _NUM_RE.match(root.get(attr, "").strip())
+        if m:
+            return abs(float(m.group(1))) or 100.0
+    return 100.0
+
+
+@svg_transform
+def mutate_translate(root: ET.Element) -> None:
+    """Move one element along both axes at once.
+
+    The other numeric operator scales a single attribute, which cannot express
+    a move. Scaling a coordinate makes displacement depend on distance from the
+    origin -- a dot at cx=300 jumps ten times as far as one at cx=30 for the
+    same factor -- and changing one axis at a time means a diagonally displaced
+    element has to be accepted twice to arrive, when the half-way state is
+    often no better than where it started. That is worst where elements are
+    many and small, each too slight for its own move to show in the score.
+
+    Written as a transform rather than by editing coordinates, so it applies to
+    a path or a group as readily as to a circle, and composes with whatever
+    transform the element already carries.
+    """
+    units = drawable_elements(root)
+    if not units:
+        raise _NoChangeError
+
+    element = _pick([el for _chain, el in units])
+    step = max(2.0, _canvas_span(root) * 0.05)
+    dx = random.uniform(-step, step)
+    dy = random.uniform(-step, step)
+
+    move = f"translate({dx:.2f} {dy:.2f})"
+    existing = element.get("transform", "").strip()
+    # Outermost, so the offset lands in the parent's coordinates rather than
+    # being scaled or rotated by a transform the element already had.
+    element.set("transform", f"{move} {existing}" if existing else move)
+
+
 @svg_transform
 def mutate_reorder(root: ET.Element) -> None:
     """Swap two adjacent sibling elements to change z-order."""
@@ -459,6 +506,7 @@ def mutate_reorder(root: ET.Element) -> None:
 MUTATIONS: MutationTable = (
     (mutate_color, "Mutation: color tweak", 0.25),
     (mutate_numeric, "Mutation: numeric tweak", 0.20),
+    (mutate_translate, "Mutation: moved element", 0.15),
     (mutate_path, "Mutation: path nudge", 0.15),
     (mutate_stroke, "Mutation: stroke change", 0.10),
     (mutate_reorder, "Mutation: reordered elements", 0.10),
