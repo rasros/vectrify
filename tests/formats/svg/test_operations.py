@@ -1,5 +1,6 @@
 import random
 import re
+import statistics
 import xml.etree.ElementTree as ET
 
 import pytest
@@ -368,6 +369,9 @@ def test_mutate_stroke_invalid_svg_unchanged():
 # regex written independently of the one under test.
 _NUM_TOKENS = re.compile(r"-?(?:\d+\.\d+|\.\d+|\d+)")
 SVG_PATH = f'<svg xmlns="{NS}"><path d="M 1 .5 L 10 20" fill="#123456"/></svg>'
+# No viewBox and no width on these fixtures, so the nudge falls back to the
+# default canvas span.
+_PATH_STEP = max(2.0, 100.0 * 0.03)
 
 
 def _path_numbers(svg: str) -> list[float]:
@@ -388,8 +392,9 @@ def test_mutate_path_nudges_exactly_one_coordinate():
         assert len(diffs) <= 1
         for i in diffs:
             nudged += 1
-            magnitude = max(2.0, abs(before[i]) * 0.15)
-            assert abs(after[i] - before[i]) <= magnitude + 0.05
+            # An offset, not a percentage: the step is the same for every
+            # number in the path regardless of how large it is.
+            assert abs(after[i] - before[i]) <= _PATH_STEP + 0.05
     assert nudged, "no seed ever moved a coordinate"
 
 
@@ -401,7 +406,7 @@ def test_mutate_path_separates_the_nudged_number_from_its_neighbours():
         after = _path_numbers(mutate_path(svg))
         assert len(after) == len(before)
         for a, b in zip(before, after, strict=True):
-            assert abs(b - a) <= max(2.0, abs(a) * 0.15) + 0.05
+            assert abs(b - a) <= _PATH_STEP + 0.05
 
 
 def test_mutate_path_stays_valid_svg():
@@ -591,3 +596,93 @@ def test_translate_keeps_a_transform_the_element_already_had():
 
     assert "scale(2)" in out
     assert re.search(r'transform="translate\([^)]*\) scale\(2\)"', out)
+
+
+def test_numeric_moves_a_coordinate_by_the_same_step_wherever_it_sits():
+    """Scaling a coordinate ties the step to distance from the origin: at a
+    factor of 0.7-1.3 a point at cx=20 shifts by at most 6px while one at
+    cx=380 leaps 114px. Position is an offset, not a magnitude."""
+
+    def moves(cx: float) -> list[float]:
+        svg = (
+            f'<svg xmlns="{NS}" viewBox="0 0 400 400">'
+            f'<circle cx="{cx:g}" cy="200" r="9"/></svg>'
+        )
+        out = []
+        for seed in range(200):
+            random.seed(seed)
+            found = re.search(r'\bcx="([-\d.]+)"', mutate_numeric(svg))
+            if found and float(found.group(1)) != cx:
+                out.append(abs(float(found.group(1)) - cx))
+        return out
+
+    near, far = moves(20), moves(380)
+    assert near
+    assert far
+    ratio = statistics.fmean(far) / statistics.fmean(near)
+    assert 0.8 < ratio < 1.25, f"step still depends on position (ratio {ratio:.1f})"
+
+
+def test_numeric_keeps_sizes_proportional():
+    """A 3px radius and a 90px radius must not move by the same amount, or the
+    small one is destroyed while the large one barely stirs."""
+
+    def moves(r: float) -> list[float]:
+        svg = (
+            f'<svg xmlns="{NS}" viewBox="0 0 400 400">'
+            f'<circle cx="200" cy="200" r="{r:g}"/></svg>'
+        )
+        out = []
+        for seed in range(200):
+            random.seed(seed)
+            found = re.search(r'\br="([-\d.]+)"', mutate_numeric(svg))
+            if found and float(found.group(1)) != r:
+                out.append(abs(float(found.group(1)) - r))
+        return out
+
+    assert statistics.fmean(moves(90)) > 3 * statistics.fmean(moves(3))
+
+
+def test_numeric_can_move_an_opacity_off_its_endpoint():
+    """opacity="1" is an integer, so a rounded proportional nudge only ever
+    returned 1 or 0 -- the element was fully opaque or gone."""
+    svg = (
+        f'<svg xmlns="{NS}" viewBox="0 0 400 400">'
+        '<circle cx="200" cy="200" r="9" opacity="1"/></svg>'
+    )
+
+    seen = set()
+    for seed in range(200):
+        random.seed(seed)
+        found = re.search(r'\bopacity="([-\d.]+)"', mutate_numeric(svg))
+        if found:
+            seen.add(float(found.group(1)))
+
+    assert len(seen) > 5, f"opacity only reached {sorted(seen)}"
+    assert all(0.0 <= v <= 1.0 for v in seen)
+
+
+def test_path_nudge_never_corrupts_an_arc_flag():
+    """In `A rx ry rotation large-arc sweep x y` the two flags are booleans.
+    Nudged, they become numbers like -1.8, which is not path data: the renderer
+    drops the path and the element disappears from the drawing."""
+    svg = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<path d="M16 32 A16 16 0 1 0 48 32 A16 16 0 1 0 16 32 Z"/></svg>'
+    )
+
+    changed = 0
+    for seed in range(120):
+        random.seed(seed)
+        out = mutate_path(svg)
+        found = re.search(r'd="([^"]*)"', out)
+        assert found
+        d = found.group(1)
+        changed += d not in svg
+        for arc in re.finditer(
+            r"A\s*([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)\s+([-\d.]+)", d
+        ):
+            assert arc.group(4) in ("0", "1"), f"large-arc flag corrupted: {d}"
+            assert arc.group(5) in ("0", "1"), f"sweep flag corrupted: {d}"
+
+    assert changed > 100, "skipping flags must not stop the operator working"

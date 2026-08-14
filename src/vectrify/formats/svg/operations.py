@@ -39,6 +39,16 @@ _NUMERIC_ATTRS = frozenset(
     }
 )
 
+# What an attribute means decides how it should move. A coordinate is a
+# position on the canvas, so it moves by an offset: multiplying it ties the
+# step to distance from the origin, which freezes elements near the top-left
+# and flings far ones across the drawing. A size is a magnitude, where a
+# proportional step is right -- a 3px radius and a 300px width should not both
+# move by 8px. An opacity lives in [0, 1], where multiplying either does
+# nothing at 0.05 or clips at 1.
+_POSITION_ATTRS = frozenset({"x", "y", "cx", "cy", "x1", "y1", "x2", "y2"})
+_OPACITY_ATTRS = frozenset({"opacity", "fill-opacity", "stroke-opacity"})
+
 _COLOR_ATTRS = frozenset({"fill", "stroke", "color", "stop-color"})
 
 _SHAPE_TAGS = frozenset(
@@ -78,6 +88,9 @@ _NUM_RE = re.compile(r"^(-?\d+(?:\.\d+)?)([a-z%]*)$")
 # Path data writes numbers with a leading dot and no separators ("M.5.5"), so
 # an anchorless \d+ pattern would match the middle of a coordinate pair.
 _PATH_NUM_RE = re.compile(r"(-?(?:\d+\.\d+|\.\d+|\d+))")
+# Path data as commands and numbers, so an argument can be read in the context
+# of the command it belongs to.
+_PATH_TOKEN_RE = re.compile(r"([MmLlHhVvCcSsQqTtAaZz])|(-?(?:\d+\.\d+|\.\d+|\d+))")
 _HEX_COLOR_RE = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
 
 
@@ -313,28 +326,39 @@ def mutate_numeric(root: ET.Element) -> None:
         raise _NoChangeError
 
     elem, attr, num, unit = _pick(candidates)
-    factor = random.uniform(0.7, 1.3)
-    new_num = num * factor
+    bare = attr.split("}")[-1]
+
+    if bare in _OPACITY_ATTRS:
+        # Additive and never rounded to an integer: opacity="1" would otherwise
+        # only ever be 1 or 0.
+        new_num = max(0.0, min(1.0, num + random.uniform(-0.25, 0.25)))
+        formatted = f"{new_num:.3f}".rstrip("0").rstrip(".") or "0"
+        elem.attrib[attr] = f"{formatted}{unit}"
+        return
+
+    if bare in _POSITION_ATTRS:
+        step = max(2.0, _canvas_span(root) * 0.05)
+        new_num = num + random.uniform(-step, step)
+        grew = new_num > num
+    else:
+        factor = random.uniform(0.7, 1.3)
+        new_num = num * factor
+        grew = factor >= 1.0
 
     if not unit and num == int(num) and new_num >= 0:
         rounded = round(new_num)
         if rounded == num:
-            # A proportional nudge cannot move a small integer once it is
-            # rounded back: rx="1" maps to 1 for every factor in the range, so
-            # a rounded corner that drifted down to 1 stays square forever, and
-            # 0 is worse still. Step by one in the direction the factor chose,
-            # so small values are as free to grow as to shrink.
-            rounded = max(0, int(num) + (1 if factor >= 1.0 else -1))
-        new_num = float(rounded)
+            # A step that rounds back to where it started cannot move a small
+            # integer at all: rx="1" maps to 1 for every factor in the range,
+            # so a rounded corner that drifted down to 1 stays square forever,
+            # and 0 is worse still. Nudge by one in the direction chosen, so
+            # small values are as free to grow as to shrink.
+            rounded = max(0, int(num) + (1 if grew else -1))
+        elem.attrib[attr] = str(rounded)
+        return
 
-    if "opacity" in attr:
-        new_num = max(0.0, min(1.0, new_num))
-
-    if not unit and num == int(num) and new_num >= 0:
-        elem.attrib[attr] = str(round(new_num))
-    else:
-        formatted = f"{new_num:.3f}".rstrip("0").rstrip(".")
-        elem.attrib[attr] = f"{formatted}{unit}"
+    formatted = f"{new_num:.3f}".rstrip("0").rstrip(".")
+    elem.attrib[attr] = f"{formatted}{unit}"
 
 
 @svg_transform
@@ -408,6 +432,33 @@ def mutate_stroke(root: ET.Element) -> None:
             el.set("stroke-width", str(random.choice([1, 2, 3])))
 
 
+def _nudgeable_numbers(d: str) -> list[re.Match]:
+    """Numbers in path data that may be nudged, skipping elliptical-arc flags.
+
+    ``A rx ry rotation large-arc sweep x y`` carries two booleans in the middle.
+    Nudging one writes ``sweep="-1.8"``, which is not path data: a renderer
+    either coerces it or drops the whole path, and the element vanishes from
+    the drawing. Measured before this existed, 26% of mutations on a path
+    holding two arcs corrupted a flag.
+    """
+    out: list[re.Match] = []
+    command = ""
+    argument = 0
+    for token in _PATH_TOKEN_RE.finditer(d):
+        if token.group(1):
+            command = token.group(1)
+            argument = 0
+            continue
+        # Arcs take seven arguments and may repeat without restating the
+        # command, so the flags are found by position within each group.
+        if command in ("A", "a") and argument % 7 in (3, 4):
+            argument += 1
+            continue
+        out.append(token)
+        argument += 1
+    return out
+
+
 @svg_transform
 def mutate_path(root: ET.Element) -> None:
     """Nudge one numeric coordinate in a path 'd' attribute."""
@@ -417,14 +468,17 @@ def mutate_path(root: ET.Element) -> None:
 
     el = _pick(paths)
     d = el.get("d", "")
-    nums = list(_PATH_NUM_RE.finditer(d))
+    nums = _nudgeable_numbers(d)
     if not nums:
         raise _NoChangeError
 
     m = random.choice(nums)
-    val = float(m.group(1))
-    # Use a proportional nudge (±15%) with a minimum of ±2px
-    magnitude = max(2.0, abs(val) * 0.15)
+    val = float(m.group(0))
+    # An offset rather than a percentage: path numbers are overwhelmingly
+    # coordinates, and scaling one ties the step to distance from the origin,
+    # so the same nudge barely stirs a point near the top-left and throws one
+    # at the far edge across the drawing.
+    magnitude = max(2.0, _canvas_span(root) * 0.03)
     new_val = val + random.uniform(-magnitude, magnitude)
     new_str = f"{new_val:.1f}".rstrip("0").rstrip(".")
     # Neighbouring numbers may abut the replaced one; without a separator the
