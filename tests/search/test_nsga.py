@@ -1,8 +1,9 @@
 import statistics
+from unittest.mock import patch
 
 import pytest
 
-from vectrify.search import ChainState, SearchNode
+from vectrify.search import ChainState, SearchNode, nsga
 from vectrify.search.diversity import simhash
 from vectrify.search.models import INVALID_SCORE
 from vectrify.search.nsga import (
@@ -586,3 +587,43 @@ def test_the_best_node_always_survives_its_generation():
 
     assert len(survivors) == 5
     assert best.id in {n.id for n in survivors}
+
+
+def test_the_pool_ranking_is_reused_until_the_pool_changes():
+    """Ranking compares every pair, and selection asked for it once per
+    dispatched task on a pool that only changes at a generation boundary. That
+    put an O(n^2) sort on the main thread hundreds of times per run, which is
+    the thread every worker waits on."""
+    strategy = NsgaStrategy(pool_size=5)
+    nodes = [make_node(i, 0.1 * i, edge=float(10 - i)) for i in range(1, 8)]
+
+    calls = []
+    real = nsga.non_dominated_sort
+
+    def counting(*args, **kwargs):
+        calls.append(1)
+        return real(*args, **kwargs)
+
+    with patch.object(nsga, "non_dominated_sort", counting):
+        for _ in range(5):
+            strategy.select_parent(nodes)
+        assert len(calls) == 1, "the pool ranking was recomputed"
+
+        # A changed pool has to be ranked again, or selection would go on
+        # using positions for nodes that are no longer there.
+        strategy.select_parent(nodes[:-1])
+        assert len(calls) == 2
+
+
+def test_a_changed_pool_is_never_ranked_from_stale_positions():
+    """The cache is keyed on membership, so a node added to the pool must be
+    reachable by selection rather than missing from the ranking."""
+    strategy = NsgaStrategy(pool_size=10)
+    nodes = [make_node(i, 0.5, edge=1.0) for i in range(1, 4)]
+    strategy.select_parent(nodes)
+
+    best = make_node(99, 0.001, edge=0.001, content="unique content here")
+    pool, rank, _crowd = strategy._rank_pool([*nodes, best])
+
+    assert best.id in rank
+    assert best.id in {n.id for n in pool}
