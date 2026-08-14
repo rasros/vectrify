@@ -24,7 +24,7 @@ from pathlib import Path
 import matplotlib
 
 from vectrify.run_dirs import project_runs_dir, run_dirs_in
-from vectrify.score.complexity import (
+from vectrify.score.metrics import (
     METRIC_NAMES,
     read_metrics,
 )

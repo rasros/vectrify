@@ -111,7 +111,7 @@ def test_crowding_distance_reads_arity_from_the_vectors():
 
 
 def test_build_objectives_normalizes_every_registered_metric():
-    from vectrify.score.complexity import OBJECTIVE_NAMES
+    from vectrify.score.metrics import OBJECTIVE_NAMES
 
     nodes = [
         make_node(1, 0.5, edge=0.2, colour=1.0),
@@ -137,7 +137,7 @@ def test_build_objectives_separates_candidates_alike_in_score():
 
 
 def test_build_objectives_survives_all_zero_objectives():
-    from vectrify.score.complexity import OBJECTIVE_NAMES
+    from vectrify.score.metrics import OBJECTIVE_NAMES
 
     nodes = [make_node(i, 0.0) for i in range(1, 4)]
     objectives = build_objectives(nodes)
@@ -215,7 +215,7 @@ def test_select_parent_skips_invalid_nodes():
         id=0,
         parent_id=0,
         state=ChainState(score=float("inf"), payload=None),
-        metrics={"zip_complexity": 0.0, "node_complexity": 0.0},
+        metrics={"edge": 0.0, "colour": 0.0},
     )
     valid = make_node(1, 0.3)
     pid, _ = strategy.select_parent([sentinel, valid])
@@ -229,7 +229,7 @@ def test_select_parent_only_invalid_falls_back():
         id=0,
         parent_id=0,
         state=ChainState(score=float("inf"), payload=None),
-        metrics={"zip_complexity": 0.0, "node_complexity": 0.0},
+        metrics={"edge": 0.0, "colour": 0.0},
     )
     pid, secondary = strategy.select_parent([sentinel])
     assert pid == 0

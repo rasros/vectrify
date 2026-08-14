@@ -25,7 +25,7 @@ class SearchNode(Generic[TState]):
     parent_id: int = dataclasses.field(compare=False)
     state: ChainState[TState] = dataclasses.field(compare=False)
     secondary_parent_id: int | None = dataclasses.field(default=None, compare=False)
-    # Registered complexity metrics, keyed by name (see score.complexity.METRICS).
+    # Registered metrics, keyed by name (see score.metrics.METRIC_NAMES).
     # A dict rather than named fields so adding a metric does not ripple through
     # every constructor call between the worker and the objective vector.
     metrics: dict[str, float] = dataclasses.field(

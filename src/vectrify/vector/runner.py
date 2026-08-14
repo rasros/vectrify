@@ -27,9 +27,9 @@ from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
-from vectrify.score.complexity import COLOUR, EDGE, FRONT_SCORE
 from vectrify.score.edges import overlap_distance
 from vectrify.score.embedding import DEFAULT_EMBED_MODEL, EmbeddingScorer
+from vectrify.score.metrics import COLOUR, EDGE, FRONT_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,

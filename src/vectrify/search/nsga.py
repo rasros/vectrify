@@ -3,7 +3,7 @@ import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.complexity import OBJECTIVE_NAMES
+from vectrify.score.metrics import OBJECTIVE_NAMES
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
@@ -62,7 +62,7 @@ def non_dominated_sort(
     Textbook dominance over the whole objective vector: no objective is
     privileged. Visual error used to be gated ahead of the others, which made
     it primary and the rest tie-breakers; keeping every objective equal is
-    what lets a metric like a complexity ratio actually shape the front.
+    what lets a structural or chromatic measure actually shape the front.
     """
     id_to_node = {n.id: n for n in nodes}
 
@@ -190,7 +190,7 @@ def pareto_select(
 
 
 class NsgaStrategy(Generic[TState]):
-    """NSGA-II-style selection balancing visual quality and SVG complexity."""
+    """NSGA-II-style selection over the objective vector."""
 
     def __init__(
         self,

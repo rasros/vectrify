@@ -33,7 +33,7 @@ def _node(node_id: int, score: float, visual: float, structural: float) -> Searc
         id=node_id,
         parent_id=0,
         epoch=1,
-        metrics={"zip_complexity": visual, "node_complexity": structural},
+        metrics={"edge": visual, "colour": structural},
         state=ChainState(
             score=score,
             payload=VectorStatePayload(
@@ -64,11 +64,11 @@ def test_plot_run_reads_back_what_storage_wrote(written_run):
     rows = {r["id"]: r for r in load_lineage(written_run)}
 
     assert rows[1]["score"] == pytest.approx(0.25)
-    assert rows[1]["zip_complexity"] == pytest.approx(1000.0)
-    assert rows[1]["node_complexity"] == pytest.approx(300.0)
+    assert rows[1]["edge"] == pytest.approx(1000.0)
+    assert rows[1]["colour"] == pytest.approx(300.0)
     assert rows[1]["epoch"] == 1
-    assert rows[2]["zip_complexity"] == pytest.approx(2000.0)
-    assert rows[2]["node_complexity"] == pytest.approx(800.0)
+    assert rows[2]["edge"] == pytest.approx(2000.0)
+    assert rows[2]["colour"] == pytest.approx(800.0)
 
 
 def test_plot_run_reader_covers_every_column_it_needs(written_run):
@@ -96,10 +96,10 @@ def test_clean_runs_reads_back_what_storage_wrote(written_run):
     load_complexities_from_lineage(written_run / "lineage.csv", nodes)
     by_id = {n["id"]: n for n in nodes}
 
-    assert by_id[1]["zip_complexity"] == pytest.approx(1000.0)
-    assert by_id[1]["node_complexity"] == pytest.approx(300.0)
-    assert by_id[2]["zip_complexity"] == pytest.approx(2000.0)
-    assert by_id[2]["node_complexity"] == pytest.approx(800.0)
+    assert by_id[1]["edge"] == pytest.approx(1000.0)
+    assert by_id[1]["colour"] == pytest.approx(300.0)
+    assert by_id[2]["edge"] == pytest.approx(2000.0)
+    assert by_id[2]["colour"] == pytest.approx(800.0)
 
 
 def test_legacy_runs_are_labelled_in_plots(tmp_path):

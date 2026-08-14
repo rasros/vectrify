@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Clean up run directories, keeping only the Pareto front (score vs complexity)
+Clean up run directories, keeping only the front (score vs the other objectives)
 and the top 20 nodes by score. All other node files are deleted.
 
 Usage:
@@ -21,7 +21,7 @@ import sys
 from pathlib import Path
 
 from vectrify.run_dirs import OUTPUT_EXTENSIONS, project_runs_dir, run_dirs_in
-from vectrify.score.complexity import METRIC_NAMES, read_metrics, row_has_metrics
+from vectrify.score.metrics import METRIC_NAMES, read_metrics, row_has_metrics
 from vectrify.search.nsga import pareto_front
 
 
