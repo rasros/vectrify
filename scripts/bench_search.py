@@ -21,6 +21,7 @@ import sys
 import tempfile
 from pathlib import Path
 
+from vectrify.cli import DEFAULT_POOL_SIZE
 from vectrify.formats.svg.plugin import SvgPlugin
 
 REPO = Path(__file__).resolve().parent.parent
@@ -148,6 +149,8 @@ def run_case(case: Path, seed: int, args) -> dict:
             "--no-save-raster",
             "--log-level",
             "ERROR",
+            "--pool-size",
+            str(args.pool_size),
         ]
         if not args.adaptive_operators:
             cmd.append("--no-adaptive-operators")
@@ -297,6 +300,13 @@ def main() -> None:
     run.add_argument("--reps", type=int, default=3, metavar="N")
     run.add_argument("--workers", type=int, default=1, metavar="N")
     run.add_argument("--resolution", type=int, default=384, metavar="PX")
+    run.add_argument(
+        "--pool-size",
+        type=int,
+        default=DEFAULT_POOL_SIZE,
+        dest="pool_size",
+        metavar="N",
+    )
     # Selects the evaluator that ranks a converged front, not the round's
     # scorer: the round is always pixel L1. At --epochs 1 the run ends before
     # any front is handed over, so the default avoids loading torch for a model
