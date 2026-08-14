@@ -21,8 +21,6 @@ from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.edges import edge_map, overlap_distance
 from vectrify.score.utils import clamp01, lab_array
 
-Box = tuple[int, int, int, int]
-
 
 @dataclass(frozen=True)
 class Reference:
@@ -54,20 +52,6 @@ class Comparison:
         structure = overlap_distance(self.reference_edges, self.candidate_edges)
         weight = DEFAULT_CONFIG.w_structure
         return clamp01(weight * structure + (1.0 - weight) * float(self.colour.mean()))
-
-    def colour_mean(self, box: Box) -> float:
-        """Colour distance over one area.
-
-        Deliberately colour only, though the whole-canvas score is blended.
-        Structure-aware regions measured worse: neutral on the vision score
-        (+0.0024, CI [-0.0015, +0.0063]) and significantly worse on the round
-        score (+0.0173, CI [+0.0074, +0.0296], better in 4 of 18 paired runs).
-        A cell is small enough that edge overlap inside it is close to binary,
-        which reads as noise rather than as a localised defect.
-        """
-        x0, y0, x1, y1 = box
-        area = self.colour[y0:y1, x0:x1]
-        return float(area.mean()) if area.size else 0.0
 
 
 def compare(reference: Reference, candidate_png: bytes) -> Comparison:

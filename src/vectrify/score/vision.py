@@ -94,31 +94,6 @@ class VisionScorer(Scorer):
                 "Run 'pip install transformers torch'."
             ) from e
 
-    def _input_size(self) -> int:
-        """The model's expected input edge, read from the loaded processor."""
-        size = getattr(self._processor, "size", None) or {}
-        if isinstance(size, dict):
-            edge = size.get("height") or size.get("width") or size.get("shortest_edge")
-            if edge:
-                return int(edge)
-        return 384
-
-    def _embed_many(self, images: list[Image.Image]) -> "torch.Tensor":
-        """Embed a batch of images in one forward pass, L2-normalised."""
-        import torch.nn.functional as functional
-
-        inputs = self._processor(images=images, return_tensors="pt")
-        pixel_values = inputs["pixel_values"].to(self._device_str)
-
-        with self._torch.no_grad(), self._inference():
-            if hasattr(self._model, "get_image_features"):
-                features = self._model.get_image_features(pixel_values=pixel_values)
-            else:
-                features = self._model(pixel_values=pixel_values)
-            if not isinstance(features, self._torch.Tensor):
-                features = features.pooler_output
-            return functional.normalize(features.float(), dim=-1)
-
     def _embed(self, image: Image.Image) -> "torch.Tensor":
         import torch.nn.functional as functional
 
