@@ -100,5 +100,3 @@ def test_clean_runs_reads_back_what_storage_wrote(written_run):
     assert by_id[1]["colour"] == pytest.approx(300.0)
     assert by_id[2]["edge"] == pytest.approx(2000.0)
     assert by_id[2]["colour"] == pytest.approx(800.0)
-
-

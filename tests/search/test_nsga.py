@@ -324,9 +324,7 @@ def test_epoch_parents_returns_pareto_front():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
         make_node(1, 0.1, edge=1000.0),  # good quality, complex
-        make_node(
-            2, 0.5, edge=100.0
-        ),  # worse quality, simpler (dominates node 3)
+        make_node(2, 0.5, edge=100.0),  # worse quality, simpler (dominates node 3)
         make_node(3, 0.9, edge=900.0),  # dominated by node 2
     ]
     seeds = strategy.epoch_parents(nodes, max_parents=2)

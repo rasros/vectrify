@@ -102,10 +102,7 @@ def test_filter_no_op_when_within_pool():
 
 
 def test_filter_nsga_returns_pool_size():
-    nodes = [
-        _make_node(i, score=float(i) * 0.1, edge=float(i) * 50)
-        for i in range(10)
-    ]
+    nodes = [_make_node(i, score=float(i) * 0.1, edge=float(i) * 50) for i in range(10)]
     result = filter_to_pool_size(nodes, pool_size=4)
     assert len(result) == 4
 
