@@ -13,17 +13,29 @@ supports. A panel votes instead: each pair of candidates is compared by every
 member, and the majority decides. A member that is idiosyncratic on some
 particular pair is outvoted, which is the property no single scorer has.
 
-The members are five cheap-to-medium encoders spanning three families, all
-placing in the top 16 of 55 on NIGHTS:
+The members are five cheap-to-medium encoders, chosen for spread across
+training regimes as much as for their NIGHTS placing:
 
-    facebook/dinov2-small                        0.2599 (5th)
-    facebook/dinov2-base                         0.2594 (6th)
-    laion/CLIP-ViT-B-32-laion2B-s34B-b79K        0.2579 (9th)
-    google/siglip-base-patch16-224               0.2575 (10th)
-    laion/CLIP-ViT-L-14-laion2B-s32B-b82K        0.2569 (12th)
+    facebook/dinov2-small                        0.2599 (5th)   self-supervised
+    laion/CLIP-ViT-B-32-laion2B-s34B-b79K        0.2579 (9th)   LAION-2B
+    google/siglip-base-patch16-224               0.2575 (10th)  sigmoid pairwise
+    laion/CLIP-ViT-L-14-laion2B-s32B-b82K        0.2569 (12th)  LAION-2B
+    openai/clip-vit-base-patch32                 0.2305 (21st)  WIT-400M
 
-The DataComp checkpoints rank comparably but ship open_clip weights with no
-HuggingFace preprocessor config, so they cannot be loaded here.
+Two members of one family vote together and cost the panel a voice, so a second
+DINOv2 was passed over for a model trained on a different corpus even though it
+places lower: a vote is worth having only from a member that can disagree.
+Several better-placed candidates cannot be used -- the DataComp checkpoints
+ship open_clip weights with no HuggingFace preprocessor config, ebind and
+jina-omni need custom code, and the BLIP retrieval checkpoints load through
+AutoModel with a randomly initialised visual_projection, which is the very
+layer their image embedding comes from.
+
+The two cheap pixel measures the round score uses, edge overlap and colour
+distance, are deliberately not members. On the same hand-judged pairs they
+agree with the human 40% and 44% of the time, the bottom of the field, and they
+are already two of the three objectives the search optimises -- seating them
+here would make the evaluator agree with the round score by construction.
 
 Five is odd on purpose, so a pairwise majority always exists.
 """
@@ -42,10 +54,10 @@ log = logging.getLogger(__name__)
 
 PANEL_MODELS: tuple[str, ...] = (
     "facebook/dinov2-small",
-    "facebook/dinov2-base",
     "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
     "google/siglip-base-patch16-224",
     "laion/CLIP-ViT-L-14-laion2B-s32B-b82K",
+    "openai/clip-vit-base-patch32",
 )
 
 
@@ -96,8 +108,10 @@ class EnsembleScorer(Scorer):
         by pairwise comparison -- three candidates can each beat the next.
         Counting wins ranks a tournament without needing it to be transitive.
 
-        Returns one value per candidate in [0, 1], lower being better, so it
-        drops into a caller that expects a distance.
+        Returns one value per candidate, lower being better, so it drops into
+        a caller that expects a distance. Values span [0, 1] up to the width of
+        the tie-break term, which can carry the extremes a little past either
+        end; nothing compares them against an absolute threshold.
         """
         if not candidate_pngs:
             return []
@@ -125,4 +139,25 @@ class EnsembleScorer(Scorer):
 
         # Wins run from -(n-1) to +(n-1); map to a distance in [0, 1].
         span = 2 * (count - 1)
-        return [0.5 - (w / span) for w in wins]
+        tie_break = self._mean_ranks(votes, count)
+        # Wins are integers, so ties are common on a front of tens, and the
+        # caller keeps only the best few as parents -- leaving ties to fall
+        # through to pool order decides the next epoch arbitrarily. Mean rank
+        # settles them: scale-free, every member counting equally, which is the
+        # same reason the panel votes rather than averaging distances. Scaled
+        # to a quarter of the gap between adjacent win counts, so it orders
+        # within a tie and can never reorder across one.
+        return [
+            0.5 - (w / span) + (rank - 0.5) / (span * 4)
+            for w, rank in zip(wins, tie_break, strict=True)
+        ]
+
+    @staticmethod
+    def _mean_ranks(votes: list[list[float]], count: int) -> list[float]:
+        """Each candidate's average position across members, in [0, 1]."""
+        totals = [0.0] * count
+        for member in votes:
+            order = sorted(range(count), key=lambda i: member[i])
+            for position, index in enumerate(order):
+                totals[index] += position / max(count - 1, 1)
+        return [total / len(votes) for total in totals]
