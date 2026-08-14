@@ -210,18 +210,27 @@ class NsgaStrategy(Generic[TState]):
         # count rather than a fraction of the pool, and stays meaningful when
         # pool_size changes.
         self.tournament_size = max(2, tournament_size)
+        # Ranking the pool costs a comparison between every pair, and parent
+        # selection asked for it once per dispatched task even though the pool
+        # only changes at a generation boundary. Profiled on an 800-task run it
+        # was a third of the main thread, which is the thread every worker
+        # waits on -- so more workers bought nothing. Keyed on the pool's
+        # membership, which is what the ranking depends on; a node's score and
+        # metrics never change once it is built.
+        self._ranked: tuple[tuple[int, ...], list, dict, dict] | None = None
 
-    def _is_duplicate(
-        self, node: SearchNode[TState], other: SearchNode[TState]
-    ) -> bool:
-        if node.signature is None or other.signature is None:
-            return False
-        return node.signature == other.signature
+    def _rank_pool(
+        self, valid: list[SearchNode[TState]]
+    ) -> tuple[list[SearchNode[TState]], dict[int, int], dict[int, float]]:
+        """Rank, crowd and de-duplicate the pool, reusing the last answer.
 
-    def select_parent(self, nodes: list[SearchNode[TState]]) -> tuple[int, int | None]:
-        valid = [n for n in nodes if n.score < INVALID_SCORE]
-        if not valid:
-            return nodes[0].id if nodes else 0, None
+        Returns the selectable pool with each node's tier and crowding
+        distance.
+        """
+        key = tuple(n.id for n in valid)
+        cached = self._ranked
+        if cached is not None and cached[0] == key:
+            return cached[1], cached[2], cached[3]
 
         objectives = build_objectives(valid)
 
@@ -243,6 +252,23 @@ class NsgaStrategy(Generic[TState]):
                 pool.append(node)
         if not pool:
             pool = sorted_valid[: self.pool_size]
+
+        self._ranked = (key, pool, rank, crowd)
+        return pool, rank, crowd
+
+    def _is_duplicate(
+        self, node: SearchNode[TState], other: SearchNode[TState]
+    ) -> bool:
+        if node.signature is None or other.signature is None:
+            return False
+        return node.signature == other.signature
+
+    def select_parent(self, nodes: list[SearchNode[TState]]) -> tuple[int, int | None]:
+        valid = [n for n in nodes if n.score < INVALID_SCORE]
+        if not valid:
+            return nodes[0].id if nodes else 0, None
+
+        pool, rank, crowd = self._rank_pool(valid)
 
         def _tournament(exclude_id: int | None = None) -> SearchNode[TState]:
             candidates = [n for n in pool if n.id != exclude_id]
