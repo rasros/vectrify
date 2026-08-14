@@ -15,6 +15,7 @@ from vectrify.formats.svg.operations import (
     mutate_path,
     mutate_reorder,
     mutate_stroke,
+    mutate_translate,
     with_retries,
 )
 
@@ -548,3 +549,45 @@ def test_a_small_integer_attribute_can_still_grow():
             seen.add(int(found.group(1)))
 
     assert max(seen) > 1, f"rx never grew past 1, only saw {sorted(seen)}"
+
+
+def test_translate_moves_both_axes_by_the_same_absolute_step():
+    """A coordinate scaled by a factor moves in proportion to its distance from
+    the origin, so a far element jumps and a near one barely stirs. A move has
+    to be an offset, and it has to carry both axes: an element displaced
+    diagonally would otherwise need two separate mutations accepted to arrive."""
+    svg = (
+        f'<svg xmlns="{NS}" viewBox="0 0 400 400">'
+        '<circle cx="20" cy="20" r="5"/>'
+        '<circle cx="380" cy="380" r="5"/>'
+        "</svg>"
+    )
+
+    offsets = []
+    for seed in range(40):
+        random.seed(seed)
+        out = mutate_translate(svg)
+        found = re.search(r"translate\((-?[\d.]+) (-?[\d.]+)\)", out)
+        assert found, "no translate was applied"
+        offsets.append((abs(float(found.group(1))), abs(float(found.group(2)))))
+
+    assert all(dx > 0 and dy > 0 for dx, dy in offsets), "an axis was left behind"
+    # Both elements draw offsets from one distribution; nothing scales with
+    # where the element happens to sit.
+    assert max(max(o) for o in offsets) <= 400 * 0.05 + 0.01
+
+
+def test_translate_keeps_a_transform_the_element_already_had():
+    """Replacing it would silently drop a scale or rotate the drawing depends
+    on, and appending would let that transform scale the offset."""
+    svg = (
+        f'<svg xmlns="{NS}" viewBox="0 0 400 400">'
+        '<circle cx="100" cy="100" r="5" transform="scale(2)"/>'
+        "</svg>"
+    )
+
+    random.seed(1)
+    out = mutate_translate(svg)
+
+    assert "scale(2)" in out
+    assert re.search(r'transform="translate\([^)]*\) scale\(2\)"', out)
