@@ -31,6 +31,11 @@ LOCAL_PHASE = "local"
 # by the round's own objective rather than all of them.
 FRONT_EVAL_CAP = 24
 
+# How many candidates the scorer thread scores in one call. A model-backed
+# scorer costs almost the same for a batch as for a single candidate, so
+# anything already queued rides along nearly free.
+SCORE_BATCH_SIZE = 32
+
 
 def keep_payload(result: Result) -> ChainState:
     """Default state builder: carry the worker's payload through unchanged."""
@@ -102,7 +107,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_min_delta: float = 1e-4,
         active_pool_size: int = 20,
         generation_size: int | None = None,
-        score_fn: Callable[[Result], float] | None = None,
+        score_fn: Callable[[list[Result]], None] | None = None,
         epoch_seeds: int = 0,
         initial_seeds: int | None = None,
         epochs: int | None = None,
@@ -118,22 +123,56 @@ class MultiprocessSearchEngine(Generic[TState]):
                 epoch_patience=epoch_patience or 0,
             )
 
+        def _gather_batch() -> tuple[list[Result], bool]:
+            """Block for one result, then take whatever else is already waiting.
+
+            It never waits for a batch to fill. Waiting on a timeout made a
+            slow producer pay that timeout on every single-candidate batch,
+            which cost more than batching saved; taking only what is already
+            queued means batches form exactly when scoring is the bottleneck
+            and the queue is backing up, and cost nothing when it is not.
+
+            Returns the batch and whether the shutdown sentinel arrived.
+            """
+            first = self.unscored_q.get()
+            if first is None:
+                return [], True
+
+            batch = [first]
+            while len(batch) < SCORE_BATCH_SIZE:
+                try:
+                    res = self.unscored_q.get_nowait()
+                except queue.Empty:
+                    break
+                if res is None:
+                    return batch, True
+                batch.append(res)
+            return batch, False
+
         def _scorer_worker():
             while True:
-                res = self.unscored_q.get()
-                if res is None:
+                batch, done = _gather_batch()
+
+                pending = [r for r in batch if r.valid and r.score is None]
+                if pending and score_fn is not None:
+                    try:
+                        score_fn(pending)
+                    except Exception as e:
+                        # One scoring failure must not discard the candidates
+                        # batched alongside it, so each is marked individually
+                        # and only those still unscored are lost.
+                        for res in pending:
+                            if res.score is None:
+                                res.valid = False
+                                res.invalid_msg = f"Scoring error: {e}"
+                                res.score = INVALID_SCORE
+
+                for res in batch:
+                    self.result_q.put(res)
+
+                if done:
                     self.result_q.put(None)
                     break
-
-                try:
-                    if res.valid and res.score is None and score_fn is not None:
-                        res.score = score_fn(res)
-                except Exception as e:
-                    res.valid = False
-                    res.invalid_msg = f"Scoring error: {e}"
-                    res.score = INVALID_SCORE
-
-                self.result_q.put(res)
 
         scorer_thread = threading.Thread(
             target=_scorer_worker, daemon=True, name="ScorerThread"

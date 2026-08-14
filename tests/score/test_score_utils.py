@@ -2,7 +2,7 @@ import pytest
 from PIL import Image
 
 from tests.helpers import make_png
-from vectrify.score.base import safe_score
+from vectrify.score.base import Scorer, safe_score
 from vectrify.score.utils import MAX_SCORE, clamp01, color_score
 
 
@@ -85,3 +85,24 @@ def test_lab_l1_separates_a_hue_error_from_a_lightness_error():
     hue_shift = Image.new("RGB", (32, 32), (128, 128, 220))
 
     assert lab_l1(reference, hue_shift) > 0.05
+
+
+def test_score_many_defaults_to_scoring_one_by_one():
+    """A scorer with no per-call overhead gains nothing from a batch, so the
+    protocol's default must keep working without an override."""
+
+    class CountingScorer(Scorer):
+        def __init__(self):
+            self.calls = 0
+
+        def prepare_reference(self, original_rgb):
+            return original_rgb
+
+        def score(self, reference, candidate_png):
+            _ = reference
+            self.calls += 1
+            return len(candidate_png) / 100.0
+
+    scorer = CountingScorer()
+    assert scorer.score_many(None, [b"a", b"bb", b"ccc"]) == [0.01, 0.02, 0.03]
+    assert scorer.calls == 3
