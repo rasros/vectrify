@@ -253,7 +253,7 @@ def test_diversity_rejects_exact_duplicate_with_worse_score():
 def test_tournament_treats_every_objective_equally():
     """No objective is privileged. Visual error used to be gated ahead of the
     rest, which made it primary and left the others as tie-breakers; a
-    complexity term cannot shape the front while that is true."""
+    second measure cannot shape the front while that is true."""
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [
         make_node(1, 0.1, edge=500.0),
@@ -384,7 +384,7 @@ def test_epoch_parents_all_invalid_falls_back():
 
 
 def test_accurate_and_simple_candidates_share_the_front():
-    """Neither dominates: one wins on error, the other on complexity. Under the
+    """Neither dominates: one wins on error, the other on structure. Under the
     old feasibility gate the accurate one was promoted outright."""
     n1 = make_node(1, score=0.1, edge=5000.0)
     n2 = make_node(2, score=0.9, edge=10.0)
