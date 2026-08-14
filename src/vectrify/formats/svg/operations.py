@@ -290,20 +290,6 @@ def crossover(svg_a: str, svg_b: str) -> str:
 
 
 @svg_transform
-def mutate_remove_node(root: ET.Element) -> None:
-    pairs: list[tuple[ET.Element, ET.Element]] = []
-    for parent in root.iter():
-        for child in list(parent):
-            pairs.append((parent, child))
-
-    if not pairs:
-        raise _NoChangeError
-
-    parent_elem, child = _pick(pairs)
-    parent_elem.remove(child)
-
-
-@svg_transform
 def mutate_drop_style_property(root: ET.Element) -> None:
     styled = [el for el in root.iter() if el.get("style", "").strip()]
     if not styled:
@@ -470,7 +456,6 @@ MUTATIONS: MutationTable = (
     (mutate_color, "Mutation: color tweak", 0.25),
     (mutate_numeric, "Mutation: numeric tweak", 0.20),
     (mutate_path, "Mutation: path nudge", 0.15),
-    (mutate_remove_node, "Mutation: removed node", 0.15),
     (mutate_stroke, "Mutation: stroke change", 0.10),
     (mutate_reorder, "Mutation: reordered elements", 0.10),
     (mutate_drop_style_property, "Mutation: dropped style property", 0.05),

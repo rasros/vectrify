@@ -18,14 +18,24 @@ Objectives = tuple[float, ...]
 
 
 def _dominates(a: Objectives, b: Objectives) -> bool:
-    """True if a Pareto-dominates b (better/equal in all, strictly better in one).
+    """True if a wins on more objectives than it loses on.
+
+    A majority rather than Pareto's unanimity. The objectives are three
+    imperfect measures of the same thing, and requiring all of them to agree
+    means requiring three judges that are each wrong 15-20% of the time to be
+    right together: measured one mutation from a parent, unanimity accepts
+    correctly 55% of the time but only recognises 13% of the real improvements,
+    where a majority recognises 46% at 50% correct. Almost nothing dominates
+    under unanimity, so rank stops separating candidates and crowding distance
+    -- which sorts for spread, not quality -- decides survival instead.
 
     *a* and *b* must have the same arity; ``strict=True`` makes a mismatch an
-    error rather than silently comparing only the shared prefix and ignoring
-    the remaining objectives.
+    error rather than silently comparing only the shared prefix.
     """
     pairs = list(zip(a, b, strict=True))
-    return all(x <= y for x, y in pairs) and any(x < y for x, y in pairs)
+    wins = sum(1 for x, y in pairs if x < y)
+    losses = sum(1 for x, y in pairs if y < x)
+    return wins > losses
 
 
 def pareto_front(items: list, key: "Callable[[Any], Objectives]") -> list:
@@ -83,6 +93,16 @@ def non_dominated_sort(
                 if domination_count[b_id] == 0:
                     next_front.append(id_to_node[b_id])
         current_front = next_front
+
+    # A majority relation is not transitive, so three candidates can each beat
+    # the next in a cycle and none of them ever reaches a count of zero. Peeling
+    # alone would drop them, and a dropped node is a candidate deleted from the
+    # pool without anything replacing it. They rank behind everything that did
+    # resolve, which is the most that can be said about a tie nobody wins.
+    placed = {n.id for front in fronts for n in front}
+    unresolved = [n for n in nodes if n.id not in placed]
+    if unresolved:
+        fronts.append(unresolved)
 
     return fronts
 

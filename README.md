@@ -17,10 +17,10 @@ The output is human-readable code you can keep editing by hand.
 
 - Output formats: SVG (default), Graphviz DOT, Typst. HTML and TikZ planned.
 - LLM providers: OpenAI, Anthropic, Google Gemini, auto-detected from env vars.
-- Search: NSGA-II for diversity-preserving multi-objective optimization,
-  with LLM proposals and local refinement split into separate phases.
-- Scoring: pixel distance in the search loop, local vision-model
-  embeddings (perceptual) at each epoch boundary.
+- Search: NSGA-II with majority-rule dominance over three complementary
+  objectives, with LLM proposals and local refinement in separate phases.
+- Scoring: a small vision encoder in the search loop, a larger perceptual
+  model at each epoch boundary and for the final pick.
 - Resumable runs: pick up where you left off, or fork from the top-N
   nodes of a previous run.
 - Live dashboard: pool stats, scoring, and convergence criteria.
@@ -70,7 +70,7 @@ The provider is auto-detected from whichever key is set; override it with
 vectrify input.png -o output.svg
 ```
 
-The defaults run up to 2 NSGA-II epochs and stop early once the search
+The defaults run up to 2 epochs and stop early once the search
 stops finding improvements (see
 [Convergence and cost](#convergence-and-cost)). Worst case,
 it runs for an hour and gives up.
@@ -107,12 +107,11 @@ representations, split into epochs of two phases:
 - **Refine.** Only local operators run — color tweaks, path nudges,
   crossover — until the epoch stops improving.
 
-Every candidate is scored in pixel space during the round and joins the
-next generation only if the pool does not dominate it. The vision model is
-reserved for the converged front at each epoch boundary, where it decides
-which candidates the next batch of LLM edits starts from — it costs roughly
-300x a pixel score, which is worth paying a few times per epoch and not once
-per candidate. The best candidate of the whole run is tracked separately, so
+Every candidate is scored by a small encoder during the round and joins the
+next generation only if the pool does not outvote it. The larger vision model
+is reserved for the converged front at each epoch boundary, where it decides
+which candidates the next batch of LLM edits starts from, and for choosing the
+artifact at the end. The best candidate of the whole run is tracked separately, so
 an epoch restart never loses it.
 
 Which candidate gets written out is decided by the vision model, not by the
@@ -144,36 +143,34 @@ resolution-llm sizes the images sent to the LLM and has no effect on scoring.
 Vision pricing tiles at 512px, the default, so raising it triples the cost of
 every prompt image.
 
-### NSGA-II objectives
+### Objectives
 
-The search minimizes five objectives at once:
+The search minimizes three objectives at once:
 
-| Objective     | Measure                                                    |
-|---------------|------------------------------------------------------------|
-| score         | pixel distance to the source image                         |
-| worst quarter | distance over the worst of 4 regions                       |
-| worst 16th    | distance over the worst of 16 regions                      |
-| zip ratio     | compressed size of the render, per unit of error removed   |
-| node ratio    | element count, per unit of error removed                   |
+| Objective | Measure                                                     |
+|-----------|-------------------------------------------------------------|
+| score     | distance under a small vision encoder (DINOv2-small)        |
+| edge      | overlap between gradient-magnitude maps                     |
+| colour    | mean Lab distance                                           |
 
-No objective is privileged: dominance compares the whole vector, which is what
-lets a complexity measure actually shape the front rather than break ties among
-candidates already sorted by score. The two region scales counter score being
-an average, under which a small defect in a mostly-correct image is too cheap
-to be worth fixing — quarters catch a whole area being wrong, sixteenths catch
-a localised defect.
+One measure of each kind — semantic, structural, chromatic — chosen for being
+wrong in *different* places rather than for being individually best. Measured
+one mutation away from a parent, each is wrong on its own 15–20% of the time,
+but any two are wrong together only 5–7% of the time.
 
-The complexity measures are ratios rather than raw counts because an empty
-canvas beats everything on a raw count and so is never dominated, which would
-park it on the front for the whole run. Charging complexity against the error
-it removes puts its ratio at the ceiling instead. A candidate that removes less
-than half the available error is pinned there too, which rules out the other
-degenerate winner: a flat rectangle of the average colour.
+That is why survival takes a majority rather than Pareto's unanimity: a
+candidate outranks another when it wins on more objectives than it loses on.
+Requiring all three to agree accepts correctly 55% of the time but recognises
+only 13% of real improvements, and leaves so little dominating anything that
+rank stops separating candidates and crowding distance — which sorts for
+spread, not quality — decides survival instead. A majority recognises 46% of
+improvements at 50% correct.
 
-Parent selection is a tournament on non-dominated rank then crowding distance;
-survival is the same comparison applied to parents and children together, once
-per generation. Raising tournament-size pushes harder toward the front at the
-cost of pool diversity.
+A majority is not transitive, so three candidates can each beat the next in a
+cycle; those rank behind everything that resolved rather than being dropped.
+
+Raising tournament-size pushes harder toward the front at the cost of pool
+diversity.
 
 ### Mutation operators
 

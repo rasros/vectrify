@@ -13,7 +13,6 @@ from vectrify.formats.svg.operations import (
     mutate_drop_style_property,
     mutate_numeric,
     mutate_path,
-    mutate_remove_node,
     mutate_reorder,
     mutate_stroke,
     with_retries,
@@ -69,31 +68,6 @@ def test_crossover_invalid_svg_returns_a():
     assert result == "not xml"
 
 
-def test_mutate_remove_node_reduces_children():
-    root_before = ET.fromstring(SVG_A)
-    count_before = len(list(root_before))
-    result = mutate_remove_node(SVG_A)
-    root_after = ET.fromstring(result)
-    assert len(list(root_after)) < count_before
-
-
-def test_mutate_remove_node_still_valid_svg():
-    result = mutate_remove_node(SVG_A)
-    root = ET.fromstring(result)
-    assert root.tag.endswith("svg")
-
-
-def test_mutate_remove_node_invalid_svg_unchanged():
-    result = mutate_remove_node("not xml")
-    assert result == "not xml"
-
-
-def test_mutate_remove_node_no_children_unchanged():
-    empty = '<svg xmlns="http://www.w3.org/2000/svg"/>'
-    result = mutate_remove_node(empty)
-    assert ET.fromstring(result).tag.endswith("svg")
-
-
 def test_mutate_numeric_changes_an_attribute():
     changed = False
     for _ in range(20):
@@ -138,8 +112,7 @@ def test_mutate_numeric_no_numeric_attrs_unchanged():
 @pytest.mark.parametrize(
     "op",
     [
-        mutate_remove_node,
-        mutate_numeric,
+            mutate_numeric,
         mutate_drop_style_property,
         mutate_color,
         mutate_stroke,
