@@ -24,17 +24,17 @@ def _make_png(color: str = "red", size: int = 16) -> bytes:
 def _make_node(
     node_id: int,
     score: float = 0.5,
-    zip_complexity: float = 100.0,
+    edge: float = 100.0,
     content: str = "<svg/>",
-    node_complexity: float = 0.0,
+    colour: float = 0.0,
 ) -> SearchNode:
     return SearchNode(
         score=score,
         id=node_id,
         parent_id=0,
         metrics={
-            "zip_complexity": zip_complexity,
-            "node_complexity": node_complexity,
+            "edge": edge,
+            "colour": colour,
         },
         state=ChainState(
             score=score,
@@ -50,9 +50,9 @@ def _make_node(
 
 def _make_prepped(
     old_id: int = 1,
-    zip_complexity: float = 100.0,
+    edge: float = 100.0,
     png: bytes | None = None,
-    node_complexity: float = 0.0,
+    colour: float = 0.0,
 ) -> PreppedNode:
     return PreppedNode(
         old_id=old_id,
@@ -60,8 +60,8 @@ def _make_prepped(
         png=png or _make_png(),
         preview_data_url="data:image/png;base64,PREVIEW",
         metrics={
-            "zip_complexity": zip_complexity,
-            "node_complexity": node_complexity,
+            "edge": edge,
+            "colour": colour,
         },
         signature=None,
     )
@@ -75,7 +75,7 @@ def test_prefilter_returns_all_when_under_limit():
 
 
 def test_prefilter_caps_at_max_keep():
-    nodes = [_make_prepped(i, zip_complexity=float(i * 10)) for i in range(20)]
+    nodes = [_make_prepped(i, edge=float(i * 10)) for i in range(20)]
     ref_img = Image.new("RGB", (16, 16), color="white")
     result = prefilter_nodes(nodes, ref_img, max_keep=5)
     assert len(result) <= 5
@@ -103,7 +103,7 @@ def test_filter_no_op_when_within_pool():
 
 def test_filter_nsga_returns_pool_size():
     nodes = [
-        _make_node(i, score=float(i) * 0.1, zip_complexity=float(i) * 50)
+        _make_node(i, score=float(i) * 0.1, edge=float(i) * 50)
         for i in range(10)
     ]
     result = filter_to_pool_size(nodes, pool_size=4)
@@ -111,8 +111,8 @@ def test_filter_nsga_returns_pool_size():
 
 
 def test_filter_nsga_prefers_pareto_front():
-    best = _make_node(1, score=0.1, zip_complexity=10.0)  # dominates all others
-    worse = [_make_node(i + 2, score=0.9, zip_complexity=900.0) for i in range(9)]
+    best = _make_node(1, score=0.1, edge=10.0)  # dominates all others
+    worse = [_make_node(i + 2, score=0.9, edge=900.0) for i in range(9)]
     result = filter_to_pool_size([best, *worse], pool_size=3)
     assert best in result
 

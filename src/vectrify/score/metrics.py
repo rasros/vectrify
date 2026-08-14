@@ -21,11 +21,10 @@ SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR)
 # 5-7% of the time, so a majority of three calls 50% of its accepted mutations
 # right where the best single measure manages 35%.
 #
-# There is no complexity measure among them. Nothing in the operator set adds
-# an element, so element count never rises and a measure built on it says
-# nothing the score does not; and with no complexity objective at all, an empty
-# canvas is simply far from the target on all three rather than unbeatable on a
-# fourth.
+# Nothing counts elements or bytes. No operator adds an element, so a measure
+# built on how many there are says nothing the score does not already say, and
+# without one an empty canvas is simply far from the target on all three rather
+# than unbeatable on a fourth.
 OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
 
 # The evaluator's verdict on a converged front member. Recorded so a run can be

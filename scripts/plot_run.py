@@ -207,7 +207,7 @@ def _pareto_top10(lin: list[dict], pool_ids: set[int] | None = None) -> list[dic
     """Return up to 10 Pareto-front nodes, sorted by score.
 
     Minimises the same three objectives the search selects on: score, visual
-    complexity and structural complexity. Note the Pareto plot draws only two
+    the structural and chromatic measures. Note the front plot draws only two
     of them, so a front node can look dominated in that 2-D projection while
     being genuinely non-dominated in three.
 
@@ -243,12 +243,12 @@ PARETO_COLORS = [
 
 
 @functools.cache
-def uses_legacy_complexity(run_dir: Path) -> bool:
-    """True if this run's lineage.csv predates the complexity split.
+def uses_legacy_metrics(run_dir: Path) -> bool:
+    """True if this run's lineage.csv predates the current objectives.
 
-    Such a run carries a single ``complexity`` column, a 0.7/0.3 blend of the
-    render's JPEG size and an SVG-only structural count, which is not on the
-    same scale as the current visual objective.
+    Such a run carries columns that are not on the same scale as the ones drawn
+    now -- the score was a pixel measure rather than an embedding distance, and
+    the objectives beside it were different measures entirely.
     """
     path = run_dir / "lineage.csv"
     if not path.exists():
@@ -262,13 +262,13 @@ def uses_legacy_complexity(run_dir: Path) -> bool:
 
 
 def _label(run_dir: Path) -> str:
-    """Legend label, flagged when the run's complexity scale is not comparable.
+    """Legend label, flagged when the run's metric scale is not comparable.
 
-    Overlaying old and new runs on one complexity axis silently mixes scales, so
+    Overlaying old and new runs on one axis silently mixes scales, so
     say so on the artifact rather than drawing them as if they matched.
     """
-    if uses_legacy_complexity(run_dir):
-        return f"{run_dir.name} (legacy complexity)"
+    if uses_legacy_metrics(run_dir):
+        return f"{run_dir.name} (legacy metrics)"
     return run_dir.name
 
 
@@ -491,7 +491,7 @@ def plot_summary_text(
             lines.append("")
             lines.append(f"  pareto top 10{pool_note}:")
             metric_head = "".join(
-                f"  {m.replace('_complexity', ''):>9}" for m in METRIC_NAMES
+                f"  {m:>9}" for m in METRIC_NAMES
             )
             lines.append(f"  {'#':>2}  {'id':>6}  {'score':>10}{metric_head}  ep")
             for rank, node in enumerate(top10, 1):

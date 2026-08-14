@@ -103,7 +103,7 @@ def test_clean_runs_reads_back_what_storage_wrote(written_run):
 
 
 def test_legacy_runs_are_labelled_in_plots(tmp_path):
-    from plot_run import _label, uses_legacy_complexity
+    from plot_run import _label, uses_legacy_metrics
 
     legacy = tmp_path / "runs" / "2026-01-01_00-00-00"
     legacy.mkdir(parents=True)
@@ -113,12 +113,12 @@ def test_legacy_runs_are_labelled_in_plots(tmp_path):
         encoding="utf-8",
     )
 
-    assert uses_legacy_complexity(legacy) is True
-    assert "legacy complexity" in _label(legacy)
+    assert uses_legacy_metrics(legacy) is True
+    assert "legacy metrics" in _label(legacy)
 
 
 def test_current_runs_are_not_labelled_legacy(written_run):
-    from plot_run import _label, uses_legacy_complexity
+    from plot_run import _label, uses_legacy_metrics
 
-    assert uses_legacy_complexity(written_run) is False
+    assert uses_legacy_metrics(written_run) is False
     assert _label(written_run) == written_run.name
