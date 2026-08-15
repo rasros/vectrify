@@ -113,20 +113,33 @@ def test_crowding_distance_reads_arity_from_the_vectors():
     assert dist[3] > dist[2] > 0.0
 
 
-def test_build_objectives_normalizes_every_registered_metric():
-    from vectrify.score.metrics import OBJECTIVE_NAMES
-
+def test_build_objectives_blends_score_and_colour_on_a_common_scale():
+    """Each part is scaled by its own population maximum before weighting, or
+    the blend would be decided by whichever part happens to be on the larger
+    scale rather than by the weights."""
     nodes = [
-        make_node(1, 0.5, edge=0.2, colour=1.0),
-        make_node(2, 1.0, edge=0.4, colour=0.5),
+        make_node(1, 0.5, edge=0.2, colour=1000.0),
+        make_node(2, 1.0, edge=0.4, colour=500.0),
     ]
+
     objectives = build_objectives(nodes)
-    assert all(len(v) == len(OBJECTIVE_NAMES) + 1 for v in objectives.values())
-    # Each objective is scaled by its own population maximum, so the largest
-    # value in every column is exactly 1.0 -- that is what makes them
-    # comparable without any weighting between them.
-    assert objectives[1] == (0.5, 0.5, 1.0)
-    assert objectives[2] == (1.0, 1.0, 0.5)
+
+    assert all(len(v) == 1 for v in objectives.values())
+    assert objectives[1] == pytest.approx((0.5 * 0.5 + 0.5 * 1.0,))
+    assert objectives[2] == pytest.approx((0.5 * 1.0 + 0.5 * 0.5,))
+
+
+def test_build_objectives_ignores_a_metric_it_does_not_rank_on():
+    """Edge overlap is recorded for analysis but orders candidates against the
+    evaluator more often than with it, so it must not reach selection."""
+    same = build_objectives(
+        [
+            make_node(1, 0.5, edge=0.0, colour=1.0),
+            make_node(2, 0.5, edge=9e9, colour=1.0),
+        ]
+    )
+
+    assert same[1] == same[2]
 
 
 def test_build_objectives_separates_candidates_alike_in_score():
@@ -140,12 +153,11 @@ def test_build_objectives_separates_candidates_alike_in_score():
 
 
 def test_build_objectives_survives_all_zero_objectives():
-    from vectrify.score.metrics import OBJECTIVE_NAMES
-
     nodes = [make_node(i, 0.0) for i in range(1, 4)]
+
     objectives = build_objectives(nodes)
-    zeros = (0.0,) * (len(OBJECTIVE_NAMES) + 1)
-    assert all(v == zeros for v in objectives.values())
+
+    assert all(v == (0.0,) for v in objectives.values())
 
 
 def test_non_dominated_sort_all_pareto():
@@ -253,17 +265,20 @@ def test_diversity_rejects_exact_duplicate_with_worse_score():
     assert 2 not in selected
 
 
-def test_tournament_treats_every_objective_equally():
-    """No objective is privileged. Visual error used to be gated ahead of the
-    rest, which made it primary and left the others as tie-breakers; a
-    second measure cannot shape the front while that is true."""
+def test_colour_can_outweigh_a_better_embedding_distance():
+    """Neither part is privileged. Visual error used to be gated ahead of the
+    rest, which made it primary and left the other a tie-breaker; a second
+    measure cannot shape the front while that is true. Here the worse
+    embedding distance wins because it is far better on colour."""
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [
-        make_node(1, 0.1, edge=500.0),
-        make_node(2, 0.9, edge=10.0),
+        make_node(1, 0.80, colour=1000.0),
+        make_node(2, 1.00, colour=100.0),
     ]
+
     selected = {strategy.select_parent(nodes)[0] for _ in range(50)}
-    assert selected == {1, 2}
+
+    assert selected == {2}
 
 
 def test_pool_size_limits_candidate_set():
@@ -426,7 +441,7 @@ def test_tournament_size_of_one_node_pool_is_safe():
     assert strategy.select_parent(nodes) == (1, None)
 
 
-def test_larger_tournament_biases_harder_toward_score():
+def test_larger_tournament_biases_harder_toward_the_objective():
     import random as _random
 
     def better_half_rate(size: int, trials: int = 1500) -> float:
@@ -440,15 +455,17 @@ def test_larger_tournament_biases_harder_toward_score():
                 make_node(
                     i,
                     _random.random(),
-                    edge=_random.random(),
                     content=f"n{i}-{_random.random()}",
                     colour=_random.random() * 5000,
                 )
                 for i in range(20)
             ]
-            median = sorted(n.score for n in nodes)[10]
+            # Measured against the blend selection actually ranks on, not
+            # against one half of it.
+            blended = build_objectives(nodes)
+            median = sorted(v[0] for v in blended.values())[10]
             pid, _secondary = strategy.select_parent(nodes)
-            if next(n for n in nodes if n.id == pid).score <= median:
+            if blended[pid][0] <= median:
                 hits += 1
         return hits / trials
 
@@ -503,11 +520,11 @@ def test_select_survivors_does_not_simply_keep_the_best_score():
     Elitism reserves one slot for the best score, so the point is tested on the
     slots elitism does not claim."""
     strategy = NsgaStrategy()
-    best_score = make_node(1, 0.1, edge=0.9, colour=0.9)
-    wins_the_rest = make_node(2, 0.9, edge=0.1, colour=0.1)
+    best_score = make_node(1, 0.1, colour=0.9)
+    wins_the_rest = make_node(2, 0.85, colour=0.05)
     middling = [
-        make_node(3, 0.5, edge=0.5, colour=0.5),
-        make_node(4, 0.6, edge=0.6, colour=0.6),
+        make_node(3, 0.5, colour=0.5),
+        make_node(4, 0.6, colour=0.6),
     ]
 
     kept = {
