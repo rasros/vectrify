@@ -235,6 +235,49 @@ def _rebuild(root: ET.Element, units: list[tuple[tuple, ET.Element]]) -> str:
     return ET.tostring(new_root, encoding="unicode", method="xml")
 
 
+def _text_label(element: ET.Element) -> str:
+    """The string a <text> draws, or empty for anything else."""
+    if _local_tag(element) != "text":
+        return ""
+    return " ".join("".join(element.itertext()).split())
+
+
+def _match_by_label(
+    units_a: list[tuple[tuple, ET.Element]],
+    units_b: list[tuple[tuple, ET.Element]],
+    taken_a: set[int],
+    taken_b: set[int],
+    swapped: dict[int, int],
+) -> None:
+    """Pair leftover text by what it says, and swap half of those pairs.
+
+    Overlap can only pair elements that already sit on top of each other, which
+    is the one thing two seeds disagreeing about placement do not do. A numeral
+    is the same feature in both drawings however far apart they put it, and it
+    says so itself. Same-label duplicates are paired in document order, which
+    is arbitrary but keeps the count right and never pairs one twice.
+    """
+    leftovers: dict[str, list[int]] = {}
+    for j, (_chain, element) in enumerate(units_b):
+        if j in taken_b:
+            continue
+        label = _text_label(element)
+        if label:
+            leftovers.setdefault(label, []).append(j)
+
+    for i, (_chain, element) in enumerate(units_a):
+        if i in taken_a:
+            continue
+        pool = leftovers.get(_text_label(element))
+        if not pool:
+            continue
+        j = pool.pop(0)
+        taken_a.add(i)
+        taken_b.add(j)
+        if random.random() < 0.5:
+            swapped[i] = j
+
+
 def crossover(svg_a: str, svg_b: str) -> str:
     """Swap elements that draw the same thing between two parents.
 
@@ -252,6 +295,11 @@ def crossover(svg_a: str, svg_b: str) -> str:
     matches a ring by its visible annulus. A matched pair contributes exactly
     one element and an unmatched one is carried through untouched, which makes
     losing content impossible: the child has as many elements as A had.
+
+    Pixels cannot pair what does not overlap, and a seed that puts a numeral in
+    the wrong place is exactly the case worth recombining. Text carries its own
+    identity, so a leftover <text> is paired with a leftover <text> of the same
+    string wherever either sits.
     """
     try:
         root_a = ET.fromstring(svg_a)
@@ -284,6 +332,8 @@ def crossover(svg_a: str, svg_b: str) -> str:
         taken_b.add(j)
         if random.random() < 0.5:
             swapped[i] = j
+
+    _match_by_label(units_a, units_b, taken_a, taken_b, swapped)
 
     if not swapped:
         return svg_a
