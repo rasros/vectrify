@@ -42,11 +42,17 @@ SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR)
 # built on how many there are says nothing the score does not already say.
 OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
 
-# Weights within the blend, from the same sweep. The optimum is broad: holding
-# edge at 0.50, colour anywhere from 0.25 to 0.50 lands within a tenth of a
-# point, so these are not fitted tightly to the corpus.
-COLOUR_WEIGHT = 0.25
-EDGE_WEIGHT = 0.50
+# Weights within the blend, from the same sweep, which searched a grid of
+# 0, 0.25 and 0.5 and picked colour at 0.25 against edge at 0.50. What it chose
+# is the one-to-two ratio; the pair is written normalised so the round score is
+# on the scale it appears to be on, since it is recorded per node and read back
+# as an absolute number. Ranking is unaffected either way -- both this and
+# build_objectives are linear in the weights, so a common factor cancels.
+#
+# The optimum is broad: holding edge at two thirds, colour anywhere from a
+# quarter to a half of it lands within a tenth of a point.
+COLOUR_WEIGHT = 1.0 / 3.0
+EDGE_WEIGHT = 2.0 / 3.0
 
 
 def round_score(colour: float, edge: float) -> float:
@@ -58,6 +64,7 @@ def round_score(colour: float, edge: float) -> float:
     [0, 1], so the same weights apply unscaled.
     """
     return COLOUR_WEIGHT * colour + EDGE_WEIGHT * edge
+
 
 # The evaluator's verdict on a converged front member. Recorded so a run can be
 # read back, and deliberately NOT an objective: it exists on a handful of nodes
