@@ -686,3 +686,76 @@ def test_path_nudge_never_corrupts_an_arc_flag():
             assert arc.group(5) in ("0", "1"), f"sweep flag corrupted: {d}"
 
     assert changed > 100, "skipping flags must not stop the operator working"
+
+
+def test_crossover_pairs_text_by_what_it_says():
+    """Overlap can only pair elements already sitting on top of each other,
+    which is precisely what two seeds disagreeing about placement do not do. A
+    numeral is the same feature in both drawings however far apart they are."""
+    left = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<text x="4" y="12" font-size="8" fill="#ff0000">7</text>'
+        "</svg>"
+    )
+    right = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<text x="52" y="60" font-size="8" fill="#0000ff">7</text>'
+        "</svg>"
+    )
+
+    swapped = 0
+    for seed in range(20):
+        random.seed(seed)
+        child = crossover(left, right)
+        assert len(re.findall(r"<[a-zA-Z]", child)) == len(
+            re.findall(r"<[a-zA-Z]", left)
+        )
+        swapped += "#0000ff" in child
+
+    assert swapped, "the far-away numeral was never paired with its twin"
+
+
+def test_crossover_does_not_pair_text_that_says_something_else():
+    """Matching by label must mean the label, or it degenerates into pairing
+    any text with any other and the drawing loses its numbering."""
+    left = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<text x="4" y="12" font-size="8" fill="#ff0000">7</text>'
+        "</svg>"
+    )
+    right = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<text x="52" y="60" font-size="8" fill="#0000ff">3</text>'
+        "</svg>"
+    )
+
+    for seed in range(20):
+        random.seed(seed)
+        assert "#0000ff" not in crossover(left, right)
+
+
+def test_crossover_pairs_each_duplicate_label_only_once():
+    """Two elements drawing the same string must not both take the same
+    partner, which would leave one unpaired and the count wrong."""
+    left = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<text x="4" y="12" font-size="8">1</text>'
+        '<text x="4" y="30" font-size="8">1</text>'
+        "</svg>"
+    )
+    right = (
+        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
+        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
+        '<text x="50" y="12" font-size="8">1</text>'
+        "</svg>"
+    )
+
+    for seed in range(20):
+        random.seed(seed)
+        child = crossover(left, right)
+        assert len(re.findall(r"<text", child)) == 2
