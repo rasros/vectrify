@@ -29,8 +29,8 @@ from vectrify.score import ScorerType, get_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
 from vectrify.score.edges import overlap_distance
-from vectrify.score.embedding import DEFAULT_EMBED_MODEL, EmbeddingScorer
-from vectrify.score.metrics import COLOUR, EDGE, FRONT_SCORE
+from vectrify.score.metrics import COLOUR, EDGE, FRONT_SCORE, round_score
+from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
@@ -158,11 +158,10 @@ def run_vector_search(
     pixel_pool = ThreadPoolExecutor(
         max_workers=min(8, (os.cpu_count() or 4)), thread_name_prefix="pixel"
     )
-    loop_scorer = EmbeddingScorer()
-    loop_ref = loop_scorer.prepare_reference(original_img)
+
     pixel_ref = prepare(resize_long_side(original_img, DEFAULT_CONFIG.target_long_side))
     log.info(
-        f"Round scoring: {DEFAULT_EMBED_MODEL}. "
+        "Round scoring: edge overlap and colour distance, no model. "
         f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model})."
     )
 
@@ -181,8 +180,6 @@ def run_vector_search(
             pool_size=pool_size,
             workers=workers,
             scoring_ref=pixel_ref,
-            scorer=loop_scorer,
-            embedding_ref=loop_ref,
             storage=storage,
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
@@ -344,17 +341,17 @@ def run_vector_search(
                 comparison.reference_edges, comparison.candidate_edges
             )
             res.metrics[COLOUR] = float(comparison.colour.mean())
+            res.score = round_score(res.metrics[COLOUR], res.metrics[EDGE])
         except Exception as exc:
             log.debug(f"Pixel objectives skipped: {exc}")
 
     def score_fn(results):
-        # Three objectives of different kinds, so that a majority of them is
-        # right more often than the best of them alone: the embedding is the
-        # score, and one comparison supplies the structural and chromatic
-        # measures beside it.
+        # Two measures of different kinds, chromatic and structural, and no
+        # model: against damage of a known severity the pair orders candidates
+        # better than any embedding configuration tried, at no forward pass.
         #
-        # Spread across threads because these run on the one scorer thread, in
-        # a decode-resize-convolve pass per candidate that is where a run's
+        # Spread across threads because they run on the one scorer thread, in a
+        # decode-resize-convolve pass per candidate that is where a run's
         # throughput was going: profiled, workers sat idle above four of them
         # while this serialised. The work is numpy and Pillow, both of which
         # drop the GIL, so threads genuinely overlap here.
@@ -364,13 +361,10 @@ def run_vector_search(
             for res in results:
                 _pixel_objectives(res)
 
-        # The embedding runs once for the whole batch, which is where the round
-        # spends most of its scoring time.
-        scores = loop_scorer.score_many(
-            loop_ref, [res.payload.raster_png for res in results]
-        )
-        for res, score in zip(results, scores, strict=True):
-            res.score = score
+        for res in results:
+            if res.score is None:
+                # Nothing rendered, so nothing can be measured.
+                res.score = MAX_SCORE
 
     if dashboard is not None:
         logging.getLogger().addHandler(dashboard.log_handler)
