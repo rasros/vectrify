@@ -239,8 +239,7 @@ class NsgaStrategy(Generic[TState]):
         # to hand over a different population carrying the same ids, and an
         # id-only key would answer that with the previous pool's ordering.
         key = tuple(
-            (n.id, n.metrics.get(COLOUR, 0.0), n.metrics.get(EDGE, 0.0))
-            for n in valid
+            (n.id, n.metrics.get(COLOUR, 0.0), n.metrics.get(EDGE, 0.0)) for n in valid
         )
         cached = self._ranked
         if cached is not None and cached[0] == key:
