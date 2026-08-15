@@ -590,6 +590,28 @@ def mutate_translate(root: ET.Element) -> None:
 
 
 @svg_transform
+def mutate_remove_node(root: ET.Element) -> None:
+    """Delete one drawable element.
+
+    Not in the operator table: no operator adds an element, so leaving this one
+    in a search only ever subtracts, and a drawing cannot recover what it drops.
+    It is kept because damage has to be produced deliberately to test whether a
+    scorer notices it -- see scripts/distortion_screen.py.
+    """
+    units = drawable_elements(root)
+    if len(units) < 2:
+        raise _NoChangeError
+
+    victim = _pick([element for _chain, element in units])
+    for parent in root.iter():
+        for child in list(parent):
+            if child is victim:
+                parent.remove(child)
+                return
+    raise _NoChangeError
+
+
+@svg_transform
 def mutate_reorder(root: ET.Element) -> None:
     """Swap two adjacent sibling elements to change z-order."""
     candidates = [el for el in root.iter() if len(list(el)) >= 2]
