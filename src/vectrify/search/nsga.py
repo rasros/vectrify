@@ -3,7 +3,7 @@ import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.metrics import OBJECTIVE_NAMES
+from vectrify.score.metrics import COLOUR, COLOUR_WEIGHT, EMBED_WEIGHT
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
@@ -147,26 +147,28 @@ def crowding_distance(
 
 
 def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
-    """Normalize score plus every registered metric into an objective vector.
+    """Blend the embedding and chromatic distances into an objective vector.
 
-    The vector is ``(score, *OBJECTIVE_NAMES)`` in registry order. Each objective is
-    scaled by its own population maximum, so they are directly comparable and no
-    weighting between them is needed -- NSGA trades them off by dominance
-    instead. Adding a metric to the registry lengthens the vector, which the
-    dominance and crowding helpers handle without changes.
+    Each part is scaled by its own population maximum first, so a weighting
+    between them means what it says rather than being decided by whichever
+    happens to be on the larger scale.
+
+    The result is one component, not three. Trading several measures off by
+    dominance is worth the machinery when they disagree about which candidate
+    is better in ways that are each defensible; measured against the evaluator
+    panel these do not, and the vote scored below the parts it was built from
+    (see score.metrics). Ranking still runs through the same tournament helper,
+    where a single component simply orders the pool.
 
     Callers must pass only valid nodes (score < INVALID_SCORE); an infinite
     score would corrupt the normalization for every other node.
     """
     max_score = max((n.score for n in nodes), default=1.0) or 1.0
-    maxima = {
-        name: max((n.metrics.get(name, 0.0) for n in nodes), default=1.0) or 1.0
-        for name in OBJECTIVE_NAMES
-    }
+    max_colour = max((n.metrics.get(COLOUR, 0.0) for n in nodes), default=1.0) or 1.0
     return {
         n.id: (
-            n.score / max_score,
-            *(n.metrics.get(name, 0.0) / maxima[name] for name in OBJECTIVE_NAMES),
+            EMBED_WEIGHT * (n.score / max_score)
+            + COLOUR_WEIGHT * (n.metrics.get(COLOUR, 0.0) / max_colour),
         )
         for n in nodes
     }

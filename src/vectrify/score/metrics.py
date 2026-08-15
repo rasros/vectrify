@@ -12,20 +12,37 @@ COLOUR = "colour"
 
 SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR)
 
-# What build_objectives trades off, alongside score, which is the embedding
-# distance. Three measures, one of each kind: semantic, structural, chromatic.
+# What selection ranks candidates by: the embedding distance and the chromatic
+# distance, blended.
 #
-# They are chosen for being wrong in different places rather than for being
-# individually best. Measured one mutation from a parent, each is wrong about
-# 15-20% of the time on its own but any two of them are wrong together only
-# 5-7% of the time, so a majority of three calls 50% of its accepted mutations
-# right where the best single measure manages 35%.
+# This used to trade off three measures by majority vote, on the reasoning that
+# three imperfect judges agree more often than the best of them alone.
+# Measured against the evaluator panel on real pool populations, that is not
+# what happens. As a share of candidate pairs each rule orders the way the
+# panel does, where 50% is a coin:
+#
+#     0.5 embedding + 0.5 colour   72.6%
+#     colour alone                 64.1%
+#     embedding alone              60.1%
+#     majority of all three        56.1%
+#     edge alone                   41.5%
+#
+# Edge overlap is worse than chance -- it orders candidates against the panel
+# more often than with it, 28% on mascot and 30% on connect-dots -- and a
+# majority cannot outvote a member that is wrong more often than right, so the
+# vote landed below both of its useful members. Weighting also keeps the
+# magnitude of an error, which voting throws away.
 #
 # Nothing counts elements or bytes. No operator adds an element, so a measure
-# built on how many there are says nothing the score does not already say, and
-# without one an empty canvas is simply far from the target on all three rather
-# than unbeatable on a fourth.
+# built on how many there are says nothing the score does not already say.
 OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
+
+# How the two are weighted against each other. Equal was the best of the
+# blends tried and the least tuned: 0.3/0.7 scored 72.0% and 0.7/0.3 64.0%,
+# so the optimum is broad and there is nothing to be gained from fitting it
+# more finely to six cases.
+EMBED_WEIGHT = 0.5
+COLOUR_WEIGHT = 0.5
 
 # The evaluator's verdict on a converged front member. Recorded so a run can be
 # read back, and deliberately NOT an objective: it exists on a handful of nodes
