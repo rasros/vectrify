@@ -90,6 +90,13 @@ class EmbeddingScorer(Scorer):
             )
         return functional.normalize(features.float(), dim=-1)
 
+    def embed_images(self, images: list[Image.Image]) -> "torch.Tensor":
+        """Normalised embeddings for several images, for a caller that wants
+        the vectors rather than a distance -- the panel compares them tile by
+        tile and needs them kept apart."""
+        self._load()
+        return self._embed(images)
+
     def validate_environment(self) -> None:
         self._load()
 

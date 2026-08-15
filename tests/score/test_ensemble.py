@@ -3,31 +3,23 @@ from PIL import Image
 from vectrify.score.ensemble import EnsembleScorer, PanelReference
 
 
-class _FixedMember:
-    """Stands in for an encoder, returning distances decided by the test."""
-
-    def __init__(self, distances: list[float]):
-        self._distances = distances
-
-    def prepare_reference(self, original_rgb):
-        return original_rgb
-
-    def score(self, reference, candidate_png):
-        _ = reference
-        return self._distances[int(candidate_png)]
-
-    def score_many(self, reference, candidate_pngs):
-        _ = reference
-        return [self._distances[int(png)] for png in candidate_pngs]
-
-
 def _panel(*rows: list[float]) -> tuple[EnsembleScorer, PanelReference]:
+    """A panel whose members report the distances the test dictates.
+
+    Stubbed at the per-member distances rather than at the encoders: the panel
+    cuts every picture into tiles and compares the embeddings itself, so faking
+    an encoder would mean faking image decoding and tiling too, none of which
+    is what these tests are about. What is under test is the vote.
+    """
     scorer = EnsembleScorer.__new__(EnsembleScorer)
-    # Stand-ins rather than real encoders: the vote is what is under test, and
-    # loading five models would make these tests take minutes.
-    scorer._members = [_FixedMember(r) for r in rows]  # type: ignore[assignment]
+    scorer._members = [None] * len(rows)  # type: ignore[assignment]
     scorer._names = tuple(f"m{i}" for i in range(len(rows)))
-    reference = PanelReference(image=Image.new("RGB", (4, 4)), references=list(rows))
+    reference = PanelReference(image=Image.new("RGB", (12, 12)), tiles=[])
+
+    def distances(_reference, images):
+        return [list(row[: len(images)]) for row in rows]
+
+    scorer._distances = distances  # type: ignore[method-assign]
     return scorer, reference
 
 

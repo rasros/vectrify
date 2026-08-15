@@ -13,23 +13,26 @@ supports. A panel votes instead: each pair of candidates is compared by every
 member, and the majority decides. A member that is idiosyncratic on some
 particular pair is outvoted, which is the property no single scorer has.
 
-The members are five cheap-to-medium encoders, chosen for spread across
-training regimes as much as for their NIGHTS placing:
+The members are three cheap encoders spanning three training regimes:
 
-    facebook/dinov2-small                        0.2599 (5th)   self-supervised
-    laion/CLIP-ViT-B-32-laion2B-s34B-b79K        0.2579 (9th)   LAION-2B
-    google/siglip-base-patch16-224               0.2575 (10th)  sigmoid pairwise
-    laion/CLIP-ViT-L-14-laion2B-s32B-b82K        0.2569 (12th)  LAION-2B
-    openai/clip-vit-base-patch32                 0.2305 (21st)  WIT-400M
+    facebook/dinov2-small                        self-supervised
+    laion/CLIP-ViT-B-32-laion2B-s34B-b79K        contrastive, LAION-2B
+    google/siglip-base-patch16-224               sigmoid pairwise
 
-Two members of one family vote together and cost the panel a voice, so a second
-DINOv2 was passed over for a model trained on a different corpus even though it
-places lower: a vote is worth having only from a member that can disagree.
-Several better-placed candidates cannot be used -- the DataComp checkpoints
-ship open_clip weights with no HuggingFace preprocessor config, ebind and
-jina-omni need custom code, and the BLIP retrieval checkpoints load through
-AutoModel with a randomly initialised visual_projection, which is the very
-layer their image embedding comes from.
+Five were seated at first, on the reasoning that more voices outvote more
+idiosyncrasy. Measured against the distortion screen -- damage of a known
+severity in a known order, so no other scorer has to be trusted as the
+reference -- that reasoning does not hold here. On every family the panel is
+weak at, the five members score within 3 to 7 points of each other: they share
+their blind spots rather than covering them, so the extra voices were averaging
+noise, not insuring against error. Three score as well as five (96.2% against
+96.2% on vector damage), and adding a 428M model to those three buys 0.4.
+
+Several better-placed candidates cannot be used at all -- the DataComp
+checkpoints ship open_clip weights with no HuggingFace preprocessor config,
+ebind and jina-omni need custom code, and the BLIP retrieval checkpoints load
+through AutoModel with a randomly initialised visual_projection, which is the
+very layer their image embedding comes from.
 
 The two cheap pixel measures the round score uses, edge overlap and colour
 distance, are deliberately not members. On the same hand-judged pairs they
@@ -40,6 +43,7 @@ here would make the evaluator agree with the round score by construction.
 Five is odd on purpose, so a pairwise majority always exists.
 """
 
+import io
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -56,15 +60,34 @@ PANEL_MODELS: tuple[str, ...] = (
     "facebook/dinov2-small",
     "laion/CLIP-ViT-B-32-laion2B-s34B-b79K",
     "google/siglip-base-patch16-224",
-    "laion/CLIP-ViT-L-14-laion2B-s32B-b82K",
-    "openai/clip-vit-base-patch32",
 )
+
+# Cells per side. Three splits a drawing finely enough to pin content to a
+# place without cropping so tightly that a cell holds nothing recognisable.
+GRID = 3
 
 
 @dataclass
 class PanelReference:
     image: Image.Image
-    references: list[Any]
+    tiles: list[Any]
+
+
+def _tiles(image: Image.Image) -> list[Image.Image]:
+    """The picture cut into a GRID x GRID lattice, row by row."""
+    width, height = image.size
+    return [
+        image.crop(
+            (
+                column * width // GRID,
+                row * height // GRID,
+                (column + 1) * width // GRID,
+                (row + 1) * height // GRID,
+            )
+        )
+        for row in range(GRID)
+        for column in range(GRID)
+    ]
 
 
 class EnsembleScorer(Scorer):
@@ -78,10 +101,24 @@ class EnsembleScorer(Scorer):
         self._members[0].validate_environment()
 
     def prepare_reference(self, original_rgb: Image.Image) -> PanelReference:
+        cells = _tiles(original_rgb)
         return PanelReference(
             image=original_rgb,
-            references=[m.prepare_reference(original_rgb) for m in self._members],
+            tiles=[m.embed_images(cells) for m in self._members],
         )
+
+    def _distances(self, reference: PanelReference, images: list[Image.Image]):
+        """Each member's distance to every image, cell by cell then averaged."""
+        per_member = []
+        for member, reference_tiles in zip(self._members, reference.tiles, strict=True):
+            got = [member.embed_images(_tiles(image)) for image in images]
+            per_member.append(
+                [
+                    float((1.0 - (reference_tiles * tiles).sum(dim=-1)).mean())
+                    for tiles in got
+                ]
+            )
+        return per_member
 
     def score(self, reference: PanelReference, candidate_png: bytes) -> float:
         """Mean distance across the panel.
@@ -91,10 +128,11 @@ class EnsembleScorer(Scorer):
         the panel's actual judgement is ``rank``, which is what decides
         direction.
         """
-        values = [
-            member.score(ref, candidate_png)
-            for member, ref in zip(self._members, reference.references, strict=True)
-        ]
+        try:
+            image = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+        except Exception:
+            return MAX_SCORE
+        values = [d[0] for d in self._distances(reference, [image])]
         return sum(values) / len(values) if values else MAX_SCORE
 
     def rank(
@@ -115,14 +153,21 @@ class EnsembleScorer(Scorer):
         """
         if not candidate_pngs:
             return []
-        if len(candidate_pngs) == 1:
-            return [self.score(reference, candidate_pngs[0])]
 
-        # Each member scores the whole field once, batched.
-        votes = [
-            member.score_many(ref, candidate_pngs)
-            for member, ref in zip(self._members, reference.references, strict=True)
-        ]
+        images = []
+        for png in candidate_pngs:
+            try:
+                images.append(Image.open(io.BytesIO(png)).convert("RGB"))
+            except Exception:
+                # A candidate that will not open is scored worst rather than
+                # failing the field it was ranked with.
+                images.append(Image.new("RGB", reference.image.size, (255, 255, 255)))
+        votes = self._distances(reference, images)
+
+        if len(images) == 1:
+            # Nothing to compare against, so there is no vote to take; the
+            # panel's mean distance is the most that can be said.
+            return [sum(v[0] for v in votes) / len(votes)]
 
         count = len(candidate_pngs)
         wins = [0] * count
