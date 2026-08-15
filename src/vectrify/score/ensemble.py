@@ -62,9 +62,13 @@ PANEL_MODELS: tuple[str, ...] = (
     "google/siglip-base-patch16-224",
 )
 
-# Cells per side. Three splits a drawing finely enough to pin content to a
-# place without cropping so tightly that a cell holds nothing recognisable.
-GRID = 3
+# Cells per side, swept from 1 to 8 against the distortion screen. Vector
+# damage is ordered correctly 92.8% of the time reading the picture whole,
+# 95.4% at three cells a side and 96.4% at five, after which it is flat -- 6, 7
+# and 8 score 96.1, 96.1 and 96.4. So there is a real optimum around a 77px
+# cell rather than a simple appetite for resolution, which finer grids would
+# have kept feeding.
+GRID = 5
 
 
 @dataclass
