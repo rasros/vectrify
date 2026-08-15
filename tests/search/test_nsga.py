@@ -3,6 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
+from vectrify.score.metrics import COLOUR_WEIGHT, EDGE_WEIGHT
 from vectrify.search import ChainState, SearchNode, nsga
 from vectrify.search.diversity import simhash
 from vectrify.search.models import INVALID_SCORE
@@ -113,10 +114,11 @@ def test_crowding_distance_reads_arity_from_the_vectors():
     assert dist[3] > dist[2] > 0.0
 
 
-def test_build_objectives_blends_score_and_colour_on_a_common_scale():
+def test_build_objectives_blends_colour_and_edge_on_a_common_scale():
     """Each part is scaled by its own population maximum before weighting, or
     the blend would be decided by whichever part happens to be on the larger
-    scale rather than by the weights."""
+    scale rather than by the weights -- and colour arrives on a scale hundreds
+    of times larger than edge."""
     nodes = [
         make_node(1, 0.5, edge=0.2, colour=1000.0),
         make_node(2, 1.0, edge=0.4, colour=500.0),
@@ -125,17 +127,17 @@ def test_build_objectives_blends_score_and_colour_on_a_common_scale():
     objectives = build_objectives(nodes)
 
     assert all(len(v) == 1 for v in objectives.values())
-    assert objectives[1] == pytest.approx((0.5 * 0.5 + 0.5 * 1.0,))
-    assert objectives[2] == pytest.approx((0.5 * 1.0 + 0.5 * 0.5,))
+    assert objectives[1] == pytest.approx((COLOUR_WEIGHT * 1.0 + EDGE_WEIGHT * 0.5,))
+    assert objectives[2] == pytest.approx((COLOUR_WEIGHT * 0.5 + EDGE_WEIGHT * 1.0,))
 
 
-def test_build_objectives_ignores_a_metric_it_does_not_rank_on():
-    """Edge overlap is recorded for analysis but orders candidates against the
-    evaluator more often than with it, so it must not reach selection."""
+def test_build_objectives_ignores_the_score_it_does_not_rank_on():
+    """The round score is the blend of these same two measures, so feeding it
+    back in would count them twice."""
     same = build_objectives(
         [
-            make_node(1, 0.5, edge=0.0, colour=1.0),
-            make_node(2, 0.5, edge=9e9, colour=1.0),
+            make_node(1, 0.0, edge=1.0, colour=1.0),
+            make_node(2, 9e9, edge=1.0, colour=1.0),
         ]
     )
 
@@ -559,7 +561,12 @@ def test_ranking_survives_a_population_nothing_wins():
     sort that only peels undominated nodes returns a single undifferentiated
     front there, which leaves crowding distance to decide survival on spread
     instead of quality."""
-    nodes = [make_node(i, 0.1 * (i % 7), edge=100.0 * (i % 5)) for i in range(60)]
+    # Varying both measures the objective is built from, so tiers can track
+    # quality rather than a number selection no longer reads.
+    nodes = [
+        make_node(i, 0.0, edge=100.0 * (i % 5), colour=10.0 * (i % 7))
+        for i in range(60)
+    ]
     objectives = build_objectives(nodes)
 
     fronts = non_dominated_sort(nodes, objectives)
@@ -567,8 +574,8 @@ def test_ranking_survives_a_population_nothing_wins():
     assert len(fronts) > 1, "ranking put the whole population in one tier"
     assert sum(len(f) for f in fronts) == len(nodes), "a node was dropped"
 
-    best = statistics.fmean(n.score for n in fronts[0])
-    worst = statistics.fmean(n.score for n in fronts[-1])
+    best = statistics.fmean(objectives[n.id][0] for n in fronts[0])
+    worst = statistics.fmean(objectives[n.id][0] for n in fronts[-1])
     assert best < worst, "the ranking does not track quality"
 
 

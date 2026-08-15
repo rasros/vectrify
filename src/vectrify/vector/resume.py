@@ -9,7 +9,7 @@ from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
 from vectrify.score.compare import compare
 from vectrify.score.edges import overlap_distance
-from vectrify.score.metrics import COLOUR, EDGE
+from vectrify.score.metrics import COLOUR, EDGE, round_score
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -88,8 +88,6 @@ def resume_nodes(
     pool_size: int,
     workers: int,
     scoring_ref: Any,
-    scorer: Any,
-    embedding_ref: Any,
     storage: StorageAdapter,
 ) -> list[SearchNode]:
     """Deduplicate, rasterize, pre-filter, and re-score a set of resumed nodes.
@@ -144,9 +142,8 @@ def resume_nodes(
     current_new_id = 1
     for item in prepped:
         try:
-            new_score = scorer.score(embedding_ref, item.png)
             # Resumed nodes compete directly against freshly scored ones, so
-            # they need the scorer-side metrics too. Leaving them absent would
+            # they are measured the same way. Leaving the metrics absent would
             # read as 0.0 -- best possible for a minimised objective -- and let
             # every import dominate the candidates actually being measured.
             comparison = compare(scoring_ref, item.png)
@@ -155,6 +152,7 @@ def resume_nodes(
                 comparison.reference_edges, comparison.candidate_edges
             )
             metrics[COLOUR] = float(comparison.colour.mean())
+            new_score = round_score(metrics[COLOUR], metrics[EDGE])
             node = SearchNode(
                 score=new_score,
                 id=current_new_id,

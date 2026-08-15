@@ -12,37 +12,52 @@ COLOUR = "colour"
 
 SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR)
 
-# What selection ranks candidates by: the embedding distance and the chromatic
-# distance, blended.
+# What selection ranks candidates by: the chromatic and structural distances,
+# blended. No embedding: the round score no longer runs a model at all.
 #
-# This used to trade off three measures by majority vote, on the reasoning that
-# three imperfect judges agree more often than the best of them alone.
-# Measured against the evaluator panel on real pool populations, that is not
-# what happens. As a share of candidate pairs each rule orders the way the
-# panel does, where 50% is a coin:
+# It used to, weighted half and half with colour, on the strength of a
+# measurement that ranked each candidate rule by how often it agreed with the
+# evaluator panel. That is only as sound as the panel, and the panel then read
+# whole images, which is the thing it was worst at. Against the distortion
+# screen instead -- damage of a known severity in a known order, so nothing has
+# to be trusted as a reference -- the ordering is different. As a share of
+# level pairs ordered correctly on vector damage:
 #
-#     0.5 embedding + 0.5 colour   72.6%
-#     colour alone                 64.1%
-#     embedding alone              60.1%
-#     majority of all three        56.1%
-#     edge alone                   41.5%
+#     0.25 colour + 0.50 edge      96.7%    no forward pass
+#     edge alone                   96.2%    no forward pass
+#     colour alone                 95.8%    no forward pass
+#     0.50 embedding + 0.50 colour 95.5%    one forward pass, what shipped
+#     embedding at three cells     95.4%    nine forward passes
+#     embedding whole              92.8%    one forward pass
 #
-# Edge overlap is worse than chance -- it orders candidates against the panel
-# more often than with it, 28% on mascot and 30% on connect-dots -- and a
-# majority cannot outvote a member that is wrong more often than right, so the
-# vote landed below both of its useful members. Weighting also keeps the
-# magnitude of an error, which voting throws away.
+# Adding an embedding back to the winning pair moves it by a tenth of a point
+# for four to nine forward passes per candidate, which is the whole of the
+# round's model cost for nothing.
+#
+# Edge overlap was dropped from this blend once for scoring 41.5% against the
+# panel. It is the strongest single ingredient there is when measured against
+# damage that is known rather than judged.
 #
 # Nothing counts elements or bytes. No operator adds an element, so a measure
 # built on how many there are says nothing the score does not already say.
 OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
 
-# How the two are weighted against each other. Equal was the best of the
-# blends tried and the least tuned: 0.3/0.7 scored 72.0% and 0.7/0.3 64.0%,
-# so the optimum is broad and there is nothing to be gained from fitting it
-# more finely to six cases.
-EMBED_WEIGHT = 0.5
-COLOUR_WEIGHT = 0.5
+# Weights within the blend, from the same sweep. The optimum is broad: holding
+# edge at 0.50, colour anywhere from 0.25 to 0.50 lands within a tenth of a
+# point, so these are not fitted tightly to the corpus.
+COLOUR_WEIGHT = 0.25
+EDGE_WEIGHT = 0.50
+
+
+def round_score(colour: float, edge: float) -> float:
+    """What a candidate is ranked by, before the population is known.
+
+    build_objectives scales each part by its population maximum, which needs a
+    population; a candidate arriving on its own needs an absolute number for
+    the run's best-so-far and the lineage. Both measures already sit near
+    [0, 1], so the same weights apply unscaled.
+    """
+    return COLOUR_WEIGHT * colour + EDGE_WEIGHT * edge
 
 # The evaluator's verdict on a converged front member. Recorded so a run can be
 # read back, and deliberately NOT an objective: it exists on a handful of nodes

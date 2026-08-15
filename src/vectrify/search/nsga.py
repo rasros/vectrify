@@ -3,7 +3,7 @@ import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.metrics import COLOUR, COLOUR_WEIGHT, EMBED_WEIGHT
+from vectrify.score.metrics import COLOUR, COLOUR_WEIGHT, EDGE, EDGE_WEIGHT
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
@@ -147,7 +147,7 @@ def crowding_distance(
 
 
 def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
-    """Blend the embedding and chromatic distances into an objective vector.
+    """Blend the chromatic and structural distances into an objective vector.
 
     Each part is scaled by its own population maximum first, so a weighting
     between them means what it says rather than being decided by whichever
@@ -163,12 +163,17 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
     Callers must pass only valid nodes (score < INVALID_SCORE); an infinite
     score would corrupt the normalization for every other node.
     """
-    max_score = max((n.score for n in nodes), default=1.0) or 1.0
-    max_colour = max((n.metrics.get(COLOUR, 0.0) for n in nodes), default=1.0) or 1.0
+    maxima = {
+        name: max((n.metrics.get(name, 0.0) for n in nodes), default=1.0) or 1.0
+        for name in (COLOUR, EDGE)
+    }
+    weights = {COLOUR: COLOUR_WEIGHT, EDGE: EDGE_WEIGHT}
     return {
         n.id: (
-            EMBED_WEIGHT * (n.score / max_score)
-            + COLOUR_WEIGHT * (n.metrics.get(COLOUR, 0.0) / max_colour),
+            sum(
+                weight * (n.metrics.get(name, 0.0) / maxima[name])
+                for name, weight in weights.items()
+            ),
         )
         for n in nodes
     }
@@ -219,7 +224,7 @@ class NsgaStrategy(Generic[TState]):
         # waits on -- so more workers bought nothing. Keyed on the pool's
         # membership, which is what the ranking depends on; a node's score and
         # metrics never change once it is built.
-        self._ranked: tuple[tuple[int, ...], list, dict, dict] | None = None
+        self._ranked: tuple[tuple, list, dict, dict] | None = None
 
     def _rank_pool(
         self, valid: list[SearchNode[TState]]
@@ -229,7 +234,14 @@ class NsgaStrategy(Generic[TState]):
         Returns the selectable pool with each node's tier and crowding
         distance.
         """
-        key = tuple(n.id for n in valid)
+        # Keyed on what the ranking is computed from, not on identity alone: a
+        # node's measures never change once it is built, but a caller is free
+        # to hand over a different population carrying the same ids, and an
+        # id-only key would answer that with the previous pool's ordering.
+        key = tuple(
+            (n.id, n.metrics.get(COLOUR, 0.0), n.metrics.get(EDGE, 0.0))
+            for n in valid
+        )
         cached = self._ranked
         if cached is not None and cached[0] == key:
             return cached[1], cached[2], cached[3]
