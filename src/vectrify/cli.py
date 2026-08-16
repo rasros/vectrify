@@ -10,7 +10,11 @@ from vectrify.score.vision import DEFAULT_VISION_MODEL
 DEFAULT_OUTPUT = "output.svg"
 DEFAULT_PROVIDER = "auto"
 DEFAULT_SCORER = "auto"
-DEFAULT_EPOCHS = 2
+# Four rather than two, because an epoch is where the LLM sees the front and
+# gets to rewrite what local search cannot reach. Two spends most of a run
+# refining whatever the first batch happened to produce, and a run that draws a
+# poor first batch has one chance to recover.
+DEFAULT_EPOCHS = 4
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
 DEFAULT_RESUME = False
@@ -25,7 +29,15 @@ DEFAULT_REASONING = "medium"
 DEFAULT_POOL_SIZE = 100
 DEFAULT_EPOCH_DIVERSITY = 0.0
 DEFAULT_EPOCH_VARIANCE = 0.0
-DEFAULT_EPOCH_PATIENCE = 200
+# Tasks without improvement before an epoch is called converged. Measured over
+# eleven runs and 145 improvements, the gap between one improvement and the
+# next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
+# longest observed -- so the previous 200 stopped epochs while improvements
+# were still arriving. That measurement is also censored, since those runs were
+# themselves cut off at 200 and cannot show what waiting longer would have
+# found, which argues for clearing the observed maximum rather than sitting
+# just above the percentile.
+DEFAULT_EPOCH_PATIENCE = 500
 DEFAULT_EPOCH_MIN_DELTA = 1e-4
 DEFAULT_TOURNAMENT_SIZE = 2
 DEFAULT_ADAPTIVE_OPERATORS = True

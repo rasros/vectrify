@@ -70,11 +70,14 @@ def test_defaults_pinned():
     assert args.pool_size == 100
     assert args.epoch_diversity == 0.0
     # Patience counts local tasks only; a seed batch is not a hill-climb and
-    # cannot go stale.
-    assert args.epoch_patience == 200
-    # Epoch 0 produced 82% of the total gain on the reference image and
-    # epochs 2-3 produced 3.7% for a third of the wall clock.
-    assert args.epochs == 2
+    # cannot go stale. Raised from 200 once the gap between improvements was
+    # measured: 142 tasks at the 95th percentile and 497 at the longest seen.
+    assert args.epoch_patience == 500
+    # Was 2, on a measurement that epoch 0 produced 82% of the gain and epochs
+    # 2-3 produced 3.7% for a third of the wall clock. That measurement predates
+    # the seeds being carried into later fronts, which is what made a weak first
+    # batch unrecoverable and so made later epochs look worthless.
+    assert args.epochs == 4
 
 
 @pytest.mark.parametrize(
