@@ -119,6 +119,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_seeds: int | None = None,
         epochs: int | None = None,
         epoch_variance: float | None = None,
+        epoch_diversity: float = 0.0,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
     ) -> None:
@@ -221,6 +222,9 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         epoch = 0
         epoch_no_improve = 0
+        # Reset at every transition, so each epoch is judged against the
+        # pool it opened with rather than against the first one.
+        epoch_baseline: tuple[float, float] | None = None
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
@@ -562,7 +566,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                 _close_generation()
 
         def _do_epoch_transition(reason: str) -> None:
-            nonlocal epoch
+            nonlocal epoch, epoch_baseline
+
+            epoch_baseline = None
 
             # The next seed batch edits this pool's front, so the children that
             # arrived since the last generation have to land in it first.
@@ -579,7 +585,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             _begin_seed_phase()
 
         def _check_epoch_end():
-            nonlocal pool_refilling
+            nonlocal pool_refilling, epoch_baseline
 
             if pool_refilling:
                 if len(active_pool) < active_pool_size:
@@ -589,16 +595,32 @@ class MultiprocessSearchEngine(Generic[TState]):
             staleness = (
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
-            low_diversity, pool_div = self.strategy.should_diversify(active_pool)
+            _unused, pool_div = self.strategy.should_diversify(active_pool)
             pool_std = score_std(valid_scores(active_pool))
 
             if collector is not None:
                 collector.on_pool_state(diversity=pool_div, score_std=pool_std)
 
+            # Both pool measures are read against where this epoch started
+            # rather than against a fixed number. An absolute threshold cannot
+            # be chosen once and mean the same thing twice: score spread is
+            # denominated in whatever the round objective happens to be, which
+            # has been rewritten repeatedly, and pool diversity -- a fraction
+            # already -- still sat anywhere between 0.05 and 0.33 across real
+            # runs depending only on how intricate the drawing is. A ratio to
+            # the epoch's own opening value carries neither dependence, so one
+            # setting means the same thing on every image.
+            if epoch_baseline is None:
+                epoch_baseline = (max(pool_div, 1e-9), max(pool_std, 1e-9))
+            base_div, base_std = epoch_baseline
+
+            low_diversity = (
+                epoch_diversity > 0 and pool_div / base_div < epoch_diversity
+            )
             low_variance = (
                 epoch_variance is not None
                 and epoch_variance > 0
-                and pool_std < epoch_variance
+                and pool_std / base_std < epoch_variance
             )
 
             # Any one of these ending the epoch, rather than all of them
@@ -621,9 +643,14 @@ class MultiprocessSearchEngine(Generic[TState]):
                     f" {epoch_patience} tasks without improvement)"
                 )
             elif low_diversity:
-                reason = f"low diversity ({pool_div:.4f})"
+                reason = (
+                    f"diversity fell to {pool_div / base_div:.2f} of its opening value"
+                )
             elif low_variance:
-                reason = f"low variance ({pool_std:.6f} < {epoch_variance})"
+                reason = (
+                    f"score spread fell to {pool_std / base_std:.2f}"
+                    f" of its opening value"
+                )
             else:
                 return
 

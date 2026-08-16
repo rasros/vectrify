@@ -198,7 +198,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     g_epoch = parser.add_argument_group(
         "Epoch control. Any convergence criterion that is set can end an epoch "
         "on its own, so each wants a threshold tight enough that reaching it "
-        "means the search is genuinely done."
+        "means the search is genuinely done. The two pool criteria are read as "
+        "fractions of where the epoch started, so one setting means the same "
+        "thing on every image."
     )
     g_epoch.add_argument(
         "--epochs",
@@ -234,8 +236,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_DIVERSITY,
         dest="epoch_diversity",
         metavar="THR",
-        help="End epoch when mean pairwise genome diversity "
-        "drops below this threshold. 0 disables.",
+        help="End an epoch once pool diversity has fallen to this fraction "
+        "of what it was when the epoch opened, e.g. 0.3. A fraction rather "
+        "than a fixed level, because how varied a pool starts out depends on "
+        "the drawing. 0 disables.",
     )
     g_epoch.add_argument(
         "--epoch-variance",
@@ -243,8 +247,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_VARIANCE,
         dest="epoch_variance",
         metavar="THR",
-        help="End epoch when score std dev in the active pool "
-        "drops below this threshold. 0 disables.",
+        help="End an epoch once the pool's score spread has fallen to this "
+        "fraction of what it was when the epoch opened, e.g. 0.25. A fraction "
+        "rather than a fixed level, because the spread is denominated in "
+        "whatever the round objective happens to be. 0 disables.",
     )
     g_search.add_argument(
         "--tournament-size",

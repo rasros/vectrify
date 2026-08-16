@@ -1063,20 +1063,19 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
 def test_a_collapsed_pool_ends_the_epoch_without_waiting_for_staleness():
     """Each criterion is set tight enough that reaching it is reason enough on
     its own: a pool that has become clones of one drawing is finished whatever
-    the score is still doing, and waiting for every criterion to agree would
-    let a rarely-reached one block the transition and spend the whole run as a
-    single local search."""
+    the score is still doing, and requiring every criterion to agree would let
+    a rarely-reached one block the transition and spend the run as a single
+    local search."""
+    from unittest.mock import MagicMock
 
-    class NeverDiverse(FakeStrategy):
+    class Collapsed(FakeStrategy):
         def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
             _ = pool
-            return True, 0.0
-
-    from unittest.mock import MagicMock
+            return False, 0.0
 
     collector = MagicMock()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=NeverDiverse(), storage=FakeStorage(), max_total_tasks=6
+        workers=1, strategy=Collapsed(), storage=FakeStorage(), max_total_tasks=6
     )
     for task_id in range(1, 7):
         engine.unscored_q.put(
@@ -1093,7 +1092,58 @@ def test_a_collapsed_pool_ends_the_epoch_without_waiting_for_staleness():
         epochs=4,
         # Far beyond the task budget, so staleness cannot be what ends it.
         epoch_patience=10_000,
+        epoch_diversity=0.5,
         collector=collector,
     )
 
     collector.on_epoch_transition.assert_called()
+
+
+def test_the_pool_criteria_read_the_same_on_any_scale():
+    """The reason they are ratios. Score spread is denominated in whatever the
+    round objective happens to be, and that has been rewritten repeatedly; an
+    absolute threshold would have to be rechosen every time, and would still
+    mean different things on a busy drawing and a plain one."""
+    from unittest.mock import MagicMock
+
+    class PoolStrategy(FakeStrategy):
+        def select_parent(self, nodes: list[SearchNode]) -> tuple[int, int | None]:
+            return nodes[0].id, None
+
+    def transitions_for(scale: float) -> int:
+        collector = MagicMock()
+        engine = MultiprocessSearchEngine(
+            workers=1,
+            strategy=PoolStrategy(),
+            storage=FakeStorage(),
+            max_total_tasks=8,
+        )
+        # Spread collapses by the same proportion in both runs, a thousandfold
+        # apart in absolute terms.
+        for task_id, spread in enumerate(
+            [1.0, 0.9, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
+        ):
+            engine.unscored_q.put(
+                Result(
+                    task_id=task_id + 1,
+                    parent_id=1,
+                    valid=True,
+                    score=spread * scale,
+                    payload="p",
+                )
+            )
+        node = SearchNode(
+            score=scale, id=1, parent_id=0, state=ChainState(score=scale, payload=None)
+        )
+        engine.run(
+            initial_nodes=[node],
+            max_wall_seconds=None,
+            active_pool_size=2,
+            epochs=4,
+            epoch_patience=10_000,
+            epoch_variance=0.3,
+            collector=collector,
+        )
+        return collector.on_epoch_transition.call_count
+
+    assert transitions_for(1.0) == transitions_for(1000.0)
