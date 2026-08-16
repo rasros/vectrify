@@ -11,7 +11,7 @@ from vectrify.score.metrics import (
 
 def test_registry_covers_the_declared_metrics():
     assert (*SCORER_METRICS, "front_score") == METRIC_NAMES
-    assert set(METRIC_NAMES) == {"edge", "colour", "front_score"}
+    assert set(METRIC_NAMES) == {"edge", "colour", "shape", "front_score"}
 
 
 def test_the_evaluator_verdict_is_recorded_but_never_an_objective():

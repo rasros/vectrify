@@ -29,7 +29,7 @@ from vectrify.score import ScorerType, get_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
 from vectrify.score.edges import overlap_distance
-from vectrify.score.metrics import COLOUR, EDGE, FRONT_SCORE, round_score
+from vectrify.score.metrics import COLOUR, EDGE, FRONT_SCORE, SHAPE, round_score
 from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
@@ -341,7 +341,10 @@ def run_vector_search(
                 comparison.reference_edges, comparison.candidate_edges
             )
             res.metrics[COLOUR] = float(comparison.colour.mean())
-            res.score = round_score(res.metrics[COLOUR], res.metrics[EDGE])
+            res.metrics[SHAPE] = comparison.shape
+            res.score = round_score(
+                res.metrics[COLOUR], res.metrics[EDGE], res.metrics[SHAPE]
+            )
         except Exception as exc:
             log.debug(f"Pixel objectives skipped: {exc}")
 

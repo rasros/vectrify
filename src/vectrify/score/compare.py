@@ -19,6 +19,7 @@ from PIL import Image
 
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.edges import edge_map, overlap_distance
+from vectrify.score.moments import shape_distance
 from vectrify.score.utils import clamp01, lab_array
 
 
@@ -44,6 +45,11 @@ class Comparison:
     colour: np.ndarray
     reference_edges: np.ndarray
     candidate_edges: np.ndarray
+
+    @property
+    def shape(self) -> float:
+        """Difference in shape, with position and scale divided out."""
+        return shape_distance(self.reference_edges > 0.2, self.candidate_edges > 0.2)
 
     def blend(self) -> float:
         """Structure and colour over the whole canvas: the round score."""
