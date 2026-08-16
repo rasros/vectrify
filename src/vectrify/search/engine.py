@@ -119,6 +119,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_seeds: int | None = None,
         epochs: int | None = None,
         epoch_variance: float | None = None,
+        epoch_diversity: float = 0.0,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
     ) -> None:
@@ -601,19 +602,36 @@ class MultiprocessSearchEngine(Generic[TState]):
                 and pool_std < epoch_variance
             )
 
-            if staleness:
-                reason = (
-                    f"staleness ({epoch_no_improve} >="
-                    f" {epoch_patience} tasks without improvement)"
+            # Every criterion that was asked for has to agree before the epoch
+            # is called converged. They measure different kinds of exhaustion
+            # and any one of them fires early on a run the others can see is
+            # still working: a pool loses diversity while its best score is
+            # still falling, and a run can go quiet for a stretch without
+            # having run out. Whoever sets two of these is describing what
+            # convergence means to them, not offering alternatives.
+            asked: list[tuple[bool, str]] = []
+            if epoch_patience is not None:
+                asked.append(
+                    (
+                        staleness,
+                        f"staleness ({epoch_no_improve} >="
+                        f" {epoch_patience} tasks without improvement)",
+                    )
                 )
-            elif low_diversity:
-                reason = f"low diversity ({pool_div:.4f})"
-            elif low_variance:
-                reason = f"low variance ({pool_std:.6f} < {epoch_variance})"
-            else:
+            if epoch_diversity > 0:
+                asked.append((low_diversity, f"low diversity ({pool_div:.4f})"))
+            if epoch_variance is not None and epoch_variance > 0:
+                asked.append(
+                    (
+                        low_variance,
+                        f"low variance ({pool_std:.6f} < {epoch_variance})",
+                    )
+                )
+
+            if not asked or not all(met for met, _ in asked):
                 return
 
-            _do_epoch_transition(reason)
+            _do_epoch_transition(" and ".join(reason for _, reason in asked))
 
         def _final_artifact() -> SearchNode[TState] | None:
             """The candidate to write out, chosen by the evaluator.

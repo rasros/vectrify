@@ -1058,3 +1058,48 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
     )
 
     assert scored, "results scored before the failure should have survived it"
+
+
+def test_an_epoch_ends_only_when_every_criterion_asked_for_agrees():
+    """Each criterion measures a different kind of exhaustion, and any one of
+    them fires early on a run the others can see is still working. Setting two
+    describes what convergence means for that run rather than offering
+    alternatives, so a single one firing must not end the epoch."""
+
+    class NeverDiverse(FakeStrategy):
+        """Diversity is always exhausted; staleness never is."""
+
+        epoch_diversity = 0.9
+
+        def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
+            _ = pool
+            return True, 0.0
+
+    from unittest.mock import MagicMock
+
+    collector = MagicMock()
+
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=NeverDiverse(), storage=FakeStorage(), max_total_tasks=6
+    )
+    for task_id in range(1, 7):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, score=0.5, payload="p")
+        )
+
+    node = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[node],
+        max_wall_seconds=None,
+        active_pool_size=2,
+        epochs=4,
+        # Patience far beyond the task budget, so staleness cannot be reached
+        # while diversity is exhausted from the first check.
+        epoch_patience=10_000,
+        epoch_diversity=0.9,
+        collector=collector,
+    )
+
+    collector.on_epoch_transition.assert_not_called()
