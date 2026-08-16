@@ -627,6 +627,163 @@ def _explode(_nodes):
     raise RuntimeError("no cuda")
 
 
+class _DriftingStrategy(FakeStrategy):
+    """Survival that keeps the newest nodes, however they scored.
+
+    Stands in for what the majority relation does on a real pool, where two
+    objectives can outvote the score and evict the candidate an epoch was
+    seeded from.
+    """
+
+    def __init__(self):
+        self.epoch_pools: list[set[int]] = []
+
+    def select_parent(self, nodes):
+        return nodes[0].id, None
+
+    def select_survivors(self, nodes, max_keep):
+        return nodes[-max_keep:]
+
+    def epoch_parents(self, pool, max_parents):
+        self.epoch_pools.append({n.id for n in pool})
+        return pool[:max_parents]
+
+
+def test_a_new_epoch_can_be_seeded_from_the_llm_seed_local_search_replaced():
+    """Local refinement is not monotone: a lineage can end an epoch worse than
+    the seed it started from. If only the evolved pool reached the next front,
+    the model would be handed the damaged drawing and build on it."""
+    strat = _DriftingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+    )
+    engine.unscored_q.put(_seed_result(1, 0.2))
+    # Worse than the seed it descends from, and the pool holds one node.
+    engine.unscored_q.put(
+        Result(task_id=2, parent_id=2, valid=True, score=0.9, payload="p")
+    )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_seeds=1,
+        epoch_patience=1,
+        epoch_min_delta=0.1,
+        active_pool_size=1,
+        generation_size=1,
+        epochs=2,
+    )
+
+    # Node 2 is the seed child, node 3 the local child that displaced it.
+    assert strat.epoch_pools == [{2, 3}]
+
+
+def test_remembered_seeds_stay_within_their_share_of_the_front():
+    """Every epoch adds seeds, so without a bound the front would drift towards
+    being all history and none of the pool the search actually built."""
+    strat = _DriftingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=7
+    )
+    # Epoch 0: two seeds far better than anything that follows, then a local
+    # child, which fills the pool and ends the epoch.
+    for task_id, score in ((1, 0.10), (2, 0.11)):
+        engine.unscored_q.put(_seed_result(task_id, score))
+    engine.unscored_q.put(
+        Result(task_id=3, parent_id=2, valid=True, score=0.7, payload="p")
+    )
+    # Epoch 1 replaces the pool with its own two seeds and refines them.
+    for task_id, score in ((4, 0.50), (5, 0.60)):
+        engine.unscored_q.put(_seed_result(task_id, score))
+    for task_id in (6, 7):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=5, valid=True, score=0.8, payload="p")
+        )
+
+    initial = SearchNode(
+        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_seeds=2,
+        epoch_patience=1,
+        epoch_min_delta=0.1,
+        active_pool_size=4,
+        generation_size=1,
+        epochs=3,
+    )
+
+    # Epoch 2 opens on a pool of epoch 1's nodes. Both epoch-0 seeds (2 and 3)
+    # outscore all of them, and a pool of four admits one remembered seed, so
+    # only the better of the two is carried in.
+    assert strat.epoch_pools[-1] - {5, 6, 7, 8} == {2}
+
+
+def test_a_resumed_run_treats_no_restored_node_as_an_llm_seed():
+    """Storage restores drawings and ids, not who wrote them. Guessing that a
+    restored node was a seed would protect a locally degraded candidate for the
+    rest of the run, which is the failure the archive exists to prevent."""
+    strat = _DriftingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+    )
+    for task_id in (1, 2):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, score=0.9, payload="p")
+        )
+
+    resumed = SearchNode(
+        score=0.1, id=1, parent_id=0, state=ChainState(score=0.1, payload=None)
+    )
+    engine.run(
+        initial_nodes=[resumed],
+        max_wall_seconds=None,
+        epoch_seeds=1,
+        initial_seeds=0,
+        epoch_patience=1,
+        epoch_min_delta=0.1,
+        active_pool_size=1,
+        generation_size=1,
+        epochs=2,
+    )
+
+    # The restored node is gone from the pool and does not come back, even
+    # though it scored better than what replaced it.
+    assert strat.epoch_pools == [{2}]
+
+
+def test_a_run_without_llm_seeds_offers_the_epoch_only_the_evolved_pool():
+    """The bench runs with --seeds 0 and must see exactly what it saw before."""
+    strat = _DriftingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+    )
+    for task_id in (1, 2):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, score=0.9, payload="p")
+        )
+
+    initial = SearchNode(
+        score=0.1, id=1, parent_id=0, state=ChainState(score=0.1, payload=None)
+    )
+    engine.run(
+        initial_nodes=[initial],
+        max_wall_seconds=None,
+        epoch_seeds=0,
+        epoch_patience=1,
+        epoch_min_delta=0.1,
+        active_pool_size=1,
+        generation_size=1,
+        epochs=2,
+    )
+
+    assert strat.epoch_pools == [{2}]
+
+
 def test_a_failing_evaluator_does_not_stop_the_run():
     """It runs a model at an epoch boundary; a load failure there must cost the
     ordering, not the run."""

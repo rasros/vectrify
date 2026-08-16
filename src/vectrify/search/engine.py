@@ -31,6 +31,13 @@ LOCAL_PHASE = "local"
 # by the round's own objective rather than all of them.
 FRONT_EVAL_CAP = 24
 
+# What share of the active pool the remembered LLM seeds may add to a front.
+# They are there to give the evolved pool something to beat, so a handful is
+# enough; letting them grow with the epoch count would eventually make the
+# front mostly old seeds and spend the batch re-editing candidates the search
+# has already moved past.
+SEED_ARCHIVE_POOL_SHARE = 4
+
 # How many candidates the scorer thread scores in one call. A model-backed
 # scorer costs almost the same for a batch as for a single candidate, so
 # anything already queued rides along nearly free.
@@ -182,6 +189,23 @@ class MultiprocessSearchEngine(Generic[TState]):
         node_states = {n.id: n.state for n in initial_nodes}
         # Each starting candidate is its own lineage; children inherit it.
         node_roots = {n.id: n.root_id or n.id for n in initial_nodes}
+        # The LLM's own output from earlier epochs, kept as a candidate for the
+        # fronts later epochs are seeded from. Local refinement is not monotone
+        # -- measured on the corpus it finishes behind best-of-5 seeding on half
+        # the cases -- so a front drawn only from the evolved pool can hand the
+        # model back a worse drawing than the one it produced itself, and the
+        # next epoch then builds on the damage. Keyed by lineage, which a seed
+        # opens and its descendants inherit, so this holds each seed once and
+        # never the local children that came after it.
+        #
+        # It starts empty even on --resume: what storage restores is drawings
+        # and ids, with no record of which the LLM wrote. Assuming they were
+        # seeds would give a locally degraded candidate exactly the protection
+        # this exists to escape, where assuming none were costs only the first
+        # epoch's, which that epoch's own batch immediately restores.
+        seed_archive: dict[int, SearchNode[TState]] = {}
+        seed_archive_cap = max(1, active_pool_size // SEED_ARCHIVE_POOL_SHARE)
+
         sorted_initial = sorted(initial_nodes, key=lambda n: n.score)
         active_pool: list[SearchNode[TState]] = sorted_initial[:active_pool_size]
         best_node = sorted_initial[0] if sorted_initial else None
@@ -246,8 +270,19 @@ class MultiprocessSearchEngine(Generic[TState]):
                 seeds_completed, \
                 seed_task_ids
 
+            # The remembered seeds enter the ranking as candidates rather than
+            # being handed a reserved slot: a seed the pool has genuinely
+            # improved on deserves to lose, and reserving would spend an LLM
+            # call re-editing a drawing the search already beat. All that has to
+            # be guaranteed is that the model's own work is still reachable when
+            # local search has wandered away from it -- from there the same
+            # comparison that ranks everything else can decide.
+            pool_ids = {n.id for n in active_pool}
+            candidates = active_pool + [
+                n for n in seed_archive.values() if n.id not in pool_ids
+            ]
             parents = self.strategy.epoch_parents(
-                active_pool, max(epoch_seeds, FRONT_EVAL_CAP)
+                candidates, max(epoch_seeds, FRONT_EVAL_CAP)
             )
             if parents and self.rank_front is not None:
                 try:
@@ -438,9 +473,26 @@ class MultiprocessSearchEngine(Generic[TState]):
                 log.debug(f"[ACCEPTED] node={new_node.id} score={new_node.score:.6f}")
             return is_new_best
 
+        def _archive_seed(node: SearchNode[TState]) -> None:
+            """Keep an LLM seed available to the fronts of later epochs.
+
+            One entry per lineage, and only the best of it, so a lineage the
+            model revisits cannot claim more of the front than a lineage it got
+            right first time. Over the cap the worst entry goes, which leaves
+            the archive holding the seeds most likely to still be worth editing.
+            """
+            current = seed_archive.get(node.root_id)
+            if current is not None and current.score <= node.score:
+                return
+            seed_archive[node.root_id] = node
+            if len(seed_archive) > seed_archive_cap:
+                worst = max(seed_archive.values(), key=lambda n: n.score)
+                del seed_archive[worst.root_id]
+
         def _process_seed_result(res: Result) -> None:
             new_node = _make_node(res, new_lineage=True)
             seed_children.append(new_node)
+            _archive_seed(new_node)
             node_states[new_node.id] = new_node.state
             _note_best(new_node, res)
             self.storage.save_node(new_node)
