@@ -68,7 +68,11 @@ def test_seeds_zero_requires_resume():
 def test_defaults_pinned():
     args = parse_args(["img.png"])
     assert args.pool_size == 100
-    assert args.epoch_diversity == 0.0
+    # Floors below where a healthy run finishes, so they guard the case
+    # staleness cannot see -- a collapsed pool trickling out microscopic gains
+    # that keep resetting patience -- without cutting an ordinary epoch short.
+    assert args.epoch_diversity == 0.10
+    assert args.epoch_variance == 0.05
     # Patience counts local tasks only; a seed batch is not a hill-climb and
     # cannot go stale. Raised from 200 once the gap between improvements was
     # measured: 142 tasks at the 95th percentile and 497 at the longest seen.

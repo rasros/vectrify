@@ -27,8 +27,23 @@ DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
 DEFAULT_POOL_SIZE = 100
-DEFAULT_EPOCH_DIVERSITY = 0.0
-DEFAULT_EPOCH_VARIANCE = 0.0
+# Floors rather than targets. Both are read as fractions of where the epoch
+# opened, and either one can end an epoch on its own, so a default has to sit
+# below where a healthy run finishes or it would cut search short. Measured
+# across real runs, diversity stands at 0.35 of its opening value when an epoch
+# legitimately goes stale (0.13 in the worst case seen) and score spread at
+# 0.15, so these sit under everything observed.
+#
+# What they guard is a case staleness cannot see: patience resets on any
+# improvement above epoch_min_delta, so a pool of near-clones trickling out
+# microscopic gains can keep an epoch alive indefinitely while having nothing
+# left to explore. On a healthy run neither should ever fire.
+#
+# Both were measured with patience at 200. At 500 an epoch runs longer and both
+# measures fall further before staleness arrives, so these floors are, if
+# anything, still too high; worth re-reading off a corpus run.
+DEFAULT_EPOCH_DIVERSITY = 0.10
+DEFAULT_EPOCH_VARIANCE = 0.05
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
 # next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
@@ -196,8 +211,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     g_epoch = parser.add_argument_group(
-        "Epoch control. Where more than one convergence criterion is set, an "
-        "epoch ends only once every one of them is satisfied."
+        "Epoch control. Any convergence criterion that is set can end an epoch "
+        "on its own, so each wants a threshold tight enough that reaching it "
+        "means the search is genuinely done. The two pool criteria are read as "
+        "fractions of where the epoch started, so one setting means the same "
+        "thing on every image."
     )
     g_epoch.add_argument(
         "--epochs",
@@ -233,8 +251,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_DIVERSITY,
         dest="epoch_diversity",
         metavar="THR",
-        help="End epoch when mean pairwise genome diversity "
-        "drops below this threshold. 0 disables.",
+        help="End an epoch once pool diversity has fallen to this fraction "
+        "of what it was when the epoch opened, e.g. 0.3. A fraction rather "
+        "than a fixed level, because how varied a pool starts out depends on "
+        "the drawing. 0 disables.",
     )
     g_epoch.add_argument(
         "--epoch-variance",
@@ -242,8 +262,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_VARIANCE,
         dest="epoch_variance",
         metavar="THR",
-        help="End epoch when score std dev in the active pool "
-        "drops below this threshold. 0 disables.",
+        help="End an epoch once the pool's score spread has fallen to this "
+        "fraction of what it was when the epoch opened, e.g. 0.25. A fraction "
+        "rather than a fixed level, because the spread is denominated in "
+        "whatever the round objective happens to be. 0 disables.",
     )
     g_search.add_argument(
         "--tournament-size",
