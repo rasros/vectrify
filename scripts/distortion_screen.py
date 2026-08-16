@@ -549,6 +549,40 @@ def hf_sources(per_set: int) -> list[tuple[str, str]]:
     return out
 
 
+MIXED_LEVELS = 10
+MIXED_SAMPLES = 6
+
+
+def mixed_chain(clean: str, seed: int) -> list[str]:
+    """A candidate as the search actually builds one: a chain of varied edits.
+
+    Every other family walks one axis -- level 3 of a recolour against level 5
+    of the same recolour -- and selection almost never faces that. It faces one
+    candidate with a displaced element against another with the wrong colour,
+    damaged several ways at once. Measured on single axes every scorer looks
+    competent, which says the single-axis question is the easy one.
+
+    Ground truth is the number of edits. From a clean drawing essentially any
+    random edit makes it worse, so more edits is worse, and unlike a severity
+    dial the axes are mixed exactly as a real chain of mutations mixes them.
+    """
+    rng = random.Random(seed)
+    operators = list(VECTOR_OPERATORS.values()) + list(VECTOR_FAMILIES.values())
+    out, current = [clean], clean
+    for _ in range(MIXED_LEVELS):
+        operator = rng.choice(operators)
+        random.seed(rng.randrange(1 << 30))
+        with contextlib.suppress(Exception):
+            try:
+                current = operator(current)
+            except TypeError:
+                # The parameterised families take a level; the search's own
+                # operators take only the drawing.
+                current = operator(current, rng.randint(1, 3))
+        out.append(current)
+    return out
+
+
 def monotonic(scores: list[float]) -> float:
     """Share of level pairs a scorer puts in the right order.
 
