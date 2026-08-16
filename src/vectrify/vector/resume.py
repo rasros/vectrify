@@ -9,7 +9,7 @@ from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
 from vectrify.score.compare import compare
 from vectrify.score.edges import overlap_distance
-from vectrify.score.metrics import COLOUR, EDGE, round_score
+from vectrify.score.metrics import COLOUR, EDGE, SHAPE, round_score
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -152,7 +152,8 @@ def resume_nodes(
                 comparison.reference_edges, comparison.candidate_edges
             )
             metrics[COLOUR] = float(comparison.colour.mean())
-            new_score = round_score(metrics[COLOUR], metrics[EDGE])
+            metrics[SHAPE] = comparison.shape
+            new_score = round_score(metrics[COLOUR], metrics[EDGE], metrics[SHAPE])
             node = SearchNode(
                 score=new_score,
                 id=current_new_id,

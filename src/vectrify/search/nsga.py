@@ -3,7 +3,14 @@ import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.metrics import COLOUR, COLOUR_WEIGHT, EDGE, EDGE_WEIGHT
+from vectrify.score.metrics import (
+    COLOUR,
+    COLOUR_WEIGHT,
+    EDGE,
+    EDGE_WEIGHT,
+    SHAPE,
+    SHAPE_WEIGHT,
+)
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
@@ -165,9 +172,9 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
     """
     maxima = {
         name: max((n.metrics.get(name, 0.0) for n in nodes), default=1.0) or 1.0
-        for name in (COLOUR, EDGE)
+        for name in (COLOUR, EDGE, SHAPE)
     }
-    weights = {COLOUR: COLOUR_WEIGHT, EDGE: EDGE_WEIGHT}
+    weights = {COLOUR: COLOUR_WEIGHT, EDGE: EDGE_WEIGHT, SHAPE: SHAPE_WEIGHT}
     return {
         n.id: (
             sum(
@@ -239,7 +246,13 @@ class NsgaStrategy(Generic[TState]):
         # to hand over a different population carrying the same ids, and an
         # id-only key would answer that with the previous pool's ordering.
         key = tuple(
-            (n.id, n.metrics.get(COLOUR, 0.0), n.metrics.get(EDGE, 0.0)) for n in valid
+            (
+                n.id,
+                n.metrics.get(COLOUR, 0.0),
+                n.metrics.get(EDGE, 0.0),
+                n.metrics.get(SHAPE, 0.0),
+            )
+            for n in valid
         )
         cached = self._ranked
         if cached is not None and cached[0] == key:

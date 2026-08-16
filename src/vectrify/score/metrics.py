@@ -7,10 +7,13 @@ scripts in turn.
 
 from collections.abc import Mapping
 
+from vectrify.score.moments import MOMENT_WEIGHT
+
 EDGE = "edge"
 COLOUR = "colour"
+SHAPE = "shape"
 
-SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR)
+SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR, SHAPE)
 
 # What selection ranks candidates by: the chromatic and structural distances,
 # blended. No embedding: the round score no longer runs a model at all.
@@ -51,11 +54,15 @@ OBJECTIVE_NAMES: tuple[str, ...] = SCORER_METRICS
 #
 # The optimum is broad: holding edge at two thirds, colour anywhere from a
 # quarter to a half of it lands within a tenth of a point.
-COLOUR_WEIGHT = 1.0 / 3.0
-EDGE_WEIGHT = 2.0 / 3.0
+# Colour and edge keep their one-to-two ratio; the shape term takes its weight
+# from what is left. See score.moments for why it earns a place and why the
+# place is a small one.
+COLOUR_WEIGHT = (1.0 - MOMENT_WEIGHT) / 3.0
+EDGE_WEIGHT = 2.0 * (1.0 - MOMENT_WEIGHT) / 3.0
+SHAPE_WEIGHT = MOMENT_WEIGHT
 
 
-def round_score(colour: float, edge: float) -> float:
+def round_score(colour: float, edge: float, shape: float = 0.0) -> float:
     """What a candidate is ranked by, before the population is known.
 
     build_objectives scales each part by its population maximum, which needs a
@@ -63,7 +70,7 @@ def round_score(colour: float, edge: float) -> float:
     the run's best-so-far and the lineage. Both measures already sit near
     [0, 1], so the same weights apply unscaled.
     """
-    return COLOUR_WEIGHT * colour + EDGE_WEIGHT * edge
+    return COLOUR_WEIGHT * colour + EDGE_WEIGHT * edge + SHAPE_WEIGHT * shape
 
 
 # The evaluator's verdict on a converged front member. Recorded so a run can be
