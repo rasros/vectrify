@@ -73,10 +73,8 @@ def test_defaults_pinned():
     # cannot go stale. Raised from 200 once the gap between improvements was
     # measured: 142 tasks at the 95th percentile and 497 at the longest seen.
     assert args.epoch_patience == 500
-    # Was 2, on a measurement that epoch 0 produced 82% of the gain and epochs
-    # 2-3 produced 3.7% for a third of the wall clock. That measurement predates
-    # the seeds being carried into later fronts, which is what made a weak first
-    # batch unrecoverable and so made later epochs look worthless.
+    # An epoch is where the LLM sees the front and rewrites what local search
+    # cannot reach, so a run wants more than one chance at it.
     assert args.epochs == 4
 
 

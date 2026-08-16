@@ -10,10 +10,10 @@ from vectrify.score.vision import DEFAULT_VISION_MODEL
 DEFAULT_OUTPUT = "output.svg"
 DEFAULT_PROVIDER = "auto"
 DEFAULT_SCORER = "auto"
-# Four rather than two, because an epoch is where the LLM sees the front and
-# gets to rewrite what local search cannot reach. Two spends most of a run
-# refining whatever the first batch happened to produce, and a run that draws a
-# poor first batch has one chance to recover.
+# An epoch is where the LLM sees the front and rewrites what local search
+# cannot reach. Two spends most of a run refining whatever the first batch
+# happened to produce, and a run that draws a poor first batch has one chance
+# to recover from it.
 DEFAULT_EPOCHS = 4
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
