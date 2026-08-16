@@ -80,6 +80,19 @@ def hu_moments(mask: np.ndarray) -> np.ndarray:
     return np.sign(raw) * np.log1p(np.abs(raw) * 1e6)
 
 
+# The log-compressed invariants differ by a few units between drawings that
+# look nothing alike, where colour and edge both live in [0, 1]. Ranking would
+# not care, since the objective vector is normalised by the population, but the
+# round score is also written per node and read back as an absolute number, and
+# an unscaled term would dominate it and mean nothing to a reader.
+SHAPE_SCALE = 4.0
+
+
 def shape_distance(reference: np.ndarray, candidate: np.ndarray) -> float:
-    """How differently the two masks distribute their mass, ignoring position."""
-    return float(np.abs(hu_moments(candidate) - hu_moments(reference)).mean())
+    """How differently the two masks distribute their mass, ignoring position.
+
+    Scaled into roughly [0, 1] so it sits alongside colour and edge rather than
+    swamping the score they share.
+    """
+    raw = float(np.abs(hu_moments(candidate) - hu_moments(reference)).mean())
+    return min(1.0, raw / SHAPE_SCALE)
