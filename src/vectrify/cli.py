@@ -196,8 +196,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     )
 
     g_epoch = parser.add_argument_group(
-        "Epoch control. Where more than one convergence criterion is set, an "
-        "epoch ends only once every one of them is satisfied."
+        "Epoch control. Any convergence criterion that is set can end an epoch "
+        "on its own, so each wants a threshold tight enough that reaching it "
+        "means the search is genuinely done."
     )
     g_epoch.add_argument(
         "--epochs",

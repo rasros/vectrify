@@ -1060,17 +1060,14 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
     assert scored, "results scored before the failure should have survived it"
 
 
-def test_an_epoch_ends_only_when_every_criterion_asked_for_agrees():
-    """Each criterion measures a different kind of exhaustion, and any one of
-    them fires early on a run the others can see is still working. Setting two
-    describes what convergence means for that run rather than offering
-    alternatives, so a single one firing must not end the epoch."""
+def test_a_collapsed_pool_ends_the_epoch_without_waiting_for_staleness():
+    """Each criterion is set tight enough that reaching it is reason enough on
+    its own: a pool that has become clones of one drawing is finished whatever
+    the score is still doing, and waiting for every criterion to agree would
+    let a rarely-reached one block the transition and spend the whole run as a
+    single local search."""
 
     class NeverDiverse(FakeStrategy):
-        """Diversity is always exhausted; staleness never is."""
-
-        epoch_diversity = 0.9
-
         def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
             _ = pool
             return True, 0.0
@@ -1078,7 +1075,6 @@ def test_an_epoch_ends_only_when_every_criterion_asked_for_agrees():
     from unittest.mock import MagicMock
 
     collector = MagicMock()
-
     engine = MultiprocessSearchEngine(
         workers=1, strategy=NeverDiverse(), storage=FakeStorage(), max_total_tasks=6
     )
@@ -1095,11 +1091,9 @@ def test_an_epoch_ends_only_when_every_criterion_asked_for_agrees():
         max_wall_seconds=None,
         active_pool_size=2,
         epochs=4,
-        # Patience far beyond the task budget, so staleness cannot be reached
-        # while diversity is exhausted from the first check.
+        # Far beyond the task budget, so staleness cannot be what ends it.
         epoch_patience=10_000,
-        epoch_diversity=0.9,
         collector=collector,
     )
 
-    collector.on_epoch_transition.assert_not_called()
+    collector.on_epoch_transition.assert_called()

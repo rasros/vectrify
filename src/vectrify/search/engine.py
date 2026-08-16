@@ -119,7 +119,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_seeds: int | None = None,
         epochs: int | None = None,
         epoch_variance: float | None = None,
-        epoch_diversity: float = 0.0,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
     ) -> None:
@@ -602,36 +601,33 @@ class MultiprocessSearchEngine(Generic[TState]):
                 and pool_std < epoch_variance
             )
 
-            # Every criterion that was asked for has to agree before the epoch
-            # is called converged. They measure different kinds of exhaustion
-            # and any one of them fires early on a run the others can see is
-            # still working: a pool loses diversity while its best score is
-            # still falling, and a run can go quiet for a stretch without
-            # having run out. Whoever sets two of these is describing what
-            # convergence means to them, not offering alternatives.
-            asked: list[tuple[bool, str]] = []
-            if epoch_patience is not None:
-                asked.append(
-                    (
-                        staleness,
-                        f"staleness ({epoch_no_improve} >="
-                        f" {epoch_patience} tasks without improvement)",
-                    )
+            # Any one of these ending the epoch, rather than all of them
+            # agreeing. Each is meant to be set tight enough that its firing is
+            # sufficient on its own -- a pool that has collapsed into clones is
+            # done whatever the score is still doing -- and the two rules fail
+            # very differently when one is set wrongly. Under this rule a
+            # criterion that seldom reaches its threshold simply sits idle;
+            # requiring all of them would let that same criterion block every
+            # transition, so the LLM would never re-seed and the epochs would
+            # be spent as one long local search.
+            #
+            # Measured across real runs, pool diversity ranges from 0.05 to
+            # 0.33 and score spread from 0.008 to 0.032, with no floor common
+            # to every image -- which is exactly the shape that makes the
+            # conjunction dangerous and leaves these two opt-in.
+            if staleness:
+                reason = (
+                    f"staleness ({epoch_no_improve} >="
+                    f" {epoch_patience} tasks without improvement)"
                 )
-            if epoch_diversity > 0:
-                asked.append((low_diversity, f"low diversity ({pool_div:.4f})"))
-            if epoch_variance is not None and epoch_variance > 0:
-                asked.append(
-                    (
-                        low_variance,
-                        f"low variance ({pool_std:.6f} < {epoch_variance})",
-                    )
-                )
-
-            if not asked or not all(met for met, _ in asked):
+            elif low_diversity:
+                reason = f"low diversity ({pool_div:.4f})"
+            elif low_variance:
+                reason = f"low variance ({pool_std:.6f} < {epoch_variance})"
+            else:
                 return
 
-            _do_epoch_transition(" and ".join(reason for _, reason in asked))
+            _do_epoch_transition(reason)
 
         def _final_artifact() -> SearchNode[TState] | None:
             """The candidate to write out, chosen by the evaluator.

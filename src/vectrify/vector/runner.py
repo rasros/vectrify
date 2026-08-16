@@ -396,7 +396,6 @@ def run_vector_search(
             initial_seeds=first_batch,
             epochs=epochs,
             epoch_variance=epoch_variance,
-            epoch_diversity=epoch_diversity,
             operator_policy=operator_policy,
             collector=collector,
         )
