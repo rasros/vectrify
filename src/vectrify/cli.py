@@ -195,7 +195,10 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "Defaults to pool-size // 10.",
     )
 
-    g_epoch = parser.add_argument_group("Epoch control")
+    g_epoch = parser.add_argument_group(
+        "Epoch control. Where more than one convergence criterion is set, an "
+        "epoch ends only once every one of them is satisfied."
+    )
     g_epoch.add_argument(
         "--epochs",
         type=int,
