@@ -3,14 +3,7 @@ import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.metrics import (
-    COLOUR,
-    COLOUR_WEIGHT,
-    EDGE,
-    EDGE_WEIGHT,
-    SHAPE,
-    SHAPE_WEIGHT,
-)
+from vectrify.score.metrics import COLOUR, EDGE, SHAPE
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
@@ -154,18 +147,20 @@ def crowding_distance(
 
 
 def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
-    """Blend the chromatic and structural distances into an objective vector.
+    """One component per measure: colour, edge overlap and shape moments.
 
-    Each part is scaled by its own population maximum first, so a weighting
-    between them means what it says rather than being decided by whichever
-    happens to be on the larger scale.
+    Each is scaled by its own population maximum, so they are directly
+    comparable and crowding distance spreads the pool evenly across all three
+    rather than along whichever happens to be on the largest scale. No
+    weighting between them is applied or needed: dominance compares component
+    by component, so any positive rescaling of a component leaves every
+    dominance verdict unchanged, and a weight there would be inert.
 
-    The result is one component, not three. Trading several measures off by
-    dominance is worth the machinery when they disagree about which candidate
-    is better in ways that are each defensible; measured against the evaluator
-    panel these do not, and the vote scored below the parts it was built from
-    (see score.metrics). Ranking still runs through the same tournament helper,
-    where a single component simply orders the pool.
+    Trading the three off against each other is the reason each is measured
+    separately: a measure that only ever contributes a fraction of a sum can
+    never outvote the other two on the candidates it disagrees about, which is
+    exactly where it earns its place. The weighted sum is what `round_score`
+    reports as the run's headline number; it is not what ranks the pool.
 
     Callers must pass only valid nodes (score < INVALID_SCORE); an infinite
     score would corrupt the normalization for every other node.
@@ -174,13 +169,9 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
         name: max((n.metrics.get(name, 0.0) for n in nodes), default=1.0) or 1.0
         for name in (COLOUR, EDGE, SHAPE)
     }
-    weights = {COLOUR: COLOUR_WEIGHT, EDGE: EDGE_WEIGHT, SHAPE: SHAPE_WEIGHT}
     return {
-        n.id: (
-            sum(
-                weight * (n.metrics.get(name, 0.0) / maxima[name])
-                for name, weight in weights.items()
-            ),
+        n.id: tuple(
+            n.metrics.get(name, 0.0) / maxima[name] for name in (COLOUR, EDGE, SHAPE)
         )
         for n in nodes
     }

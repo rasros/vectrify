@@ -3,7 +3,6 @@ from unittest.mock import patch
 
 import pytest
 
-from vectrify.score.metrics import COLOUR_WEIGHT, EDGE_WEIGHT
 from vectrify.search import ChainState, SearchNode, nsga
 from vectrify.search.diversity import simhash
 from vectrify.search.models import INVALID_SCORE
@@ -114,11 +113,11 @@ def test_crowding_distance_reads_arity_from_the_vectors():
     assert dist[3] > dist[2] > 0.0
 
 
-def test_build_objectives_blends_colour_and_edge_on_a_common_scale():
-    """Each part is scaled by its own population maximum before weighting, or
-    the blend would be decided by whichever part happens to be on the larger
-    scale rather than by the weights -- and colour arrives on a scale hundreds
-    of times larger than edge."""
+def test_build_objectives_keeps_one_component_per_measure():
+    """The pool is ranked by trading the measures off, so each has to survive
+    into the vector as its own axis. Collapsed into one component the majority
+    relation degenerates to a plain comparison and crowding distance has no
+    second axis to spread along."""
     nodes = [
         make_node(1, 0.5, edge=0.2, colour=1000.0),
         make_node(2, 1.0, edge=0.4, colour=500.0),
@@ -126,9 +125,34 @@ def test_build_objectives_blends_colour_and_edge_on_a_common_scale():
 
     objectives = build_objectives(nodes)
 
-    assert all(len(v) == 1 for v in objectives.values())
-    assert objectives[1] == pytest.approx((COLOUR_WEIGHT * 1.0 + EDGE_WEIGHT * 0.5,))
-    assert objectives[2] == pytest.approx((COLOUR_WEIGHT * 0.5 + EDGE_WEIGHT * 1.0,))
+    assert all(len(v) == 3 for v in objectives.values())
+    assert objectives[1] == pytest.approx((1.0, 0.5, 0.0))
+    assert objectives[2] == pytest.approx((0.5, 1.0, 0.0))
+
+
+def test_build_objectives_scales_each_measure_by_its_own_maximum():
+    """Colour arrives on a scale hundreds of times larger than edge. Dominance
+    does not care -- it compares component by component -- but crowding
+    distance does, and would otherwise spread the pool along colour alone."""
+    nodes = [
+        make_node(1, 0.5, edge=0.2, colour=1000.0),
+        make_node(2, 1.0, edge=0.4, colour=500.0),
+    ]
+
+    objectives = build_objectives(nodes)
+
+    assert max(v[0] for v in objectives.values()) == 1.0
+    assert max(v[1] for v in objectives.values()) == 1.0
+
+
+def test_dominance_is_unchanged_by_rescaling_one_measure():
+    """Why no weights are applied here: a positive rescale of a component
+    cannot change any dominance verdict, so a weight in this vector is inert."""
+    a = (0.1, 0.9, 0.5)
+    b = (0.2, 0.4, 0.6)
+    scaled_a = (0.1 * 1000, 0.9, 0.5)
+    scaled_b = (0.2 * 1000, 0.4, 0.6)
+    assert nsga._dominates(a, b) == nsga._dominates(scaled_a, scaled_b)
 
 
 def test_build_objectives_ignores_the_score_it_does_not_rank_on():
@@ -159,7 +183,7 @@ def test_build_objectives_survives_all_zero_objectives():
 
     objectives = build_objectives(nodes)
 
-    assert all(v == (0.0,) for v in objectives.values())
+    assert all(v == (0.0, 0.0, 0.0) for v in objectives.values())
 
 
 def test_non_dominated_sort_all_pareto():
