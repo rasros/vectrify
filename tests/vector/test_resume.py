@@ -160,6 +160,7 @@ def test_resume_nodes_returns_one_node_per_item():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
+        reference_detail=1000.0,
         storage=storage,
     )
 
@@ -184,6 +185,7 @@ def test_resume_nodes_assigns_sequential_ids():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
+        reference_detail=1000.0,
         storage=storage,
     )
 
@@ -209,6 +211,7 @@ def test_resume_nodes_deduplicates_identical_content():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
+        reference_detail=1000.0,
         storage=storage,
     )
 
@@ -232,6 +235,7 @@ def test_resume_nodes_stores_origin_with_old_id():
         pool_size=10,
         workers=1,
         scoring_ref=ref,
+        reference_detail=1000.0,
         storage=storage,
     )
 
@@ -270,6 +274,7 @@ def test_resume_nodes_skips_failed_scoring(monkeypatch):
         pool_size=10,
         workers=1,
         scoring_ref=ref,
+        reference_detail=1000.0,
         storage=storage,
     )
 
@@ -307,6 +312,7 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
         pool_size=pool_size,
         workers=2,
         scoring_ref=ref,
+        reference_detail=1000.0,
         storage=storage,
     )
 

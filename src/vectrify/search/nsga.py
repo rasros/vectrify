@@ -3,7 +3,7 @@ import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.metrics import COLOUR, EDGE, SHAPE
+from vectrify.score.metrics import SCORER_METRICS
 from vectrify.search.diversity import hamming_distance, pool_diversity
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
@@ -147,7 +147,7 @@ def crowding_distance(
 
 
 def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
-    """One component per measure: colour, edge overlap and shape moments.
+    """One component per registered measure, in registry order.
 
     Each is scaled by its own population maximum, so they are directly
     comparable and crowding distance spreads the pool evenly across all three
@@ -167,12 +167,10 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
     """
     maxima = {
         name: max((n.metrics.get(name, 0.0) for n in nodes), default=1.0) or 1.0
-        for name in (COLOUR, EDGE, SHAPE)
+        for name in SCORER_METRICS
     }
     return {
-        n.id: tuple(
-            n.metrics.get(name, 0.0) / maxima[name] for name in (COLOUR, EDGE, SHAPE)
-        )
+        n.id: tuple(n.metrics.get(name, 0.0) / maxima[name] for name in SCORER_METRICS)
         for n in nodes
     }
 
@@ -237,12 +235,7 @@ class NsgaStrategy(Generic[TState]):
         # to hand over a different population carrying the same ids, and an
         # id-only key would answer that with the previous pool's ordering.
         key = tuple(
-            (
-                n.id,
-                n.metrics.get(COLOUR, 0.0),
-                n.metrics.get(EDGE, 0.0),
-                n.metrics.get(SHAPE, 0.0),
-            )
+            (n.id, *(n.metrics.get(name, 0.0) for name in SCORER_METRICS))
             for n in valid
         )
         cached = self._ranked

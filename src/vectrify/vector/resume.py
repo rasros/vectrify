@@ -8,8 +8,9 @@ from PIL import Image
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
 from vectrify.score.compare import compare
+from vectrify.score.complexity import detail_excess
 from vectrify.score.edges import overlap_distance
-from vectrify.score.metrics import COLOUR, EDGE, SHAPE, round_score
+from vectrify.score.metrics import COLOUR, DETAIL, EDGE, SHAPE, round_score
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
@@ -88,6 +89,7 @@ def resume_nodes(
     pool_size: int,
     workers: int,
     scoring_ref: Any,
+    reference_detail: float,
     storage: StorageAdapter,
 ) -> list[SearchNode]:
     """Deduplicate, rasterize, pre-filter, and re-score a set of resumed nodes.
@@ -153,6 +155,7 @@ def resume_nodes(
             )
             metrics[COLOUR] = float(comparison.colour.mean())
             metrics[SHAPE] = comparison.shape
+            metrics[DETAIL] = detail_excess(reference_detail, item.png)
             new_score = round_score(metrics[COLOUR], metrics[EDGE], metrics[SHAPE])
             node = SearchNode(
                 score=new_score,
