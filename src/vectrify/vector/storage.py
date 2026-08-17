@@ -8,7 +8,7 @@ from pathlib import Path
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.llm.base import split_data_url
-from vectrify.score.metrics import METRIC_NAMES
+from vectrify.score.metrics import FRONT_SCORE, METRIC_NAMES
 from vectrify.search import SearchNode
 
 log = logging.getLogger(__name__)
@@ -243,9 +243,25 @@ class FileStorageAdapter:
             return
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self.output_path.write_text(content, encoding="utf-8")
-        log.info(
-            "Best candidate (score %.6f) written to %s", node.score, self.output_path
-        )
+        # The evaluator's own number for the candidate it chose. Reporting the
+        # round score here announced a proxy figure for a perceptually chosen
+        # artifact, and the two move independently: on one 45-minute run the
+        # round score fell 64% against a three-epoch run while the evaluator
+        # scored the two within 0.000004 of each other.
+        panel = node.metrics.get(FRONT_SCORE)
+        if panel is not None:
+            log.info(
+                "Best candidate (evaluator %.6f, proxy %.6f) written to %s",
+                panel,
+                node.score,
+                self.output_path,
+            )
+        else:
+            log.info(
+                "Best candidate (proxy %.6f, not evaluated) written to %s",
+                node.score,
+                self.output_path,
+            )
 
     def record_eviction(self, node_id: int, tasks_completed: int) -> None:
         if self.lineage_csv is None or not self.lineage_csv.exists():
