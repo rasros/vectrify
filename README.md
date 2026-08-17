@@ -202,15 +202,16 @@ max-wall-seconds.
 
 | Flag             | Default | Triggers when…                                        |
 |------------------|--------:|-------------------------------------------------------|
-| epochs           |       2 | hard cap on epoch count                               |
-| epoch-patience   |     200 | this many local tasks in a row produce no improvement |
-| epoch-variance   |       0 | score std-dev in the pool drops below value           |
+| epochs           |       4 | hard cap on epoch count                               |
+| epoch-patience   |     500 | this many local tasks in a row produce no improvement |
 | epoch-diversity  |       0 | mean pairwise diversity drops below value             |
 | max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch   |
 
 Patience counts local tasks only — a seed batch is not a hill-climb and
-cannot go stale — and a new best resets it. The variance and diversity
-criteria are off by default; good thresholds depend on your scorer and image.
+cannot go stale — and any improvement resets it, so it reads only "is this one
+better" and carries across images unchanged. The diversity criterion is off by
+default: a pool collapses into agreement well before it stops improving, so a
+threshold that looks safe ends search while it is still working.
 
 LLM spend is exactly epochs × seeds — 20 at the defaults — so the two flags
 that set it are the whole cost model. More epochs give diminishing returns, so

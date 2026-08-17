@@ -329,34 +329,6 @@ def test_engine_score_fn_none_with_unscored_result_raises():
         )
 
 
-def test_engine_low_variance_epoch_end_does_not_crash():
-    """Regression: the low-variance branch compared the imported score_std
-    *function* to a float, so any positive --epoch-variance raised TypeError on
-    the first epoch-end check. Nothing covered this path, which is why it
-    shipped.
-    """
-    strat = FakeStrategy()
-    store = FakeStorage()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=store, max_total_tasks=1
-    )
-    engine.unscored_q.put(
-        Result(task_id=1, parent_id=1, valid=True, score=0.1, payload="p")
-    )
-    initial = SearchNode(
-        score=0.8, id=1, parent_id=0, state=ChainState(score=0.8, payload=None)
-    )
-
-    engine.run(
-        initial_nodes=[initial],
-        max_wall_seconds=None,
-        epoch_variance=0.05,  # the flag that used to crash the run
-        active_pool_size=1,
-    )
-
-    assert store.save_called is True
-
-
 def test_engine_aborts_when_every_epoch0_seed_fails():
     """Epoch 0 has nothing to fall back to, so a failed batch must say why.
 
@@ -1146,53 +1118,3 @@ def test_a_collapsed_pool_ends_the_epoch_without_waiting_for_staleness():
     )
 
     collector.on_epoch_transition.assert_called()
-
-
-def test_the_pool_criteria_read_the_same_on_any_scale():
-    """The reason they are ratios. Score spread is denominated in whatever the
-    round objective happens to be, and that has been rewritten repeatedly; an
-    absolute threshold would have to be rechosen every time, and would still
-    mean different things on a busy drawing and a plain one."""
-    from unittest.mock import MagicMock
-
-    class PoolStrategy(FakeStrategy):
-        def select_parent(self, nodes: list[SearchNode]) -> tuple[int, int | None]:
-            return nodes[0].id, None
-
-    def transitions_for(scale: float) -> int:
-        collector = MagicMock()
-        engine = MultiprocessSearchEngine(
-            workers=1,
-            strategy=PoolStrategy(),
-            storage=FakeStorage(),
-            max_total_tasks=8,
-        )
-        # Spread collapses by the same proportion in both runs, a thousandfold
-        # apart in absolute terms.
-        for task_id, spread in enumerate(
-            [1.0, 0.9, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
-        ):
-            engine.unscored_q.put(
-                Result(
-                    task_id=task_id + 1,
-                    parent_id=1,
-                    valid=True,
-                    score=spread * scale,
-                    payload="p",
-                )
-            )
-        node = SearchNode(
-            score=scale, id=1, parent_id=0, state=ChainState(score=scale, payload=None)
-        )
-        engine.run(
-            initial_nodes=[node],
-            max_wall_seconds=None,
-            active_pool_size=2,
-            epochs=4,
-            epoch_patience=10_000,
-            epoch_variance=0.3,
-            collector=collector,
-        )
-        return collector.on_epoch_transition.call_count
-
-    assert transitions_for(1.0) == transitions_for(1000.0)

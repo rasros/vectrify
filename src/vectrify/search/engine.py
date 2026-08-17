@@ -64,7 +64,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         workers: int,
         strategy: SearchStrategy[TState],
         storage: StorageAdapter[TState],
-        max_total_tasks: int = 10000,
+        max_total_tasks: int | None = None,
         make_state: Callable[[Result], ChainState[TState]] = keep_payload,
         rank_front: Callable[[list[SearchNode[TState]]], list[SearchNode[TState]]]
         | None = None,
@@ -111,14 +111,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_nodes: list[SearchNode[TState]],
         max_wall_seconds: float | None = None,
         epoch_patience: int | None = None,
-        epoch_min_delta: float = 1e-4,
+        epoch_min_delta: float | None = None,
         active_pool_size: int = 20,
         generation_size: int | None = None,
         score_fn: Callable[[list[Result]], None] | None = None,
         epoch_seeds: int = 0,
         initial_seeds: int | None = None,
         epochs: int | None = None,
-        epoch_variance: float | None = None,
         epoch_diversity: float = 0.0,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
@@ -224,7 +223,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_no_improve = 0
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
-        epoch_baseline: tuple[float, float] | None = None
+        epoch_baseline: float | None = None
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
@@ -370,7 +369,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         def _dispatch_tasks():
             nonlocal in_flight, next_task_id, seeds_dispatched
 
-            while in_flight < self.workers and next_task_id <= self.max_total_tasks:
+            while in_flight < self.workers and (
+                self.max_total_tasks is None or next_task_id <= self.max_total_tasks
+            ):
                 if phase == SEED_PHASE:
                     if seeds_dispatched >= seeds_target:
                         return
@@ -556,7 +557,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             pending_children.append(new_node)
             _note_best(new_node, res)
 
-            if new_node.score <= epoch_patience_best - epoch_min_delta:
+            if new_node.score <= epoch_patience_best - (epoch_min_delta or 0.0):
                 epoch_patience_best = new_node.score
                 epoch_no_improve = 0
                 if collector is not None:
@@ -601,26 +602,14 @@ class MultiprocessSearchEngine(Generic[TState]):
             if collector is not None:
                 collector.on_pool_state(diversity=pool_div, score_std=pool_std)
 
-            # Both pool measures are read against where this epoch started
-            # rather than against a fixed number. An absolute threshold cannot
-            # be chosen once and mean the same thing twice: score spread is
-            # denominated in whatever the round objective happens to be, which
-            # has been rewritten repeatedly, and pool diversity -- a fraction
-            # already -- still sat anywhere between 0.05 and 0.33 across real
-            # runs depending only on how intricate the drawing is. A ratio to
-            # the epoch's own opening value carries neither dependence, so one
-            # setting means the same thing on every image.
+            # Diversity is read against where this epoch started rather than
+            # against a fixed number: it sat anywhere between 0.05 and 0.33
+            # across real runs depending only on how intricate the drawing is,
+            # so no absolute threshold means the same thing twice.
             if epoch_baseline is None:
-                epoch_baseline = (max(pool_div, 1e-9), max(pool_std, 1e-9))
-            base_div, base_std = epoch_baseline
-
+                epoch_baseline = max(pool_div, 1e-9)
             low_diversity = (
-                epoch_diversity > 0 and pool_div / base_div < epoch_diversity
-            )
-            low_variance = (
-                epoch_variance is not None
-                and epoch_variance > 0
-                and pool_std / base_std < epoch_variance
+                epoch_diversity > 0 and pool_div / epoch_baseline < epoch_diversity
             )
 
             # Any one of these ending the epoch, rather than all of them
@@ -633,10 +622,10 @@ class MultiprocessSearchEngine(Generic[TState]):
             # transition, so the LLM would never re-seed and the epochs would
             # be spent as one long local search.
             #
-            # Measured across real runs, pool diversity ranges from 0.05 to
-            # 0.33 and score spread from 0.008 to 0.032, with no floor common
-            # to every image -- which is exactly the shape that makes the
-            # conjunction dangerous and leaves these two opt-in.
+            # Diversity stays opt-in. A pool collapses into agreement long
+            # before it stops improving, so a threshold that looks safe ends
+            # search while it is still working; staleness on the best score is
+            # the criterion that measures the thing we mean by converged.
             if staleness:
                 reason = (
                     f"staleness ({epoch_no_improve} >="
@@ -644,12 +633,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 )
             elif low_diversity:
                 reason = (
-                    f"diversity fell to {pool_div / base_div:.2f} of its opening value"
-                )
-            elif low_variance:
-                reason = (
-                    f"score spread fell to {pool_std / base_std:.2f}"
-                    f" of its opening value"
+                    f"diversity fell to {pool_div / epoch_baseline:.2f}"
+                    " of its opening value"
                 )
             else:
                 return
@@ -700,7 +685,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                 ):
                     log.warning("Time limit reached.")
                     break
-                if tasks_completed >= self.max_total_tasks:
+                if (
+                    self.max_total_tasks is not None
+                    and tasks_completed >= self.max_total_tasks
+                ):
                     log.warning("Max task limit reached.")
                     break
                 if epochs is not None and epoch >= epochs:
