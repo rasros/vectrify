@@ -5,8 +5,6 @@ import time
 from collections import deque
 from collections.abc import Callable, Mapping
 
-from vectrify.search.models import INVALID_SCORE
-
 
 def _rate(numerator: float, denominator: float) -> float:
     return numerator / denominator if denominator else 0.0
@@ -43,14 +41,6 @@ def derived_rates(counts: Mapping[str, float]) -> dict[str, float]:
     }
 
 
-def score_std(scores: list[float]) -> float:
-    """Population standard deviation; 0.0 for fewer than two samples."""
-    if len(scores) < 2:
-        return 0.0
-    mean = sum(scores) / len(scores)
-    return math.sqrt(sum((s - mean) ** 2 for s in scores) / len(scores))
-
-
 @dataclasses.dataclass
 class SearchStats:
     strategy_name: str = ""
@@ -81,9 +71,8 @@ class SearchStats:
     mutation_accepted_count: int = 0
 
     shutting_down: bool = False
-    pool_score_std: float = 0.0
 
-    best_score: float = INVALID_SCORE
+    best_score: float = math.inf
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))
     recent_events: deque = dataclasses.field(default_factory=lambda: deque(maxlen=8))
 

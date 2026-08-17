@@ -7,6 +7,7 @@ about which events move which counter and which of them write a row.
 import csv
 from pathlib import Path
 
+from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search.collector import StatCollector
 from vectrify.search.models import ChainState, Result, SearchNode
 from vectrify.search.stats import SearchStats
@@ -17,16 +18,14 @@ def _result(llm_type: str | None = None) -> Result:
         task_id=1,
         parent_id=0,
         valid=True,
-        score=0.5,
+        measured=True,
         payload=None,
         llm_type=llm_type,
     )
 
 
-def _node(score: float = 0.25) -> SearchNode:
-    return SearchNode(
-        score=score, id=1, parent_id=0, state=ChainState(score=score, payload=None)
-    )
+def _node() -> SearchNode:
+    return SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
 
 
 def _rows(run_dir: Path) -> list[dict[str, str]]:
@@ -163,9 +162,15 @@ def test_on_accepted_splits_llm_and_mutation_acceptances(tmp_path):
     assert stats.mutation_accepted_count == 1
 
 
-def test_a_new_best_records_the_score_and_writes_a_row(tmp_path):
+def test_a_new_best_records_the_evaluators_score_and_writes_a_row(tmp_path):
+    """Only the evaluator scores anything, so only a candidate it has seen can
+    move the run's best."""
     collector, stats = _collector(tmp_path)
-    collector.on_accepted(_node(0.25), is_new_best=True, elapsed=4.5, llm_type=None)
+    node = _node()
+    node.metrics[FRONT_SCORE] = 0.25
+
+    collector.on_accepted(node, is_new_best=True, elapsed=4.5, llm_type=None)
+
     assert stats.best_score == 0.25
     assert list(stats.score_history) == [(4.5, 0.25)]
     assert float(_rows(tmp_path)[-1]["best_score"]) == 0.25
@@ -185,12 +190,6 @@ def test_on_no_improve_reset_clears_the_stagnation_counter():
     assert stats.epoch_no_improve == 0
 
 
-def test_on_pool_state_records_diversity_and_spread():
-    stats = SearchStats()
-    StatCollector(stats, None).on_pool_state(diversity=0.4, score_std=0.02)
-    assert (stats.pool_diversity, stats.pool_score_std) == (0.4, 0.02)
-
-
 def test_epoch_transition_resets_stagnation_and_writes_a_row(tmp_path):
     collector, stats = _collector(tmp_path)
     stats.epoch_no_improve = 5
@@ -199,18 +198,10 @@ def test_epoch_transition_resets_stagnation_and_writes_a_row(tmp_path):
     assert _rows(tmp_path)[-1]["epoch"] == "3"
 
 
-def test_on_idle_updates_in_flight_and_pool_spread():
+def test_on_idle_records_the_calls_in_flight():
     stats = SearchStats()
-    StatCollector(stats, None).on_idle(llm_in_flight=3, valid_scores=[0.2, 0.4])
+    StatCollector(stats, None).on_idle(llm_in_flight=3)
     assert stats.llm_calls_in_flight == 3
-    assert stats.pool_score_std == 0.1
-
-
-def test_on_idle_keeps_the_last_spread_when_the_pool_is_too_small():
-    stats = SearchStats()
-    stats.pool_score_std = 0.05
-    StatCollector(stats, None).on_idle(llm_in_flight=0, valid_scores=[0.2])
-    assert stats.pool_score_std == 0.05
 
 
 def test_header_is_written_once_across_many_flushes(tmp_path):

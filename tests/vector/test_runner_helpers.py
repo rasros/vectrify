@@ -12,9 +12,7 @@ def _node(content: str | None) -> SearchNode:
         raster_preview_data_url=None,
         origin=None,
     )
-    return SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=payload)
-    )
+    return SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=payload))
 
 
 def test_seeds_default_to_a_tenth_of_the_pool():

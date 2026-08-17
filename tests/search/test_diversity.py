@@ -4,12 +4,12 @@ from vectrify.search import ChainState, SearchNode
 from vectrify.search.diversity import hamming_distance, pool_diversity, simhash
 
 
-def make_node(node_id: int, score: float, sig: int | None = None) -> SearchNode:
+def make_node(node_id: int, sig: int | None = None, valid: bool = True) -> SearchNode:
     return SearchNode(
-        score=score,
+        valid=valid,
         id=node_id,
         parent_id=0,
-        state=ChainState(score=score, payload=None),
+        state=ChainState(payload=None),
         signature=sig,
     )
 
@@ -49,7 +49,7 @@ def test_hamming_distance_all_bits():
 
 def test_pool_diversity_all_identical_returns_low():
     h = simhash("<svg><rect/></svg>")
-    nodes = [make_node(i, 0.1, sig=h) for i in range(5)]
+    nodes = [make_node(i, sig=h) for i in range(5)]
     assert pool_diversity(nodes) == pytest.approx(0.0)
 
 
@@ -61,22 +61,23 @@ def test_pool_diversity_all_unique_returns_high():
         "<svg><text x='10' y='20'>Hello world</text></svg>",
         "<svg><path d='M10 10 L90 90 Z' stroke='red'/></svg>",
     ]
-    nodes = [make_node(i + 1, 0.1, sig=simhash(t)) for i, t in enumerate(texts)]
+    nodes = [make_node(i + 1, sig=simhash(t)) for i, t in enumerate(texts)]
     diversity = pool_diversity(nodes)
     assert diversity > 0.1
 
 
 def test_pool_diversity_ignores_none_signatures():
-    nodes = [make_node(i, 0.1, sig=None) for i in range(5)]
+    nodes = [make_node(i, sig=None) for i in range(5)]
     assert pool_diversity(nodes) == 1.0
 
 
-def test_pool_diversity_ignores_inf_score():
+def test_pool_diversity_ignores_unmeasured_nodes():
+    """A node that never rasterized has no drawing to be diverse from."""
     h = simhash("<svg/>")
-    nodes = [make_node(i, float("inf"), sig=h) for i in range(5)]
+    nodes = [make_node(i, sig=h, valid=False) for i in range(5)]
     assert pool_diversity(nodes) == 1.0
 
 
 def test_pool_diversity_too_few_nodes_returns_one():
     assert pool_diversity([]) == 1.0
-    assert pool_diversity([make_node(1, 0.1, sig=simhash("<svg/>"))]) == 1.0
+    assert pool_diversity([make_node(1, sig=simhash("<svg/>"))]) == 1.0

@@ -1,52 +1,44 @@
 import dataclasses
 from typing import Generic, TypeVar
 
-INVALID_SCORE = float("inf")
-
-# A candidate that was measured. `score` is a validity marker and nothing more:
-# the measures are traded off by dominance, so no single number orders
-# candidates mid-run, and inventing one is what the blended round score was.
-# The run's only score is the evaluator's, recorded as metrics[FRONT_SCORE] on
-# the nodes it has actually seen.
-VALID_SCORE = 0.0
-
 TState = TypeVar("TState")
 TResultPayload = TypeVar("TResultPayload")
 
 
-def valid_scores(nodes: "list[SearchNode]") -> list[float]:
-    """Scores of nodes that were successfully evaluated."""
-    return [n.score for n in nodes if n.score < INVALID_SCORE]
-
-
 @dataclasses.dataclass
 class ChainState(Generic[TState]):
-    score: float | None
     payload: TState
 
 
-@dataclasses.dataclass(order=True)
+@dataclasses.dataclass
 class SearchNode(Generic[TState]):
-    score: float
-    id: int = dataclasses.field(compare=False)
-    parent_id: int = dataclasses.field(compare=False)
-    state: ChainState[TState] = dataclasses.field(compare=False)
-    secondary_parent_id: int | None = dataclasses.field(default=None, compare=False)
+    # Whether this candidate was measured: its markup parsed, it rasterized,
+    # and the measures computed. Not a quality judgement and not orderable --
+    # the measures are traded off by dominance, so no single number orders
+    # candidates, and the run's only score is the evaluator's, in
+    # metrics[FRONT_SCORE] on the nodes it has actually seen.
+    #
+    # This was a float called `score` holding one of two sentinel values, which
+    # read as a quality anyone could sort by. Three separate defects came from
+    # something sorting by it after it had stopped meaning anything.
+    valid: bool
+    id: int
+    parent_id: int
+    state: ChainState[TState]
+    secondary_parent_id: int | None = None
     # Registered metrics, keyed by name (see score.metrics.METRIC_NAMES).
     # A dict rather than named fields so adding a metric does not ripple through
     # every constructor call between the worker and the objective vector.
-    metrics: dict[str, float] = dataclasses.field(
-        default_factory=dict, compare=False, repr=False
-    )
-    signature: int | None = dataclasses.field(default=None, compare=False)
-    epoch: int = dataclasses.field(default=0, compare=False)
+    metrics: dict[str, float] = dataclasses.field(default_factory=dict, repr=False)
+    signature: int | None = None
+    epoch: int = 0
     # The seed this node descends from. Crossover between two nodes of the same
     # lineage recombines a candidate with itself, so selection uses this to pair
     # only across lineages.
-    root_id: int = dataclasses.field(default=0, compare=False)
+    root_id: int = 0
     # Which mutation operator produced this node, so the policy that picked it
     # can be told whether it survived. None for seeds and crossover children.
-    operator: str | None = dataclasses.field(default=None, compare=False)
+    operator: str | None = None
 
 
 @dataclasses.dataclass
@@ -67,7 +59,10 @@ class Result(Generic[TResultPayload]):
     task_id: int
     parent_id: int
     valid: bool
-    score: float | None
+    # Whether the measures have been taken yet. The worker produces candidates
+    # and a scorer thread measures them, so a result crosses the queue once
+    # before anything is known about it.
+    measured: bool
     payload: TResultPayload
     invalid_msg: str | None = None
     secondary_parent_id: int | None = None

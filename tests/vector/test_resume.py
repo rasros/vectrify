@@ -5,7 +5,7 @@ from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.score.compare import Reference, prepare
-from vectrify.search import INVALID_SCORE, ChainState, SearchNode
+from vectrify.search import ChainState, SearchNode
 from vectrify.vector.resume import (
     PreppedNode,
     filter_to_pool_size,
@@ -23,13 +23,13 @@ def _make_png(color: str = "red", size: int = 16) -> bytes:
 
 def _make_node(
     node_id: int,
-    score: float = 0.5,
     edge: float = 100.0,
     content: str = "<svg/>",
     colour: float = 0.0,
+    valid: bool = True,
 ) -> SearchNode:
     return SearchNode(
-        score=score,
+        valid=valid,
         id=node_id,
         parent_id=0,
         metrics={
@@ -37,7 +37,6 @@ def _make_node(
             "colour": colour,
         },
         state=ChainState(
-            score=score,
             payload=VectorStatePayload(
                 content=content,
                 raster_data_url=None,
@@ -96,33 +95,33 @@ def test_prefilter_returns_original_items():
 
 
 def test_filter_no_op_when_within_pool():
-    nodes = [_make_node(i, score=float(i) * 0.1) for i in range(3)]
+    nodes = [_make_node(i) for i in range(3)]
     result = filter_to_pool_size(nodes, pool_size=5)
     assert result == nodes
 
 
 def test_filter_nsga_returns_pool_size():
-    nodes = [_make_node(i, score=float(i) * 0.1, edge=float(i) * 50) for i in range(10)]
+    nodes = [_make_node(i, edge=float(i) * 50) for i in range(10)]
     result = filter_to_pool_size(nodes, pool_size=4)
     assert len(result) == 4
 
 
 def test_filter_nsga_prefers_pareto_front():
-    best = _make_node(1, score=0.1, edge=10.0)  # dominates all others
-    worse = [_make_node(i + 2, score=0.9, edge=900.0) for i in range(9)]
+    best = _make_node(1, edge=10.0)  # dominates all others
+    worse = [_make_node(i + 2, edge=900.0) for i in range(9)]
     result = filter_to_pool_size([best, *worse], pool_size=3)
     assert best in result
 
 
-def test_filter_handles_invalid_scores():
+def test_filter_drops_unmeasured_nodes():
     nodes = [
-        _make_node(1, score=INVALID_SCORE),
-        _make_node(2, score=0.3),
-        _make_node(3, score=0.5),
+        _make_node(1),
+        _make_node(2),
+        _make_node(3),
     ]
     result = filter_to_pool_size(nodes, pool_size=2)
     assert len(result) == 2
-    assert all(n.score < INVALID_SCORE for n in result)
+    assert all(n.valid for n in result)
 
 
 def _make_mock_plugin(png: bytes | None = None) -> MagicMock:
@@ -279,7 +278,7 @@ def test_resume_nodes_skips_failed_scoring(monkeypatch):
     )
 
     assert len(result) == 1
-    assert result[0].score < INVALID_SCORE
+    assert result[0].valid
 
 
 def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):

@@ -1,7 +1,7 @@
 import csv
+import math
 
 from vectrify.search.collector import STATS_COLUMNS, STATS_FIELDS, StatCollector
-from vectrify.search.models import INVALID_SCORE
 from vectrify.search.stats import SearchStats
 
 
@@ -34,7 +34,7 @@ def test_counters_are_written_through(tmp_path):
 
 def test_infinite_best_score_is_written_blank(tmp_path):
     s = SearchStats()
-    s.best_score = INVALID_SCORE
+    s.best_score = math.inf
     assert _row(s, tmp_path)["best_score"] == ""
 
 

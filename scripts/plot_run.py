@@ -26,6 +26,7 @@ import matplotlib
 from vectrify.run_dirs import project_runs_dir, run_dirs_in
 from vectrify.score.metrics import (
     METRIC_NAMES,
+    SCORER_METRICS,
     read_metrics,
 )
 from vectrify.search.nsga import pareto_front
@@ -98,7 +99,6 @@ def load_stats(run_dir: Path) -> dict:
         "epoch_patience_config": _float("epoch_patience"),
         "epoch_max_tasks_config": _float("epoch_max_tasks"),
         "pool_diversity_final": _float("pool_diversity"),
-        "pool_score_std_final": _float("pool_score_std"),
     }
 
     # Reconstruct score_history from rows where best_score decreased.
@@ -119,7 +119,7 @@ def load_stats(run_dir: Path) -> dict:
     stats["score_history"] = history
 
     # Convergence + rates time series:
-    # (elapsed, pool_diversity, pool_score_std, epoch, accept_rate)
+    # (elapsed, pool_diversity, epoch, accept_rate)
     convergence = []
     for row in rows:
         try:
@@ -129,7 +129,6 @@ def load_stats(run_dir: Path) -> dict:
                 (
                     float(row.get("elapsed", 0) or 0),
                     float(row.get("pool_diversity", 0) or 0),
-                    float(row.get("pool_score_std", 0) or 0),
                     int(float(row.get("epoch", 0) or 0)),
                     a_comp / t_comp if t_comp else 0.0,
                 )
@@ -155,7 +154,6 @@ def load_lineage(run_dir: Path) -> list[dict]:
                         "id": int(row["id"]),
                         "parent": int(row["parent"]),
                         "epoch": int(row.get("epoch", 0) or 0),
-                        "score": float(row["score"]),
                         # Metric columns come from the registry.
                         **read_metrics(row),
                     }
@@ -202,9 +200,9 @@ def resolve_run_dirs(path: Path, top: int | None) -> list[Path]:
 
 
 def _pareto_top10(lin: list[dict], pool_ids: set[int] | None = None) -> list[dict]:
-    """Return up to 10 Pareto-front nodes, sorted by score.
+    """Return up to 10 Pareto-front nodes.
 
-    Minimises the same three objectives the search selects on: score, visual
+    Minimises the same objectives the search selects on:
     the structural and chromatic measures. Note the front plot draws only two
     of them, so a front node can look dominated in that 2-D projection while
     being genuinely non-dominated in three.
@@ -213,13 +211,11 @@ def _pareto_top10(lin: list[dict], pool_ids: set[int] | None = None) -> list[dic
     considered; otherwise all lineage nodes are used as a fallback.
     """
     candidates = lin if pool_ids is None else [r for r in lin if r["id"] in pool_ids]
-    valid = [r for r in candidates if r["score"] < float("inf")]
+    valid = [r for r in candidates if all(m in r for m in METRIC_NAMES)]
     if not valid:
         return []
-    front = pareto_front(
-        valid, key=lambda r: (r["score"], *(r[m] for m in METRIC_NAMES))
-    )
-    return sorted(front, key=lambda r: r["score"])[:10]
+    # Already in rank order from the tournament; there is no score to sort by.
+    return pareto_front(valid, key=lambda r: tuple(r[m] for m in METRIC_NAMES))[:10]
 
 
 # ── Plot helpers ──────────────────────────────────────────────────────────────
@@ -287,14 +283,18 @@ def plot_pareto(
     lineages: list[list[dict]],
     pool_ids_list: list[set[int] | None],
 ):
-    axis_metric = METRIC_NAMES[0]
+    # Two of the objectives against each other. There is no score to plot
+    # against any more -- candidates are ordered by dominance over the
+    # measures, so the objective space is what a front lives in.
+    axis_metric = SCORER_METRICS[0]
+    y_metric = SCORER_METRICS[1]
     axis_name = axis_metric.replace("_", " ")
     ax.set_title(f"Score vs {axis_name}")
     ax.set_xlabel(
         f"{axis_name.capitalize()}  "
         f"(stars: {len(METRIC_NAMES) + 1}-objective Pareto front)"
     )
-    ax.set_ylabel("Score")
+    ax.set_ylabel(y_metric.replace("_", " "))
     ax.grid(True, color="grey", alpha=0.15, linewidth=0.5)
 
     for i, ((run_dir, _), lin, pool_ids) in enumerate(
@@ -303,13 +303,13 @@ def plot_pareto(
         candidates = (
             lin if pool_ids is None else [r for r in lin if r["id"] in pool_ids]
         )
-        valid = [r for r in candidates if r["score"] < float("inf")]
+        valid = [r for r in candidates if all(m in r for m in SCORER_METRICS)]
         if not valid:
             continue
         color = COLORS[i % len(COLORS)]
         ax.scatter(
             [r[axis_metric] for r in valid],
-            [r["score"] for r in valid],
+            [r[y_metric] for r in valid],
             s=6,
             alpha=0.3,
             color=color,
@@ -321,7 +321,7 @@ def plot_pareto(
             pc = PARETO_COLORS[j % len(PARETO_COLORS)]
             ax.scatter(
                 [node[axis_metric]],
-                [node["score"]],
+                [node[y_metric]],
                 marker="*",
                 s=160,
                 color=pc,
@@ -331,7 +331,7 @@ def plot_pareto(
             )
             ax.annotate(
                 f"#{node['id']}",
-                (node[axis_metric], node["score"]),
+                (node[axis_metric], node[y_metric]),
                 fontsize=8,
                 color=pc,
                 xytext=(4, 4),
@@ -351,7 +351,7 @@ def plot_convergence(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict
     ax.set_yscale("log")
 
     ax2 = ax.twinx()
-    ax2.set_ylabel("Score variance", color="tab:orange")
+    ax2.set_ylabel("Accept rate", color="tab:orange")
     ax2.tick_params(axis="y", labelcolor="tab:orange")
     ax2.set_yscale("log")
     ax2.grid(True, color="grey", alpha=0.15, linewidth=0.5)
@@ -451,8 +451,6 @@ def plot_summary_text(
         )
         lines.append(f"  epochs          {int(stats.get('epochs_completed') or 0)}")
         lines.append(f"  diversity       {stats.get('pool_diversity_final', 0):.4f}")
-        std = stats.get("pool_score_std_final", 0)
-        lines.append(f"  score variance  {std**2:.6f}")
 
         pool_note = "" if pool_ids is None else " (final pool)"
         top10 = _pareto_top10(lin, pool_ids)

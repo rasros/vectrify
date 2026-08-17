@@ -1,22 +1,22 @@
 import csv
 import logging
+import math
 from collections.abc import Callable
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from vectrify.search.models import INVALID_SCORE
-from vectrify.search.stats import score_std
+from vectrify.score.metrics import FRONT_SCORE
 
 if TYPE_CHECKING:
     from vectrify.search.models import Result, SearchNode
-    from vectrify.search.stats import SearchStats
+from vectrify.search.stats import SearchStats
 
 log = logging.getLogger(__name__)
 
 
 def _best_score(s: "SearchStats") -> float | str:
     """Blank rather than 'inf' so the CSV stays numeric for plotting."""
-    return "" if s.best_score >= INVALID_SCORE else s.best_score
+    return "" if s.best_score >= math.inf else s.best_score
 
 
 def _rounded(field: str, digits: int) -> Callable[["SearchStats"], float]:
@@ -44,7 +44,6 @@ STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "seeds_completed": lambda s: s.seeds_completed,
     "seeds_target": lambda s: s.seeds_target,
     "pool_diversity": _rounded("pool_diversity", 4),
-    "pool_score_std": _rounded("pool_score_std", 6),
     "epoch_patience": lambda s: s.epoch_patience,
     "epoch_max_tasks": lambda s: s.epoch_max_tasks,
 }
@@ -146,8 +145,10 @@ class StatCollector:
         else:
             s.mutation_accepted_count += 1
         if is_new_best:
-            s.best_score = node.score
-            s.score_history.append((elapsed, node.score))
+            panel = node.metrics.get(FRONT_SCORE)
+            if panel is not None:
+                s.best_score = panel
+                s.score_history.append((elapsed, panel))
             self._flush_row()
         else:
             self._maybe_flush(is_llm=bool(llm_type))
@@ -157,10 +158,8 @@ class StatCollector:
 
     # ── Pool state events ─────────────────────────────────────────────────────
 
-    def on_pool_state(self, *, diversity: float, score_std: float) -> None:
-        s = self._stats
-        s.pool_diversity = diversity
-        s.pool_score_std = score_std
+    def on_pool_state(self, *, diversity: float) -> None:
+        self._stats.pool_diversity = diversity
 
     def on_epoch_transition(self, epoch: int) -> None:
         s = self._stats
@@ -168,12 +167,9 @@ class StatCollector:
         s.epoch_no_improve = 0
         self._flush_row()
 
-    def on_idle(self, *, llm_in_flight: int, valid_scores: list[float]) -> None:
+    def on_idle(self, *, llm_in_flight: int) -> None:
         """Called ~every 0.2 s when the result queue is empty."""
-        s = self._stats
-        s.llm_calls_in_flight = llm_in_flight
-        if len(valid_scores) >= 2:
-            s.pool_score_std = score_std(valid_scores)
+        self._stats.llm_calls_in_flight = llm_in_flight
 
     def _maybe_flush(self, *, is_llm: bool) -> None:
         """Flush if this is an LLM call or a task-count milestone."""

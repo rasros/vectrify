@@ -37,7 +37,6 @@ class VectorStateBuilder:
             heatmap_data_url = png_bytes_to_data_url(payload.heatmap_png)
 
         return ChainState(
-            score=result.score,
             payload=VectorStatePayload(
                 content=payload.content,
                 raster_data_url=raster_data_url,

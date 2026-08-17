@@ -1,3 +1,4 @@
+import math
 import statistics
 from unittest.mock import patch
 
@@ -6,7 +7,6 @@ import pytest
 from vectrify.score.metrics import SCORER_METRICS
 from vectrify.search import ChainState, SearchNode, nsga
 from vectrify.search.diversity import simhash
-from vectrify.search.models import INVALID_SCORE
 from vectrify.search.nsga import (
     NsgaStrategy,
     _dominates,
@@ -19,16 +19,16 @@ from vectrify.search.nsga import (
 
 def make_node(
     node_id: int,
-    score: float,
     content: str | None = None,
+    valid: bool = True,
     edge: float = 0.0,
     colour: float = 0.0,
     shape: float = 0.0,
     detail: float = 0.0,
 ) -> SearchNode:
-    state = ChainState(score=score, payload=None)
+    state = ChainState(payload=None)
     return SearchNode(
-        score=score,
+        valid=valid,
         id=node_id,
         parent_id=0,
         state=state,
@@ -60,7 +60,7 @@ def test_a_cycle_of_majorities_still_leaves_every_node_ranked():
     """A majority relation is not transitive: three candidates can each beat
     the next. Peeling fronts alone would never place them, and a node dropped
     from the sort is one deleted from the pool with nothing replacing it."""
-    nodes = [make_node(i, float(i)) for i in range(1, 4)]
+    nodes = [make_node(i) for i in range(1, 4)]
     objectives = {
         1: (0.0, 1.0, 2.0),
         2: (2.0, 0.0, 1.0),
@@ -97,7 +97,7 @@ def test_front_keeps_what_a_majority_cannot_beat():
 
 
 def test_non_dominated_sort_with_three_objectives():
-    nodes = [make_node(i, float(i)) for i in range(1, 4)]
+    nodes = [make_node(i) for i in range(1, 4)]
     objectives = {1: (0.1, 0.1, 0.1), 2: (0.2, 0.2, 0.2), 3: (0.3, 0.3, 0.3)}
     fronts = non_dominated_sort(nodes, objectives)
     assert [[n.id for n in f] for f in fronts] == [[1], [2], [3]]
@@ -105,7 +105,7 @@ def test_non_dominated_sort_with_three_objectives():
 
 def test_crowding_distance_reads_arity_from_the_vectors():
     """With a hardcoded arity of 2 the third objective's spread was ignored."""
-    nodes = [make_node(i, float(i)) for i in range(1, 5)]
+    nodes = [make_node(i) for i in range(1, 5)]
     # Identical in the first two objectives, spread only in the third.
     objectives = {
         1: (0.5, 0.5, 0.0),
@@ -127,8 +127,8 @@ def test_build_objectives_keeps_one_component_per_measure():
     relation degenerates to a plain comparison and crowding distance has no
     second axis to spread along."""
     nodes = [
-        make_node(1, 0.5, edge=0.2, colour=1000.0),
-        make_node(2, 1.0, edge=0.4, colour=500.0),
+        make_node(1, edge=0.2, colour=1000.0),
+        make_node(2, edge=0.4, colour=500.0),
     ]
 
     objectives = build_objectives(nodes)
@@ -143,8 +143,8 @@ def test_build_objectives_scales_each_measure_by_its_own_maximum():
     does not care -- it compares component by component -- but crowding
     distance does, and would otherwise spread the pool along colour alone."""
     nodes = [
-        make_node(1, 0.5, edge=0.2, colour=1000.0),
-        make_node(2, 1.0, edge=0.4, colour=500.0),
+        make_node(1, edge=0.2, colour=1000.0),
+        make_node(2, edge=0.4, colour=500.0),
     ]
 
     objectives = build_objectives(nodes)
@@ -168,8 +168,8 @@ def test_build_objectives_ignores_the_score_it_does_not_rank_on():
     back in would count them twice."""
     same = build_objectives(
         [
-            make_node(1, 0.0, edge=1.0, colour=1.0),
-            make_node(2, 9e9, edge=1.0, colour=1.0),
+            make_node(1, edge=1.0, colour=1.0),
+            make_node(2, edge=1.0, colour=1.0),
         ]
     )
 
@@ -179,15 +179,15 @@ def test_build_objectives_ignores_the_score_it_does_not_rank_on():
 def test_build_objectives_separates_candidates_alike_in_score():
     """The measures are carried separately so that two candidates scoring the
     same can still be told apart by structure or by colour."""
-    clean = make_node(1, 0.4, edge=0.2, colour=0.2)
-    smudged = make_node(2, 0.4, edge=0.8, colour=0.8)
+    clean = make_node(1, edge=0.2, colour=0.2)
+    smudged = make_node(2, edge=0.8, colour=0.8)
     objectives = build_objectives([clean, smudged])
     assert _dominates(objectives[clean.id], objectives[smudged.id])
     assert not _dominates(objectives[smudged.id], objectives[clean.id])
 
 
 def test_build_objectives_survives_all_zero_objectives():
-    nodes = [make_node(i, 0.0) for i in range(1, 4)]
+    nodes = [make_node(i) for i in range(1, 4)]
 
     objectives = build_objectives(nodes)
 
@@ -195,7 +195,7 @@ def test_build_objectives_survives_all_zero_objectives():
 
 
 def test_non_dominated_sort_all_pareto():
-    nodes = [make_node(1, 0.1), make_node(2, 0.5), make_node(3, 0.9)]
+    nodes = [make_node(1), make_node(2), make_node(3)]
     objectives = {1: (0.1, 0.9), 2: (0.5, 0.5), 3: (0.9, 0.1)}
     fronts = non_dominated_sort(nodes, objectives)
     assert len(fronts) == 1
@@ -203,7 +203,7 @@ def test_non_dominated_sort_all_pareto():
 
 
 def test_non_dominated_sort_two_fronts():
-    nodes = [make_node(i, float(i)) for i in range(1, 5)]
+    nodes = [make_node(i) for i in range(1, 5)]
     objectives = {
         1: (0.1, 0.9),
         2: (0.9, 0.1),
@@ -217,7 +217,7 @@ def test_non_dominated_sort_two_fronts():
 
 
 def test_crowding_distance_boundary_nodes_are_infinite():
-    nodes = [make_node(i, float(i)) for i in range(1, 5)]
+    nodes = [make_node(i) for i in range(1, 5)]
     objectives = {1: (0.0, 0.0), 2: (0.3, 0.3), 3: (0.6, 0.6), 4: (1.0, 1.0)}
     dist = crowding_distance(nodes, objectives)
     assert dist[1] == float("inf")
@@ -227,7 +227,7 @@ def test_crowding_distance_boundary_nodes_are_infinite():
 
 
 def test_crowding_distance_two_nodes_are_infinite():
-    nodes = [make_node(1, 0.1), make_node(2, 0.9)]
+    nodes = [make_node(1), make_node(2)]
     objectives = {1: (0.1, 0.2), 2: (0.9, 0.8)}
     dist = crowding_distance(nodes, objectives)
     assert dist[1] == float("inf")
@@ -236,7 +236,7 @@ def test_crowding_distance_two_nodes_are_infinite():
 
 def test_select_parent_returns_valid_node_id():
     strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=65)
-    nodes = [make_node(i, i * 0.1, edge=i * 0.1) for i in range(1, 6)]
+    nodes = [make_node(i, edge=i * 0.1) for i in range(1, 6)]
     pid, secondary = strategy.select_parent(nodes)
     assert pid in {n.id for n in nodes}
     assert secondary is None
@@ -245,7 +245,7 @@ def test_select_parent_returns_valid_node_id():
 def test_select_parent_crossover_returns_two_distinct_parents():
     strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=0)
     nodes = [
-        make_node(i, i * 0.1, content=f"<svg><rect id='{i}'/></svg>", edge=i * 0.1)
+        make_node(i, content=f"<svg><rect id='{i}'/></svg>", edge=i * 0.1)
         for i in range(1, 6)
     ]
     results = set()
@@ -260,13 +260,13 @@ def test_select_parent_crossover_returns_two_distinct_parents():
 def test_select_parent_skips_invalid_nodes():
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     sentinel = SearchNode(
-        score=float("inf"),
+        valid=False,
         id=0,
         parent_id=0,
-        state=ChainState(score=float("inf"), payload=None),
+        state=ChainState(payload=None),
         metrics={"edge": 0.0, "colour": 0.0},
     )
-    valid = make_node(1, 0.3)
+    valid = make_node(1)
     pid, _ = strategy.select_parent([sentinel, valid])
     assert pid == 1
 
@@ -274,10 +274,10 @@ def test_select_parent_skips_invalid_nodes():
 def test_select_parent_only_invalid_falls_back():
     strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=65)
     sentinel = SearchNode(
-        score=float("inf"),
+        valid=False,
         id=0,
         parent_id=0,
-        state=ChainState(score=float("inf"), payload=None),
+        state=ChainState(payload=None),
         metrics={"edge": 0.0, "colour": 0.0},
     )
     pid, secondary = strategy.select_parent([sentinel])
@@ -288,9 +288,9 @@ def test_select_parent_only_invalid_falls_back():
 def test_diversity_rejects_exact_duplicate_with_worse_score():
     content = "<svg><rect width='200' height='200'/></svg>"
     strategy = NsgaStrategy(pool_size=5, crossover_distance_threshold=65)
-    good = make_node(1, 0.1, content=content)
-    duplicate = make_node(2, 0.9, content=content)  # exact same content, worse score
-    different = make_node(3, 0.5, content="<svg><completely different/></svg>")
+    good = make_node(1, content=content)
+    duplicate = make_node(2, content=content)  # exact same content, worse score
+    different = make_node(3, content="<svg><completely different/></svg>")
 
     selected = set()
     for _ in range(50):
@@ -306,8 +306,8 @@ def test_colour_can_outweigh_a_better_embedding_distance():
     embedding distance wins because it is far better on colour."""
     strategy = NsgaStrategy(pool_size=10, crossover_distance_threshold=65)
     nodes = [
-        make_node(1, 0.80, colour=1000.0),
-        make_node(2, 1.00, colour=100.0),
+        make_node(1, colour=1000.0),
+        make_node(2, colour=100.0),
     ]
 
     selected = {strategy.select_parent(nodes)[0] for _ in range(50)}
@@ -318,11 +318,11 @@ def test_colour_can_outweigh_a_better_embedding_distance():
 def test_pool_size_limits_candidate_set():
     strategy = NsgaStrategy(pool_size=2, crossover_distance_threshold=65)
     nodes = [
-        make_node(1, 0.1, edge=10.0),
-        make_node(2, 0.2, edge=20.0),
-        make_node(3, 0.8, edge=800.0),
-        make_node(4, 0.9, edge=900.0),
-        make_node(5, 1.0, edge=1000.0),
+        make_node(1, edge=10.0),
+        make_node(2, edge=20.0),
+        make_node(3, edge=800.0),
+        make_node(4, edge=900.0),
+        make_node(5, edge=1000.0),
     ]
     selected = {strategy.select_parent(nodes)[0] for _ in range(50)}
     assert selected <= {1, 2}
@@ -330,7 +330,7 @@ def test_pool_size_limits_candidate_set():
 
 def test_pool_size_one_always_returns_same_node():
     strategy = NsgaStrategy(pool_size=1, crossover_distance_threshold=65)
-    nodes = [make_node(i, i * 0.1, edge=float(i * 100)) for i in range(1, 6)]
+    nodes = [make_node(i, edge=float(i * 100)) for i in range(1, 6)]
     selected = {strategy.select_parent(nodes)[0] for _ in range(20)}
     assert selected == {1}
 
@@ -340,9 +340,9 @@ def test_epoch_parents_returns_the_best_ranked_tier():
     than a rival on every measure does not."""
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
-        make_node(1, 0.0, edge=100.0, colour=900.0),  # wins edge
-        make_node(2, 0.0, edge=900.0, colour=100.0),  # wins colour
-        make_node(3, 0.0, edge=950.0, colour=950.0),  # loses to both
+        make_node(1, edge=100.0, colour=900.0),  # wins edge
+        make_node(2, edge=900.0, colour=100.0),  # wins colour
+        make_node(3, edge=950.0, colour=950.0),  # loses to both
     ]
 
     seeds = strategy.epoch_parents(nodes, max_parents=2)
@@ -352,7 +352,7 @@ def test_epoch_parents_returns_the_best_ranked_tier():
 
 def test_epoch_parents_respects_max_parents():
     strategy = NsgaStrategy(pool_size=10)
-    nodes = [make_node(i, i * 0.1, edge=float(i * 100)) for i in range(1, 8)]
+    nodes = [make_node(i, edge=float(i * 100)) for i in range(1, 8)]
     seeds = strategy.epoch_parents(nodes, max_parents=3)
     assert len(seeds) == 3
 
@@ -360,11 +360,9 @@ def test_epoch_parents_respects_max_parents():
 def test_epoch_parents_filters_exact_duplicates():
     content = "<svg>" + "".join(str(i) for i in range(500)) + "</svg>"
     strategy = NsgaStrategy(pool_size=10)
-    good = make_node(1, 0.1, edge=100.0, content=content)
-    duplicate = make_node(2, 0.1, edge=100.0, content=content)  # exact copy
-    different = make_node(
-        3, 0.2, edge=200.0, content="<svg><completely different/></svg>"
-    )
+    good = make_node(1, edge=100.0, content=content)
+    duplicate = make_node(2, edge=100.0, content=content)  # exact copy
+    different = make_node(3, edge=200.0, content="<svg><completely different/></svg>")
     seeds = strategy.epoch_parents([good, duplicate, different], max_parents=3)
     seed_ids = {n.id for n in seeds}
     assert not (1 in seed_ids and 2 in seed_ids)
@@ -381,10 +379,10 @@ def test_epoch_parents_come_back_in_rank_order():
     would have to blend the measures, which is what dominance replaced."""
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
-        make_node(1, 0.0, edge=200.0, colour=200.0),
-        make_node(2, 0.0, edge=400.0, colour=400.0),
-        make_node(3, 0.0, edge=600.0, colour=600.0),
-        make_node(4, 0.0, edge=800.0, colour=800.0),
+        make_node(1, edge=200.0, colour=200.0),
+        make_node(2, edge=400.0, colour=400.0),
+        make_node(3, edge=600.0, colour=600.0),
+        make_node(4, edge=800.0, colour=800.0),
     ]
     seeds = strategy.epoch_parents(nodes, max_parents=4)
 
@@ -393,7 +391,7 @@ def test_epoch_parents_come_back_in_rank_order():
 
 def test_epoch_parents_all_invalid_falls_back():
     strategy = NsgaStrategy(pool_size=10)
-    nodes = [make_node(i, float("inf")) for i in range(1, 4)]
+    nodes = [make_node(i, valid=False) for i in range(1, 4)]
     seeds = strategy.epoch_parents(nodes, max_parents=5)
     assert len(seeds) == 3
 
@@ -401,8 +399,8 @@ def test_epoch_parents_all_invalid_falls_back():
 def test_accurate_and_simple_candidates_share_the_front():
     """Neither dominates: one wins on error, the other on structure. Under the
     old feasibility gate the accurate one was promoted outright."""
-    n1 = make_node(1, score=0.1, edge=5000.0)
-    n2 = make_node(2, score=0.9, edge=10.0)
+    n1 = make_node(1, edge=5000.0)
+    n2 = make_node(2, edge=10.0)
     objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}
     fronts = non_dominated_sort([n1, n2], objectives)
     assert len(fronts) == 1
@@ -410,8 +408,8 @@ def test_accurate_and_simple_candidates_share_the_front():
 
 
 def test_non_dominated_sort_no_threshold_simple_dominates_complex():
-    n1 = make_node(1, score=0.1, edge=5000.0)
-    n2 = make_node(2, score=0.9, edge=10.0)
+    n1 = make_node(1, edge=5000.0)
+    n2 = make_node(2, edge=10.0)
     objectives = {1: (0.1, 1.0), 2: (0.9, 0.0)}
     fronts = non_dominated_sort([n1, n2], objectives)
     assert len(fronts) == 1
@@ -429,14 +427,14 @@ def test_tournament_size_is_clamped_to_a_usable_minimum():
 
 def test_tournament_size_larger_than_the_pool_is_safe():
     strategy = NsgaStrategy(pool_size=10, tournament_size=50)
-    nodes = [make_node(i, i * 0.1) for i in range(1, 4)]
+    nodes = [make_node(i) for i in range(1, 4)]
     pid, _ = strategy.select_parent(nodes)
     assert pid in {n.id for n in nodes}
 
 
 def test_tournament_size_of_one_node_pool_is_safe():
     strategy = NsgaStrategy(tournament_size=8)
-    nodes = [make_node(1, 0.5)]
+    nodes = [make_node(1)]
     assert strategy.select_parent(nodes) == (1, None)
 
 
@@ -453,7 +451,6 @@ def test_larger_tournament_biases_harder_toward_the_objective():
             nodes = [
                 make_node(
                     i,
-                    _random.random(),
                     content=f"n{i}-{_random.random()}",
                     colour=_random.random() * 5000,
                 )
@@ -476,10 +473,7 @@ def test_crossover_is_skipped_within_one_lineage():
     """Two nodes of one lineage are the same drawing at different stages, so
     grafting between them recombines a candidate with itself."""
     strategy = NsgaStrategy(pool_size=4, crossover_distance_threshold=0)
-    nodes = [
-        make_node(i, 0.1 * i, content=f"<svg><rect id='{i}'/></svg>")
-        for i in range(1, 5)
-    ]
+    nodes = [make_node(i, content=f"<svg><rect id='{i}'/></svg>") for i in range(1, 5)]
     for n in nodes:
         n.root_id = 7
 
@@ -489,10 +483,7 @@ def test_crossover_is_skipped_within_one_lineage():
 
 def test_crossover_fires_across_lineages():
     strategy = NsgaStrategy(pool_size=4, crossover_distance_threshold=0)
-    nodes = [
-        make_node(i, 0.1 * i, content=f"<svg><rect id='{i}'/></svg>")
-        for i in range(1, 5)
-    ]
+    nodes = [make_node(i, content=f"<svg><rect id='{i}'/></svg>") for i in range(1, 5)]
     for n in nodes:
         n.root_id = n.id
 
@@ -503,33 +494,26 @@ def test_untracked_lineage_leaves_crossover_enabled():
     """root_id 0 means the caller tracks no lineage; reading that as one shared
     lineage would disable crossover for every caller outside the engine."""
     strategy = NsgaStrategy(pool_size=4, crossover_distance_threshold=0)
-    nodes = [
-        make_node(i, 0.1 * i, content=f"<svg><rect id='{i}'/></svg>")
-        for i in range(1, 5)
-    ]
+    nodes = [make_node(i, content=f"<svg><rect id='{i}'/></svg>") for i in range(1, 5)]
     assert all(n.root_id == 0 for n in nodes)
     assert any(strategy.select_parent(nodes)[1] is not None for _ in range(20))
 
 
-def test_select_survivors_does_not_simply_keep_the_best_score():
-    """Regression: survival used to evict the worst score outright, so the other
-    objectives only reached parent selection and the pool collapsed onto one
-    measure. A candidate carrying the worst score still wins a place if it
-    takes the majority of the rest.
-
-    Elitism reserves one slot for the best score, so the point is tested on the
-    slots elitism does not claim."""
+def test_select_survivors_keeps_the_candidates_the_rest_cannot_beat():
+    """Survival used to evict the worst score outright, so the other measures
+    only reached parent selection and the pool collapsed onto one of them.
+    Ranking is by dominance now, so the two that nothing beats are the two that
+    stay."""
     strategy = NsgaStrategy()
-    best_score = make_node(1, 0.1, colour=0.9)
-    wins_the_rest = make_node(2, 0.85, colour=0.05)
-    middling = [
-        make_node(3, 0.5, colour=0.5),
-        make_node(4, 0.6, colour=0.6),
+    wins_colour = make_node(1, colour=0.05, edge=0.9)
+    wins_edge = make_node(2, colour=0.9, edge=0.05)
+    beaten = [
+        make_node(3, colour=0.95, edge=0.95),
+        make_node(4, colour=0.96, edge=0.96),
     ]
 
     kept = {
-        n.id
-        for n in strategy.select_survivors([best_score, wins_the_rest, *middling], 2)
+        n.id for n in strategy.select_survivors([wins_colour, wins_edge, *beaten], 2)
     }
 
     assert kept == {1, 2}
@@ -538,8 +522,8 @@ def test_select_survivors_does_not_simply_keep_the_best_score():
 def test_select_survivors_drops_unscored_nodes_first():
     """An infinite score would normalise every other objective to zero."""
     strategy = NsgaStrategy()
-    scored = [make_node(1, 0.1), make_node(2, 0.2)]
-    unscored = make_node(3, INVALID_SCORE)
+    scored = [make_node(1), make_node(2)]
+    unscored = make_node(3, valid=False)
 
     kept = strategy.select_survivors([*scored, unscored], 2)
 
@@ -548,7 +532,7 @@ def test_select_survivors_drops_unscored_nodes_first():
 
 def test_select_survivors_keeps_everything_that_fits():
     strategy = NsgaStrategy()
-    nodes = [make_node(i, 0.1 * i) for i in range(1, 4)]
+    nodes = [make_node(i) for i in range(1, 4)]
 
     assert len(strategy.select_survivors(nodes, 5)) == 3
 
@@ -562,8 +546,7 @@ def test_ranking_survives_a_population_nothing_wins():
     # Varying both measures the objective is built from, so tiers can track
     # quality rather than a number selection no longer reads.
     nodes = [
-        make_node(i, 0.0, edge=100.0 * (i % 5), colour=10.0 * (i % 7))
-        for i in range(60)
+        make_node(i, edge=100.0 * (i % 5), colour=10.0 * (i % 7)) for i in range(60)
     ]
     objectives = build_objectives(nodes)
 
@@ -582,9 +565,9 @@ def test_a_three_way_cycle_ties_rather_than_vanishing():
     and loses to the third. None can outrank the others, and none may be
     dropped -- a dropped node is a candidate deleted from the pool with nothing
     replacing it."""
-    rock = make_node(1, 0.1, edge=0.5)
-    paper = make_node(2, 0.2, edge=0.1)
-    scissors = make_node(3, 0.5, edge=0.2)
+    rock = make_node(1, edge=0.5)
+    paper = make_node(2, edge=0.1)
+    scissors = make_node(3, edge=0.2)
     objectives = {
         rock.id: (0.1, 0.5, 0.2),
         paper.id: (0.2, 0.1, 0.5),
@@ -598,12 +581,14 @@ def test_a_three_way_cycle_ties_rather_than_vanishing():
 
 
 def test_the_best_node_always_survives_its_generation():
-    """NSGA-II is elitist because the best node sits in front 0 under Pareto
-    dominance. The majority relation has no such guarantee -- two objectives
-    can outvote the one the run is judged on -- and a generation that evicts
-    the best candidate loses ground it never recovers."""
-    best = make_node(1, 0.01, edge=1000.0)
-    crowd = [make_node(i, 0.5 + 0.01 * i, edge=float(i)) for i in range(2, 12)]
+    """NSGA-II is elitist because the best-ranked candidates sit in front 0
+    under Pareto dominance. The majority relation cycles and crowding distance
+    sorts for spread, so a generation can evict the whole top tier and lose
+    ground it never recovers. At least one unbeaten candidate must survive."""
+    best = make_node(1, edge=1.0, colour=1.0)
+    crowd = [
+        make_node(i, edge=float(i) * 100, colour=float(i) * 100) for i in range(2, 12)
+    ]
 
     survivors = NsgaStrategy(pool_size=5).select_survivors([best, *crowd], max_keep=5)
 
@@ -617,7 +602,7 @@ def test_the_pool_ranking_is_reused_until_the_pool_changes():
     put an O(n^2) sort on the main thread hundreds of times per run, which is
     the thread every worker waits on."""
     strategy = NsgaStrategy(pool_size=5)
-    nodes = [make_node(i, 0.1 * i, edge=float(10 - i)) for i in range(1, 8)]
+    nodes = [make_node(i, edge=float(10 - i)) for i in range(1, 8)]
 
     calls = []
     real = nsga.non_dominated_sort
@@ -641,10 +626,10 @@ def test_a_changed_pool_is_never_ranked_from_stale_positions():
     """The cache is keyed on membership, so a node added to the pool must be
     reachable by selection rather than missing from the ranking."""
     strategy = NsgaStrategy(pool_size=10)
-    nodes = [make_node(i, 0.5, edge=1.0) for i in range(1, 4)]
+    nodes = [make_node(i, edge=1.0) for i in range(1, 4)]
     strategy.select_parent(nodes)
 
-    best = make_node(99, 0.001, edge=0.001, content="unique content here")
+    best = make_node(99, edge=0.001, content="unique content here")
     pool, rank, _crowd = strategy._rank_pool([*nodes, best])
 
     assert best.id in rank
@@ -667,8 +652,8 @@ def test_every_scored_metric_survives_into_the_objective_vector():
     """Arity tracks the registry. A measure dropped from the vector still shows
     up in the reported score, so nothing else here would notice its loss."""
     nodes = [
-        make_node(1, 0.5, edge=0.2, colour=0.9, shape=0.4),
-        make_node(2, 0.6, edge=0.8, colour=0.1, shape=0.7),
+        make_node(1, edge=0.2, colour=0.9, shape=0.4),
+        make_node(2, edge=0.8, colour=0.1, shape=0.7),
     ]
 
     objectives = build_objectives(nodes)
@@ -686,9 +671,9 @@ def test_measures_that_disagree_can_rank_in_a_cycle():
     wins + losses = 3 cannot split evenly. Non-transitivity, not an antichain,
     is what multi-objectivity buys at this arity.)
     """
-    a = make_node(1, 0.5, colour=0.1, edge=0.9, shape=0.5)
-    b = make_node(2, 0.5, colour=0.5, edge=0.1, shape=0.9)
-    c = make_node(3, 0.5, colour=0.9, edge=0.5, shape=0.1)
+    a = make_node(1, colour=0.1, edge=0.9, shape=0.5)
+    b = make_node(2, colour=0.5, edge=0.1, shape=0.9)
+    c = make_node(3, colour=0.9, edge=0.5, shape=0.1)
 
     objectives = build_objectives([a, b, c])
     va, vb, vc = (objectives[n.id] for n in (a, b, c))
@@ -708,8 +693,8 @@ def test_the_third_measure_decides_when_the_other_two_disagree():
     A weighted sum cannot do that: shape carries the smallest weight, so a
     large margin on edge buries it. Here the two rules pick opposite winners.
     """
-    a = make_node(1, 0.5, colour=0.1, edge=0.9, shape=0.1)
-    b = make_node(2, 0.5, colour=0.9, edge=0.1, shape=0.9)
+    a = make_node(1, colour=0.1, edge=0.9, shape=0.1)
+    b = make_node(2, colour=0.9, edge=0.1, shape=0.9)
 
     objectives = build_objectives([a, b])
     va, vb = objectives[1], objectives[2]
@@ -734,8 +719,8 @@ def test_a_candidate_winning_on_one_measure_alone_is_still_dominated():
     of three; a specialist on a single axis loses to any candidate that beats
     it on the other two, and survives only on crowding distance within a tier.
     """
-    specialist = make_node(1, 0.9, colour=1.0, edge=1.0, shape=0.0)
-    generalist = make_node(2, 0.4, colour=0.4, edge=0.4, shape=0.9)
+    specialist = make_node(1, colour=1.0, edge=1.0, shape=0.0)
+    generalist = make_node(2, colour=0.4, edge=0.4, shape=0.9)
 
     objectives = build_objectives([specialist, generalist])
 
@@ -747,9 +732,9 @@ def test_crowding_distance_reads_every_axis():
     it can only ever spread along that one, so a pool diverse in shape and
     uniform in colour would look uniform."""
     front = [
-        make_node(1, 0.5, colour=0.5, edge=0.5, shape=0.0),
-        make_node(2, 0.5, colour=0.5, edge=0.5, shape=0.5),
-        make_node(3, 0.5, colour=0.5, edge=0.5, shape=1.0),
+        make_node(1, colour=0.5, edge=0.5, shape=0.0),
+        make_node(2, colour=0.5, edge=0.5, shape=0.5),
+        make_node(3, colour=0.5, edge=0.5, shape=1.0),
     ]
     objectives = build_objectives(front)
 
@@ -757,6 +742,6 @@ def test_crowding_distance_reads_every_axis():
 
     # The extremes are pinned, and the middle node was reached through the
     # shape axis alone -- the other two are flat across this front.
-    assert distances[1] == INVALID_SCORE
-    assert distances[3] == INVALID_SCORE
+    assert distances[1] == math.inf
+    assert distances[3] == math.inf
     assert distances[2] > 0.0
