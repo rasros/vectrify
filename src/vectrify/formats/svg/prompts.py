@@ -58,11 +58,12 @@ def build_svg_gen_prompt(
         lines.append("Output ONLY the raw <svg>...</svg>. No markdown.")
     else:
         lines.append(
-            "The render below has already been numerically optimized, so"
-            " nudging its coordinates and colors gains nothing. Change what is"
-            " structurally wrong: shapes that are missing, extra, or the wrong"
-            " kind of thing. Output ONLY search/replace diff blocks, no full"
-            " file."
+            "The render below is already polished shape by shape, so nudging"
+            " its values gains nothing. Change what no amount of polishing"
+            " reaches: parts that are missing, extra, the wrong kind of thing,"
+            " or in the wrong place — reposition and resize whole parts where"
+            " the arrangement is off. Output ONLY search/replace diff blocks,"
+            " no full file."
         )
 
     if goal:
