@@ -71,7 +71,7 @@ def test_defaults_pinned():
     # Off: a pool collapses into agreement long before it stops improving, so
     # any threshold defaulted on here ends search while it is still working.
     assert args.epoch_diversity == 0.0
-    assert args.epoch_distinct == 0.0
+    assert args.epoch_dominated == 0.0
     # Unset: both were binding before the limits that describe the search.
     assert args.epoch_min_delta is None
     assert args.max_total_tasks is None

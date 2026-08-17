@@ -651,3 +651,41 @@ def test_a_changed_pool_is_never_ranked_from_stale_positions():
 
     assert best.id in rank
     assert best.id in {n.id for n in pool}
+
+
+def test_dominated_share_is_zero_when_nothing_outranks_anything():
+    """The state the criterion exists to detect: every Copeland score is zero,
+    rank has stopped separating candidates, and only crowding distance is
+    still deciding survival."""
+    # Each wins on one objective and loses on another, so no majority anywhere.
+    points: list[tuple[float, ...]] = [
+        (0.1, 0.9, 0.5),
+        (0.9, 0.1, 0.5),
+        (0.5, 0.5, 0.5),
+    ]
+    assert nsga.dominated_share(points) == 0.0
+    assert nsga._copeland(points) == [0, 0, 0]
+
+
+def test_dominated_share_counts_every_outranked_member():
+    best = (0.1, 0.1, 0.1)
+    worse = [(0.5, 0.5, 0.5), (0.9, 0.9, 0.9)]
+    assert nsga.dominated_share([best, *worse]) == pytest.approx(2 / 3)
+
+
+def test_dominated_share_ignores_the_scale_of_the_objectives():
+    """It reads the dominance relation, never a magnitude, so multiplying every
+    objective through changes nothing. That is what a spread threshold could
+    not do."""
+    points: list[tuple[float, ...]] = [
+        (0.1, 0.2, 0.3),
+        (0.4, 0.5, 0.6),
+        (0.2, 0.1, 0.9),
+    ]
+    scaled = [tuple(v * 1000 for v in p) for p in points]
+    assert nsga.dominated_share(points) == nsga.dominated_share(scaled)
+
+
+def test_dominated_share_needs_two_members():
+    assert nsga.dominated_share([(0.1, 0.2, 0.3)]) == 0.0
+    assert nsga.dominated_share([]) == 0.0

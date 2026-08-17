@@ -48,6 +48,32 @@ def _dominates(a: Objectives, b: Objectives) -> bool:
     return wins > losses
 
 
+def dominated_share(points: list[Objectives]) -> float:
+    """Share of the pool that some other member dominates, in [0, 1].
+
+    What is left for selection to do, in the only terms the search has. A
+    member nothing dominates cannot be ranked below anything; when that is true
+    of the whole pool every Copeland score is zero, rank stops separating
+    candidates, and crowding distance -- which sorts for spread, not quality --
+    decides survival on its own. The pool is then converged in the sense that
+    matters, whatever its scores happen to read.
+
+    Ordinal throughout: it asks only whether one candidate beats another, never
+    by how much, so it carries no dependence on what the objectives are
+    denominated in and none on how many of them there are. That is what a
+    spread threshold could not do -- spread cannot tell a pool that has run out
+    of distinguishable candidates from one whose members are simply close
+    together, and those are opposite situations.
+    """
+    if len(points) < 2:
+        return 0.0
+    dominated = 0
+    for i, a in enumerate(points):
+        if any(_dominates(b, a) for j, b in enumerate(points) if j != i):
+            dominated += 1
+    return dominated / len(points)
+
+
 def _copeland(points: list[Objectives]) -> list[int]:
     """How many rivals each point beats, less how many beat it.
 
@@ -377,3 +403,15 @@ class NsgaStrategy(Generic[TState]):
     def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:
         diversity = pool_diversity(pool)
         return self.epoch_diversity > 0 and diversity < self.epoch_diversity, diversity
+
+    def pool_dominated_share(self, pool: list[SearchNode[TState]]) -> float:
+        """How much of *pool* some other member dominates.
+
+        Lives on the strategy because the dominance relation is the strategy's:
+        the engine holds nodes and scores, not objectives.
+        """
+        valid = [n for n in pool if n.score < INVALID_SCORE]
+        if len(valid) < 2:
+            return 0.0
+        objectives = build_objectives(valid)
+        return dominated_share([objectives[n.id] for n in valid])

@@ -116,7 +116,7 @@ def run_vector_search(
     epoch_diversity: float = DEFAULT_EPOCH_DIVERSITY,
     tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
     adaptive_operators: bool = True,
-    epoch_distinct: float | None = None,
+    epoch_dominated: float | None = None,
     epochs: int | None = None,
     max_total_tasks: int | None = DEFAULT_MAX_TOTAL_TASKS,
     random_seed: int | None = None,
@@ -217,7 +217,7 @@ def run_vector_search(
     if collector is not None:
         collector.configure_run(
             epoch_diversity=epoch_diversity,
-            epoch_distinct=epoch_distinct or 0.0,
+            epoch_dominated=epoch_dominated or 0.0,
         )
         valid = [n for n in initial_nodes if n.score < INVALID_SCORE]
         if valid:
@@ -395,7 +395,7 @@ def run_vector_search(
             epoch_seeds=epoch_seeds,
             initial_seeds=first_batch,
             epochs=epochs,
-            epoch_distinct=epoch_distinct,
+            epoch_dominated=epoch_dominated,
             epoch_diversity=epoch_diversity,
             operator_policy=operator_policy,
             collector=collector,

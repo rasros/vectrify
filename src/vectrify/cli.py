@@ -36,11 +36,12 @@ DEFAULT_POOL_SIZE = 100
 # on staleness and the run stopped after 3821 of its 12000 tasks.
 #
 # They stay available because a caller who has measured their own case can use
-# them, and --epoch-distinct is now shaped so that a measurement transfers:
-# it counts what share of the pool holds a score no one else holds, so it never
-# touches the magnitude of a score and needs no reference reading.
+# them, and --epoch-dominated is shaped so that a measurement transfers: it
+# asks what share of the pool something else outranks, reading the dominance
+# relation rather than any score, so it needs no reference reading and does not
+# move when the objectives or their number change.
 DEFAULT_EPOCH_DIVERSITY = 0.0
-DEFAULT_EPOCH_DISTINCT = 0.0
+DEFAULT_EPOCH_DOMINATED = 0.0
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
 # next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
@@ -262,15 +263,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "the drawing. 0 disables.",
     )
     g_epoch.add_argument(
-        "--epoch-distinct",
+        "--epoch-dominated",
         type=float,
-        default=DEFAULT_EPOCH_DISTINCT,
-        dest="epoch_distinct",
+        default=DEFAULT_EPOCH_DOMINATED,
+        dest="epoch_dominated",
         metavar="THR",
-        help="End an epoch once fewer than this share of the pool holds a "
-        "score no other member holds, e.g. 0.1. Compares scores only for "
-        "equality, never for distance, so the same setting means the same "
-        "thing on any image and any objective. 0 disables.",
+        help="End an epoch once fewer than this share of the pool is "
+        "dominated by some other member, e.g. 0.1 -- the point at which rank "
+        "has stopped separating candidates and only crowding distance is "
+        "deciding survival. Reads the dominance relation, not scores, so the "
+        "same setting means the same thing on any image. 0 disables.",
     )
     g_search.add_argument(
         "--tournament-size",

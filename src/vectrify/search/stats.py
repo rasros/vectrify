@@ -51,24 +51,6 @@ def score_std(scores: list[float]) -> float:
     return math.sqrt(sum((s - mean) ** 2 for s in scores) / len(scores))
 
 
-def distinct_share(scores: list[float]) -> float:
-    """Share of the pool holding a score no other member holds, in [0, 1].
-
-    Reads only whether two scores are equal, never how far apart they are, so
-    it carries no dependence on what the round objective is denominated in and
-    needs no reference value to be compared against: 0.2 means one candidate in
-    five is distinct on any image and any objective.
-
-    That independence is the point. Spread cannot tell a pool that has
-    collapsed into clones from one whose members are merely close together,
-    and those are opposite situations -- the first has nothing left to select
-    between, the second is a pool descending together and still improving.
-    """
-    if not scores:
-        return 1.0
-    return len(set(scores)) / len(scores)
-
-
 @dataclasses.dataclass
 class SearchStats:
     strategy_name: str = ""
@@ -100,8 +82,8 @@ class SearchStats:
 
     shutting_down: bool = False
     pool_score_std: float = 0.0
-    pool_distinct: float = 1.0
-    epoch_distinct: float = 0.0
+    pool_dominated: float = 1.0
+    epoch_dominated: float = 0.0
 
     best_score: float = INVALID_SCORE
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))

@@ -204,7 +204,7 @@ max-wall-seconds.
 |------------------|--------:|-------------------------------------------------------|
 | epochs           |       4 | hard cap on epoch count                               |
 | epoch-patience   |     500 | this many local tasks in a row produce no improvement |
-| epoch-distinct   |       0 | share of the pool holding a unique score drops below  |
+| epoch-dominated  |       0 | share of the pool outranked by another drops below    |
 | epoch-diversity  |       0 | mean pairwise diversity drops below value             |
 | max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch   |
 
@@ -212,8 +212,9 @@ Patience counts local tasks only — a seed batch is not a hill-climb and
 cannot go stale — and any improvement resets it. The distinct and diversity
 criteria are off by default: a pool collapses into agreement well before it
 stops improving, so a threshold that looks safe ends search while it is still
-working. epoch-distinct compares scores only for equality, never for distance,
-so a threshold you measure on one image carries to another.
+working. epoch-dominated reads the dominance relation rather than any score —
+it fires as rank stops separating candidates and crowding distance takes over
+selection — so a threshold you measure on one image carries to another.
 
 LLM spend is exactly epochs × seeds — 20 at the defaults — so the two flags
 that set it are the whole cost model. More epochs give diminishing returns, so

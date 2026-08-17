@@ -44,8 +44,8 @@ def _collector(tmp_path: Path) -> tuple[StatCollector, SearchStats]:
 
 def test_configure_run_records_the_epoch_thresholds(tmp_path):
     collector, stats = _collector(tmp_path)
-    collector.configure_run(epoch_diversity=0.3, epoch_distinct=0.02)
-    assert (stats.epoch_diversity, stats.epoch_distinct) == (0.3, 0.02)
+    collector.configure_run(epoch_diversity=0.3, epoch_dominated=0.02)
+    assert (stats.epoch_diversity, stats.epoch_dominated) == (0.3, 0.02)
 
 
 def test_seed_initial_score_anchors_the_history_at_zero():
@@ -188,10 +188,10 @@ def test_on_no_improve_reset_clears_the_stagnation_counter():
 def test_on_pool_state_records_diversity_and_spread():
     stats = SearchStats()
     StatCollector(stats, None).on_pool_state(
-        diversity=0.4, score_std=0.02, distinct=0.75
+        diversity=0.4, score_std=0.02, dominated=0.75
     )
     assert (stats.pool_diversity, stats.pool_score_std) == (0.4, 0.02)
-    assert stats.pool_distinct == 0.75
+    assert stats.pool_dominated == 0.75
 
 
 def test_epoch_transition_resets_stagnation_and_writes_a_row(tmp_path):

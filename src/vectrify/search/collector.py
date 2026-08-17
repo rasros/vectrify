@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from vectrify.search.models import INVALID_SCORE
-from vectrify.search.stats import distinct_share, score_std
+from vectrify.search.stats import score_std
 
 if TYPE_CHECKING:
     from vectrify.search.models import Result, SearchNode
@@ -47,8 +47,8 @@ STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "pool_score_std": _rounded("pool_score_std", 6),
     "epoch_patience": lambda s: s.epoch_patience,
     "epoch_diversity": _rounded("epoch_diversity", 4),
-    "pool_distinct": _rounded("pool_distinct", 4),
-    "epoch_distinct": _rounded("epoch_distinct", 4),
+    "pool_dominated": _rounded("pool_dominated", 4),
+    "epoch_dominated": _rounded("epoch_dominated", 4),
 }
 
 STATS_COLUMNS = list(STATS_FIELDS)
@@ -75,11 +75,11 @@ class StatCollector:
         self,
         *,
         epoch_diversity: float,
-        epoch_distinct: float,
+        epoch_dominated: float,
     ) -> None:
         s = self._stats
         s.epoch_diversity = epoch_diversity
-        s.epoch_distinct = epoch_distinct
+        s.epoch_dominated = epoch_dominated
 
     def seed_initial_score(self, best_score: float) -> None:
         s = self._stats
@@ -162,12 +162,12 @@ class StatCollector:
     # ── Pool state events ─────────────────────────────────────────────────────
 
     def on_pool_state(
-        self, *, diversity: float, score_std: float, distinct: float
+        self, *, diversity: float, score_std: float, dominated: float
     ) -> None:
         s = self._stats
         s.pool_diversity = diversity
         s.pool_score_std = score_std
-        s.pool_distinct = distinct
+        s.pool_dominated = dominated
 
     def on_epoch_transition(self, epoch: int) -> None:
         s = self._stats
@@ -181,7 +181,6 @@ class StatCollector:
         s.llm_calls_in_flight = llm_in_flight
         if len(valid_scores) >= 2:
             s.pool_score_std = score_std(valid_scores)
-            s.pool_distinct = distinct_share(valid_scores)
 
     def _maybe_flush(self, *, is_llm: bool) -> None:
         """Flush if this is an LLM call or a task-count milestone."""

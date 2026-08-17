@@ -18,6 +18,14 @@ class SearchStrategy(Protocol[TState]):
         """
         ...
 
+    def pool_dominated_share(self, pool: list[SearchNode]) -> float:
+        """Share of *pool* that some other member dominates, in [0, 1].
+
+        Zero means nothing outranks anything: selection has no convergence
+        pressure left and only crowding distance is still deciding survival.
+        """
+        ...
+
     def select_survivors(
         self, nodes: list[SearchNode[TState]], max_keep: int
     ) -> list[SearchNode[TState]]:

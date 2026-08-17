@@ -18,7 +18,7 @@ from vectrify.search.models import (
     valid_scores,
 )
 from vectrify.search.operators import OperatorPolicy
-from vectrify.search.stats import distinct_share, score_std
+from vectrify.search.stats import score_std
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
@@ -118,7 +118,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_seeds: int = 0,
         initial_seeds: int | None = None,
         epochs: int | None = None,
-        epoch_distinct: float | None = None,
+        epoch_dominated: float | None = None,
         epoch_diversity: float = 0.0,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
@@ -225,6 +225,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
         epoch_baseline: float | None = None
+        # Carried between flushes; see the cadence note in _check_epoch_end.
+        pool_dominated = 1.0
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
@@ -587,7 +589,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             _begin_seed_phase()
 
         def _check_epoch_end():
-            nonlocal pool_refilling, epoch_baseline
+            nonlocal pool_refilling, epoch_baseline, pool_dominated
 
             if pool_refilling:
                 if len(active_pool) < active_pool_size:
@@ -598,13 +600,21 @@ class MultiprocessSearchEngine(Generic[TState]):
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
             _unused, pool_div = self.strategy.should_diversify(active_pool)
-            scores = valid_scores(active_pool)
-            pool_std = score_std(scores)
-            pool_distinct = distinct_share(scores)
+            pool_std = score_std(valid_scores(active_pool))
+
+            # Dominance is a pairwise sweep of the pool, so it is the one pool
+            # measure that costs something at pool sizes in the hundreds. When
+            # the criterion is off it is only wanted for the record, and the
+            # record is written every hundredth task, so it is computed on that
+            # cadence and carried between flushes. With the criterion on it has
+            # to be current, because it decides the epoch.
+            enabled = epoch_dominated is not None and epoch_dominated > 0
+            if enabled or tasks_completed % 100 == 0:
+                pool_dominated = self.strategy.pool_dominated_share(active_pool)
 
             if collector is not None:
                 collector.on_pool_state(
-                    diversity=pool_div, score_std=pool_std, distinct=pool_distinct
+                    diversity=pool_div, score_std=pool_std, dominated=pool_dominated
                 )
 
             # Diversity is read against where this epoch started, because it
@@ -617,19 +627,16 @@ class MultiprocessSearchEngine(Generic[TState]):
                 epoch_diversity > 0 and pool_div / epoch_baseline < epoch_diversity
             )
 
-            # The score criterion takes no baseline at all. It counts how much
-            # of the pool holds a score no one else holds, which is already a
-            # fraction and never touches the magnitude of a score, so one
-            # setting carries across images and across changes to the round
-            # objective. Spread could do neither: read against a fixed number
-            # it moved with whatever the objective was denominated in, and read
+            # The convergence criterion takes no baseline at all. It asks what
+            # share of the pool something else outranks, which is a fraction
+            # already and reads the dominance relation rather than any score,
+            # so one setting carries across images, across changes to the round
+            # objective, and across a change in how many objectives there are.
+            # Spread could do none of that: read against a fixed number it
+            # moved with whatever the objective was denominated in, and read
             # against the epoch's opening value it measured from a trough,
             # since an epoch opens before its seed children have landed.
-            collapsed = (
-                epoch_distinct is not None
-                and epoch_distinct > 0
-                and pool_distinct < epoch_distinct
-            )
+            collapsed = enabled and pool_dominated < epoch_dominated
 
             # Any one of these ending the epoch, rather than all of them
             # agreeing. Each is meant to be set tight enough that its firing is
@@ -658,7 +665,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                     " of its opening value"
                 )
             elif collapsed:
-                reason = f"only {pool_distinct:.2f} of the pool holds a distinct score"
+                reason = (
+                    f"only {pool_dominated:.2f} of the pool is dominated by"
+                    " anything, so rank has stopped separating candidates"
+                )
             else:
                 return
 

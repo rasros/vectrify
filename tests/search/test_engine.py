@@ -7,7 +7,19 @@ from vectrify.search import INVALID_SCORE, ChainState, Result, SearchNode
 from vectrify.search.engine import MultiprocessSearchEngine
 
 
-class FakeStrategy:
+class _DominanceMixin:
+    """The dominance share the engine asks every strategy for. The fakes here
+    score on one number, where nothing outranks nothing only if all are equal."""
+
+    def pool_dominated_share(self, pool) -> float:
+        valid = [n for n in pool if n.score < INVALID_SCORE]
+        if len(valid) < 2:
+            return 0.0
+        best = min(n.score for n in valid)
+        return sum(1 for n in valid if n.score > best) / len(valid)
+
+
+class FakeStrategy(_DominanceMixin):
     def select_parent(
         self,
         nodes: list[SearchNode],
@@ -349,7 +361,7 @@ def test_engine_pool_collapse_epoch_end_does_not_crash():
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
-        epoch_distinct=0.05,  # the flag that used to crash the run
+        epoch_dominated=0.05,  # the flag that used to crash the run
         active_pool_size=1,
     )
 
@@ -1189,7 +1201,7 @@ def test_the_pool_criteria_read_the_same_on_any_scale():
             active_pool_size=2,
             epochs=4,
             epoch_patience=10_000,
-            epoch_distinct=0.6,
+            epoch_dominated=0.6,
             collector=collector,
         )
         return collector.on_epoch_transition.call_count
