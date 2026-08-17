@@ -29,18 +29,24 @@ def detail(png_bytes: bytes) -> float:
     return float(len(zlib.compress(img.tobytes(), 6)))
 
 
-def detail_distance(reference_detail: float, candidate_png: bytes) -> float:
-    """How far the candidate's detail sits from the reference's, as a fraction.
+def detail_excess(reference_detail: float, candidate_png: bytes) -> float:
+    """How much detail the candidate carries beyond the reference's, as a
+    fraction of it. Zero when the candidate is no busier than the target.
 
-    A distance rather than something to minimise, which keeps it on the same
-    footing as every other objective -- 0 is perfect and lower is better -- and
-    matters for more than tidiness. Minimising detail outright would make an
-    empty drawing the best attainable candidate on this axis, and with four
-    objectives an empty one splits 2-2 against a good candidate and so cannot be
-    dominated by it. The regulariser would then protect exactly the degenerate
-    it was added to prevent. Reading it as a distance charges symmetrically for
-    detail the target does not have and for detail it has that is missing.
+    One-sided, because noise is the most incompressible thing an image can
+    carry and a target is often noisy. Measured on the duck at working
+    resolution: grain at sigma 2, barely visible, took the target's detail from
+    7,607 to 55,664 -- 7.3x -- and sigma 12 to 12.7x. A symmetric distance
+    would read a correct vector render as 0.9 wrong on this axis and leave
+    adding incompressible speckle as the only way to improve it, so the
+    regulariser would drive the artefacts it exists to suppress. Any generated
+    or photographed input carries enough grain to trigger that.
+
+    Charging only for excess also cannot be gamed the other way. An empty
+    drawing scores 0 here, but it wins this axis alone while losing colour,
+    edge and shape, and one win against three losses is dominated whatever the
+    arity -- so the degenerate needs no separate guard.
     """
     if reference_detail <= 0.0:
         return 0.0
-    return abs(detail(candidate_png) - reference_detail) / reference_detail
+    return max(0.0, detail(candidate_png) - reference_detail) / reference_detail

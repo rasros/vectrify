@@ -28,7 +28,7 @@ from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
-from vectrify.score.complexity import detail, detail_distance
+from vectrify.score.complexity import detail, detail_excess
 from vectrify.score.edges import overlap_distance
 from vectrify.score.metrics import (
     COLOUR,
@@ -354,7 +354,7 @@ def run_vector_search(
             )
             res.metrics[COLOUR] = float(comparison.colour.mean())
             res.metrics[SHAPE] = comparison.shape
-            res.metrics[DETAIL] = detail_distance(reference_detail, png)
+            res.metrics[DETAIL] = detail_excess(reference_detail, png)
             res.score = round_score(
                 res.metrics[COLOUR], res.metrics[EDGE], res.metrics[SHAPE]
             )

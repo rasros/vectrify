@@ -3,7 +3,7 @@ import random
 
 from PIL import Image
 
-from vectrify.score.complexity import detail, detail_distance
+from vectrify.score.complexity import detail, detail_excess
 
 
 def _flat(size: int = 96) -> bytes:
@@ -34,22 +34,43 @@ def test_detail_charges_for_busyness():
     assert detail(_noisy()) > detail(_flat()) * 10
 
 
-def test_detail_distance_is_zero_at_the_reference():
+def test_no_charge_when_the_candidate_is_no_busier_than_the_target():
     png = _noisy()
-    assert detail_distance(detail(png), png) == 0.0
+    assert detail_excess(detail(png), png) == 0.0
+    assert detail_excess(detail(png), _flat()) == 0.0
 
 
-def test_detail_distance_charges_an_empty_drawing_too():
-    """A pure minimum would make emptiness the best attainable value on this
-    axis, and with an even objective count an empty candidate splits evenly
-    against a good one and so cannot be dominated by it -- the regulariser
-    would shelter the degenerate it exists to prevent.
+def test_charges_for_detail_the_target_does_not_have():
+    reference = detail(_flat())
+    assert detail_excess(reference, _noisy()) > 1.0
+
+
+def test_a_noisy_target_does_not_make_a_clean_candidate_look_wrong():
+    """The reason this is one-sided. Noise is the most incompressible thing an
+    image can carry, and a generated or photographed target carries some: a
+    symmetric distance would read a clean vector render as almost entirely
+    wrong on this axis and leave adding speckle as the only way to improve it.
     """
-    reference = detail(_noisy())
+    noisy_reference = detail(_noisy())
+    clean = _flat()
 
-    assert detail_distance(reference, _flat()) > 0.5
-    assert detail_distance(reference, _noisy()) < detail_distance(reference, _flat())
+    assert detail_excess(noisy_reference, clean) == 0.0
+    # A symmetric reading would have charged nearly the whole reference.
+    symmetric = abs(detail(clean) - noisy_reference) / noisy_reference
+    assert symmetric > 0.9
 
 
-def test_detail_distance_survives_a_blank_reference():
-    assert detail_distance(0.0, _noisy()) == 0.0
+def test_an_empty_candidate_wins_this_axis_and_loses_the_rest():
+    """It scores 0 here, which needs no guard: it wins this one axis while
+    losing colour, edge and shape, and one win against three losses is
+    dominated whatever the arity."""
+    from vectrify.search.nsga import _dominates
+
+    empty = (1.0, 1.0, 1.0, 0.0)
+    good = (0.2, 0.2, 0.2, 0.3)
+    assert _dominates(good, empty)
+    assert not _dominates(empty, good)
+
+
+def test_survives_a_blank_reference():
+    assert detail_excess(0.0, _noisy()) == 0.0
