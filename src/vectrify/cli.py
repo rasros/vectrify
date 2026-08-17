@@ -27,24 +27,13 @@ DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
 DEFAULT_POOL_SIZE = 100
-# Off, after trying them on. Both read as a fraction of where the epoch opened,
-# and the opening reading is taken just after a seed batch lands -- ten fresh
-# LLM drawings, which is the most varied the pool is ever going to be. Local
-# search then fills it with children of the best few and the ratio collapses
-# within seconds of the epoch starting, whatever the search is doing.
-#
-# Measured on a run with the floors at 0.10 and 0.05, every one of the four
-# epochs ended on "score spread fell to 0.02-0.05 of its opening value" rather
-# than on staleness, and the run stopped after 3821 of its 12000 tasks having
-# spent its whole epoch budget in six minutes. The floors were chosen from a
-# reconstruction that sampled recent nodes rather than the pool itself, and so
-# never saw the spike they are measured against.
-#
-# A ratio to the opening value is still the right shape -- it is the only form
-# that means the same thing on every image -- but the reference has to be
-# something other than the instant after a re-seed for a default to be safe.
+# Off, after trying it on. A pool collapses into agreement long before it stops
+# improving: on a measured run the score spread had fallen to a fiftieth of its
+# peak by task 500 of an epoch whose best went on to improve a further 77%
+# before going stale at task 5200. Given floors of 0.10 and 0.05, all four
+# epochs of a real run ended on a pool measure rather than on staleness and the
+# run stopped after 3821 of its 12000 tasks.
 DEFAULT_EPOCH_DIVERSITY = 0.0
-DEFAULT_EPOCH_VARIANCE = 0.0
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
 # next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
@@ -54,10 +43,19 @@ DEFAULT_EPOCH_VARIANCE = 0.0
 # found, which argues for clearing the observed maximum rather than sitting
 # just above the percentile.
 DEFAULT_EPOCH_PATIENCE = 500
-DEFAULT_EPOCH_MIN_DELTA = 1e-4
+# Unset: any improvement at all resets patience. A fixed delta is denominated
+# in whatever the round objective is, so one value cannot mean the same thing
+# on two images or survive a change to the objective. Unset, --epoch-patience
+# reads only "is this one better", which carries across images unchanged.
+DEFAULT_EPOCH_MIN_DELTA = None
 DEFAULT_TOURNAMENT_SIZE = 2
 DEFAULT_ADAPTIVE_OPERATORS = True
-DEFAULT_MAX_TOTAL_TASKS = 10000
+# Unset: the run is bounded by --epochs and --max-wall-seconds, which are the
+# limits that describe what the search is meant to do. A task cap was binding
+# before either of them -- at a measured 18 tasks/sec, 10000 tasks is nine
+# minutes against a one-hour wall budget, and an epoch that runs to staleness
+# takes 3600-5200 tasks, so four epochs could not fit inside it.
+DEFAULT_MAX_TOTAL_TASKS = None
 DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
 
@@ -244,7 +242,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_MIN_DELTA,
         metavar="DELTA",
         help="Minimum score improvement that resets --epoch-patience. "
-        f"Default: {DEFAULT_EPOCH_MIN_DELTA}",
+        "Unset by default, so any improvement counts.",
     )
     g_epoch.add_argument(
         "--epoch-diversity",
@@ -256,17 +254,6 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "of what it was when the epoch opened, e.g. 0.3. A fraction rather "
         "than a fixed level, because how varied a pool starts out depends on "
         "the drawing. 0 disables.",
-    )
-    g_epoch.add_argument(
-        "--epoch-variance",
-        type=float,
-        default=DEFAULT_EPOCH_VARIANCE,
-        dest="epoch_variance",
-        metavar="THR",
-        help="End an epoch once the pool's score spread has fallen to this "
-        "fraction of what it was when the epoch opened, e.g. 0.25. A fraction "
-        "rather than a fixed level, because the spread is denominated in "
-        "whatever the round objective happens to be. 0 disables.",
     )
     g_search.add_argument(
         "--tournament-size",
@@ -353,7 +340,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         dest="max_total_tasks",
         metavar="N",
         help="Hard cap on total tasks (mutations, crossovers, and LLM calls) "
-        f"across the entire run. Default: {DEFAULT_MAX_TOTAL_TASKS}",
+        "across the entire run. Unset by default; --epochs and "
+        "--max-wall-seconds bound the run.",
     )
     g_runtime.add_argument(
         "--resolution",
@@ -418,7 +406,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --resolution must be > 0")
     if ns.resolution_llm <= 0:
         raise SystemExit("Error: --resolution-llm must be > 0")
-    if ns.max_total_tasks <= 0:
+    if ns.max_total_tasks is not None and ns.max_total_tasks <= 0:
         raise SystemExit("Error: --max-total-tasks must be > 0")
 
     if ns.seeds is not None and ns.seeds < 0:

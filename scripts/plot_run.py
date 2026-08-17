@@ -97,7 +97,6 @@ def load_stats(run_dir: Path) -> dict:
         "epochs_completed": _float("epoch"),
         "epoch_patience_config": _float("epoch_patience"),
         "epoch_diversity_config": _float("epoch_diversity"),
-        "epoch_variance_config": _float("epoch_variance"),
         "pool_diversity_final": _float("pool_diversity"),
         "pool_score_std_final": _float("pool_score_std"),
     }

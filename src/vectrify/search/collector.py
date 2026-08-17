@@ -47,7 +47,6 @@ STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "pool_score_std": _rounded("pool_score_std", 6),
     "epoch_patience": lambda s: s.epoch_patience,
     "epoch_diversity": _rounded("epoch_diversity", 4),
-    "epoch_variance": _rounded("epoch_variance", 6),
 }
 
 STATS_COLUMNS = list(STATS_FIELDS)
@@ -74,11 +73,9 @@ class StatCollector:
         self,
         *,
         epoch_diversity: float,
-        epoch_variance: float,
     ) -> None:
         s = self._stats
         s.epoch_diversity = epoch_diversity
-        s.epoch_variance = epoch_variance
 
     def seed_initial_score(self, best_score: float) -> None:
         s = self._stats

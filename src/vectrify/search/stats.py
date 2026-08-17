@@ -82,7 +82,6 @@ class SearchStats:
 
     shutting_down: bool = False
     pool_score_std: float = 0.0
-    epoch_variance: float = 0.0
 
     best_score: float = INVALID_SCORE
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))
