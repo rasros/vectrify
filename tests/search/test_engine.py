@@ -7,7 +7,19 @@ from vectrify.search import INVALID_SCORE, ChainState, Result, SearchNode
 from vectrify.search.engine import MultiprocessSearchEngine
 
 
-class FakeStrategy:
+class _TierMixin:
+    """The best-ranked tier the engine asks every strategy for. These fakes
+    score on one number, so the tier is whatever ties for lowest."""
+
+    def top_tier_ids(self, pool) -> set[int]:
+        valid = [n for n in pool if n.score < INVALID_SCORE]
+        if not valid:
+            return set()
+        best = min(n.score for n in valid)
+        return {n.id for n in valid if n.score == best}
+
+
+class FakeStrategy(_TierMixin):
     def select_parent(
         self,
         nodes: list[SearchNode],
@@ -163,13 +175,16 @@ def test_engine_epoch_patience_triggers_transition():
         initial_nodes=[initial_node],
         max_wall_seconds=None,
         epoch_patience=3,
-        epoch_min_delta=0.1,
     )
     assert strat.epoch_parents_calls >= 1
     assert store.save_called
 
 
-def test_engine_epoch_patience_resets_on_improvement():
+def test_epoch_patience_resets_when_a_child_reaches_the_top_tier():
+    """Progress is entry into the best-ranked tier, not a margin on a blended
+    score. Each of these children is the best yet, so each resets patience and
+    no transition may fire."""
+
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
             self.epoch_parents_calls = 0
@@ -184,18 +199,9 @@ def test_engine_epoch_patience_resets_on_improvement():
         workers=1, strategy=strat, storage=store, max_total_tasks=3
     )
 
-    # Each result improves on the previous best by more than epoch_min_delta,
-    # so the patience counter resets every time and no transition may fire.
     for score in (0.35, 0.2, 0.05):
         engine.unscored_q.put(
-            Result(
-                task_id=1,
-                parent_id=1,
-                valid=True,
-                score=score,
-                payload="p",
-                llm_type="llm-generate",
-            )
+            Result(task_id=1, parent_id=1, valid=True, score=score, payload="p")
         )
 
     initial_node = SearchNode(
@@ -205,7 +211,8 @@ def test_engine_epoch_patience_resets_on_improvement():
         initial_nodes=[initial_node],
         max_wall_seconds=None,
         epoch_patience=2,
-        epoch_min_delta=0.1,
+        active_pool_size=4,
+        generation_size=1,
     )
     assert strat.epoch_parents_calls == 0
     assert store.save_called
@@ -426,7 +433,6 @@ def test_seed_phase_cannot_go_stale():
         max_wall_seconds=None,
         epoch_seeds=3,
         epoch_patience=1,
-        epoch_min_delta=0.1,
     )
 
     assert strat.epoch_parents_calls == 0
@@ -497,7 +503,6 @@ def test_local_results_that_outlive_their_epoch_do_not_count_as_seeds(caplog):
             max_wall_seconds=None,
             epoch_seeds=1,
             epoch_patience=1,
-            epoch_min_delta=0.1,
             active_pool_size=2,
             epochs=5,
         )
@@ -588,7 +593,6 @@ def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
         max_wall_seconds=None,
         epoch_seeds=1,
         epoch_patience=1,
-        epoch_min_delta=0.1,
         active_pool_size=2,
         epochs=5,
     )
@@ -643,7 +647,6 @@ def test_a_new_epoch_can_be_seeded_from_the_llm_seed_local_search_replaced():
         max_wall_seconds=None,
         epoch_seeds=1,
         epoch_patience=1,
-        epoch_min_delta=0.1,
         active_pool_size=1,
         generation_size=1,
         epochs=2,
@@ -683,7 +686,6 @@ def test_remembered_seeds_stay_within_their_share_of_the_front():
         max_wall_seconds=None,
         epoch_seeds=2,
         epoch_patience=1,
-        epoch_min_delta=0.1,
         active_pool_size=4,
         generation_size=1,
         epochs=3,
@@ -717,7 +719,6 @@ def test_a_resumed_run_treats_no_restored_node_as_an_llm_seed():
         epoch_seeds=1,
         initial_seeds=0,
         epoch_patience=1,
-        epoch_min_delta=0.1,
         active_pool_size=1,
         generation_size=1,
         epochs=2,
@@ -747,7 +748,6 @@ def test_a_run_without_llm_seeds_offers_the_epoch_only_the_evolved_pool():
         max_wall_seconds=None,
         epoch_seeds=0,
         epoch_patience=1,
-        epoch_min_delta=0.1,
         active_pool_size=1,
         generation_size=1,
         epochs=2,
@@ -779,7 +779,6 @@ def test_a_failing_evaluator_does_not_stop_the_run():
         max_wall_seconds=None,
         epoch_seeds=1,
         epoch_patience=1,
-        epoch_min_delta=0.1,
         active_pool_size=2,
         epochs=4,
     )

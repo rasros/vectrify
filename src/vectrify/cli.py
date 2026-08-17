@@ -43,11 +43,6 @@ DEFAULT_EPOCH_DIVERSITY = 0.0
 # found, which argues for clearing the observed maximum rather than sitting
 # just above the percentile.
 DEFAULT_EPOCH_PATIENCE = 500
-# Unset: any improvement at all resets patience. A fixed delta is denominated
-# in whatever the round objective is, so one value cannot mean the same thing
-# on two images or survive a change to the objective. Unset, --epoch-patience
-# reads only "is this one better", which carries across images unchanged.
-DEFAULT_EPOCH_MIN_DELTA = None
 DEFAULT_TOURNAMENT_SIZE = 2
 DEFAULT_ADAPTIVE_OPERATORS = True
 # Unset: the run is bounded by --epochs and --max-wall-seconds, which are the
@@ -233,16 +228,9 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         dest="epoch_patience",
         metavar="N",
         help="End the epoch and re-seed if the best score does not improve by "
-        "--epoch-min-delta over this many consecutive local tasks. 0 disables. "
+        "reaching the best-ranked tier over this many consecutive local tasks. "
+        "0 disables. "
         f"Default: {DEFAULT_EPOCH_PATIENCE}",
-    )
-    g_epoch.add_argument(
-        "--epoch-min-delta",
-        type=float,
-        default=DEFAULT_EPOCH_MIN_DELTA,
-        metavar="DELTA",
-        help="Minimum score improvement that resets --epoch-patience. "
-        "Unset by default, so any improvement counts.",
     )
     g_epoch.add_argument(
         "--epoch-diversity",

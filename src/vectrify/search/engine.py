@@ -111,7 +111,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_nodes: list[SearchNode[TState]],
         max_wall_seconds: float | None = None,
         epoch_patience: int | None = None,
-        epoch_min_delta: float | None = None,
         active_pool_size: int = 20,
         generation_size: int | None = None,
         score_fn: Callable[[list[Result]], None] | None = None,
@@ -224,7 +223,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
         epoch_baseline: float | None = None
-        epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
         # Children accumulate outside active_pool: they replace it wholesale
@@ -318,13 +316,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         def _finish_seed_phase() -> None:
             """Install the LLM children as the epoch's pool and start refining."""
-            nonlocal \
-                phase, \
-                active_pool, \
-                node_states, \
-                epoch_no_improve, \
-                epoch_patience_best, \
-                pool_refilling
+            nonlocal phase, active_pool, node_states, epoch_no_improve, pool_refilling
 
             valid_children = [c for c in seed_children if c.score < INVALID_SCORE]
             previous_ids = {n.id for n in active_pool}
@@ -357,8 +349,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             phase = LOCAL_PHASE
             epoch_no_improve = 0
-            scores = valid_scores(active_pool)
-            epoch_patience_best = min(scores) if scores else INVALID_SCORE
             pool_refilling = True
             log.info(
                 f"Epoch {epoch}: refining {len(active_pool)} candidate(s) locally."
@@ -511,7 +501,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             full sort per result, which at pool size 20 costs about as much as
             producing the candidate did.
             """
-            nonlocal active_pool
+            nonlocal active_pool, epoch_no_improve
 
             if not pending_children:
                 return
@@ -519,6 +509,17 @@ class MultiprocessSearchEngine(Generic[TState]):
             combined = active_pool + pending_children
             survivors = self.strategy.select_survivors(combined, active_pool_size)
             kept = {n.id for n in survivors}
+
+            # Progress is a new candidate reaching the best-ranked tier. Read
+            # off the dominance relation, so it needs no blended score and no
+            # threshold on a magnitude -- an epoch goes stale when nothing new
+            # can get to the front any more, whatever the numbers happen to be
+            # denominated in.
+            new_ids = {n.id for n in pending_children}
+            if new_ids & self.strategy.top_tier_ids(combined):
+                epoch_no_improve = 0
+                if collector is not None:
+                    collector.on_no_improve_reset()
 
             for child in pending_children:
                 if operator_policy is not None:
@@ -551,18 +552,13 @@ class MultiprocessSearchEngine(Generic[TState]):
             pending_children.clear()
 
         def _process_local_result(res: Result) -> None:
-            nonlocal epoch_patience_best, epoch_no_improve
-
             new_node = _make_node(res)
             pending_children.append(new_node)
             _note_best(new_node, res)
 
-            if new_node.score <= epoch_patience_best - (epoch_min_delta or 0.0):
-                epoch_patience_best = new_node.score
-                epoch_no_improve = 0
-                if collector is not None:
-                    collector.on_no_improve_reset()
-
+            # Progress is decided when the generation closes, where the pool is
+            # ranked -- see _close_generation. A candidate cannot be known to
+            # have reached the top tier before it has been ranked against one.
             if len(pending_children) >= lambda_size:
                 _close_generation()
 
