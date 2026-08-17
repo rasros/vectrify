@@ -10,10 +10,11 @@ from vectrify.image_utils import make_preview_data_url
 from vectrify.score.compare import compare
 from vectrify.score.complexity import detail_excess
 from vectrify.score.edges import overlap_distance
-from vectrify.score.metrics import COLOUR, DETAIL, EDGE, SHAPE, round_score
+from vectrify.score.metrics import COLOUR, DETAIL, EDGE, SHAPE
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     INVALID_SCORE,
+    VALID_SCORE,
     ChainState,
     SearchNode,
     StorageAdapter,
@@ -156,7 +157,7 @@ def resume_nodes(
             metrics[COLOUR] = float(comparison.colour.mean())
             metrics[SHAPE] = comparison.shape
             metrics[DETAIL] = detail_excess(reference_detail, item.png)
-            new_score = round_score(metrics[COLOUR], metrics[EDGE], metrics[SHAPE])
+            new_score = VALID_SCORE
             node = SearchNode(
                 score=new_score,
                 id=current_new_id,

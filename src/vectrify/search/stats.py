@@ -65,7 +65,7 @@ class SearchStats:
     seeds_completed: int = 0
     seeds_target: int = 0
     pool_diversity: float = 1.0
-    epoch_diversity: float = 0.0
+    epoch_max_tasks: int = 0
 
     tasks_completed: int = 0
     accepted_count: int = 0

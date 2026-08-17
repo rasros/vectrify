@@ -17,7 +17,7 @@ def test_runner_defaults_match_cli_defaults():
         for p in inspect.signature(run_vector_search).parameters.values()
     }
     assert defaults["pool_size"] == cli.DEFAULT_POOL_SIZE
-    assert defaults["epoch_diversity"] == cli.DEFAULT_EPOCH_DIVERSITY
+    assert defaults["epoch_max_tasks"] == cli.DEFAULT_EPOCH_MAX_TASKS
     assert defaults["vision_model"] == cli.DEFAULT_VISION_MODEL
     # seeds has no static default; the runner derives it from pool_size so the
     # per-epoch LLM batch scales with the pool it has to fill.

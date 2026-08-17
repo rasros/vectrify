@@ -70,7 +70,7 @@ def test_defaults_pinned():
     assert args.pool_size == 100
     # Off: a pool collapses into agreement long before it stops improving, so
     # a threshold that looks safe ends search while it is still working.
-    assert args.epoch_diversity == 0.0
+    assert args.epoch_max_tasks is None
     # Unset: it was binding before the limits that describe the search.
     assert args.max_total_tasks is None
     # Patience counts local tasks only; a seed batch is not a hill-climb and

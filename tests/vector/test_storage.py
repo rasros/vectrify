@@ -86,7 +86,7 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
     adapter.save_node(dummy_node)
 
     assert adapter.nodes_dir is not None
-    svg_path = adapter.nodes_dir / "0.123456_42.svg"
+    svg_path = adapter.nodes_dir / "42.svg"
     assert svg_path.is_file()
     assert adapter.max_node_id == 42
 
@@ -137,7 +137,7 @@ def test_load_resume_nodes(tmp_path):
 
     prev_run_nodes = adapter.runs_dir / "2020-01-01_00-00-00" / "nodes"
     prev_run_nodes.mkdir(parents=True)
-    with (prev_run_nodes / "0.555000_15.svg").open("w") as f:
+    with (prev_run_nodes / "15.svg").open("w") as f:
         f.write(valid_svg)
 
     nodes = adapter.load_resume_nodes()
@@ -182,7 +182,7 @@ def test_save_raster_writes_png(tmp_path):
         raster_data_url=png_bytes_to_data_url(_make_png())
     )
     adapter.save_node(node)
-    assert (adapter.nodes_dir / "0.500000_1.png").is_file()
+    assert (adapter.nodes_dir / "1.png").is_file()
 
 
 def test_save_raster_false_does_not_write_png(tmp_path):
@@ -193,7 +193,7 @@ def test_save_raster_false_does_not_write_png(tmp_path):
         raster_data_url=png_bytes_to_data_url(_make_png())
     )
     adapter.save_node(node)
-    assert not (adapter.nodes_dir / "0.500000_1.png").is_file()
+    assert not (adapter.nodes_dir / "1.png").is_file()
 
 
 def test_save_heatmap_false_does_not_write_heatmap_png(tmp_path):
@@ -204,7 +204,7 @@ def test_save_heatmap_false_does_not_write_heatmap_png(tmp_path):
         heatmap_data_url=png_bytes_to_data_url(_make_png("blue"))
     )
     adapter.save_node(node)
-    assert not (adapter.nodes_dir / "0.500000_1.heatmap.png").is_file()
+    assert not (adapter.nodes_dir / "1.heatmap.png").is_file()
 
 
 def test_save_node_content_none_does_not_write_content_file(tmp_path):
@@ -238,7 +238,7 @@ def test_save_heatmap_content_is_valid_png(tmp_path):
         heatmap_data_url=png_bytes_to_data_url(original_png)
     )
     adapter.save_node(node)
-    written = (adapter.nodes_dir / "0.500000_1.heatmap.png").read_bytes()
+    written = (adapter.nodes_dir / "1.heatmap.png").read_bytes()
     assert written == original_png
 
 
@@ -264,7 +264,7 @@ def test_write_lineage_true_still_writes(tmp_path, dummy_node):
     assert adapter.lineage_csv is not None
     assert adapter.lineage_csv.exists()
     assert adapter.nodes_dir is not None
-    assert [p.name for p in adapter.nodes_dir.iterdir()] == ["0.123456_42.svg"]
+    assert [p.name for p in adapter.nodes_dir.iterdir()] == ["42.svg"]
 
 
 def test_extensionless_output_does_not_collide_with_the_project_dir(
@@ -298,11 +298,12 @@ def test_runs_started_in_the_same_second_get_distinct_directories(tmp_path):
     assert len(dirs) == 5
 
 
-def test_resume_parses_inf_scored_node_files(tmp_path):
+def test_resume_reads_both_name_shapes(tmp_path):
+    """A bare id, and an evaluator score followed by an id."""
     nodes = tmp_path / "out" / "runs" / "2026-01-01_00-00-00" / "nodes"
     nodes.mkdir(parents=True)
-    (nodes / "0.200000_2.svg").write_text("<svg id='2'/>", encoding="utf-8")
-    (nodes / "inf_7.svg").write_text("<svg id='7'/>", encoding="utf-8")
+    (nodes / "2.svg").write_text("<svg id='2'/>", encoding="utf-8")
+    (nodes / "eval0.004392_7.svg").write_text("<svg id='7'/>", encoding="utf-8")
 
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"), resume=True)
     resumed = adapter.load_resume_nodes()
@@ -317,13 +318,32 @@ def test_resume_top_tolerates_a_non_numeric_filename(tmp_path):
     """
     nodes = tmp_path / "out" / "runs" / "2026-01-01_00-00-00" / "nodes"
     nodes.mkdir(parents=True)
-    (nodes / "0.100000_1.svg").write_text("<svg id='1'/>", encoding="utf-8")
-    (nodes / "0.900000_2.svg").write_text("<svg id='2'/>", encoding="utf-8")
+    (nodes / "eval0.100000_1.svg").write_text("<svg id='1'/>", encoding="utf-8")
+    (nodes / "eval0.900000_2.svg").write_text("<svg id='2'/>", encoding="utf-8")
     (nodes / "handwritten.svg").write_text("<svg id='9'/>", encoding="utf-8")
 
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"), resume=True, resume_top=2)
     resumed = adapter.load_resume_nodes()  # must not raise
 
-    # The best-scoring real node is kept; the unparseable one sorts last (inf).
-    assert 1 in {node_id for node_id, _ in resumed}
-    assert len(resumed) == 2
+    # Only evaluated nodes carry a score, so --resume-top ranks among those and
+    # the unparseable file is simply not one of them.
+    ids = {node_id for node_id, _ in resumed}
+    assert ids == {1, 2}
+
+
+def test_lineage_is_written_even_when_the_drawing_is_not(tmp_path, dummy_node):
+    """A run admits most of what it produces, and writing every drawing left
+    one run with 106,640 files. The lineage row is cheap and keeps the record
+    complete; the drawing is only worth writing for candidates worth reading
+    back."""
+    adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
+    adapter.initialize()
+
+    adapter.save_node(dummy_node, tasks_completed=7, keep_content=False)
+
+    assert adapter.nodes_dir is not None
+    assert list(adapter.nodes_dir.iterdir()) == []
+    assert adapter.lineage_csv is not None
+    rows = list(csv.DictReader(adapter.lineage_csv.open(encoding="utf-8")))
+    assert rows[0]["id"] == "42"
+    assert rows[0]["task"] == "7"

@@ -27,10 +27,6 @@ class FakeStrategy(_TierMixin):
         _ = nodes
         return 1, None
 
-    def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
-        _ = pool
-        return False, 1.0
-
     def select_survivors(
         self, nodes: list[SearchNode], max_keep: int
     ) -> list[SearchNode]:
@@ -56,8 +52,13 @@ class FakeStorage:
         _ = max_nodes
         return []
 
-    def save_node(self, node: SearchNode, tasks_completed: int = 0) -> None:
-        _ = (node, tasks_completed)
+    def save_node(
+        self,
+        node: SearchNode,
+        tasks_completed: int = 0,
+        keep_content: bool = True,
+    ) -> None:
+        _ = (node, tasks_completed, keep_content)
         self.save_called = True
 
     def save_best(self, node: SearchNode) -> None:
@@ -995,9 +996,10 @@ def test_the_final_artifact_is_chosen_by_the_evaluator():
     assert store.best_saved.score == 0.5
 
 
-def test_a_failing_evaluator_falls_back_to_the_best_score():
+def test_a_failing_evaluator_still_writes_a_top_tier_candidate():
     """Losing the run's single most important artifact to a scorer error at
-    shutdown would be the worst possible time for it."""
+    shutdown would be the worst possible time for it. With no blended score to
+    fall back on, any unbeaten candidate is written instead."""
 
     def explode(_nodes):
         raise RuntimeError("no")
@@ -1006,7 +1008,7 @@ def test_a_failing_evaluator_falls_back_to_the_best_score():
     _run_two_children(_engine_with_evaluator(store, explode))
 
     assert store.best_saved is not None
-    assert store.best_saved.score == 0.1
+    assert store.best_saved.score < INVALID_SCORE
 
 
 def test_scorer_thread_scores_queued_results_together():
@@ -1079,23 +1081,15 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
 
     assert scored, "results scored before the failure should have survived it"
 
-
-def test_a_collapsed_pool_ends_the_epoch_without_waiting_for_staleness():
-    """Each criterion is set tight enough that reaching it is reason enough on
-    its own: a pool that has become clones of one drawing is finished whatever
-    the score is still doing, and requiring every criterion to agree would let
-    a rarely-reached one block the transition and spend the run as a single
-    local search."""
+def test_the_epoch_budget_ends_an_epoch_that_has_not_gone_stale():
+    """Staleness measures whether the pool has stopped producing; the budget
+    measures how long the proxy has run without the evaluator seeing anything.
+    Here nothing goes stale, and the epoch ends anyway."""
     from unittest.mock import MagicMock
-
-    class Collapsed(FakeStrategy):
-        def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
-            _ = pool
-            return False, 0.0
 
     collector = MagicMock()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=Collapsed(), storage=FakeStorage(), max_total_tasks=6
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=6
     )
     for task_id in range(1, 7):
         engine.unscored_q.put(
@@ -1110,9 +1104,9 @@ def test_a_collapsed_pool_ends_the_epoch_without_waiting_for_staleness():
         max_wall_seconds=None,
         active_pool_size=2,
         epochs=4,
-        # Far beyond the task budget, so staleness cannot be what ends it.
+        # Far beyond the run, so staleness cannot be what ends the epoch.
         epoch_patience=10_000,
-        epoch_diversity=0.5,
+        epoch_max_tasks=2,
         collector=collector,
     )
 

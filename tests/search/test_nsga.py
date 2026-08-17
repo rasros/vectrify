@@ -3,12 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vectrify.score.metrics import (
-    COLOUR_WEIGHT,
-    EDGE_WEIGHT,
-    SCORER_METRICS,
-    SHAPE_WEIGHT,
-)
+from vectrify.score.metrics import SCORER_METRICS
 from vectrify.search import ChainState, SearchNode, nsga
 from vectrify.search.diversity import simhash
 from vectrify.search.models import INVALID_SCORE
@@ -338,43 +333,6 @@ def test_pool_size_one_always_returns_same_node():
     nodes = [make_node(i, i * 0.1, edge=float(i * 100)) for i in range(1, 6)]
     selected = {strategy.select_parent(nodes)[0] for _ in range(20)}
     assert selected == {1}
-
-
-def test_should_diversify_small_pool_needs_boost():
-    strategy = NsgaStrategy(epoch_diversity=0.5)
-    nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 5)]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is True
-    assert 0.0 <= diversity <= 1.0
-
-
-def test_should_diversify_large_pool_needs_boost():
-    strategy = NsgaStrategy(epoch_diversity=0.5)
-    nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 21)]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is True
-    assert 0.0 <= diversity <= 1.0
-
-
-def test_should_not_diversify_diverse_pool():
-    strategy = NsgaStrategy(epoch_diversity=0.01)
-    nodes = [
-        make_node(
-            i, 0.1, content=f"<svg><circle r='{i * 1000}' cx='{i}' cy='{i}'/></svg>"
-        )
-        for i in range(1, 5)
-    ]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is False
-    assert 0.0 <= diversity <= 1.0
-
-
-def test_should_not_diversify_too_few_nodes():
-    strategy = NsgaStrategy(epoch_diversity=0.99)
-    nodes = [make_node(i, 0.1) for i in range(1, 4)]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is False
-    assert diversity == 1.0
 
 
 def test_epoch_parents_returns_pareto_front():
@@ -760,14 +718,13 @@ def test_the_third_measure_decides_when_the_other_two_disagree():
 
     # The blend the pool used to be ranked by prefers b, because edge carries
     # nearly four times shape's weight and wins by a full unit here.
-    # Positions come from the registry; the vector is in its order, not the
-    # order the weights happen to be written in.
-    ic, ie, ish = (SCORER_METRICS.index(n) for n in ("colour", "edge", "shape"))
-
-    def blend(v):
-        return COLOUR_WEIGHT * v[ic] + EDGE_WEIGHT * v[ie] + SHAPE_WEIGHT * v[ish]
-
-    assert blend(vb) < blend(va)
+    # And it decides on which candidate is better, not by how much: b wins its
+    # one axis by a full unit and still loses, which no weighted sum could
+    # reproduce -- the smallest weight is always buried by a large margin
+    # elsewhere. That sum no longer exists anywhere in the run.
+    ie = SCORER_METRICS.index("edge")
+    assert vb[ie] < va[ie]
+    assert va[ie] - vb[ie] > 0.8
 
 
 def test_a_candidate_winning_on_one_measure_alone_is_still_dominated():

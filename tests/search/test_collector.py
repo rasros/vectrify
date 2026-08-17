@@ -44,8 +44,8 @@ def _collector(tmp_path: Path) -> tuple[StatCollector, SearchStats]:
 
 def test_configure_run_records_the_epoch_thresholds(tmp_path):
     collector, stats = _collector(tmp_path)
-    collector.configure_run(epoch_diversity=0.3)
-    assert stats.epoch_diversity == 0.3
+    collector.configure_run(epoch_max_tasks=300)
+    assert stats.epoch_max_tasks == 300
 
 
 def test_seed_initial_score_anchors_the_history_at_zero():

@@ -28,29 +28,45 @@ from vectrify.search.nsga import pareto_front
 def collect_node_files(nodes_dir: Path) -> list[dict]:
     """
     Read node files (any known output extension) from a nodes directory.
-    Supports two filename formats:
-      New: {score}_{id}.{ext}           e.g. 0.069113_2.svg
-      Old: score{score}_node{id}_...    e.g. score00000.069113_node00002_parent00000.svg
+    Supports the shapes storage has written:
+      Current: {id}.{ext}                     e.g. 2.svg
+      Current: eval{score}_{id}.{ext}         e.g. eval0.004392_2.svg
+      Legacy:  {round_score}_{id}.{ext}       e.g. 0.069113_2.svg
+      Legacy:  score{score}_node{id}_...      e.g. score00000.069113_node00002_...
+
+    Only the eval prefix carries a score that means anything: it is the
+    evaluator's, the run's only score. The legacy leading number was a blended
+    proxy that nothing ranked on, so it is parsed for the id and ignored.
     """
     ext_pattern = "|".join(re.escape(e) for e in OUTPUT_EXTENSIONS)
     # New format: plain score_id.ext
     # `inf` must be its own alternative: storage writes f"{score:.6f}", which
     # yields a bare "inf" for INVALID_SCORE, so requiring digits first made the
     # optional (?:inf)? branch dead and left inf_*.svg files unmatched entirely.
-    _new = re.compile(rf"^(inf|[0-9.]+)_(\d+)(?:{ext_pattern})$")
+    _plain = re.compile(rf"^(\d+)(?:{ext_pattern})$")
+    _eval = re.compile(rf"^eval(-?[0-9.]+)_(\d+)(?:{ext_pattern})$")
+    _legacy = re.compile(rf"^(inf|[0-9.]+)_(\d+)(?:{ext_pattern})$")
     # Old format: score00000.069113_node00002_parent00000.svg
     _old = re.compile(rf"^score([0-9.]+)_node(\d+)_parent\d+(?:{ext_pattern})$")
 
     nodes = []
     for node_path in sorted(nodes_dir.iterdir()):
-        m = _new.match(node_path.name) or _old.match(node_path.name)
-        if not m:
-            continue
-        try:
-            score = float(m.group(1))
-        except ValueError:
-            score = float("inf")
-        node_id = int(m.group(2))
+        bare = _plain.match(node_path.name)
+        if bare:
+            score, node_id = float("inf"), int(bare.group(1))
+        else:
+            m = (
+                _eval.match(node_path.name)
+                or _legacy.match(node_path.name)
+                or _old.match(node_path.name)
+            )
+            if not m:
+                continue
+            try:
+                score = float(m.group(1))
+            except ValueError:
+                score = float("inf")
+            node_id = int(m.group(2))
         nodes.append(
             {
                 "id": node_id,
