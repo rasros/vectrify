@@ -28,8 +28,16 @@ from vectrify.llm.models import api_key_env
 from vectrify.score import ScorerType, get_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
+from vectrify.score.complexity import detail, detail_distance
 from vectrify.score.edges import overlap_distance
-from vectrify.score.metrics import COLOUR, EDGE, FRONT_SCORE, SHAPE, round_score
+from vectrify.score.metrics import (
+    COLOUR,
+    DETAIL,
+    EDGE,
+    FRONT_SCORE,
+    SHAPE,
+    round_score,
+)
 from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
@@ -157,9 +165,15 @@ def run_vector_search(
         max_workers=min(8, (os.cpu_count() or 4)), thread_name_prefix="pixel"
     )
 
-    pixel_ref = prepare(resize_long_side(original_img, DEFAULT_CONFIG.target_long_side))
+    scoring_img = resize_long_side(original_img, DEFAULT_CONFIG.target_long_side)
+    pixel_ref = prepare(scoring_img)
+    # The target's own detail, measured once. Candidates are charged for the
+    # distance from it, so this has to come from the same render size they do.
+    _ref_buf = io.BytesIO()
+    scoring_img.save(_ref_buf, format="PNG")
+    reference_detail = detail(_ref_buf.getvalue())
     log.info(
-        "Round scoring: edge overlap and colour distance, no model. "
+        "Round scoring: edge overlap, colour distance and a detail budget, no model. "
         f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model})."
     )
 
@@ -178,6 +192,7 @@ def run_vector_search(
             pool_size=pool_size,
             workers=workers,
             scoring_ref=pixel_ref,
+            reference_detail=reference_detail,
             storage=storage,
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
@@ -339,6 +354,7 @@ def run_vector_search(
             )
             res.metrics[COLOUR] = float(comparison.colour.mean())
             res.metrics[SHAPE] = comparison.shape
+            res.metrics[DETAIL] = detail_distance(reference_detail, png)
             res.score = round_score(
                 res.metrics[COLOUR], res.metrics[EDGE], res.metrics[SHAPE]
             )

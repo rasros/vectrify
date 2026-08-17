@@ -29,6 +29,7 @@ def make_node(
     edge: float = 0.0,
     colour: float = 0.0,
     shape: float = 0.0,
+    detail: float = 0.0,
 ) -> SearchNode:
     state = ChainState(score=score, payload=None)
     return SearchNode(
@@ -36,7 +37,12 @@ def make_node(
         id=node_id,
         parent_id=0,
         state=state,
-        metrics={"edge": edge, "colour": colour, "shape": shape},
+        metrics={
+            "edge": edge,
+            "colour": colour,
+            "shape": shape,
+            "detail": detail,
+        },
         signature=simhash(content) if content else None,
     )
 
@@ -132,9 +138,9 @@ def test_build_objectives_keeps_one_component_per_measure():
 
     objectives = build_objectives(nodes)
 
-    assert all(len(v) == 3 for v in objectives.values())
-    assert objectives[1] == pytest.approx((1.0, 0.5, 0.0))
-    assert objectives[2] == pytest.approx((0.5, 1.0, 0.0))
+    assert all(len(v) == len(SCORER_METRICS) for v in objectives.values())
+    assert objectives[1] == pytest.approx((0.5, 1.0, 0.0, 0.0))
+    assert objectives[2] == pytest.approx((1.0, 0.5, 0.0, 0.0))
 
 
 def test_build_objectives_scales_each_measure_by_its_own_maximum():
@@ -190,7 +196,7 @@ def test_build_objectives_survives_all_zero_objectives():
 
     objectives = build_objectives(nodes)
 
-    assert all(v == (0.0, 0.0, 0.0) for v in objectives.values())
+    assert all(v == (0.0,) * len(SCORER_METRICS) for v in objectives.values())
 
 
 def test_non_dominated_sort_all_pareto():
@@ -493,12 +499,13 @@ def test_larger_tournament_biases_harder_toward_the_objective():
                 )
                 for i in range(20)
             ]
-            # Measured against the blend selection actually ranks on, not
-            # against one half of it.
+            # Read the axis these nodes actually differ on. The vector is in
+            # registry order, so its first component is not colour.
+            axis = SCORER_METRICS.index("colour")
             blended = build_objectives(nodes)
-            median = sorted(v[0] for v in blended.values())[10]
+            median = sorted(v[axis] for v in blended.values())[10]
             pid, _secondary = strategy.select_parent(nodes)
-            if blended[pid][0] <= median:
+            if blended[pid][axis] <= median:
                 hits += 1
         return hits / trials
 
@@ -753,9 +760,13 @@ def test_the_third_measure_decides_when_the_other_two_disagree():
 
     # The blend the pool used to be ranked by prefers b, because edge carries
     # nearly four times shape's weight and wins by a full unit here.
-    blend = lambda v: (  # noqa: E731
-        COLOUR_WEIGHT * v[0] + EDGE_WEIGHT * v[1] + SHAPE_WEIGHT * v[2]
-    )
+    # Positions come from the registry; the vector is in its order, not the
+    # order the weights happen to be written in.
+    ic, ie, ish = (SCORER_METRICS.index(n) for n in ("colour", "edge", "shape"))
+
+    def blend(v):
+        return COLOUR_WEIGHT * v[ic] + EDGE_WEIGHT * v[ie] + SHAPE_WEIGHT * v[ish]
+
     assert blend(vb) < blend(va)
 
 

@@ -12,8 +12,14 @@ from vectrify.score.moments import MOMENT_WEIGHT
 EDGE = "edge"
 COLOUR = "colour"
 SHAPE = "shape"
+DETAIL = "detail"
 
-SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR, SHAPE)
+# Four, so the majority relation can leave a pair undecided: with three, wins
+# and losses cannot split evenly and every pair is comparable, which leaves the
+# top tier holding one candidate and no genuine front anywhere. A 2-2 split is
+# the first time two candidates can be mutually unbeaten because they are good
+# at different things.
+SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR, SHAPE, DETAIL)
 
 # What selection ranks candidates by: the chromatic and structural distances,
 # blended. No embedding: the round score no longer runs a model at all.
