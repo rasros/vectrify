@@ -144,7 +144,7 @@ def test_svg_edit_asks_for_structural_change_not_tuning():
         canvas=(512, 512),
     )
     text = "\n".join(_text_blocks(blocks))
-    assert "structurally wrong" in text
+    assert "the wrong kind of thing, or in the wrong place" in text
 
 
 def test_svg_edit_never_mentions_the_removed_difference_map():

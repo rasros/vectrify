@@ -2,18 +2,14 @@
 
 # What the local operators can and cannot reach, stated to the model so it
 # spends its one call on the other half. Mutation nudges numbers, shifts
-# colors and stroke widths, reorders siblings and deletes elements that do not
-# pay for themselves; crossover grafts subtrees between candidates. None of
-# that invents a shape that was never proposed or changes what an existing one
-# is, so a candidate that is structurally right and numerically sloppy
-# converges and one that is structurally wrong stays wrong however long it is
-# polished.
+# colors and stroke widths, and moves elements; crossover grafts subtrees
+# between candidates. None of that invents a shape that was never proposed,
+# removes one that should not be there, or changes what an existing shape is.
 STRUCTURE_FIRST = """\
-Your output is a starting point, not a final answer: a local optimizer then \
-spends thousands of steps on it, nudging coordinates and sizes, adjusting \
-colors and stroke widths, reordering elements, and deleting ones that do not \
-earn their place. What it cannot do is invent a shape you left out, remove a \
-structure you invented, or change what a shape fundamentally is.
+Your output is a starting point: a local optimizer then spends thousands of \
+steps on it, moving and resizing parts and tuning their coordinates and \
+colors. What it cannot do is invent a shape you left out, remove a structure \
+you invented, or change what a shape fundamentally is.
 
 So spend your effort where only you can:
 - Every distinct part of the target is present, and nothing extra is.
@@ -21,12 +17,10 @@ So spend your effort where only you can:
 path, not two strokes that nearly meet; a filled region is a fill, not a \
 thick stroke.
 - Counts are exact. Ten circles means ten, not "about ten".
-- The arrangement, proportions and relative positions read correctly at a \
-glance.
+- The arrangement and proportions read correctly at a glance.
 
 Rough coordinates and approximate colors are fine — they get optimized away. \
-Being roughly right in the right place beats being precisely wrong. Do not \
-spend effort deriving exact pixel values or exact hex codes."""
+Do not spend effort deriving exact values."""
 
 
 def diff_format_instructions(
