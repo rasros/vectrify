@@ -19,6 +19,7 @@ log = logging.getLogger(__name__)
 # without an edit.
 LINEAGE_COLUMNS = [
     "id",
+    "task",
     "parent",
     "secondary_parent",
     "epoch",
@@ -155,7 +156,9 @@ class FileStorageAdapter:
 
         return sorted(resumed_data, key=lambda x: x[0])
 
-    def save_node(self, node: SearchNode[VectorStatePayload]) -> None:
+    def save_node(
+        self, node: SearchNode[VectorStatePayload], tasks_completed: int = 0
+    ) -> None:
         if self.nodes_dir is None or self.lineage_csv is None:
             return
 
@@ -183,6 +186,13 @@ class FileStorageAdapter:
         self._append_lineage_row(
             {
                 "id": node.id,
+                # The task this node was admitted at. Evictions are stamped
+                # with the same counter, so the two streams share a clock and
+                # the pool's exact membership can be replayed for any point in
+                # the run -- without it a node id and an eviction task cannot
+                # be put in order, and no pool measure can be reconstructed
+                # after the fact.
+                "task": tasks_completed,
                 "parent": node.parent_id,
                 "secondary_parent": node.secondary_parent_id or "",
                 "epoch": node.epoch,

@@ -44,8 +44,8 @@ class FakeStorage:
         _ = max_nodes
         return []
 
-    def save_node(self, node: SearchNode) -> None:
-        _ = node
+    def save_node(self, node: SearchNode, tasks_completed: int = 0) -> None:
+        _ = (node, tasks_completed)
         self.save_called = True
 
     def save_best(self, node: SearchNode) -> None:
