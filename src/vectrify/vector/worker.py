@@ -20,6 +20,20 @@ from vectrify.search.diversity import simhash
 from vectrify.utils import setup_worker_logger
 
 
+class NoChangeError(Exception):
+    """An operator handed back the content it was given.
+
+    Distinct from an invalid candidate: nothing is wrong with the markup, there
+    is simply no new candidate to score. The operator that drew the blank still
+    spent a draw, so it carries its own name -- the one that actually ran, not
+    the one the task asked for -- for the policy to charge.
+    """
+
+    def __init__(self, operator: str) -> None:
+        super().__init__(f"{operator} left the candidate unchanged")
+        self.operator = operator
+
+
 @dataclasses.dataclass
 class WorkerContext:
     """All configuration a worker process needs to handle tasks."""
@@ -163,6 +177,16 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                     source, task.operator, target_cache[key]
                 )
 
+            # An operator that could not find anything to change hands back the
+            # parent it was given, and nothing downstream can tell that apart
+            # from a real edit: the clone is rasterized, scored, stored, and
+            # admitted to the pool wherever its parent sits, which reports back
+            # to the operator policy as a success. Catch it here, where the
+            # parent is still in hand, so the draw resolves as a failure
+            # instead of as free reward.
+            if not use_llm and content == parent.payload.content:
+                raise NoChangeError(origin)
+
             valid, err = plugin.validate(content)
             if not valid:
                 raise ValueError(err)
@@ -204,7 +228,10 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
             )
 
         except Exception as e:
-            log.error(f"Task {task.task_id} failed: {e!r}")
+            if isinstance(e, NoChangeError):
+                log.debug(f"Task {task.task_id} produced no change: {e}")
+            else:
+                log.error(f"Task {task.task_id} failed: {e!r}")
             with contextlib.suppress(OSError, EOFError, BrokenPipeError):
                 result_q.put(
                     Result(
@@ -217,5 +244,6 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         secondary_parent_id=task.secondary_parent_id,
                         signature=None,
                         llm_type=llm_type,
+                        operator=e.operator if isinstance(e, NoChangeError) else None,
                     )
                 )
