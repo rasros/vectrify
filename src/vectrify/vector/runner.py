@@ -1,6 +1,7 @@
 import io
 import logging
 import os
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import TYPE_CHECKING, Any
 
@@ -97,6 +98,73 @@ def initial_seed_tasks(epoch_seeds: int, initial_nodes: list[SearchNode]) -> int
     """
     seeded = sum(1 for n in initial_nodes if n.state.payload.content)
     return max(0, epoch_seeds - seeded)
+
+
+def evaluate_front(
+    nodes: list[SearchNode],
+    *,
+    front_scorer: Callable[[], tuple[Any, Any]],
+    format_plugin: Any,
+    out_w: int,
+    out_h: int,
+) -> list[SearchNode]:
+    """Order *nodes* by the evaluator, best first, scoring only what is new.
+
+    *front_scorer* is called for (scorer, reference) and only when there is
+    something to score, so a call the cache answers in full never builds a
+    model.
+
+    Re-rasterises rather than reading a node's stored render, which is only
+    kept when --write-lineage or --save-raster is on.
+    """
+    renders: list[tuple[bytes, SearchNode]] = []
+    for node in nodes:
+        # Already judged, and the judgement travels: the panel's score is a
+        # calibrated distance to the target, so it means the same thing in
+        # every call. Re-rasterising and re-embedding a node the evaluator has
+        # already seen would buy an identical number at full price -- and a run
+        # asks about the same pool members repeatedly.
+        if FRONT_SCORE in node.metrics:
+            continue
+        content = getattr(node.state.payload, "content", None)
+        if not content:
+            continue
+        try:
+            renders.append(
+                (format_plugin.rasterize(content, out_w=out_w, out_h=out_h), node)
+            )
+        except Exception as exc:
+            log.debug(f"Front evaluation skipped node {node.id}: {exc}")
+
+    if renders:
+        scorer, ref = front_scorer()
+        pngs = [png for png, _ in renders]
+        try:
+            values = scorer.rank(ref, pngs)
+        except AttributeError:
+            values = [scorer.score(ref, png) for png in pngs]
+        except Exception as exc:
+            log.warning(f"Front evaluation failed, keeping rank order: {exc}")
+            return nodes
+
+        for value, (_png, node) in zip(values, renders, strict=True):
+            node.metrics[FRONT_SCORE] = value
+
+    # Every node the panel has ever scored, freshly measured or recalled.
+    scored = [
+        (node.metrics[FRONT_SCORE], node)
+        for node in nodes
+        if FRONT_SCORE in node.metrics
+    ]
+    if not scored:
+        return nodes
+    scored.sort(key=lambda pair: pair[0])
+    log.info(
+        f"Front evaluated: {len(scored)} candidate(s) "
+        f"({len(renders)} newly scored), "
+        f"best {scored[0][0]:.6f}, worst {scored[-1][0]:.6f}"
+    )
+    return [node for _value, node in scored]
 
 
 def run_vector_search(
@@ -256,56 +324,13 @@ def run_vector_search(
         return _front[0], _front[1]
 
     def rank_front(nodes: list[SearchNode]) -> list[SearchNode]:
-        """Order a converged front by the run's real objective.
-
-        Re-rasterises rather than reading the node's stored render, which is
-        only kept when --write-lineage or --save-raster is on.
-        """
-        scorer, ref = _front_scorer()
-        renders: list[tuple[bytes, SearchNode]] = []
-        for node in nodes:
-            content = getattr(node.state.payload, "content", None)
-            if not content:
-                continue
-            try:
-                renders.append(
-                    (
-                        format_plugin.rasterize(
-                            content, out_w=original_w, out_h=original_h
-                        ),
-                        node,
-                    )
-                )
-            except Exception as exc:
-                log.debug(f"Front evaluation skipped node {node.id}: {exc}")
-
-        if not renders:
-            return nodes
-
-        pngs = [png for png, _ in renders]
-        try:
-            # A panel ranks the field as a whole, because a majority vote needs
-            # candidates to compare; a single scorer just scores each one.
-            values = scorer.rank(ref, pngs)
-        except AttributeError:
-            values = [scorer.score(ref, png) for png in pngs]
-        except Exception as exc:
-            log.warning(f"Front evaluation failed, keeping round order: {exc}")
-            return nodes
-
-        scored: list[tuple[float, SearchNode]] = []
-        for value, (_png, node) in zip(values, renders, strict=True):
-            node.metrics[FRONT_SCORE] = value
-            scored.append((value, node))
-
-        if not scored:
-            return nodes
-        scored.sort(key=lambda pair: pair[0])
-        log.info(
-            f"Front evaluated: {len(scored)} candidate(s), "
-            f"best {scored[0][0]:.6f}, worst {scored[-1][0]:.6f}"
+        return evaluate_front(
+            nodes,
+            front_scorer=_front_scorer,
+            format_plugin=format_plugin,
+            out_w=original_w,
+            out_h=original_h,
         )
-        return [node for _value, node in scored]
 
     engine = MultiprocessSearchEngine(
         workers=workers,

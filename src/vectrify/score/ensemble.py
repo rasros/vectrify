@@ -45,6 +45,7 @@ Five is odd on purpose, so a pairwise majority always exists.
 
 import io
 import logging
+import statistics
 from dataclasses import dataclass
 from typing import Any
 
@@ -75,6 +76,13 @@ GRID = 5
 class PanelReference:
     image: Image.Image
     tiles: list[Any]
+    # Each member's distance from the target to a blank canvas, measured once.
+    # It is what makes a member's distance mean something on its own: raw
+    # cosine distances come from three different embedding spaces and span
+    # different widths, so an uncalibrated average is decided by whichever
+    # member happens to spread widest -- one model steering the run, which is
+    # what a panel exists to prevent.
+    blank: list[float]
 
 
 def _tiles(image: Image.Image) -> list[Image.Image]:
@@ -106,12 +114,18 @@ class EnsembleScorer(Scorer):
 
     def prepare_reference(self, original_rgb: Image.Image) -> PanelReference:
         cells = _tiles(original_rgb)
-        return PanelReference(
+        reference = PanelReference(
             image=original_rgb,
             tiles=[m.embed_images(cells) for m in self._members],
+            blank=[],
         )
+        empty = Image.new("RGB", original_rgb.size, (255, 255, 255))
+        reference.blank.extend(
+            max(d[0], 1e-6) for d in self._raw_distances(reference, [empty])
+        )
+        return reference
 
-    def _distances(self, reference: PanelReference, images: list[Image.Image]):
+    def _raw_distances(self, reference: PanelReference, images: list[Image.Image]):
         """Each member's distance to every image, cell by cell then averaged."""
         per_member = []
         for member, reference_tiles in zip(self._members, reference.tiles, strict=True):
@@ -124,39 +138,69 @@ class EnsembleScorer(Scorer):
             )
         return per_member
 
-    def score(self, reference: PanelReference, candidate_png: bytes) -> float:
-        """Mean distance across the panel.
+    def _distances(self, reference: PanelReference, images: list[Image.Image]):
+        """Per-member distances, each as a fraction of that member's distance
+        from the target to a blank canvas. 0 is the target itself and about 1
+        is as wrong as an empty drawing, on every member and every target."""
+        raw = self._raw_distances(reference, images)
+        return [
+            [value / scale for value in member]
+            for member, scale in zip(raw, reference.blank, strict=True)
+        ]
 
-        A single candidate has nothing to be compared against, so there is no
-        vote to take. This exists for callers that need a scalar per candidate;
-        the panel's actual judgement is ``rank``, which is what decides
-        direction.
+    def score(self, reference: PanelReference, candidate_png: bytes) -> float:
+        """The panel's verdict on one candidate: the median calibrated distance.
+
+        The median rather than the mean, and that is the whole panel argument
+        in absolute form. With three members the median is the majority
+        position: for any standard you might hold a candidate to, "the panel
+        says it meets this" is true exactly when the median says so, and a
+        member that is idiosyncratic about this particular drawing cannot move
+        it. The pairwise vote said the same thing about pairs; this says it
+        about candidates, which is what lets two scores be compared at all.
+
+        Absolute, so it means the same thing in every call and in every run --
+        the property `rank` could not have, since counting rivals beaten only
+        describes the field a candidate was ranked against.
         """
         try:
             image = Image.open(io.BytesIO(candidate_png)).convert("RGB")
         except Exception:
             return MAX_SCORE
         values = [d[0] for d in self._distances(reference, [image])]
-        return sum(values) / len(values) if values else MAX_SCORE
+        return statistics.median(values) if values else MAX_SCORE
 
     def rank(
         self, reference: PanelReference, candidate_pngs: list[bytes]
     ) -> list[float]:
-        """Score candidates by how many rivals the panel puts them ahead of.
+        """Score every candidate, lower being better.
 
-        Every pair is put to the panel and the majority wins, then candidates
-        are ordered by wins less losses. That ordering step is not decoration:
-        a majority relation is a tournament and cycles, so it cannot be sorted
-        by pairwise comparison -- three candidates can each beat the next.
-        Counting wins ranks a tournament without needing it to be transitive.
+        One absolute number each, so the caller may compare them with anything
+        else the panel has scored -- a candidate from an earlier check, from an
+        earlier epoch, or from another run entirely.
 
-        Returns one value per candidate, lower being better, so it drops into
-        a caller that expects a distance. Values span [0, 1] up to the width of
-        the tie-break term, which can carry the extremes a little past either
-        end; nothing compares them against an absolute threshold.
+        This used to put every pair to the panel and count rivals beaten, which
+        ranked a field correctly and said nothing outside it: the same drawing
+        scored differently depending on who it was ranked against, so two calls
+        could not be compared and nothing could be cached between them.
         """
         if not candidate_pngs:
             return []
+
+        images = []
+        for png in candidate_pngs:
+            try:
+                images.append(Image.open(io.BytesIO(png)).convert("RGB"))
+            except Exception:
+                # A candidate that will not open is scored worst rather than
+                # failing the field it was ranked with.
+                images.append(Image.new("RGB", reference.image.size, (255, 255, 255)))
+
+        per_member = self._distances(reference, images)
+        return [
+            statistics.median([member[i] for member in per_member])
+            for i in range(len(images))
+        ]
 
         images = []
         for png in candidate_pngs:
