@@ -36,10 +36,10 @@ def _diversity_color(pool_diversity: float, epoch_diversity: float) -> str:
 def _dominated_fraction(epoch_dominated: float, pool_dominated: float) -> float:
     """Progress toward the pool-collapse epoch-end criterion, in [0, 1].
 
-    Ratio of threshold to the share of the pool holding a distinct score, so
-    the bar fills as the pool collapses toward the stop. A pool with no
-    distinct member is as collapsed as it can be -- the criterion is already
-    satisfied -- so that reads full rather than empty.
+    Ratio of threshold to the share of the pool something else outranks, so
+    the bar fills as rank stops separating candidates. A pool where nothing
+    dominates anything is as collapsed as it can be -- the criterion is
+    already satisfied -- so that reads full rather than empty.
     """
     if epoch_dominated <= 0:
         return 0.0

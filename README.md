@@ -209,7 +209,7 @@ max-wall-seconds.
 | max-wall-seconds |    3600 | wall-clock budget; ends the run, not just the epoch   |
 
 Patience counts local tasks only — a seed batch is not a hill-climb and
-cannot go stale — and any improvement resets it. The distinct and diversity
+cannot go stale — and any improvement resets it. The dominated and diversity
 criteria are off by default: a pool collapses into agreement well before it
 stops improving, so a threshold that looks safe ends search while it is still
 working. epoch-dominated reads the dominance relation rather than any score —

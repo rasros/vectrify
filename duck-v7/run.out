@@ -1,0 +1,16 @@
+09:25:49 | MainProcess | INFO | Round scoring: edge overlap and colour distance, no model. Front evaluator: auto (facebook/dinov2-small).
+09:25:49 | MainProcess | INFO | Starting 8 worker processes...
+09:25:51 | MainProcess | INFO | Search started. Initial best: inf
+09:25:51 | MainProcess | INFO | Epoch 0: seeding with 10 LLM call(s) over 1 parent(s).
+09:26:35 | SpawnProcess-7 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+09:26:35 | MainProcess | INFO | [LLM-GENERATE] node=1 score=0.283965
+09:26:40 | SpawnProcess-3 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+09:26:40 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=2 score=0.294484
+09:26:49 | SpawnProcess-4 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+09:26:49 | MainProcess | INFO | [LLM-GENERATE] node=3 score=0.249286
+09:26:50 | SpawnProcess-1 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+09:26:50 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4 score=0.288349
+09:26:55 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+09:26:56 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=5 score=0.349816
+09:27:03 | SpawnProcess-2 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+09:27:03 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=6 score=0.263440

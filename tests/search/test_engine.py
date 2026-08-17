@@ -1178,8 +1178,9 @@ def test_the_pool_criteria_read_the_same_on_any_scale():
             storage=FakeStorage(),
             max_total_tasks=8,
         )
-        # The same pattern of ties and distinct values in both runs, a
-        # thousandfold apart in absolute terms.
+        # The same ordering of candidates in both runs, a thousandfold apart
+        # in absolute terms: the criterion reads the dominance relation, which
+        # rescaling every objective cannot change.
         for task_id, spread in enumerate(
             [1.0, 0.9, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
         ):
