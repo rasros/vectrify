@@ -27,23 +27,24 @@ DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
 DEFAULT_POOL_SIZE = 100
-# Floors rather than targets. Both are read as fractions of where the epoch
-# opened, and either one can end an epoch on its own, so a default has to sit
-# below where a healthy run finishes or it would cut search short. Measured
-# across real runs, diversity stands at 0.35 of its opening value when an epoch
-# legitimately goes stale (0.13 in the worst case seen) and score spread at
-# 0.15, so these sit under everything observed.
+# Off, after trying them on. Both read as a fraction of where the epoch opened,
+# and the opening reading is taken just after a seed batch lands -- ten fresh
+# LLM drawings, which is the most varied the pool is ever going to be. Local
+# search then fills it with children of the best few and the ratio collapses
+# within seconds of the epoch starting, whatever the search is doing.
 #
-# What they guard is a case staleness cannot see: patience resets on any
-# improvement above epoch_min_delta, so a pool of near-clones trickling out
-# microscopic gains can keep an epoch alive indefinitely while having nothing
-# left to explore. On a healthy run neither should ever fire.
+# Measured on a run with the floors at 0.10 and 0.05, every one of the four
+# epochs ended on "score spread fell to 0.02-0.05 of its opening value" rather
+# than on staleness, and the run stopped after 3821 of its 12000 tasks having
+# spent its whole epoch budget in six minutes. The floors were chosen from a
+# reconstruction that sampled recent nodes rather than the pool itself, and so
+# never saw the spike they are measured against.
 #
-# Both were measured with patience at 200. At 500 an epoch runs longer and both
-# measures fall further before staleness arrives, so these floors are, if
-# anything, still too high; worth re-reading off a corpus run.
-DEFAULT_EPOCH_DIVERSITY = 0.10
-DEFAULT_EPOCH_VARIANCE = 0.05
+# A ratio to the opening value is still the right shape -- it is the only form
+# that means the same thing on every image -- but the reference has to be
+# something other than the instant after a re-seed for a default to be safe.
+DEFAULT_EPOCH_DIVERSITY = 0.0
+DEFAULT_EPOCH_VARIANCE = 0.0
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
 # next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
