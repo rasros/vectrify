@@ -3,7 +3,12 @@ from unittest.mock import patch
 
 import pytest
 
-from vectrify.score.metrics import COLOUR_WEIGHT, EDGE_WEIGHT
+from vectrify.score.metrics import (
+    COLOUR_WEIGHT,
+    EDGE_WEIGHT,
+    SCORER_METRICS,
+    SHAPE_WEIGHT,
+)
 from vectrify.search import ChainState, SearchNode, nsga
 from vectrify.search.diversity import simhash
 from vectrify.search.models import INVALID_SCORE
@@ -23,6 +28,7 @@ def make_node(
     content: str | None = None,
     edge: float = 0.0,
     colour: float = 0.0,
+    shape: float = 0.0,
 ) -> SearchNode:
     state = ChainState(score=score, payload=None)
     return SearchNode(
@@ -30,7 +36,7 @@ def make_node(
         id=node_id,
         parent_id=0,
         state=state,
-        metrics={"edge": edge, "colour": colour},
+        metrics={"edge": edge, "colour": colour, "shape": shape},
         signature=simhash(content) if content else None,
     )
 
@@ -114,11 +120,11 @@ def test_crowding_distance_reads_arity_from_the_vectors():
     assert dist[3] > dist[2] > 0.0
 
 
-def test_build_objectives_blends_colour_and_edge_on_a_common_scale():
-    """Each part is scaled by its own population maximum before weighting, or
-    the blend would be decided by whichever part happens to be on the larger
-    scale rather than by the weights -- and colour arrives on a scale hundreds
-    of times larger than edge."""
+def test_build_objectives_keeps_one_component_per_measure():
+    """The pool is ranked by trading the measures off, so each has to survive
+    into the vector as its own axis. Collapsed into one component the majority
+    relation degenerates to a plain comparison and crowding distance has no
+    second axis to spread along."""
     nodes = [
         make_node(1, 0.5, edge=0.2, colour=1000.0),
         make_node(2, 1.0, edge=0.4, colour=500.0),
@@ -126,9 +132,34 @@ def test_build_objectives_blends_colour_and_edge_on_a_common_scale():
 
     objectives = build_objectives(nodes)
 
-    assert all(len(v) == 1 for v in objectives.values())
-    assert objectives[1] == pytest.approx((COLOUR_WEIGHT * 1.0 + EDGE_WEIGHT * 0.5,))
-    assert objectives[2] == pytest.approx((COLOUR_WEIGHT * 0.5 + EDGE_WEIGHT * 1.0,))
+    assert all(len(v) == 3 for v in objectives.values())
+    assert objectives[1] == pytest.approx((1.0, 0.5, 0.0))
+    assert objectives[2] == pytest.approx((0.5, 1.0, 0.0))
+
+
+def test_build_objectives_scales_each_measure_by_its_own_maximum():
+    """Colour arrives on a scale hundreds of times larger than edge. Dominance
+    does not care -- it compares component by component -- but crowding
+    distance does, and would otherwise spread the pool along colour alone."""
+    nodes = [
+        make_node(1, 0.5, edge=0.2, colour=1000.0),
+        make_node(2, 1.0, edge=0.4, colour=500.0),
+    ]
+
+    objectives = build_objectives(nodes)
+
+    assert max(v[0] for v in objectives.values()) == 1.0
+    assert max(v[1] for v in objectives.values()) == 1.0
+
+
+def test_dominance_is_unchanged_by_rescaling_one_measure():
+    """Why no weights are applied here: a positive rescale of a component
+    cannot change any dominance verdict, so a weight in this vector is inert."""
+    a = (0.1, 0.9, 0.5)
+    b = (0.2, 0.4, 0.6)
+    scaled_a = (0.1 * 1000, 0.9, 0.5)
+    scaled_b = (0.2 * 1000, 0.4, 0.6)
+    assert nsga._dominates(a, b) == nsga._dominates(scaled_a, scaled_b)
 
 
 def test_build_objectives_ignores_the_score_it_does_not_rank_on():
@@ -159,7 +190,7 @@ def test_build_objectives_survives_all_zero_objectives():
 
     objectives = build_objectives(nodes)
 
-    assert all(v == (0.0,) for v in objectives.values())
+    assert all(v == (0.0, 0.0, 0.0) for v in objectives.values())
 
 
 def test_non_dominated_sort_all_pareto():
@@ -651,3 +682,111 @@ def test_a_changed_pool_is_never_ranked_from_stale_positions():
 
     assert best.id in rank
     assert best.id in {n.id for n in pool}
+
+
+# ── The search is multi-objective, or it is not doing what it claims ─────────
+#
+# These guard the property, not the implementation. The objective vector was
+# once collapsed into a single weighted sum, which left every part of NSGA-II
+# below it inert -- a majority of one component is a plain comparison, Copeland
+# tiers separate only what the sum separated, and crowding distance has no
+# second axis to spread along -- while every test still passed. The cost is
+# specific: a measure that only ever contributes a fraction of a sum can never
+# outrank the others on the candidates it disagrees about, which is the one
+# situation it was added for.
+
+
+def test_every_scored_metric_survives_into_the_objective_vector():
+    """Arity tracks the registry. A measure dropped from the vector still shows
+    up in the reported score, so nothing else here would notice its loss."""
+    nodes = [
+        make_node(1, 0.5, edge=0.2, colour=0.9, shape=0.4),
+        make_node(2, 0.6, edge=0.8, colour=0.1, shape=0.7),
+    ]
+
+    objectives = build_objectives(nodes)
+
+    assert all(len(v) == len(SCORER_METRICS) for v in objectives.values())
+
+
+def test_measures_that_disagree_can_rank_in_a_cycle():
+    """With one component the relation is a total order: transitive, and no
+    cycle is expressible. Three measures disagreeing produce one, which is the
+    signature that they are genuinely being traded off -- and the reason
+    ranking goes through Copeland rather than a peeling sort.
+
+    (Three objectives and no exact ties leaves every *pair* comparable, since
+    wins + losses = 3 cannot split evenly. Non-transitivity, not an antichain,
+    is what multi-objectivity buys at this arity.)
+    """
+    a = make_node(1, 0.5, colour=0.1, edge=0.9, shape=0.5)
+    b = make_node(2, 0.5, colour=0.5, edge=0.1, shape=0.9)
+    c = make_node(3, 0.5, colour=0.9, edge=0.5, shape=0.1)
+
+    objectives = build_objectives([a, b, c])
+    va, vb, vc = (objectives[n.id] for n in (a, b, c))
+
+    assert nsga._dominates(va, vb)
+    assert nsga._dominates(vb, vc)
+    assert nsga._dominates(vc, va)  # impossible under a single component
+    assert nsga._copeland([va, vb, vc]) == [0, 0, 0]
+
+
+def test_the_third_measure_decides_when_the_other_two_disagree():
+    """What the vector buys, stated exactly. Majority rule needs two of three,
+    so a candidate winning on shape alone stays dominated -- shape does not
+    override colour and edge. It decides the pairs where those two split, and
+    it decides them on which candidate is better, not by how much.
+
+    A weighted sum cannot do that: shape carries the smallest weight, so a
+    large margin on edge buries it. Here the two rules pick opposite winners.
+    """
+    a = make_node(1, 0.5, colour=0.1, edge=0.9, shape=0.1)
+    b = make_node(2, 0.5, colour=0.9, edge=0.1, shape=0.9)
+
+    objectives = build_objectives([a, b])
+    va, vb = objectives[1], objectives[2]
+
+    # colour prefers a, edge prefers b, shape prefers a -- so a takes it.
+    assert nsga._dominates(va, vb)
+    assert not nsga._dominates(vb, va)
+
+    # The blend the pool used to be ranked by prefers b, because edge carries
+    # nearly four times shape's weight and wins by a full unit here.
+    blend = lambda v: (  # noqa: E731
+        COLOUR_WEIGHT * v[0] + EDGE_WEIGHT * v[1] + SHAPE_WEIGHT * v[2]
+    )
+    assert blend(vb) < blend(va)
+
+
+def test_a_candidate_winning_on_one_measure_alone_is_still_dominated():
+    """Recorded so the limit is not mistaken for a bug. Majority rule means two
+    of three; a specialist on a single axis loses to any candidate that beats
+    it on the other two, and survives only on crowding distance within a tier.
+    """
+    specialist = make_node(1, 0.9, colour=1.0, edge=1.0, shape=0.0)
+    generalist = make_node(2, 0.4, colour=0.4, edge=0.4, shape=0.9)
+
+    objectives = build_objectives([specialist, generalist])
+
+    assert nsga._dominates(objectives[2], objectives[1])
+
+
+def test_crowding_distance_reads_every_axis():
+    """It spreads the front along each objective in turn. Given one component
+    it can only ever spread along that one, so a pool diverse in shape and
+    uniform in colour would look uniform."""
+    front = [
+        make_node(1, 0.5, colour=0.5, edge=0.5, shape=0.0),
+        make_node(2, 0.5, colour=0.5, edge=0.5, shape=0.5),
+        make_node(3, 0.5, colour=0.5, edge=0.5, shape=1.0),
+    ]
+    objectives = build_objectives(front)
+
+    distances = nsga.crowding_distance(front, objectives)
+
+    # The extremes are pinned, and the middle node was reached through the
+    # shape axis alone -- the other two are flat across this front.
+    assert distances[1] == INVALID_SCORE
+    assert distances[3] == INVALID_SCORE
+    assert distances[2] > 0.0
