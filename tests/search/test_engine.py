@@ -1081,6 +1081,7 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
 
     assert scored, "results scored before the failure should have survived it"
 
+
 def test_the_epoch_budget_ends_an_epoch_that_has_not_gone_stale():
     """Staleness measures whether the pool has stopped producing; the budget
     measures how long the proxy has run without the evaluator seeing anything.
