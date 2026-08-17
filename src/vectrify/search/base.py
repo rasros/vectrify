@@ -16,13 +16,6 @@ class SearchStrategy(Protocol[TState]):
         progress, so this replaces comparing a blended score."""
         ...
 
-    def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
-        """Return (trigger_epoch, diversity).
-
-        diversity is the mean normalised Hamming distance across sampled node pairs.
-        """
-        ...
-
     def select_survivors(
         self, nodes: list[SearchNode[TState]], max_keep: int
     ) -> list[SearchNode[TState]]:

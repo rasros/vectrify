@@ -12,7 +12,7 @@ if TYPE_CHECKING:
 from PIL import Image, UnidentifiedImageError
 
 from vectrify.cli import (
-    DEFAULT_EPOCH_DIVERSITY,
+    DEFAULT_EPOCH_MAX_TASKS,
     DEFAULT_MAX_TOTAL_TASKS,
     DEFAULT_POOL_SIZE,
     DEFAULT_RESOLUTION_LLM,
@@ -120,7 +120,7 @@ def run_vector_search(
     epoch_patience: int | None = None,
     pool_size: int = DEFAULT_POOL_SIZE,
     seeds: int | None = None,
-    epoch_diversity: float = DEFAULT_EPOCH_DIVERSITY,
+    epoch_max_tasks: int | None = DEFAULT_EPOCH_MAX_TASKS,
     tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
     adaptive_operators: bool = True,
     epochs: int | None = None,
@@ -232,7 +232,7 @@ def run_vector_search(
     )
     if collector is not None:
         collector.configure_run(
-            epoch_diversity=epoch_diversity,
+            epoch_max_tasks=epoch_max_tasks,
         )
         valid = [n for n in initial_nodes if n.score < INVALID_SCORE]
         if valid:
@@ -311,7 +311,6 @@ def run_vector_search(
         workers=workers,
         strategy=NsgaStrategy[VectorStatePayload](
             pool_size=pool_size,
-            epoch_diversity=epoch_diversity,
             tournament_size=tournament_size,
         ),
         storage=storage,
@@ -411,7 +410,7 @@ def run_vector_search(
             epoch_seeds=epoch_seeds,
             initial_seeds=first_batch,
             epochs=epochs,
-            epoch_diversity=epoch_diversity,
+            epoch_max_tasks=epoch_max_tasks,
             operator_policy=operator_policy,
             collector=collector,
         )

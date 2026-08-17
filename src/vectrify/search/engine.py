@@ -10,6 +10,7 @@ from typing import Any, Generic, TypeVar
 from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search.base import SearchStrategy, StorageAdapter
 from vectrify.search.collector import StatCollector
+from vectrify.search.diversity import pool_diversity
 from vectrify.search.models import (
     INVALID_SCORE,
     ChainState,
@@ -118,7 +119,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_seeds: int = 0,
         initial_seeds: int | None = None,
         epochs: int | None = None,
-        epoch_diversity: float = 0.0,
+        epoch_max_tasks: int | None = None,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
     ) -> None:
@@ -225,9 +226,9 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         epoch = 0
         epoch_no_improve = 0
+        epoch_started_at = 0
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
-        epoch_baseline: float | None = None
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
         # Children accumulate outside active_pool: they replace it wholesale
@@ -595,9 +596,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                 _close_generation()
 
         def _do_epoch_transition(reason: str) -> None:
-            nonlocal epoch, epoch_baseline
+            nonlocal epoch, epoch_started_at
 
-            epoch_baseline = None
+            epoch_started_at = tasks_completed
 
             # The next seed batch edits this pool's front, so the children that
             # arrived since the last generation have to land in it first.
@@ -614,7 +615,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             _begin_seed_phase()
 
         def _check_epoch_end():
-            nonlocal pool_refilling, epoch_baseline
+            nonlocal pool_refilling
 
             if pool_refilling:
                 if len(active_pool) < active_pool_size:
@@ -624,20 +625,30 @@ class MultiprocessSearchEngine(Generic[TState]):
             staleness = (
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
-            _unused, pool_div = self.strategy.should_diversify(active_pool)
+            # Still reported, no longer a criterion: read against the epoch's
+            # opening value it was a ratio to a moment, and across real runs that
+            # moment was a trough as often as a peak -- epoch 0 opened on the
+            # "too little data" sentinel of 1.0 and later epochs ended above
+            # their own baseline, so the rule fired at once or never.
+            pool_div = pool_diversity(active_pool)
             pool_std = score_std(valid_scores(active_pool))
 
             if collector is not None:
                 collector.on_pool_state(diversity=pool_div, score_std=pool_std)
 
-            # Diversity is read against where this epoch started rather than
-            # against a fixed number: it sat anywhere between 0.05 and 0.33
-            # across real runs depending only on how intricate the drawing is,
-            # so no absolute threshold means the same thing twice.
-            if epoch_baseline is None:
-                epoch_baseline = max(pool_div, 1e-9)
-            low_diversity = (
-                epoch_diversity > 0 and pool_div / epoch_baseline < epoch_diversity
+            # A ceiling on how long one epoch may run. Staleness measures
+            # whether the pool has stopped producing; this measures how long the
+            # proxy has been left unsupervised, which is a different thing.
+            # Measured on one run, the gap between top-tier entries has a median
+            # of 68 tasks and a 99th percentile of 285, so staleness at 500 only
+            # arrives at the far tail -- 150,800 tasks into the epoch, all of it
+            # without the evaluator seeing anything. The epoch boundary is where
+            # the evaluator ranks the front and the model re-seeds from its
+            # choice, so capping the epoch caps the drift.
+            over_budget = (
+                epoch_max_tasks is not None
+                and epoch_max_tasks > 0
+                and tasks_completed - epoch_started_at >= epoch_max_tasks
             )
 
             # Any one of these ending the epoch, rather than all of them
@@ -659,10 +670,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                     f"staleness ({epoch_no_improve} >="
                     f" {epoch_patience} tasks without improvement)"
                 )
-            elif low_diversity:
+            elif over_budget:
                 reason = (
-                    f"diversity fell to {pool_div / epoch_baseline:.2f}"
-                    " of its opening value"
+                    f"epoch budget ({tasks_completed - epoch_started_at} >="
+                    f" {epoch_max_tasks} tasks)"
                 )
             else:
                 return

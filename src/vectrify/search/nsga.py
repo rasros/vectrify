@@ -4,7 +4,7 @@ from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
 from vectrify.score.metrics import SCORER_METRICS
-from vectrify.search.diversity import hamming_distance, pool_diversity
+from vectrify.search.diversity import hamming_distance
 from vectrify.search.models import INVALID_SCORE, SearchNode
 
 log = logging.getLogger(__name__)
@@ -202,12 +202,10 @@ class NsgaStrategy(Generic[TState]):
         self,
         pool_size: int = 20,
         crossover_distance_threshold: int = 10,
-        epoch_diversity: float = 0.0,
         tournament_size: int = 2,
     ):
         self.pool_size = pool_size
         self.crossover_distance_threshold = crossover_distance_threshold
-        self.epoch_diversity = epoch_diversity
         # Selection intensity is a function of the tournament size alone -- the
         # winner's expected quantile is ~1/(size+1) -- so this is an absolute
         # count rather than a fraction of the pool, and stays meaningful when
@@ -372,7 +370,3 @@ class NsgaStrategy(Generic[TState]):
             return set()
         objectives = build_objectives(valid)
         return {n.id for n in pareto_front(valid, lambda n: objectives[n.id])}
-
-    def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:
-        diversity = pool_diversity(pool)
-        return self.epoch_diversity > 0 and diversity < self.epoch_diversity, diversity

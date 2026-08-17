@@ -20,19 +20,6 @@ def _bar(fraction: float, width: int = 12) -> str:
     return "█" * filled + "░" * (width - filled)
 
 
-def _diversity_color(pool_diversity: float, epoch_diversity: float) -> str:
-    """Diversity keeps its own ladder — red once it has reached the stop
-    threshold, yellow while still within 2x of it — rather than the
-    fraction-based one the other criteria use."""
-    if epoch_diversity <= 0:
-        return "cyan"
-    if pool_diversity < epoch_diversity:
-        return "red"
-    if pool_diversity < epoch_diversity * 2:
-        return "yellow"
-    return "green"
-
-
 def _threshold_color(fraction: float) -> str:
     """Green while there is headroom, red as a stop threshold is approached."""
     if fraction > 0.8:
@@ -100,27 +87,15 @@ def _build_renderable(stats: SearchStats) -> Panel:
     )
 
     # Pool stats: single line with diversity + variance values
-    div_color = _diversity_color(s.pool_diversity, s.epoch_diversity)
 
     pool_line = (
-        f"  diversity [{div_color}]{s.pool_diversity:.3f}[/{div_color}]"
+        f"  diversity [dim]{s.pool_diversity:.3f}[/dim]"
         f"   spread [dim]{s.pool_score_std:.4f}[/dim]"
         f"   stale [dim]{s.epoch_no_improve:,}[/dim]"
     )
 
     # Stop criteria rows (only when enabled)
     stop_rows: list[tuple[str, str]] = []
-
-    if s.epoch_diversity > 0:
-        # Diversity's bar tracks the raw value, and its color its own ladder.
-        stop_rows.append(
-            (
-                "div stop",
-                f"  [{div_color}]{_bar(s.pool_diversity, width=20)}[/{div_color}]"
-                f"  {s.pool_diversity:.3f}"
-                f"  [dim]epoch at < {s.epoch_diversity:.3f}[/dim]",
-            )
-        )
 
     if s.phase == "seed" and s.seeds_target > 0:
         # Not a stop criterion, but the epoch is waiting on it all the same.

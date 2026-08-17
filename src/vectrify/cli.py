@@ -33,7 +33,13 @@ DEFAULT_POOL_SIZE = 100
 # before going stale at task 5200. Given floors of 0.10 and 0.05, all four
 # epochs of a real run ended on a pool measure rather than on staleness and the
 # run stopped after 3821 of its 12000 tasks.
-DEFAULT_EPOCH_DIVERSITY = 0.0
+# A ceiling on how long one epoch may run before the evaluator gets to steer
+# again. Off by default: the right value is a judgement about how much drift on
+# the cheap measures is acceptable between evaluations, and nothing measured so
+# far pins it. Measured on one run, staleness at 500 first fired 150,800 tasks
+# into an epoch -- all of it with no evaluator in the loop, which is where the
+# proxy runs away from what a viewer would call better.
+DEFAULT_EPOCH_MAX_TASKS = None
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
 # next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
@@ -222,26 +228,24 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"Default: {DEFAULT_EPOCHS}",
     )
     g_epoch.add_argument(
+        "--epoch-max-tasks",
+        type=int,
+        default=DEFAULT_EPOCH_MAX_TASKS,
+        dest="epoch_max_tasks",
+        metavar="N",
+        help="End the epoch after this many local tasks whether or not it has "
+        "gone stale, so the evaluator ranks the front and the model re-seeds "
+        "from its choice at least this often. Unset by default.",
+    )
+    g_epoch.add_argument(
         "--epoch-patience",
         type=int,
         default=DEFAULT_EPOCH_PATIENCE,
         dest="epoch_patience",
         metavar="N",
-        help="End the epoch and re-seed if the best score does not improve by "
-        "reaching the best-ranked tier over this many consecutive local tasks. "
-        "0 disables. "
+        help="End the epoch and re-seed if no candidate reaches the "
+        "best-ranked tier over this many consecutive local tasks. 0 disables. "
         f"Default: {DEFAULT_EPOCH_PATIENCE}",
-    )
-    g_epoch.add_argument(
-        "--epoch-diversity",
-        type=float,
-        default=DEFAULT_EPOCH_DIVERSITY,
-        dest="epoch_diversity",
-        metavar="THR",
-        help="End an epoch once pool diversity has fallen to this fraction "
-        "of what it was when the epoch opened, e.g. 0.3. A fraction rather "
-        "than a fixed level, because how varied a pool starts out depends on "
-        "the drawing. 0 disables.",
     )
     g_search.add_argument(
         "--tournament-size",

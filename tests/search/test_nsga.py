@@ -335,43 +335,6 @@ def test_pool_size_one_always_returns_same_node():
     assert selected == {1}
 
 
-def test_should_diversify_small_pool_needs_boost():
-    strategy = NsgaStrategy(epoch_diversity=0.5)
-    nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 5)]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is True
-    assert 0.0 <= diversity <= 1.0
-
-
-def test_should_diversify_large_pool_needs_boost():
-    strategy = NsgaStrategy(epoch_diversity=0.5)
-    nodes = [make_node(i, 0.1, content="<svg><circle/></svg>") for i in range(1, 21)]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is True
-    assert 0.0 <= diversity <= 1.0
-
-
-def test_should_not_diversify_diverse_pool():
-    strategy = NsgaStrategy(epoch_diversity=0.01)
-    nodes = [
-        make_node(
-            i, 0.1, content=f"<svg><circle r='{i * 1000}' cx='{i}' cy='{i}'/></svg>"
-        )
-        for i in range(1, 5)
-    ]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is False
-    assert 0.0 <= diversity <= 1.0
-
-
-def test_should_not_diversify_too_few_nodes():
-    strategy = NsgaStrategy(epoch_diversity=0.99)
-    nodes = [make_node(i, 0.1) for i in range(1, 4)]
-    triggered, diversity = strategy.should_diversify(nodes)
-    assert triggered is False
-    assert diversity == 1.0
-
-
 def test_epoch_parents_returns_pareto_front():
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
