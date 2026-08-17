@@ -74,3 +74,32 @@ def test_an_empty_candidate_wins_this_axis_and_loses_the_rest():
 
 def test_survives_a_blank_reference():
     assert detail_excess(0.0, _noisy()) == 0.0
+
+
+def test_detail_grows_with_pixel_count_at_equal_busyness():
+    """Why the reference has to be measured at the size candidates render at.
+    Compressed size counts bytes, so the same picture reads larger when there
+    is more of it -- reading the reference at scoring resolution and candidates
+    at render resolution charges every candidate for the gap between the two.
+    """
+    from vectrify.image_utils import resize_long_side
+
+    rng = random.Random(5)
+    big = Image.new("RGB", (256, 256))
+    big.putdata(
+        [
+            (rng.randrange(256), rng.randrange(256), rng.randrange(256))
+            for _ in range(256 * 256)
+        ]
+    )
+    small = resize_long_side(big, 96)
+
+    def as_png(img):
+        buf = io.BytesIO()
+        img.save(buf, format="PNG")
+        return buf.getvalue()
+
+    assert detail(as_png(big)) > detail(as_png(small)) * 2
+    # Which is exactly the false charge: the same image against itself at the
+    # wrong scale reads as substantially busier than the reference.
+    assert detail_excess(detail(as_png(small)), as_png(big)) > 1.0

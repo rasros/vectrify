@@ -167,11 +167,14 @@ def run_vector_search(
 
     scoring_img = resize_long_side(original_img, DEFAULT_CONFIG.target_long_side)
     pixel_ref = prepare(scoring_img)
-    # The target's own detail, measured once. Candidates are charged for the
-    # distance from it, so this has to come from the same render size they do.
-    _ref_buf = io.BytesIO()
-    scoring_img.save(_ref_buf, format="PNG")
-    reference_detail = detail(_ref_buf.getvalue())
+    # The target's own detail, measured once, at the size candidates are
+    # rasterized at -- original_png_bytes, not the smaller image the pixel
+    # comparison resizes to. Compressed size grows with pixel count, so reading
+    # the reference at scoring resolution and candidates at render resolution
+    # charges every candidate for the difference between the two: measured on
+    # the duck, the same image reads 7,607 at 256 and 41,602 at 700, and every
+    # candidate in a run came out 58-142% "busier" than a target it matched.
+    reference_detail = detail(original_png_bytes)
     log.info(
         "Round scoring: edge overlap, colour distance and a detail budget, no model. "
         f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model})."
