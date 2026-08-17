@@ -11,6 +11,11 @@ class SearchStrategy(Protocol[TState]):
         self, nodes: list[SearchNode[TState]]
     ) -> tuple[int, int | None]: ...
 
+    def top_tier_ids(self, pool: list[SearchNode]) -> set[int]:
+        """Ids of the best-ranked tier. Entry into it is what counts as
+        progress, so this replaces comparing a blended score."""
+        ...
+
     def should_diversify(self, pool: list[SearchNode]) -> tuple[bool, float]:
         """Return (trigger_epoch, diversity).
 

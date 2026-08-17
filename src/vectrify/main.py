@@ -134,7 +134,6 @@ def main():
             write_lineage=args.write_lineage,
             save_raster=args.save_raster,
             epoch_patience=args.epoch_patience or None,
-            epoch_min_delta=args.epoch_min_delta,
             pool_size=args.pool_size,
             seeds=args.seeds,
             epoch_diversity=args.epoch_diversity,

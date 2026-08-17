@@ -365,6 +365,21 @@ class NsgaStrategy(Generic[TState]):
         parents = pareto_nodes[:max_parents]
         return parents or valid[:max_parents]
 
+    def top_tier_ids(self, pool: list[SearchNode[TState]]) -> set[int]:
+        """Ids of the best-ranked tier under the majority relation.
+
+        The tier rather than a single winner: candidates can be mutually
+        unbeaten, and where the relation cycles the whole cycle lands in the top
+        tier together. Callers take entry into it as the definition of progress,
+        which needs no blended score and no magnitude -- only whether one
+        candidate beats another.
+        """
+        valid = [n for n in pool if n.score < INVALID_SCORE]
+        if not valid:
+            return set()
+        objectives = build_objectives(valid)
+        return {n.id for n in pareto_front(valid, lambda n: objectives[n.id])}
+
     def should_diversify(self, pool: list[SearchNode[TState]]) -> tuple[bool, float]:
         diversity = pool_diversity(pool)
         return self.epoch_diversity > 0 and diversity < self.epoch_diversity, diversity
