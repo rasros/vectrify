@@ -746,6 +746,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
                 elif not res.valid:
                     last_invalid_msg = res.invalid_msg or "unknown error"
+                    # A failed result names its operator only when that operator
+                    # produced nothing to score. Charge the draw: it consumed a
+                    # slot and returned no candidate, which is what a zero
+                    # reward means. Leaving it unreported instead would park the
+                    # operator at its prior weight and let it keep drawing.
+                    if res.operator is not None and operator_policy is not None:
+                        operator_policy.update(res.operator, False)
                     if res.llm_type:
                         log.info(
                             f"[{res.llm_type.upper()} INVALID] "

@@ -3,7 +3,7 @@ import time
 
 import pytest
 
-from vectrify.search import ChainState, Result, SearchNode
+from vectrify.search import INVALID_SCORE, ChainState, Result, SearchNode
 from vectrify.search.engine import MultiprocessSearchEngine
 
 
@@ -931,6 +931,55 @@ def test_the_engine_picks_the_operator_and_hears_how_it_did():
     assert [engine.task_q.get().operator for _ in range(2)] == ["op", "op"]
     # The pool holds one node, so the better child survives and the worse does not.
     assert policy.updates == [("op", True), ("op", False)]
+
+
+def test_an_operator_that_produced_nothing_is_charged_for_the_draw():
+    """A blank draw spends a task and returns no candidate. Reporting nothing
+    would leave the operator at its prior weight, still drawing its share to
+    fail again; a zero is what the draw was actually worth."""
+
+    class RecordingPolicy:
+        def __init__(self):
+            self.updates = []
+
+        def select(self):
+            return "op"
+
+        def update(self, operator, survived):
+            self.updates.append((operator, survived))
+
+    policy = RecordingPolicy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
+    )
+    # One blank draw naming its operator, one ordinary failure naming none.
+    engine.unscored_q.put(
+        Result(
+            task_id=1,
+            parent_id=1,
+            valid=False,
+            score=INVALID_SCORE,
+            payload=None,
+            operator="op",
+        )
+    )
+    engine.unscored_q.put(
+        Result(task_id=2, parent_id=1, valid=False, score=INVALID_SCORE, payload=None)
+    )
+
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+            )
+        ],
+        max_wall_seconds=None,
+        active_pool_size=1,
+        generation_size=2,
+        operator_policy=policy,
+    )
+
+    assert policy.updates == [("op", False)]
 
 
 def _engine_with_evaluator(store, rank_front):
