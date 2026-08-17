@@ -13,6 +13,8 @@ if TYPE_CHECKING:
 from PIL import Image, UnidentifiedImageError
 
 from vectrify.cli import (
+    DEFAULT_EPOCH_EVAL_INTERVAL,
+    DEFAULT_EPOCH_EVAL_PATIENCE,
     DEFAULT_EPOCH_MAX_TASKS,
     DEFAULT_MAX_TOTAL_TASKS,
     DEFAULT_POOL_SIZE,
@@ -189,6 +191,8 @@ def run_vector_search(
     pool_size: int = DEFAULT_POOL_SIZE,
     seeds: int | None = None,
     epoch_max_tasks: int | None = DEFAULT_EPOCH_MAX_TASKS,
+    epoch_eval_interval: int | None = DEFAULT_EPOCH_EVAL_INTERVAL,
+    epoch_eval_patience: int | None = DEFAULT_EPOCH_EVAL_PATIENCE,
     tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
     adaptive_operators: bool = True,
     epochs: int | None = None,
@@ -436,6 +440,8 @@ def run_vector_search(
             initial_seeds=first_batch,
             epochs=epochs,
             epoch_max_tasks=epoch_max_tasks,
+            epoch_eval_interval=epoch_eval_interval,
+            epoch_eval_patience=epoch_eval_patience,
             operator_policy=operator_policy,
             collector=collector,
         )

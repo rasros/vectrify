@@ -352,7 +352,11 @@ class NsgaStrategy(Generic[TState]):
                 if not any(self._is_duplicate(node, s) for s in pareto_nodes):
                     pareto_nodes.append(node)
 
-        pareto_nodes.sort(key=lambda n: n.score)
+        # Already in rank order: non_dominated_sort yields the best tier first
+        # and _is_duplicate has thinned each tier, so taking the head takes the
+        # best-ranked distinct candidates. There is nothing left to sort by --
+        # a score would have to be a blend of the measures, which is the thing
+        # dominance replaced.
         parents = pareto_nodes[:max_parents]
         return parents or valid[:max_parents]
 

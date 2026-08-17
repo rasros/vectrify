@@ -3,6 +3,7 @@ import time
 
 import pytest
 
+from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search import INVALID_SCORE, ChainState, Result, SearchNode
 from vectrify.search.engine import MultiprocessSearchEngine
 
@@ -1108,6 +1109,90 @@ def test_the_epoch_budget_ends_an_epoch_that_has_not_gone_stale():
         # Far beyond the run, so staleness cannot be what ends the epoch.
         epoch_patience=10_000,
         epoch_max_tasks=2,
+        collector=collector,
+    )
+
+    collector.on_epoch_transition.assert_called()
+
+
+def test_the_evaluator_is_asked_during_an_epoch_not_only_at_its_boundary():
+    """The cheap measures can be driven a long way without the drawing getting
+    better, and the only way to notice is to ask the evaluator while it is
+    happening."""
+    seen: list[int] = []
+
+    def rank(nodes):
+        seen.append(len(nodes))
+        for i, node in enumerate(nodes):
+            node.metrics[FRONT_SCORE] = 0.5 - i * 0.1
+        return nodes
+
+    engine = MultiprocessSearchEngine(
+        workers=1,
+        strategy=FakeStrategy(),
+        storage=FakeStorage(),
+        max_total_tasks=4,
+        rank_front=rank,
+    )
+    for task_id in range(1, 5):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, score=0.0, payload="p")
+        )
+
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                score=0.0, id=1, parent_id=0, state=ChainState(score=0.0, payload=None)
+            )
+        ],
+        max_wall_seconds=None,
+        active_pool_size=3,
+        generation_size=1,
+        epoch_patience=10_000,
+        epoch_eval_interval=1,
+    )
+
+    assert seen, "the evaluator was never consulted mid-epoch"
+
+
+def test_the_epoch_ends_when_the_evaluator_stops_seeing_improvement():
+    """Rounds rather than checks, so the threshold means the same thing at any
+    cadence. The evaluator here always reports the same verdict, so nothing
+    ever improves on it and the epoch has to end on that."""
+    from unittest.mock import MagicMock
+
+    def rank(nodes):
+        for node in nodes:
+            node.metrics[FRONT_SCORE] = 0.5
+        return nodes
+
+    collector = MagicMock()
+    engine = MultiprocessSearchEngine(
+        workers=1,
+        strategy=FakeStrategy(),
+        storage=FakeStorage(),
+        max_total_tasks=8,
+        rank_front=rank,
+    )
+    for task_id in range(1, 9):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, score=0.0, payload="p")
+        )
+
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                score=0.0, id=1, parent_id=0, state=ChainState(score=0.0, payload=None)
+            )
+        ],
+        max_wall_seconds=None,
+        active_pool_size=3,
+        generation_size=1,
+        epochs=4,
+        # Neither of the other criteria may be what ends it.
+        epoch_patience=10_000,
+        epoch_eval_interval=1,
+        epoch_eval_patience=2,
         collector=collector,
     )
 

@@ -137,6 +137,8 @@ def main():
             pool_size=args.pool_size,
             seeds=args.seeds,
             epoch_max_tasks=args.epoch_max_tasks,
+            epoch_eval_interval=args.epoch_eval_interval,
+            epoch_eval_patience=args.epoch_eval_patience,
             tournament_size=args.tournament_size,
             adaptive_operators=args.adaptive_operators,
             epochs=args.epochs,

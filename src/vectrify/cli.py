@@ -40,6 +40,21 @@ DEFAULT_POOL_SIZE = 100
 # into an epoch -- all of it with no evaluator in the loop, which is where the
 # proxy runs away from what a viewer would call better.
 DEFAULT_EPOCH_MAX_TASKS = None
+# How often the evaluator is asked about the front mid-epoch, in tasks. The
+# cheap measures can be driven a long way without the drawing improving -- one
+# run took them 64% down while the evaluator saw no difference at all -- and
+# asking it only at the boundary means noticing that after the fact.
+#
+# A check costs one panel call over the front, about 13s measured, against a
+# throughput near 60 tasks/s. Nothing is asked twice: the evaluator's score is
+# absolute and cached per node, so a check re-prices only what is new.
+DEFAULT_EPOCH_EVAL_INTERVAL = 2000
+# Rounds without the evaluator seeing anything better before the epoch ends and
+# the model re-seeds. Rounds rather than checks, so the number means the same
+# thing whatever cadence the checks run at. Off until it is tuned: too low ends
+# epochs on the evaluator's noise, too high is the unsupervised drift it exists
+# to stop.
+DEFAULT_EPOCH_EVAL_PATIENCE = None
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
 # next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
@@ -226,6 +241,26 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="Epochs to run. Each one opens with a batch of seeds LLM calls, "
         "so this and --seeds together fix the run's entire LLM spend. "
         f"Default: {DEFAULT_EPOCHS}",
+    )
+    g_epoch.add_argument(
+        "--epoch-eval-interval",
+        type=int,
+        default=DEFAULT_EPOCH_EVAL_INTERVAL,
+        dest="epoch_eval_interval",
+        metavar="N",
+        help="Ask the evaluator about the front every N local tasks, not only "
+        "at the epoch boundary. Scores are cached per candidate, so a check "
+        f"re-prices only what is new. 0 disables. Default: "
+        f"{DEFAULT_EPOCH_EVAL_INTERVAL}",
+    )
+    g_epoch.add_argument(
+        "--epoch-eval-patience",
+        type=int,
+        default=DEFAULT_EPOCH_EVAL_PATIENCE,
+        dest="epoch_eval_patience",
+        metavar="N",
+        help="End the epoch once the evaluator has gone this many rounds "
+        "without seeing a better candidate. Unset by default.",
     )
     g_epoch.add_argument(
         "--epoch-max-tasks",
