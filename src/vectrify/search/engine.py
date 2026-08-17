@@ -500,7 +500,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             _archive_seed(new_node)
             node_states[new_node.id] = new_node.state
             _note_best(new_node, res)
-            self.storage.save_node(new_node)
+            self.storage.save_node(new_node, tasks_completed)
 
         def _close_generation() -> None:
             """Merge the finished batch of children into the pool.
@@ -525,13 +525,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                     operator_policy.update(child.operator, child.id in kept)
                 if child.id in kept:
                     node_states[child.id] = child.state
-                    self.storage.save_node(child)
+                    self.storage.save_node(child, tasks_completed)
                     continue
                 # A child can be the run's best and still lose its generation on
                 # another objective. Save it anyway: save_best is about to write
                 # it out, and lineage.csv should not omit the winner.
                 if child is best_node:
-                    self.storage.save_node(child)
+                    self.storage.save_node(child, tasks_completed)
                 log.debug(
                     f"[REJECTED] node={child.id} "
                     f"score={child.score:.6f} (dominated by the pool)"
