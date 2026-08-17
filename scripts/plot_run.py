@@ -97,9 +97,10 @@ def load_stats(run_dir: Path) -> dict:
         "epochs_completed": _float("epoch"),
         "epoch_patience_config": _float("epoch_patience"),
         "epoch_diversity_config": _float("epoch_diversity"),
-        "epoch_variance_config": _float("epoch_variance"),
+        "epoch_distinct_config": _float("epoch_distinct"),
         "pool_diversity_final": _float("pool_diversity"),
         "pool_score_std_final": _float("pool_score_std"),
+        "pool_distinct_final": _float("pool_distinct"),
     }
 
     # Reconstruct score_history from rows where best_score decreased.

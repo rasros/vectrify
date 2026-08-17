@@ -1,10 +1,10 @@
 import pytest
 
-from vectrify.dashboard import _variance_fraction
+from vectrify.dashboard import _distinct_fraction
 
 
 @pytest.mark.parametrize(
-    ("epoch_variance", "pool_std", "expected"),
+    ("epoch_distinct", "pool_distinct", "expected"),
     [
         (0.0, 0.5, 0.0),  # criterion disabled
         (0.1, 1.0, 0.1),  # far from the stop
@@ -13,17 +13,15 @@ from vectrify.dashboard import _variance_fraction
         (0.1, 0.05, 1.0),  # past it, clamped
     ],
 )
-def test_variance_fraction(epoch_variance, pool_std, expected):
-    assert _variance_fraction(epoch_variance, pool_std) == pytest.approx(expected)
+def test_distinct_fraction(epoch_distinct, pool_distinct, expected):
+    assert _distinct_fraction(epoch_distinct, pool_distinct) == pytest.approx(expected)
 
 
-def test_variance_fraction_is_full_at_zero_spread():
-    """Regression: zero spread returned 0.0, so the bar read empty at exactly
-    the moment the criterion was most satisfied. A pool whose scores are all
-    identical is the collapsed state --epoch-variance exists to detect.
-    """
-    assert _variance_fraction(0.1, 0.0) == 1.0
+def test_distinct_fraction_is_full_when_nothing_is_distinct():
+    """A pool with no distinct member is the collapsed state the criterion
+    exists to detect, so the bar reads full rather than empty there."""
+    assert _distinct_fraction(0.1, 0.0) == 1.0
 
 
-def test_variance_fraction_stays_zero_when_disabled_even_at_zero_spread():
-    assert _variance_fraction(0.0, 0.0) == 0.0
+def test_distinct_fraction_stays_zero_when_disabled():
+    assert _distinct_fraction(0.0, 0.0) == 0.0

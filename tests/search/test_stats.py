@@ -2,7 +2,13 @@ import math
 
 import pytest
 
-from vectrify.search.stats import RATE_SPECS, SearchStats, derived_rates, score_std
+from vectrify.search.stats import (
+    RATE_SPECS,
+    SearchStats,
+    derived_rates,
+    distinct_share,
+    score_std,
+)
 
 
 def _populated() -> SearchStats:
@@ -67,6 +73,33 @@ def test_score_std_matches_population_formula():
 
 def test_score_std_needs_two_samples():
     assert score_std([]) == 0.0
+
+
+def test_distinct_share_counts_unique_scores():
+    assert distinct_share([0.1, 0.2, 0.3, 0.4]) == 1.0
+    assert distinct_share([0.1, 0.1, 0.1, 0.1]) == 0.25
+    assert distinct_share([0.1, 0.1, 0.2, 0.3]) == 0.75
+
+
+def test_distinct_share_ignores_how_far_apart_scores_are():
+    """The reason it replaced spread. A pool descending together is packed
+    tightly and still improving; a pool of clones has nothing left to select
+    between. Spread reads those as the same state, this does not."""
+    tight = [1.000, 1.001, 1.002, 1.003]
+    spread_out = [1.0, 50.0, 100.0, 150.0]
+    assert distinct_share(tight) == distinct_share(spread_out) == 1.0
+    assert score_std(tight) < score_std(spread_out)
+
+
+def test_distinct_share_is_unchanged_by_rescaling_every_score():
+    scores = [0.1, 0.1, 0.2, 0.7]
+    assert distinct_share(scores) == distinct_share([s * 1000 for s in scores])
+
+
+def test_distinct_share_of_an_empty_pool_is_not_collapsed():
+    """An empty pool must not read as the collapsed state, or the criterion
+    would end an epoch before the pool has been filled."""
+    assert distinct_share([]) == 1.0
     assert score_std([0.5]) == 0.0
 
 

@@ -329,11 +329,10 @@ def test_engine_score_fn_none_with_unscored_result_raises():
         )
 
 
-def test_engine_low_variance_epoch_end_does_not_crash():
-    """Regression: the low-variance branch compared the imported score_std
-    *function* to a float, so any positive --epoch-variance raised TypeError on
-    the first epoch-end check. Nothing covered this path, which is why it
-    shipped.
+def test_engine_pool_collapse_epoch_end_does_not_crash():
+    """Regression: the epoch-end branch compared an imported *function* to a
+    float, so any positive threshold raised TypeError on the first check.
+    Nothing covered this path, which is why it shipped.
     """
     strat = FakeStrategy()
     store = FakeStorage()
@@ -350,7 +349,7 @@ def test_engine_low_variance_epoch_end_does_not_crash():
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
-        epoch_variance=0.05,  # the flag that used to crash the run
+        epoch_distinct=0.05,  # the flag that used to crash the run
         active_pool_size=1,
     )
 
@@ -1167,8 +1166,8 @@ def test_the_pool_criteria_read_the_same_on_any_scale():
             storage=FakeStorage(),
             max_total_tasks=8,
         )
-        # Spread collapses by the same proportion in both runs, a thousandfold
-        # apart in absolute terms.
+        # The same pattern of ties and distinct values in both runs, a
+        # thousandfold apart in absolute terms.
         for task_id, spread in enumerate(
             [1.0, 0.9, 0.02, 0.02, 0.02, 0.02, 0.02, 0.02]
         ):
@@ -1190,7 +1189,7 @@ def test_the_pool_criteria_read_the_same_on_any_scale():
             active_pool_size=2,
             epochs=4,
             epoch_patience=10_000,
-            epoch_variance=0.3,
+            epoch_distinct=0.6,
             collector=collector,
         )
         return collector.on_epoch_transition.call_count

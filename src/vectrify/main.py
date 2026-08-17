@@ -140,7 +140,7 @@ def main():
             epoch_diversity=args.epoch_diversity,
             tournament_size=args.tournament_size,
             adaptive_operators=args.adaptive_operators,
-            epoch_variance=args.epoch_variance or None,
+            epoch_distinct=args.epoch_distinct or None,
             epochs=args.epochs,
             max_total_tasks=args.max_total_tasks,
             random_seed=args.random_seed,

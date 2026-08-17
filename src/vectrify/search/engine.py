@@ -18,7 +18,7 @@ from vectrify.search.models import (
     valid_scores,
 )
 from vectrify.search.operators import OperatorPolicy
-from vectrify.search.stats import score_std
+from vectrify.search.stats import distinct_share, score_std
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
@@ -64,7 +64,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         workers: int,
         strategy: SearchStrategy[TState],
         storage: StorageAdapter[TState],
-        max_total_tasks: int = 10000,
+        max_total_tasks: int | None = None,
         make_state: Callable[[Result], ChainState[TState]] = keep_payload,
         rank_front: Callable[[list[SearchNode[TState]]], list[SearchNode[TState]]]
         | None = None,
@@ -111,14 +111,14 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_nodes: list[SearchNode[TState]],
         max_wall_seconds: float | None = None,
         epoch_patience: int | None = None,
-        epoch_min_delta: float = 1e-4,
+        epoch_min_delta: float | None = None,
         active_pool_size: int = 20,
         generation_size: int | None = None,
         score_fn: Callable[[list[Result]], None] | None = None,
         epoch_seeds: int = 0,
         initial_seeds: int | None = None,
         epochs: int | None = None,
-        epoch_variance: float | None = None,
+        epoch_distinct: float | None = None,
         epoch_diversity: float = 0.0,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
@@ -224,7 +224,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_no_improve = 0
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
-        epoch_baseline: tuple[float, float] | None = None
+        epoch_baseline: float | None = None
         epoch_patience_best = best_node.score if best_node else INVALID_SCORE
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
 
@@ -370,7 +370,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         def _dispatch_tasks():
             nonlocal in_flight, next_task_id, seeds_dispatched
 
-            while in_flight < self.workers and next_task_id <= self.max_total_tasks:
+            while in_flight < self.workers and (
+                self.max_total_tasks is None or next_task_id <= self.max_total_tasks
+            ):
                 if phase == SEED_PHASE:
                     if seeds_dispatched >= seeds_target:
                         return
@@ -556,7 +558,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             pending_children.append(new_node)
             _note_best(new_node, res)
 
-            if new_node.score <= epoch_patience_best - epoch_min_delta:
+            if new_node.score <= epoch_patience_best - (epoch_min_delta or 0.0):
                 epoch_patience_best = new_node.score
                 epoch_no_improve = 0
                 if collector is not None:
@@ -596,47 +598,55 @@ class MultiprocessSearchEngine(Generic[TState]):
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
             _unused, pool_div = self.strategy.should_diversify(active_pool)
-            pool_std = score_std(valid_scores(active_pool))
+            scores = valid_scores(active_pool)
+            pool_std = score_std(scores)
+            pool_distinct = distinct_share(scores)
 
             if collector is not None:
-                collector.on_pool_state(diversity=pool_div, score_std=pool_std)
+                collector.on_pool_state(
+                    diversity=pool_div, score_std=pool_std, distinct=pool_distinct
+                )
 
-            # Both pool measures are read against where this epoch started
-            # rather than against a fixed number. An absolute threshold cannot
-            # be chosen once and mean the same thing twice: score spread is
-            # denominated in whatever the round objective happens to be, which
-            # has been rewritten repeatedly, and pool diversity -- a fraction
-            # already -- still sat anywhere between 0.05 and 0.33 across real
-            # runs depending only on how intricate the drawing is. A ratio to
-            # the epoch's own opening value carries neither dependence, so one
-            # setting means the same thing on every image.
+            # Diversity is read against where this epoch started, because it
+            # sat anywhere between 0.05 and 0.33 across real runs depending
+            # only on how intricate the drawing is, so no absolute threshold
+            # means the same thing twice.
             if epoch_baseline is None:
-                epoch_baseline = (max(pool_div, 1e-9), max(pool_std, 1e-9))
-            base_div, base_std = epoch_baseline
-
+                epoch_baseline = max(pool_div, 1e-9)
             low_diversity = (
-                epoch_diversity > 0 and pool_div / base_div < epoch_diversity
+                epoch_diversity > 0 and pool_div / epoch_baseline < epoch_diversity
             )
-            low_variance = (
-                epoch_variance is not None
-                and epoch_variance > 0
-                and pool_std / base_std < epoch_variance
+
+            # The score criterion takes no baseline at all. It counts how much
+            # of the pool holds a score no one else holds, which is already a
+            # fraction and never touches the magnitude of a score, so one
+            # setting carries across images and across changes to the round
+            # objective. Spread could do neither: read against a fixed number
+            # it moved with whatever the objective was denominated in, and read
+            # against the epoch's opening value it measured from a trough,
+            # since an epoch opens before its seed children have landed.
+            collapsed = (
+                epoch_distinct is not None
+                and epoch_distinct > 0
+                and pool_distinct < epoch_distinct
             )
 
             # Any one of these ending the epoch, rather than all of them
             # agreeing. Each is meant to be set tight enough that its firing is
             # sufficient on its own -- a pool that has collapsed into clones is
-            # done whatever the score is still doing -- and the two rules fail
-            # very differently when one is set wrongly. Under this rule a
-            # criterion that seldom reaches its threshold simply sits idle;
-            # requiring all of them would let that same criterion block every
-            # transition, so the LLM would never re-seed and the epochs would
-            # be spent as one long local search.
+            # done whatever the score is still doing -- and the rules fail very
+            # differently when one is set wrongly. Under this rule a criterion
+            # that seldom reaches its threshold simply sits idle; requiring all
+            # of them would let that same criterion block every transition, so
+            # the LLM would never re-seed and the epochs would be spent as one
+            # long local search.
             #
-            # Measured across real runs, pool diversity ranges from 0.05 to
-            # 0.33 and score spread from 0.008 to 0.032, with no floor common
-            # to every image -- which is exactly the shape that makes the
-            # conjunction dangerous and leaves these two opt-in.
+            # Both stay opt-in. A pool collapses into agreement long before it
+            # stops improving -- on one measured run the score spread had
+            # fallen to a fiftieth of its peak by task 500 of an epoch whose
+            # best went on to improve by a further 77% before going stale at
+            # task 5200 -- so any threshold defaulted on here cuts search off
+            # while it is still working.
             if staleness:
                 reason = (
                     f"staleness ({epoch_no_improve} >="
@@ -644,13 +654,11 @@ class MultiprocessSearchEngine(Generic[TState]):
                 )
             elif low_diversity:
                 reason = (
-                    f"diversity fell to {pool_div / base_div:.2f} of its opening value"
+                    f"diversity fell to {pool_div / epoch_baseline:.2f}"
+                    " of its opening value"
                 )
-            elif low_variance:
-                reason = (
-                    f"score spread fell to {pool_std / base_std:.2f}"
-                    f" of its opening value"
-                )
+            elif collapsed:
+                reason = f"only {pool_distinct:.2f} of the pool holds a distinct score"
             else:
                 return
 
@@ -700,7 +708,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                 ):
                     log.warning("Time limit reached.")
                     break
-                if tasks_completed >= self.max_total_tasks:
+                if (
+                    self.max_total_tasks is not None
+                    and tasks_completed >= self.max_total_tasks
+                ):
                     log.warning("Max task limit reached.")
                     break
                 if epochs is not None and epoch >= epochs:

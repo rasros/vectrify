@@ -68,11 +68,13 @@ def test_seeds_zero_requires_resume():
 def test_defaults_pinned():
     args = parse_args(["img.png"])
     assert args.pool_size == 100
-    # Off: measured against the instant after a seed batch lands, both ratios
-    # collapse within seconds of an epoch opening and ended every epoch of a
-    # real run before staleness could.
+    # Off: a pool collapses into agreement long before it stops improving, so
+    # any threshold defaulted on here ends search while it is still working.
     assert args.epoch_diversity == 0.0
-    assert args.epoch_variance == 0.0
+    assert args.epoch_distinct == 0.0
+    # Unset: both were binding before the limits that describe the search.
+    assert args.epoch_min_delta is None
+    assert args.max_total_tasks is None
     # Patience counts local tasks only; a seed batch is not a hill-climb and
     # cannot go stale. Raised from 200 once the gap between improvements was
     # measured: 142 tasks at the 95th percentile and 497 at the longest seen.

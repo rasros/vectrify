@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from vectrify.search.models import INVALID_SCORE
-from vectrify.search.stats import score_std
+from vectrify.search.stats import distinct_share, score_std
 
 if TYPE_CHECKING:
     from vectrify.search.models import Result, SearchNode
@@ -47,7 +47,8 @@ STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "pool_score_std": _rounded("pool_score_std", 6),
     "epoch_patience": lambda s: s.epoch_patience,
     "epoch_diversity": _rounded("epoch_diversity", 4),
-    "epoch_variance": _rounded("epoch_variance", 6),
+    "pool_distinct": _rounded("pool_distinct", 4),
+    "epoch_distinct": _rounded("epoch_distinct", 4),
 }
 
 STATS_COLUMNS = list(STATS_FIELDS)
@@ -74,11 +75,11 @@ class StatCollector:
         self,
         *,
         epoch_diversity: float,
-        epoch_variance: float,
+        epoch_distinct: float,
     ) -> None:
         s = self._stats
         s.epoch_diversity = epoch_diversity
-        s.epoch_variance = epoch_variance
+        s.epoch_distinct = epoch_distinct
 
     def seed_initial_score(self, best_score: float) -> None:
         s = self._stats
@@ -160,10 +161,13 @@ class StatCollector:
 
     # ── Pool state events ─────────────────────────────────────────────────────
 
-    def on_pool_state(self, *, diversity: float, score_std: float) -> None:
+    def on_pool_state(
+        self, *, diversity: float, score_std: float, distinct: float
+    ) -> None:
         s = self._stats
         s.pool_diversity = diversity
         s.pool_score_std = score_std
+        s.pool_distinct = distinct
 
     def on_epoch_transition(self, epoch: int) -> None:
         s = self._stats
@@ -177,6 +181,7 @@ class StatCollector:
         s.llm_calls_in_flight = llm_in_flight
         if len(valid_scores) >= 2:
             s.pool_score_std = score_std(valid_scores)
+            s.pool_distinct = distinct_share(valid_scores)
 
     def _maybe_flush(self, *, is_llm: bool) -> None:
         """Flush if this is an LLM call or a task-count milestone."""

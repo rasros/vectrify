@@ -1,0 +1,166 @@
+08:39:52 | MainProcess | INFO | Round scoring: edge overlap and colour distance, no model. Front evaluator: auto (facebook/dinov2-small).
+08:39:52 | MainProcess | INFO | Starting 8 worker processes...
+08:39:59 | MainProcess | INFO | Search started. Initial best: inf
+08:39:59 | MainProcess | INFO | Epoch 0: seeding with 10 LLM call(s) over 1 parent(s).
+08:40:37 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:40:37 | MainProcess | INFO | [LLM-GENERATE] node=1 score=0.294784
+08:40:38 | SpawnProcess-6 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:40:38 | MainProcess | INFO | [LLM-GENERATE] node=2 score=0.261135
+08:40:42 | SpawnProcess-1 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:40:43 | MainProcess | INFO | [LLM-GENERATE] node=3 score=0.176211
+08:40:47 | SpawnProcess-8 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:40:47 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4 score=0.220796
+08:40:49 | SpawnProcess-4 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:40:49 | SpawnProcess-3 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:40:49 | SpawnProcess-2 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:40:49 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=5 score=0.332352
+08:40:49 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=6 score=0.282025
+08:40:49 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=7 score=0.376003
+08:41:09 | SpawnProcess-7 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:41:10 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8 score=0.271305
+08:41:16 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:41:16 | MainProcess | INFO | [LLM-GENERATE] node=9 score=0.172932
+08:41:25 | SpawnProcess-6 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:41:25 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=10 score=0.314372
+08:41:25 | MainProcess | INFO | Epoch 0: refining 10 candidate(s) locally.
+08:41:26 | MainProcess | INFO | [NEW BEST] node=20 score=0.172767
+08:41:26 | MainProcess | INFO | [NEW BEST] node=39 score=0.171518
+08:41:32 | MainProcess | INFO | [NEW BEST] node=172 score=0.169375
+08:41:47 | MainProcess | INFO | [NEW BEST] node=512 score=0.165206
+08:41:56 | MainProcess | INFO | [NEW BEST] node=761 score=0.157995
+08:42:01 | MainProcess | INFO | [NEW BEST] node=932 score=0.155540
+08:42:09 | MainProcess | INFO | [NEW BEST] node=1238 score=0.142609
+08:42:16 | MainProcess | INFO | [NEW BEST] node=1455 score=0.142558
+08:42:17 | MainProcess | INFO | [NEW BEST] node=1491 score=0.129269
+08:42:25 | MainProcess | INFO | [NEW BEST] node=1719 score=0.119258
+08:42:26 | MainProcess | INFO | [NEW BEST] node=1734 score=0.113247
+08:42:27 | MainProcess | INFO | [NEW BEST] node=1786 score=0.109863
+08:42:29 | MainProcess | INFO | [NEW BEST] node=1849 score=0.104420
+08:42:34 | MainProcess | INFO | [NEW BEST] node=2032 score=0.104138
+08:42:38 | MainProcess | INFO | [NEW BEST] node=2195 score=0.103525
+08:42:38 | MainProcess | INFO | [NEW BEST] node=2218 score=0.103520
+08:42:39 | MainProcess | INFO | [NEW BEST] node=2245 score=0.103509
+08:42:39 | MainProcess | INFO | [NEW BEST] node=2253 score=0.103423
+08:42:40 | MainProcess | INFO | [NEW BEST] node=2301 score=0.103099
+08:42:40 | MainProcess | INFO | [NEW BEST] node=2325 score=0.103082
+08:42:42 | MainProcess | INFO | [NEW BEST] node=2374 score=0.102997
+08:42:42 | MainProcess | INFO | [NEW BEST] node=2396 score=0.102363
+08:42:49 | MainProcess | INFO | [NEW BEST] node=2656 score=0.099300
+08:42:54 | MainProcess | INFO | [NEW BEST] node=2859 score=0.099295
+08:42:55 | MainProcess | INFO | [NEW BEST] node=2887 score=0.099148
+08:42:56 | MainProcess | INFO | [NEW BEST] node=2921 score=0.099146
+08:42:57 | MainProcess | INFO | [NEW BEST] node=2965 score=0.099116
+08:42:59 | MainProcess | INFO | [NEW BEST] node=3012 score=0.097756
+08:43:02 | MainProcess | INFO | [NEW BEST] node=3120 score=0.097741
+08:43:05 | MainProcess | INFO | [NEW BEST] node=3271 score=0.097736
+08:43:07 | MainProcess | INFO | [NEW BEST] node=3348 score=0.097531
+08:43:12 | MainProcess | INFO | [NEW BEST] node=3496 score=0.097095
+08:43:12 | MainProcess | INFO | [NEW BEST] node=3509 score=0.096669
+08:43:20 | MainProcess | INFO | [NEW BEST] node=3746 score=0.096456
+08:43:25 | MainProcess | INFO | [NEW BEST] node=3873 score=0.096273
+08:43:30 | MainProcess | INFO | [NEW BEST] node=4037 score=0.095830
+08:43:34 | MainProcess | INFO | [NEW BEST] node=4132 score=0.095802
+08:43:41 | MainProcess | INFO | [NEW BEST] node=4416 score=0.095603
+08:43:48 | MainProcess | INFO | Epoch 0 → 1: staleness (500 >= 500 tasks without improvement)
+08:43:48 | MainProcess | INFO | AUTO mode: Attempting to initialize the evaluator panel...
+08:43:54 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/facebook/dinov2-small/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+08:43:54 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/facebook/dinov2-small/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:54 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dinov2-small/ed25f3a31f01632728cabb09d1542f84ab7b0056/preprocessor_config.json "HTTP/1.1 200 OK"
+08:43:54 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/facebook/dinov2-small/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+08:43:54 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/facebook/dinov2-small/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:54 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dinov2-small/ed25f3a31f01632728cabb09d1542f84ab7b0056/preprocessor_config.json "HTTP/1.1 200 OK"
+08:43:55 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/facebook/dinov2-small/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:55 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/facebook/dinov2-small/ed25f3a31f01632728cabb09d1542f84ab7b0056/config.json "HTTP/1.1 200 OK"
+08:43:55 | MainProcess | INFO | AUTO: Evaluator panel initialized successfully.
+08:43:55 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+08:43:56 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:56 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/1a25a446712ba5ee05982a381eed697ef9b435cf/preprocessor_config.json "HTTP/1.1 200 OK"
+08:43:56 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+08:43:56 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:56 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/1a25a446712ba5ee05982a381eed697ef9b435cf/preprocessor_config.json "HTTP/1.1 200 OK"
+08:43:56 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:56 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/laion/CLIP-ViT-B-32-laion2B-s34B-b79K/1a25a446712ba5ee05982a381eed697ef9b435cf/config.json "HTTP/1.1 200 OK"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/google/siglip-base-patch16-224/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/google/siglip-base-patch16-224/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/google/siglip-base-patch16-224/7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed/preprocessor_config.json "HTTP/1.1 200 OK"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/google/siglip-base-patch16-224/resolve/main/processor_config.json "HTTP/1.1 404 Not Found"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/google/siglip-base-patch16-224/resolve/main/preprocessor_config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/google/siglip-base-patch16-224/7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed/preprocessor_config.json "HTTP/1.1 200 OK"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/google/siglip-base-patch16-224/resolve/main/config.json "HTTP/1.1 307 Temporary Redirect"
+08:43:57 | MainProcess | INFO | HTTP Request: HEAD https://huggingface.co/api/resolve-cache/models/google/siglip-base-patch16-224/7fd15f0689c79d79e38b1c2e2e2370a7bf2761ed/config.json "HTTP/1.1 200 OK"
+08:44:16 | MainProcess | INFO | Front evaluated: 24 candidate(s), best 0.042336, worst 1.002717
+08:44:16 | MainProcess | INFO | Epoch 1: seeding with 10 LLM call(s) over 10 parent(s).
+08:44:29 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:29 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4872 score=0.219183
+08:44:30 | SpawnProcess-2 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:30 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4873 score=0.182868
+08:44:40 | SpawnProcess-6 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:40 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4874 score=0.249871
+08:44:44 | SpawnProcess-1 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:44 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4875 score=0.299931
+08:44:48 | SpawnProcess-8 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:48 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4876 score=0.305327
+08:44:50 | SpawnProcess-7 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:50 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4877 score=0.207115
+08:44:51 | SpawnProcess-3 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:51 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4878 score=0.186746
+08:44:59 | SpawnProcess-4 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:44:59 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4879 score=0.273153
+08:45:05 | SpawnProcess-2 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:45:05 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4880 score=0.256321
+08:45:08 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:45:08 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=4881 score=0.189895
+08:45:08 | MainProcess | INFO | Epoch 1: refining 10 candidate(s) locally.
+08:46:34 | MainProcess | INFO | Epoch 1 → 2: staleness (500 >= 500 tasks without improvement)
+08:48:02 | MainProcess | INFO | Front evaluated: 24 candidate(s), best -0.002639, worst 1.002639
+08:48:02 | MainProcess | INFO | Epoch 2: seeding with 10 LLM call(s) over 10 parent(s).
+08:48:17 | SpawnProcess-3 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:17 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8275 score=0.210131
+08:48:21 | SpawnProcess-8 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:21 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8276 score=0.191342
+08:48:21 | SpawnProcess-7 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:21 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8277 score=0.169606
+08:48:22 | SpawnProcess-4 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:22 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8278 score=0.286510
+08:48:28 | SpawnProcess-1 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:28 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8279 score=0.169832
+08:48:30 | SpawnProcess-2 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:30 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8280 score=0.201002
+08:48:37 | SpawnProcess-6 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:38 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8281 score=0.184967
+08:48:45 | SpawnProcess-3 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:45 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:45 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8282 score=0.208656
+08:48:45 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8283 score=0.154233
+08:48:55 | SpawnProcess-8 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:48:55 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=8284 score=0.204695
+08:48:55 | MainProcess | INFO | Epoch 2: refining 10 candidate(s) locally.
+08:49:46 | MainProcess | INFO | Epoch 2 → 3: staleness (500 >= 500 tasks without improvement)
+08:50:52 | MainProcess | INFO | Front evaluated: 24 candidate(s), best -0.001930, worst 1.002402
+08:50:52 | MainProcess | INFO | Epoch 3: seeding with 10 LLM call(s) over 10 parent(s).
+08:51:16 | SpawnProcess-4 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:16 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9857 score=0.194291
+08:51:23 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:23 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9858 score=0.198217
+08:51:33 | SpawnProcess-3 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:33 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9859 score=0.172515
+08:51:33 | SpawnProcess-8 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:33 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9860 score=0.262303
+08:51:35 | SpawnProcess-2 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:35 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9861 score=0.155724
+08:51:37 | SpawnProcess-6 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:37 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9862 score=0.169952
+08:51:41 | SpawnProcess-1 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:41 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9863 score=0.211482
+08:51:48 | SpawnProcess-7 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:48 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9864 score=0.598872
+08:51:55 | SpawnProcess-5 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:51:55 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9865 score=0.187873
+08:52:02 | SpawnProcess-4 | INFO | HTTP Request: POST https://api.openai.com/v1/chat/completions "HTTP/1.1 200 OK"
+08:52:02 | MainProcess | INFO | [LLM-GENERATE ACCEPTED] node=9866 score=0.166204
+08:52:02 | MainProcess | INFO | Epoch 3: refining 10 candidate(s) locally.
+08:52:28 | MainProcess | WARNING | Max task limit reached.
+08:52:48 | MainProcess | INFO | Front evaluated: 101 candidate(s), best -0.000483, worst 1.000408
+08:52:48 | MainProcess | INFO | Best candidate (score 0.095603) written to duck-v6.svg
+08:52:48 | MainProcess | INFO | Shutting down workers...
+08:52:48 | MainProcess | INFO | Final operator mix: Mutation: color tweak=0.69, Mutation: moved element=0.05, Mutation: numeric tweak=0.05, Mutation: stroke change=0.05, Mutation: reordered elements=0.05, Mutation: path nudge=0.05, Mutation: dropped style property=0.05

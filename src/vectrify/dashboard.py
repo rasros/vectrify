@@ -33,18 +33,19 @@ def _diversity_color(pool_diversity: float, epoch_diversity: float) -> str:
     return "green"
 
 
-def _variance_fraction(epoch_variance: float, pool_score_std: float) -> float:
-    """Progress toward the low-variance epoch-end criterion, in [0, 1].
+def _distinct_fraction(epoch_distinct: float, pool_distinct: float) -> float:
+    """Progress toward the pool-collapse epoch-end criterion, in [0, 1].
 
-    Ratio of threshold to current spread, so the bar fills as the pool collapses
-    toward the stop. Zero spread is the most collapsed the pool can be -- the
-    criterion is already satisfied -- so that reads full rather than empty.
+    Ratio of threshold to the share of the pool holding a distinct score, so
+    the bar fills as the pool collapses toward the stop. A pool with no
+    distinct member is as collapsed as it can be -- the criterion is already
+    satisfied -- so that reads full rather than empty.
     """
-    if epoch_variance <= 0:
+    if epoch_distinct <= 0:
         return 0.0
-    if pool_score_std <= 0:
+    if pool_distinct <= 0:
         return 1.0
-    return min(1.0, epoch_variance / pool_score_std)
+    return min(1.0, epoch_distinct / pool_distinct)
 
 
 def _threshold_color(fraction: float) -> str:
@@ -116,12 +117,12 @@ def _build_renderable(stats: SearchStats) -> Panel:
     # Pool stats: single line with diversity + variance values
     div_color = _diversity_color(s.pool_diversity, s.epoch_diversity)
 
-    var_frac = _variance_fraction(s.epoch_variance, s.pool_score_std)
-    var_color = _threshold_color(var_frac) if s.epoch_variance > 0 else "cyan"
+    dist_frac = _distinct_fraction(s.epoch_distinct, s.pool_distinct)
+    dist_color = _threshold_color(dist_frac) if s.epoch_distinct > 0 else "cyan"
 
     pool_line = (
         f"  diversity [{div_color}]{s.pool_diversity:.3f}[/{div_color}]"
-        f"   variance [{var_color}]{s.pool_score_std:.4f}[/{var_color}]"
+        f"   distinct [{dist_color}]{s.pool_distinct:.2f}[/{dist_color}]"
         f"   stale [dim]{s.epoch_no_improve:,}[/dim]"
     )
 
@@ -139,13 +140,13 @@ def _build_renderable(stats: SearchStats) -> Panel:
             )
         )
 
-    if s.epoch_variance > 0:
+    if s.epoch_distinct > 0:
         stop_rows.append(
             _stop_row(
-                "var stop",
-                var_frac,
-                f"{s.pool_score_std:.4f}",
-                note=f"epoch at < {s.epoch_variance:.4f}",
+                "distinct stop",
+                dist_frac,
+                f"{s.pool_distinct:.2f}",
+                note=f"epoch at < {s.epoch_distinct:.2f}",
             )
         )
 
