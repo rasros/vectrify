@@ -36,12 +36,12 @@ from vectrify.score.metrics import (
     EDGE,
     FRONT_SCORE,
     SHAPE,
-    round_score,
 )
 from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     INVALID_SCORE,
+    VALID_SCORE,
     ChainState,
     MultiprocessSearchEngine,
     NsgaStrategy,
@@ -358,9 +358,10 @@ def run_vector_search(
             res.metrics[COLOUR] = float(comparison.colour.mean())
             res.metrics[SHAPE] = comparison.shape
             res.metrics[DETAIL] = detail_excess(reference_detail, png)
-            res.score = round_score(
-                res.metrics[COLOUR], res.metrics[EDGE], res.metrics[SHAPE]
-            )
+            # Measured, so valid. `score` carries no magnitude any more: the
+            # measures are ranked by dominance and the only score in the run is
+            # the evaluator's, recorded as FRONT_SCORE on the nodes it sees.
+            res.score = VALID_SCORE
         except Exception as exc:
             log.debug(f"Pixel objectives skipped: {exc}")
 

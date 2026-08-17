@@ -56,8 +56,13 @@ class FakeStorage:
         _ = max_nodes
         return []
 
-    def save_node(self, node: SearchNode, tasks_completed: int = 0) -> None:
-        _ = (node, tasks_completed)
+    def save_node(
+        self,
+        node: SearchNode,
+        tasks_completed: int = 0,
+        keep_content: bool = True,
+    ) -> None:
+        _ = (node, tasks_completed, keep_content)
         self.save_called = True
 
     def save_best(self, node: SearchNode) -> None:
@@ -995,9 +1000,10 @@ def test_the_final_artifact_is_chosen_by_the_evaluator():
     assert store.best_saved.score == 0.5
 
 
-def test_a_failing_evaluator_falls_back_to_the_best_score():
+def test_a_failing_evaluator_still_writes_a_top_tier_candidate():
     """Losing the run's single most important artifact to a scorer error at
-    shutdown would be the worst possible time for it."""
+    shutdown would be the worst possible time for it. With no blended score to
+    fall back on, any unbeaten candidate is written instead."""
 
     def explode(_nodes):
         raise RuntimeError("no")
@@ -1006,7 +1012,7 @@ def test_a_failing_evaluator_falls_back_to_the_best_score():
     _run_two_children(_engine_with_evaluator(store, explode))
 
     assert store.best_saved is not None
-    assert store.best_saved.score == 0.1
+    assert store.best_saved.score < INVALID_SCORE
 
 
 def test_scorer_thread_scores_queued_results_together():

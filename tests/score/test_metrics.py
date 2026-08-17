@@ -2,7 +2,6 @@
 
 from vectrify.score.metrics import (
     METRIC_NAMES,
-    OBJECTIVE_NAMES,
     SCORER_METRICS,
     read_metrics,
     row_has_metrics,
@@ -19,7 +18,7 @@ def test_the_evaluator_verdict_is_recorded_but_never_an_objective():
     reads as 0.0 -- best possible for a minimised objective -- which would let
     every unevaluated candidate dominate every evaluated one."""
     assert "front_score" in METRIC_NAMES
-    assert "front_score" not in OBJECTIVE_NAMES
+    assert "front_score" not in SCORER_METRICS
 
 
 def test_read_metrics_defaults_missing_columns_to_zero():

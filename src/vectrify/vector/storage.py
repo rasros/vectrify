@@ -124,26 +124,37 @@ class FileStorageAdapter:
         log.info(f"Loading nodes to resume from latest run: {latest_run.name}")
 
         ext = re.escape(self.file_extension)
-        # `inf` is its own alternative because save_node writes f"{score:.6f}",
-        # which renders INVALID_SCORE as a bare "inf".
-        file_pattern = re.compile(rf"^(inf|[0-9.]+)_(\d+){ext}$")
-        parsed_files: list[tuple[int, Path, float]] = []
+        # Two shapes, both written by _node_basename: a bare id, and an
+        # evaluator score followed by an id. Older runs used a blended score in
+        # that leading position, which parses here as a score that no longer
+        # means anything -- so --resume-top only trusts an `eval` prefix and
+        # otherwise takes the newest ids, which is the honest ordering when
+        # nothing in the directory has been evaluated.
+        scored = re.compile(rf"^eval(-?[0-9.]+)_(\d+){ext}$")
+        plain = re.compile(rf"^(\d+){ext}$")
+        parsed_files: list[tuple[int, Path, float | None]] = []
 
         glob_pattern = f"*{self.file_extension}"
         for file_path in target_nodes_dir.glob(glob_pattern):
-            match = file_pattern.match(file_path.name)
-            node_id = int(match.group(2)) if match else self._max_id + 1
-            # Score comes from the match, not from re-splitting the stem: a
-            # user-dropped file with a non-numeric prefix would otherwise raise
-            # an unhandled ValueError while sorting for --resume-top.
-            score = float(match.group(1)) if match else float("inf")
+            score: float | None = None
+            match = scored.match(file_path.name)
+            if match:
+                node_id, score = int(match.group(2)), float(match.group(1))
+            else:
+                bare = plain.match(file_path.name)
+                node_id = int(bare.group(1)) if bare else self._max_id + 1
 
             self._max_id = max(self._max_id, node_id)
             parsed_files.append((node_id, file_path, score))
 
         if self.resume_top is not None:
-            parsed_files.sort(key=lambda item: item[2])
-            parsed_files = parsed_files[: self.resume_top]
+            evaluated = [item for item in parsed_files if item[2] is not None]
+            if evaluated:
+                evaluated.sort(key=lambda item: item[2])
+                parsed_files = evaluated[: self.resume_top]
+            else:
+                parsed_files.sort(key=lambda item: item[0], reverse=True)
+                parsed_files = parsed_files[: self.resume_top]
 
         resumed_data = []
         for node_id, file_path, _score in parsed_files:
@@ -157,8 +168,17 @@ class FileStorageAdapter:
         return sorted(resumed_data, key=lambda x: x[0])
 
     def save_node(
-        self, node: SearchNode[VectorStatePayload], tasks_completed: int = 0
+        self,
+        node: SearchNode[VectorStatePayload],
+        tasks_completed: int = 0,
+        keep_content: bool = True,
     ) -> None:
+        """Record *node* in lineage.csv, and write its content when asked.
+
+        *keep_content* is how a run stays a readable directory rather than a
+        hundred thousand files: the lineage row is cheap and always written,
+        the drawing itself only for candidates worth reading back.
+        """
         if self.nodes_dir is None or self.lineage_csv is None:
             return
 
@@ -167,16 +187,21 @@ class FileStorageAdapter:
         # --no-write-lineage suppresses the per-node files and lineage.csv, but
         # the raster/heatmap sidecars stay under their own flags.
         if not self.write_lineage:
-            self._save_sidecars(node)
+            if keep_content:
+                self._save_sidecars(node)
             return
 
-        base_fn = f"{node.score:.6f}_{node.id}"
-
-        if node.state.payload.content:
-            content_path = self.nodes_dir / f"{base_fn}{self.file_extension}"
-            content_path.write_text(node.state.payload.content, encoding="utf-8")
-
-        self._save_sidecars(node)
+        # Named by id alone. The name used to lead with a blended score, which
+        # meant a directory listing sorted by a number nothing in the run ranks
+        # on: on one run the best-named file was 0.033325 while the artifact the
+        # evaluator actually chose read 0.052259 by that same number, so anyone
+        # reading the directory would pick the wrong file.
+        if keep_content:
+            base_fn = self._node_basename(node)
+            if node.state.payload.content:
+                content_path = self.nodes_dir / f"{base_fn}{self.file_extension}"
+                content_path.write_text(node.state.payload.content, encoding="utf-8")
+            self._save_sidecars(node)
 
         content_md5 = (
             hashlib.md5(node.state.payload.content.encode()).hexdigest()
@@ -206,10 +231,23 @@ class FileStorageAdapter:
             }
         )
 
+    @staticmethod
+    def _node_basename(node: SearchNode[VectorStatePayload]) -> str:
+        """Id, prefixed by the evaluator's verdict where there is one.
+
+        Only nodes the evaluator has seen carry a score at all, so only those
+        can be usefully sorted by name; the rest are named by id and ordered by
+        arrival, which is the truth about them.
+        """
+        panel = node.metrics.get(FRONT_SCORE)
+        if panel is not None:
+            return f"eval{panel:.6f}_{node.id}"
+        return str(node.id)
+
     def _save_sidecars(self, node: SearchNode[VectorStatePayload]) -> None:
         """Write the optional .png / .heatmap.png next to a node."""
         assert self.nodes_dir is not None
-        base_fn = f"{node.score:.6f}_{node.id}"
+        base_fn = self._node_basename(node)
 
         if self.save_raster and node.state.payload.raster_data_url:
             _, b64 = split_data_url(node.state.payload.raster_data_url)

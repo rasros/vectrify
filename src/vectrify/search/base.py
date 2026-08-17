@@ -50,7 +50,15 @@ class StorageAdapter(Protocol[TState]):
 
     def initialize(self) -> None: ...
 
-    def save_node(self, node: SearchNode[TState], tasks_completed: int = 0) -> None: ...
+    def save_node(
+        self,
+        node: SearchNode[TState],
+        tasks_completed: int = 0,
+        keep_content: bool = True,
+    ) -> None:
+        """Record *node*. *keep_content* asks for the drawing itself as well as
+        the lineage row, which is how a run stays a readable directory."""
+        ...
 
     def save_best(self, node: SearchNode[TState]) -> None:
         """Write the best final candidate to the top-level output path."""

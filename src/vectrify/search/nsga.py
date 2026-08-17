@@ -156,11 +156,11 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
     by component, so any positive rescaling of a component leaves every
     dominance verdict unchanged, and a weight there would be inert.
 
-    Trading the three off against each other is the reason each is measured
+    Trading them off against each other is the reason each is measured
     separately: a measure that only ever contributes a fraction of a sum can
-    never outvote the other two on the candidates it disagrees about, which is
-    exactly where it earns its place. The weighted sum is what `round_score`
-    reports as the run's headline number; it is not what ranks the pool.
+    never outvote the others on the candidates it disagrees about, which is
+    exactly where it earns its place. No measure is privileged and there is no
+    blend of them anywhere -- the run's only score is the evaluator's.
 
     Callers must pass only valid nodes (score < INVALID_SCORE); an infinite
     score would corrupt the normalization for every other node.

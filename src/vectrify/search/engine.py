@@ -7,6 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
+from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search.base import SearchStrategy, StorageAdapter
 from vectrify.search.collector import StatCollector
 from vectrify.search.models import (
@@ -205,9 +206,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         seed_archive: dict[int, SearchNode[TState]] = {}
         seed_archive_cap = max(1, active_pool_size // SEED_ARCHIVE_POOL_SHARE)
 
-        sorted_initial = sorted(initial_nodes, key=lambda n: n.score)
-        active_pool: list[SearchNode[TState]] = sorted_initial[:active_pool_size]
-        best_node = sorted_initial[0] if sorted_initial else None
+        # No ordering to apply: the measures are traded off by dominance and
+        # nothing ranks a candidate on its own. The pool is a set, and the cap
+        # takes whatever arrived.
+        active_pool: list[SearchNode[TState]] = list(initial_nodes)[:active_pool_size]
+        # Set by the evaluator, the run's only score, at each epoch boundary and
+        # at the end. There is deliberately no best between those points.
+        best_node: SearchNode[TState] | None = None
 
         # Children are held back and merged as a generation, NSGA-II's mu+lambda
         # replacement: the truncation is a whole-population sort, so paying it
@@ -249,9 +254,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             self.storage.max_node_id, max((n.id for n in initial_nodes), default=0)
         )
 
-        log.info(
-            f"Search started. Initial best: {best_node.score if best_node else 'N/A'}"
-        )
+        log.info(f"Search started with {len(active_pool)} candidate(s) in the pool.")
         if phase == SEED_PHASE:
             log.info(
                 f"Epoch 0: seeding with {seeds_target} LLM call(s) "
@@ -269,7 +272,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 seeds_target, \
                 seeds_dispatched, \
                 seeds_completed, \
-                seed_task_ids
+                seed_task_ids, \
+                best_node
 
             # The remembered seeds enter the ranking as candidates rather than
             # being handed a reserved slot: a seed the pool has genuinely
@@ -279,6 +283,11 @@ class MultiprocessSearchEngine(Generic[TState]):
             # local search has wandered away from it -- from there the same
             # comparison that ranks everything else can decide.
             pool_ids = {n.id for n in active_pool}
+            # The standing best joins the comparison so the evaluator can keep
+            # it: without that, a boundary could replace a candidate it already
+            # judged better.
+            if best_node is not None:
+                pool_ids.add(best_node.id)
             candidates = active_pool + [
                 n for n in seed_archive.values() if n.id not in pool_ids
             ]
@@ -288,8 +297,19 @@ class MultiprocessSearchEngine(Generic[TState]):
             if parents and self.rank_front is not None:
                 try:
                     parents = self.rank_front(parents)
+                    # The evaluator has just spoken, which is the only occasion
+                    # anything in the run is called best. Its top pick stands
+                    # until the next boundary, unless it already prefers the
+                    # standing one -- best_node is in the ranked set, so if it
+                    # comes out ahead it stays.
+                    if parents:
+                        best_node = parents[0]
+                        log.info(
+                            f"Best so far: node={best_node.id} "
+                            f"evaluator={best_node.metrics.get(FRONT_SCORE, 0.0):.6f}"
+                        )
                 except Exception as exc:
-                    log.warning(f"Front evaluation failed, keeping L1 order: {exc}")
+                    log.warning(f"Front evaluation failed, keeping rank order: {exc}")
             parents = parents[:epoch_seeds]
             if not parents:
                 parents = list(active_pool)
@@ -442,31 +462,28 @@ class MultiprocessSearchEngine(Generic[TState]):
                 operator=res.operator,
             )
 
-        def _note_best(new_node: SearchNode[TState], res: Result) -> bool:
-            nonlocal best_node
+        def _outranks(a: SearchNode[TState], b: SearchNode[TState]) -> bool:
+            """Whether *a* beats *b* under the strategy's own relation."""
+            if b.score >= INVALID_SCORE:
+                return a.score < INVALID_SCORE
+            if a.score >= INVALID_SCORE:
+                return False
+            return a.id in self.strategy.top_tier_ids([a, b])
 
-            is_new_best = best_node is None or new_node.score < best_node.score
+        def _note_accepted(new_node: SearchNode[TState], res: Result) -> None:
+            """Record an accepted candidate. Nothing here decides it is best:
+            that is the evaluator's call and it happens at epoch boundaries."""
             if collector is not None:
                 collector.on_accepted(
                     new_node,
-                    is_new_best=is_new_best,
+                    is_new_best=False,
                     elapsed=time.monotonic() - start_time,
                     llm_type=res.llm_type,
                 )
-            if is_new_best:
-                best_node = new_node
-                log.info(
-                    f"[{res.llm_type.upper() if res.llm_type else 'NEW BEST'}] "
-                    f"node={new_node.id} score={new_node.score:.6f}"
-                )
-            elif res.llm_type:
-                log.info(
-                    f"[{res.llm_type.upper()} ACCEPTED] "
-                    f"node={new_node.id} score={new_node.score:.6f}"
-                )
+            if res.llm_type:
+                log.info(f"[{res.llm_type.upper()} ACCEPTED] node={new_node.id}")
             else:
-                log.debug(f"[ACCEPTED] node={new_node.id} score={new_node.score:.6f}")
-            return is_new_best
+                log.debug(f"[ACCEPTED] node={new_node.id}")
 
         def _archive_seed(node: SearchNode[TState]) -> None:
             """Keep an LLM seed available to the fronts of later epochs.
@@ -477,11 +494,18 @@ class MultiprocessSearchEngine(Generic[TState]):
             the archive holding the seeds most likely to still be worth editing.
             """
             current = seed_archive.get(node.root_id)
-            if current is not None and current.score <= node.score:
+            if current is not None and not _outranks(node, current):
                 return
             seed_archive[node.root_id] = node
             if len(seed_archive) > seed_archive_cap:
-                worst = max(seed_archive.values(), key=lambda n: n.score)
+                # The entry the rest of the archive beats most often. Dominance
+                # rather than a score, so no measure is privileged here either.
+                entries = list(seed_archive.values())
+                losses = {
+                    n.root_id: sum(1 for m in entries if m is not n and _outranks(m, n))
+                    for n in entries
+                }
+                worst = max(entries, key=lambda n: losses[n.root_id])
                 del seed_archive[worst.root_id]
 
         def _process_seed_result(res: Result) -> None:
@@ -489,7 +513,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             seed_children.append(new_node)
             _archive_seed(new_node)
             node_states[new_node.id] = new_node.state
-            _note_best(new_node, res)
+            _note_accepted(new_node, res)
             self.storage.save_node(new_node, tasks_completed)
 
         def _close_generation() -> None:
@@ -516,7 +540,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             # can get to the front any more, whatever the numbers happen to be
             # denominated in.
             new_ids = {n.id for n in pending_children}
-            if new_ids & self.strategy.top_tier_ids(combined):
+            top_tier = self.strategy.top_tier_ids(combined)
+            if new_ids & top_tier:
                 epoch_no_improve = 0
                 if collector is not None:
                     collector.on_no_improve_reset()
@@ -526,7 +551,14 @@ class MultiprocessSearchEngine(Generic[TState]):
                     operator_policy.update(child.operator, child.id in kept)
                 if child.id in kept:
                     node_states[child.id] = child.state
-                    self.storage.save_node(child, tasks_completed)
+                    # Content only for candidates that reached the best-ranked
+                    # tier. A run admits most of what it produces -- one wrote
+                    # 106,640 files -- and a node that never outranked anything
+                    # is not worth reading back. The lineage row is written
+                    # either way, so the record of what happened is complete.
+                    self.storage.save_node(
+                        child, tasks_completed, keep_content=child.id in top_tier
+                    )
                     continue
                 # A child can be the run's best and still lose its generation on
                 # another objective. Save it anyway: save_best is about to write
@@ -554,7 +586,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         def _process_local_result(res: Result) -> None:
             new_node = _make_node(res)
             pending_children.append(new_node)
-            _note_best(new_node, res)
+            _note_accepted(new_node, res)
 
             # Progress is decided when the generation closes, where the pool is
             # ranked -- see _close_generation. A candidate cannot be known to
@@ -637,19 +669,26 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             _do_epoch_transition(reason)
 
+        def _any_top_tier() -> SearchNode[TState] | None:
+            """A member of the best-ranked tier, for when the evaluator never
+            ran or failed. Nothing else can name a best: with the measures
+            traded off there is no scalar to sort by, so any unbeaten candidate
+            is as defensible as another -- and writing one of those beats
+            losing the run's artifact to a scorer error at shutdown.
+            """
+            valid = [n for n in active_pool if n.score < INVALID_SCORE]
+            if not valid:
+                return None
+            top = self.strategy.top_tier_ids(valid)
+            return next((n for n in valid if n.id in top), valid[0])
+
         def _final_artifact() -> SearchNode[TState] | None:
             """The candidate to write out, chosen by the evaluator.
 
-            best_node is the winner on the round's score, which is a cheap
-            stand-in for the real objective and ranks candidates at about rho
-            0.83 against it. Within one front the evaluator finds roughly a 2x
-            spread, so trusting the proxy here is close to picking arbitrarily
-            among the good candidates -- and the run has already paid for every
-            one of them.
-
-            best_node is included in the comparison rather than replaced, so
-            this cannot do worse by the evaluator's own judgement than the
-            score-based pick did.
+            best_node is whatever the evaluator chose at the last epoch
+            boundary. It is included in the comparison rather than replaced, so
+            this cannot come out worse by the evaluator's own judgement than its
+            previous pick.
 
             The whole pool is evaluated, not the capped front an epoch boundary
             gets: FRONT_EVAL_CAP exists because a boundary pays that cost every
@@ -658,20 +697,21 @@ class MultiprocessSearchEngine(Generic[TState]):
             case the pool held a candidate the evaluator scored 8x better than
             the one the round score picked.
             """
+            fallback = best_node or _any_top_tier()
             if self.rank_front is None or not active_pool:
-                return best_node
+                return fallback
 
             finalists = [n for n in active_pool if n.score < INVALID_SCORE]
             if best_node is not None and all(n.id != best_node.id for n in finalists):
                 finalists.append(best_node)
             if not finalists:
-                return best_node
+                return fallback
 
             try:
                 return self.rank_front(finalists)[0]
             except Exception as exc:
-                log.warning(f"Final evaluation failed, keeping the best score: {exc}")
-                return best_node
+                log.warning(f"Final evaluation failed, keeping a top-tier node: {exc}")
+                return fallback
 
         try:
             while True:

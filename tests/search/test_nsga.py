@@ -3,12 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from vectrify.score.metrics import (
-    COLOUR_WEIGHT,
-    EDGE_WEIGHT,
-    SCORER_METRICS,
-    SHAPE_WEIGHT,
-)
+from vectrify.score.metrics import SCORER_METRICS
 from vectrify.search import ChainState, SearchNode, nsga
 from vectrify.search.diversity import simhash
 from vectrify.search.models import INVALID_SCORE
@@ -760,14 +755,13 @@ def test_the_third_measure_decides_when_the_other_two_disagree():
 
     # The blend the pool used to be ranked by prefers b, because edge carries
     # nearly four times shape's weight and wins by a full unit here.
-    # Positions come from the registry; the vector is in its order, not the
-    # order the weights happen to be written in.
-    ic, ie, ish = (SCORER_METRICS.index(n) for n in ("colour", "edge", "shape"))
-
-    def blend(v):
-        return COLOUR_WEIGHT * v[ic] + EDGE_WEIGHT * v[ie] + SHAPE_WEIGHT * v[ish]
-
-    assert blend(vb) < blend(va)
+    # And it decides on which candidate is better, not by how much: b wins its
+    # one axis by a full unit and still loses, which no weighted sum could
+    # reproduce -- the smallest weight is always buried by a large margin
+    # elsewhere. That sum no longer exists anywhere in the run.
+    ie = SCORER_METRICS.index("edge")
+    assert vb[ie] < va[ie]
+    assert va[ie] - vb[ie] > 0.8
 
 
 def test_a_candidate_winning_on_one_measure_alone_is_still_dominated():

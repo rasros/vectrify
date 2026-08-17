@@ -3,6 +3,13 @@ from typing import Generic, TypeVar
 
 INVALID_SCORE = float("inf")
 
+# A candidate that was measured. `score` is a validity marker and nothing more:
+# the measures are traded off by dominance, so no single number orders
+# candidates mid-run, and inventing one is what the blended round score was.
+# The run's only score is the evaluator's, recorded as metrics[FRONT_SCORE] on
+# the nodes it has actually seen.
+VALID_SCORE = 0.0
+
 TState = TypeVar("TState")
 TResultPayload = TypeVar("TResultPayload")
 
