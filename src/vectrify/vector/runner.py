@@ -19,6 +19,7 @@ from vectrify.cli import (
     DEFAULT_MAX_TOTAL_TASKS,
     DEFAULT_POOL_SIZE,
     DEFAULT_RESOLUTION_LLM,
+    DEFAULT_SEEDS,
     DEFAULT_TOURNAMENT_SIZE,
 )
 from vectrify.formats.models import VectorStatePayload
@@ -85,9 +86,14 @@ def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, in
     return img, buf.getvalue(), w, h
 
 
-def resolve_seeds(seeds: int | None, pool_size: int) -> int:
-    """LLM calls that open each epoch; None means derive from the pool size."""
-    return pool_size // 10 if seeds is None else max(0, seeds)
+def resolve_seeds(seeds: int | None) -> int:
+    """LLM calls that open each epoch; None takes the default.
+
+    It used to derive from the pool size, which tied the LLM budget to a number
+    chosen for entirely separate reasons -- widening the pool silently bought
+    more LLM calls.
+    """
+    return DEFAULT_SEEDS if seeds is None else max(0, seeds)
 
 
 def initial_seed_tasks(epoch_seeds: int, initial_nodes: list[SearchNode]) -> int:
@@ -175,7 +181,7 @@ def run_vector_search(
     max_wall_seconds: float | None,
     log_level: str,
     # Selects the evaluator that ranks the converged Pareto front, not the
-    # round's scorer -- the round is always pixel L1.
+    # evaluator's scorer -- the per-candidate measures are always pixel work.
     scorer_type: ScorerType,
     goal: str | None,
     llm_provider: str,
@@ -200,7 +206,7 @@ def run_vector_search(
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
 ) -> None:
-    epoch_seeds = resolve_seeds(seeds, pool_size)
+    epoch_seeds = resolve_seeds(seeds)
 
     # Validate the reference image up front so a missing or corrupt input fails
     # before storage.initialize() creates the output directory tree.
@@ -246,7 +252,8 @@ def run_vector_search(
     # candidate in a run came out 58-142% "busier" than a target it matched.
     reference_detail = detail(original_png_bytes)
     log.info(
-        "Round scoring: edge overlap, colour distance and a detail budget, no model. "
+        "Measures: edge overlap, colour distance, shape moments and a detail "
+        "budget, traded off by dominance, no model. "
         f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model})."
     )
 

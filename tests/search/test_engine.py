@@ -1143,9 +1143,10 @@ def test_the_evaluator_is_asked_during_an_epoch_not_only_at_its_boundary():
 
 
 def test_the_epoch_ends_when_the_evaluator_stops_seeing_improvement():
-    """Rounds rather than checks, so the threshold means the same thing at any
-    cadence. The evaluator here always reports the same verdict, so nothing
-    ever improves on it and the epoch has to end on that."""
+    """Counted in the evaluator's own checks, which is the only unit that does
+    not depend on the acceptance rate, the pool size or the check interval. The
+    evaluator here always reports the same verdict, so nothing ever improves on
+    it and the epoch has to end on that."""
     from unittest.mock import MagicMock
 
     def rank(nodes):
@@ -1182,3 +1183,47 @@ def test_the_epoch_ends_when_the_evaluator_stops_seeing_improvement():
     )
 
     collector.on_epoch_transition.assert_called()
+
+
+def test_evaluator_patience_counts_checks_not_generations():
+    """A generation is 100 accepted candidates, so a threshold in generations
+    moves with the acceptance rate and the pool size, and one below a single
+    check interval fires before a check can ever intervene. Here many
+    generations close per check, and only the checks are counted."""
+    checks = []
+
+    def rank(nodes):
+        checks.append(len(nodes))
+        for node in nodes:
+            node.metrics[FRONT_SCORE] = 0.5  # never improves
+        return nodes
+
+    engine = MultiprocessSearchEngine(
+        workers=1,
+        strategy=FakeStrategy(),
+        storage=FakeStorage(),
+        max_total_tasks=12,
+        rank_front=rank,
+    )
+    for task_id in range(1, 13):
+        engine.unscored_q.put(
+            Result(task_id=task_id, parent_id=1, valid=True, measured=True, payload="p")
+        )
+
+    engine.run(
+        initial_nodes=[
+            SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
+        ],
+        max_wall_seconds=None,
+        active_pool_size=3,
+        # A generation closes on every task, so generations far outnumber checks.
+        generation_size=1,
+        epoch_patience=10_000,
+        epoch_eval_interval=4,
+        epoch_eval_patience=2,
+        epochs=4,
+    )
+
+    # Two checks had to pass without a gain; a generation count would have
+    # tripped far sooner.
+    assert len(checks) >= 2

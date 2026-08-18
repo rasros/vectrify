@@ -27,7 +27,7 @@ LOCAL_PHASE = "local"
 
 # How much of a converged front to hand the evaluator. The front can be large
 # and the evaluator is the expensive part of the run, so it sees the best few
-# by the round's own objective rather than all of them.
+# by dominance over the measures rather than all of them.
 FRONT_EVAL_CAP = 24
 
 # What share of the active pool the remembered LLM seeds may add to a front.
@@ -232,7 +232,14 @@ class MultiprocessSearchEngine(Generic[TState]):
         # tracked at all.
         best_panel: float | None = None
         last_eval_at = 0
-        rounds_since_panel_gain = 0
+        # Counted in evaluator checks, not generations. A generation is 100
+        # accepted candidates, so its size in tasks moves with the acceptance
+        # rate and with --pool-size, and a threshold in generations quietly
+        # depends on both -- and on --epoch-eval-interval, since a threshold
+        # below one interval's worth fires before a check can ever intervene. A
+        # check is the evaluator's own observation, which is the thing whose
+        # failures are being counted.
+        checks_without_gain = 0
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
@@ -280,7 +287,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 seeds_dispatched, \
                 seeds_completed, \
                 seed_task_ids, \
-                best_node
+                best_node, \
+                best_panel
 
             # The remembered seeds enter the ranking as candidates rather than
             # being handed a reserved slot: a seed the pool has genuinely
@@ -311,10 +319,17 @@ class MultiprocessSearchEngine(Generic[TState]):
                     # comes out ahead it stays.
                     if parents:
                         best_node = parents[0]
-                        log.info(
-                            f"Best so far: node={best_node.id} "
-                            f"evaluator={best_node.metrics.get(FRONT_SCORE, 0.0):.6f}"
-                        )
+                        value = best_node.metrics.get(FRONT_SCORE)
+                        shown = "unscored" if value is None else f"{value:.6f}"
+                        log.info(f"Best so far: node={best_node.id} evaluator={shown}")
+                        if value is not None and (
+                            best_panel is None or value < best_panel
+                        ):
+                            best_panel = value
+                            if collector is not None:
+                                collector.on_evaluator_best(
+                                    value, elapsed=time.monotonic() - start_time
+                                )
                 except Exception as exc:
                     log.warning(f"Front evaluation failed, keeping rank order: {exc}")
             parents = parents[:epoch_seeds]
@@ -531,7 +546,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             full sort per result, which at pool size 20 costs about as much as
             producing the candidate did.
             """
-            nonlocal active_pool, epoch_no_improve, rounds_since_panel_gain
+            nonlocal active_pool, epoch_no_improve
 
             if not pending_children:
                 return
@@ -545,8 +560,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             # threshold on a magnitude -- an epoch goes stale when nothing new
             # can get to the front any more, whatever the numbers happen to be
             # denominated in.
-            rounds_since_panel_gain += 1
-
             new_ids = {n.id for n in pending_children}
             top_tier = self.strategy.top_tier_ids(combined)
             if new_ids & top_tier:
@@ -600,13 +613,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                 _close_generation()
 
         def _do_epoch_transition(reason: str) -> None:
-            nonlocal epoch, epoch_started_at, rounds_since_panel_gain
+            nonlocal epoch, epoch_started_at, checks_without_gain
 
             epoch_started_at = tasks_completed
             # The evaluator's best carries across epochs -- it is an absolute
             # score, and a later epoch has to beat what the run already has --
             # but the patience counting restarts with the epoch.
-            rounds_since_panel_gain = 0
+            checks_without_gain = 0
 
             # The next seed batch edits this pool's front, so the children that
             # arrived since the last generation have to land in it first.
@@ -631,9 +644,10 @@ class MultiprocessSearchEngine(Generic[TState]):
             has already scored costs nothing to include, so the cap is about
             new work, not about the size of the field.
             """
-            nonlocal best_panel, last_eval_at, rounds_since_panel_gain, best_node
+            nonlocal best_panel, last_eval_at, checks_without_gain, best_node
 
             last_eval_at = tasks_completed
+            checks_without_gain += 1
             field = self.strategy.epoch_parents(active_pool, FRONT_EVAL_CAP)
             if not field or self.rank_front is None:
                 return
@@ -649,9 +663,13 @@ class MultiprocessSearchEngine(Generic[TState]):
             value = top.metrics[FRONT_SCORE]
             if best_panel is None or value < best_panel:
                 best_panel = value
-                rounds_since_panel_gain = 0
+                checks_without_gain = 0
                 best_node = top
                 log.info(f"Evaluator: node={top.id} score={value:.6f}")
+                if collector is not None:
+                    collector.on_evaluator_best(
+                        value, elapsed=time.monotonic() - start_time
+                    )
 
         def _check_epoch_end():
             nonlocal pool_refilling
@@ -695,13 +713,11 @@ class MultiprocessSearchEngine(Generic[TState]):
             ):
                 _run_panel_check()
 
-            # Rounds rather than checks, so the threshold means the same thing
-            # whatever cadence the checks are running at.
             panel_stale = (
                 epoch_eval_patience is not None
                 and epoch_eval_patience > 0
                 and best_panel is not None
-                and rounds_since_panel_gain >= epoch_eval_patience
+                and checks_without_gain >= epoch_eval_patience
             )
 
             over_budget = (
@@ -731,8 +747,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 )
             elif panel_stale:
                 reason = (
-                    f"the evaluator has not seen a better candidate in "
-                    f"{rounds_since_panel_gain} rounds"
+                    "the evaluator has not seen a better candidate in "
+                    f"{checks_without_gain} checks"
                 )
             elif over_budget:
                 reason = (
@@ -770,7 +786,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             epoch, and this happens once. Measured on the bench, restricting it
             to the front would have left most of the gap unclaimed -- on one
             case the pool held a candidate the evaluator scored 8x better than
-            the one the round score picked.
+            the one the measures alone would have picked.
             """
             fallback = best_node or _any_top_tier()
             if self.rank_front is None or not active_pool:

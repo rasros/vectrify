@@ -1,7 +1,7 @@
 """One comparison of a candidate against the reference, read by every objective.
 
 Structure and colour are measured once per candidate and then reduced over
-whatever area an objective cares about -- the whole canvas for the round score,
+whatever area an objective cares about -- the whole canvas for the measures,
 a grid cell for the region objectives. Sharing the arrays is what makes the
 region objectives structure-aware for less work than the colour-only version
 cost: the Lab conversion is the expensive half and it used to happen twice, once
@@ -52,7 +52,7 @@ class Comparison:
         return shape_distance(self.reference_edges > 0.2, self.candidate_edges > 0.2)
 
     def blend(self) -> float:
-        """Structure and colour over the whole canvas: the round score."""
+        """Structure and colour over the whole canvas: the search measures."""
         if self.colour.size == 0:
             return 0.0
         structure = overlap_distance(self.reference_edges, self.candidate_edges)

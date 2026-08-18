@@ -31,12 +31,6 @@ their failures. Adding it lifts agreement from 61.0% to 62.3%.
 
 import numpy as np
 
-# Weight in the round objective. The gain is real but small, and it turns
-# negative above roughly a quarter: 0.15 scores 62.3%, 0.25 scores 60.9% and
-# 0.40 scores 60.4%, so this is a corrective voice rather than a third opinion
-# of equal standing.
-MOMENT_WEIGHT = 0.15
-
 # Below this many pixels a mask has no shape worth describing, and the third
 # order moments become numerically wild.
 MIN_PIXELS = 10
@@ -83,7 +77,7 @@ def hu_moments(mask: np.ndarray) -> np.ndarray:
 # The log-compressed invariants differ by a few units between drawings that
 # look nothing alike, where colour and edge both live in [0, 1]. Ranking would
 # not care, since the objective vector is normalised by the population, but the
-# round score is also written per node and read back as an absolute number, and
+# measure is also written per node and read back as an absolute number, and
 # an unscaled term would dominate it and mean nothing to a reader.
 SHAPE_SCALE = 4.0
 

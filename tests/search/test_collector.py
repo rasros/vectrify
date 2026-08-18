@@ -5,6 +5,7 @@ about which events move which counter and which of them write a row.
 """
 
 import csv
+import math
 from pathlib import Path
 
 from vectrify.score.metrics import FRONT_SCORE
@@ -218,3 +219,18 @@ def test_an_unwritable_run_dir_does_not_kill_the_search(tmp_path):
     stats = SearchStats()
     StatCollector(stats, tmp_path / "does" / "not" / "exist").on_epoch_transition(1)
     assert stats.epoch == 1  # the event still took effect
+
+
+def test_only_the_evaluator_moves_the_run_s_best(tmp_path):
+    """Accepting a candidate used to move it, on a blended proxy nothing ranks
+    by any more. When that went, nothing was left to record a best at all and
+    best_score came out empty on all 2112 rows of a real run."""
+    collector, stats = _collector(tmp_path)
+
+    collector.on_accepted(_node(), is_new_best=False, elapsed=1.0, llm_type=None)
+    assert stats.best_score == math.inf
+
+    collector.on_evaluator_best(0.38, elapsed=2.0)
+    assert stats.best_score == 0.38
+    assert list(stats.score_history) == [(2.0, 0.38)]
+    assert _rows(tmp_path)[-1]["best_score"] == "0.38"

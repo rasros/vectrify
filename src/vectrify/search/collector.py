@@ -25,6 +25,21 @@ def _rounded(field: str, digits: int) -> Callable[["SearchStats"], float]:
 
 # Column name -> how to read it off SearchStats. The CSV header and every row
 # are both derived from this, so they cannot fall out of alignment.
+# One column per thing a reader of the finished file can use.
+#
+# Configuration does not belong here: --epoch-patience, --epoch-max-tasks and
+# the seed batch size were each repeated identically on every row, 2112 of them
+# in one run, and a reader cannot tell a setting that never moved from a
+# measurement that happened not to.
+#
+# Nor does momentary state. Calls in flight is a live gauge -- it says what the
+# workers are doing right now -- and in a finished file it is a sample of a
+# quantity that was oscillating, which invites reading a trend into noise.
+#
+# Nor does anything another column already says. Seeds completed is
+# llm_call_count within an epoch, counted a second way, and pairing it with a
+# constant target was two columns describing one thing. All of these remain on
+# SearchStats, where the dashboard reads them to draw progress against.
 STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "elapsed": lambda s: round(s.elapsed(), 2),
     "tasks_completed": lambda s: s.tasks_completed,
@@ -35,17 +50,12 @@ STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "llm_call_count": lambda s: s.llm_call_count,
     "llm_accepted_count": lambda s: s.llm_accepted_count,
     "llm_invalid_count": lambda s: s.llm_invalid_count,
-    "llm_in_flight": lambda s: s.llm_calls_in_flight,
     "mutation_call_count": lambda s: s.mutation_call_count,
     "mutation_accepted_count": lambda s: s.mutation_accepted_count,
     "epoch": lambda s: s.epoch,
     "epoch_no_improve": lambda s: s.epoch_no_improve,
     "phase": lambda s: s.phase,
-    "seeds_completed": lambda s: s.seeds_completed,
-    "seeds_target": lambda s: s.seeds_target,
     "pool_diversity": _rounded("pool_diversity", 4),
-    "epoch_patience": lambda s: s.epoch_patience,
-    "epoch_max_tasks": lambda s: s.epoch_max_tasks,
 }
 
 STATS_COLUMNS = list(STATS_FIELDS)
@@ -75,6 +85,20 @@ class StatCollector:
     ) -> None:
         s = self._stats
         s.epoch_max_tasks = epoch_max_tasks or 0
+
+    def on_evaluator_best(self, score: float, *, elapsed: float) -> None:
+        """The evaluator found a candidate better than anything it had seen.
+
+        The only event that moves the run's best, because the evaluator's score
+        is the only score. Accepting a candidate used to move it, on a blended
+        proxy that nothing ranks by any more -- and once that went, nothing was
+        left to record a best at all: `best_score` came out empty on all 2112
+        rows of a real run.
+        """
+        s = self._stats
+        s.best_score = score
+        s.score_history.append((elapsed, score))
+        self._flush_row()
 
     def seed_initial_score(self, best_score: float) -> None:
         s = self._stats

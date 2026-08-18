@@ -27,6 +27,17 @@ DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
 DEFAULT_POOL_SIZE = 100
+# LLM calls opening each epoch. Five rather than ten, and a fixed number rather
+# than pool-size // 10: the divisor tied the LLM budget to a pool size chosen for
+# entirely separate reasons, so widening the pool silently bought more LLM calls.
+#
+# Five because the LLM calls are what produce candidates the evaluator rewards
+# and local search is what drifts away from them. Measured on a 45-minute run,
+# ten calls opened the only epoch that fit and the evaluator's best arrived in
+# the first 2000 of 146,806 tasks; nothing in the remainder beat it. Half the
+# batch is half the wait before an epoch can end and re-seed, at the same cost
+# per epoch, so the same LLM spend buys twice as many chances to re-seed.
+DEFAULT_SEEDS = 5
 # Off, after trying it on. A pool collapses into agreement long before it stops
 # improving: on a measured run the score spread had fallen to a fiftieth of its
 # peak by task 500 of an epoch whose best went on to improve a further 77%
@@ -49,11 +60,18 @@ DEFAULT_EPOCH_MAX_TASKS = None
 # throughput near 60 tasks/s. Nothing is asked twice: the evaluator's score is
 # absolute and cached per node, so a check re-prices only what is new.
 DEFAULT_EPOCH_EVAL_INTERVAL = 2000
-# Rounds without the evaluator seeing anything better before the epoch ends and
-# the model re-seeds. Rounds rather than checks, so the number means the same
-# thing whatever cadence the checks run at. Off until it is tuned: too low ends
-# epochs on the evaluator's noise, too high is the unsupervised drift it exists
-# to stop.
+# Evaluator checks without a better candidate before the epoch ends and the
+# model re-seeds. Counted in checks because that is the only unit that does not
+# depend on something else: a generation is 100 accepted candidates, so its size
+# in tasks moves with the acceptance rate and with --pool-size, and a threshold
+# in generations below one interval's worth would fire before a check could ever
+# intervene.
+#
+# Off until it is tuned: too low ends epochs on the evaluator's noise, too high
+# is the unsupervised drift it exists to stop. Measured on one 45-minute run, the
+# evaluator's best came at the first check and 73 further checks over 145,000
+# tasks never beat it, while the front it was shown degraded 40% -- so on that
+# evidence a small number, two or three, is where to start.
 DEFAULT_EPOCH_EVAL_PATIENCE = None
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
@@ -214,15 +232,15 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     g_search.add_argument(
         "--seeds",
         type=int,
-        default=None,
+        default=DEFAULT_SEEDS,
         dest="seeds",
         metavar="N",
         help="LLM calls that open every epoch. Their children become that "
         "epoch's entire pool, which local mutation and crossover then refine; "
         "no other task calls the LLM, so total calls are at most "
         "epochs x seeds. Resumed candidates count toward epoch 0's batch. "
-        "0 disables the LLM entirely (requires --resume). "
-        "Defaults to pool-size // 10.",
+        f"0 disables the LLM entirely (requires --resume). Default: "
+        f"{DEFAULT_SEEDS}",
     )
 
     g_epoch = parser.add_argument_group(
@@ -259,8 +277,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_EVAL_PATIENCE,
         dest="epoch_eval_patience",
         metavar="N",
-        help="End the epoch once the evaluator has gone this many rounds "
-        "without seeing a better candidate. Unset by default.",
+        help="End the epoch once this many consecutive evaluator checks pass "
+        "without a better candidate. Unset by default.",
     )
     g_epoch.add_argument(
         "--epoch-max-tasks",
