@@ -44,8 +44,12 @@ def test_resolution_zero_raises():
         parse_args(["img.png", "--resolution", "0"])
 
 
-def test_seeds_defaults_to_none_so_the_runner_derives_it():
-    assert parse_args(["img.png"]).seeds is None
+def test_seeds_defaults_to_a_fixed_number_not_a_share_of_the_pool():
+    """It derived from --pool-size, which tied the LLM budget to a number chosen
+    for entirely separate reasons: widening the pool silently bought more LLM
+    calls."""
+    assert parse_args(["img.png"]).seeds == 5
+    assert parse_args(["img.png", "--pool-size", "400"]).seeds == 5
 
 
 def test_seeds_is_accepted():

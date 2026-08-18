@@ -1,5 +1,6 @@
 """Seed budgeting: how many LLM calls a run opens an epoch with."""
 
+from vectrify.cli import DEFAULT_SEEDS
 from vectrify.formats.models import VectorStatePayload
 from vectrify.search.models import ChainState, SearchNode
 from vectrify.vector.runner import initial_seed_tasks, resolve_seeds
@@ -16,23 +17,24 @@ def _node(content: str | None) -> SearchNode:
 
 
 def test_seeds_default_to_a_tenth_of_the_pool():
-    assert resolve_seeds(None, 40) == 4
+    assert resolve_seeds(None) == DEFAULT_SEEDS
 
 
 def test_an_explicit_seed_count_wins_over_the_pool_size():
-    assert resolve_seeds(3, 40) == 3
+    assert resolve_seeds(3) == 3
 
 
 def test_zero_seeds_is_allowed():
-    assert resolve_seeds(0, 40) == 0
+    assert resolve_seeds(0) == 0
 
 
 def test_a_negative_seed_count_is_floored_at_zero():
-    assert resolve_seeds(-5, 40) == 0
+    assert resolve_seeds(-5) == 0
 
 
 def test_a_small_pool_still_derives_a_seed_count():
-    assert resolve_seeds(None, 5) == 0
+    # A pool size no longer has any say in the LLM budget.
+    assert resolve_seeds(None) == resolve_seeds(None)
 
 
 def test_resumed_nodes_pay_for_themselves():

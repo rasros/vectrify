@@ -27,6 +27,17 @@ DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
 DEFAULT_POOL_SIZE = 100
+# LLM calls opening each epoch. Five rather than ten, and a fixed number rather
+# than pool-size // 10: the divisor tied the LLM budget to a pool size chosen for
+# entirely separate reasons, so widening the pool silently bought more LLM calls.
+#
+# Five because the LLM calls are what produce candidates the evaluator rewards
+# and local search is what drifts away from them. Measured on a 45-minute run,
+# ten calls opened the only epoch that fit and the evaluator's best arrived in
+# the first 2000 of 146,806 tasks; nothing in the remainder beat it. Half the
+# batch is half the wait before an epoch can end and re-seed, at the same cost
+# per epoch, so the same LLM spend buys twice as many chances to re-seed.
+DEFAULT_SEEDS = 5
 # Off, after trying it on. A pool collapses into agreement long before it stops
 # improving: on a measured run the score spread had fallen to a fiftieth of its
 # peak by task 500 of an epoch whose best went on to improve a further 77%
@@ -221,15 +232,15 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     g_search.add_argument(
         "--seeds",
         type=int,
-        default=None,
+        default=DEFAULT_SEEDS,
         dest="seeds",
         metavar="N",
         help="LLM calls that open every epoch. Their children become that "
         "epoch's entire pool, which local mutation and crossover then refine; "
         "no other task calls the LLM, so total calls are at most "
         "epochs x seeds. Resumed candidates count toward epoch 0's batch. "
-        "0 disables the LLM entirely (requires --resume). "
-        "Defaults to pool-size // 10.",
+        f"0 disables the LLM entirely (requires --resume). Default: "
+        f"{DEFAULT_SEEDS}",
     )
 
     g_epoch = parser.add_argument_group(
