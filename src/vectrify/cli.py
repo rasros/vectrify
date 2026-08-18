@@ -67,12 +67,19 @@ DEFAULT_EPOCH_EVAL_INTERVAL = 2000
 # in generations below one interval's worth would fire before a check could ever
 # intervene.
 #
-# Off until it is tuned: too low ends epochs on the evaluator's noise, too high
-# is the unsupervised drift it exists to stop. Measured on one 45-minute run, the
-# evaluator's best came at the first check and 73 further checks over 145,000
-# tasks never beat it, while the front it was shown degraded 40% -- so on that
-# evidence a small number, two or three, is where to start.
-DEFAULT_EPOCH_EVAL_PATIENCE = None
+# Five, which is five checks and so five intervals of drift -- 10,000 tasks at
+# the default interval. Measured on one 45-minute run the evaluator's best came
+# at the first check and 73 further checks over 145,000 tasks never beat it,
+# while the front it was shown degraded 40%, so the tolerance wanted is far
+# below what an unset value gave. Five rather than two because a single
+# evaluator verdict is noisy and an epoch ending on one costs a seed batch to
+# reopen; five consecutive refusals is a settled opinion.
+#
+# It interacts with two other limits. Each ending costs an LLM batch, so
+# --epochs is what caps the spend, and at this patience an epoch is roughly
+# 10,000 tasks -- so --epochs 4 ends a run around 40,000 tasks, well short of a
+# one-hour wall budget. Raise --epochs to spend the rest.
+DEFAULT_EPOCH_EVAL_PATIENCE = 5
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
 # next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
