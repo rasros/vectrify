@@ -175,7 +175,7 @@ def run_vector_search(
     max_wall_seconds: float | None,
     log_level: str,
     # Selects the evaluator that ranks the converged Pareto front, not the
-    # round's scorer -- the round is always pixel L1.
+    # evaluator's scorer -- the per-candidate measures are always pixel work.
     scorer_type: ScorerType,
     goal: str | None,
     llm_provider: str,
@@ -246,7 +246,8 @@ def run_vector_search(
     # candidate in a run came out 58-142% "busier" than a target it matched.
     reference_detail = detail(original_png_bytes)
     log.info(
-        "Round scoring: edge overlap, colour distance and a detail budget, no model. "
+        "Measures: edge overlap, colour distance, shape moments and a detail "
+        "budget, traded off by dominance, no model. "
         f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model})."
     )
 

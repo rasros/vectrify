@@ -49,11 +49,18 @@ DEFAULT_EPOCH_MAX_TASKS = None
 # throughput near 60 tasks/s. Nothing is asked twice: the evaluator's score is
 # absolute and cached per node, so a check re-prices only what is new.
 DEFAULT_EPOCH_EVAL_INTERVAL = 2000
-# Rounds without the evaluator seeing anything better before the epoch ends and
-# the model re-seeds. Rounds rather than checks, so the number means the same
-# thing whatever cadence the checks run at. Off until it is tuned: too low ends
-# epochs on the evaluator's noise, too high is the unsupervised drift it exists
-# to stop.
+# Evaluator checks without a better candidate before the epoch ends and the
+# model re-seeds. Counted in checks because that is the only unit that does not
+# depend on something else: a generation is 100 accepted candidates, so its size
+# in tasks moves with the acceptance rate and with --pool-size, and a threshold
+# in generations below one interval's worth would fire before a check could ever
+# intervene.
+#
+# Off until it is tuned: too low ends epochs on the evaluator's noise, too high
+# is the unsupervised drift it exists to stop. Measured on one 45-minute run, the
+# evaluator's best came at the first check and 73 further checks over 145,000
+# tasks never beat it, while the front it was shown degraded 40% -- so on that
+# evidence a small number, two or three, is where to start.
 DEFAULT_EPOCH_EVAL_PATIENCE = None
 # Tasks without improvement before an epoch is called converged. Measured over
 # eleven runs and 145 improvements, the gap between one improvement and the
@@ -259,8 +266,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCH_EVAL_PATIENCE,
         dest="epoch_eval_patience",
         metavar="N",
-        help="End the epoch once the evaluator has gone this many rounds "
-        "without seeing a better candidate. Unset by default.",
+        help="End the epoch once this many consecutive evaluator checks pass "
+        "without a better candidate. Unset by default.",
     )
     g_epoch.add_argument(
         "--epoch-max-tasks",

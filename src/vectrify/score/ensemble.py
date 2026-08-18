@@ -34,11 +34,11 @@ ebind and jina-omni need custom code, and the BLIP retrieval checkpoints load
 through AutoModel with a randomly initialised visual_projection, which is the
 very layer their image embedding comes from.
 
-The two cheap pixel measures the round score uses, edge overlap and colour
+Two of the cheap pixel measures selection uses, edge overlap and colour
 distance, are deliberately not members. On the same hand-judged pairs they
 agree with the human 40% and 44% of the time, the bottom of the field, and they
 are already two of the three objectives the search optimises -- seating them
-here would make the evaluator agree with the round score by construction.
+here would make the evaluator agree with those measures by construction.
 
 Five is odd on purpose, so a pairwise majority always exists.
 """

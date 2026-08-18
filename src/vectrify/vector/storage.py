@@ -280,9 +280,9 @@ class FileStorageAdapter:
         self.output_path.parent.mkdir(parents=True, exist_ok=True)
         self.output_path.write_text(content, encoding="utf-8")
         # The evaluator's own number for the candidate it chose. Reporting the
-        # round score here announced a proxy figure for a perceptually chosen
+        # measures' blend here announced a proxy figure for a perceptually chosen
         # artifact, and the two move independently: on one 45-minute run the
-        # round score fell 64% against a three-epoch run while the evaluator
+        # measures improved 64% against a three-epoch run while the evaluator
         # scored the two within 0.000004 of each other.
         panel = node.metrics.get(FRONT_SCORE)
         if panel is not None:
