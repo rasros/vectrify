@@ -2,6 +2,7 @@ from collections.abc import Mapping
 
 from vectrify.formats.base import apply_search_replace
 from vectrify.formats.mutations import operator_weights
+from vectrify.formats.svg.normalize import normalize_svg
 from vectrify.formats.svg.operations import (
     MUTATIONS,
     apply_crossover,
@@ -27,11 +28,17 @@ class SvgPlugin:
         return is_valid_svg(content)
 
     def extract_from_llm(self, raw: str) -> str:
-        return extract_svg_fragment(raw)
+        # Normalised on the way in, so local search meets one form of markup
+        # rather than whichever the model reached for. Which forms it reaches
+        # for is a property of the model: one model's seeds carried 147
+        # elements in relative path commands, which describe an offset from
+        # wherever the pen already is and so cannot be moved at all.
+        return normalize_svg(extract_svg_fragment(raw))
 
     def apply_edit(self, parent: str, raw: str) -> str:
         patched = apply_search_replace(parent, raw)
-        return patched if patched is not None else extract_svg_fragment(raw)
+        edited = patched if patched is not None else extract_svg_fragment(raw)
+        return normalize_svg(edited)
 
     def build_generate_prompt(
         self,

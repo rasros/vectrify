@@ -21,7 +21,13 @@ import sys
 from pathlib import Path
 
 from vectrify.run_dirs import OUTPUT_EXTENSIONS, project_runs_dir, run_dirs_in
-from vectrify.score.metrics import METRIC_NAMES, read_metrics, row_has_metrics
+from vectrify.score.metrics import (
+    FRONT_SCORE,
+    METRIC_NAMES,
+    SCORER_METRICS,
+    read_metrics,
+    row_has_metrics,
+)
 from vectrify.search.nsga import pareto_front
 
 
@@ -118,24 +124,27 @@ def clean_run_dir(run_dir: Path, top_n: int, dry_run: bool) -> tuple[int, int]:
         return 0, 0
 
     load_metrics_from_lineage(run_dir / "lineage.csv", nodes)
-    for node in nodes:
-        for name in METRIC_NAMES:
-            if node[name] is None:
-                node[name] = 0.0
 
-    valid = [n for n in nodes if n["score"] < float("inf")]
+    # Nodes the lineage could actually describe. A file whose metrics never
+    # arrived says nothing about whether it is worth keeping, and treating a
+    # missing measure as 0.0 would make it unbeatable on that axis.
+    measured = [n for n in nodes if all(n.get(m) is not None for m in SCORER_METRICS)]
 
     keep_ids: set[int] = set()
 
-    # Pareto front over the same three objectives the search selects on.
-    if valid:
+    # The best-ranked tier under the same relation the search selects by. Not a
+    # score: the measures are traded off by dominance and there is no blend of
+    # them to sort on.
+    if measured:
         for node in pareto_front(
-            valid, key=lambda n: (n["score"], *(n[m] for m in METRIC_NAMES))
+            measured, key=lambda n: tuple(n[m] for m in SCORER_METRICS)
         ):
             keep_ids.add(node["id"])
 
-    # Top N by score
-    for node in sorted(valid, key=lambda n: n["score"])[:top_n]:
+    # Then the best the evaluator saw, which is the only score in a run and
+    # exists on the handful of nodes it was shown.
+    evaluated = [n for n in nodes if n.get(FRONT_SCORE) is not None]
+    for node in sorted(evaluated, key=lambda n: n[FRONT_SCORE])[:top_n]:
         keep_ids.add(node["id"])
 
     kept = 0

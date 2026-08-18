@@ -10,10 +10,16 @@ from bench_search import _bootstrap_ci, discover_cases, plant_seed, read_curve
 
 
 def _write_lineage(run: Path, scores: list[str]) -> None:
+    """The evaluator's verdicts, as stats.csv records them.
+
+    Not lineage.csv: a lineage row is written when a candidate is admitted,
+    which is before the evaluator has seen anything, so its front_score column
+    is present and empty for every node.
+    """
     run.mkdir(parents=True)
-    rows = ["id,score,evicted"]
-    rows += [f"{i},{s}," for i, s in enumerate(scores, start=1)]
-    (run / "lineage.csv").write_text("\n".join(rows) + "\n")
+    rows = ["elapsed,best_score"]
+    rows += [f"{i},{s}" for i, s in enumerate(scores, start=1)]
+    (run / "stats.csv").write_text("\n".join(rows) + "\n")
 
 
 def test_curve_is_the_running_best(tmp_path):
@@ -22,8 +28,9 @@ def test_curve_is_the_running_best(tmp_path):
 
 
 def test_curve_skips_rows_without_a_score(tmp_path):
-    """Eviction rows carry no score and inf marks a candidate that never
-    rendered; counting either as a data point corrupts the AUC."""
+    """Most rows carry no evaluator score -- it exists only on the nodes it was
+    shown -- and inf marks a candidate that never rendered. Counting either as a
+    data point corrupts the AUC."""
     _write_lineage(tmp_path / "runs" / "2024-01-01_00-00-00", ["0.5", "", "inf", "0.4"])
     assert read_curve(tmp_path) == [0.5, 0.4]
 

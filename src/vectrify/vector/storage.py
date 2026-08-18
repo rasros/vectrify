@@ -220,10 +220,23 @@ class FileStorageAdapter:
                 "parent": node.parent_id,
                 "secondary_parent": node.secondary_parent_id or "",
                 "epoch": node.epoch,
-                # `.6g` rather than `.0f`: the metrics are byte and
-                # character counts, but region distances live in [0, 1] and an
-                # integer format would write every one of them as "0".
-                **{name: f"{node.metrics.get(name, 0.0):.6g}" for name in METRIC_NAMES},
+                # Blank for a measure the node does not carry, never 0. Only
+                # the evaluator's score is sparse -- it exists on the handful of
+                # nodes it was shown -- and writing 0 there records the best
+                # attainable value for a candidate it never saw, which is how a
+                # bench curve came out as 14,062 zeros.
+                #
+                # `.6g` rather than `.0f`: the metrics are byte and character
+                # counts, but region distances live in [0, 1] and an integer
+                # format would write every one of them as "0".
+                **{
+                    name: (
+                        ""
+                        if (value := node.metrics.get(name)) is None
+                        else f"{value:.6g}"
+                    )
+                    for name in METRIC_NAMES
+                },
                 "summary": node.state.payload.origin or "",
                 "content_md5": content_md5,
             }

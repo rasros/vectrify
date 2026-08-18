@@ -6,7 +6,6 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from vectrify.formats.svg.operations import (
-    _NAMED_SVG_COLORS,
     MUTATIONS,
     apply_crossover,
     apply_mutation,
@@ -267,11 +266,12 @@ def test_mutate_color_expands_a_three_digit_hex():
     assert b <= 60
 
 
-def test_mutate_color_swaps_a_named_color_for_another_named_color():
+def test_mutate_color_leaves_a_named_colour_alone():
+    """A name has no channels to fudge, so "changing" it means jumping to some
+    other colour -- which is not a search step, and is how stray blues and
+    browns arrived in drawings that are otherwise grey."""
     random.seed(0)
-    new = _find(mutate_color(SVG_NAMED), "rect").get("fill")
-    assert new in _NAMED_SVG_COLORS
-    assert new != "red"
+    assert _find(mutate_color(SVG_NAMED), "rect").get("fill") == "red"
 
 
 def test_mutate_color_leaves_the_rest_of_the_element_alone():
@@ -327,10 +327,16 @@ SVG_UNSTROKED = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></s
 
 
 def test_mutate_stroke_adds_a_stroke_and_a_width():
-    random.seed(1)
-    rect = _find(mutate_stroke(SVG_UNSTROKED), "rect")
-    assert rect.get("stroke") in _NAMED_SVG_COLORS
-    assert rect.get("stroke-width") in {"1", "2", "3"}
+    for seed in range(20):
+        random.seed(seed)
+        rect = _find(mutate_stroke(SVG_UNSTROKED), "rect")
+        stroke = rect.get("stroke")
+        if stroke and stroke != "none":
+            # The shape's own fill, never an invented colour.
+            assert stroke == _find(SVG_UNSTROKED, "rect").get("fill")
+            assert rect.get("stroke-width") in {"1", "2", "3"}
+            return
+    raise AssertionError("a stroke was never added")
 
 
 def test_mutate_stroke_removes_an_existing_stroke():
@@ -338,11 +344,14 @@ def test_mutate_stroke_removes_an_existing_stroke():
     assert _find(mutate_stroke(SVG_STROKED), "rect").get("stroke") == "none"
 
 
-def test_mutate_stroke_keeps_an_existing_width_when_changing_color():
-    random.seed(1)
-    rect = _find(mutate_stroke(SVG_STROKED), "rect")
-    assert rect.get("stroke") not in (None, "blue", "none")
-    assert rect.get("stroke-width") == "7"
+def test_mutate_stroke_only_adds_or_removes_never_recolours():
+    """Colour is mutate_color's business. An outline belongs to the shape it
+    outlines, so adding one takes the shape's own fill; inventing a colour here
+    is what put a blue ring on a black dot."""
+    for seed in range(20):
+        random.seed(seed)
+        rect = _find(mutate_stroke(SVG_STROKED), "rect")
+        assert rect.get("stroke") in ("blue", "none"), rect.get("stroke")
 
 
 def test_mutate_stroke_touches_nothing_but_the_stroke():
@@ -573,10 +582,18 @@ def test_translate_moves_both_axes_by_the_same_absolute_step():
     offsets = []
     for seed in range(40):
         random.seed(seed)
-        out = mutate_translate(svg)
-        found = re.search(r"translate\((-?[\d.]+) (-?[\d.]+)\)", out)
-        assert found, "no translate was applied"
-        offsets.append((abs(float(found.group(1))), abs(float(found.group(2)))))
+        root = ET.fromstring(mutate_translate(svg))
+        moved = []
+        for el in root.iter():
+            cx, cy = el.get("cx"), el.get("cy")
+            if cx is None or cy is None:
+                continue
+            start = 20.0 if float(cx) < 200 else 380.0
+            dx, dy = abs(float(cx) - start), abs(float(cy) - start)
+            if dx or dy:
+                moved.append((dx, dy))
+        assert moved, "nothing was moved"
+        offsets.extend(moved)
 
     assert all(dx > 0 and dy > 0 for dx, dy in offsets), "an axis was left behind"
     # Both elements draw offsets from one distribution; nothing scales with
@@ -584,9 +601,12 @@ def test_translate_moves_both_axes_by_the_same_absolute_step():
     assert max(max(o) for o in offsets) <= 400 * 0.05 + 0.01
 
 
-def test_translate_keeps_a_transform_the_element_already_had():
-    """Replacing it would silently drop a scale or rotate the drawing depends
-    on, and appending would let that transform scale the offset."""
+def test_translate_edits_coordinates_and_adds_no_transform():
+    """A transform is a second description of where a thing is, laid over the
+    first: it accumulates, and it leaves the coordinates saying one thing while
+    the drawing does another, so every later mutation reads a position that is
+    not where the element appears. A transform the element already carries is
+    left alone."""
     svg = (
         f'<svg xmlns="{NS}" viewBox="0 0 400 400">'
         '<circle cx="100" cy="100" r="5" transform="scale(2)"/>'
@@ -595,9 +615,14 @@ def test_translate_keeps_a_transform_the_element_already_had():
 
     random.seed(1)
     out = mutate_translate(svg)
+    root = ET.fromstring(out)
+    circle = next(el for el in root.iter() if el.get("cx"))
 
-    assert "scale(2)" in out
-    assert re.search(r'transform="translate\([^)]*\) scale\(2\)"', out)
+    cx = circle.get("cx")
+    assert circle.get("transform") == "scale(2)"
+    assert "translate(" not in out
+    assert cx is not None
+    assert float(cx) != 100.0
 
 
 def test_numeric_moves_a_coordinate_by_the_same_step_wherever_it_sits():
@@ -838,35 +863,37 @@ def test_a_named_colour_moves_to_another_colour_in_the_drawing():
                 assert fill in allowed, f"invented {fill}"
 
 
-def test_repeated_moves_fold_into_one_translate():
-    """Prepending a translate per mutation left 23 stacked on the background
-    rect of a real run -- unreadable, and a drift no single step can undo."""
+def test_colour_moves_by_a_small_step_within_the_same_hex():
+    """A fudge, not a jump: #ffe10d -> #fde10d. At the old +/-60 a grey wandered
+    into brown in a handful of accepted mutations -- one run shipped #392800 on
+    a drawing whose palette is black, white and two greys -- and each step was
+    invisible, so nothing rejected the drift until the colour was plainly
+    wrong."""
+    svg = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="#ffe10d"/></svg>'
+
+    for seed in range(40):
+        random.seed(seed)
+        new = _find(mutate_color(svg), "rect").get("fill")
+        assert new is not None
+        assert new.startswith("#"), new
+        assert len(new) == 7, new
+        channels = [int(new[i : i + 2], 16) for i in (1, 3, 5)]
+        for got, was in zip(channels, (0xFF, 0xE1, 0x0D), strict=True):
+            assert abs(got - was) <= 8, f"{new} moved too far from #ffe10d"
+
+
+def test_a_translate_moves_a_path_without_reshaping_it():
+    """Absolute coordinates shift; an arc's radii, its rotation and its flags do
+    not. Moving those reshapes the curve instead of moving it, and a nudged flag
+    is not path data at all -- the renderer drops the element."""
     svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-        '<circle cx="50" cy="50" r="5" fill="#000000"/>'
+        f'<svg xmlns="{NS}" viewBox="0 0 400 400">'
+        '<path d="M100 100 A23 23 0 1 0 146 100 L200 200 Z"/>'
         "</svg>"
     )
-    for _ in range(30):
-        svg = mutate_translate(svg)
+    random.seed(3)
+    d = _find(mutate_translate(svg), "path").get("d")
 
-    root = ET.fromstring(svg)
-    for el in root.iter():
-        transform = el.get("transform", "")
-        assert transform.count("translate") <= 1, transform
-
-
-def test_a_move_still_composes_with_a_transform_it_cannot_fold():
-    """Only a leading translate folds. Anything else stays, and the offset goes
-    outermost so it lands in the parent's coordinates."""
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
-        '<circle cx="50" cy="50" r="5" fill="#000000" transform="rotate(30)"/>'
-        "</svg>"
-    )
-    root = ET.fromstring(mutate_translate(svg))
-    transform = next(
-        el.get("transform", "") for el in root.iter() if el.get("transform")
-    )
-
-    assert transform.startswith("translate(")
-    assert "rotate(30)" in transform
+    assert d is not None
+    assert "A23 23 0 1 0" in d, f"the arc was reshaped: {d}"
+    assert not d.startswith("M100 100"), "nothing moved"
