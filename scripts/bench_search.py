@@ -59,17 +59,30 @@ def plant_seed(work: Path, case: Path) -> Path:
 
 
 def read_curve(project: Path) -> list[float]:
-    """Running-best score after each accepted node, oldest run last."""
+    """Running-best evaluator score, oldest run last.
+
+    The evaluator's verdict is the only score a run records, and it is read from
+    stats.csv rather than lineage.csv: a lineage row is written when a candidate
+    is admitted, which is before the evaluator has seen anything, so the column
+    is there but empty for every node.
+
+    It used to read a blended per-candidate proxy, which measured what local
+    search optimises rather than whether the drawing got better -- and those
+    came apart badly enough that one run improved the proxy 64% while the
+    evaluator scored the result no better at all.
+    """
     runs = sorted(p for p in (project / "runs").iterdir() if p.name != SEED_RUN)
-    lineage = runs[-1] / "lineage.csv"
+    stats = runs[-1] / "stats.csv"
+    if not stats.is_file():
+        return []
     scores: list[float] = []
-    with lineage.open(encoding="utf-8", newline="") as f:
+    with stats.open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
-            raw = row.get("score") or ""
+            raw = row.get("best_score") or ""
             try:
                 value = float(raw)
             except ValueError:
-                continue  # eviction rows carry no score
+                continue  # no evaluator verdict yet at this point in the run
             if value == float("inf"):
                 continue
             scores.append(value)

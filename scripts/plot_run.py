@@ -17,7 +17,6 @@ Options:
 import argparse
 import contextlib
 import csv
-import functools
 import sys
 from pathlib import Path
 
@@ -233,7 +232,6 @@ PARETO_COLORS = [
 ]
 
 
-@functools.cache
 def plot_score_history(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict]]):
     ax.set_title("Best score over time")
     ax.set_xlabel("Elapsed (s)")
@@ -258,8 +256,8 @@ def plot_score_history(ax, runs: list[tuple[Path, dict]], lineages: list[list[di
 
         # Epoch transition lines
         ch = stats.get("convergence_history", [])
-        prev_epoch = ch[0][3] if ch else 0
-        for elapsed, _div, _std, ep, _ar in ch:
+        prev_epoch = ch[0][2] if ch else 0
+        for elapsed, _div, ep, _ar in ch:
             if ep != prev_epoch:
                 ax.axvline(
                     elapsed, color="grey", linewidth=0.8, linestyle=":", alpha=0.8
@@ -358,10 +356,13 @@ def plot_convergence(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict
         if not ch:
             continue
         color_div = COLORS[i % len(COLORS)]
-        color_std = COLORS[(i + 1) % len(COLORS)]
+        color_rate = COLORS[(i + 1) % len(COLORS)]
         xs = [r[0] for r in ch]
         diversities = [r[1] for r in ch]
-        variances = [r[2] ** 2 for r in ch]
+        # Acceptance rate rather than score variance: there is no score to take
+        # a variance of, and the share of candidates that survive selection is
+        # what says whether the pool is still moving.
+        accept_rates = [r[3] for r in ch]
         ax.plot(
             xs,
             diversities,
@@ -371,15 +372,15 @@ def plot_convergence(ax, runs: list[tuple[Path, dict]], lineages: list[list[dict
         )
         ax2.plot(
             xs,
-            variances,
-            color=color_std,
+            accept_rates,
+            color=color_rate,
             linewidth=1.2,
             linestyle="--",
-            label=f"{run_dir.name} score variance",
+            label=f"{run_dir.name} accept rate",
         )
 
-        prev_epoch = ch[0][3] if ch else 0
-        for elapsed, _div, _std, ep, _ar in ch:
+        prev_epoch = ch[0][2] if ch else 0
+        for elapsed, _div, ep, _ar in ch:
             if ep != prev_epoch:
                 ax.axvline(
                     elapsed, color="grey", linewidth=0.8, linestyle=":", alpha=0.8
@@ -453,15 +454,19 @@ def plot_summary_text(
         if top10:
             lines.append("")
             lines.append(f"  pareto top 10{pool_note}:")
-            metric_head = "".join(f"  {m:>9}" for m in METRIC_NAMES)
-            lines.append(f"  {'#':>2}  {'id':>6}  {'score':>10}{metric_head}  ep")
+            # No score column: the measures are traded off by dominance and
+            # only the evaluator scores anything, on the handful of nodes it
+            # has seen. front_score is one of METRIC_NAMES and shows there.
+            metric_head = "".join(f"  {m:>11}" for m in METRIC_NAMES)
+            lines.append(f"  {'#':>2}  {'id':>6}{metric_head}  ep")
             for rank, node in enumerate(top10, 1):
                 # `.4g` keeps the byte-count metrics readable while still
                 # showing the sub-1.0 region distances as something but zero.
-                metric_cells = "".join(f"  {node[m]:>9.4g}" for m in METRIC_NAMES)
+                metric_cells = "".join(
+                    f"  {node.get(m, float('nan')):>11.4g}" for m in METRIC_NAMES
+                )
                 lines.append(
-                    f"  {rank:>2}  {node['id']:>6}  {node['score']:>10.6f}"
-                    f"{metric_cells}  {node['epoch']}"
+                    f"  {rank:>2}  {node['id']:>6}{metric_cells}  {node['epoch']}"
                 )
         lines.append("")
     ax.text(

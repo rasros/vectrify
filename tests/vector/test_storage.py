@@ -98,8 +98,11 @@ def test_save_node_and_lineage(tmp_path, dummy_node):
     assert row["id"] == "42"
     assert row["epoch"] == "0"
     assert row["summary"] == "Fixed circle"
-    assert row["edge"] == "0"
-    assert row["colour"] == "0"
+    # Blank, not "0": this node carries no measures, and 0 is the best
+    # attainable value on a minimised objective -- writing it would record a
+    # perfect score for something never measured.
+    assert row["edge"] == ""
+    assert row["colour"] == ""
     expected_md5 = hashlib.md5(b"<svg><circle r='10'/></svg>").hexdigest()
     assert row["content_md5"] == expected_md5
     assert row["evicted"] == ""  # empty until evicted
