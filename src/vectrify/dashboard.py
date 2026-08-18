@@ -82,10 +82,14 @@ def _build_renderable(stats: SearchStats) -> Panel:
     unchanged_pct = (
         100.0 * s.unchanged_count / s.tasks_completed if s.tasks_completed else 0.0
     )
+    # Two rows rather than one: at 80 columns, the width a terminal defaults
+    # to, a single row wrapped between a label and its number.
     tasks_line = (
-        f"  completed [bold]{s.tasks_completed:,}[/bold]"
+        f"  [bold]{s.tasks_completed:,}[/bold] completed"
         f"   accept [green]{s.accept_rate() * 100:.1f}%[/green]"
-        f"   pool-rej [yellow]{s.pool_rejected_rate() * 100:.1f}%[/yellow]"
+    )
+    dropped_line = (
+        f"  pool [yellow]{s.pool_rejected_rate() * 100:.1f}%[/yellow]"
         f"   unchanged [{'red' if unchanged_pct > 25 else 'yellow'}]"
         f"{unchanged_pct:.1f}%[/]"
         f"   invalid [red]{s.invalid_rate() * 100:.1f}%[/red]"
@@ -147,6 +151,7 @@ def _build_renderable(stats: SearchStats) -> Panel:
     table.add_row("evaluator", Text.from_markup(eval_line))
     table.add_row("epoch", Text.from_markup(epoch_line))
     table.add_row("tasks", Text.from_markup(tasks_line))
+    table.add_row("dropped", Text.from_markup(dropped_line))
     table.add_row("llm", Text.from_markup(llm_line))
     table.add_row("pool", Text.from_markup(pool_line))
     for label, content in stop_rows:

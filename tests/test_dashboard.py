@@ -65,10 +65,44 @@ def test_unchanged_is_reported_apart_from_invalid():
     run standing still."""
     stats = SearchStats(tasks_completed=1000, unchanged_count=580, invalid_count=20)
 
-    out = _render(stats)
+    out = _render(stats, width=80)
 
     assert "unchanged 58.0%" in out
     assert "invalid 2.0%" in out
+
+
+def test_the_panel_fits_the_width_a_terminal_defaults_to():
+    """At 80 columns a single tasks row wrapped between a label and its
+    number, which reads as a broken panel rather than a wide one."""
+    stats = SearchStats(
+        strategy_name="nsga",
+        model_name="gpt-5.6-terra",
+        epoch=1,
+        epochs=3,
+        tasks_completed=11229,
+        accepted_count=9286,
+        pool_rejected_count=5637,
+        unchanged_count=1800,
+        invalid_count=120,
+        best_score=0.30189,
+        eval_checks=5,
+        eval_patience=5,
+        epoch_patience=500,
+    )
+
+    rows = [
+        line.strip("│").strip()
+        for line in _render(stats, width=80).splitlines()
+        if line.startswith("│")
+    ]
+    rows = [row for row in rows if row]
+
+    # Every row opens with its own label. A wrapped row spills onto a line that
+    # starts with a value instead, which is what splitting tasks and dropped
+    # into two rows exists to prevent.
+    assert rows, "nothing rendered"
+    for row in rows:
+        assert row.split()[0].isalpha(), f"row wrapped: {row!r}"
 
 
 def test_the_evaluator_row_shows_how_long_since_it_approved_anything():
