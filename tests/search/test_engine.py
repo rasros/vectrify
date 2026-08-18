@@ -1227,3 +1227,113 @@ def test_evaluator_patience_counts_checks_not_generations():
     # Two checks had to pass without a gain; a generation count would have
     # tripped far sooner.
     assert len(checks) >= 2
+
+
+def test_a_candidate_measuring_as_its_parent_is_rejected_and_charged():
+    """An operator can rewrite the markup and leave the render untouched --
+    reordering elements that do not overlap is the clearest case. The result
+    differs in bytes and in nothing the search can perceive, so the byte
+    comparison in the worker cannot see it.
+
+    Those are worse than wasted: identical objectives cannot be ranked against
+    the parent, so the candidate survives wherever the parent does and the
+    policy is told the operator succeeded. Measured on one run, 58% of all
+    candidates were of this kind and the operator producing them held 74% of the
+    policy's weight."""
+
+    class RecordingPolicy:
+        def __init__(self):
+            self.updates = []
+
+        def select(self):
+            return "reorder"
+
+        def update(self, operator, survived):
+            self.updates.append((operator, survived))
+
+    policy = RecordingPolicy()
+    store = FakeStorage()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=store, max_total_tasks=2
+    )
+    parent_metrics = {"edge": 0.4, "colour": 0.2}
+    for task_id in (1, 2):
+        engine.unscored_q.put(
+            Result(
+                task_id=task_id,
+                parent_id=1,
+                valid=True,
+                measured=True,
+                payload="p",
+                metrics=dict(parent_metrics),
+                operator="reorder",
+            )
+        )
+
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                valid=True,
+                id=1,
+                parent_id=0,
+                state=ChainState(payload=None),
+                metrics=dict(parent_metrics),
+            )
+        ],
+        max_wall_seconds=None,
+        active_pool_size=4,
+        generation_size=1,
+        operator_policy=policy,
+    )
+
+    # Neither child entered the pool, and the operator was charged for both.
+    assert policy.updates == [("reorder", False), ("reorder", False)]
+
+
+def test_a_candidate_that_moves_any_measure_is_kept():
+    """The test above must not be catching everything: a real change on a single
+    objective is still a real change."""
+
+    class RecordingPolicy:
+        def __init__(self):
+            self.updates = []
+
+        def select(self):
+            return "nudge"
+
+        def update(self, operator, survived):
+            self.updates.append((operator, survived))
+
+    policy = RecordingPolicy()
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=1
+    )
+    engine.unscored_q.put(
+        Result(
+            task_id=1,
+            parent_id=1,
+            valid=True,
+            measured=True,
+            payload="p",
+            metrics={"edge": 0.4, "colour": 0.19},
+            operator="nudge",
+        )
+    )
+
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                valid=True,
+                id=1,
+                parent_id=0,
+                state=ChainState(payload=None),
+                metrics={"edge": 0.4, "colour": 0.2},
+            )
+        ],
+        max_wall_seconds=None,
+        active_pool_size=4,
+        generation_size=1,
+        operator_policy=policy,
+    )
+
+    assert policy.updates == [("nudge", True)]

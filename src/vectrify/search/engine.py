@@ -187,6 +187,12 @@ class MultiprocessSearchEngine(Generic[TState]):
         scorer_thread.start()
 
         node_states = {n.id: n.state for n in initial_nodes}
+        # Each node's measures, kept so a child can be compared with the parent
+        # it came from. A candidate measuring the same on every objective is
+        # indistinguishable from its parent to everything downstream: it cannot
+        # be ranked above or below it, so it is admitted wherever the parent
+        # sits and reports back as a survivor. See _is_no_op.
+        node_metrics = {n.id: dict(n.metrics) for n in initial_nodes}
         # Each starting candidate is its own lineage; children inherit it.
         node_roots = {n.id: n.root_id or n.id for n in initial_nodes}
         # The LLM's own output from earlier epochs, kept as a candidate for the
@@ -298,38 +304,43 @@ class MultiprocessSearchEngine(Generic[TState]):
             # local search has wandered away from it -- from there the same
             # comparison that ranks everything else can decide.
             pool_ids = {n.id for n in active_pool}
-            # The standing best joins the comparison so the evaluator can keep
-            # it: without that, a boundary could replace a candidate it already
-            # judged better.
-            if best_node is not None:
-                pool_ids.add(best_node.id)
             candidates = active_pool + [
                 n for n in seed_archive.values() if n.id not in pool_ids
             ]
             parents = self.strategy.epoch_parents(
                 candidates, max(epoch_seeds, FRONT_EVAL_CAP)
             )
+            # The standing best joins the ranked set afterwards, not before:
+            # epoch_parents selects by dominance over the measures, and the
+            # candidate the evaluator likes best is often dominated on those --
+            # so choosing the field first would drop it, and then the boundary
+            # would hand its title to something the evaluator rates lower.
+            if best_node is not None and all(n.id != best_node.id for n in parents):
+                parents.append(best_node)
             if parents and self.rank_front is not None:
                 try:
                     parents = self.rank_front(parents)
                     # The evaluator has just spoken, which is the only occasion
-                    # anything in the run is called best. Its top pick stands
-                    # until the next boundary, unless it already prefers the
-                    # standing one -- best_node is in the ranked set, so if it
-                    # comes out ahead it stays.
-                    if parents:
-                        best_node = parents[0]
-                        value = best_node.metrics.get(FRONT_SCORE)
-                        shown = "unscored" if value is None else f"{value:.6f}"
-                        log.info(f"Best so far: node={best_node.id} evaluator={shown}")
-                        if value is not None and (
-                            best_panel is None or value < best_panel
-                        ):
-                            best_panel = value
-                            if collector is not None:
-                                collector.on_evaluator_best(
-                                    value, elapsed=time.monotonic() - start_time
-                                )
+                    # anything in the run is called best -- but only a candidate
+                    # it rates higher takes the title. Assigning the boundary's
+                    # top pick outright let a run find 0.340 and ship 0.377: the
+                    # pick is the best of whatever survived selection on the
+                    # measures, which need not include what the evaluator
+                    # already preferred.
+                    top = parents[0] if parents else None
+                    value = top.metrics.get(FRONT_SCORE) if top is not None else None
+                    if (
+                        top is not None
+                        and value is not None
+                        and (best_panel is None or value < best_panel)
+                    ):
+                        best_panel = value
+                        best_node = top
+                        log.info(f"Best so far: node={top.id} evaluator={value:.6f}")
+                        if collector is not None:
+                            collector.on_evaluator_best(
+                                value, elapsed=time.monotonic() - start_time
+                            )
                 except Exception as exc:
                     log.warning(f"Front evaluation failed, keeping rank order: {exc}")
             parents = parents[:epoch_seeds]
@@ -534,6 +545,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             seed_children.append(new_node)
             _archive_seed(new_node)
             node_states[new_node.id] = new_node.state
+            node_metrics[new_node.id] = dict(new_node.metrics)
             _note_accepted(new_node, res)
             self.storage.save_node(new_node, tasks_completed)
 
@@ -572,6 +584,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     operator_policy.update(child.operator, child.id in kept)
                 if child.id in kept:
                     node_states[child.id] = child.state
+                    node_metrics[child.id] = dict(child.metrics)
                     # Content only for candidates that reached the best-ranked
                     # tier. A run admits most of what it produces -- one wrote
                     # 106,640 files -- and a node that never outranked anything
@@ -593,6 +606,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             for node in active_pool:
                 if node.id not in kept:
                     node_states.pop(node.id, None)
+                    node_metrics.pop(node.id, None)
                     self.storage.record_eviction(node.id, tasks_completed)
 
             # Keep arrival order rather than the selector's rank order: the
@@ -601,7 +615,42 @@ class MultiprocessSearchEngine(Generic[TState]):
             active_pool = [n for n in combined if n.id in kept]
             pending_children.clear()
 
+        def _is_no_op(res: Result) -> bool:
+            """Whether this candidate measures exactly as its parent does.
+
+            Not the same test as rejecting an identical file, which is all the
+            worker can see. An operator may rewrite the markup and leave the
+            render untouched -- reordering elements that do not overlap is the
+            clearest case -- and the result is a candidate that differs in bytes
+            and not in anything the search can perceive.
+
+            Those are worse than wasted. Identical objectives cannot be ranked
+            against the parent, so the candidate survives selection wherever the
+            parent does and the operator policy is told it succeeded. Measured
+            on one run, 58% of all candidates were of this kind, none of them
+            catchable by the byte comparison, and the operator that produces
+            them most reliably had taken 74% of the policy's weight.
+            """
+            parent = node_metrics.get(res.parent_id)
+            if parent is None or not res.metrics:
+                return False
+            return all(
+                name in parent and parent[name] == res.metrics[name]
+                for name in res.metrics
+            )
+
         def _process_local_result(res: Result) -> None:
+            if _is_no_op(res):
+                if operator_policy is not None and res.operator is not None:
+                    operator_policy.update(res.operator, False)
+                if collector is not None:
+                    collector.on_invalid(res)
+                log.debug(
+                    f"Task {res.task_id} measured identically to its parent "
+                    f"({res.operator})"
+                )
+                return
+
             new_node = _make_node(res)
             pending_children.append(new_node)
             _note_accepted(new_node, res)
