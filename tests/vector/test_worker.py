@@ -105,7 +105,6 @@ def _run_one(
 @pytest.fixture
 def parent_state():
     return ChainState(
-        score=0.5,
         payload=VectorStatePayload(
             content="<svg><rect/></svg>",
             raster_data_url=None,

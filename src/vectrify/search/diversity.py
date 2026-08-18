@@ -1,7 +1,7 @@
 import binascii
 import random
 
-from vectrify.search.models import INVALID_SCORE, SearchNode
+from vectrify.search.models import SearchNode
 
 _NGRAM_SIZE = 4
 _BITS = 64
@@ -56,9 +56,7 @@ def pool_diversity(nodes: list[SearchNode], sample_pairs: int = 100) -> float:
     Returns 1.0 when there is too little data to measure.
     """
     sigs: list[int] = [
-        n.signature
-        for n in nodes
-        if n.signature is not None and n.score < INVALID_SCORE
+        n.signature for n in nodes if n.signature is not None and n.valid
     ]
     if len(sigs) < 2:
         return 1.0

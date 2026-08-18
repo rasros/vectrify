@@ -23,7 +23,6 @@ LINEAGE_COLUMNS = [
     "parent",
     "secondary_parent",
     "epoch",
-    "score",
     *METRIC_NAMES,
     "summary",
     "content_md5",
@@ -221,7 +220,6 @@ class FileStorageAdapter:
                 "parent": node.parent_id,
                 "secondary_parent": node.secondary_parent_id or "",
                 "epoch": node.epoch,
-                "score": f"{node.score:.6f}",
                 # `.6g` rather than `.0f`: the metrics are byte and
                 # character counts, but region distances live in [0, 1] and an
                 # integer format would write every one of them as "0".
@@ -289,15 +287,13 @@ class FileStorageAdapter:
         panel = node.metrics.get(FRONT_SCORE)
         if panel is not None:
             log.info(
-                "Best candidate (evaluator %.6f, proxy %.6f) written to %s",
+                "Best candidate (evaluator %.6f) written to %s",
                 panel,
-                node.score,
                 self.output_path,
             )
         else:
             log.info(
-                "Best candidate (proxy %.6f, not evaluated) written to %s",
-                node.score,
+                "Best candidate (not evaluated) written to %s",
                 self.output_path,
             )
 

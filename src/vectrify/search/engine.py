@@ -12,15 +12,12 @@ from vectrify.search.base import SearchStrategy, StorageAdapter
 from vectrify.search.collector import StatCollector
 from vectrify.search.diversity import pool_diversity
 from vectrify.search.models import (
-    INVALID_SCORE,
     ChainState,
     Result,
     SearchNode,
     Task,
-    valid_scores,
 )
 from vectrify.search.operators import OperatorPolicy
-from vectrify.search.stats import score_std
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
@@ -48,7 +45,7 @@ SCORE_BATCH_SIZE = 32
 
 def keep_payload(result: Result) -> ChainState:
     """Default state builder: carry the worker's payload through unchanged."""
-    return ChainState(score=result.score, payload=result.payload)
+    return ChainState(payload=result.payload)
 
 
 class MultiprocessSearchEngine(Generic[TState]):
@@ -163,7 +160,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             while True:
                 batch, done = _gather_batch()
 
-                pending = [r for r in batch if r.valid and r.score is None]
+                pending = [r for r in batch if r.valid and not r.measured]
                 if pending and score_fn is not None:
                     try:
                         score_fn(pending)
@@ -172,10 +169,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                         # batched alongside it, so each is marked individually
                         # and only those still unscored are lost.
                         for res in pending:
-                            if res.score is None:
+                            if not res.measured:
                                 res.valid = False
                                 res.invalid_msg = f"Scoring error: {e}"
-                                res.score = INVALID_SCORE
+                                res.measured = True
 
                 for res in batch:
                     self.result_q.put(res)
@@ -348,11 +345,11 @@ class MultiprocessSearchEngine(Generic[TState]):
             """Install the LLM children as the epoch's pool and start refining."""
             nonlocal phase, active_pool, node_states, epoch_no_improve, pool_refilling
 
-            valid_children = [c for c in seed_children if c.score < INVALID_SCORE]
+            valid_children = [c for c in seed_children if c.valid]
             previous_ids = {n.id for n in active_pool}
 
             if not valid_children:
-                if epoch == 0 and not any(n.score < INVALID_SCORE for n in active_pool):
+                if epoch == 0 and not any(n.valid for n in active_pool):
                     raise RuntimeError(
                         f"All {seeds_target} epoch-0 seed task(s) failed and no "
                         f"candidate was accepted; last error: {last_invalid_msg}"
@@ -367,7 +364,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     # Nothing to restart from yet, and clearing here would
                     # discard what --resume just restored. Later epochs do
                     # replace the pool outright.
-                    carried = [n for n in active_pool if n.score < INVALID_SCORE]
+                    carried = [n for n in active_pool if n.valid]
                     new_pool = valid_children + carried
                 else:
                     new_pool = valid_children
@@ -440,15 +437,14 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if collector is not None and hasattr(self, "_llm_in_flight"):
                     collector.on_idle(
                         llm_in_flight=self._llm_in_flight.value,
-                        valid_scores=valid_scores(active_pool),
                     )
                 return True, None
 
         def _make_node(res: Result, *, new_lineage: bool = False) -> SearchNode[TState]:
             nonlocal next_node_id
 
-            if res.score is None:
-                raise RuntimeError("Result has no score and no score_fn provided")
+            if not res.measured:
+                raise RuntimeError("Result was never measured and no score_fn ran")
 
             next_node_id += 1
             # An LLM seed is an independent attempt at the picture, so it opens
@@ -460,7 +456,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             )
             node_roots[next_node_id] = root
             return SearchNode(
-                score=res.score,
+                valid=True,
                 id=next_node_id,
                 parent_id=res.parent_id,
                 state=self.make_state(res),
@@ -474,9 +470,9 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         def _outranks(a: SearchNode[TState], b: SearchNode[TState]) -> bool:
             """Whether *a* beats *b* under the strategy's own relation."""
-            if b.score >= INVALID_SCORE:
-                return a.score < INVALID_SCORE
-            if a.score >= INVALID_SCORE:
+            if not b.valid:
+                return a.valid
+            if not a.valid:
                 return False
             return a.id in self.strategy.top_tier_ids([a, b])
 
@@ -577,10 +573,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 # it out, and lineage.csv should not omit the winner.
                 if child is best_node:
                     self.storage.save_node(child, tasks_completed)
-                log.debug(
-                    f"[REJECTED] node={child.id} "
-                    f"score={child.score:.6f} (dominated by the pool)"
-                )
+                log.debug(f"[REJECTED] node={child.id} (dominated by the pool)")
                 if collector is not None:
                     collector.on_pool_rejected(is_llm=False)
 
@@ -677,10 +670,9 @@ class MultiprocessSearchEngine(Generic[TState]):
             # "too little data" sentinel of 1.0 and later epochs ended above
             # their own baseline, so the rule fired at once or never.
             pool_div = pool_diversity(active_pool)
-            pool_std = score_std(valid_scores(active_pool))
 
             if collector is not None:
-                collector.on_pool_state(diversity=pool_div, score_std=pool_std)
+                collector.on_pool_state(diversity=pool_div)
 
             # A ceiling on how long one epoch may run. Staleness measures
             # whether the pool has stopped producing; this measures how long the
@@ -759,7 +751,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             is as defensible as another -- and writing one of those beats
             losing the run's artifact to a scorer error at shutdown.
             """
-            valid = [n for n in active_pool if n.score < INVALID_SCORE]
+            valid = [n for n in active_pool if n.valid]
             if not valid:
                 return None
             top = self.strategy.top_tier_ids(valid)
@@ -784,7 +776,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             if self.rank_front is None or not active_pool:
                 return fallback
 
-            finalists = [n for n in active_pool if n.score < INVALID_SCORE]
+            finalists = [n for n in active_pool if n.valid]
             if best_node is not None and all(n.id != best_node.id for n in finalists):
                 finalists.append(best_node)
             if not finalists:

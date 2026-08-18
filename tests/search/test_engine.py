@@ -4,20 +4,31 @@ import time
 import pytest
 
 from vectrify.score.metrics import FRONT_SCORE
-from vectrify.search import INVALID_SCORE, ChainState, Result, SearchNode
+from vectrify.search import ChainState, Result, SearchNode
 from vectrify.search.engine import MultiprocessSearchEngine
 
 
+def _rank_of(node) -> float:
+    """These fakes order on one measure, where the real strategy trades four
+    off by dominance. A test that cares about order sets `edge` on its results.
+
+    Without one the id breaks the tie, so a pool still has a strict order and a
+    later candidate is the worse one. A pool where everything ties would put
+    every new child in the top tier, which resets staleness forever and means
+    no epoch can ever end.
+    """
+    return node.metrics.get("edge", float(node.id))
+
+
 class _TierMixin:
-    """The best-ranked tier the engine asks every strategy for. These fakes
-    score on one number, so the tier is whatever ties for lowest."""
+    """The best-ranked tier the engine asks every strategy for."""
 
     def top_tier_ids(self, pool) -> set[int]:
-        valid = [n for n in pool if n.score < INVALID_SCORE]
+        valid = [n for n in pool if n.valid]
         if not valid:
             return set()
-        best = min(n.score for n in valid)
-        return {n.id for n in valid if n.score == best}
+        best = min(_rank_of(n) for n in valid)
+        return {n.id for n in valid if _rank_of(n) == best}
 
 
 class FakeStrategy(_TierMixin):
@@ -31,7 +42,7 @@ class FakeStrategy(_TierMixin):
     def select_survivors(
         self, nodes: list[SearchNode], max_keep: int
     ) -> list[SearchNode]:
-        return sorted(nodes, key=lambda n: n.score)[:max_keep]
+        return sorted(nodes, key=_rank_of)[:max_keep]
 
     def epoch_parents(
         self, pool: list[SearchNode], max_parents: int
@@ -86,17 +97,17 @@ def test_engine_run_loop_processes_result_and_saves():
         task_id=1,
         parent_id=1,
         valid=True,
-        score=0.1,
+        measured=True,
         payload="fake_payload",
     )
     # Put into the unscored queue so the ScorerThread can process it
     engine.unscored_q.put(res)
 
     initial_node = SearchNode(
-        score=0.8,
+        valid=True,
         id=1,
         parent_id=0,
-        state=ChainState(score=0.8, payload=None),
+        state=ChainState(payload=None),
     )
 
     engine.run(
@@ -131,10 +142,10 @@ def test_engine_respects_max_wall_seconds(monkeypatch):
     monkeypatch.setattr(time, "monotonic", FakeTime())
 
     dummy_node = SearchNode(
-        score=0.5,
+        valid=True,
         id=1,
         parent_id=0,
-        state=ChainState(score=0.5, payload=None),
+        state=ChainState(payload=None),
     )
 
     # The first wall-clock check already exceeds the limit, so the run loop
@@ -158,20 +169,20 @@ def test_engine_epoch_patience_triggers_transition():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=strat, storage=store, max_total_tasks=3
     )
-    for score in (0.49, 0.48, 0.47):
+    for _ in range(3):
         engine.unscored_q.put(
             Result(
                 task_id=1,
                 parent_id=1,
                 valid=True,
-                score=score,
+                measured=True,
                 payload="p",
                 llm_type="llm-generate",
             )
         )
 
     initial_node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+        valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
     engine.run(
         initial_nodes=[initial_node],
@@ -201,13 +212,20 @@ def test_epoch_patience_resets_when_a_child_reaches_the_top_tier():
         workers=1, strategy=strat, storage=store, max_total_tasks=3
     )
 
-    for score in (0.35, 0.2, 0.05):
+    for edge in (0.35, 0.2, 0.05):
         engine.unscored_q.put(
-            Result(task_id=1, parent_id=1, valid=True, score=score, payload="p")
+            Result(
+                task_id=1,
+                parent_id=1,
+                valid=True,
+                measured=True,
+                payload="p",
+                metrics={"edge": edge},
+            )
         )
 
     initial_node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+        valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
     engine.run(
         initial_nodes=[initial_node],
@@ -238,7 +256,7 @@ def test_engine_epoch_patience_none_no_transitions():
         max_total_tasks=0,
     )
     dummy_node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+        valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
     engine.run(
         initial_nodes=[dummy_node],
@@ -264,10 +282,10 @@ def test_engine_respects_max_total_tasks():
         workers=1, strategy=strat, storage=store, max_total_tasks=0
     )
     dummy_node = SearchNode(
-        score=0.5,
+        valid=True,
         id=1,
         parent_id=0,
-        state=ChainState(score=0.5, payload=None),
+        state=ChainState(payload=None),
     )
 
     engine.run(initial_nodes=[dummy_node], max_wall_seconds=None)
@@ -296,13 +314,13 @@ def test_engine_active_pool_bounded():
                 task_id=i + 1,
                 parent_id=1,
                 valid=True,
-                score=float(i) * 0.01,
+                measured=True,
                 payload="p",
             )
         )
 
     initial_node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+        valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
     engine.run(
         initial_nodes=[initial_node],
@@ -321,16 +339,16 @@ def test_engine_score_fn_none_with_unscored_result_raises():
             task_id=1,
             parent_id=1,
             valid=True,
-            score=None,
+            measured=False,
             payload="p",
         )
     )
 
     initial_node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+        valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
 
-    with pytest.raises(RuntimeError, match="no score and no score_fn"):
+    with pytest.raises(RuntimeError, match="never measured"):
         engine.run(
             initial_nodes=[initial_node],
             max_wall_seconds=None,
@@ -352,17 +370,17 @@ def test_engine_aborts_when_every_epoch0_seed_fails():
             task_id=1,
             parent_id=1,
             valid=False,
-            score=float("inf"),
+            measured=True,
             payload=None,
             invalid_msg="AuthenticationError(401)",
             llm_type="llm-generate",
         )
     )
     initial = SearchNode(
-        score=float("inf"),
+        valid=False,
         id=1,
         parent_id=0,
-        state=ChainState(score=float("inf"), payload=None),
+        state=ChainState(payload=None),
     )
 
     with pytest.raises(RuntimeError, match="seed task"):
@@ -374,12 +392,12 @@ def test_engine_aborts_when_every_epoch0_seed_fails():
         )
 
 
-def _seed_result(task_id: int, score: float) -> Result:
+def _seed_result(task_id: int) -> Result:
     return Result(
         task_id=task_id,
         parent_id=1,
         valid=True,
-        score=score,
+        measured=True,
         payload="p",
         llm_type="llm-generate",
     )
@@ -399,12 +417,10 @@ def test_seed_batch_does_not_consult_the_parent_selector():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
     )
-    for i, score in enumerate((0.4, 0.3), start=1):
-        engine.unscored_q.put(_seed_result(i, score))
+    for i in range(1, 3):
+        engine.unscored_q.put(_seed_result(i))
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=2)
 
     assert strat.select_calls == 0
@@ -424,12 +440,10 @@ def test_seed_phase_cannot_go_stale():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=3
     )
-    for i, score in enumerate((0.49, 0.48, 0.47), start=1):
-        engine.unscored_q.put(_seed_result(i, score))
+    for i in range(1, 4):
+        engine.unscored_q.put(_seed_result(i))
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -454,14 +468,12 @@ def test_epoch_zero_keeps_resumed_nodes_alongside_seed_children():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
     )
-    engine.unscored_q.put(_seed_result(1, 0.3))
+    engine.unscored_q.put(_seed_result(1))
     engine.unscored_q.put(
-        Result(task_id=2, parent_id=2, valid=True, score=0.4, payload="p")
+        Result(task_id=2, parent_id=2, valid=True, measured=True, payload="p")
     )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=1)
 
     # The local task that follows the batch sees the seed child (id 2) and the
@@ -483,22 +495,20 @@ def test_local_results_that_outlive_their_epoch_do_not_count_as_seeds(caplog):
     # Epoch 0: seed (task 1), then four local tasks (2-5). Patience of 1 ends
     # the epoch on the first local result, leaving 3, 4 and 5 in flight; they
     # arrive after epoch 1 has already opened its batch (task 6).
-    engine.unscored_q.put(_seed_result(1, 0.4))
+    engine.unscored_q.put(_seed_result(1))
     engine.unscored_q.put(
-        Result(task_id=2, parent_id=1, valid=True, score=0.45, payload="p")
+        Result(task_id=2, parent_id=1, valid=True, measured=True, payload="p")
     )
     for tid in (3, 4):
         engine.unscored_q.put(
-            Result(task_id=tid, parent_id=1, valid=True, score=0.9, payload="p")
+            Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
-    engine.unscored_q.put(_seed_result(6, 0.35))
+    engine.unscored_q.put(_seed_result(6))
     engine.unscored_q.put(
-        Result(task_id=5, parent_id=1, valid=True, score=0.9, payload="p")
+        Result(task_id=5, parent_id=1, valid=True, measured=True, payload="p")
     )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     with caplog.at_level(logging.INFO, logger="vectrify.search.engine"):
         engine.run(
             initial_nodes=[initial],
@@ -531,16 +541,14 @@ def test_seed_children_open_lineages_and_local_children_inherit():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=4
     )
-    engine.unscored_q.put(_seed_result(1, 0.4))
-    engine.unscored_q.put(_seed_result(2, 0.3))
+    engine.unscored_q.put(_seed_result(1))
+    engine.unscored_q.put(_seed_result(2))
     for tid in (3, 4):
         engine.unscored_q.put(
-            Result(task_id=tid, parent_id=2, valid=True, score=0.35, payload="p")
+            Result(task_id=tid, parent_id=2, valid=True, measured=True, payload="p")
         )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -571,7 +579,7 @@ def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
 
     def rank_front(nodes):
         seen.append([n.id for n in nodes])
-        return sorted(nodes, key=lambda n: -n.score)  # deliberately reversed
+        return sorted(nodes, key=lambda n: -_rank_of(n))  # deliberately reversed
 
     strat = TrackingStrategy()
     engine = MultiprocessSearchEngine(
@@ -581,15 +589,13 @@ def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
         max_total_tasks=4,
         rank_front=rank_front,
     )
-    engine.unscored_q.put(_seed_result(1, 0.4))
-    for tid, score in ((2, 0.30), (3, 0.20), (4, 0.10)):
+    engine.unscored_q.put(_seed_result(1))
+    for tid in (2, 3, 4):
         engine.unscored_q.put(
-            Result(task_id=tid, parent_id=1, valid=True, score=score, payload="p")
+            Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -635,15 +641,13 @@ def test_a_new_epoch_can_be_seeded_from_the_llm_seed_local_search_replaced():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
     )
-    engine.unscored_q.put(_seed_result(1, 0.2))
+    engine.unscored_q.put(_seed_result(1))
     # Worse than the seed it descends from, and the pool holds one node.
     engine.unscored_q.put(
-        Result(task_id=2, parent_id=2, valid=True, score=0.9, payload="p")
+        Result(task_id=2, parent_id=2, valid=True, measured=True, payload="p")
     )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -667,22 +671,20 @@ def test_remembered_seeds_stay_within_their_share_of_the_front():
     )
     # Epoch 0: two seeds far better than anything that follows, then a local
     # child, which fills the pool and ends the epoch.
-    for task_id, score in ((1, 0.10), (2, 0.11)):
-        engine.unscored_q.put(_seed_result(task_id, score))
+    for task_id in (1, 2):
+        engine.unscored_q.put(_seed_result(task_id))
     engine.unscored_q.put(
-        Result(task_id=3, parent_id=2, valid=True, score=0.7, payload="p")
+        Result(task_id=3, parent_id=2, valid=True, measured=True, payload="p")
     )
     # Epoch 1 replaces the pool with its own two seeds and refines them.
-    for task_id, score in ((4, 0.50), (5, 0.60)):
-        engine.unscored_q.put(_seed_result(task_id, score))
+    for task_id in (4, 5):
+        engine.unscored_q.put(_seed_result(task_id))
     for task_id in (6, 7):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=5, valid=True, score=0.8, payload="p")
+            Result(task_id=task_id, parent_id=5, valid=True, measured=True, payload="p")
         )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -709,12 +711,10 @@ def test_a_resumed_run_treats_no_restored_node_as_an_llm_seed():
     )
     for task_id in (1, 2):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, score=0.9, payload="p")
+            Result(task_id=task_id, parent_id=1, valid=True, measured=True, payload="p")
         )
 
-    resumed = SearchNode(
-        score=0.1, id=1, parent_id=0, state=ChainState(score=0.1, payload=None)
-    )
+    resumed = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[resumed],
         max_wall_seconds=None,
@@ -739,12 +739,10 @@ def test_a_run_without_llm_seeds_offers_the_epoch_only_the_evolved_pool():
     )
     for task_id in (1, 2):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, score=0.9, payload="p")
+            Result(task_id=task_id, parent_id=1, valid=True, measured=True, payload="p")
         )
 
-    initial = SearchNode(
-        score=0.1, id=1, parent_id=0, state=ChainState(score=0.1, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -768,14 +766,12 @@ def test_a_failing_evaluator_does_not_stop_the_run():
         max_total_tasks=3,
         rank_front=_explode,
     )
-    engine.unscored_q.put(_seed_result(1, 0.4))
+    engine.unscored_q.put(_seed_result(1))
     for tid in (2, 3):
         engine.unscored_q.put(
-            Result(task_id=tid, parent_id=1, valid=True, score=0.35, payload="p")
+            Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -804,12 +800,10 @@ def test_children_join_the_pool_only_when_the_generation_closes():
     )
     for tid in range(1, 6):
         engine.unscored_q.put(
-            Result(task_id=tid, parent_id=1, valid=True, score=0.1, payload="p")
+            Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -839,12 +833,10 @@ def test_epoch_transition_closes_the_open_generation():
     )
     for tid in (1, 2):
         engine.unscored_q.put(
-            Result(task_id=tid, parent_id=1, valid=True, score=0.9, payload="p")
+            Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -877,21 +869,20 @@ def test_the_engine_picks_the_operator_and_hears_how_it_did():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
     )
-    for tid, score in ((1, 0.1), (2, 0.9)):
+    for tid, edge in ((1, 0.1), (2, 0.9)):
         engine.unscored_q.put(
             Result(
                 task_id=tid,
                 parent_id=1,
                 valid=True,
-                score=score,
+                measured=True,
                 payload="p",
+                metrics={"edge": edge},
                 operator="op",
             )
         )
 
-    initial = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -931,20 +922,18 @@ def test_an_operator_that_produced_nothing_is_charged_for_the_draw():
             task_id=1,
             parent_id=1,
             valid=False,
-            score=INVALID_SCORE,
+            measured=True,
             payload=None,
             operator="op",
         )
     )
     engine.unscored_q.put(
-        Result(task_id=2, parent_id=1, valid=False, score=INVALID_SCORE, payload=None)
+        Result(task_id=2, parent_id=1, valid=False, measured=True, payload=None)
     )
 
     engine.run(
         initial_nodes=[
-            SearchNode(
-                score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-            )
+            SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
         ],
         max_wall_seconds=None,
         active_pool_size=1,
@@ -966,15 +955,13 @@ def _engine_with_evaluator(store, rank_front):
 
 
 def _run_two_children(engine):
-    for tid, score in ((1, 0.1), (2, 0.2)):
+    for tid in (1, 2):
         engine.unscored_q.put(
-            Result(task_id=tid, parent_id=1, valid=True, score=score, payload="p")
+            Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
     engine.run(
         initial_nodes=[
-            SearchNode(
-                score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-            )
+            SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
         ],
         max_wall_seconds=None,
         active_pool_size=3,
@@ -989,12 +976,12 @@ def test_the_final_artifact_is_chosen_by_the_evaluator():
     store = FakeStorage()
     # An evaluator that prefers the worst round score, which the proxy never would.
     engine = _engine_with_evaluator(
-        store, lambda nodes: sorted(nodes, key=lambda n: -n.score)
+        store, lambda nodes: sorted(nodes, key=lambda n: -_rank_of(n))
     )
     _run_two_children(engine)
 
     assert store.best_saved is not None
-    assert store.best_saved.score == 0.5
+    assert store.best_saved.id == 3
 
 
 def test_a_failing_evaluator_still_writes_a_top_tier_candidate():
@@ -1009,7 +996,7 @@ def test_a_failing_evaluator_still_writes_a_top_tier_candidate():
     _run_two_children(_engine_with_evaluator(store, explode))
 
     assert store.best_saved is not None
-    assert store.best_saved.score < INVALID_SCORE
+    assert store.best_saved.valid
 
 
 def test_scorer_thread_scores_queued_results_together():
@@ -1025,7 +1012,9 @@ def test_scorer_thread_scores_queued_results_together():
     )
     for task_id in range(1, 9):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, score=None, payload="p")
+            Result(
+                task_id=task_id, parent_id=1, valid=True, measured=False, payload="p"
+            )
         )
 
     batch_sizes = []
@@ -1033,10 +1022,10 @@ def test_scorer_thread_scores_queued_results_together():
     def score_fn(results):
         batch_sizes.append(len(results))
         for res in results:
-            res.score = 0.1
+            res.measured = True
 
     initial_node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+        valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
     engine.run(
         initial_nodes=[initial_node],
@@ -1057,7 +1046,9 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
     )
     for task_id in range(1, 5):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, score=None, payload="p")
+            Result(
+                task_id=task_id, parent_id=1, valid=True, measured=False, payload="p"
+            )
         )
 
     scored = []
@@ -1066,12 +1057,12 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
         # Half the batch is scored before the failure, as a real scorer that
         # fails partway through its work would leave it.
         for res in results[: len(results) // 2]:
-            res.score = 0.1
+            res.measured = True
             scored.append(res.task_id)
         raise ValueError("scorer exploded")
 
     initial_node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
+        valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
     engine.run(
         initial_nodes=[initial_node],
@@ -1095,12 +1086,10 @@ def test_the_epoch_budget_ends_an_epoch_that_has_not_gone_stale():
     )
     for task_id in range(1, 7):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, score=0.5, payload="p")
+            Result(task_id=task_id, parent_id=1, valid=True, measured=True, payload="p")
         )
 
-    node = SearchNode(
-        score=0.5, id=1, parent_id=0, state=ChainState(score=0.5, payload=None)
-    )
+    node = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
     engine.run(
         initial_nodes=[node],
         max_wall_seconds=None,
@@ -1136,14 +1125,12 @@ def test_the_evaluator_is_asked_during_an_epoch_not_only_at_its_boundary():
     )
     for task_id in range(1, 5):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, score=0.0, payload="p")
+            Result(task_id=task_id, parent_id=1, valid=True, measured=True, payload="p")
         )
 
     engine.run(
         initial_nodes=[
-            SearchNode(
-                score=0.0, id=1, parent_id=0, state=ChainState(score=0.0, payload=None)
-            )
+            SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
         ],
         max_wall_seconds=None,
         active_pool_size=3,
@@ -1176,14 +1163,12 @@ def test_the_epoch_ends_when_the_evaluator_stops_seeing_improvement():
     )
     for task_id in range(1, 9):
         engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, score=0.0, payload="p")
+            Result(task_id=task_id, parent_id=1, valid=True, measured=True, payload="p")
         )
 
     engine.run(
         initial_nodes=[
-            SearchNode(
-                score=0.0, id=1, parent_id=0, state=ChainState(score=0.0, payload=None)
-            )
+            SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
         ],
         max_wall_seconds=None,
         active_pool_size=3,

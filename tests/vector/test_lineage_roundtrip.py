@@ -28,15 +28,14 @@ if not SCRIPTS.is_dir():
     pytest.skip(f"scripts/ not found at {SCRIPTS}", allow_module_level=True)
 
 
-def _node(node_id: int, score: float, visual: float, structural: float) -> SearchNode:
+def _node(node_id: int, visual: float, structural: float) -> SearchNode:
     return SearchNode(
-        score=score,
+        valid=True,
         id=node_id,
         parent_id=0,
         epoch=1,
         metrics={"edge": visual, "colour": structural},
         state=ChainState(
-            score=score,
             payload=VectorStatePayload(
                 content=f"<svg id='{node_id}'/>",
                 raster_data_url=None,
@@ -52,8 +51,8 @@ def _node(node_id: int, score: float, visual: float, structural: float) -> Searc
 def written_run(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
     adapter.initialize()
-    adapter.save_node(_node(1, 0.25, 1000.0, 300.0))
-    adapter.save_node(_node(2, 0.50, 2000.0, 800.0))
+    adapter.save_node(_node(1, 1000.0, 300.0))
+    adapter.save_node(_node(2, 2000.0, 800.0))
     adapter.record_eviction(2, tasks_completed=42)
     assert adapter.current_run_dir is not None
     return adapter.current_run_dir
@@ -64,7 +63,6 @@ def test_plot_run_reads_back_what_storage_wrote(written_run):
 
     rows = {r["id"]: r for r in load_lineage(written_run)}
 
-    assert rows[1]["score"] == pytest.approx(0.25)
     assert rows[1]["edge"] == pytest.approx(1000.0)
     assert rows[1]["colour"] == pytest.approx(300.0)
     assert rows[1]["epoch"] == 1
@@ -113,13 +111,13 @@ def test_lineage_puts_admissions_and_evictions_on_one_clock(tmp_path):
     adapter = FileStorageAdapter(str(tmp_path / "out.svg"))
     adapter.initialize()
 
-    adapter.save_node(_node(1, 0.25, 1000.0, 300.0), tasks_completed=100)
-    adapter.save_node(_node(2, 0.50, 2000.0, 800.0), tasks_completed=250)
+    adapter.save_node(_node(1, 1000.0, 300.0), tasks_completed=100)
+    adapter.save_node(_node(2, 2000.0, 800.0), tasks_completed=250)
     adapter.record_eviction(1, tasks_completed=300)
 
     assert adapter.lineage_csv is not None
     rows = list(csv.DictReader(adapter.lineage_csv.open()))
-    admitted = {r["id"]: r["task"] for r in rows if r["summary"] or r["score"]}
+    admitted = {r["id"]: r["task"] for r in rows if r["summary"] or r["task"]}
     assert admitted == {"1": "100", "2": "250"}
 
     # Replaying both streams gives the pool at any task.

@@ -15,7 +15,7 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm import LLMConfig, get_provider
-from vectrify.search import INVALID_SCORE, Result
+from vectrify.search import Result
 from vectrify.search.diversity import simhash
 from vectrify.utils import setup_worker_logger
 
@@ -209,7 +209,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                     task_id=task.task_id,
                     parent_id=task.parent_id,
                     valid=True,
-                    score=None,
+                    measured=False,
                     payload=VectorResultPayload(
                         content=content,
                         raster_png=png,
@@ -238,7 +238,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         task_id=task.task_id,
                         parent_id=task.parent_id,
                         valid=False,
-                        score=INVALID_SCORE,
+                        measured=True,
                         payload=VectorResultPayload(None, None, None),
                         invalid_msg=repr(e),
                         secondary_parent_id=task.secondary_parent_id,

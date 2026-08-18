@@ -1,8 +1,6 @@
-import math
-
 import pytest
 
-from vectrify.search.stats import RATE_SPECS, SearchStats, derived_rates, score_std
+from vectrify.search.stats import RATE_SPECS, SearchStats, derived_rates
 
 
 def _populated() -> SearchStats:
@@ -56,22 +54,6 @@ def test_derived_rates_accepts_a_plain_mapping():
     rates = derived_rates({"tasks_completed": 10.0, "accepted_count": 4.0})
     assert rates["accept_rate"] == pytest.approx(0.4)
     assert rates["llm_accept_rate"] == 0.0  # missing counters degrade to zero
-
-
-def test_score_std_matches_population_formula():
-    scores = [0.1, 0.2, 0.4, 0.9]
-    mean = sum(scores) / len(scores)
-    expected = math.sqrt(sum((x - mean) ** 2 for x in scores) / len(scores))
-    assert score_std(scores) == pytest.approx(expected)
-
-
-def test_score_std_needs_two_samples():
-    assert score_std([]) == 0.0
-    assert score_std([0.5]) == 0.0
-
-
-def test_score_std_zero_for_identical_scores():
-    assert score_std([0.3, 0.3, 0.3]) == pytest.approx(0.0)
 
 
 def test_stagnation_fraction_is_capped():

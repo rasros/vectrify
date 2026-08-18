@@ -43,8 +43,6 @@ from vectrify.score.metrics import (
 from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
-    INVALID_SCORE,
-    VALID_SCORE,
     ChainState,
     MultiprocessSearchEngine,
     NsgaStrategy,
@@ -287,11 +285,10 @@ def run_vector_search(
     if not initial_nodes:
         initial_nodes.append(
             SearchNode(
-                score=INVALID_SCORE,
+                valid=False,
                 id=0,
                 parent_id=0,
                 state=ChainState(
-                    INVALID_SCORE,
                     VectorStatePayload(None, None, None, None, None),
                 ),
             )
@@ -306,9 +303,6 @@ def run_vector_search(
         collector.configure_run(
             epoch_max_tasks=epoch_max_tasks,
         )
-        valid = [n for n in initial_nodes if n.score < INVALID_SCORE]
-        if valid:
-            collector.seed_initial_score(min(valid, key=lambda n: n.score).score)
 
     first_batch = initial_seed_tasks(epoch_seeds, initial_nodes)
     if first_batch < epoch_seeds:
@@ -389,7 +383,7 @@ def run_vector_search(
             # Measured, so valid. `score` carries no magnitude any more: the
             # measures are ranked by dominance and the only score in the run is
             # the evaluator's, recorded as FRONT_SCORE on the nodes it sees.
-            res.score = VALID_SCORE
+            res.measured = True
         except Exception as exc:
             log.debug(f"Pixel objectives skipped: {exc}")
 
@@ -410,7 +404,7 @@ def run_vector_search(
                 _pixel_objectives(res)
 
         for res in results:
-            if res.score is None:
+            if not res.measured:
                 # Nothing rendered, so nothing can be measured.
                 res.score = MAX_SCORE
 

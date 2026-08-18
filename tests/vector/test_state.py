@@ -31,7 +31,7 @@ def _make_result(
         task_id=1,
         parent_id=0,
         valid=True,
-        score=0.5,
+        measured=True,
         payload=VectorResultPayload(
             content=content,
             raster_png=raster_png,

@@ -34,11 +34,10 @@ class CountingScorer:
 
 def _node(node_id: int, content: str = "<svg/>") -> SearchNode:
     return SearchNode(
-        score=0.0,
+        valid=True,
         id=node_id,
         parent_id=0,
         state=ChainState(
-            score=0.0,
             payload=VectorStatePayload(
                 content=content,
                 raster_data_url=None,

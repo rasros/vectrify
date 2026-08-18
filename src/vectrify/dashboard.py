@@ -1,5 +1,6 @@
 import contextlib
 import logging
+import math
 import threading
 import time
 
@@ -9,7 +10,6 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from vectrify.search.models import INVALID_SCORE
 from vectrify.search.stats import SearchStats
 
 _REFRESH_INTERVAL = 0.25
@@ -39,7 +39,7 @@ def _stop_row(
 
 
 def _fmt_score(score: float) -> str:
-    return f"{score:.6f}" if score < INVALID_SCORE else "—"
+    return f"{score:.6f}" if score < math.inf else "—"
 
 
 def _fmt_elapsed(seconds: float) -> str:
@@ -90,7 +90,6 @@ def _build_renderable(stats: SearchStats) -> Panel:
 
     pool_line = (
         f"  diversity [dim]{s.pool_diversity:.3f}[/dim]"
-        f"   spread [dim]{s.pool_score_std:.4f}[/dim]"
         f"   stale [dim]{s.epoch_no_improve:,}[/dim]"
     )
 

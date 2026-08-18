@@ -1,11 +1,12 @@
 import logging
+import math
 import random
 from collections.abc import Callable, Mapping
 from typing import Any, Generic, TypeVar
 
 from vectrify.score.metrics import SCORER_METRICS
 from vectrify.search.diversity import hamming_distance
-from vectrify.search.models import INVALID_SCORE, SearchNode
+from vectrify.search.models import SearchNode
 
 log = logging.getLogger(__name__)
 
@@ -120,7 +121,7 @@ def crowding_distance(
     than assumed.
     """
     if len(front) <= 2:
-        return {n.id: INVALID_SCORE for n in front}
+        return {n.id: math.inf for n in front}
 
     distances: dict[int, float] = {n.id: 0.0 for n in front}
     n_objectives = len(objectives[front[0].id])
@@ -130,8 +131,8 @@ def crowding_distance(
         obj_min = objectives[sorted_front[0].id][m]
         obj_max = objectives[sorted_front[-1].id][m]
 
-        distances[sorted_front[0].id] = INVALID_SCORE
-        distances[sorted_front[-1].id] = INVALID_SCORE
+        distances[sorted_front[0].id] = math.inf
+        distances[sorted_front[-1].id] = math.inf
 
         obj_range = obj_max - obj_min
         if obj_range == 0.0:
@@ -162,7 +163,7 @@ def build_objectives(nodes: list[SearchNode]) -> dict[int, Objectives]:
     exactly where it earns its place. No measure is privileged and there is no
     blend of them anywhere -- the run's only score is the evaluator's.
 
-    Callers must pass only valid nodes (score < INVALID_SCORE); an infinite
+    Callers must pass only valid nodes (score < math.inf); an infinite
     score would corrupt the normalization for every other node.
     """
     maxima = {
@@ -272,7 +273,7 @@ class NsgaStrategy(Generic[TState]):
         return node.signature == other.signature
 
     def select_parent(self, nodes: list[SearchNode[TState]]) -> tuple[int, int | None]:
-        valid = [n for n in nodes if n.score < INVALID_SCORE]
+        valid = [n for n in nodes if n.valid]
         if not valid:
             return nodes[0].id if nodes else 0, None
 
@@ -313,32 +314,37 @@ class NsgaStrategy(Generic[TState]):
     ) -> list[SearchNode[TState]]:
         """Truncate parents+children by non-dominated rank, then crowding.
 
-        Nodes that failed to score go first: they have no usable objective
-        vector, and a single infinite score would corrupt the population
-        normalization build_objectives applies to everyone else.
+        Nodes that were never measured go first: they have no objective vector
+        at all, and carrying them would corrupt the population normalization
+        build_objectives applies to everyone else.
         """
-        valid = [n for n in nodes if n.score < INVALID_SCORE]
+        valid = [n for n in nodes if n.valid]
         if len(valid) <= max_keep:
-            invalid = [n for n in nodes if n.score >= INVALID_SCORE]
+            invalid = [n for n in nodes if not n.valid]
             return valid + invalid[: max_keep - len(valid)]
 
         survivors = pareto_select(valid, build_objectives(valid), max_keep)
 
         # Elitism, which NSGA-II normally gets for free: under Pareto dominance
-        # the best node is in front 0 by construction, but the majority
-        # relation can outvote it two objectives to one and evict it. Measured,
-        # it did -- a generation dropped the run's best candidate and the pool
-        # never recovered its score. The best node keeps its place explicitly.
-        best = min(valid, key=lambda n: n.score)
-        if best.id not in {n.id for n in survivors}:
-            survivors[-1] = best
+        # the best-ranked candidates are in front 0 by construction, but the
+        # majority relation cycles and crowding distance can evict the whole
+        # top tier on spread. Measured, it did -- a generation dropped the run's
+        # best candidate and the pool never recovered. At least one unbeaten
+        # candidate keeps its place explicitly.
+        #
+        # A tier rather than a single node: with the measures traded off there
+        # is no one best, and any member of the top tier is as defensible as
+        # another.
+        top = self.top_tier_ids(valid)
+        if top and not top & {n.id for n in survivors}:
+            survivors[-1] = next(n for n in valid if n.id in top)
         return survivors
 
     def epoch_parents(
         self, pool: list[SearchNode[TState]], max_parents: int
     ) -> list[SearchNode[TState]]:
         """Return a diverse Pareto-front subset for the next epoch's LLM edits."""
-        valid = [n for n in pool if n.score < INVALID_SCORE]
+        valid = [n for n in pool if n.valid]
         if not valid:
             return pool[:max_parents]
 
@@ -369,7 +375,7 @@ class NsgaStrategy(Generic[TState]):
         which needs no blended score and no magnitude -- only whether one
         candidate beats another.
         """
-        valid = [n for n in pool if n.score < INVALID_SCORE]
+        valid = [n for n in pool if n.valid]
         if not valid:
             return set()
         objectives = build_objectives(valid)

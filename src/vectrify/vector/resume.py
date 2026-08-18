@@ -13,8 +13,6 @@ from vectrify.score.edges import overlap_distance
 from vectrify.score.metrics import COLOUR, DETAIL, EDGE, SHAPE
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
-    INVALID_SCORE,
-    VALID_SCORE,
     ChainState,
     SearchNode,
     StorageAdapter,
@@ -67,10 +65,10 @@ def prefilter_nodes(
 
     temp_nodes = [
         SearchNode(
-            score=simple_scores[i],
+            valid=True,
             id=i,
             parent_id=0,
-            state=ChainState(score=simple_scores[i], payload=None),
+            state=ChainState(payload=None),
             metrics=item.metrics,
         )
         for i, item in enumerate(prepped_nodes)
@@ -157,15 +155,13 @@ def resume_nodes(
             metrics[COLOUR] = float(comparison.colour.mean())
             metrics[SHAPE] = comparison.shape
             metrics[DETAIL] = detail_excess(reference_detail, item.png)
-            new_score = VALID_SCORE
             node = SearchNode(
-                score=new_score,
+                valid=True,
                 id=current_new_id,
                 parent_id=0,
                 metrics=metrics,
                 signature=item.signature,
                 state=ChainState(
-                    score=new_score,
                     payload=VectorStatePayload(
                         content=item.content,
                         raster_data_url=None,
@@ -196,7 +192,7 @@ def filter_to_pool_size(
     # Pareto-select among valid nodes only (an infinite score would corrupt the
     # normalization); top up with invalid ones if short, matching the old
     # behavior where they sorted into the last fronts.
-    valid = [n for n in nodes if n.score < INVALID_SCORE]
+    valid = [n for n in nodes if n.valid]
     filtered = pareto_select(valid, build_objectives(valid), pool_size)
     if len(filtered) < pool_size:
         kept_ids = {n.id for n in filtered}

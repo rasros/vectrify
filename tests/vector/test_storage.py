@@ -23,14 +23,13 @@ def dummy_state() -> ChainState:
         origin="Fixed circle",
     )
     return ChainState(
-        score=0.123456,
         payload=payload,
     )
 
 
 @pytest.fixture
 def dummy_node(dummy_state) -> SearchNode:
-    return SearchNode(score=0.123456, id=42, parent_id=10, state=dummy_state)
+    return SearchNode(valid=True, id=42, parent_id=10, state=dummy_state)
 
 
 def test_adapter_path_resolution(tmp_path):
@@ -69,10 +68,9 @@ def test_save_best_skips_empty_content(tmp_path):
     output_path = tmp_path / "out.svg"
     adapter = FileStorageAdapter(str(output_path))
     empty_state = ChainState(
-        score=0.0,
         payload=VectorStatePayload(None, None, None, None),
     )
-    node = SearchNode(score=0.0, id=0, parent_id=0, state=empty_state)
+    node = SearchNode(valid=True, id=0, parent_id=0, state=empty_state)
 
     adapter.save_best(node)
 
@@ -123,7 +121,7 @@ def test_eviction_row_lands_in_the_evicted_column(tmp_path, dummy_node):
     # Every other field is blank -- in particular the value did not land in
     # content_md5, which is where a hand-built positional row would have put it.
     assert eviction["content_md5"] == ""
-    assert eviction["score"] == ""
+    assert eviction["task"] == ""
     assert eviction["colour"] == ""
 
 
@@ -167,10 +165,10 @@ def _make_node_with_raster_and_heatmap(
         heatmap_data_url=heatmap_data_url,
     )
     return SearchNode(
-        score=0.5,
+        valid=True,
         id=1,
         parent_id=0,
-        state=ChainState(score=0.5, payload=payload),
+        state=ChainState(payload=payload),
     )
 
 
@@ -218,10 +216,10 @@ def test_save_node_content_none_does_not_write_content_file(tmp_path):
         origin="no content",
     )
     node = SearchNode(
-        score=0.5,
+        valid=True,
         id=99,
         parent_id=0,
-        state=ChainState(score=0.5, payload=payload),
+        state=ChainState(payload=payload),
     )
     adapter.save_node(node)
     assert not (adapter.nodes_dir / "0.500000_99.svg").is_file()
