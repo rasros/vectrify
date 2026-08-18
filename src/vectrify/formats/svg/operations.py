@@ -55,34 +55,6 @@ _SHAPE_TAGS = frozenset(
     {"rect", "circle", "ellipse", "line", "path", "polygon", "polyline"}
 )
 
-_NAMED_SVG_COLORS = [
-    "red",
-    "blue",
-    "green",
-    "yellow",
-    "orange",
-    "purple",
-    "cyan",
-    "magenta",
-    "pink",
-    "brown",
-    "black",
-    "white",
-    "gray",
-    "navy",
-    "teal",
-    "olive",
-    "coral",
-    "salmon",
-    "gold",
-    "indigo",
-    "lime",
-    "aqua",
-    "maroon",
-    "silver",
-    "crimson",
-    "turquoise",
-]
 
 _NUM_RE = re.compile(r"^(-?\d+(?:\.\d+)?)([a-z%]*)$")
 # Path data writes numbers with a leading dot and no separators ("M.5.5"), so
@@ -92,6 +64,8 @@ _PATH_NUM_RE = re.compile(r"(-?(?:\d+\.\d+|\.\d+|\d+))")
 # of the command it belongs to.
 _PATH_TOKEN_RE = re.compile(r"([MmLlHhVvCcSsQqTtAaZz])|(-?(?:\d+\.\d+|\.\d+|\d+))")
 _HEX_COLOR_RE = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
+# How far one channel may move in a single mutation.
+_COLOR_STEP = 8
 # A translate at the head of a transform list, so a repeated move folds into it
 # instead of stacking another one in front.
 _LEADING_TRANSLATE_RE = re.compile(r"^translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)")
@@ -160,28 +134,6 @@ def _element_of(item):
 
 # Share of the selection mass spread evenly over every candidate.
 _TARGET_FLOOR = 0.25
-
-
-def _document_colors(root: ET.Element) -> list[str]:
-    """Every colour the drawing already uses.
-
-    A candidate's palette is evidence about the target's: the model picked it
-    while looking at the image. Exploring inside it is a search; replacing a
-    colour with a random CSS name is not. On a line drawing in blacks and greys,
-    fifteen of the eighteen names in _NAMED_SVG_COLORS can only be wrong, and
-    they are where the stray blue and brown dots in real runs came from.
-    """
-    found: list[str] = []
-    for elem in root.iter():
-        for attr, val in elem.attrib.items():
-            if attr.split("}")[-1] in _COLOR_ATTRS and val not in (
-                "none",
-                "inherit",
-                "transparent",
-                "",
-            ):
-                found.append(val)
-    return found
 
 
 def svg_transform(fn: Callable[[ET.Element], None]) -> Callable[[str], str]:
@@ -461,24 +413,26 @@ def mutate_color(root: ET.Element) -> None:
     if not candidates:
         raise _NoChangeError
 
+    # Only a hex value can be fudged. A name has no channels, so "changing" it
+    # means jumping to some other colour, which is not a search step -- it is
+    # how stray blues and browns arrived in drawings that are otherwise grey.
+    candidates = [c for c in candidates if _HEX_COLOR_RE.search(c[3])]
+    if not candidates:
+        raise _NoChangeError
+
     elem, source, key, val = _pick(candidates)
 
-    hex_match = _HEX_COLOR_RE.search(val)
-    if hex_match:
-        h = hex_match.group(1)
-        if len(h) == 3:
-            h = h[0] * 2 + h[1] * 2 + h[2] * 2
-        r = max(0, min(255, int(h[0:2], 16) + random.randint(-60, 60)))
-        g = max(0, min(255, int(h[2:4], 16) + random.randint(-60, 60)))
-        b = max(0, min(255, int(h[4:6], 16) + random.randint(-60, 60)))
-        new_color = f"#{r:02x}{g:02x}{b:02x}"
-    else:
-        # A named colour has no channels to nudge, so move to another colour the
-        # drawing already uses rather than to an arbitrary name.
-        palette = [c for c in _document_colors(root) if c != val]
-        new_color = (
-            random.choice(palette) if palette else random.choice(_NAMED_SVG_COLORS)
-        )
+    h = _HEX_COLOR_RE.search(val).group(1)  # type: ignore[union-attr]
+    if len(h) == 3:
+        h = h[0] * 2 + h[1] * 2 + h[2] * 2
+    # A small step. At +/-60 a grey wanders into brown in a handful of accepted
+    # mutations -- one run shipped #392800 on a drawing whose palette is black,
+    # white and two greys -- and the drift is invisible per step, so nothing
+    # rejects it until the colour is plainly wrong.
+    r = max(0, min(255, int(h[0:2], 16) + random.randint(-_COLOR_STEP, _COLOR_STEP)))
+    g = max(0, min(255, int(h[2:4], 16) + random.randint(-_COLOR_STEP, _COLOR_STEP)))
+    b = max(0, min(255, int(h[4:6], 16) + random.randint(-_COLOR_STEP, _COLOR_STEP)))
+    new_color = f"#{r:02x}{g:02x}{b:02x}"
 
     if source == "attr":
         elem.set(key, new_color)
@@ -503,14 +457,21 @@ def mutate_stroke(root: ET.Element) -> None:
     el = _pick(shapes)
     has_stroke = el.get("stroke") not in (None, "none", "")
 
-    op = random.choice(["add", "remove", "change"])
+    op = random.choice(["add", "remove"])
     if op == "remove" and has_stroke:
         el.set("stroke", "none")
-    elif op in ("add", "change"):
-        palette = _document_colors(root)
-        el.set("stroke", random.choice(palette) if palette else "#000000")
+    elif op == "add" and not has_stroke:
+        # The element's own fill, not a colour from anywhere else: an outline
+        # belongs to the shape it outlines, and inventing one is what put a
+        # blue ring on a black dot. Colour itself is mutate_color's business.
+        fill = el.get("fill")
+        if not fill or fill in ("none", "inherit", "transparent"):
+            raise _NoChangeError
+        el.set("stroke", fill)
         if not el.get("stroke-width"):
             el.set("stroke-width", str(random.choice([1, 2, 3])))
+    else:
+        raise _NoChangeError
 
 
 def _nudgeable_numbers(d: str) -> list[re.Match]:
@@ -588,6 +549,109 @@ def _canvas_span(root: ET.Element) -> float:
     return 100.0
 
 
+# Which arguments of a path command are x coordinates and which are y, by
+# position within the command's argument group. A translate has to move
+# coordinates and leave everything else alone: an arc's radii and rotation are
+# not positions, and shifting them reshapes the curve instead of moving it.
+_PATH_COORDS: dict[str, tuple[int, tuple[int, ...], tuple[int, ...]]] = {
+    # command: (arity, x argument indices, y argument indices)
+    "M": (2, (0,), (1,)),
+    "L": (2, (0,), (1,)),
+    "T": (2, (0,), (1,)),
+    "H": (1, (0,), ()),
+    "V": (1, (), (0,)),
+    "C": (6, (0, 2, 4), (1, 3, 5)),
+    "S": (4, (0, 2), (1, 3)),
+    "Q": (4, (0, 2), (1, 3)),
+    "A": (7, (5,), (6,)),
+}
+
+
+def _translate_path(d: str, dx: float, dy: float) -> str:
+    """Shift every absolute coordinate in path data by (dx, dy).
+
+    Relative commands describe offsets from wherever the pen already is, so
+    moving them would change the shape rather than its position -- with one
+    exception: a path opening with a relative moveto starts from the origin, so
+    that first pair is a position like any other.
+    """
+    out: list[str] = []
+    command = ""
+    argument = 0
+    seen_move = False
+    last = 0
+    for token in _PATH_TOKEN_RE.finditer(d):
+        out.append(d[last : token.start()])
+        last = token.end()
+        text = token.group(0)
+        if token.group(1):
+            command = text
+            argument = 0
+            out.append(text)
+            continue
+
+        layout = _PATH_COORDS.get(command.upper())
+        shift = 0.0
+        if layout is not None:
+            arity, xs, ys = layout
+            slot = argument % arity
+            absolute = command.isupper() or (not seen_move and command == "m")
+            if absolute:
+                shift = dx if slot in xs else dy if slot in ys else 0.0
+        if command.upper() == "M":
+            seen_move = True
+
+        if shift:
+            moved = float(text) + shift
+            out.append(f"{moved:.1f}".rstrip("0").rstrip(".") or "0")
+        else:
+            out.append(text)
+        argument += 1
+    out.append(d[last:])
+    return "".join(out)
+
+
+def _shift_element(el: ET.Element, dx: float, dy: float) -> bool:
+    """Move one element by editing its own numbers. True if anything moved."""
+    moved = False
+    for attr in ("x", "cx", "x1", "x2"):
+        raw = el.get(attr)
+        if raw is not None:
+            m = _NUM_RE.match(raw.strip())
+            if m:
+                el.set(attr, f"{float(m.group(1)) + dx:g}{m.group(2)}")
+                moved = True
+    for attr in ("y", "cy", "y1", "y2"):
+        raw = el.get(attr)
+        if raw is not None:
+            m = _NUM_RE.match(raw.strip())
+            if m:
+                el.set(attr, f"{float(m.group(1)) + dy:g}{m.group(2)}")
+                moved = True
+
+    points = el.get("points")
+    if points:
+        nums = _PATH_NUM_RE.findall(points)
+        if len(nums) >= 2:
+            shifted = [
+                f"{float(n) + (dx if i % 2 == 0 else dy):g}" for i, n in enumerate(nums)
+            ]
+            el.set(
+                "points",
+                " ".join(
+                    f"{shifted[i]},{shifted[i + 1]}"
+                    for i in range(0, len(shifted) - 1, 2)
+                ),
+            )
+            moved = True
+
+    d = el.get("d")
+    if d:
+        el.set("d", _translate_path(d, dx, dy))
+        moved = True
+    return moved
+
+
 @svg_transform
 def mutate_translate(root: ET.Element) -> None:
     """Move one element along both axes at once.
@@ -600,9 +664,13 @@ def mutate_translate(root: ET.Element) -> None:
     often no better than where it started. That is worst where elements are
     many and small, each too slight for its own move to show in the score.
 
-    Written as a transform rather than by editing coordinates, so it applies to
-    a path or a group as readily as to a circle, and composes with whatever
-    transform the element already carries.
+    Written by editing the element's own numbers rather than by adding a
+    transform. A transform is a second description of where a thing is, laid
+    over the first: it accumulates -- one real run stacked 23 of them on its
+    background rect and walked the canvas off its own viewBox -- and it leaves
+    the coordinates saying one thing while the drawing does another, so every
+    later mutation and every crossover reads a position that is not where the
+    element appears.
     """
     units = drawable_elements(root)
     if not units:
@@ -613,21 +681,13 @@ def mutate_translate(root: ET.Element) -> None:
     dx = random.uniform(-step, step)
     dy = random.uniform(-step, step)
 
-    existing = element.get("transform", "").strip()
-    # Composed with a leading translate rather than prepended to it, or a
-    # repeatedly moved element accumulates one per mutation: a real run left 23
-    # stacked translates on its background rect, which is both unreadable and a
-    # slow drift nothing can undo in one step.
-    #
-    # Still outermost, so the offset lands in the parent's coordinates rather
-    # than being scaled or rotated by a transform the element already had.
-    head = _LEADING_TRANSLATE_RE.match(existing)
-    if head:
-        dx += float(head.group(1))
-        dy += float(head.group(2))
-        existing = existing[head.end() :].strip()
-    move = f"translate({dx:.2f} {dy:.2f})"
-    element.set("transform", f"{move} {existing}" if existing else move)
+    # A group has no coordinates of its own, so the move goes to everything
+    # inside it -- which is what moving a group means.
+    moved = False
+    for el in element.iter():
+        moved = _shift_element(el, dx, dy) or moved
+    if not moved:
+        raise _NoChangeError
 
 
 @svg_transform
