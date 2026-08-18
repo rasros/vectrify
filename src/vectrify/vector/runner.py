@@ -309,6 +309,9 @@ def run_vector_search(
     if collector is not None:
         collector.configure_run(
             epoch_max_tasks=epoch_max_tasks,
+            epoch_patience=epoch_patience,
+            eval_patience=epoch_eval_patience,
+            epochs=epochs,
         )
 
     first_batch = initial_seed_tasks(epoch_seeds, initial_nodes)

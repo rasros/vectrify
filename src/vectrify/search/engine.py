@@ -644,7 +644,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if operator_policy is not None and res.operator is not None:
                     operator_policy.update(res.operator, False)
                 if collector is not None:
-                    collector.on_invalid(res)
+                    collector.on_unchanged(res)
                 log.debug(
                     f"Task {res.task_id} measured identically to its parent "
                     f"({res.operator})"
@@ -697,6 +697,11 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             last_eval_at = tasks_completed
             checks_without_gain += 1
+            if collector is not None:
+                collector.on_evaluator_check(
+                    checks_without_gain=checks_without_gain,
+                    patience=epoch_eval_patience or 0,
+                )
             field = self.strategy.epoch_parents(active_pool, FRONT_EVAL_CAP)
             if not field or self.rank_front is None:
                 return
@@ -740,6 +745,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             if collector is not None:
                 collector.on_pool_state(diversity=pool_div)
+                collector.on_epoch_progress(tasks_completed - epoch_started_at)
 
             # A ceiling on how long one epoch may run. Staleness measures
             # whether the pool has stopped producing; this measures how long the
