@@ -50,10 +50,12 @@ class TypstPlugin(BaseFormatPlugin):
         raster_preview_url: str | None,
         goal: str | None,
         canvas: tuple[int, int],
+        source_name: str | None = None,
     ) -> list[dict]:
         return build_typst_gen_prompt(
             image_data_url=image_data_url,
             node_index=node_index,
+            source_name=source_name,
             typst_prev=content_prev,
             rasterized_data_url=raster_preview_url,
             goal=goal,

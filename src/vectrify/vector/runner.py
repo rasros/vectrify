@@ -3,6 +3,7 @@ import logging
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -370,6 +371,7 @@ def run_vector_search(
         log_level=log_level,
         log_file=str(run_log_file),
         goal=goal,
+        source_name=Path(image_path).name,
         llm_provider=llm_provider,
         llm_model=llm_model,
         reasoning=reasoning,

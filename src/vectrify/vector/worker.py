@@ -47,6 +47,9 @@ class WorkerContext:
     log_level: str
     log_file: str | None
     goal: str | None
+    # The input file's name. Often the only place the subject is stated, and
+    # the model is otherwise working from the picture alone.
+    source_name: str | None
     llm_provider: str
     llm_model: str
     reasoning: str
@@ -133,6 +136,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         raster_preview_url=parent_preview if has_content else None,
                         goal=ctx.goal,
                         canvas=(ctx.original_w, ctx.original_h),
+                        source_name=ctx.source_name,
                     )
                     log.debug(
                         f"LLM call [generate] task={task.task_id} "

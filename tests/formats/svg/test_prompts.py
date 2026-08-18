@@ -203,3 +203,34 @@ def test_mutable_svg_rules_name_only_attributes_an_operator_reaches():
     attrs = {a for a in quoted if a not in {"transform", "d"}}
     assert attrs
     assert attrs <= (_NUMERIC_ATTRS | _COLOR_ATTRS)
+
+
+def test_the_prompt_offers_the_file_name_as_evidence_of_the_subject():
+    """Often the only place the subject is stated. One model read a
+    connect-the-dots duck as a banana and two moons, named its groups
+    accordingly, and drew a crescent where the eye's highlight belonged."""
+    blocks = build_svg_gen_prompt(
+        _IMG_URL, 1, canvas=(512, 512), source_name="connect-the-dots-little-duck.png"
+    )
+    text = "\n".join(_text_blocks(blocks))
+
+    assert "connect-the-dots-little-duck.png" in text
+    # Evidence, not instruction: plenty of files are called scan_04.png.
+    assert "trust the image if they disagree" in text
+
+
+def test_no_file_name_leaves_the_prompt_unchanged():
+    without = "\n".join(
+        _text_blocks(build_svg_gen_prompt(_IMG_URL, 1, canvas=(512, 512)))
+    )
+
+    assert "The file is named" not in without
+
+
+def test_the_prompt_asks_what_the_picture_is_before_how_to_draw_it():
+    """The group names are the model's record of what it thinks it is drawing,
+    and every later edit works from them, so a part named for what it resembles
+    gets drawn as that instead."""
+    text = "\n".join(_text_blocks(build_svg_gen_prompt(_IMG_URL, 1, canvas=(512, 512))))
+
+    assert "Work out what the picture depicts" in text

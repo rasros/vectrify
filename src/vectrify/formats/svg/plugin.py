@@ -48,6 +48,7 @@ class SvgPlugin:
         raster_preview_url: str | None,
         goal: str | None,
         canvas: tuple[int, int],
+        source_name: str | None = None,
     ) -> list[dict]:
         return build_svg_gen_prompt(
             image_data_url,
@@ -56,6 +57,7 @@ class SvgPlugin:
             rasterized_svg_data_url=raster_preview_url if content_prev else None,
             goal=goal,
             canvas=canvas,
+            source_name=source_name,
         )
 
     def mutation_weights(self) -> Mapping[str, float]:
