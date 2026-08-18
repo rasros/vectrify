@@ -159,6 +159,28 @@ def _element_of(item):
 _TARGET_FLOOR = 0.25
 
 
+def _document_colors(root: ET.Element) -> list[str]:
+    """Every colour the drawing already uses.
+
+    A candidate's palette is evidence about the target's: the model picked it
+    while looking at the image. Exploring inside it is a search; replacing a
+    colour with a random CSS name is not. On a line drawing in blacks and greys,
+    fifteen of the eighteen names in _NAMED_SVG_COLORS can only be wrong, and
+    they are where the stray blue and brown dots in real runs came from.
+    """
+    found: list[str] = []
+    for elem in root.iter():
+        for attr, val in elem.attrib.items():
+            if attr.split("}")[-1] in _COLOR_ATTRS and val not in (
+                "none",
+                "inherit",
+                "transparent",
+                "",
+            ):
+                found.append(val)
+    return found
+
+
 def svg_transform(fn: Callable[[ET.Element], None]) -> Callable[[str], str]:
     """Turn an in-place root-element edit into an SVG-string mutation.
 
@@ -448,7 +470,12 @@ def mutate_color(root: ET.Element) -> None:
         b = max(0, min(255, int(h[4:6], 16) + random.randint(-60, 60)))
         new_color = f"#{r:02x}{g:02x}{b:02x}"
     else:
-        new_color = random.choice(_NAMED_SVG_COLORS)
+        # A named colour has no channels to nudge, so move to another colour the
+        # drawing already uses rather than to an arbitrary name.
+        palette = [c for c in _document_colors(root) if c != val]
+        new_color = (
+            random.choice(palette) if palette else random.choice(_NAMED_SVG_COLORS)
+        )
 
     if source == "attr":
         elem.set(key, new_color)
@@ -477,7 +504,8 @@ def mutate_stroke(root: ET.Element) -> None:
     if op == "remove" and has_stroke:
         el.set("stroke", "none")
     elif op in ("add", "change"):
-        el.set("stroke", random.choice(_NAMED_SVG_COLORS))
+        palette = _document_colors(root)
+        el.set("stroke", random.choice(palette) if palette else "#000000")
         if not el.get("stroke-width"):
             el.set("stroke-width", str(random.choice([1, 2, 3])))
 

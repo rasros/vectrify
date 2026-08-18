@@ -790,3 +790,49 @@ def test_remove_node_leaves_a_lone_element_alone():
 
 def test_remove_node_is_not_one_of_the_search_operators():
     assert all(op is not mutate_remove_node for op, _label, _weight in MUTATIONS)
+
+
+def test_a_stroke_takes_a_colour_the_drawing_already_uses():
+    """A candidate's palette is evidence about the target's: the model chose it
+    while looking at the image. Picking a random CSS name is not a search --- on
+    a line drawing in blacks and greys, fifteen of the eighteen names can only be
+    wrong, and they are where the stray blue and brown dots in real runs came
+    from."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+        '<circle cx="20" cy="20" r="5" fill="#111111"/>'
+        '<circle cx="40" cy="40" r="5" fill="#888888"/>'
+        '<rect x="0" y="0" width="10" height="10" fill="#ffffff"/>'
+        "</svg>"
+    )
+    allowed = {"#111111", "#888888", "#ffffff"}
+
+    seen = set()
+    for _ in range(60):
+        root = ET.fromstring(mutate_stroke(svg))
+        for el in root.iter():
+            stroke = el.get("stroke")
+            if stroke and stroke != "none":
+                seen.add(stroke)
+
+    assert seen, "no stroke was ever set"
+    assert seen <= allowed, f"invented colours outside the drawing: {seen - allowed}"
+
+
+def test_a_named_colour_moves_to_another_colour_in_the_drawing():
+    """A name has no channels to nudge, so the swap has to land somewhere the
+    drawing already goes rather than on an arbitrary name."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+        '<circle cx="20" cy="20" r="5" fill="black"/>'
+        '<circle cx="40" cy="40" r="5" fill="#333333"/>'
+        "</svg>"
+    )
+    allowed = {"black", "#333333"}
+
+    for _ in range(40):
+        root = ET.fromstring(mutate_color(svg))
+        for el in root.iter():
+            fill = el.get("fill")
+            if fill and not fill.startswith("#"):
+                assert fill in allowed, f"invented {fill}"
