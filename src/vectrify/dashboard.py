@@ -55,17 +55,39 @@ def _build_renderable(stats: SearchStats) -> Panel:
     header = (
         f"[bold]{s.strategy_name or '—'}[/bold]"
         f"  ·  model: [cyan]{s.model_name or '—'}[/cyan]"
-        f"  ·  epoch [bold]{s.epoch}[/bold]"
+        f"  ·  epoch [bold]{s.epoch}{f'/{s.epochs}' if s.epochs else ''}[/bold]"
         f" [{phase_color}]{s.phase}[/{phase_color}]"
         f"  ·  [dim]{_fmt_elapsed(s.elapsed())}[/dim]"
     )
 
-    score_line = f"  [bold green]{_fmt_score(s.best_score)}[/bold green]"
+    # The evaluator's verdict is the only score a run has, and it speaks a few
+    # dozen times rather than once per task -- so how long since it last
+    # approved anything belongs next to the number. A row labelled "score" that
+    # moves three times in an hour reads as a stalled run rather than a rare
+    # judgement.
+    since_gain = (
+        f"   since gain [{'yellow' if s.eval_patience_fraction() > 0.6 else 'dim'}]"
+        f"{s.eval_checks_without_gain}/{s.eval_patience}[/]"
+        if s.eval_patience > 0
+        else ""
+    )
+    eval_line = (
+        f"  [bold green]{_fmt_score(s.best_score)}[/bold green]"
+        f"   checks [dim]{s.eval_checks}[/dim]{since_gain}"
+    )
 
+    # Unchanged is shown apart from invalid because they call for opposite
+    # responses: a rising invalid rate means candidates are breaking, a rising
+    # unchanged rate means the operators are spending the run standing still.
+    unchanged_pct = (
+        100.0 * s.unchanged_count / s.tasks_completed if s.tasks_completed else 0.0
+    )
     tasks_line = (
         f"  completed [bold]{s.tasks_completed:,}[/bold]"
         f"   accept [green]{s.accept_rate() * 100:.1f}%[/green]"
         f"   pool-rej [yellow]{s.pool_rejected_rate() * 100:.1f}%[/yellow]"
+        f"   unchanged [{'red' if unchanged_pct > 25 else 'yellow'}]"
+        f"{unchanged_pct:.1f}%[/]"
         f"   invalid [red]{s.invalid_rate() * 100:.1f}%[/red]"
     )
 
@@ -74,24 +96,36 @@ def _build_renderable(stats: SearchStats) -> Panel:
         if s.llm_calls_in_flight
         else ""
     )
+    batch_str = (
+        f"   batch [yellow]{s.seeds_completed}/{s.seeds_target}[/yellow]"
+        if s.phase == "seed" and s.seeds_target > 0
+        else ""
+    )
     llm_line = (
         f"  calls [bold]{s.llm_call_count:,}[/bold]{in_flight_str}"
         f"   valid [green]{s.llm_valid_rate() * 100:.1f}%[/green]"
         f"   pool-acc [cyan]{s.llm_accept_rate() * 100:.1f}%[/cyan]"
-        f"   batch [yellow]{s.seeds_completed}/{s.seeds_target}[/yellow]"
-    )
-
-    mut_line = (
-        f"  calls [bold]{s.mutation_call_count:,}[/bold]"
-        f"   pool-acc [cyan]{s.mutation_accept_rate() * 100:.1f}%[/cyan]"
+        f"{batch_str}"
     )
 
     # Pool stats: single line with diversity + variance values
 
-    pool_line = (
-        f"  diversity [dim]{s.pool_diversity:.3f}[/dim]"
-        f"   stale [dim]{s.epoch_no_improve:,}[/dim]"
-    )
+    pool_line = f"  diversity [dim]{s.pool_diversity:.3f}[/dim]"
+
+    # Which criterion is actually going to end this epoch. A run has three that
+    # can fire and no way to tell them apart from the outside: across four runs
+    # the answer moved from the evaluator to staleness with no setting changed,
+    # only the acceptance rate.
+    nearest, closeness = s.nearest_epoch_end()
+    epoch_bits = [f"stale [dim]{s.epoch_no_improve:,}/{s.epoch_patience or '—'}[/dim]"]
+    if s.epoch_max_tasks > 0:
+        epoch_bits.append(f"budget [dim]{s.epoch_tasks:,}/{s.epoch_max_tasks:,}[/dim]")
+    if closeness > 0:
+        epoch_bits.append(
+            f"ends on [{_threshold_color(closeness)}]{nearest}[/]"
+            f" [{_threshold_color(closeness)}]{_bar(closeness, width=10)}[/]"
+        )
+    epoch_line = "  " + "   ".join(epoch_bits)
 
     # Stop criteria rows (only when enabled)
     stop_rows: list[tuple[str, str]] = []
@@ -105,23 +139,15 @@ def _build_renderable(stats: SearchStats) -> Panel:
                 f"{s.seeds_completed}/{s.seeds_target}",
             )
         )
-    elif s.epoch_patience > 0:
-        stop_rows.append(
-            _stop_row(
-                "stale",
-                s.stagnation_fraction(),
-                f"{s.epoch_no_improve}/{s.epoch_patience}",
-            )
-        )
 
     table = Table.grid(padding=(0, 1))
     table.add_column(style="bold dim", width=10)
     table.add_column()
 
-    table.add_row("score", Text.from_markup(score_line))
+    table.add_row("evaluator", Text.from_markup(eval_line))
+    table.add_row("epoch", Text.from_markup(epoch_line))
     table.add_row("tasks", Text.from_markup(tasks_line))
     table.add_row("llm", Text.from_markup(llm_line))
-    table.add_row("mutation", Text.from_markup(mut_line))
     table.add_row("pool", Text.from_markup(pool_line))
     for label, content in stop_rows:
         table.add_row(label, Text.from_markup(content))

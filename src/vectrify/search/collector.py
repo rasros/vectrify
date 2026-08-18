@@ -46,6 +46,7 @@ STATS_FIELDS: dict[str, Callable[["SearchStats"], object]] = {
     "accepted_count": lambda s: s.accepted_count,
     "pool_rejected_count": lambda s: s.pool_rejected_count,
     "invalid_count": lambda s: s.invalid_count,
+    "unchanged_count": lambda s: s.unchanged_count,
     "best_score": _best_score,
     "llm_call_count": lambda s: s.llm_call_count,
     "llm_accepted_count": lambda s: s.llm_accepted_count,
@@ -82,9 +83,15 @@ class StatCollector:
         self,
         *,
         epoch_max_tasks: int | None,
+        epoch_patience: int | None = None,
+        eval_patience: int | None = None,
+        epochs: int | None = None,
     ) -> None:
         s = self._stats
+        s.epochs = epochs or 0
         s.epoch_max_tasks = epoch_max_tasks or 0
+        s.epoch_patience = epoch_patience or s.epoch_patience
+        s.eval_patience = eval_patience or 0
 
     def on_evaluator_best(self, score: float, *, elapsed: float) -> None:
         """The evaluator found a candidate better than anything it had seen.
@@ -97,6 +104,7 @@ class StatCollector:
         """
         s = self._stats
         s.best_score = score
+        s.eval_checks_without_gain = 0
         s.score_history.append((elapsed, score))
         self._flush_row()
 
@@ -143,6 +151,24 @@ class StatCollector:
         else:
             s.mutation_call_count += 1
 
+    def on_unchanged(self, res: "Result") -> None:
+        """A candidate that measured exactly as its parent.
+
+        Not an invalid one: nothing is wrong with it, it is simply not new.
+        Kept apart because the two call for opposite responses -- a rising
+        invalid rate means candidates are breaking, a rising unchanged rate
+        means the operators are spending the run standing still.
+        """
+        self._stats.unchanged_count += 1
+        self._maybe_flush(is_llm=bool(res.llm_type))
+
+    def on_evaluator_check(self, *, checks_without_gain: int, patience: int) -> None:
+        """The evaluator looked at the front and did not prefer anything new."""
+        s = self._stats
+        s.eval_checks += 1
+        s.eval_checks_without_gain = checks_without_gain
+        s.eval_patience = patience
+
     def on_invalid(self, res: "Result") -> None:
         s = self._stats
         s.invalid_count += 1
@@ -185,10 +211,16 @@ class StatCollector:
     def on_pool_state(self, *, diversity: float) -> None:
         self._stats.pool_diversity = diversity
 
+    def on_epoch_progress(self, epoch_tasks: int) -> None:
+        """How far into its own budget this epoch is."""
+        self._stats.epoch_tasks = epoch_tasks
+
     def on_epoch_transition(self, epoch: int) -> None:
         s = self._stats
         s.epoch = epoch
         s.epoch_no_improve = 0
+        s.epoch_tasks = 0
+        s.eval_checks_without_gain = 0
         self._flush_row()
 
     def on_idle(self, *, llm_in_flight: int) -> None:

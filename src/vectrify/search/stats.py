@@ -48,6 +48,7 @@ class SearchStats:
     epoch_patience: int = 0
 
     epoch: int = 0
+    epochs: int = 0
     epoch_no_improve: int = 0
     # "seed" while the epoch's LLM batch is running, "local" while its children
     # are being refined by mutation and crossover.
@@ -61,6 +62,11 @@ class SearchStats:
     accepted_count: int = 0
     pool_rejected_count: int = 0
     invalid_count: int = 0
+    # Rejected for measuring exactly as its parent: the markup changed and the
+    # drawing did not. Counted apart from invalid because they mean opposite
+    # things -- one candidate was broken, the other was never new -- and one
+    # run spent 58% of itself on the second kind.
+    unchanged_count: int = 0
 
     llm_call_count: int = 0
     llm_calls_in_flight: int = 0
@@ -72,7 +78,15 @@ class SearchStats:
 
     shutting_down: bool = False
 
+    # The evaluator's verdict, and what it has been doing. It is the only score
+    # a run has, and it speaks a few dozen times rather than once per task, so
+    # how long since it last approved anything is as much of the picture as the
+    # number itself.
     best_score: float = math.inf
+    eval_checks: int = 0
+    eval_checks_without_gain: int = 0
+    eval_patience: int = 0
+    epoch_tasks: int = 0
     score_history: deque = dataclasses.field(default_factory=lambda: deque(maxlen=80))
     recent_events: deque = dataclasses.field(default_factory=lambda: deque(maxlen=8))
 
@@ -120,3 +134,29 @@ class SearchStats:
         if self.epoch_patience <= 0:
             return 0.0
         return min(1.0, self.epoch_no_improve / self.epoch_patience)
+
+    def eval_patience_fraction(self) -> float:
+        """Progress toward the evaluator ending the epoch, in [0, 1]."""
+        if self.eval_patience <= 0:
+            return 0.0
+        return min(1.0, self.eval_checks_without_gain / self.eval_patience)
+
+    def epoch_budget_fraction(self) -> float:
+        """Progress toward the epoch's task ceiling, in [0, 1]."""
+        if self.epoch_max_tasks <= 0:
+            return 0.0
+        return min(1.0, self.epoch_tasks / self.epoch_max_tasks)
+
+    def nearest_epoch_end(self) -> tuple[str, float]:
+        """Which criterion is closest to ending the epoch, and how close.
+
+        A run has three that can fire and no way to tell which is doing the
+        work: across four runs the answer changed from the evaluator to
+        staleness with no setting changed, only the acceptance rate moving.
+        """
+        live = [
+            ("staleness", self.stagnation_fraction()),
+            ("evaluator", self.eval_patience_fraction()),
+            ("budget", self.epoch_budget_fraction()),
+        ]
+        return max(live, key=lambda pair: pair[1])
