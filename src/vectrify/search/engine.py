@@ -120,6 +120,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         initial_seeds: int | None = None,
         epochs: int | None = None,
         epoch_max_tasks: int | None = None,
+        epoch_eval_interval: int | None = None,
+        epoch_eval_patience: int | None = None,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
     ) -> None:
@@ -227,6 +229,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch = 0
         epoch_no_improve = 0
         epoch_started_at = 0
+        # The evaluator's view of the epoch, kept between checks. Its score is
+        # a calibrated distance to the target, so a value from one check is
+        # comparable with the next -- which is the whole reason it can be
+        # tracked at all.
+        best_panel: float | None = None
+        last_eval_at = 0
+        rounds_since_panel_gain = 0
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
@@ -526,7 +535,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             full sort per result, which at pool size 20 costs about as much as
             producing the candidate did.
             """
-            nonlocal active_pool, epoch_no_improve
+            nonlocal active_pool, epoch_no_improve, rounds_since_panel_gain
 
             if not pending_children:
                 return
@@ -540,6 +549,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             # threshold on a magnitude -- an epoch goes stale when nothing new
             # can get to the front any more, whatever the numbers happen to be
             # denominated in.
+            rounds_since_panel_gain += 1
+
             new_ids = {n.id for n in pending_children}
             top_tier = self.strategy.top_tier_ids(combined)
             if new_ids & top_tier:
@@ -596,9 +607,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                 _close_generation()
 
         def _do_epoch_transition(reason: str) -> None:
-            nonlocal epoch, epoch_started_at
+            nonlocal epoch, epoch_started_at, rounds_since_panel_gain
 
             epoch_started_at = tasks_completed
+            # The evaluator's best carries across epochs -- it is an absolute
+            # score, and a later epoch has to beat what the run already has --
+            # but the patience counting restarts with the epoch.
+            rounds_since_panel_gain = 0
 
             # The next seed batch edits this pool's front, so the children that
             # arrived since the last generation have to land in it first.
@@ -613,6 +628,37 @@ class MultiprocessSearchEngine(Generic[TState]):
                 # paid for and discarded.
                 return
             _begin_seed_phase()
+
+        def _run_panel_check() -> None:
+            """Put the current front to the evaluator and record its verdict.
+
+            The field is the best-ranked distinct candidates, capped: the top
+            tier can be most of the pool, and evaluating near-clones spends the
+            expensive part of the run learning nothing. Whatever the evaluator
+            has already scored costs nothing to include, so the cap is about
+            new work, not about the size of the field.
+            """
+            nonlocal best_panel, last_eval_at, rounds_since_panel_gain, best_node
+
+            last_eval_at = tasks_completed
+            field = self.strategy.epoch_parents(active_pool, FRONT_EVAL_CAP)
+            if not field or self.rank_front is None:
+                return
+            try:
+                ranked = self.rank_front(field)
+            except Exception as exc:
+                log.warning(f"Evaluator check failed, continuing: {exc}")
+                return
+
+            top = next((n for n in ranked if FRONT_SCORE in n.metrics), None)
+            if top is None:
+                return
+            value = top.metrics[FRONT_SCORE]
+            if best_panel is None or value < best_panel:
+                best_panel = value
+                rounds_since_panel_gain = 0
+                best_node = top
+                log.info(f"Evaluator: node={top.id} score={value:.6f}")
 
         def _check_epoch_end():
             nonlocal pool_refilling
@@ -645,6 +691,27 @@ class MultiprocessSearchEngine(Generic[TState]):
             # without the evaluator seeing anything. The epoch boundary is where
             # the evaluator ranks the front and the model re-seeds from its
             # choice, so capping the epoch caps the drift.
+            # Ask the evaluator what it makes of the current front, now and
+            # then rather than only at the boundary. The cheap measures can be
+            # improved without the drawing getting better -- one run drove them
+            # 64% down while the evaluator saw no difference at all -- and the
+            # only way to notice is to ask the evaluator while it is happening.
+            if (
+                self.rank_front is not None
+                and epoch_eval_interval
+                and tasks_completed - last_eval_at >= epoch_eval_interval
+            ):
+                _run_panel_check()
+
+            # Rounds rather than checks, so the threshold means the same thing
+            # whatever cadence the checks are running at.
+            panel_stale = (
+                epoch_eval_patience is not None
+                and epoch_eval_patience > 0
+                and best_panel is not None
+                and rounds_since_panel_gain >= epoch_eval_patience
+            )
+
             over_budget = (
                 epoch_max_tasks is not None
                 and epoch_max_tasks > 0
@@ -669,6 +736,11 @@ class MultiprocessSearchEngine(Generic[TState]):
                 reason = (
                     f"staleness ({epoch_no_improve} >="
                     f" {epoch_patience} tasks without improvement)"
+                )
+            elif panel_stale:
+                reason = (
+                    f"the evaluator has not seen a better candidate in "
+                    f"{rounds_since_panel_gain} rounds"
                 )
             elif over_budget:
                 reason = (

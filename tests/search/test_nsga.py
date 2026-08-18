@@ -335,18 +335,19 @@ def test_pool_size_one_always_returns_same_node():
     assert selected == {1}
 
 
-def test_epoch_parents_returns_pareto_front():
+def test_epoch_parents_returns_the_best_ranked_tier():
+    """Two candidates good at different things both survive; one that is worse
+    than a rival on every measure does not."""
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
-        make_node(1, 0.1, edge=1000.0),  # good quality, complex
-        make_node(2, 0.5, edge=100.0),  # worse quality, simpler (dominates node 3)
-        make_node(3, 0.9, edge=900.0),  # dominated by node 2
+        make_node(1, 0.0, edge=100.0, colour=900.0),  # wins edge
+        make_node(2, 0.0, edge=900.0, colour=100.0),  # wins colour
+        make_node(3, 0.0, edge=950.0, colour=950.0),  # loses to both
     ]
+
     seeds = strategy.epoch_parents(nodes, max_parents=2)
-    seed_ids = {n.id for n in seeds}
-    assert 1 in seed_ids
-    assert 2 in seed_ids
-    assert 3 not in seed_ids
+
+    assert {n.id for n in seeds} == {1, 2}
 
 
 def test_epoch_parents_respects_max_parents():
@@ -375,17 +376,18 @@ def test_epoch_parents_empty_pool_returns_empty():
     assert seeds == []
 
 
-def test_epoch_parents_sorted_by_visual_score():
+def test_epoch_parents_come_back_in_rank_order():
+    """Best-ranked first, with nothing sorted afterwards: a score to sort by
+    would have to blend the measures, which is what dominance replaced."""
     strategy = NsgaStrategy(pool_size=10)
     nodes = [
-        make_node(1, 0.1, edge=800.0),
-        make_node(2, 0.3, edge=600.0),
-        make_node(3, 0.5, edge=400.0),
-        make_node(4, 0.7, edge=200.0),
+        make_node(1, 0.0, edge=200.0, colour=200.0),
+        make_node(2, 0.0, edge=400.0, colour=400.0),
+        make_node(3, 0.0, edge=600.0, colour=600.0),
+        make_node(4, 0.0, edge=800.0, colour=800.0),
     ]
     seeds = strategy.epoch_parents(nodes, max_parents=4)
-    scores = [n.score for n in seeds]
-    assert scores == sorted(scores)
+
     assert seeds[0].id == 1
 
 
