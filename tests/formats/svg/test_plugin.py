@@ -1,4 +1,5 @@
 import io
+from xml.etree import ElementTree as ET
 
 import pytest
 from PIL import Image
@@ -52,8 +53,14 @@ def test_validate_reports_a_parse_error():
 
 
 def test_extract_from_llm_strips_prose_and_fences():
+    """Compared as markup, not as text: what comes back has been normalised for
+    local search, so its serialisation differs from the model's."""
     raw = f"Sure, here you go:\n```xml\n{SVG}\n```\nHope that helps!"
-    assert SvgPlugin().extract_from_llm(raw) == SVG
+
+    got = ET.fromstring(SvgPlugin().extract_from_llm(raw))
+    want = ET.fromstring(SVG)
+
+    assert [el.tag for el in got.iter()] == [el.tag for el in want.iter()]
 
 
 def test_apply_edit_patches_the_parent_with_a_diff_block():
@@ -65,7 +72,13 @@ def test_apply_edit_patches_the_parent_with_a_diff_block():
 
 def test_apply_edit_falls_back_to_a_whole_document():
     whole = f'<svg xmlns="{NS}"><circle r="4"/></svg>'
-    assert SvgPlugin().apply_edit(SVG, f"Here it is:\n{whole}") == whole
+
+    got = ET.fromstring(SvgPlugin().apply_edit(SVG, f"Here it is:\n{whole}"))
+
+    want = ET.fromstring(whole)
+    assert [el.tag for el in got.iter()] == [el.tag for el in want.iter()]
+    circle = next(el for el in got.iter() if el.tag.endswith("circle"))
+    assert circle.get("r") == "4"
 
 
 def test_generate_prompt_carries_the_target_image_and_canvas():
