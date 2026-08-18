@@ -84,6 +84,12 @@ def test_defaults_pinned():
     # An epoch is where the LLM sees the front and rewrites what local search
     # cannot reach, so a run wants more than one chance at it.
     assert args.epochs == 4
+    # The evaluator is asked every 2000 tasks and five consecutive refusals end
+    # the epoch, so an epoch is roughly 10,000 tasks of local search. Armed
+    # because leaving it unset let one run drift for 145,000 tasks past the
+    # evaluator's best while the front it was shown degraded 40%.
+    assert args.epoch_eval_interval == 2000
+    assert args.epoch_eval_patience == 5
 
 
 @pytest.mark.parametrize(
