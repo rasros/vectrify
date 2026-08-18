@@ -94,9 +94,7 @@ _PATH_TOKEN_RE = re.compile(r"([MmLlHhVvCcSsQqTtAaZz])|(-?(?:\d+\.\d+|\.\d+|\d+)
 _HEX_COLOR_RE = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
 # A translate at the head of a transform list, so a repeated move folds into it
 # instead of stacking another one in front.
-_LEADING_TRANSLATE_RE = re.compile(
-    r"^translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)"
-)
+_LEADING_TRANSLATE_RE = re.compile(r"^translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)")
 
 
 def _local_tag(el: ET.Element) -> str:
