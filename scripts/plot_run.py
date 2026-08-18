@@ -94,10 +94,7 @@ def load_stats(run_dir: Path) -> dict:
         **counts,
         # Rates come from the same definitions the live dashboard uses.
         **derived_rates(counts),
-        "seeds_target": _float("seeds_target"),
         "epochs_completed": _float("epoch"),
-        "epoch_patience_config": _float("epoch_patience"),
-        "epoch_max_tasks_config": _float("epoch_max_tasks"),
         "pool_diversity_final": _float("pool_diversity"),
     }
 
@@ -442,7 +439,6 @@ def plot_summary_text(
         lines.append(f"  llm calls       {int(stats.get('llm_call_count') or 0):,}")
         lines.append(f"  llm valid       {stats.get('llm_valid_rate', 0) * 100:.1f}%")
         lines.append(f"  llm accept      {stats.get('llm_accept_rate', 0) * 100:.1f}%")
-        lines.append(f"  seeds/epoch     {int(stats.get('seeds_target') or 0)}")
         lines.append(
             f"  mut calls       {int(stats.get('mutation_call_count') or 0):,}"
         )

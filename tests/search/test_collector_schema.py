@@ -46,3 +46,22 @@ def test_real_best_score_is_written(tmp_path):
 
 def test_no_run_dir_is_a_noop():
     StatCollector(SearchStats(), None)._flush_row()  # must not raise
+
+
+def test_configuration_is_not_a_column():
+    """A setting repeated on every row cannot be told apart from a measurement
+    that happened not to move -- one run carried four such columns across 2112
+    identical rows. They stay on SearchStats for the dashboard to draw against.
+    """
+    for name in ("epoch_patience", "epoch_max_tasks", "seeds_target"):
+        assert hasattr(SearchStats(), name)
+        assert name not in STATS_COLUMNS
+
+
+def test_momentary_and_duplicated_state_are_not_columns():
+    """Calls in flight is a live gauge, so a finished file samples a quantity
+    that was oscillating. Seeds completed is llm_call_count within an epoch,
+    counted a second way."""
+    assert "llm_in_flight" not in STATS_COLUMNS
+    assert "seeds_completed" not in STATS_COLUMNS
+    assert "llm_call_count" in STATS_COLUMNS

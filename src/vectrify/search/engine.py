@@ -280,7 +280,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 seeds_dispatched, \
                 seeds_completed, \
                 seed_task_ids, \
-                best_node
+                best_node, \
+                best_panel
 
             # The remembered seeds enter the ranking as candidates rather than
             # being handed a reserved slot: a seed the pool has genuinely
@@ -311,10 +312,17 @@ class MultiprocessSearchEngine(Generic[TState]):
                     # comes out ahead it stays.
                     if parents:
                         best_node = parents[0]
-                        log.info(
-                            f"Best so far: node={best_node.id} "
-                            f"evaluator={best_node.metrics.get(FRONT_SCORE, 0.0):.6f}"
-                        )
+                        value = best_node.metrics.get(FRONT_SCORE)
+                        shown = "unscored" if value is None else f"{value:.6f}"
+                        log.info(f"Best so far: node={best_node.id} evaluator={shown}")
+                        if value is not None and (
+                            best_panel is None or value < best_panel
+                        ):
+                            best_panel = value
+                            if collector is not None:
+                                collector.on_evaluator_best(
+                                    value, elapsed=time.monotonic() - start_time
+                                )
                 except Exception as exc:
                     log.warning(f"Front evaluation failed, keeping rank order: {exc}")
             parents = parents[:epoch_seeds]
@@ -652,6 +660,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                 rounds_since_panel_gain = 0
                 best_node = top
                 log.info(f"Evaluator: node={top.id} score={value:.6f}")
+                if collector is not None:
+                    collector.on_evaluator_best(
+                        value, elapsed=time.monotonic() - start_time
+                    )
 
         def _check_epoch_end():
             nonlocal pool_refilling
