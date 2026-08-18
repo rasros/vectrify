@@ -63,6 +63,7 @@ def build_code_gen_prompt(
     syntax_rules: str,
     focus_hint: str,
     lang_display: str | None = None,
+    source_name: str | None = None,
 ) -> list[dict]:
     """Build a generation/refinement prompt for a fenced code format.
 
@@ -77,6 +78,14 @@ def build_code_gen_prompt(
         f"Write {lang_display or lang} code that, when rendered, visually"
         f" matches the target image.\n\n{STRUCTURE_FIRST}\n\n{syntax_rules}"
     )
+    if source_name:
+        # Often the only place the subject is stated, and the model is
+        # otherwise working from the picture alone.
+        system_text += (
+            f"\n- The file is named `{source_name}`. Filenames often name the"
+            " subject; weigh it against what you see, and trust the image if"
+            " they disagree."
+        )
     if is_edit:
         system_text += "\n- Output ONLY search/replace diff blocks, no full file"
     else:

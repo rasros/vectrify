@@ -137,10 +137,12 @@ class GraphvizPlugin(BaseFormatPlugin):
         # source, so there is no coordinate space to pin and grafting between
         # parents cannot misplace anything.
         canvas: tuple[int, int],  # noqa: ARG002 - layout engine owns positions
+        source_name: str | None = None,
     ) -> list[dict]:
         return build_dot_gen_prompt(
             image_data_url=image_data_url,
             node_index=node_index,
+            source_name=source_name,
             dot_prev=content_prev,
             rasterized_dot_data_url=raster_preview_url,
             goal=goal,

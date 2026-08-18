@@ -27,6 +27,7 @@ def build_svg_gen_prompt(
     rasterized_svg_data_url: str | None = None,
     goal: str | None = None,
     canvas: tuple[int, int] = (0, 0),
+    source_name: str | None = None,
 ) -> list[dict[str, Any]]:
     """Build LLM prompt for SVG generation/refinement.
 
@@ -37,12 +38,32 @@ def build_svg_gen_prompt(
     """
     is_edit = svg_prev is not None
     view_w, view_h = canvas
+    # The file often names the subject, and the model is otherwise working from
+    # the picture alone: one model read a connect-the-dots duck as a banana and
+    # two moons, named its groups accordingly, and drew a crescent where the
+    # eye's highlight belonged. Offered as evidence rather than instruction --
+    # plenty of files are called scan_04.png, and the image wins if they
+    # disagree.
+    subject_line = (
+        f"The file is named `{source_name}`. Filenames often name the subject;"
+        " weigh it against what you see, and trust the image if they disagree."
+        if source_name
+        else None
+    )
 
     lines = [
         "Reproduce the target image as SVG code.",
         "- Always include `xmlns='http://www.w3.org/2000/svg'` and"
         f" `viewBox='0 0 {view_w} {view_h}'` on the root <svg> element."
         " Use exactly this viewBox and express every coordinate in it.",
+        "- Work out what the picture depicts before drawing it, and name each"
+        " <g id='name'> after the part it is: `beak`, `eye`, `wing`. The names"
+        " are the record of that reading, and every later edit works from"
+        " them, so a part named for what it resembles rather than what it is"
+        " gets drawn as that instead. A run whose groups came back as"
+        " `large_crescent` and `dark_moon` drew a crescent moon where the"
+        " target had an eye with a highlight, and never recovered: nothing"
+        " downstream can tell that the subject was misread.",
         "- Wrap related elements in <g id='name'>: the groups are what later"
         " edits and crossover graft between candidates, so they should follow"
         " the target's own parts.",
@@ -53,6 +74,8 @@ def build_svg_gen_prompt(
         "",
         f"Iteration #{iter_index}.",
     ]
+    if subject_line:
+        lines.insert(1, subject_line)
 
     if not is_edit:
         lines.append("Output ONLY the raw <svg>...</svg>. No markdown.")

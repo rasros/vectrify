@@ -34,6 +34,7 @@ def build_typst_gen_prompt(
     rasterized_data_url: str | None,
     goal: str | None,
     canvas: tuple[int, int] = (0, 0),
+    source_name: str | None = None,
 ) -> list[dict]:
     """Build LLM prompt for Typst generation/refinement."""
     return build_code_gen_prompt(
@@ -42,6 +43,7 @@ def build_typst_gen_prompt(
         code_prev=typst_prev,
         rasterized_data_url=rasterized_data_url,
         goal=goal,
+        source_name=source_name,
         lang="Typst",
         fence="typst",
         syntax_rules=_typst_syntax_rules(canvas),
