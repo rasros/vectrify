@@ -836,3 +836,37 @@ def test_a_named_colour_moves_to_another_colour_in_the_drawing():
             fill = el.get("fill")
             if fill and not fill.startswith("#"):
                 assert fill in allowed, f"invented {fill}"
+
+
+def test_repeated_moves_fold_into_one_translate():
+    """Prepending a translate per mutation left 23 stacked on the background
+    rect of a real run -- unreadable, and a drift no single step can undo."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+        '<circle cx="50" cy="50" r="5" fill="#000000"/>'
+        "</svg>"
+    )
+    for _ in range(30):
+        svg = mutate_translate(svg)
+
+    root = ET.fromstring(svg)
+    for el in root.iter():
+        transform = el.get("transform", "")
+        assert transform.count("translate") <= 1, transform
+
+
+def test_a_move_still_composes_with_a_transform_it_cannot_fold():
+    """Only a leading translate folds. Anything else stays, and the offset goes
+    outermost so it lands in the parent's coordinates."""
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+        '<circle cx="50" cy="50" r="5" fill="#000000" transform="rotate(30)"/>'
+        "</svg>"
+    )
+    root = ET.fromstring(mutate_translate(svg))
+    transform = next(
+        el.get("transform", "") for el in root.iter() if el.get("transform")
+    )
+
+    assert transform.startswith("translate(")
+    assert "rotate(30)" in transform

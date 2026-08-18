@@ -92,6 +92,11 @@ _PATH_NUM_RE = re.compile(r"(-?(?:\d+\.\d+|\.\d+|\d+))")
 # of the command it belongs to.
 _PATH_TOKEN_RE = re.compile(r"([MmLlHhVvCcSsQqTtAaZz])|(-?(?:\d+\.\d+|\.\d+|\d+))")
 _HEX_COLOR_RE = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
+# A translate at the head of a transform list, so a repeated move folds into it
+# instead of stacking another one in front.
+_LEADING_TRANSLATE_RE = re.compile(
+    r"^translate\(\s*(-?[\d.]+)[\s,]+(-?[\d.]+)\s*\)"
+)
 
 
 def _local_tag(el: ET.Element) -> str:
@@ -610,10 +615,20 @@ def mutate_translate(root: ET.Element) -> None:
     dx = random.uniform(-step, step)
     dy = random.uniform(-step, step)
 
-    move = f"translate({dx:.2f} {dy:.2f})"
     existing = element.get("transform", "").strip()
-    # Outermost, so the offset lands in the parent's coordinates rather than
-    # being scaled or rotated by a transform the element already had.
+    # Composed with a leading translate rather than prepended to it, or a
+    # repeatedly moved element accumulates one per mutation: a real run left 23
+    # stacked translates on its background rect, which is both unreadable and a
+    # slow drift nothing can undo in one step.
+    #
+    # Still outermost, so the offset lands in the parent's coordinates rather
+    # than being scaled or rotated by a transform the element already had.
+    head = _LEADING_TRANSLATE_RE.match(existing)
+    if head:
+        dx += float(head.group(1))
+        dy += float(head.group(2))
+        existing = existing[head.end() :].strip()
+    move = f"translate({dx:.2f} {dy:.2f})"
     element.set("transform", f"{move} {existing}" if existing else move)
 
 
