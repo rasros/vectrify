@@ -63,19 +63,23 @@ PANEL_MODELS: tuple[str, ...] = (
     "google/siglip-base-patch16-224",
 )
 
-# Cells per side, swept from 1 to 8 against the distortion screen. Vector
-# damage is ordered correctly 92.8% of the time reading the picture whole,
-# 95.4% at three cells a side and 96.4% at five, after which it is flat -- 6, 7
-# and 8 score 96.1, 96.1 and 96.4. So there is a real optimum around a 77px
-# cell rather than a simple appetite for resolution, which finer grids would
-# have kept feeding.
-GRID = 5
-
 
 @dataclass
 class PanelReference:
     image: Image.Image
-    tiles: list[Any]
+    # Each member's embedding of the target, read whole.
+    #
+    # The panel used to cut every picture into a 5x5 lattice and average the 25
+    # cell distances. It ordered deliberate damage slightly better that way --
+    # 96.4% against 92.8% on the distortion screen -- but the average is over
+    # cells, so a defect confined to one cell arrives divided by 25, and a
+    # drawing is not judged by how much damage it holds. Measured on a real
+    # run's eye, drawn with its pupil and highlight inverted: at 5 cells a side
+    # the eye was 11.8% of one 140px cell and straddled a cell boundary, the
+    # three members landed within 0.0005 of each other on distances of 0.036 to
+    # 0.096, and the median vote settled that near-tie in favour of the wrong
+    # polarity. Read whole, the same pair separates by 0.031 the right way.
+    targets: list[Any]
     # Each member's distance from the target to a blank canvas, measured once.
     # It is what makes a member's distance mean something on its own: raw
     # cosine distances come from three different embedding spaces and span
@@ -83,23 +87,6 @@ class PanelReference:
     # member happens to spread widest -- one model steering the run, which is
     # what a panel exists to prevent.
     blank: list[float]
-
-
-def _tiles(image: Image.Image) -> list[Image.Image]:
-    """The picture cut into a GRID x GRID lattice, row by row."""
-    width, height = image.size
-    return [
-        image.crop(
-            (
-                column * width // GRID,
-                row * height // GRID,
-                (column + 1) * width // GRID,
-                (row + 1) * height // GRID,
-            )
-        )
-        for row in range(GRID)
-        for column in range(GRID)
-    ]
 
 
 class EnsembleScorer(Scorer):
@@ -113,10 +100,9 @@ class EnsembleScorer(Scorer):
         self._members[0].validate_environment()
 
     def prepare_reference(self, original_rgb: Image.Image) -> PanelReference:
-        cells = _tiles(original_rgb)
         reference = PanelReference(
             image=original_rgb,
-            tiles=[m.embed_images(cells) for m in self._members],
+            targets=[m.embed_images([original_rgb])[0] for m in self._members],
             blank=[],
         )
         empty = Image.new("RGB", original_rgb.size, (255, 255, 255))
@@ -126,16 +112,16 @@ class EnsembleScorer(Scorer):
         return reference
 
     def _raw_distances(self, reference: PanelReference, images: list[Image.Image]):
-        """Each member's distance to every image, cell by cell then averaged."""
+        """Each member's distance to every image.
+
+        One batched forward pass per member rather than one per picture: with
+        the lattice gone there is a single embedding per image, so the whole
+        field fits in one call.
+        """
         per_member = []
-        for member, reference_tiles in zip(self._members, reference.tiles, strict=True):
-            got = [member.embed_images(_tiles(image)) for image in images]
-            per_member.append(
-                [
-                    float((1.0 - (reference_tiles * tiles).sum(dim=-1)).mean())
-                    for tiles in got
-                ]
-            )
+        for member, target in zip(self._members, reference.targets, strict=True):
+            got = member.embed_images(images)
+            per_member.append([float(1.0 - (target * row).sum()) for row in got])
         return per_member
 
     def _distances(self, reference: PanelReference, images: list[Image.Image]):
