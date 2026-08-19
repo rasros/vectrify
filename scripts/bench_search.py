@@ -75,6 +75,7 @@ def read_curve(project: Path) -> list[float]:
     stats = runs[-1] / "stats.csv"
     if not stats.is_file():
         return []
+    _record_ruler(runs[-1])
     scores: list[float] = []
     with stats.open(encoding="utf-8", newline="") as f:
         for row in csv.DictReader(f):
@@ -92,6 +93,34 @@ def read_curve(project: Path) -> list[float]:
         best = min(best, value)
         curve.append(best)
     return curve
+
+
+_RULERS: dict[str, list[str]] = {}
+
+
+def _record_ruler(run_dir: Path) -> None:
+    """Note which scorer produced a run's scores, for the mixing check below."""
+    marker = run_dir / "scorer.txt"
+    name = marker.read_text(encoding="utf-8").strip() if marker.is_file() else "unknown"
+    _RULERS.setdefault(name, []).append(run_dir.parent.parent.name)
+
+
+def warn_if_rulers_differ() -> None:
+    """Refuse to present curves from runs whose scores are not comparable.
+
+    A panel score is a distance in that panel's own space, so changing the
+    members or how a picture reaches them moves every number without any
+    drawing changing. Dropping the 5x5 lattice shifted one run's recorded best
+    from 0.296 to 0.081; a plot spanning that read as a 3.7x improvement. Runs
+    from before scorer.txt existed report "unknown", which cannot be assumed to
+    match anything.
+    """
+    if len(_RULERS) <= 1:
+        return
+    print("\nWARNING: these runs were not scored by the same thing, so their")
+    print("scores are not comparable and no curve below should be read across them:")
+    for name, projects in sorted(_RULERS.items()):
+        print(f"  {name}: {', '.join(sorted(set(projects)))}")
 
 
 _VISION: dict[str, object] = {}
@@ -352,6 +381,7 @@ def main() -> None:
 
     args = parser.parse_args()
     args.func(args)
+    warn_if_rulers_differ()
 
 
 if __name__ == "__main__":

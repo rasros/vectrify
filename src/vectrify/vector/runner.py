@@ -329,6 +329,16 @@ def run_vector_search(
     def _front_scorer() -> tuple[Any, Any]:
         if not _front:
             scorer = get_scorer(scorer_type, vision_model=vision_model)
+            # Recorded next to the run rather than as a stats.csv column: it is
+            # one value for the whole run, and a column repeating it on every
+            # row is the kind this file has already been stripped of.
+            if storage.current_run_dir is not None:
+                try:
+                    (storage.current_run_dir / "scorer.txt").write_text(
+                        scorer.comparability + "\n", encoding="utf-8"
+                    )
+                except OSError as exc:
+                    log.debug(f"Could not record the scorer signature: {exc}")
             _front.extend([scorer, scorer.prepare_reference(original_img)])
         return _front[0], _front[1]
 

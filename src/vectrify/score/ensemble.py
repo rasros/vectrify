@@ -96,6 +96,11 @@ class EnsembleScorer(Scorer):
         self._members = [EmbeddingScorer(model_name=name) for name in model_names]
         self._names = model_names
 
+    @property
+    def comparability(self) -> str:
+        members = "+".join(name.split("/")[-1] for name in self._names)
+        return f"panel-whole/{members}"
+
     def validate_environment(self) -> None:
         self._members[0].validate_environment()
 

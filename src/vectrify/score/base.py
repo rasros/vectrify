@@ -31,6 +31,19 @@ def safe_score(fn: Callable[..., float]) -> Callable[..., float]:
 
 
 class Scorer(ABC):
+    @property
+    def comparability(self) -> str:
+        """What has to match for two runs' scores to mean the same thing.
+
+        A score is only ever a distance in some scorer's own space. Change the
+        members, or how a picture is fed to them, and the numbers move without
+        any drawing getting better or worse -- dropping the 5x5 lattice shifted
+        one run's recorded best from 0.296 to 0.081. Nothing in a run's output
+        recorded that, so a plot spanning the change compared two different
+        rulers and read as a 3.7x improvement.
+        """
+        return type(self).__name__
+
     @abstractmethod
     def prepare_reference(self, original_rgb: Image.Image) -> Any: ...
 
