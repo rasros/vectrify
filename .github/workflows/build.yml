@@ -8,10 +8,23 @@ on:
   pull_request:
   workflow_dispatch:
 
+# One run per branch. Pushing again cancels the run still going, which is what
+# a stack of PRs needs: rebasing the branch below it re-triggers every branch
+# above, and without this they queue up behind runs whose commits no longer
+# exist. Keyed on the ref rather than the SHA so a superseded commit's run is
+# the one cancelled.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     name: Lint and test
     runs-on: ubuntu-latest
+    # The suite runs in about 15s and a whole job has never taken over three
+    # minutes. Without a cap a wedged step inherits the six-hour default: three
+    # runs sat on "Install system deps" for five hours before anyone looked.
+    timeout-minutes: 15
 
     steps:
       - name: Checkout
@@ -19,7 +32,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      # apt is the one step that talks to a mirror it does not control, and a
+      # stalled mirror hangs rather than failing. Fail fast instead, so a rerun
+      # is the fix.
       - name: Install system deps
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: sudo apt-get update && sudo apt-get install -y graphviz libcairo2
 
       - name: Install uv

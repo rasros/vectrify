@@ -12,12 +12,18 @@ permissions:
 jobs:
   publish:
     runs-on: ubuntu-latest
+    # No concurrency group here: cancelling a run that may already have pushed
+    # to PyPI is worse than letting a second one queue behind it.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
       - name: Install system deps
+        timeout-minutes: 5
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: sudo apt-get update && sudo apt-get install -y graphviz libcairo2
 
       - name: Install uv
