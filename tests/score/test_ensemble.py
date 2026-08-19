@@ -9,15 +9,15 @@ def _panel(*rows: list[float]) -> tuple[EnsembleScorer, PanelReference]:
     """A panel whose members report the calibrated distances the test dictates.
 
     Stubbed at the per-member distances rather than at the encoders: the panel
-    cuts every picture into tiles and compares the embeddings itself, so faking
-    an encoder would mean faking image decoding and tiling too, none of which
-    is what these tests are about.
+    embeds every picture and compares the embeddings itself, so faking an
+    encoder would mean faking image decoding too, which is not what these tests
+    are about.
     """
     scorer = EnsembleScorer.__new__(EnsembleScorer)
     scorer._members = [None] * len(rows)  # type: ignore[assignment]
     scorer._names = tuple(f"m{i}" for i in range(len(rows)))
     reference = PanelReference(
-        image=Image.new("RGB", (12, 12)), tiles=[], blank=[1.0] * len(rows)
+        image=Image.new("RGB", (12, 12)), targets=[], blank=[1.0] * len(rows)
     )
 
     def distances(_reference, images):
