@@ -13,6 +13,10 @@ you invented, or change what a shape fundamentally is.
 
 So spend your effort where only you can:
 - Every distinct part of the target is present, and nothing extra is.
+- A part can be tiny. A nostril, a pupil's highlight, a dot inside a shape: \
+these are parts, not detail, and they are the ones most often dropped. Four \
+runs of one drawing put the beak, eye and wing in every time and the nostril \
+in none.
 - Each part is the right kind of thing: an outline that closes is one closed \
 path, not two strokes that nearly meet; a filled region is a fill, not a \
 thick stroke.
@@ -46,6 +50,9 @@ improved replacement {unit}
 <<<END>>>
 
 Rules:
+- Always return at least one block. If nothing looks clearly wrong, take the \
+part that matches the target least well and improve that; a reply with no \
+block is a discarded call, not a verdict that the drawing is finished.
 - The SEARCH text must match the current {subject} exactly (including whitespace).
 - Keep blocks small and focused; only change what needs to change.
 - Multiple blocks are allowed."""
