@@ -5,6 +5,7 @@ import pytest
 from PIL import Image
 
 from tests.helpers import TEST_MODEL as _MODEL
+from vectrify.formats.base import NoUsableOutputError
 from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.formats.svg.prompts import (
     build_svg_gen_prompt,
@@ -165,3 +166,51 @@ def test_llm_svg_refinement_produces_valid_svg():
     svg = SvgPlugin().apply_edit(parent_svg, raw)
     valid, err = is_valid_svg(svg)
     assert valid, f"LLM refinement did not produce valid SVG: {err}\nRaw: {raw[:200]}"
+
+
+_PARENT = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10">'
+    '<circle cx="5" cy="5" r="2" /></svg>'
+)
+
+
+@pytest.mark.parametrize(
+    "raw",
+    [
+        pytest.param("", id="empty"),
+        pytest.param("I cannot see the image clearly, so I am skipping.", id="prose"),
+        pytest.param("```svg\n```", id="empty-fence"),
+    ],
+)
+def test_a_reply_with_nothing_drawn_in_it_says_so(raw):
+    """Not an XML complaint: nothing was drawn, so there is no markup to blame.
+
+    The extractor falls back to returning the whole reply, so prose used to
+    reach the parser and come back as "not well-formed (invalid token): line 1,
+    column 1", which reads as a broken drawing.
+    """
+    plugin = SvgPlugin()
+    for call in (
+        lambda: plugin.apply_edit(_PARENT, raw),
+        lambda: plugin.extract_from_llm(raw),
+    ):
+        with pytest.raises(NoUsableOutputError) as caught:
+            call()
+        assert "no diff blocks" in str(caught.value)
+
+
+def test_the_error_quotes_what_came_back_instead():
+    plugin = SvgPlugin()
+    with pytest.raises(NoUsableOutputError, match="rate limit"):
+        plugin.apply_edit(_PARENT, "Sorry, rate limit reached.")
+    with pytest.raises(NoUsableOutputError, match="the reply was empty"):
+        plugin.apply_edit(_PARENT, "   \n  ")
+
+
+def test_a_usable_reply_is_still_applied():
+    plugin = SvgPlugin()
+    edited = plugin.apply_edit(
+        _PARENT, '<<<SEARCH>>>\nr="2"\n<<<REPLACE>>>\nr="3"\n<<<END>>>'
+    )
+    assert 'r="3"' in edited
+    assert "<svg" in plugin.extract_from_llm("here it is\n" + _PARENT)
