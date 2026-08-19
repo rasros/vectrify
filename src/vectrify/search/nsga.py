@@ -330,7 +330,20 @@ class NsgaStrategy(Generic[TState]):
                 and sig2 is not None
                 and hamming_distance(sig1, sig2) > self.crossover_distance_threshold
             ):
-                return p1.id, p2_candidate.id
+                # Crossover keeps the first parent's structure and splices the
+                # second's matched elements into it, so the pair is ordered,
+                # not symmetric. Both parents here are independent tournament
+                # draws, which left the better one as the donor about half the
+                # time. Forced over every seed pair of four runs, 120 attempts
+                # per orientation: with the better parent as the base 42% of
+                # children beat both parents, against 7% the other way round.
+                base, donor = p1, p2_candidate
+                if (rank[donor.id], -crowd[donor.id]) < (
+                    rank[base.id],
+                    -crowd[base.id],
+                ):
+                    base, donor = donor, base
+                return base.id, donor.id
 
         return p1.id, None
 
