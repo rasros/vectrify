@@ -5,7 +5,7 @@ import pytest
 
 from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search import ChainState, Result, SearchNode
-from vectrify.search.engine import MultiprocessSearchEngine
+from vectrify.search.engine import MultiprocessSearchEngine, _spread_parents
 
 
 def _rank_of(node) -> float:
@@ -1337,3 +1337,49 @@ def test_a_candidate_that_moves_any_measure_is_kept():
     )
 
     assert policy.updates == [("nudge", True)]
+
+
+def _measured(node_id: int, edge: float) -> SearchNode:
+    return SearchNode(
+        id=node_id,
+        state=None,
+        parent_id=0,
+        metrics={"edge": edge, "colour": 0.1, "shape": 0.1, "detail": 0.1},
+        valid=True,
+    )
+
+
+def test_llm_parents_are_not_five_near_copies_of_the_best():
+    """An epoch has one LLM call per parent, so two must not go to the same
+    drawing. Ranks 1-3 here are a hair apart; 4 and 5 are genuinely different.
+    """
+    ranked = [
+        _measured(1, 0.100),
+        _measured(2, 0.1001),
+        _measured(3, 0.1002),
+        _measured(4, 0.400),
+        _measured(5, 0.900),
+    ]
+    picked = _spread_parents(ranked, 3)
+    assert [n.id for n in picked] == [1, 4, 5]
+
+
+def test_the_top_pick_is_always_kept():
+    ranked = [_measured(i, 0.1 + i * 0.0001) for i in range(1, 9)]
+    picked = _spread_parents(ranked, 3)
+    assert picked[0].id == 1
+    assert len(picked) == 3
+
+
+def test_asking_for_everything_returns_everything_in_rank_order():
+    ranked = [_measured(1, 0.1), _measured(2, 0.2)]
+    assert [n.id for n in _spread_parents(ranked, 5)] == [1, 2]
+
+
+def test_unmeasured_candidates_do_not_break_selection():
+    ranked = [
+        SearchNode(id=1, state=None, parent_id=0, metrics={}, valid=True),
+        _measured(2, 0.2),
+        _measured(3, 0.9),
+    ]
+    assert len(_spread_parents(ranked, 2)) == 2
