@@ -7,6 +7,7 @@ import pytest
 
 from vectrify.formats.svg.operations import (
     MUTATIONS,
+    _nudgeable_numbers,
     apply_crossover,
     apply_mutation,
     crossover,
@@ -897,3 +898,42 @@ def test_a_translate_moves_a_path_without_reshaping_it():
     assert d is not None
     assert "A23 23 0 1 0" in d, f"the arc was reshaped: {d}"
     assert not d.startswith("M100 100"), "nothing moved"
+
+
+_CANVAS_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
+    '<rect x="0" y="0" width="700" height="700" fill="#ffffff" />'
+    '<circle cx="300" cy="300" r="40" fill="#111111" />'
+    '<path d="M 100 100 A 25 25 0 1 1 150 100 Z" fill="#222222" />'
+    "</svg>"
+)
+
+
+def test_geometry_mutations_leave_the_background_rect_alone():
+    """The full-canvas rect is the page; moving it exposes the edge."""
+    random.seed(11)
+    svg = _CANVAS_SVG
+    for _ in range(200):
+        svg = random.choice([mutate_translate, mutate_numeric])(svg)
+    rect = re.search(r'<rect x="(-?[\d.]+)" y="(-?[\d.]+)"[^>]*?/>', svg)
+    assert rect is not None
+    assert float(rect.group(1)) == 0.0
+    assert float(rect.group(2)) == 0.0
+    assert 'width="700"' in svg and 'height="700"' in svg
+
+
+def test_a_circular_arc_keeps_its_rotation_but_an_elliptical_one_does_not():
+    """Rotating a circle about its centre renders identically to its parent."""
+    circular = _nudgeable_numbers("M 0 0 A 25 25 0 1 1 50 0")
+    assert [m.group(2) for m in circular] == ["0", "0", "25", "25", "50", "0"]
+
+    elliptical = _nudgeable_numbers("M 0 0 A 25 10 0 1 1 50 0")
+    assert [m.group(2) for m in elliptical] == [
+        "0",
+        "0",
+        "25",
+        "10",
+        "0",
+        "50",
+        "0",
+    ]

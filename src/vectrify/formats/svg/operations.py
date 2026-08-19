@@ -334,10 +334,41 @@ def mutate_drop_style_property(root: ET.Element) -> None:
     el.set("style", "; ".join(props))
 
 
+def _is_canvas(el: ET.Element, span: float) -> bool:
+    """A rect that covers the whole picture: the page, not part of the drawing.
+
+    Seeds open with one to lay down a background. Moving or resizing it can
+    only slide the page out from under the drawing and expose the edge, and one
+    real run shipped its winner with the canvas 15px off origin. The four
+    measures cannot object -- a white rect on a white ground reads the same
+    either way until the gap appears -- so nothing but an LLM edit ever put it
+    back, which is a poor use of the one structural edit an epoch gets.
+    """
+    if el.tag.split("}")[-1] != "rect":
+        return False
+    try:
+        width = abs(float(el.get("width", "0").rstrip("px")))
+        height = abs(float(el.get("height", "0").rstrip("px")))
+    except ValueError:
+        return False
+    return width >= span * 0.99 and height >= span * 0.99
+
+
+def movable_elements(root: ET.Element) -> list[tuple[tuple, ET.Element]]:
+    """Drawable elements a geometry mutation may touch."""
+    span = _canvas_span(root)
+    return [
+        (chain, el) for chain, el in drawable_elements(root) if not _is_canvas(el, span)
+    ]
+
+
 @svg_transform
 def mutate_numeric(root: ET.Element) -> None:
+    span = _canvas_span(root)
     candidates: list[tuple[ET.Element, str, float, str]] = []
     for elem in root.iter():
+        if _is_canvas(elem, span):
+            continue
         for attr, val in elem.attrib.items():
             bare_attr = attr.split("}")[-1]
             if bare_attr not in _NUMERIC_ATTRS:
@@ -479,10 +510,17 @@ def _nudgeable_numbers(d: str) -> list[re.Match]:
     either coerces it or drops the whole path, and the element vanishes from
     the drawing. Measured before this existed, 26% of mutations on a path
     holding two arcs corrupted a flag.
+
+    The rotation is skipped too, but only where ``rx == ry``. Rotating a circle
+    about its own centre is the identity, so nudging it spends a task on a
+    candidate that renders identically to its parent, and leaves a number that
+    reads as meaningful to everything downstream. Where the arc is genuinely
+    elliptical the rotation does turn it, so it stays nudgeable there.
     """
     out: list[re.Match] = []
     command = ""
     argument = 0
+    radii: list[float] = [0.0, 0.0]
     for token in _PATH_TOKEN_RE.finditer(d):
         if token.group(1):
             command = token.group(1)
@@ -490,9 +528,17 @@ def _nudgeable_numbers(d: str) -> list[re.Match]:
             continue
         # Arcs take seven arguments and may repeat without restating the
         # command, so the flags are found by position within each group.
-        if command in ("A", "a") and argument % 7 in (3, 4):
-            argument += 1
-            continue
+        if command in ("A", "a"):
+            position = argument % 7
+            if position in (0, 1):
+                try:
+                    radii[position] = float(token.group(2))
+                except ValueError:
+                    radii[position] = 0.0
+            circular = abs(radii[0] - radii[1]) < 1e-9
+            if position in (3, 4) or (position == 2 and circular):
+                argument += 1
+                continue
         out.append(token)
         argument += 1
     return out
@@ -669,7 +715,7 @@ def mutate_translate(root: ET.Element) -> None:
     later mutation and every crossover reads a position that is not where the
     element appears.
     """
-    units = drawable_elements(root)
+    units = movable_elements(root)
     if not units:
         raise _NoChangeError
 
