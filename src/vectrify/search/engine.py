@@ -7,7 +7,7 @@ import time
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.metrics import FRONT_SCORE
+from vectrify.score.metrics import FRONT_SCORE, SCORER_METRICS
 from vectrify.search.base import SearchStrategy, StorageAdapter
 from vectrify.search.collector import StatCollector
 from vectrify.search.diversity import pool_diversity
@@ -46,6 +46,73 @@ SCORE_BATCH_SIZE = 32
 def keep_payload(result: Result) -> ChainState:
     """Default state builder: carry the worker's payload through unchanged."""
     return ChainState(payload=result.payload)
+
+
+def _spread_parents(
+    ranked: list[SearchNode[TState]], count: int
+) -> list[SearchNode[TState]]:
+    """The best *count* candidates that are not near-copies of each other.
+
+    An epoch has one LLM call per parent and a run has at most epochs x seeds
+    of them, so they are the scarcest thing in the search. Taking the top
+    *count* by evaluator rank spends them badly: the evaluator ranks
+    near-identical drawings adjacently because they look near-identical, so the
+    slots fill with variants of one candidate. Measured over one run's nine
+    epochs, the five chosen parents were cousins a median three generations
+    apart, and their mean pairwise distance over the measures was 0.0056 where
+    five random survivors of the same pool stood 0.0543 apart -- ten times less
+    variety than picking at random would have given.
+
+    So walk the ranking in order and skip anything sitting closer to an
+    already-chosen parent than the field's own median separation. The threshold
+    is read off the candidates rather than fixed: what counts as near-identical
+    depends on the drawing and on how far the run has converged, and a constant
+    would stop meaning the same thing between the first epoch and the last. If
+    too few clear it, the remainder falls back to rank order, because an LLM
+    call left unspent is worse than one spent on a near-copy.
+    """
+    if count <= 0 or len(ranked) <= count:
+        return ranked[:count]
+
+    def vector(node: SearchNode[TState]) -> tuple[float, ...] | None:
+        values: list[float] = []
+        for name in SCORER_METRICS:
+            value = node.metrics.get(name)
+            if value is None:
+                return None
+            values.append(value)
+        return tuple(values)
+
+    vectors = {n.id: vector(n) for n in ranked}
+    known = [v for v in vectors.values() if v is not None]
+    if len(known) < 2:
+        return ranked[:count]
+
+    gaps = sorted(
+        sum(abs(a - b) for a, b in zip(left, right, strict=True))
+        for index, left in enumerate(known)
+        for right in known[index + 1 :]
+    )
+    threshold = gaps[len(gaps) // 2]
+
+    chosen: list[SearchNode[TState]] = []
+    for node in ranked:
+        here = vectors[node.id]
+        if here is None or all(
+            sum(abs(a - b) for a, b in zip(here, there, strict=True)) >= threshold
+            for other in chosen
+            if (there := vectors[other.id]) is not None
+        ):
+            chosen.append(node)
+        if len(chosen) == count:
+            return chosen
+
+    for node in ranked:
+        if len(chosen) == count:
+            break
+        if all(node.id != c.id for c in chosen):
+            chosen.append(node)
+    return chosen
 
 
 class MultiprocessSearchEngine(Generic[TState]):
@@ -343,7 +410,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                             )
                 except Exception as exc:
                     log.warning(f"Front evaluation failed, keeping rank order: {exc}")
-            parents = parents[:epoch_seeds]
+            parents = _spread_parents(parents, epoch_seeds)
             if not parents:
                 parents = list(active_pool)
 
