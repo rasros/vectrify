@@ -1342,7 +1342,7 @@ def test_a_candidate_that_moves_any_measure_is_kept():
 def _measured(node_id: int, edge: float) -> SearchNode:
     return SearchNode(
         id=node_id,
-        state=None,
+        state=ChainState(payload=None),
         parent_id=0,
         metrics={"edge": edge, "colour": 0.1, "shape": 0.1, "detail": 0.1},
         valid=True,
@@ -1378,7 +1378,9 @@ def test_asking_for_everything_returns_everything_in_rank_order():
 
 def test_unmeasured_candidates_do_not_break_selection():
     ranked = [
-        SearchNode(id=1, state=None, parent_id=0, metrics={}, valid=True),
+        SearchNode(
+            id=1, state=ChainState(payload=None), parent_id=0, metrics={}, valid=True
+        ),
         _measured(2, 0.2),
         _measured(3, 0.9),
     ]

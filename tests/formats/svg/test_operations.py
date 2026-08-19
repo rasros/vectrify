@@ -919,7 +919,8 @@ def test_geometry_mutations_leave_the_background_rect_alone():
     assert rect is not None
     assert float(rect.group(1)) == 0.0
     assert float(rect.group(2)) == 0.0
-    assert 'width="700"' in svg and 'height="700"' in svg
+    assert 'width="700"' in svg
+    assert 'height="700"' in svg
 
 
 def test_a_circular_arc_keeps_its_rotation_but_an_elliptical_one_does_not():
