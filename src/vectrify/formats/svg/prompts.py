@@ -11,7 +11,12 @@ _DIFF_FORMAT_INSTRUCTIONS = diff_format_instructions(
 # _COLOR_ATTRS and mutate_path in formats/svg/operations.py). Keep them in step.
 MUTABLE_SVG = """\
 Write the SVG this way:
-- Geometry in `<path d="...">`.
+- A shape that is a circle, ellipse or rectangle is written as `<circle>`, \
+`<ellipse>` or `<rect>`; everything else is `<path d="...">`. A primitive \
+cannot be dented -- it only moves and resizes -- so it survives thousands of \
+optimizer steps that a hand-fitted path does not. The best eye any run has \
+produced was a white `<circle>` with a smaller black `<circle>` offset inside \
+it, where earlier runs fitted two paths and inverted the highlight.
 - Numbers in attributes: `x`, `y`, `cx`, `cy`, `r`, `rx`, `ry`, `width`, \
 `height`, `x1`, `y1`, `x2`, `y2`, `font-size`, `stroke-width`, `opacity`.
 - Coordinates written out directly, already in the viewBox above.
