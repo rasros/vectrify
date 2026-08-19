@@ -5,6 +5,7 @@ from importlib.metadata import version as _pkg_version
 
 from vectrify.formats import FORMAT_NAMES
 from vectrify.score import ScorerType
+from vectrify.score.ensemble import GRID as PANEL_GRID
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 
 DEFAULT_OUTPUT = "output.svg"
@@ -218,6 +219,17 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="HuggingFace model id for the vision scorer, any image encoder "
         "transformers can load. "
         f"Default: {DEFAULT_VISION_MODEL}",
+    )
+
+    g_score.add_argument(
+        "--panel-grid",
+        type=int,
+        default=PANEL_GRID,
+        dest="panel_grid",
+        metavar="N",
+        help="Cells per side the panel cuts each picture into before "
+        "embedding it. 1 judges the picture whole. "
+        f"Default: {PANEL_GRID}",
     )
 
     g_search = parser.add_argument_group("Search strategy")

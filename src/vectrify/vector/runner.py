@@ -35,6 +35,7 @@ from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
 from vectrify.score.complexity import detail, detail_excess
 from vectrify.score.edges import overlap_distance
+from vectrify.score.ensemble import GRID as PANEL_GRID
 from vectrify.score.metrics import (
     COLOUR,
     DETAIL,
@@ -204,6 +205,7 @@ def run_vector_search(
     max_total_tasks: int | None = DEFAULT_MAX_TOTAL_TASKS,
     random_seed: int | None = None,
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
+    panel_grid: int = PANEL_GRID,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
 ) -> None:
@@ -255,7 +257,8 @@ def run_vector_search(
     log.info(
         "Measures: edge overlap, colour distance, shape moments and a detail "
         "budget, traded off by dominance, no model. "
-        f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model})."
+        f"Front evaluator: {ScorerType(scorer_type).value} ({vision_model}, "
+        f"grid={panel_grid})."
     )
 
     resumed_items = storage.load_resume_nodes()
@@ -328,7 +331,9 @@ def run_vector_search(
 
     def _front_scorer() -> tuple[Any, Any]:
         if not _front:
-            scorer = get_scorer(scorer_type, vision_model=vision_model)
+            scorer = get_scorer(
+                scorer_type, vision_model=vision_model, panel_grid=panel_grid
+            )
             _front.extend([scorer, scorer.prepare_reference(original_img)])
         return _front[0], _front[1]
 

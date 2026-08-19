@@ -69,6 +69,7 @@ PANEL_MODELS: tuple[str, ...] = (
 # and 8 score 96.1, 96.1 and 96.4. So there is a real optimum around a 77px
 # cell rather than a simple appetite for resolution, which finer grids would
 # have kept feeding.
+# A grid of 1 disables tiling: the picture is judged whole.
 GRID = 5
 
 
@@ -85,35 +86,42 @@ class PanelReference:
     blank: list[float]
 
 
-def _tiles(image: Image.Image) -> list[Image.Image]:
-    """The picture cut into a GRID x GRID lattice, row by row."""
+def _tiles(image: Image.Image, grid: int = GRID) -> list[Image.Image]:
+    """The picture cut into a grid x grid lattice, row by row.
+
+    A grid of 1 returns the picture itself, which is what the members were
+    trained on.
+    """
+    if grid <= 1:
+        return [image]
     width, height = image.size
     return [
         image.crop(
             (
-                column * width // GRID,
-                row * height // GRID,
-                (column + 1) * width // GRID,
-                (row + 1) * height // GRID,
+                column * width // grid,
+                row * height // grid,
+                (column + 1) * width // grid,
+                (row + 1) * height // grid,
             )
         )
-        for row in range(GRID)
-        for column in range(GRID)
+        for row in range(grid)
+        for column in range(grid)
     ]
 
 
 class EnsembleScorer(Scorer):
     """Ranks by majority vote across a panel of encoders."""
 
-    def __init__(self, model_names: tuple[str, ...] = PANEL_MODELS):
+    def __init__(self, model_names: tuple[str, ...] = PANEL_MODELS, grid: int = GRID):
         self._members = [EmbeddingScorer(model_name=name) for name in model_names]
         self._names = model_names
+        self._grid = grid
 
     def validate_environment(self) -> None:
         self._members[0].validate_environment()
 
     def prepare_reference(self, original_rgb: Image.Image) -> PanelReference:
-        cells = _tiles(original_rgb)
+        cells = _tiles(original_rgb, self._grid)
         reference = PanelReference(
             image=original_rgb,
             tiles=[m.embed_images(cells) for m in self._members],
@@ -129,7 +137,7 @@ class EnsembleScorer(Scorer):
         """Each member's distance to every image, cell by cell then averaged."""
         per_member = []
         for member, reference_tiles in zip(self._members, reference.tiles, strict=True):
-            got = [member.embed_images(_tiles(image)) for image in images]
+            got = [member.embed_images(_tiles(image, self._grid)) for image in images]
             per_member.append(
                 [
                     float((1.0 - (reference_tiles * tiles).sum(dim=-1)).mean())

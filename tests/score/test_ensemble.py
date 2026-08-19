@@ -2,7 +2,7 @@ import statistics
 
 from PIL import Image
 
-from vectrify.score.ensemble import EnsembleScorer, PanelReference
+from vectrify.score.ensemble import EnsembleScorer, PanelReference, _tiles
 
 
 def _panel(*rows: list[float]) -> tuple[EnsembleScorer, PanelReference]:
@@ -87,3 +87,14 @@ def test_ranking_is_not_decided_by_one_member_s_scale():
 def test_an_empty_field_ranks_to_nothing():
     scorer, reference = _panel([0.1], [0.2], [0.3])
     assert scorer.rank(reference, []) == []
+
+
+def test_a_grid_of_one_hands_the_members_the_whole_picture():
+    image = Image.new("RGB", (40, 40))
+    assert _tiles(image, 1) == [image]
+    assert len(_tiles(image, 5)) == 25
+
+
+def test_tiles_of_a_grid_cover_the_picture_without_overlap():
+    image = Image.new("RGB", (40, 40))
+    assert sum(t.size[0] * t.size[1] for t in _tiles(image, 3)) == 40 * 40
