@@ -19,6 +19,30 @@ class NoEditAppliedError(ValueError):
     """Raised when diff blocks were present but none matched the parent."""
 
 
+class NoUsableOutputError(ValueError):
+    """Raised when a reply held neither diff blocks nor a code fragment.
+
+    Distinguished from a malformed fragment because the two call for different
+    responses and used to look identical. The extractors fall back to returning
+    the whole reply when they find no fragment in it, so prose went to the
+    parser and came back as "XML parse error: not well-formed (invalid token):
+    line 1, column 1" -- which reads as a broken drawing when nothing was drawn
+    at all. One run lost 4 of 50 calls this way while the log blamed the SVG.
+
+    Falling back to the parent is not the remedy: that returns a byte-identical
+    child, which is the waste `apply_search_replace` exists to prevent.
+    """
+
+
+def describe_unusable(raw: str, limit: int = 120) -> str:
+    """A one-line preview of a reply, for saying what came back instead."""
+    flat = " ".join(raw.split())
+    if not flat:
+        return "the reply was empty"
+    shown = flat[:limit] + ("..." if len(flat) > limit else "")
+    return f"the reply began {shown!r}"
+
+
 def apply_search_replace(parent: str, raw: str) -> str | None:
     """Apply search/replace blocks from *raw* onto *parent*.
 

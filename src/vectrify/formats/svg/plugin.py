@@ -1,6 +1,10 @@
 from collections.abc import Mapping
 
-from vectrify.formats.base import apply_search_replace
+from vectrify.formats.base import (
+    NoUsableOutputError,
+    apply_search_replace,
+    describe_unusable,
+)
 from vectrify.formats.mutations import operator_weights
 from vectrify.formats.svg.normalize import normalize_svg
 from vectrify.formats.svg.operations import (
@@ -27,18 +31,27 @@ class SvgPlugin:
     def validate(self, content: str) -> tuple[bool, str | None]:
         return is_valid_svg(content)
 
+    @staticmethod
+    def _require_svg(fragment: str, raw: str) -> str:
+        if "<svg" not in fragment.lower():
+            raise NoUsableOutputError(
+                f"no <svg> in the reply and no diff blocks: {describe_unusable(raw)}"
+            )
+        return fragment
+
     def extract_from_llm(self, raw: str) -> str:
         # Normalised on the way in, so local search meets one form of markup
         # rather than whichever the model reached for. Which forms it reaches
         # for is a property of the model: one model's seeds carried 147
         # elements in relative path commands, which describe an offset from
         # wherever the pen already is and so cannot be moved at all.
-        return normalize_svg(extract_svg_fragment(raw))
+        return normalize_svg(self._require_svg(extract_svg_fragment(raw), raw))
 
     def apply_edit(self, parent: str, raw: str) -> str:
         patched = apply_search_replace(parent, raw)
-        edited = patched if patched is not None else extract_svg_fragment(raw)
-        return normalize_svg(edited)
+        if patched is None:
+            patched = self._require_svg(extract_svg_fragment(raw), raw)
+        return normalize_svg(patched)
 
     def build_generate_prompt(
         self,
