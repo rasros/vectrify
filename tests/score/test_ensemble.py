@@ -87,10 +87,3 @@ def test_ranking_is_not_decided_by_one_member_s_scale():
 def test_an_empty_field_ranks_to_nothing():
     scorer, reference = _panel([0.1], [0.2], [0.3])
     assert scorer.rank(reference, []) == []
-
-
-def test_the_panel_reports_what_makes_its_scores_comparable():
-    """A run records this so a later plot cannot compare two different rulers."""
-    scorer = EnsembleScorer.__new__(EnsembleScorer)
-    scorer._names = ("facebook/dinov2-small", "google/siglip-base-patch16-224")
-    assert scorer.comparability == "panel-whole/dinov2-small+siglip-base-patch16-224"

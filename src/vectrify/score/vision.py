@@ -51,10 +51,6 @@ class VisionScorer(Scorer):
         # forward is by far the most expensive thing in a run.
         self._embedding_memo: tuple[bytes, Any] | None = None
 
-    @property
-    def comparability(self) -> str:
-        return f"vision/{self._model_name.split('/')[-1]}"
-
     def _embed_cached(self, image: Image.Image) -> "torch.Tensor":
         """Whole-image embedding, memoised on the pixels."""
         key = hashlib.blake2b(image.tobytes(), digest_size=16).digest()
