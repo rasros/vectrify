@@ -1,3 +1,4 @@
+import collections
 import math
 import statistics
 from unittest.mock import patch
@@ -745,3 +746,47 @@ def test_crowding_distance_reads_every_axis():
     assert distances[1] == math.inf
     assert distances[3] == math.inf
     assert distances[2] > 0.0
+
+
+def _origin_node(node_id: int, origin: int, edge: float) -> SearchNode:
+    return SearchNode(
+        valid=True,
+        id=node_id,
+        parent_id=0,
+        state=ChainState(payload=None),
+        metrics={"edge": edge, "colour": edge, "shape": edge, "detail": edge},
+        root_id=node_id,
+        origin_id=origin,
+    )
+
+
+def test_an_original_attempt_is_not_selected_out_entirely():
+    """One run discarded a seed the evaluator rated 12% better than the one it
+    kept, and nothing recovers an attempt once its last member is gone.
+    """
+    strategy = NsgaStrategy(pool_size=6, origin_floor=2)
+    # Origin 1 sweeps the measures; origin 2 is worse on every one of them.
+    field = [_origin_node(i, 1, 0.10 + i * 0.001) for i in range(1, 9)]
+    field += [_origin_node(i, 2, 0.90 + i * 0.001) for i in range(9, 13)]
+    survivors = strategy.select_survivors(field, 6)
+
+    kept = collections.Counter(n.origin_id for n in survivors)
+    assert kept[2] >= 2, "the weaker attempt was wiped out"
+    assert kept[1] >= 2, "the stronger attempt lost its majority"
+    assert len(survivors) == 6
+
+
+def test_the_floor_does_not_apply_when_there_is_only_one_attempt():
+    strategy = NsgaStrategy(pool_size=4, origin_floor=2)
+    field = [_origin_node(i, 1, 0.10 + i * 0.001) for i in range(1, 9)]
+    survivors = strategy.select_survivors(field, 4)
+    assert len(survivors) == 4
+    assert {n.origin_id for n in survivors} == {1}
+
+
+def test_a_zero_floor_leaves_selection_alone():
+    strategy = NsgaStrategy(pool_size=4, origin_floor=0)
+    field = [_origin_node(i, 1, 0.10 + i * 0.001) for i in range(1, 9)]
+    field += [_origin_node(i, 2, 0.90 + i * 0.001) for i in range(9, 13)]
+    survivors = strategy.select_survivors(field, 4)
+    assert all(n.origin_id == 1 for n in survivors)

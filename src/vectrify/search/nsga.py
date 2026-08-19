@@ -1,3 +1,4 @@
+import collections
 import logging
 import math
 import random
@@ -204,8 +205,14 @@ class NsgaStrategy(Generic[TState]):
         pool_size: int = 20,
         crossover_distance_threshold: int = 10,
         tournament_size: int = 2,
+        origin_floor: int = 2,
     ):
         self.pool_size = pool_size
+        # Pool slots guaranteed to each original attempt still represented in
+        # the field. Two rather than one: a single member is one unlucky
+        # generation from gone, and it takes two for an attempt to have any
+        # local search of its own.
+        self.origin_floor = origin_floor
         self.crossover_distance_threshold = crossover_distance_threshold
         # Selection intensity is a function of the tournament size alone -- the
         # winner's expected quantile is ~1/(size+1) -- so this is an absolute
@@ -291,6 +298,24 @@ class NsgaStrategy(Generic[TState]):
         p1 = _tournament()
         if len(pool) >= 2:
             p2_candidate = _tournament(exclude_id=p1.id)
+            # A partner from a different original attempt is worth looking for
+            # rather than taking whatever the tournament returned. Forced over
+            # every pair of every run's epoch-0 seeds, crossing two independent
+            # attempts produced a child beating BOTH parents 22-32% of the
+            # time, where crossover between two re-authored descendants of one
+            # attempt beats its parent 14-17% of the time. One retry, because
+            # the tournament is also doing the work of picking a good partner
+            # and a long search for a foreign one would undo that.
+            if (
+                p1.origin_id
+                and p2_candidate.origin_id == p1.origin_id
+                and any(
+                    n.origin_id and n.origin_id != p1.origin_id
+                    for n in pool
+                    if n.id != p1.id
+                )
+            ):
+                p2_candidate = _tournament(exclude_id=p1.id)
             sig1, sig2 = p1.signature, p2_candidate.signature
             # Two nodes of one lineage are the same drawing at different
             # stages, so grafting between them mostly reshuffles a candidate
@@ -338,7 +363,71 @@ class NsgaStrategy(Generic[TState]):
         top = self.top_tier_ids(valid)
         if top and not top & {n.id for n in survivors}:
             survivors[-1] = next(n for n in valid if n.id in top)
-        return survivors
+        return self._keep_each_origin(valid, survivors)
+
+    def _keep_each_origin(
+        self,
+        valid: list[SearchNode[TState]],
+        survivors: list[SearchNode[TState]],
+    ) -> list[SearchNode[TState]]:
+        """Leave every original attempt at least a foothold in the pool.
+
+        An epoch opens with several independent seeds, and selection reduces
+        them to one well before the epoch ends -- not always the best one.
+        Measured over two runs, one kept the seed the evaluator rated best and
+        the other discarded a seed 12% better than the one it kept, then gave
+        the survivor 6,520 descendants against 61 and 18 for the seeds it had
+        beaten. Nothing recovers an attempt once its last member is gone.
+
+        That is worth a few slots because crossing two original attempts is the
+        most productive operation measured anywhere in this search: forced over
+        every pair of every run's seeds, 22-32% of children beat BOTH parents,
+        where in-run crossover beats its parent 14-17% of the time. Keeping a
+        second attempt alive is what keeps those pairings possible.
+
+        Only origins already present in *valid* are kept, and only up to
+        `origin_floor` members each, so this narrows the field the measures
+        choose from rather than overriding their choice.
+        """
+        floor = self.origin_floor
+        if floor <= 0 or len(survivors) < 2:
+            return survivors
+
+        present = {n.origin_id for n in valid if n.origin_id}
+        if len(present) < 2:
+            return survivors
+
+        kept = collections.Counter(n.origin_id for n in survivors)
+        missing = [o for o in present if kept[o] < floor]
+        if not missing:
+            return survivors
+
+        by_origin: dict[int, list[SearchNode[TState]]] = collections.defaultdict(list)
+        for node in valid:
+            by_origin[node.origin_id].append(node)
+        chosen = {n.id for n in survivors}
+        result = list(survivors)
+
+        for origin in sorted(missing):
+            for candidate in by_origin[origin]:
+                if kept[origin] >= floor:
+                    break
+                if candidate.id in chosen:
+                    continue
+                # Displace the most-represented origin's last-ranked member,
+                # never the only member of any other attempt.
+                donor = max(kept, key=lambda o: (kept[o], o))
+                if kept[donor] <= floor or donor == origin:
+                    return result
+                for index in range(len(result) - 1, -1, -1):
+                    if result[index].origin_id == donor:
+                        chosen.discard(result[index].id)
+                        result[index] = candidate
+                        chosen.add(candidate.id)
+                        kept[donor] -= 1
+                        kept[origin] += 1
+                        break
+        return result
 
     def epoch_parents(
         self, pool: list[SearchNode[TState]], max_parents: int

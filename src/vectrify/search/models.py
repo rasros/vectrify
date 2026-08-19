@@ -36,6 +36,12 @@ class SearchNode(Generic[TState]):
     # lineage recombines a candidate with itself, so selection uses this to pair
     # only across lineages.
     root_id: int = 0
+    # The epoch-0 seed this node descends from. Unlike root_id, which an LLM
+    # edit resets because a re-authored drawing is a fresh attempt, this
+    # survives every edit and names the independent attempt at the bottom of
+    # the chain. Two nodes sharing an origin are variations on one original
+    # drawing however many times the model has rewritten them since.
+    origin_id: int = 0
     # Which mutation operator produced this node, so the policy that picked it
     # can be told whether it survived. None for seeds and crossover children.
     operator: str | None = None

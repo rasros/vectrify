@@ -262,6 +262,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         node_metrics = {n.id: dict(n.metrics) for n in initial_nodes}
         # Each starting candidate is its own lineage; children inherit it.
         node_roots = {n.id: n.root_id or n.id for n in initial_nodes}
+        # Origins outlive lineages: an epoch's LLM edit opens a lineage but
+        # continues the original attempt it was derived from.
+        node_origins = {n.id: n.origin_id or n.id for n in initial_nodes}
         # The LLM's own output from earlier epochs, kept as a candidate for the
         # fronts later epochs are seeded from. Local refinement is not monotone
         # -- measured on the corpus it finishes behind best-of-5 seeding on half
@@ -548,6 +551,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 else node_roots.get(res.parent_id, next_node_id)
             )
             node_roots[next_node_id] = root
+            origin = node_origins.get(res.parent_id) or next_node_id
+            node_origins[next_node_id] = origin
             return SearchNode(
                 valid=True,
                 id=next_node_id,
@@ -558,6 +563,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 signature=res.signature,
                 epoch=epoch,
                 root_id=root,
+                origin_id=origin,
                 operator=res.operator,
             )
 
