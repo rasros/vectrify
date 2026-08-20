@@ -192,6 +192,8 @@ def run_vector_search(
     reasoning: str,
     format_plugin: "FormatPlugin",
     resolution_llm: int = DEFAULT_RESOLUTION_LLM,
+    score_resolution: int | None = None,
+    edge_tolerance: float | None = None,
     write_lineage: bool = True,
     save_raster: bool = False,
     epoch_patience: int | None = None,
@@ -246,8 +248,10 @@ def run_vector_search(
         max_workers=min(8, (os.cpu_count() or 4)), thread_name_prefix="pixel"
     )
 
-    scoring_img = resize_long_side(original_img, DEFAULT_CONFIG.target_long_side)
-    pixel_ref = prepare(scoring_img)
+    scoring_img = resize_long_side(
+        original_img, score_resolution or DEFAULT_CONFIG.target_long_side
+    )
+    pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
     # The target's own detail, measured once, at the size candidates are
     # rasterized at -- original_png_bytes, not the smaller image the pixel
     # comparison resizes to. Compressed size grows with pixel count, so reading

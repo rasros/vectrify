@@ -94,6 +94,11 @@ def test_defaults_pinned():
     # because leaving it unset let one run drift for 145,000 tasks past the
     # evaluator's best while the front it was shown degraded 40%.
     assert args.epoch_eval_interval == 2000
+    # Swept against the damage bench over 174 cases: every combination of
+    # 128-512 px and 0-4 px of tolerance ordered known damage within 1.2pp of
+    # every other, so nothing earned a change.
+    assert args.score_resolution == 256
+    assert args.edge_tolerance == 2.0
     assert args.epoch_eval_patience == 5
 
 

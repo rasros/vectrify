@@ -123,6 +123,8 @@ def main():
             workers=args.workers,
             resolution=args.resolution,
             resolution_llm=args.resolution_llm,
+            score_resolution=args.score_resolution,
+            edge_tolerance=args.edge_tolerance,
             max_wall_seconds=args.max_wall_seconds,
             log_level=args.log_level,
             scorer_type=args.scorer,

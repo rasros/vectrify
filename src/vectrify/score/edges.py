@@ -37,24 +37,36 @@ from vectrify.score.utils import clamp01, lab_array
 _EDGE_SCALE = 32.0
 
 # How far a boundary may be off before it stops counting as the same boundary.
-# Edges are a pixel or two wide, so without this the overlap is all-or-nothing
-# and a candidate two pixels out scores the same as one drawn somewhere else.
-_TOLERANCE_PX = 2.0
+# Without it the overlap is all-or-nothing: measured on a displaced bar, the raw
+# overlap saturates at 1.0 by an offset of five pixels, so a stroke slightly out
+# and one on the far side of the canvas are the same number and there is no
+# gradient to descend -- and it is not even monotone, an offset of 2 scoring
+# 0.729 against 0.521 for an offset of 3. At 2.0 those become 0.289 and 0.430.
+# The damage bench cannot choose the value: its families displace things far
+# rather than barely, and every tolerance from 0 to 4 ordered them the same.
+DEFAULT_TOLERANCE_PX = 2.0
 
 
-def edge_map(image_rgb: Image.Image) -> np.ndarray:
+def edge_map(image_rgb: Image.Image, tolerance: float | None = None) -> np.ndarray:
     """Gradient magnitude of the L channel, normalised to roughly [0, 1].
 
     Central differences rather than a Sobel convolution: one numpy call per
     axis, no kernel, and the extra smoothing a Sobel gives is not worth the
     cost when the map is about to be compared cell by cell.
+
+    *tolerance* is the blur radius in pixels, defaulting to `DEFAULT_TOLERANCE_PX`.
+    It is a parameter so a sweep can measure it against the damage bench rather
+    than assume it, and so it can be set per run.
     """
     lightness = lab_array(image_rgb)[:, :, 0]
     gy, gx = np.gradient(lightness)
     magnitude = np.clip(np.hypot(gx, gy) / _EDGE_SCALE, 0.0, 1.0)
 
+    radius = DEFAULT_TOLERANCE_PX if tolerance is None else tolerance
+    if radius <= 0.0:
+        return magnitude.astype(np.float32)
     blurred = Image.fromarray((magnitude * 255).astype(np.uint8)).filter(
-        ImageFilter.GaussianBlur(_TOLERANCE_PX)
+        ImageFilter.GaussianBlur(radius)
     )
     return np.asarray(blurred, dtype=np.float32) / 255.0
 

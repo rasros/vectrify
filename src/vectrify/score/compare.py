@@ -28,13 +28,17 @@ class Reference:
     image: Image.Image
     lab: np.ndarray
     edges: np.ndarray
+    # Carried so a candidate is measured the same way the reference was,
+    # without threading the setting through every comparison.
+    tolerance: float | None = None
 
 
-def prepare(reference_rgb: Image.Image) -> Reference:
+def prepare(reference_rgb: Image.Image, tolerance: float | None = None) -> Reference:
     return Reference(
         image=reference_rgb,
         lab=lab_array(reference_rgb),
-        edges=edge_map(reference_rgb),
+        edges=edge_map(reference_rgb, tolerance=tolerance),
+        tolerance=tolerance,
     )
 
 
@@ -69,5 +73,5 @@ def compare(reference: Reference, candidate_png: bytes) -> Comparison:
     return Comparison(
         colour=np.abs(reference.lab - lab_array(candidate)).mean(axis=2) / 255.0,
         reference_edges=reference.edges,
-        candidate_edges=edge_map(candidate),
+        candidate_edges=edge_map(candidate, tolerance=reference.tolerance),
     )
