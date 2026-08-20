@@ -14,7 +14,27 @@ DEFAULT_SCORER = "auto"
 # cannot reach. Two spends most of a run refining whatever the first batch
 # happened to produce, and a run that draws a poor first batch has one chance
 # to recover from it.
-DEFAULT_EPOCHS = 4
+#
+# A ceiling now rather than a budget: --epoch-improvement-patience is what
+# ends a run, when an epoch stops buying anything the evaluator can see. At 4
+# this was the binding limit and it bound early -- measured on two runs of the
+# same image, both ended on the epoch count inside 13 minutes of a one-hour
+# wall, and one of them found its best candidate on the very last node it
+# produced. Fifty is high enough to be reached only when the wall or the
+# improvement test does not fire first.
+DEFAULT_EPOCHS = 50
+# How much better an epoch has to leave the evaluator's best for the epoch to
+# have been worth its seed batch. Zero: any improvement at all counts, which
+# is the weakest form of the test and the one that assumes least. Raise it to
+# stop paying for epochs that only buy noise.
+DEFAULT_EPOCH_IMPROVEMENT = 0.0
+# Consecutive epochs improving by no more than that margin before the run
+# stops. One, so a single epoch that buys nothing ends the run: an epoch costs
+# a batch of LLM calls, and the evidence for waiting longer would have to come
+# from a measurement nobody has taken. Raise it if an epoch's verdict turns
+# out to be noisy enough that one refusal is not a settled opinion -- which is
+# the reason --epoch-eval-patience inside an epoch sits at five, not one.
+DEFAULT_EPOCH_IMPROVEMENT_PATIENCE = 1
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
 DEFAULT_RESUME = False
@@ -263,9 +283,31 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_EPOCHS,
         dest="epochs",
         metavar="N",
-        help="Epochs to run. Each one opens with a batch of seeds LLM calls, "
-        "so this and --seeds together fix the run's entire LLM spend. "
+        help="Ceiling on epochs. Each one opens with a batch of seeds LLM "
+        "calls, so this and --seeds together bound the run's LLM spend. What "
+        "normally ends a run is --epoch-improvement-patience. "
         f"Default: {DEFAULT_EPOCHS}",
+    )
+    g_epoch.add_argument(
+        "--epoch-improvement",
+        type=float,
+        default=DEFAULT_EPOCH_IMPROVEMENT,
+        dest="epoch_improvement",
+        metavar="D",
+        help="How much an epoch must improve the evaluator's best score to "
+        "count as having paid for itself. 0 counts any improvement. "
+        f"Default: {DEFAULT_EPOCH_IMPROVEMENT}",
+    )
+    g_epoch.add_argument(
+        "--epoch-improvement-patience",
+        type=int,
+        default=DEFAULT_EPOCH_IMPROVEMENT_PATIENCE,
+        dest="epoch_improvement_patience",
+        metavar="N",
+        help="Stop after N consecutive epochs that improve the evaluator's "
+        "best by no more than --epoch-improvement. 0 disables, leaving "
+        f"--epochs and --max-wall-seconds. Default: "
+        f"{DEFAULT_EPOCH_IMPROVEMENT_PATIENCE}",
     )
     g_epoch.add_argument(
         "--epoch-eval-interval",

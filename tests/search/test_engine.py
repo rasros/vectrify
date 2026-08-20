@@ -1385,3 +1385,112 @@ def test_unmeasured_candidates_do_not_break_selection():
         _measured(3, 0.9),
     ]
     assert len(_spread_parents(ranked, 2)) == 2
+
+
+def _epoch_run(rank_front, *, tasks, improvement=0.0, patience=1, epochs=50):
+    """Drive several epoch transitions with a controllable evaluator."""
+
+    class TrackingStrategy(FakeStrategy):
+        def __init__(self):
+            self.epochs_opened = 0
+
+        def epoch_parents(self, pool, max_parents):
+            self.epochs_opened += 1
+            return pool[:max_parents]
+
+    strat = TrackingStrategy()
+    engine = MultiprocessSearchEngine(
+        workers=1,
+        strategy=strat,
+        storage=FakeStorage(),
+        max_total_tasks=tasks,
+        rank_front=rank_front,
+    )
+    for tid in range(1, tasks + 1):
+        engine.unscored_q.put(
+            Result(
+                task_id=tid,
+                parent_id=1,
+                valid=True,
+                measured=True,
+                payload="p",
+                metrics={"edge": 0.5},
+            )
+        )
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                valid=True,
+                id=1,
+                parent_id=0,
+                state=ChainState(payload=None),
+                metrics={"edge": 0.5},
+            )
+        ],
+        max_wall_seconds=None,
+        active_pool_size=1,
+        generation_size=1,
+        epoch_patience=1,
+        epochs=epochs,
+        epoch_improvement=improvement,
+        epoch_improvement_patience=patience,
+    )
+    return strat.epochs_opened
+
+
+def test_a_run_stops_once_an_epoch_stops_improving_the_evaluators_best():
+    """The run-level test --epochs used to stand in for. An epoch costs a batch
+    of LLM calls, so the run should stop when one stops buying anything the
+    evaluator can see, rather than at a fixed count."""
+    scores = iter([0.5] * 40)
+
+    def rank_front(nodes):
+        value = next(scores, 0.5)
+        for n in nodes:
+            n.metrics[FRONT_SCORE] = value
+        return nodes
+
+    # Every epoch reports the same score, so the first one that can be compared
+    # against a predecessor ends the run -- well inside the epoch ceiling.
+    assert _epoch_run(rank_front, tasks=40, epochs=50) <= 3
+
+
+def test_a_run_keeps_going_while_each_epoch_still_improves():
+    improving = iter([0.5 - 0.01 * i for i in range(40)])
+
+    def rank_front(nodes):
+        value = next(improving, 0.0)
+        for n in nodes:
+            n.metrics[FRONT_SCORE] = value
+        return nodes
+
+    # Each epoch beats the last, so nothing stops the run but the task budget.
+    assert _epoch_run(rank_front, tasks=40, epochs=50) >= 5
+
+
+def test_an_improvement_below_the_required_margin_does_not_count():
+    """--epoch-improvement is what separates a real gain from noise: an epoch
+    that moves the score by a millionth has not earned another seed batch."""
+    crawling = iter([0.5 - 1e-6 * i for i in range(40)])
+
+    def rank_front(nodes):
+        value = next(crawling, 0.0)
+        for n in nodes:
+            n.metrics[FRONT_SCORE] = value
+        return nodes
+
+    assert _epoch_run(rank_front, tasks=40, improvement=0.001, epochs=50) <= 3
+
+
+def test_the_improvement_test_can_be_switched_off():
+    scores = iter([0.5] * 40)
+
+    def rank_front(nodes):
+        value = next(scores, 0.5)
+        for n in nodes:
+            n.metrics[FRONT_SCORE] = value
+        return nodes
+
+    # Patience 0 leaves --epochs and the wall as the only limits, so a run that
+    # never improves still spends its whole budget.
+    assert _epoch_run(rank_front, tasks=40, patience=0, epochs=50) >= 5

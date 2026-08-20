@@ -81,9 +81,14 @@ def test_defaults_pinned():
     # cannot go stale. Raised from 200 once the gap between improvements was
     # measured: 142 tasks at the 95th percentile and 497 at the longest seen.
     assert args.epoch_patience == 500
-    # An epoch is where the LLM sees the front and rewrites what local search
-    # cannot reach, so a run wants more than one chance at it.
-    assert args.epochs == 4
+    # A ceiling, not a budget: what ends a run is an epoch that stops
+    # improving the evaluator's best. At 4 this bound two measured runs of the
+    # same image inside 13 minutes of a one-hour wall, one of them still
+    # improving on the last node it produced.
+    assert args.epochs == 50
+    # Any improvement at all counts, and one epoch that buys none ends the run.
+    assert args.epoch_improvement == 0.0
+    assert args.epoch_improvement_patience == 1
     # The evaluator is asked every 2000 tasks and five consecutive refusals end
     # the epoch, so an epoch is roughly 10,000 tasks of local search. Armed
     # because leaving it unset let one run drift for 145,000 tasks past the
