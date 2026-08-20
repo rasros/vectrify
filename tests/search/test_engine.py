@@ -365,17 +365,22 @@ def test_engine_aborts_when_every_epoch0_seed_fails():
     engine = MultiprocessSearchEngine(
         workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=50
     )
-    engine.unscored_q.put(
-        Result(
-            task_id=1,
-            parent_id=1,
-            valid=False,
-            measured=True,
-            payload=None,
-            invalid_msg="AuthenticationError(401)",
-            llm_type="llm-generate",
+    # Two failures, not one: a failed seed edit now buys a replacement, so the
+    # batch is only over once the retry budget is spent too. An auth error will
+    # fail every attempt, which is why the budget is bounded -- the abort still
+    # arrives, one retry later.
+    for task_id in (1, 2):
+        engine.unscored_q.put(
+            Result(
+                task_id=task_id,
+                parent_id=1,
+                valid=False,
+                measured=True,
+                payload=None,
+                invalid_msg="AuthenticationError(401)",
+                llm_type="llm-generate",
+            )
         )
-    )
     initial = SearchNode(
         valid=False,
         id=1,
@@ -1508,3 +1513,103 @@ def test_the_improvement_test_can_be_switched_off():
     # Patience 0 leaves --epochs and the wall as the only limits, so a run that
     # never improves still spends its whole budget.
     assert _epoch_run(rank_front, tasks=40, patience=0, epochs=50) >= 5
+
+
+def test_a_failed_seed_edit_is_replaced_rather_than_lost(caplog):
+    """An epoch is the only thing that puts new structure into the pool, so a
+    batch that comes back short must not simply run short. Measured on one run,
+    5 of 15 edits failed and the epochs opened with 5, then 3, then 2
+    candidates; the last went stale in 14 seconds."""
+
+    engine = MultiprocessSearchEngine(
+        workers=2, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
+    )
+    engine.unscored_q.put(
+        Result(
+            task_id=1,
+            parent_id=1,
+            valid=False,
+            measured=True,
+            payload=None,
+            invalid_msg="none of the search/replace blocks matched",
+            llm_type="llm-generate",
+        )
+    )
+    engine.unscored_q.put(
+        Result(
+            task_id=2,
+            parent_id=1,
+            valid=True,
+            measured=True,
+            payload="p",
+            metrics={"edge": 0.4},
+            llm_type="llm-generate",
+        )
+    )
+
+    with caplog.at_level(logging.INFO):
+        engine.run(
+            initial_nodes=[
+                SearchNode(
+                    valid=True,
+                    id=1,
+                    parent_id=0,
+                    state=ChainState(payload=None),
+                    metrics={"edge": 0.5},
+                )
+            ],
+            max_wall_seconds=None,
+            epoch_seeds=2,
+            initial_seeds=2,
+            active_pool_size=2,
+            generation_size=1,
+            epoch_patience=1,
+        )
+
+    assert "asking for a replacement" in caplog.text
+
+
+def test_seed_retries_are_bounded():
+    """A model that cannot produce a usable edit for this drawing at all would
+    otherwise retry until the wall."""
+
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=20
+    )
+    for tid in range(1, 21):
+        engine.unscored_q.put(
+            Result(
+                task_id=tid,
+                parent_id=1,
+                valid=False,
+                measured=True,
+                payload=None,
+                invalid_msg="no usable output",
+                llm_type="llm-generate",
+            )
+        )
+
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                valid=True,
+                id=1,
+                parent_id=0,
+                state=ChainState(payload=None),
+                metrics={"edge": 0.5},
+            )
+        ],
+        max_wall_seconds=None,
+        epoch_seeds=2,
+        initial_seeds=2,
+        active_pool_size=2,
+        generation_size=1,
+        epoch_patience=1,
+        epochs=1,
+    )
+
+    llm_tasks = 0
+    while not engine.task_q.empty():
+        llm_tasks += 1 if engine.task_q.get().force_llm else 0
+    # Two asked for plus at most two replacements.
+    assert llm_tasks <= 4

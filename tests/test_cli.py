@@ -88,7 +88,7 @@ def test_defaults_pinned():
     assert args.epochs == 50
     # Any improvement at all counts, and one epoch that buys none ends the run.
     assert args.epoch_improvement == 0.0
-    assert args.epoch_improvement_patience == 1
+    assert args.epoch_improvement_patience == 2
     # The evaluator is asked every 2000 tasks and five consecutive refusals end
     # the epoch, so an epoch is roughly 10,000 tasks of local search. Armed
     # because leaving it unset let one run drift for 145,000 tasks past the
