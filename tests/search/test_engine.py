@@ -862,8 +862,8 @@ def test_the_engine_picks_the_operator_and_hears_how_it_did():
             self.selects += 1
             return "op"
 
-        def update(self, operator, survived):
-            self.updates.append((operator, survived))
+        def update(self, operator, reward):
+            self.updates.append((operator, reward))
 
     policy = RecordingPolicy()
     engine = MultiprocessSearchEngine(
@@ -882,7 +882,16 @@ def test_the_engine_picks_the_operator_and_hears_how_it_did():
             )
         )
 
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
+    # The parent has to carry a measure of its own: the reward is how far the
+    # child improved on it, so a parent that was never measured leaves nothing
+    # to grade against.
+    initial = SearchNode(
+        valid=True,
+        id=1,
+        parent_id=0,
+        state=ChainState(payload=None),
+        metrics={"edge": 0.5},
+    )
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
@@ -893,8 +902,13 @@ def test_the_engine_picks_the_operator_and_hears_how_it_did():
 
     assert policy.selects == 2
     assert [engine.task_q.get().operator for _ in range(2)] == ["op", "op"]
-    # The pool holds one node, so the better child survives and the worse does not.
-    assert policy.updates == [("op", True), ("op", False)]
+    # The pool holds one node, so the better child survives and the worse does
+    # not. The survivor's reward is graded rather than a flat 1: what it earns
+    # is how far it improved on its parent, measured against the run's scale.
+    assert [name for name, _ in policy.updates] == ["op", "op"]
+    survivor, evicted = (reward for _, reward in policy.updates)
+    assert survivor > 0.0
+    assert evicted == 0.0
 
 
 def test_an_operator_that_produced_nothing_is_charged_for_the_draw():
@@ -909,8 +923,8 @@ def test_an_operator_that_produced_nothing_is_charged_for_the_draw():
         def select(self):
             return "op"
 
-        def update(self, operator, survived):
-            self.updates.append((operator, survived))
+        def update(self, operator, reward):
+            self.updates.append((operator, reward))
 
     policy = RecordingPolicy()
     engine = MultiprocessSearchEngine(
@@ -941,7 +955,7 @@ def test_an_operator_that_produced_nothing_is_charged_for_the_draw():
         operator_policy=policy,
     )
 
-    assert policy.updates == [("op", False)]
+    assert policy.updates == [("op", 0.0)]
 
 
 def _engine_with_evaluator(store, rank_front):
@@ -1248,8 +1262,8 @@ def test_a_candidate_measuring_as_its_parent_is_rejected_and_charged():
         def select(self):
             return "reorder"
 
-        def update(self, operator, survived):
-            self.updates.append((operator, survived))
+        def update(self, operator, reward):
+            self.updates.append((operator, reward))
 
     policy = RecordingPolicy()
     store = FakeStorage()
@@ -1287,7 +1301,7 @@ def test_a_candidate_measuring_as_its_parent_is_rejected_and_charged():
     )
 
     # Neither child entered the pool, and the operator was charged for both.
-    assert policy.updates == [("reorder", False), ("reorder", False)]
+    assert policy.updates == [("reorder", 0.0), ("reorder", 0.0)]
 
 
 def test_a_candidate_that_moves_any_measure_is_kept():
@@ -1301,8 +1315,8 @@ def test_a_candidate_that_moves_any_measure_is_kept():
         def select(self):
             return "nudge"
 
-        def update(self, operator, survived):
-            self.updates.append((operator, survived))
+        def update(self, operator, reward):
+            self.updates.append((operator, reward))
 
     policy = RecordingPolicy()
     engine = MultiprocessSearchEngine(
@@ -1336,7 +1350,7 @@ def test_a_candidate_that_moves_any_measure_is_kept():
         operator_policy=policy,
     )
 
-    assert policy.updates == [("nudge", True)]
+    assert [name for name, _ in policy.updates] == ["nudge"]
 
 
 def _measured(node_id: int, edge: float) -> SearchNode:
