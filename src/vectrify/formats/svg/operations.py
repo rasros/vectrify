@@ -9,6 +9,7 @@ import numpy as np
 
 from vectrify.formats.mutations import MutationTable, pick_operator
 from vectrify.formats.svg.ownership import (
+    adjacent_parts,
     drawable_elements,
     overlaps,
     owner_labels,
@@ -222,9 +223,9 @@ def _match_by_label(
     units_b: list[tuple[tuple, ET.Element]],
     taken_a: set[int],
     taken_b: set[int],
-    swapped: dict[int, int],
+    matched: dict[int, int],
 ) -> None:
-    """Pair leftover text by what it says, and swap half of those pairs.
+    """Pair leftover text by what it says.
 
     Overlap can only pair elements that already sit on top of each other, which
     is the one thing two seeds disagreeing about placement do not do. A numeral
@@ -249,8 +250,7 @@ def _match_by_label(
         j = pool.pop(0)
         taken_a.add(i)
         taken_b.add(j)
-        if random.random() < 0.5:
-            swapped[i] = j
+        matched[i] = j
 
 
 def crossover(svg_a: str, svg_b: str) -> str:
@@ -296,7 +296,7 @@ def crossover(svg_a: str, svg_b: str) -> str:
     order = np.argsort(scores, axis=None)[::-1]
     taken_a: set[int] = set()
     taken_b: set[int] = set()
-    swapped: dict[int, int] = {}
+    matched: dict[int, int] = {}
     for flat in order:
         i, j = divmod(int(flat), len(units_b))
         if scores[i, j] < _MATCH_OVERLAP:
@@ -305,10 +305,23 @@ def crossover(svg_a: str, svg_b: str) -> str:
             continue
         taken_a.add(i)
         taken_b.add(j)
-        if random.random() < 0.5:
-            swapped[i] = j
+        matched[i] = j
 
-    _match_by_label(units_a, units_b, taken_a, taken_b, swapped)
+    _match_by_label(units_a, units_b, taken_a, taken_b, matched)
+
+    # One decision per part, not per element. Deciding each match on its own
+    # coin is uniform crossover, which breaks up the groups worth keeping: a
+    # wing drawn as a sweep and the feathers at its tip would take the sweep
+    # from one parent and the feathers from the other, which is not a wing
+    # either parent has. Parts come from the adjacency of the regions the
+    # elements own, which the labels above already answer.
+    swapped: dict[int, int] = {}
+    for part in adjacent_parts(labels_a, len(units_a)):
+        if random.random() < 0.5:
+            continue
+        for i in part:
+            if i in matched:
+                swapped[i] = matched[i]
 
     if not swapped:
         return svg_a

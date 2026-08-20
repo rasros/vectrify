@@ -178,3 +178,63 @@ def element_error(
     flat = labels[owned].ravel()
     totals = np.bincount(flat, weights=difference[owned].ravel(), minlength=count)
     return [float(value) for value in totals]
+
+
+# An element owning more than this share of the canvas is scenery rather than a
+# part: a background rect touches everything, and linking through it would make
+# the whole drawing one part.
+BACKDROP_SHARE = 0.25
+
+
+def adjacent_parts(labels: np.ndarray, count: int, reach: int = 2) -> list[list[int]]:
+    """Elements grouped by whether the regions they own run into each other.
+
+    Crossover needs a unit of inheritance. Deciding each matched element on its
+    own coin is uniform crossover, which breaks up exactly the groups that were
+    worth keeping: one drawing's wing arrived as two elements, a sweep and the
+    feathers at its tip, and flipping them separately grafts half a wing from
+    each parent. A part is the unit that should travel together.
+
+    Adjacency of owned pixels answers it without any new geometry or any new
+    render -- the labels are already computed to match elements across parents.
+    Elements that own most of the canvas are left out of the linking, since a
+    backdrop touches everything.
+    """
+    if count == 0:
+        return []
+
+    areas = np.bincount(labels[labels != UNOWNED].ravel(), minlength=count)
+    scenery = {
+        index for index in range(count) if areas[index] > BACKDROP_SHARE * labels.size
+    }
+
+    parent = list(range(count))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for step in range(1, reach + 1):
+        for dy, dx in ((0, step), (step, 0), (step, step), (step, -step)):
+            here = labels[
+                max(0, -dy) : labels.shape[0] - max(0, dy),
+                max(0, -dx) : labels.shape[1] - max(0, dx),
+            ]
+            there = labels[
+                max(0, dy) : labels.shape[0] - max(0, -dy),
+                max(0, dx) : labels.shape[1] - max(0, -dx),
+            ]
+            touching = (here != there) & (here != UNOWNED) & (there != UNOWNED)
+            for left, right in set(
+                zip(here[touching].ravel(), there[touching].ravel(), strict=True)
+            ):
+                if left in scenery or right in scenery:
+                    continue
+                parent[find(int(left))] = find(int(right))
+
+    groups: dict[int, list[int]] = {}
+    for index in range(count):
+        groups.setdefault(find(index), []).append(index)
+    return list(groups.values())

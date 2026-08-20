@@ -2,6 +2,7 @@ import xml.etree.ElementTree as ET
 
 from vectrify.formats.svg.ownership import (
     UNOWNED,
+    adjacent_parts,
     drawable_elements,
     overlaps,
     owner_labels,
@@ -88,3 +89,58 @@ def test_overlap_separates_elements_of_very_different_size():
 
     scores = overlaps(owner_labels(small, size=64), owner_labels(large, size=64), 1, 1)
     assert scores[0, 0] == 0.0
+
+
+def test_touching_elements_form_one_part():
+    """Crossover's unit of inheritance. A wing drawn as a sweep plus the
+    feathers at its tip must travel together, or a child takes the sweep from
+    one parent and the feathers from the other -- a wing neither parent has.
+    """
+    # A wing at the proportions real output uses: a 700 canvas with 3.5 wide
+    # strokes. Proportions matter -- ownership is resolved on a 128px mask, and
+    # a stroke that is wide relative to a small canvas behaves differently.
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
+        '<rect x="0" y="0" width="700" height="700" fill="#ffffff" />'
+        '<g fill="none" stroke="#111111" stroke-width="3.5">'
+        '<path d="M 303 455 C 305 482 323 498 365 502 C 409 503 446 492 470 440" />'
+        '<path d="M 470 440 C 480 425 470 415 455 410" /></g>'
+        '<circle cx="120" cy="120" r="6" fill="#000000" /></svg>'
+    )
+    root = ET.fromstring(svg)
+    units = drawable_elements(root)
+    parts = adjacent_parts(owner_labels(root), len(units))
+    sizes = sorted(len(part) for part in parts)
+    assert sizes[-1] == 2, f"the two touching strokes were not joined: {sizes}"
+    assert len(parts) == 3, "the backdrop and the far dot should stand alone"
+
+
+def test_a_backdrop_does_not_join_everything_into_one_part():
+    """A rect covering the canvas touches every element, so linking through it
+    would make the whole drawing a single part and crossover all-or-nothing.
+    """
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+        '<rect x="0" y="0" width="100" height="100" fill="#eeeeee" />'
+        '<circle cx="20" cy="20" r="5" fill="#000000" />'
+        '<circle cx="80" cy="80" r="5" fill="#000000" /></svg>'
+    )
+    root = ET.fromstring(svg)
+    units = drawable_elements(root)
+    parts = adjacent_parts(owner_labels(root), len(units))
+    assert len(parts) == 3, f"expected three separate parts, got {len(parts)}"
+    assert all(len(part) == 1 for part in parts)
+
+
+def test_every_element_lands_in_exactly_one_part():
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">'
+        '<circle cx="20" cy="20" r="6" fill="#000000" />'
+        '<circle cx="26" cy="24" r="6" fill="#111111" />'
+        '<circle cx="80" cy="80" r="6" fill="#000000" /></svg>'
+    )
+    root = ET.fromstring(svg)
+    units = drawable_elements(root)
+    parts = adjacent_parts(owner_labels(root), len(units))
+    seen = sorted(index for part in parts for index in part)
+    assert seen == list(range(len(units)))
