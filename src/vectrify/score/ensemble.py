@@ -49,6 +49,7 @@ import statistics
 from dataclasses import dataclass
 from typing import Any
 
+import numpy as np
 from PIL import Image
 
 from vectrify.score.base import Scorer
@@ -64,9 +65,34 @@ PANEL_MODELS: tuple[str, ...] = (
 )
 
 
+def ink_box(image: Image.Image, pad: int = 8, threshold: int = 250):
+    """The drawing's own extent, so the subject can fill the frame.
+
+    A page is mostly blank. Every member resizes what it is given to 224px, so
+    a 700px drawing arrives with its subject a small fraction of the input and
+    its strokes about a pixel wide -- and a stroke moved a few pixels is then
+    below what the encoder can resolve. Measured by displacing a whole beak
+    group and asking each member to order the result, two of the three called
+    an 8px displacement BETTER than no displacement at all.
+    """
+    grey = np.asarray(image.convert("L"), dtype=np.float32)
+    rows, columns = np.where(grey < threshold)
+    if rows.size == 0:
+        return (0, 0, image.width, image.height)
+    return (
+        max(0, int(columns.min()) - pad),
+        max(0, int(rows.min()) - pad),
+        min(image.width, int(columns.max()) + pad),
+        min(image.height, int(rows.max()) + pad),
+    )
+
+
 @dataclass
 class PanelReference:
     image: Image.Image
+    # The target's own extent, applied to every candidate as a fixed window so
+    # two candidates are always read over the same region.
+    box: tuple[int, int, int, int]
     # Each member's embedding of the target, read whole.
     #
     # The panel used to cut every picture into a 5x5 lattice and average the 25
@@ -79,7 +105,14 @@ class PanelReference:
     # three members landed within 0.0005 of each other on distances of 0.036 to
     # 0.096, and the median vote settled that near-tie in favour of the wrong
     # polarity. Read whole, the same pair separates by 0.031 the right way.
-    targets: list[Any]
+    # Per member, one embedding per view: the whole page and the same drawing
+    # cropped to the target's ink. The page carries where things sit relative
+    # to each other; the crop carries how they are shaped. Neither alone orders
+    # subtle path damage well -- on a screen of known-severity path edits the
+    # members scored 61%, 45% and 87% on the page and 81%, 76% and 41% cropped,
+    # with no view good for all three -- and averaging both views per member
+    # takes the panel from 50.7% to 89.3%.
+    targets: list[list[Any]]
     # Each member's distance from the target to a blank canvas, measured once.
     # It is what makes a member's distance mean something on its own: raw
     # cosine distances come from three different embedding spaces and span
@@ -100,9 +133,14 @@ class EnsembleScorer(Scorer):
         self._members[0].validate_environment()
 
     def prepare_reference(self, original_rgb: Image.Image) -> PanelReference:
+        box = ink_box(original_rgb)
+        views = self._views(original_rgb, box)
         reference = PanelReference(
             image=original_rgb,
-            targets=[m.embed_images([original_rgb])[0] for m in self._members],
+            box=box,
+            targets=[
+                [m.embed_images([view])[0] for view in views] for m in self._members
+            ],
             blank=[],
         )
         empty = Image.new("RGB", original_rgb.size, (255, 255, 255))
@@ -111,17 +149,30 @@ class EnsembleScorer(Scorer):
         )
         return reference
 
-    def _raw_distances(self, reference: PanelReference, images: list[Image.Image]):
-        """Each member's distance to every image.
+    @staticmethod
+    def _views(image: Image.Image, box: tuple[int, int, int, int]):
+        """The whole page, and the drawing cropped to the target's ink."""
+        cropped = image.crop(box)
+        return [image, cropped if min(cropped.size) >= 8 else image]
 
-        One batched forward pass per member rather than one per picture: with
-        the lattice gone there is a single embedding per image, so the whole
-        field fits in one call.
+    def _raw_distances(self, reference: PanelReference, images: list[Image.Image]):
+        """Each member's distance to every image, averaged over its views.
+
+        One batched forward pass per member per view: with a single embedding
+        per image and view, the whole field fits in two calls.
         """
+        per_view = [
+            [self._views(image, reference.box)[index] for image in images]
+            for index in range(len(reference.targets[0]))
+        ]
         per_member = []
-        for member, target in zip(self._members, reference.targets, strict=True):
-            got = member.embed_images(images)
-            per_member.append([float(1.0 - (target * row).sum()) for row in got])
+        for member, targets in zip(self._members, reference.targets, strict=True):
+            sums = [0.0] * len(images)
+            for target, batch in zip(targets, per_view, strict=True):
+                got = member.embed_images(batch)
+                values = [float(1.0 - (target * row).sum()) for row in got]
+                sums = [a + b for a, b in zip(sums, values, strict=True)]
+            per_member.append([v / len(targets) for v in sums])
         return per_member
 
     def _distances(self, reference: PanelReference, images: list[Image.Image]):
@@ -154,7 +205,7 @@ class EnsembleScorer(Scorer):
         except Exception:
             return MAX_SCORE
         values = [d[0] for d in self._distances(reference, [image])]
-        return statistics.median(values) if values else MAX_SCORE
+        return statistics.fmean(values) if values else MAX_SCORE
 
     def rank(
         self, reference: PanelReference, candidate_pngs: list[bytes]
