@@ -496,7 +496,7 @@ def fit_random_group(
     reference_png: bytes,
     *,
     rasterize,
-    steps: int = 25,
+    steps: int = 8,
     samples: int = 8,
     weights: Mapping[int, float] | None = None,
 ) -> str:
@@ -509,6 +509,19 @@ def fit_random_group(
     element index in document order; a group is drawn in proportion to the error
     its own elements answer for, so the fit is spent where the drawing is wrong
     rather than on whichever group came first.
+
+    Eight steps, not the two hundred a standalone fit converges with. Measured on
+    a run's own candidate, the panel improved 6.5% at 25 steps costing 0.51s and
+    4-5% at 6-10 steps costing 0.08-0.13s, so the last 2 points cost five times
+    the time. What that time buys elsewhere is the whole run: a task here is a
+    task not spent on the thousands of cheap mutations around it, and the
+    evaluator and every epoch boundary are counted in tasks, so an operator that
+    slows the task rate stretches the run's whole clock. At 25 steps the rate
+    fell from 25 tasks a second to 4 and the evaluator did not run once in four
+    minutes.
+
+    Full resolution though: at half, the stroke is under two pixels and the fit
+    returns +0.7% where the same steps at full size return +4%.
     """
     import xml.etree.ElementTree as ET
 
