@@ -65,6 +65,12 @@ class Scorer(ABC):
 
 @dataclass(frozen=True)
 class ScoreConfig:
+    # Long-side the pixel objectives are measured at. Swept against the damage
+    # bench over 174 cases: every combination of 128-512 px with 0-4 px of edge
+    # tolerance ordered known damage within 92.2-93.4% (vector) and 97.3-99.5%
+    # (raster), neither parameter monotone in either column. 512 px scored 0.2pp
+    # better on vector for four times the pixels, which is noise at that sample
+    # size, so this stays -- see --score-resolution to change it per run.
     target_long_side: int = 256
     w_vision: float = 0.85
     w_color: float = 0.15

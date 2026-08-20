@@ -81,3 +81,41 @@ def test_edge_distance_grows_with_displacement_within_tolerance():
     near = edge_score(reference, _png(_square("black", box=(10, 10, 26, 26))))
     far = edge_score(reference, _png(_square("black", box=(14, 14, 30, 30))))
     assert 0.0 < near < far < 1.0
+
+
+def test_without_tolerance_a_near_miss_is_as_bad_as_a_wild_miss():
+    """What the tolerance is for. Measured on a displaced bar, the raw overlap
+    saturates at 1.0 by an offset of five pixels, so a stroke slightly out and
+    one on the far side of the canvas score identically and there is no gradient
+    to descend. It is not even monotone: an offset of 2 scores 0.729 where an
+    offset of 3 scores 0.521.
+    """
+    from PIL import Image, ImageDraw
+
+    from vectrify.score.edges import edge_map, overlap_distance
+
+    def bar(x: int) -> Image.Image:
+        image = Image.new("RGB", (64, 64), "white")
+        ImageDraw.Draw(image).rectangle((x, 10, x + 2, 54), fill="black")
+        return image
+
+    target = bar(30)
+
+    def distance(offset: int, tolerance: float) -> float:
+        return overlap_distance(
+            edge_map(target, tolerance), edge_map(bar(30 + offset), tolerance)
+        )
+
+    # No tolerance: five pixels out and twenty-five out are the same number.
+    assert distance(5, 0.0) == distance(25, 0.0)
+    # With it, the run has something to follow.
+    assert distance(5, 2.0) < distance(10, 2.0) < distance(25, 2.0)
+
+
+def test_zero_tolerance_skips_the_blur_entirely():
+    from PIL import Image
+
+    from vectrify.score.edges import edge_map
+
+    image = Image.new("RGB", (16, 16), "white")
+    assert edge_map(image, 0.0).shape == (16, 16)

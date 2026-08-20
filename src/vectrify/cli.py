@@ -118,6 +118,16 @@ DEFAULT_ADAPTIVE_OPERATORS = True
 # minutes against a one-hour wall budget, and an epoch that runs to staleness
 # takes 3600-5200 tasks, so four epochs could not fit inside it.
 DEFAULT_MAX_TOTAL_TASKS = None
+# Long-side the pixel objectives are measured at, and how far a boundary may be
+# off and still count as the same boundary. Swept together against the damage
+# bench over 174 cases: every combination of 128-512 px and 0-4 px of tolerance
+# ordered known damage within 92.2-93.4% (vector) and 97.3-99.5% (raster), with
+# neither parameter monotone in either column. Nothing beat these, and 512 px
+# costs four times the pixels for 0.2pp, so they stay and are knobs instead.
+# What the bench does not test: near-miss positioning, which is the tolerance's
+# actual purpose, since its damage families move things far rather than barely.
+DEFAULT_SCORE_RESOLUTION = 256
+DEFAULT_EDGE_TOLERANCE = 2.0
 DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
 
@@ -448,6 +458,26 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "space candidates are written in (SVG viewBox, Typst page). Higher "
         "resolves finer geometry and costs proportionally more. Default: "
         f"{DEFAULT_RESOLUTION}",
+    )
+    g_runtime.add_argument(
+        "--score-resolution",
+        type=int,
+        default=DEFAULT_SCORE_RESOLUTION,
+        dest="score_resolution",
+        metavar="PX",
+        help="Long-side the pixel objectives are measured at. Separate from "
+        "--resolution, which is what candidates are rendered and written at. "
+        f"Default: {DEFAULT_SCORE_RESOLUTION}",
+    )
+    g_runtime.add_argument(
+        "--edge-tolerance",
+        type=float,
+        default=DEFAULT_EDGE_TOLERANCE,
+        dest="edge_tolerance",
+        metavar="PX",
+        help="How far a boundary may sit from the target's and still count as "
+        "the same boundary, in scoring pixels. 0 demands exact overlap. "
+        f"Default: {DEFAULT_EDGE_TOLERANCE}",
     )
     g_runtime.add_argument(
         "--resolution-llm",
