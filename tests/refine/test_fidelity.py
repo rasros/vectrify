@@ -81,3 +81,65 @@ def test_sampling_at_integer_coordinates_would_be_caught():
         return np.minimum(real, a).sum() / np.maximum(real, a).sum()
 
     assert agreement(centred) > agreement(shifted) + 0.02
+
+
+_WING = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
+    # A sweep and two feathers meeting it, split across groups the way a model
+    # named them: the sweep as "body_outline", the feathers as "tail_feathers".
+    '<g id="body_outline" fill="none" stroke="#111111" stroke-width="3.5">'
+    '<path d="M 300 455 C 320 490 420 500 470 440" /></g>'
+    '<g id="tail_feathers" fill="none" stroke="#111111" stroke-width="3.5">'
+    '<path d="M 470 440 C 480 425 470 415 455 410" />'
+    '<path d="M 470 440 C 485 435 490 420 480 408" /></g></svg>'
+)
+
+
+def test_paths_are_clustered_by_contact_not_by_what_they_are_called():
+    """A wing arrived as `body_outline` plus `tail_feathers` -- the body outline
+    is the dots and there is no tail -- so fitting either alone moves half a
+    wing. Contact is the reliable signal; the label is not.
+    """
+    import xml.etree.ElementTree as ET
+
+    from vectrify.refine.paths import fittable_clusters
+
+    clusters = fittable_clusters(ET.fromstring(_WING))
+    assert len(clusters) == 1, "the wing was split by its labels"
+    paths, widths = clusters[0]
+    assert len(paths) == 3
+    assert widths == [3.5, 3.5, 3.5]
+
+
+def test_far_apart_strokes_are_not_one_part():
+    import xml.etree.ElementTree as ET
+
+    from vectrify.refine.paths import fittable_clusters
+
+    apart = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
+        '<g fill="none" stroke="#111111" stroke-width="3">'
+        '<path d="M 50 50 C 60 60 70 70 80 80" />'
+        '<path d="M 600 600 C 610 610 620 620 630 630" /></g></svg>'
+    )
+    assert len(fittable_clusters(ET.fromstring(apart))) == 2
+
+
+def test_a_pinned_vertex_does_not_move():
+    """Fitting part of a cluster must not tear the junction it shares with the
+    rest: the fitted side would walk away while its neighbour stayed put.
+    """
+    from vectrify.refine.paths import fit_group, parse_cubics, to_knots
+
+    plugin = SvgPlugin()
+    head = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
+    target = Image.open(
+        io.BytesIO(plugin.rasterize(f"{head}</svg>", SIZE, SIZE))
+    ).convert("L")
+    path_d = "M 300 300 C 340 280 400 280 440 300"
+    knots = to_knots(parse_cubics(path_d))
+    fitted, _first, _last = fit_group(
+        [path_d], [3.5], target, target, steps=6, pinned={0}
+    )
+    moved = to_knots(parse_cubics(fitted[0]))
+    assert moved[0] == pytest.approx(knots[0], abs=0.05), "the pinned end moved"

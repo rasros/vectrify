@@ -32,7 +32,6 @@ three -- are exactly the case that needs this.
 
 from __future__ import annotations
 
-import copy
 import io
 import itertools
 import logging
@@ -327,6 +326,7 @@ def fit_group(
     size: int = 700,
     steps: int = 200,
     samples: int | None = None,
+    pinned: set[int] | None = None,
     learning_rate: float = 0.4,
     margin: float = 24.0,
     redundancy: float = 0.15,
@@ -337,6 +337,11 @@ def fit_group(
 
     *backdrop* is the drawing rendered with this group removed; *target* is the
     picture being matched. Both are greyscale and the same size as the canvas.
+
+    *pinned* names welded vertices that must not move: a point this set shares
+    with a path outside it. Without them a partial fit tears the drawing at
+    exactly the junctions welding exists to hold -- the fitted side walks away
+    while the neighbour it meets stays put.
 
     The paths composite as a soft union -- one minus the product of their
     complements -- which is what "any of these strokes covers this pixel" means
@@ -430,6 +435,10 @@ def fit_group(
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        if pinned:
+            with torch.no_grad():
+                held = torch.tensor(sorted(pinned), device=device, dtype=torch.long)
+                vertices[held] = original[held]
         last = float(loss.detach())
 
     fitted = [knots_to_path_d(chain_of(r).detach().cpu().tolist()) for r in rows]
@@ -522,26 +531,33 @@ def fit_random_group(
     steps: int = 8,
     samples: int | None = None,
     weights: Mapping[int, float] | None = None,
+    reach: tuple[float, float] = (0.8, 3.5),
 ) -> str:
-    """Fit one group's paths to the reference, returning the edited document.
+    """Fit one cluster of touching paths to the reference, returning the edit.
 
     Raises UnsupportedPathError when the drawing offers nothing this can fit,
     which the caller reports as an operator that found nothing to change.
 
     *weights* is the error attribution the other operators already use, keyed by
-    element index in document order; a group is drawn in proportion to the error
-    its own elements answer for, so the fit is spent where the drawing is wrong
-    rather than on whichever group came first.
+    element index in document order; a cluster is drawn in proportion to the
+    error its own paths answer for, so the fit is spent where the drawing is
+    wrong rather than on whichever cluster came first.
 
-    Eight steps, not the two hundred a standalone fit converges with. Measured on
-    a run's own candidate, the panel improved 6.5% at 25 steps costing 0.51s and
-    4-5% at 6-10 steps costing 0.08-0.13s, so the last 2 points cost five times
-    the time. What that time buys elsewhere is the whole run: a task here is a
-    task not spent on the thousands of cheap mutations around it, and the
+    *reach* is the range the contact threshold is drawn from, and drawing it
+    rather than fixing it is deliberate: the threshold decides what counts as
+    one part, and there is no single right answer. Near the bottom of the range
+    a wing's feathers are their own unit and can be shaped without disturbing
+    the sweep they hang off; near the top they move with it. An operator that
+    fixed the threshold would make that choice once for the whole run, where the
+    search can afford to make it differently each time and keep what worked.
+
+    Eight steps, not the two hundred a standalone fit converges with. Measured
+    on a run's own candidate, the panel improved 6.5% at 25 steps costing 0.51s
+    and 4-5% at 6-10 steps costing 0.08-0.13s, so the last two points cost five
+    times the time. What that time buys elsewhere is the whole run: the
     evaluator and every epoch boundary are counted in tasks, so an operator that
-    slows the task rate stretches the run's whole clock. At 25 steps the rate
-    fell from 25 tasks a second to 4 and the evaluator did not run once in four
-    minutes.
+    slows the task rate stretches the run's clock. At 25 steps the rate fell from
+    25 tasks a second to 4 and the evaluator did not run once in four minutes.
 
     Full resolution though: at half, the stroke is under two pixels and the fit
     returns +0.7% where the same steps at full size return +4%.
@@ -551,47 +567,87 @@ def fit_random_group(
     from PIL import Image
 
     root = ET.fromstring(svg)
-    candidates = fittable_groups(root)
-    if not candidates:
-        raise UnsupportedPathError("no group of stroked cubics to fit")
+    clusters = fittable_clusters(root, random.uniform(*reach))
+    if not clusters:
+        raise UnsupportedPathError("no touching stroked cubics to fit")
 
     order = {id(el): index for index, el in enumerate(drawable_elements(root))}
-    scores = []
-    for _group, paths, _widths in candidates:
-        error = sum((weights or {}).get(order.get(id(p), -1), 0.0) for p in paths)
-        scores.append(error)
-    total = sum(scores)
-    if total > 0:
-        group, paths, widths = random.choices(candidates, weights=scores, k=1)[0]
+    scores = [
+        sum((weights or {}).get(order.get(id(p), -1), 0.0) for p in paths)
+        for paths, _widths in clusters
+    ]
+    if sum(scores) > 0:
+        paths, widths = random.choices(clusters, weights=scores, k=1)[0]
     else:
-        group, paths, widths = random.choice(candidates)
+        paths, widths = random.choice(clusters)
+
+    # Sometimes shape part of a cluster rather than all of it. What counts as
+    # one part is a judgement the drawing does not settle -- a wing's feathers
+    # can be shaped on their own or carried with the sweep they hang off -- and
+    # an operator that decided once would make that choice for the whole run.
+    # Deciding per draw lets selection keep whichever worked.
+    #
+    # Whatever is left out still has to be met: a point the chosen paths share
+    # with an excluded one is pinned, so a partial fit cannot tear a junction
+    # that welding exists to hold.
+    excluded: list[Any] = []
+    if len(paths) > 1 and random.random() < 0.5:
+        keep = random.randint(1, len(paths) - 1)
+        chosen = random.sample(range(len(paths)), keep)
+        excluded = [p for i, p in enumerate(paths) if i not in chosen]
+        widths = [w for i, w in enumerate(widths) if i in chosen]
+        paths = [p for i, p in enumerate(paths) if i in chosen]
 
     size = int(_canvas_side(root))
     target = Image.open(io.BytesIO(reference_png)).convert("L").resize((size, size))
 
-    # The backdrop is the drawing without this group, so the fit sees the rest
+    # The backdrop is the drawing without these paths, so the fit sees the rest
     # of the picture as a constant and cannot be rewarded for redrawing it.
-    stripped = copy.deepcopy(root)
-    for parent in stripped.iter():
-        for child in list(parent):
-            if child.get("id") == group.get("id") and child.tag == group.tag:
-                parent.remove(child)
+    # Blanking `d` in place and restoring it afterwards avoids having to match
+    # elements across a copied tree.
+    original = [path.get("d", "") for path in paths]
+    for path in paths:
+        path.set("d", "")
     backdrop = Image.open(
-        io.BytesIO(rasterize(ET.tostring(stripped, encoding="unicode"), size, size))
+        io.BytesIO(rasterize(ET.tostring(root, encoding="unicode"), size, size))
     ).convert("L")
+    for path, data in zip(paths, original, strict=True):
+        path.set("d", data)
 
+    held = _shared_vertices([parse_cubics(d) for d in original], excluded)
     fitted, _first, _last = fit_group(
-        [p.get("d", "") for p in paths],
+        original,
         widths,
         target,
         backdrop,
         size=size,
         steps=steps,
         samples=samples,
+        pinned=held,
     )
     for path, data in zip(paths, fitted, strict=True):
         path.set("d", data)
     return ET.tostring(root, encoding="unicode")
+
+
+def _shared_vertices(parsed, excluded, tolerance: float = 0.01) -> set[int]:
+    """Welded vertices the fitted paths share with a path left out of the fit."""
+    if not excluded:
+        return set()
+    outside = []
+    for path in excluded:
+        try:
+            outside.extend(to_knots(parse_cubics(path.get("d", ""))))
+        except UnsupportedPathError:
+            continue
+    welded, _index = weld([to_knots(segs) for segs in parsed])
+    return {
+        position
+        for position, (x, y) in enumerate(welded)
+        if any(
+            abs(x - qx) <= tolerance and abs(y - qy) <= tolerance for qx, qy in outside
+        )
+    }
 
 
 def _canvas_side(root) -> float:
@@ -622,3 +678,62 @@ def fit_available() -> bool:
         return bool(torch.cuda.is_available())
     except Exception:  # pragma: no cover - driver trouble is not our business
         return False
+
+
+def _touching(
+    a: list[tuple[float, float]], b: list[tuple[float, float]], reach: float
+) -> bool:
+    """Whether two chains come within *reach* of each other anywhere."""
+    return any(
+        (px - qx) ** 2 + (py - qy) ** 2 <= reach * reach for px, py in a for qx, qy in b
+    )
+
+
+def fittable_clusters(root, reach_multiple: float = 2.5):
+    """Paths grouped by whether they touch, not by what the model called them.
+
+    A fit moves a set of paths together, so the set has to be the ones that
+    actually meet -- and `<g>` is an unreliable account of that. In one drawing
+    the wing arrived as two groups, `body_outline` for its sweep and
+    `tail_feathers` for the feathers at its tip, when the body outline is the
+    dots and there is no tail. Fitting either alone can only ever move half a
+    wing, and that wing was the one part a fit never improved.
+
+    Contact is the signal instead: strokes that meet are drawn to meet, whatever
+    they are called. Reach scales with stroke width, because what counts as
+    touching depends on how thick the line is.
+    """
+    table = _parents(root)
+    entries = []
+    for element in root.iter():
+        if element.tag.split("}")[-1] != "path" or not element.get("d"):
+            continue
+        width = _stroke_width(element, _ancestry(element, table, root))
+        if width is None or width <= 0:
+            continue
+        try:
+            chain = to_knots(parse_cubics(element.get("d", "")))
+        except UnsupportedPathError:
+            continue
+        entries.append((element, width, chain))
+
+    parent = list(range(len(entries)))
+
+    def find(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    for i in range(len(entries)):
+        for j in range(i + 1, len(entries)):
+            reach = reach_multiple * max(entries[i][1], entries[j][1])
+            if _touching(entries[i][2], entries[j][2], reach):
+                parent[find(i)] = find(j)
+
+    clusters: dict[int, tuple[list[Any], list[float]]] = {}
+    for index, (element, width, _chain) in enumerate(entries):
+        paths, widths = clusters.setdefault(find(index), ([], []))
+        paths.append(element)
+        widths.append(width)
+    return list(clusters.values())
