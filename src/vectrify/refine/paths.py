@@ -206,7 +206,7 @@ def coverage(
     control: Any,
     width: float,
     box: tuple[int, int, int, int],
-    samples: int = 8,
+    samples: int | None = None,
     softness: float = 0.25,
     chunk: int = 16384,
 ) -> Any:
@@ -223,6 +223,8 @@ def coverage(
     """
     import torch
 
+    if samples is None:
+        samples = _samples_for(control)
     left, top, right, bottom = box
     height, width_px = bottom - top, right - left
     steps = torch.linspace(0, 1, samples, device=control.device, dtype=control.dtype)
@@ -257,6 +259,27 @@ def coverage(
         nearest.append((block[:, None, :] - foot).norm(dim=-1).min(dim=1).values)
     distance = torch.cat(nearest).reshape(height, width_px)
     return torch.sigmoid((width / 2 - distance) / softness)
+
+
+# One sample per this many units of curve. A cubic is sampled into a polyline
+# and the distance field is measured to its chords, so too few samples cut the
+# corners off a long curve: at eight samples a 480-unit segment agreed with the
+# real renderer 0.43 of the time against 0.93 for a 79-unit one. Fixed sampling
+# therefore drew short strokes faithfully and long ones badly, which is why one
+# run's body outline -- a single path across half the canvas -- improved a tenth
+# as much as its beak.
+_UNITS_PER_SAMPLE = 15.0
+_MIN_SAMPLES, _MAX_SAMPLES = 8, 48
+
+
+def _samples_for(control: Any) -> int:
+    """Samples per cubic, from the longest control polygon in the chain."""
+    import math
+
+    spans = control[:, 1:] - control[:, :-1]
+    longest = float(spans.detach().norm(dim=-1).sum(dim=-1).max())
+    wanted = math.ceil(longest / _UNITS_PER_SAMPLE)
+    return max(_MIN_SAMPLES, min(_MAX_SAMPLES, wanted))
 
 
 def _focus_mask(covers: list[Any], reach: int) -> Any:
@@ -303,7 +326,7 @@ def fit_group(
     backdrop: Image.Image,
     size: int = 700,
     steps: int = 200,
-    samples: int = 8,
+    samples: int | None = None,
     learning_rate: float = 0.4,
     margin: float = 24.0,
     redundancy: float = 0.15,
@@ -497,7 +520,7 @@ def fit_random_group(
     *,
     rasterize,
     steps: int = 8,
-    samples: int = 8,
+    samples: int | None = None,
     weights: Mapping[int, float] | None = None,
 ) -> str:
     """Fit one group's paths to the reference, returning the edited document.
