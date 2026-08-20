@@ -195,6 +195,15 @@ class FormatPlugin(Protocol):
         """
         ...
 
+    def operator_reward_scale(self) -> Mapping[str, float]:
+        """What an operator's reward counts for, where a draw of it is not the
+        same size as a draw of the others.
+
+        Empty when every operator costs about the same, which leaves the policy
+        comparing them per draw.
+        """
+        ...
+
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         """Crossover two contents. Return (new_content, origin)."""
         ...
@@ -250,3 +259,7 @@ class BaseFormatPlugin:
         """Nothing reported: the same renderer limit as `element_targets`."""
         _ = content
         return []
+
+    def operator_reward_scale(self) -> Mapping[str, float]:
+        """Every operator is a markup transform costing about the same."""
+        return {}
