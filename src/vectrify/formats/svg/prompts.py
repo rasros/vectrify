@@ -69,6 +69,11 @@ def build_svg_gen_prompt(
         " `large_crescent` and `dark_moon` drew a crescent moon where the"
         " target had an eye with a highlight, and never recovered: nothing"
         " downstream can tell that the subject was misread.",
+        "- One group per part, however many strokes it takes: a wing drawn as"
+        " a sweep and three feathers is one `wing`, not a `body_outline` and a"
+        " `tail_feathers`.",
+        "- The numbered dots trace the outline. They are not a part, and the"
+        " lines inside them are what the subject is made of.",
         "- Wrap related elements in <g id='name'>: the groups are what later"
         " edits and crossover graft between candidates, so they should follow"
         " the target's own parts.",
