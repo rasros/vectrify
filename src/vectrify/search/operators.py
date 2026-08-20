@@ -49,18 +49,21 @@ class FixedWeightPolicy:
         _ = operator, reward
 
 
-# Exploration rate. EXP3 mixes this much uniform noise into every draw, which
-# also fixes the floor under each operator at gamma / len(operators): one that
-# looks useless early must survive to the phase it is good for. It also bounds
-# how rare an expensive operator can be made -- with nine operators no prior
-# can push one below about 1.7% of draws.
+# Exploration rate. EXP3 mixes this much of a fixed distribution into every
+# draw, which also fixes the floor under each operator: one that looks useless
+# early must survive to the phase it is good for. The distribution is the prior
+# rather than a flat split, so the floor is gamma x the prior's share of that
+# operator. A flat split would put an operator costing 0.5s of GPU on 1.9% of
+# tasks however badly it did, which is the cost the prior exists to state --
+# but nothing reaches zero either way.
 DEFAULT_GAMMA = 0.15
 
 # No operator opens on exactly zero weight, so a table that lists one is always
 # reachable.
 _MIN_WEIGHT = 1e-3
 
-# Per-update share of total weight redistributed uniformly (the .S in EXP3.S).
+# Per-update share of total weight redistributed over the prior (the .S in
+# EXP3.S).
 # This is the forgetting: without it the weights converge and the policy stops
 # tracking, which is the same failure as the fixed table it replaces. 0.001
 # keeps roughly the last thousand outcomes, a few dozen generations.
@@ -101,6 +104,20 @@ class Exp3Policy:
             name: max(float(supplied.get(name, 1.0)), _MIN_WEIGHT)
             for name in self._names
         }
+        # The prior, normalised and kept. Both of EXP3.S's pulls -- the
+        # exploration term and the per-update redistribution -- were uniform,
+        # so everything that dilutes the learned weights dragged the policy
+        # toward an even split and away from this. That is wrong whenever the
+        # arms cost different amounts, and it bites hardest when rewards are
+        # sparse: with a graded reward most children earn nothing, so dilution
+        # dominates and the mix drifts to uniform whatever the prior said.
+        # Measured over three runs, that drew the 0.5s GPU fit on 13-14% of
+        # tasks against the 5% the prior asks for, and those runs completed
+        # 8,795 tasks against 13,604. Forgetting now returns to the prior
+        # rather than to uniform, which is the distribution the prior was
+        # written to express.
+        total_prior = sum(self._weights.values()) or 1.0
+        self._prior = {name: w / total_prior for name, w in self._weights.items()}
         self._gamma = gamma
         self._alpha = alpha
         # The probability each outstanding draw was made with. Results come
@@ -117,7 +134,7 @@ class Exp3Policy:
             return {}
         total = sum(self._weights.values()) or 1.0
         return {
-            name: (1.0 - self._gamma) * weight / total + self._gamma / count
+            name: (1.0 - self._gamma) * weight / total + self._gamma * self._prior[name]
             for name, weight in self._weights.items()
         }
 
@@ -145,12 +162,14 @@ class Exp3Policy:
             self._gamma * (reward / probability) / count
         )
 
-        # Redistribute a share of the total weight uniformly: an operator whose
-        # weight has collapsed can climb back when its phase arrives.
+        # Redistribute a share of the total weight over the prior: an operator
+        # whose weight has collapsed can climb back when its phase arrives, and
+        # it climbs back to the share the prior asked for rather than to an
+        # even one.
         total = sum(self._weights.values())
-        share = math.e * self._alpha / count * total
+        share = math.e * self._alpha * total
         for name in self._names:
-            self._weights[name] += share
+            self._weights[name] += share * self._prior[name]
 
         # Rescale to keep exp() away from overflow. Only the ratios matter.
         largest = max(self._weights.values())

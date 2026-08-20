@@ -112,10 +112,33 @@ def test_the_opening_split_follows_the_weights_it_was_given():
     assert probabilities["cheap"] > probabilities["dear"] * 3
 
 
-def test_no_operator_is_starved_below_the_exploration_floor():
+def test_no_operator_is_starved_below_its_share_of_the_exploration():
+    """The floor is the prior's share of gamma, not an even split of it. An even
+    split is wrong for the same reason a flat opening is: it puts a 0.5s GPU fit
+    on 1.9% of tasks however badly it does, which is a cost the prior exists to
+    express. What survives is that nothing reaches zero.
+    """
     policy = Exp3Policy({"cheap": 0.97, "dear": 0.03})
-    floor = DEFAULT_GAMMA / 2
+    floor = DEFAULT_GAMMA * 0.03
+    for _ in range(2000):
+        policy.update("dear", reward=0.0)
+        policy.update("cheap", reward=1.0)
     assert policy.probabilities()["dear"] >= floor * 0.99
+
+
+def test_the_prior_survives_a_long_run_of_uninformative_rewards():
+    """Why this exists. A graded reward leaves most children earning nothing, so
+    dilution rather than learning decides the mix -- and while both of EXP3.S's
+    dilutions were uniform, that mix drifted to an even split whatever the prior
+    said. Measured over three runs it drew the fit on 13-14% of tasks against
+    the 5% asked for, and those runs did 8,795 tasks against 13,604.
+    """
+    policy = Exp3Policy({"cheap": 0.5, "dear": 0.03})
+    for _ in range(5000):
+        policy.update("cheap", reward=0.0)
+        policy.update("dear", reward=0.0)
+    probabilities = policy.probabilities()
+    assert probabilities["cheap"] > probabilities["dear"] * 10
 
 
 def test_a_bare_list_still_opens_flat():
