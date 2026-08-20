@@ -35,13 +35,14 @@ from __future__ import annotations
 import io
 import itertools
 import logging
+import math
 import random
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    from PIL import Image
+import numpy as np
+from PIL import Image
 
 from vectrify.formats.svg.ownership import drawable_elements
 
@@ -273,7 +274,6 @@ _MIN_SAMPLES, _MAX_SAMPLES = 8, 48
 
 def _samples_for(control: Any) -> int:
     """Samples per cubic, from the longest control polygon in the chain."""
-    import math
 
     spans = control[:, 1:] - control[:, :-1]
     longest = float(spans.detach().norm(dim=-1).sum(dim=-1).max())
@@ -359,7 +359,6 @@ def fit_group(
     left, top, right, bottom = box
 
     def crop(image: Image.Image) -> Any:
-        import numpy as np
 
         array = np.asarray(image.convert("L").resize((size, size)), dtype=np.float32)
         return torch.tensor(array[top:bottom, left:right] / 255.0, device=device)
