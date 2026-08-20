@@ -29,12 +29,13 @@ DEFAULT_EPOCHS = 50
 # stop paying for epochs that only buy noise.
 DEFAULT_EPOCH_IMPROVEMENT = 0.0
 # Consecutive epochs improving by no more than that margin before the run
-# stops. One, so a single epoch that buys nothing ends the run: an epoch costs
-# a batch of LLM calls, and the evidence for waiting longer would have to come
-# from a measurement nobody has taken. Raise it if an epoch's verdict turns
-# out to be noisy enough that one refusal is not a settled opinion -- which is
-# the reason --epoch-eval-patience inside an epoch sits at five, not one.
-DEFAULT_EPOCH_IMPROVEMENT_PATIENCE = 1
+# stops. Two rather than one, which is what it shipped as and what a run then
+# measured against: at one, a run ended after three epochs and 7 minutes of a
+# 60-minute wall on a single epoch that failed to improve, having improved on
+# each of the two before it. One verdict is not a settled opinion -- the same
+# argument puts --epoch-eval-patience at five inside an epoch -- and this ends
+# the whole run rather than one epoch.
+DEFAULT_EPOCH_IMPROVEMENT_PATIENCE = 2
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
 DEFAULT_RESUME = False

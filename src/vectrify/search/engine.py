@@ -42,6 +42,13 @@ SEED_ARCHIVE_POOL_SHARE = 4
 # anything already queued rides along nearly free.
 SCORE_BATCH_SIZE = 32
 
+# Replacement seed edits an epoch may ask for, as a share of the batch it
+# wanted. One, so a batch of five may spend up to five retries and no more: a
+# model that cannot produce a usable edit for this drawing at all would
+# otherwise retry until the wall, and an epoch running on a short batch is
+# still better than an epoch that never starts.
+SEED_RETRY_SHARE = 1.0
+
 
 def keep_payload(result: Result) -> ChainState:
     """Default state builder: carry the worker's payload through unchanged."""
@@ -351,6 +358,20 @@ class MultiprocessSearchEngine(Generic[TState]):
         seeds_target = first_batch
         seeds_dispatched = 0
         seeds_completed = 0
+        # Replacements left for seed edits that came back unusable. An epoch
+        # asks for a batch and previously took whatever survived: measured on
+        # one run, 5 of 15 edits failed and the epochs opened with 5, then 3,
+        # then 2 candidates, and the last of those went stale in 14 seconds
+        # because a pool grown from two seeds runs out of anything that can
+        # outrank its own members. The failures are the model's formatting
+        # rather than the drawing -- 3 of them were search/replace blocks that
+        # matched nothing, 2 were replies with no parseable block at all -- so
+        # another sample usually succeeds where the last one did not.
+        #
+        # Seeded here as well as in _begin_seed_phase because epoch 0 does not
+        # go through it -- its batch is sized from initial_seeds and the phase
+        # is set directly -- and epoch 0 is where the run's seeds come from.
+        seed_retries_left = int(first_batch * SEED_RETRY_SHARE)
         # An epoch can transition with local tasks still in flight, and those
         # results land during the next seed phase. Without this they count as
         # seeds and end the batch before its LLM children arrive.
@@ -384,6 +405,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                 seeds_dispatched, \
                 seeds_completed, \
                 seed_task_ids, \
+                seed_retries_left, \
                 best_node, \
                 best_panel
 
@@ -445,6 +467,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             seeds_dispatched = 0
             seeds_completed = 0
             seeds_target = epoch_seeds
+            seed_retries_left = int(epoch_seeds * SEED_RETRY_SHARE)
 
             if seeds_target <= 0 or not seed_parents:
                 phase = LOCAL_PHASE
@@ -1029,6 +1052,17 @@ class MultiprocessSearchEngine(Generic[TState]):
                 stale = phase == SEED_PHASE and not in_batch
                 if in_batch:
                     seeds_completed += 1
+                    # A batch that came back short used to just run short. Ask
+                    # for a replacement instead: the epoch is the only thing
+                    # that puts new structure into the pool, and one that opens
+                    # on two candidates cannot do it.
+                    if not res.valid and seed_retries_left > 0:
+                        seeds_target += 1
+                        seed_retries_left -= 1
+                        log.info(
+                            f"Seed edit failed; asking for a replacement "
+                            f"({seed_retries_left} left this epoch)"
+                        )
                 elif not stale:
                     # Staleness asks how long hill-climbing has stalled, so
                     # only local tasks count.
