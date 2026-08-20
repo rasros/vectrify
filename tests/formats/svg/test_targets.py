@@ -80,3 +80,40 @@ def test_mutation_without_targets_is_unchanged():
     mutated, label = apply_mutation(DRAWING, "Mutation: color tweak")
     assert SvgPlugin().validate(mutated)[0]
     assert label == "Mutation: color tweak"
+
+
+def test_an_element_too_small_to_own_a_pixel_is_still_reachable():
+    """Error is attributed over the pixels an element owns at MASK_SIZE. Under
+    about a pixel it owns none, scoring exactly zero -- and a zero weight means
+    mutation can never pick it again. On one real drawing that locked out 28 of
+    63 elements, including a nostril that stayed 14px from where it belonged for
+    all 11,834 nodes of a run."""
+    from vectrify.formats.svg.targets import element_targets
+
+    content = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" '
+        'width="100" height="100">'
+        '<rect width="100" height="100" fill="#ffffff"/>'
+        '<circle cx="50" cy="50" r="30" fill="#000000"/>'
+        '<circle cx="10" cy="10" r="0.05" fill="#ff0000"/>'
+        "</svg>"
+    )
+    targets = element_targets(content, _target_png())
+    assert targets, "attribution produced nothing"
+    assert min(targets.values()) > 0.0
+    # And attribution still decides the bulk of it rather than going uniform.
+    assert max(targets.values()) > min(targets.values()) * 5
+
+
+def test_the_weights_still_sum_to_one():
+    from vectrify.formats.svg.targets import element_targets
+
+    content = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" '
+        'width="100" height="100">'
+        '<circle cx="30" cy="30" r="20" fill="#000000"/>'
+        '<circle cx="70" cy="70" r="10" fill="#ff0000"/>'
+        "</svg>"
+    )
+    targets = element_targets(content, _target_png())
+    assert abs(sum(targets.values()) - 1.0) < 1e-9
