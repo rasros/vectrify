@@ -435,9 +435,7 @@ def run_vector_search(
 
         weights = format_plugin.mutation_weights()
         operator_policy = (
-            Exp3Policy(
-                weights, reward_scale=format_plugin.operator_reward_scale()
-            )
+            Exp3Policy(weights, reward_scale=format_plugin.operator_reward_scale())
             if adaptive_operators
             else FixedWeightPolicy(weights)
         )

@@ -15,6 +15,10 @@ from PIL import Image
 from vectrify.formats.svg.ownership import MASK_SIZE, element_error
 from vectrify.image_utils import rasterize_svg_to_png_bytes
 
+# Share of the weight spread evenly over every element, whatever its error, so
+# a part the measures cannot see is not locked out for the whole run.
+TARGET_FLOOR = 0.1
+
 
 def _as_array(png: bytes, size: int) -> np.ndarray:
     image = Image.open(io.BytesIO(png)).convert("RGB")
@@ -43,4 +47,13 @@ def element_targets(
     total = sum(errors)
     if total <= 0.0:
         return {}
-    return {index: value / total for index, value in enumerate(errors)}
+    # Blended with uniform so no element is unreachable: error is attributed
+    # over the pixels an element owns at MASK_SIZE, and anything under about a
+    # pixel there owns none, scoring exactly zero and never being picked again.
+    # On one drawing that locked out 28 of 63 elements -- every number label,
+    # and a nostril that stayed 14px from where it belonged for a whole run.
+    count = len(errors)
+    return {
+        index: (1.0 - TARGET_FLOOR) * value / total + TARGET_FLOOR / count
+        for index, value in enumerate(errors)
+    }
