@@ -144,6 +144,7 @@ class FormatPlugin(Protocol):
         goal: str | None,
         canvas: tuple[int, int],
         source_name: str | None = None,
+        invisible: list[str] | None = None,
     ) -> list[dict]:
         """Build the LLM generation/refinement prompt as content blocks.
 
@@ -182,6 +183,15 @@ class FormatPlugin(Protocol):
 
         Backends that cannot attribute error return an empty mapping, which
         leaves mutation choosing its target uniformly.
+        """
+        ...
+
+    def invisible_elements(self, content: str) -> list[str]:
+        """Elements that are in *content* and paint nothing, described for the
+        model.
+
+        Backends that cannot resolve which element owns which pixel return an
+        empty list, and the prompt says nothing about it.
         """
         ...
 
@@ -235,3 +245,8 @@ class BaseFormatPlugin:
         """
         _ = content, reference_png
         return {}
+
+    def invisible_elements(self, content: str) -> list[str]:
+        """Nothing reported: the same renderer limit as `element_targets`."""
+        _ = content
+        return []

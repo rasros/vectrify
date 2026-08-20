@@ -35,6 +35,8 @@ SIZE_RATIO_LIMIT = 0.5
 
 _STYLE_PAINT_RE = re.compile(r"(fill|stroke|opacity)\s*:[^;]*;?")
 
+_XMLNS_RE = re.compile(r'\s+xmlns(:\w+)?="[^"]*"')
+
 
 def _code(index: int) -> tuple[int, int, int]:
     """A colour for *index*, far from every other index's colour."""
@@ -238,3 +240,117 @@ def adjacent_parts(labels: np.ndarray, count: int, reach: int = 2) -> list[list[
     for index in range(count):
         groups.setdefault(find(index), []).append(index)
     return list(groups.values())
+
+
+# The size the check renders at when confirming a nominee. The model is shown
+# the drawing at 512 (--resolution-llm), so that is what "paints nothing"
+# should mean: an element too small to survive that render is not something to
+# report as missing, it is something the search will resolve by growing it.
+VERIFY_SIZE = 512
+
+
+def _drawable_parents(root: ET.Element) -> list[tuple[ET.Element, ET.Element]]:
+    """Every drawable element with the node it hangs off, in `drawable_elements`
+    order, so an index means the same thing to both."""
+    pairs: list[tuple[ET.Element, ET.Element]] = []
+
+    def walk(node: ET.Element) -> None:
+        for child in node:
+            if child.tag.split("}")[-1] == "g":
+                walk(child)
+            else:
+                pairs.append((node, child))
+
+    walk(root)
+    return pairs
+
+
+def _render(root: ET.Element, size: int) -> np.ndarray | None:
+    ET.register_namespace("", "http://www.w3.org/2000/svg")
+    source = ET.tostring(root, encoding="unicode", method="xml")
+    try:
+        png = rasterize_svg_to_png_bytes(source, out_w=size, out_h=size)
+    except Exception:
+        return None
+    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), dtype=np.uint8)
+
+
+def invisible_elements(
+    root: ET.Element, size: int = VERIFY_SIZE, nominate_at: int = MASK_SIZE
+) -> list[int]:
+    """Indices of drawable elements whose removal changes nothing on screen.
+
+    Markup can carry an element that paints no pixel at all: behind an opaque
+    fill drawn after it, or moved off the shape it belongs to and onto matching
+    background. Measured on three separate drawings -- a nostril under a beak's
+    white fill, and two eye highlights, one behind its own pupil and one adrift
+    outside the eye -- and in every case the element cost nothing, so nothing in
+    the search had any reason to correct it and it drifted freely.
+
+    Removal is the test, rather than the ownership pass next door, because
+    ownership cannot see this. It repaints every element in a flat colour, which
+    destroys exactly the property in question: an eye highlight sitting white on
+    white background owns hundreds of pixels once it is recoloured, and reads as
+    perfectly visible. Only the drawing as actually painted answers it.
+
+    Nominating at MASK_SIZE first keeps the cost down -- an element invisible at
+    the size the model is shown is invisible in a thumbnail of it too -- and
+    each nominee is then confirmed at *size*. The confirmation matters: a small
+    element can vanish from a thumbnail while being plainly there at full size,
+    and a false report tells the model to delete or move a feature that is
+    actually present, which is worse than saying nothing.
+    """
+    pairs = _drawable_parents(root)
+    if not pairs:
+        return []
+
+    def gone(index: int, at: int, baseline: np.ndarray) -> bool:
+        trial = copy.deepcopy(root)
+        trial_pairs = _drawable_parents(trial)
+        if index >= len(trial_pairs):
+            return False
+        parent, element = trial_pairs[index]
+        parent.remove(element)
+        without = _render(trial, at)
+        return without is not None and np.array_equal(baseline, without)
+
+    thumb = _render(root, nominate_at)
+    if thumb is None:
+        return []
+    nominees = [index for index in range(len(pairs)) if gone(index, nominate_at, thumb)]
+    if not nominees:
+        return []
+
+    baseline = _render(root, size)
+    if baseline is None:
+        return []
+    return [index for index in nominees if gone(index, size, baseline)]
+
+
+def describe_invisible(root: ET.Element, indices: list[int]) -> list[str]:
+    """One line per invisible element, enough for the model to find it.
+
+    Names the enclosing group, since that is what the model wrote and what it
+    will look for, and quotes the element itself.
+    """
+    lines: list[str] = []
+    units = drawable_elements(root)
+    for index in indices:
+        if index >= len(units):
+            continue
+        chain, element = units[index]
+        group = ""
+        for _tag, attrs in reversed(chain):
+            found = dict(attrs).get("id")
+            if found:
+                group = f' inside <g id="{found}">'
+                break
+        # Serialising a subtree re-declares the namespace, and that attribute
+        # is not in the file. Left in, a model copying this line into a SEARCH
+        # block produces text that matches nothing -- the report would cause
+        # the failure it is meant to help with.
+        text = _XMLNS_RE.sub("", ET.tostring(element, encoding="unicode")).strip()
+        if len(text) > 160:
+            text = text[:157] + "..."
+        lines.append(f"{text}{group}")
+    return lines

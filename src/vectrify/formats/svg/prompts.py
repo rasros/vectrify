@@ -33,6 +33,7 @@ def build_svg_gen_prompt(
     goal: str | None = None,
     canvas: tuple[int, int] = (0, 0),
     source_name: str | None = None,
+    invisible: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     """Build LLM prompt for SVG generation/refinement.
 
@@ -97,6 +98,22 @@ def build_svg_gen_prompt(
             " or in the wrong place — reposition and resize whole parts where"
             " the arrangement is off."
         )
+
+    # Named because the model has no other way to know. On screen these are
+    # simply absent, and in the markup they look like any other element -- so a
+    # drawing can carry a nostril or an eye highlight through a whole run while
+    # painting neither. It is also the only operator that can fix one: making
+    # an occluded element show needs its draw order and its position changed
+    # together, and each mutation operator does one of those.
+    if is_edit and invisible:
+        lines.append(
+            "These elements are in the SVG and paint nothing — hidden behind"
+            " something drawn later, or sitting on background of their own"
+            " colour. They are absent from the render, so you cannot see the"
+            " problem. Give each one a position and a draw order where it shows,"
+            " or delete it:"
+        )
+        lines.extend(f"  {entry}" for entry in invisible)
 
     if goal:
         lines.extend(["USER GOAL (highest priority):", goal])

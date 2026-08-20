@@ -234,3 +234,36 @@ def test_the_prompt_asks_what_the_picture_is_before_how_to_draw_it():
     text = "\n".join(_text_blocks(build_svg_gen_prompt(_IMG_URL, 1, canvas=(512, 512))))
 
     assert "Work out what the picture depicts" in text
+
+
+def test_the_edit_prompt_names_elements_that_paint_nothing():
+    from vectrify.formats.svg.prompts import build_svg_gen_prompt
+
+    blocks = build_svg_gen_prompt(
+        "data:image/png;base64,AA",
+        1,
+        svg_prev="<svg/>",
+        invisible=['<ellipse cx="244" cy="217" rx="13"/> inside <g id="eye">'],
+    )
+    text = "\n".join(b.get("text", "") for b in blocks)
+    assert "paint nothing" in text
+    assert 'cx="244"' in text
+
+
+def test_the_prompt_says_nothing_when_everything_paints():
+    from vectrify.formats.svg.prompts import build_svg_gen_prompt
+
+    blocks = build_svg_gen_prompt(
+        "data:image/png;base64,AA", 1, svg_prev="<svg/>", invisible=[]
+    )
+    assert "paint nothing" not in "\n".join(b.get("text", "") for b in blocks)
+
+
+def test_a_first_draft_prompt_never_carries_the_report():
+    """There is no parent to inspect, so the section cannot apply."""
+    from vectrify.formats.svg.prompts import build_svg_gen_prompt
+
+    blocks = build_svg_gen_prompt(
+        "data:image/png;base64,AA", 1, invisible=["<circle/> inside <g id='x'>"]
+    )
+    assert "paint nothing" not in "\n".join(b.get("text", "") for b in blocks)
