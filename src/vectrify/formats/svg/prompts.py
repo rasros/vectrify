@@ -95,8 +95,7 @@ def build_svg_gen_prompt(
             " its values gains nothing. Change what no amount of polishing"
             " reaches: parts that are missing, extra, the wrong kind of thing,"
             " or in the wrong place — reposition and resize whole parts where"
-            " the arrangement is off. Output ONLY search/replace diff blocks,"
-            " no full file."
+            " the arrangement is off."
         )
 
     if goal:

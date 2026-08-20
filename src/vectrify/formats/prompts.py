@@ -41,7 +41,9 @@ def diff_format_instructions(
     """
     subject = subject or f"{lang} code"
     return f"""\
-Respond with one or more search/replace blocks — do NOT output the full file.
+Respond with one or more search/replace blocks. Prefer them to a full rewrite:
+a block changes only what it names, where re-authoring the whole {subject}
+retypes every part you were not trying to change.
 
 <<<SEARCH>>>
 exact {lang} {unit} to replace (copy verbatim from the current {subject})
@@ -53,9 +55,13 @@ Rules:
 - Always return at least one block. If nothing looks clearly wrong, take the \
 part that matches the target least well and improve that; a reply with no \
 block is a discarded call, not a verdict that the drawing is finished.
-- The SEARCH text must match the current {subject} exactly (including whitespace).
+- The SEARCH text must match the current {subject} character for character, \
+though how the whitespace inside it is written does not matter.
 - Keep blocks small and focused; only change what needs to change.
-- Multiple blocks are allowed."""
+- Multiple blocks are allowed.
+- If you cannot copy the text to replace exactly, output the complete \
+{subject} instead. That is worth more than a block that matches nothing: a \
+reply with neither is a discarded call."""
 
 
 def build_code_gen_prompt(
@@ -94,7 +100,10 @@ def build_code_gen_prompt(
             " they disagree."
         )
     if is_edit:
-        system_text += "\n- Output ONLY search/replace diff blocks, no full file"
+        system_text += (
+            "\n- Output search/replace diff blocks, or the whole file if you"
+            " cannot copy the text to replace exactly. No explanation."
+        )
     else:
         system_text += f"\n- Output ONLY the {lang} code block, no explanation"
 
