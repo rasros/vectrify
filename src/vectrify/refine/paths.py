@@ -298,7 +298,7 @@ def _bounds(segments_list, margin: float, size: int) -> tuple[int, int, int, int
 
 def fit_group(
     paths: list[str],
-    width: float,
+    widths: float | list[float],
     target: Image.Image,
     backdrop: Image.Image,
     size: int = 700,
@@ -342,6 +342,11 @@ def fit_group(
     # The optimized parameters are the chains; the control tensor a fit needs
     # is a view onto them, so each join is one number shared by the two curves
     # that meet there rather than two that drift apart.
+    each = (
+        [float(widths)] * len(paths)
+        if isinstance(widths, int | float)
+        else list(widths)
+    )
     welded, index = weld(chains)
     vertices = torch.tensor(welded, device=device, dtype=torch.float32)
     vertices.requires_grad_(True)
@@ -358,8 +363,8 @@ def fit_group(
     with torch.no_grad():
         mask = _focus_mask(
             [
-                coverage(controls_of(chain_of(r)), width, box, samples=samples)
-                for r in rows
+                coverage(controls_of(chain_of(r)), w, box, samples=samples)
+                for r, w in zip(rows, each, strict=True)
             ],
             int(margin),
         )
@@ -368,8 +373,8 @@ def fit_group(
     first = last = 0.0
     for step in range(steps):
         covers = [
-            coverage(controls_of(chain_of(r)), width, box, samples=samples)
-            for r in rows
+            coverage(controls_of(chain_of(r)), w, box, samples=samples)
+            for r, w in zip(rows, each, strict=True)
         ]
         stacked = torch.stack(covers)
         union = 1 - torch.prod(1 - stacked, dim=0)
@@ -411,19 +416,47 @@ def fit_group(
 PATH_FIT = "Mutation: path fit"
 
 
-def _stroke_width(element, root) -> float | None:
-    """The stroke width in force for *element*, or None if it is not stroked."""
-    for node in (element, root):
+def _stroke_width(element, ancestors) -> float | None:
+    """The stroke width in force for *element*, walking SVG inheritance.
+
+    A width can be declared on the element, on any group above it, or on the
+    root, and real output puts it in all three places -- one model wrote it on
+    every `<path>` and none on their groups, which an element-and-root lookup
+    misses entirely. That silently made every group unfittable, so the operator
+    never once fired in a full run.
+    """
+    for node in (element, *ancestors):
         raw = node.get("stroke-width")
         if raw:
             try:
-                return abs(float(raw.rstrip("px")))
+                return abs(float(str(raw).rstrip("px")))
             except ValueError:
                 return None
+        if (node.get("stroke") or "").strip() in ("none",):
+            return None
     return None
 
 
-def fittable_groups(root) -> list[tuple[Any, list[Any], float]]:
+def _parents(root) -> dict[int, Any]:
+    """id(child) -> parent, so a path can be read in the context it inherits."""
+    table: dict[int, Any] = {}
+    for parent in root.iter():
+        for child in parent:
+            table[id(child)] = parent
+    return table
+
+
+def _ancestry(element, table, root) -> list[Any]:
+    chain, node = [], table.get(id(element))
+    while node is not None:
+        chain.append(node)
+        node = table.get(id(node))
+    if root not in chain:
+        chain.append(root)
+    return chain
+
+
+def fittable_groups(root) -> list[tuple[Any, list[Any], list[float]]]:
     """Groups whose every path this rasterizer can represent exactly.
 
     A group rather than a path because paths that meet -- the two halves of a
@@ -431,6 +464,7 @@ def fittable_groups(root) -> list[tuple[Any, list[Any], float]]:
     about which those are.
     """
     out = []
+    table = _parents(root)
     for group in root.iter():
         if group.tag.split("}")[-1] != "g":
             continue
@@ -441,15 +475,19 @@ def fittable_groups(root) -> list[tuple[Any, list[Any], float]]:
         ]
         if not paths:
             continue
-        width = _stroke_width(group, root)
-        if width is None or width <= 0:
-            continue
-        try:
-            for path in paths:
+        keep, widths = [], []
+        for path in paths:
+            width = _stroke_width(path, _ancestry(path, table, root))
+            if width is None or width <= 0:
+                continue
+            try:
                 to_knots(parse_cubics(path.get("d", "")))
-        except UnsupportedPathError:
-            continue
-        out.append((group, paths, width))
+            except UnsupportedPathError:
+                continue
+            keep.append(path)
+            widths.append(width)
+        if keep:
+            out.append((group, keep, widths))
     return out
 
 
@@ -483,14 +521,14 @@ def fit_random_group(
 
     order = {id(el): index for index, el in enumerate(drawable_elements(root))}
     scores = []
-    for _group, paths, _width in candidates:
+    for _group, paths, _widths in candidates:
         error = sum((weights or {}).get(order.get(id(p), -1), 0.0) for p in paths)
         scores.append(error)
     total = sum(scores)
     if total > 0:
-        group, paths, width = random.choices(candidates, weights=scores, k=1)[0]
+        group, paths, widths = random.choices(candidates, weights=scores, k=1)[0]
     else:
-        group, paths, width = random.choice(candidates)
+        group, paths, widths = random.choice(candidates)
 
     size = int(_canvas_side(root))
     target = Image.open(io.BytesIO(reference_png)).convert("L").resize((size, size))
@@ -508,7 +546,7 @@ def fit_random_group(
 
     fitted, _first, _last = fit_group(
         [p.get("d", "") for p in paths],
-        width,
+        widths,
         target,
         backdrop,
         size=size,

@@ -256,3 +256,57 @@ def test_a_drawing_with_nothing_fittable_reports_a_blank_draw():
     content, origin = SvgPlugin().mutate(dots, operator=PATH_FIT, reference_png=png)
     assert content == dots
     assert origin == PATH_FIT
+
+
+def test_a_width_on_the_path_is_found_as_readily_as_one_on_the_group():
+    """The width can be declared on the element, a group above it, or the root.
+    One model wrote it on every path and none on their groups; a lookup that
+    checked only the group and the root found nothing fittable in an entire
+    run, so the operator never fired once.
+    """
+    import xml.etree.ElementTree as ET
+
+    from vectrify.refine.paths import fittable_groups
+
+    on_path = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<g id="curve"><path d="M 8 32 C 20 20 44 20 56 32" fill="none" '
+        'stroke="#111111" stroke-width="3.2" /></g></svg>'
+    )
+    groups = fittable_groups(ET.fromstring(on_path))
+    assert len(groups) == 1
+    _group, paths, widths = groups[0]
+    assert len(paths) == 1
+    assert widths == [3.2]
+
+
+def test_paths_of_differing_width_in_one_group_keep_their_own():
+    """Real output mixes widths inside a group -- 3.2 and 4 on two halves of one
+    outline -- so a single width for the group would render one of them wrong.
+    """
+    import xml.etree.ElementTree as ET
+
+    from vectrify.refine.paths import fittable_groups
+
+    mixed = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<g id="outline" fill="none" stroke="#111111">'
+        '<path d="M 8 32 C 20 20 44 20 56 32" stroke-width="3.2" />'
+        '<path d="M 8 40 C 20 52 44 52 56 40" stroke-width="4" /></g></svg>'
+    )
+    _group, paths, widths = fittable_groups(ET.fromstring(mixed))[0]
+    assert len(paths) == 2
+    assert widths == [3.2, 4.0]
+
+
+def test_an_unstroked_group_is_not_fittable():
+    import xml.etree.ElementTree as ET
+
+    from vectrify.refine.paths import fittable_groups
+
+    filled = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<g id="blob" fill="#000000" stroke="none">'
+        '<path d="M 8 32 C 20 20 44 20 56 32" /></g></svg>'
+    )
+    assert fittable_groups(ET.fromstring(filled)) == []
