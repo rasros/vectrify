@@ -1,4 +1,4 @@
-from vectrify.search.operators import Exp3Policy, FixedWeightPolicy
+from vectrify.search.operators import DEFAULT_GAMMA, Exp3Policy, FixedWeightPolicy
 
 
 def test_fixed_weight_policy_only_returns_known_operators():
@@ -95,3 +95,25 @@ def test_exp3_survives_an_outcome_for_an_operator_it_never_drew():
 
 def test_exp3_without_operators_selects_nothing():
     assert Exp3Policy({}).select() is None
+
+
+def test_the_opening_split_follows_the_weights_it_was_given():
+    """`operator_weights` exists to supply a prior, and a flat opening is wrong
+    when operators cost different amounts: drawing a 0.5s GPU fit as often as a
+    1ms nudge took one run from 25 tasks a second to 4.
+    """
+    policy = Exp3Policy({"cheap": 0.5, "dear": 0.03})
+    probabilities = policy.probabilities()
+    assert probabilities["cheap"] > probabilities["dear"] * 3
+
+
+def test_no_operator_is_starved_below_the_exploration_floor():
+    policy = Exp3Policy({"cheap": 0.97, "dear": 0.03})
+    floor = DEFAULT_GAMMA / 2
+    assert policy.probabilities()["dear"] >= floor * 0.99
+
+
+def test_a_bare_list_still_opens_flat():
+    policy = Exp3Policy(["a", "b", "c"])
+    values = list(policy.probabilities().values())
+    assert max(values) - min(values) < 1e-9

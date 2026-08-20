@@ -49,8 +49,14 @@ class FixedWeightPolicy:
 
 # Exploration rate. EXP3 mixes this much uniform noise into every draw, which
 # also fixes the floor under each operator at gamma / len(operators): one that
-# looks useless early must survive to the phase it is good for.
+# looks useless early must survive to the phase it is good for. It also bounds
+# how rare an expensive operator can be made -- with nine operators no prior
+# can push one below about 1.7% of draws.
 DEFAULT_GAMMA = 0.15
+
+# No operator opens on exactly zero weight, so a table that lists one is always
+# reachable.
+_MIN_WEIGHT = 1e-3
 
 # Per-update share of total weight redistributed uniformly (the .S in EXP3.S).
 # This is the forgetting: without it the weights converge and the policy stops
@@ -81,7 +87,18 @@ class Exp3Policy:
         alpha: float = DEFAULT_ALPHA,
     ):
         self._names = list(operators)
-        self._weights = dict.fromkeys(self._names, 1.0)
+        # Start from the weights the table supplied rather than flat, which is
+        # what `operator_weights` exists to provide. Flat is wrong whenever the
+        # operators cost different amounts: the path fit takes about 0.5s of GPU
+        # against a millisecond for a mutation, and an even opening split drew
+        # it every ninth task and cut a run's throughput from 25 tasks a second
+        # to 4. The weights are a prior on where to spend draws, not a verdict
+        # -- EXP3 moves away from them as results arrive.
+        supplied = operators if isinstance(operators, Mapping) else {}
+        self._weights = {
+            name: max(float(supplied.get(name, 1.0)), _MIN_WEIGHT)
+            for name in self._names
+        }
         self._gamma = gamma
         self._alpha = alpha
         # The probability each outstanding draw was made with. Results come
