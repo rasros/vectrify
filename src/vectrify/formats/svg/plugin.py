@@ -1,3 +1,5 @@
+import logging
+import random
 from collections.abc import Mapping
 
 from vectrify.formats.base import (
@@ -19,11 +21,23 @@ from vectrify.formats.svg.prompts import (
 )
 from vectrify.formats.svg.targets import element_targets
 from vectrify.image_utils import rasterize_svg_to_png_bytes
+from vectrify.refine.paths import (
+    PATH_FIT,
+    UnsupportedPathError,
+    fit_available,
+    fit_random_group,
+)
+
+log = logging.getLogger(__name__)
 
 
 class SvgPlugin:
     name = "svg"
     file_extension = ".svg"
+    # A fit costs about 0.5s on a GPU where an ordinary mutation costs about a
+    # millisecond, so it opens on a small share of the draws and the policy
+    # moves it from there on what it actually returns.
+    PATH_FIT_WEIGHT = 0.03
 
     def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
         return rasterize_svg_to_png_bytes(content, out_w=out_w, out_h=out_h)
@@ -74,14 +88,52 @@ class SvgPlugin:
         )
 
     def mutation_weights(self) -> Mapping[str, float]:
-        return operator_weights(MUTATIONS)
+        weights = dict(operator_weights(MUTATIONS))
+        if fit_available():
+            weights[PATH_FIT] = self.PATH_FIT_WEIGHT
+        return weights
 
     def mutate(
         self,
         content: str,
         operator: str | None = None,
         targets: dict[int, float] | None = None,
+        reference_png: bytes | None = None,
     ) -> tuple[str, str]:
+        """Apply one operator, which may be the target-aware path fit.
+
+        The fit is dispatched here rather than from the shared mutation table
+        because every entry in that table is a pure markup transform -- it never
+        sees the picture -- and the fit needs the reference and a render of the
+        rest of the drawing. Keeping it out of the table leaves that contract
+        intact for the other two backends.
+        """
+        wants_fit = operator == PATH_FIT or (
+            operator is None
+            and reference_png is not None
+            and fit_available()
+            and random.random() < self.PATH_FIT_WEIGHT
+        )
+        if wants_fit:
+            # Handing back the content unchanged is how an operator reports that
+            # it found nothing to do: the worker recognises it and charges the
+            # draw to this operator by name. Raising would need the exception
+            # from vector.worker, which formats must not depend on.
+            if reference_png is None or not fit_available():
+                return content, PATH_FIT
+            try:
+                return (
+                    fit_random_group(
+                        content,
+                        reference_png,
+                        rasterize=lambda svg, w, h: self.rasterize(svg, w, h),
+                        weights=targets,
+                    ),
+                    PATH_FIT,
+                )
+            except UnsupportedPathError as exc:
+                log.debug(f"Nothing to fit: {exc}")
+                return content, PATH_FIT
         return apply_mutation(content, operator, targets)
 
     def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:

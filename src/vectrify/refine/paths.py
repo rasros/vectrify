@@ -32,13 +32,19 @@ three -- are exactly the case that needs this.
 
 from __future__ import annotations
 
+import copy
+import io
 import itertools
 import logging
+import random
 import re
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:  # pragma: no cover - typing only
     from PIL import Image
+
+from vectrify.formats.svg.ownership import drawable_elements
 
 log = logging.getLogger(__name__)
 
@@ -200,7 +206,7 @@ def coverage(
     control: Any,
     width: float,
     box: tuple[int, int, int, int],
-    samples: int = 24,
+    samples: int = 8,
     softness: float = 0.25,
     chunk: int = 16384,
 ) -> Any:
@@ -297,6 +303,7 @@ def fit_group(
     backdrop: Image.Image,
     size: int = 700,
     steps: int = 200,
+    samples: int = 8,
     learning_rate: float = 0.4,
     margin: float = 24.0,
     redundancy: float = 0.15,
@@ -350,14 +357,20 @@ def fit_group(
 
     with torch.no_grad():
         mask = _focus_mask(
-            [coverage(controls_of(chain_of(r)), width, box) for r in rows],
+            [
+                coverage(controls_of(chain_of(r)), width, box, samples=samples)
+                for r in rows
+            ],
             int(margin),
         )
     weight = mask / mask.sum().clamp_min(1.0)
 
     first = last = 0.0
     for step in range(steps):
-        covers = [coverage(controls_of(chain_of(r)), width, box) for r in rows]
+        covers = [
+            coverage(controls_of(chain_of(r)), width, box, samples=samples)
+            for r in rows
+        ]
         stacked = torch.stack(covers)
         union = 1 - torch.prod(1 - stacked, dim=0)
         drawn = under * (1 - union)
@@ -385,11 +398,153 @@ def fit_group(
         if anchor:
             loss = loss + anchor * ((vertices - original) ** 2).mean()
         if step == 0:
-            first = float(loss)
+            first = float(loss.detach())
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
-        last = float(loss)
+        last = float(loss.detach())
 
     fitted = [knots_to_path_d(chain_of(r).detach().cpu().tolist()) for r in rows]
     return fitted, first, last
+
+
+PATH_FIT = "Mutation: path fit"
+
+
+def _stroke_width(element, root) -> float | None:
+    """The stroke width in force for *element*, or None if it is not stroked."""
+    for node in (element, root):
+        raw = node.get("stroke-width")
+        if raw:
+            try:
+                return abs(float(raw.rstrip("px")))
+            except ValueError:
+                return None
+    return None
+
+
+def fittable_groups(root) -> list[tuple[Any, list[Any], float]]:
+    """Groups whose every path this rasterizer can represent exactly.
+
+    A group rather than a path because paths that meet -- the two halves of a
+    bill -- have to move together, and a group is the drawing's own statement
+    about which those are.
+    """
+    out = []
+    for group in root.iter():
+        if group.tag.split("}")[-1] != "g":
+            continue
+        paths = [
+            child
+            for child in group
+            if child.tag.split("}")[-1] == "path" and child.get("d")
+        ]
+        if not paths:
+            continue
+        width = _stroke_width(group, root)
+        if width is None or width <= 0:
+            continue
+        try:
+            for path in paths:
+                to_knots(parse_cubics(path.get("d", "")))
+        except UnsupportedPathError:
+            continue
+        out.append((group, paths, width))
+    return out
+
+
+def fit_random_group(
+    svg: str,
+    reference_png: bytes,
+    *,
+    rasterize,
+    steps: int = 25,
+    samples: int = 8,
+    weights: Mapping[int, float] | None = None,
+) -> str:
+    """Fit one group's paths to the reference, returning the edited document.
+
+    Raises UnsupportedPathError when the drawing offers nothing this can fit,
+    which the caller reports as an operator that found nothing to change.
+
+    *weights* is the error attribution the other operators already use, keyed by
+    element index in document order; a group is drawn in proportion to the error
+    its own elements answer for, so the fit is spent where the drawing is wrong
+    rather than on whichever group came first.
+    """
+    import xml.etree.ElementTree as ET
+
+    from PIL import Image
+
+    root = ET.fromstring(svg)
+    candidates = fittable_groups(root)
+    if not candidates:
+        raise UnsupportedPathError("no group of stroked cubics to fit")
+
+    order = {id(el): index for index, el in enumerate(drawable_elements(root))}
+    scores = []
+    for _group, paths, _width in candidates:
+        error = sum((weights or {}).get(order.get(id(p), -1), 0.0) for p in paths)
+        scores.append(error)
+    total = sum(scores)
+    if total > 0:
+        group, paths, width = random.choices(candidates, weights=scores, k=1)[0]
+    else:
+        group, paths, width = random.choice(candidates)
+
+    size = int(_canvas_side(root))
+    target = Image.open(io.BytesIO(reference_png)).convert("L").resize((size, size))
+
+    # The backdrop is the drawing without this group, so the fit sees the rest
+    # of the picture as a constant and cannot be rewarded for redrawing it.
+    stripped = copy.deepcopy(root)
+    for parent in stripped.iter():
+        for child in list(parent):
+            if child.get("id") == group.get("id") and child.tag == group.tag:
+                parent.remove(child)
+    backdrop = Image.open(
+        io.BytesIO(rasterize(ET.tostring(stripped, encoding="unicode"), size, size))
+    ).convert("L")
+
+    fitted, _first, _last = fit_group(
+        [p.get("d", "") for p in paths],
+        width,
+        target,
+        backdrop,
+        size=size,
+        steps=steps,
+        samples=samples,
+    )
+    for path, data in zip(paths, fitted, strict=True):
+        path.set("d", data)
+    return ET.tostring(root, encoding="unicode")
+
+
+def _canvas_side(root) -> float:
+    box = root.get("viewBox", "").replace(",", " ").split()
+    if len(box) == 4:
+        try:
+            return max(abs(float(box[2])), abs(float(box[3]))) or 700.0
+        except ValueError:
+            pass
+    return 700.0
+
+
+def fit_available() -> bool:
+    """Whether fitting is cheap enough to hand a worker.
+
+    Gated on CUDA rather than on torch alone. Measured on one beak group at 25
+    steps: 0.5s on a GPU, 9.3s on one CPU thread, against about 1ms for an
+    ordinary mutation. At GPU speed the fit is a rare expensive operator the
+    policy can weigh against the others; at CPU speed it holds a worker for
+    seconds while its siblings complete thousands of tasks, which is not a
+    trade worth offering.
+    """
+    try:
+        import torch
+    except ImportError:
+        return False
+    try:
+        return bool(torch.cuda.is_available())
+    except Exception:  # pragma: no cover - driver trouble is not our business
+        return False

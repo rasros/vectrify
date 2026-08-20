@@ -70,8 +70,9 @@ class TypstPlugin(BaseFormatPlugin):
         content: str,
         operator: str | None = None,
         targets: dict[int, float] | None = None,
+        reference_png: bytes | None = None,
     ) -> tuple[str, str]:
-        _ = targets
+        _ = targets, reference_png
         return apply_mutation(content, operator)
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:

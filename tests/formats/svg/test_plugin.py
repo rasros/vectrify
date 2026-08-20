@@ -214,3 +214,45 @@ def test_a_usable_reply_is_still_applied():
     )
     assert 'r="3"' in edited
     assert "<svg" in plugin.extract_from_llm("here it is\n" + _PARENT)
+
+
+_STROKED = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<g id="curve" fill="none" stroke="#111111" stroke-width="3">'
+    '<path d="M 8 32 C 20 20 44 20 56 32" /></g></svg>'
+)
+
+
+def test_the_path_fit_is_only_offered_where_it_is_cheap_enough():
+    """It costs ~0.5s on a GPU against ~9s on one CPU thread, where an ordinary
+    mutation costs about a millisecond. Off the GPU it is not worth a worker.
+    """
+    from vectrify.refine.paths import PATH_FIT, fit_available
+
+    weights = SvgPlugin().mutation_weights()
+    assert (PATH_FIT in weights) == fit_available()
+    assert sum(weights.values()) > 0
+
+
+def test_asking_for_the_fit_without_a_reference_changes_nothing():
+    """Handing back the content is how an operator reports a blank draw; the
+    worker charges it to this operator by name rather than scoring a clone.
+    """
+    from vectrify.refine.paths import PATH_FIT
+
+    content, origin = SvgPlugin().mutate(_STROKED, operator=PATH_FIT)
+    assert content == _STROKED
+    assert origin == PATH_FIT
+
+
+def test_a_drawing_with_nothing_fittable_reports_a_blank_draw():
+    from vectrify.refine.paths import PATH_FIT
+
+    dots = (
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+        '<g id="dots" fill="#000000"><circle cx="10" cy="10" r="3" /></g></svg>'
+    )
+    png = SvgPlugin().rasterize(dots, 64, 64)
+    content, origin = SvgPlugin().mutate(dots, operator=PATH_FIT, reference_png=png)
+    assert content == dots
+    assert origin == PATH_FIT
