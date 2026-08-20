@@ -11,14 +11,16 @@ from collections import deque
 from collections.abc import Mapping
 from typing import Protocol
 
+from vectrify.score.metrics import SCORER_METRICS
+
 
 class OperatorPolicy(Protocol):
     def select(self) -> str | None:
         """Name the operator the next mutation task should apply."""
         ...
 
-    def update(self, operator: str | None, survived: bool) -> None:
-        """Report whether an operator's child survived its generation.
+    def update(self, operator: str | None, reward: float) -> None:
+        """Report what an operator's child earned, in [0, 1].
 
         *operator* is what the worker actually applied, which may be None or a
         name this policy does not know: crossover falls back to mutation, and
@@ -43,8 +45,8 @@ class FixedWeightPolicy:
             return None
         return random.choices(self._names, weights=self._weights, k=1)[0]
 
-    def update(self, operator: str | None, survived: bool) -> None:
-        _ = operator, survived
+    def update(self, operator: str | None, reward: float) -> None:
+        _ = operator, reward
 
 
 # Exploration rate. EXP3 mixes this much uniform noise into every draw, which
@@ -127,7 +129,7 @@ class Exp3Policy:
         self._drawn_with[name].append(probs[name])
         return name
 
-    def update(self, operator: str | None, survived: bool) -> None:
+    def update(self, operator: str | None, reward: float) -> None:
         if operator not in self._weights:
             return
 
@@ -138,7 +140,7 @@ class Exp3Policy:
         probability = drawn.popleft() if drawn else self.probabilities()[operator]
 
         count = len(self._names)
-        reward = 1.0 if survived else 0.0
+        reward = max(0.0, min(1.0, reward))
         self._weights[operator] *= math.exp(
             self._gamma * (reward / probability) / count
         )
@@ -155,3 +157,96 @@ class Exp3Policy:
         if largest > 1e6:
             for name in self._names:
                 self._weights[name] /= largest
+
+
+# How much of the running scale a child has to beat to earn the whole reward.
+# At 1.0 every second child saturates, since about half of them improve by more
+# than the typical step and the reward stops telling those apart; at 2.0 a step
+# twice the size of what the run is currently managing is what full credit
+# costs, which leaves the ordinary improvements spread across the range.
+_SATURATION = 2.0
+
+# EMA weight per observation for the per-objective scale, so the scale tracks
+# roughly the last hundred children. Long enough to be a stable denominator,
+# short enough to follow a run that is converging.
+_SCALE_MEMORY = 0.01
+
+# Below this a scale is not yet established -- the first children of a run,
+# before anything has been observed -- and dividing by it would turn the first
+# improvement of any size into full credit.
+_SCALE_FLOOR = 1e-12
+
+
+class GradedReward:
+    """How far a child improved on its parent, in [0, 1].
+
+    A binary survived-or-not reward pays an operator that changes nothing
+    about half the time, because a candidate the search cannot tell apart from
+    its parent survives wherever the parent does. Guarding that with a no-op
+    test only moves the problem: whatever the test calls a no-op, a change one
+    step past it collects full price. Nudging a colour channel by 8 clears an
+    exact-equality test while leaving the picture identical, and over one run it
+    took 65% of the policy's weight on a black-and-white line drawing having
+    moved the edge measure by 0.000003 on the one occasion it entered the
+    winning lineage. Grading by magnitude removes the line to walk past.
+
+    Improvements shrink as a run converges -- an early path fit moves the edge
+    measure by 0.01 and a late one by 0.0001 -- so absolute improvement would
+    decay until every operator scored zero and the policy stopped choosing.
+    Each objective is therefore divided by a running scale of how big a step
+    currently is, which keeps the operators comparable at every stage.
+    """
+
+    def __init__(
+        self,
+        names: tuple[str, ...] = SCORER_METRICS,
+        memory: float = _SCALE_MEMORY,
+        saturation: float = _SATURATION,
+    ):
+        self._names = names
+        self._memory = memory
+        self._saturation = saturation
+        self._scale = dict.fromkeys(names, 0.0)
+        self._seen = dict.fromkeys(names, 0)
+
+    def scales(self) -> dict[str, float]:
+        """The current per-objective step size, for reporting."""
+        return dict(self._scale)
+
+    def __call__(
+        self, parent: Mapping[str, float], child: Mapping[str, float]
+    ) -> float:
+        """Reward for *child*, whose parent measured *parent*.
+
+        The objectives are minimised, so a positive delta is an improvement.
+        """
+        deltas = {
+            name: float(parent[name]) - float(child[name])
+            for name in self._names
+            if name in parent and name in child
+        }
+        if not deltas:
+            return 0.0
+
+        # The first child of a run has no scale to be measured against, and an
+        # average that starts at zero and creeps up is worse than no scale at
+        # all: the second child would be divided by a hundredth of the first
+        # one's step and saturate whatever it did. So the first observation of
+        # an objective seeds the scale outright, which grades that one child
+        # against its own size -- exactly half the reward for an improvement of
+        # any magnitude, which is the neutral opening.
+        for name, delta in deltas.items():
+            if self._seen[name] == 0:
+                self._scale[name] = abs(delta)
+
+        total = 0.0
+        for name, delta in deltas.items():
+            scale = self._scale[name]
+            if scale > _SCALE_FLOOR:
+                total += delta / (scale * self._saturation)
+
+        for name, delta in deltas.items():
+            self._seen[name] += 1
+            self._scale[name] += self._memory * (abs(delta) - self._scale[name])
+
+        return max(0.0, min(1.0, total / len(deltas)))

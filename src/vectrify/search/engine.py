@@ -17,7 +17,7 @@ from vectrify.search.models import (
     SearchNode,
     Task,
 )
-from vectrify.search.operators import OperatorPolicy
+from vectrify.search.operators import GradedReward, OperatorPolicy
 
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
@@ -262,6 +262,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         # be ranked above or below it, so it is admitted wherever the parent
         # sits and reports back as a survivor. See _is_no_op.
         node_metrics = {n.id: dict(n.metrics) for n in initial_nodes}
+        # One scale for the whole run, so every operator's children are graded
+        # against the same notion of how big a step currently is.
+        graded_reward = GradedReward()
         # Each starting candidate is its own lineage; children inherit it.
         node_roots = {n.id: n.root_id or n.id for n in initial_nodes}
         # Origins outlive lineages: an epoch's LLM edit opens a lineage but
@@ -672,7 +675,17 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             for child in pending_children:
                 if operator_policy is not None:
-                    operator_policy.update(child.operator, child.id in kept)
+                    # Surviving is necessary and not sufficient: an operator
+                    # earns what its child actually improved on its parent, so
+                    # one that changes nothing perceptible scores nothing even
+                    # though nothing can rank it below the parent either.
+                    parent = node_metrics.get(child.parent_id)
+                    reward = (
+                        graded_reward(parent, child.metrics)
+                        if child.id in kept and parent is not None
+                        else 0.0
+                    )
+                    operator_policy.update(child.operator, reward)
                 if child.id in kept:
                     node_states[child.id] = child.state
                     node_metrics[child.id] = dict(child.metrics)
@@ -733,7 +746,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         def _process_local_result(res: Result) -> None:
             if _is_no_op(res):
                 if operator_policy is not None and res.operator is not None:
-                    operator_policy.update(res.operator, False)
+                    operator_policy.update(res.operator, 0.0)
                 if collector is not None:
                     collector.on_unchanged(res)
                 log.debug(
@@ -1045,7 +1058,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     # reward means. Leaving it unreported instead would park the
                     # operator at its prior weight and let it keep drawing.
                     if res.operator is not None and operator_policy is not None:
-                        operator_policy.update(res.operator, False)
+                        operator_policy.update(res.operator, 0.0)
                     if res.llm_type:
                         log.info(
                             f"[{res.llm_type.upper()} INVALID] "
