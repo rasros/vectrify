@@ -659,6 +659,10 @@ def _canvas_side(root) -> float:
     return 700.0
 
 
+# Enough device memory to be worth starting: a context plus the crop's tensors.
+_FIT_HEADROOM = 512 * 1024 * 1024
+
+
 def fit_available() -> bool:
     """Whether fitting is cheap enough to hand a worker.
 
@@ -674,7 +678,15 @@ def fit_available() -> bool:
     except ImportError:
         return False
     try:
-        return bool(torch.cuda.is_available())
+        if not torch.cuda.is_available():
+            return False
+        # Every worker that fits holds a CUDA context of a few hundred MB, and
+        # there are as many workers as cores. On a 16GB card with twenty of them
+        # that is most of the device before a single tensor is allocated, and a
+        # run that ran out failed thousands of tasks rather than skipping the
+        # operator. Ask whether there is room instead of finding out.
+        free, _total = torch.cuda.mem_get_info()
+        return free > _FIT_HEADROOM
     except Exception:  # pragma: no cover - driver trouble is not our business
         return False
 

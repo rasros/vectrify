@@ -134,6 +134,16 @@ class SvgPlugin:
             except UnsupportedPathError as exc:
                 log.debug(f"Nothing to fit: {exc}")
                 return content, PATH_FIT
+            except Exception as exc:
+                # A device that has run out is a reason to skip the operator,
+                # not to fail the task: one run turned an exhausted GPU into
+                # thousands of failed candidates. Anything else is a real bug
+                # and is left to propagate.
+                message = str(exc)
+                if "CUDA" in message or "out of memory" in message.lower():
+                    log.debug(f"No room to fit: {exc}")
+                    return content, PATH_FIT
+                raise
         return apply_mutation(content, operator, targets)
 
     def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
