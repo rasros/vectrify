@@ -1044,13 +1044,22 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if res is None:
                     continue
 
-                in_flight -= 1
-                tasks_completed += 1
+                # A derived candidate rode along in a reply that was already
+                # paid for: it never occupied a worker slot and was never
+                # dispatched, so it frees nothing and completes no task.
+                if not res.derived:
+                    in_flight -= 1
+                    tasks_completed += 1
 
+                # Belonging to the open batch and being one of its deliveries
+                # are different questions once a reply can carry several
+                # candidates. The extras belong -- they must not be dropped as
+                # having outlived the epoch -- but the batch is only satisfied
+                # by the calls it asked for.
                 in_batch = res.task_id in seed_task_ids
                 # Outlived its epoch: the pool it was measured against is gone.
                 stale = phase == SEED_PHASE and not in_batch
-                if in_batch:
+                if in_batch and not res.derived:
                     seeds_completed += 1
                     # A batch that came back short used to just run short. Ask
                     # for a replacement instead: the epoch is the only thing
@@ -1102,7 +1111,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                         log.debug(f"Task {res.task_id} rejected: {res.invalid_msg}")
                     if collector is not None:
                         collector.on_invalid(res)
-                elif in_batch:
+                elif in_batch and phase == SEED_PHASE:
                     _process_seed_result(res)
                 else:
                     _process_local_result(res)

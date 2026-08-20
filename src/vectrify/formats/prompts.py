@@ -59,6 +59,11 @@ block is a discarded call, not a verdict that the drawing is finished.
 though how the whitespace inside it is written does not matter.
 - Keep blocks small and focused; only change what needs to change.
 - Multiple blocks are allowed.
+- If you have more than one distinct improvement worth trying, separate them \
+with a line containing only ===ALTERNATIVE=== . Each section is judged on its \
+own and only the best is kept, so a section must carry every block its own \
+change needs, and two sections should be different attempts rather than one \
+change split in half.
 - If you cannot copy the text to replace exactly, output the complete \
 {subject} instead. That is worth more than a block that matches nothing: a \
 reply with neither is a discarded call."""

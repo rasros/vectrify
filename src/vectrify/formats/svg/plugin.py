@@ -7,6 +7,7 @@ from vectrify.formats.base import (
     NoUsableOutputError,
     apply_search_replace,
     describe_unusable,
+    split_alternatives,
 )
 from vectrify.formats.mutations import operator_weights
 from vectrify.formats.svg.normalize import normalize_svg
@@ -70,6 +71,24 @@ class SvgPlugin:
         if patched is None:
             patched = self._require_svg(extract_svg_fragment(raw), raw)
         return normalize_svg(patched)
+
+    def apply_edits(self, parent: str, raw: str) -> list[str]:
+        """Every attempt the reply offers, each a candidate of its own.
+
+        A section that will not apply is dropped rather than failing the rest:
+        a reply offering three attempts should not be discarded because one of
+        them misquoted the markup. If none apply, the single-edit path runs
+        again so the caller sees the same error it always did.
+        """
+        candidates: list[str] = []
+        for section in split_alternatives(raw):
+            try:
+                candidates.append(self.apply_edit(parent, section))
+            except Exception as exc:
+                log.debug(f"Dropping one alternative: {exc}")
+        if not candidates:
+            return [self.apply_edit(parent, raw)]
+        return candidates
 
     def build_generate_prompt(
         self,

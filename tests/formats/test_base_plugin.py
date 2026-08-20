@@ -170,3 +170,72 @@ def test_a_block_indented_differently_from_the_parent_applies():
     patched = apply_search_replace(parent, raw)
     assert patched is not None
     assert 'width="8"' in patched
+
+
+_CIRCLE_SVG = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="10" height="10">\n'
+    '  <circle cx="1" cy="2" r="3" />\n</svg>'
+)
+
+
+def test_a_reply_offering_several_attempts_becomes_several_candidates():
+    """An epoch's batch size and its LLM spend are the same number today: one
+    call, one candidate. Most of a call is the prompt, so a second attempt in
+    the same reply is nearly free."""
+    from vectrify.formats.svg.plugin import SvgPlugin
+
+    parent = _CIRCLE_SVG
+    raw = (
+        '<<<SEARCH>>>\n<circle cx="1" cy="2" r="3" />\n<<<REPLACE>>>\n'
+        '<circle cx="1" cy="2" r="4" />\n<<<END>>>\n'
+        "===ALTERNATIVE===\n"
+        '<<<SEARCH>>>\n<circle cx="1" cy="2" r="3" />\n<<<REPLACE>>>\n'
+        '<circle cx="1" cy="2" r="7" />\n<<<END>>>'
+    )
+    out = SvgPlugin().apply_edits(parent, raw)
+    assert len(out) == 2
+    assert 'r="4"' in out[0]
+    assert 'r="7"' in out[1]
+
+
+def test_one_unusable_attempt_does_not_discard_the_others():
+    from vectrify.formats.svg.plugin import SvgPlugin
+
+    parent = _CIRCLE_SVG
+    raw = (
+        '<<<SEARCH>>>\n<rect width="9" />\n<<<REPLACE>>>\n'
+        '<rect width="8" />\n<<<END>>>\n'
+        "===ALTERNATIVE===\n"
+        '<<<SEARCH>>>\n<circle cx="1" cy="2" r="3" />\n<<<REPLACE>>>\n'
+        '<circle cx="1" cy="2" r="5" />\n<<<END>>>'
+    )
+    out = SvgPlugin().apply_edits(parent, raw)
+    assert len(out) == 1
+    assert 'r="5"' in out[0]
+
+
+def test_a_reply_where_nothing_applies_still_raises():
+    """So the caller reports it and the seed retry asks for a replacement."""
+    from vectrify.formats.base import NoEditAppliedError
+    from vectrify.formats.svg.plugin import SvgPlugin
+
+    parent = _CIRCLE_SVG
+    raw = (
+        '<<<SEARCH>>>\n<rect width="9" />\n<<<REPLACE>>>\n'
+        '<rect width="8" />\n<<<END>>>\n'
+        "===ALTERNATIVE===\n"
+        '<<<SEARCH>>>\n<rect width="7" />\n<<<REPLACE>>>\n<rect width="6" />\n<<<END>>>'
+    )
+    with pytest.raises(NoEditAppliedError):
+        SvgPlugin().apply_edits(parent, raw)
+
+
+def test_an_ordinary_reply_is_one_candidate():
+    from vectrify.formats.svg.plugin import SvgPlugin
+
+    parent = _CIRCLE_SVG
+    raw = (
+        '<<<SEARCH>>>\n<circle cx="1" cy="2" r="3" />\n<<<REPLACE>>>\n'
+        '<circle cx="1" cy="2" r="4" />\n<<<END>>>'
+    )
+    assert len(SvgPlugin().apply_edits(parent, raw)) == 1
