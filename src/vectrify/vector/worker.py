@@ -129,6 +129,24 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                     )
 
                     gen_config = LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
+                    # Only for an edit: there is no parent to inspect
+                    # otherwise. Costs a render per drawable element at
+                    # thumbnail size against an LLM call about to take
+                    # seconds, and it is the one operator that can act on the
+                    # answer.
+                    invisible: list[str] = []
+                    if has_content:
+                        try:
+                            invisible = plugin.invisible_elements(
+                                parent.payload.content
+                            )
+                            if invisible:
+                                log.debug(
+                                    f"{len(invisible)} element(s) paint nothing "
+                                    f"in parent {task.parent_id}"
+                                )
+                        except Exception as exc:
+                            log.debug(f"Invisible-element check failed: {exc}")
                     gen_prompt = plugin.build_generate_prompt(
                         ctx.image_data_url,
                         task.parent_id,
@@ -137,6 +155,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         goal=ctx.goal,
                         canvas=(ctx.original_w, ctx.original_h),
                         source_name=ctx.source_name,
+                        invisible=invisible,
                     )
                     log.debug(
                         f"LLM call [generate] task={task.task_id} "

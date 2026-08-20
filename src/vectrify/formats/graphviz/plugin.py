@@ -138,6 +138,10 @@ class GraphvizPlugin(BaseFormatPlugin):
         # parents cannot misplace anything.
         canvas: tuple[int, int],  # noqa: ARG002 - layout engine owns positions
         source_name: str | None = None,
+        # Accepted and ignored: reporting elements that paint nothing needs a
+        # renderer that can draw one element at a time, which these backends
+        # hand off to an external tool. Same limit as `element_targets`.
+        invisible: list[str] | None = None,  # noqa: ARG002
     ) -> list[dict]:
         return build_dot_gen_prompt(
             image_data_url=image_data_url,

@@ -51,6 +51,10 @@ class TypstPlugin(BaseFormatPlugin):
         goal: str | None,
         canvas: tuple[int, int],
         source_name: str | None = None,
+        # Accepted and ignored: reporting elements that paint nothing needs a
+        # renderer that can draw one element at a time, which these backends
+        # hand off to an external tool. Same limit as `element_targets`.
+        invisible: list[str] | None = None,  # noqa: ARG002
     ) -> list[dict]:
         return build_typst_gen_prompt(
             image_data_url=image_data_url,

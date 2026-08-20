@@ -1,5 +1,6 @@
 import logging
 import random
+import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 
 from vectrify.formats.base import (
@@ -14,6 +15,7 @@ from vectrify.formats.svg.operations import (
     apply_crossover,
     apply_mutation,
 )
+from vectrify.formats.svg.ownership import describe_invisible, invisible_elements
 from vectrify.formats.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
@@ -76,6 +78,7 @@ class SvgPlugin:
         goal: str | None,
         canvas: tuple[int, int],
         source_name: str | None = None,
+        invisible: list[str] | None = None,
     ) -> list[dict]:
         return build_svg_gen_prompt(
             image_data_url,
@@ -85,6 +88,7 @@ class SvgPlugin:
             goal=goal,
             canvas=canvas,
             source_name=source_name,
+            invisible=invisible,
         )
 
     def mutation_weights(self) -> Mapping[str, float]:
@@ -148,6 +152,21 @@ class SvgPlugin:
 
     def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
         return element_targets(content, reference_png)
+
+    def invisible_elements(self, content: str) -> list[str]:
+        """Elements that paint nothing, for the edit prompt to name.
+
+        The model cannot see this: on screen the element simply is not there,
+        and in the markup it looks like any other. An LLM edit is also the only
+        operator that can fix it, since making an occluded element visible needs
+        its order changed and its position moved in one move, and the mutation
+        operators each do one of those.
+        """
+        try:
+            root = ET.fromstring(content)
+        except ET.ParseError:
+            return []
+        return describe_invisible(root, invisible_elements(root))
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         return apply_crossover(content_a, content_b)
