@@ -1613,3 +1613,104 @@ def test_seed_retries_are_bounded():
         llm_tasks += 1 if engine.task_q.get().force_llm else 0
     # Two asked for plus at most two replacements.
     assert llm_tasks <= 4
+
+
+def test_a_derived_candidate_completes_no_task_and_frees_no_slot():
+    """A second candidate out of one reply was never dispatched. Counted as a
+    task it would end the run early on --max-total-tasks; counted as a batch
+    delivery it would close the seed phase before the calls came back."""
+
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
+    )
+    for derived in (False, True):
+        engine.unscored_q.put(
+            Result(
+                task_id=1,
+                parent_id=1,
+                valid=True,
+                measured=True,
+                payload="p",
+                metrics={"edge": 0.4},
+                llm_type="llm-generate",
+                derived=derived,
+            )
+        )
+    engine.unscored_q.put(
+        Result(
+            task_id=2,
+            parent_id=1,
+            valid=True,
+            measured=True,
+            payload="p",
+            metrics={"edge": 0.3},
+            llm_type="llm-generate",
+        )
+    )
+    store = FakeStorage()
+    engine.storage = store
+    engine.run(
+        initial_nodes=[
+            SearchNode(
+                valid=True,
+                id=1,
+                parent_id=0,
+                state=ChainState(payload=None),
+                metrics={"edge": 0.5},
+            )
+        ],
+        max_wall_seconds=None,
+        epoch_seeds=2,
+        initial_seeds=2,
+        active_pool_size=4,
+        generation_size=1,
+        epoch_patience=1,
+    )
+    # Two dispatched tasks satisfy a batch of two; the derived candidate rides
+    # along without being one of them.
+    assert store.save_called
+
+
+def test_a_derived_seed_candidate_is_not_dropped_as_stale(caplog):
+    """It belongs to the open batch even though it is not one of its
+    deliveries. Treating it as an outlived local result would throw away a
+    candidate that was already paid for."""
+
+    engine = MultiprocessSearchEngine(
+        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=1
+    )
+    # Extras first, the dispatched one last, which is the order the worker
+    # emits them in: delivering the asked-for call is what closes the batch.
+    for derived in (True, True, False):
+        engine.unscored_q.put(
+            Result(
+                task_id=1,
+                parent_id=1,
+                valid=True,
+                measured=True,
+                payload="p",
+                metrics={"edge": 0.4},
+                llm_type="llm-generate",
+                derived=derived,
+            )
+        )
+    with caplog.at_level(logging.INFO):
+        engine.run(
+            initial_nodes=[
+                SearchNode(
+                    valid=True,
+                    id=1,
+                    parent_id=0,
+                    state=ChainState(payload=None),
+                    metrics={"edge": 0.5},
+                )
+            ],
+            max_wall_seconds=None,
+            epoch_seeds=1,
+            initial_seeds=1,
+            active_pool_size=4,
+            generation_size=1,
+            epoch_patience=1,
+        )
+    # One call asked for, three candidates accepted out of it, none dropped.
+    assert caplog.text.count("[LLM-GENERATE ACCEPTED]") == 3

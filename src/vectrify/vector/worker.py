@@ -162,10 +162,10 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         f"parent={task.parent_id} model={ctx.llm_model}"
                     )
                     raw = client.generate(gen_prompt, gen_config)
-                    content = (
-                        plugin.apply_edit(parent.payload.content, raw)
+                    contents = (
+                        plugin.apply_edits(parent.payload.content, raw)
                         if has_content
-                        else plugin.extract_from_llm(raw)
+                        else [plugin.extract_from_llm(raw)]
                     )
                     origin = "llm edit"
                 finally:
@@ -182,6 +182,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                     parent.payload.content,
                     secondary_content,
                 )
+                contents = [content]
 
             else:
                 source = parent.payload.content
@@ -202,6 +203,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                     target_cache[key],
                     reference_png=ctx.original_png_bytes,
                 )
+                contents = [content]
 
             # An operator that could not find anything to change hands back the
             # parent it was given, and nothing downstream can tell that apart
@@ -210,48 +212,70 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
             # to the operator policy as a success. Catch it here, where the
             # parent is still in hand, so the draw resolves as a failure
             # instead of as free reward.
-            if not use_llm and content == parent.payload.content:
+            if not use_llm and contents[0] == parent.payload.content:
                 raise NoChangeError(origin)
 
-            valid, err = plugin.validate(content)
-            if not valid:
-                raise ValueError(err)
+            # A reply can offer several attempts, each its own candidate. Only
+            # the first was dispatched as a task, so the rest are marked
+            # derived: they compete like any other candidate but must not be
+            # counted as tasks completed, worker slots freed, or seeds of the
+            # batch delivered. If every one of them fails to validate the task
+            # fails, which is what a single bad edit always did.
+            built: list[Result] = []
+            last_error: Exception | None = None
+            for content in contents:
+                valid, err = plugin.validate(content)
+                if not valid:
+                    last_error = ValueError(err)
+                    continue
 
-            png = plugin.rasterize(
-                content,
-                out_w=ctx.original_w,
-                out_h=ctx.original_h,
-            )
-            signature = simhash(content)
-
-            full_img = Image.open(io.BytesIO(png)).convert("RGB")
-            preview_img = resize_long_side(full_img, ctx.resolution_llm)
-            preview_buf = io.BytesIO()
-            preview_img.save(preview_buf, format="PNG")
-            preview_data_url = png_bytes_to_data_url(preview_buf.getvalue())
-
-            result_q.put(
-                Result(
-                    task_id=task.task_id,
-                    parent_id=task.parent_id,
-                    valid=True,
-                    measured=False,
-                    payload=VectorResultPayload(
-                        content=content,
-                        raster_png=png,
-                        origin=origin,
-                        raster_preview_data_url=preview_data_url,
-                    ),
-                    secondary_parent_id=task.secondary_parent_id,
-                    metrics={},
-                    signature=signature,
-                    llm_type=llm_type,
-                    # What actually ran, not what was asked for: crossover can
-                    # fall back to mutation, and a task can name an operator
-                    # this backend does not have.
-                    operator=None if use_llm else origin,
+                png = plugin.rasterize(
+                    content,
+                    out_w=ctx.original_w,
+                    out_h=ctx.original_h,
                 )
-            )
+                signature = simhash(content)
+
+                full_img = Image.open(io.BytesIO(png)).convert("RGB")
+                preview_img = resize_long_side(full_img, ctx.resolution_llm)
+                preview_buf = io.BytesIO()
+                preview_img.save(preview_buf, format="PNG")
+                preview_data_url = png_bytes_to_data_url(preview_buf.getvalue())
+
+                built.append(
+                    Result(
+                        task_id=task.task_id,
+                        parent_id=task.parent_id,
+                        valid=True,
+                        measured=False,
+                        payload=VectorResultPayload(
+                            content=content,
+                            raster_png=png,
+                            origin=origin,
+                            raster_preview_data_url=preview_data_url,
+                        ),
+                        secondary_parent_id=task.secondary_parent_id,
+                        metrics={},
+                        signature=signature,
+                        llm_type=llm_type,
+                        # What actually ran, not what was asked for: crossover
+                        # can fall back to mutation, and a task can name an
+                        # operator this backend does not have.
+                        operator=None if use_llm else origin,
+                    )
+                )
+
+            if not built:
+                raise last_error or ValueError("no candidate could be built")
+
+            # Extras first, the dispatched one last. Delivering the asked-for
+            # call is what closes the seed batch and installs the epoch's pool,
+            # so a sibling arriving after it would land in a pool already
+            # installed and be thrown away.
+            for extra in built[1:]:
+                extra.derived = True
+                result_q.put(extra)
+            result_q.put(built[0])
 
         except Exception as e:
             if isinstance(e, NoChangeError):

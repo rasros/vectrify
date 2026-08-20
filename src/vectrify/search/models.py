@@ -78,3 +78,8 @@ class Result(Generic[TResultPayload]):
     # Echoed back from the task: results arrive out of order and some never
     # arrive at all, so carrying it beats a pending-task map in the engine.
     operator: str | None = None
+    # A second or third candidate out of one LLM reply, sharing the task id of
+    # the first. It is a candidate like any other and becomes a node, but it
+    # was never dispatched, so it must not be counted as a task completed, a
+    # slot freed, or a seed of the batch delivered.
+    derived: bool = False
