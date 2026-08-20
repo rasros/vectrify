@@ -90,6 +90,7 @@ class Exp3Policy:
         operators: Mapping[str, float] | list[str],
         gamma: float = DEFAULT_GAMMA,
         alpha: float = DEFAULT_ALPHA,
+        reward_scale: Mapping[str, float] | None = None,
     ):
         self._names = list(operators)
         # Start from the weights the table supplied rather than flat, which is
@@ -118,6 +119,9 @@ class Exp3Policy:
         # written to express.
         total_prior = sum(self._weights.values()) or 1.0
         self._prior = {name: w / total_prior for name, w in self._weights.items()}
+        # Rewards are per draw, and a draw is not the same size for every
+        # operator. Which ones cost more is the backend's business.
+        self._reward_scale = dict(reward_scale or {})
         self._gamma = gamma
         self._alpha = alpha
         # The probability each outstanding draw was made with. Results come
@@ -157,7 +161,7 @@ class Exp3Policy:
         probability = drawn.popleft() if drawn else self.probabilities()[operator]
 
         count = len(self._names)
-        reward = max(0.0, min(1.0, reward))
+        reward = max(0.0, min(1.0, reward)) * self._reward_scale.get(operator, 1.0)
         self._weights[operator] *= math.exp(
             self._gamma * (reward / probability) / count
         )

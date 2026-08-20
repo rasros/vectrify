@@ -216,3 +216,25 @@ def test_a_bigger_improvement_earns_more():
     small = grade({"edge": 0.4}, {"edge": 0.398})
     bigger = grade({"edge": 0.4}, {"edge": 0.395})
     assert bigger > small > 0.0
+
+
+def test_a_discounted_operator_needs_to_earn_more_to_hold_its_share():
+    """An expensive operator can be the best arm per draw and still be the
+    wrong way to spend the next second. Halving its reward is the discount, so
+    an equal run of results has to leave it below an undiscounted rival."""
+    policy = Exp3Policy({"cheap": 0.5, "dear": 0.5}, reward_scale={"dear": 0.5})
+    for _ in range(500):
+        policy.update("cheap", reward=0.6)
+        policy.update("dear", reward=0.6)
+    probabilities = policy.probabilities()
+    assert probabilities["cheap"] > probabilities["dear"]
+
+
+def test_an_operator_with_no_discount_is_untouched():
+    plain = Exp3Policy({"a": 0.5, "b": 0.5})
+    scaled = Exp3Policy({"a": 0.5, "b": 0.5}, reward_scale={"c": 0.5})
+    for _ in range(200):
+        for policy in (plain, scaled):
+            policy.update("a", reward=0.8)
+            policy.update("b", reward=0.2)
+    assert plain.probabilities() == scaled.probabilities()
