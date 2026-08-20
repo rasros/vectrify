@@ -310,3 +310,54 @@ def test_an_unstroked_group_is_not_fittable():
         '<path d="M 8 32 C 20 20 44 20 56 32" /></g></svg>'
     )
     assert fittable_groups(ET.fromstring(filled)) == []
+
+
+def test_a_full_device_skips_the_fit_instead_of_failing_the_task():
+    """One run turned an exhausted GPU into thousands of failed candidates.
+    Every worker that fits holds a context of a few hundred MB and there are as
+    many workers as cores, so running out is a normal condition, not a bug.
+    """
+    import vectrify.refine.paths as paths
+    from vectrify.refine.paths import PATH_FIT
+
+    plugin = SvgPlugin()
+    png = plugin.rasterize(_STROKED, 64, 64)
+    original = paths.fit_random_group
+
+    def out_of_memory(*_args, **_kwargs):
+        raise RuntimeError("CUDA error: out of memory")
+
+    from vectrify.formats.svg import plugin as plugin_module
+
+    plugin_module.fit_random_group = out_of_memory
+    plugin_module.fit_available = lambda: True
+    try:
+        content, origin = plugin.mutate(_STROKED, operator=PATH_FIT, reference_png=png)
+    finally:
+        plugin_module.fit_random_group = original
+        plugin_module.fit_available = paths.fit_available
+
+    assert content == _STROKED
+    assert origin == PATH_FIT
+
+
+def test_an_unrelated_failure_in_the_fit_is_not_swallowed():
+    import vectrify.refine.paths as paths
+    from vectrify.formats.svg import plugin as plugin_module
+    from vectrify.refine.paths import PATH_FIT
+
+    plugin = SvgPlugin()
+    png = plugin.rasterize(_STROKED, 64, 64)
+    original = plugin_module.fit_random_group
+
+    def bug(*_args, **_kwargs):
+        raise ValueError("something genuinely wrong")
+
+    plugin_module.fit_random_group = bug
+    plugin_module.fit_available = lambda: True
+    try:
+        with pytest.raises(ValueError, match="genuinely wrong"):
+            plugin.mutate(_STROKED, operator=PATH_FIT, reference_png=png)
+    finally:
+        plugin_module.fit_random_group = original
+        plugin_module.fit_available = paths.fit_available
