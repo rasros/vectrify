@@ -117,3 +117,56 @@ def test_apply_search_replace_allows_partial_application(caplog):
     assert out is not None
     assert 'fill="blue"' in out
     assert "1/2" in caplog.text
+
+
+def test_a_block_that_differs_only_in_whitespace_still_applies():
+    """Measured on one run, 3 of 5 failed seed edits were blocks whose SEARCH
+    text differed from the parent only in whitespace -- the edit was right and
+    the transcription was not, and the whole paid call was discarded."""
+    from vectrify.formats.base import apply_search_replace
+
+    parent = '<svg>\n  <circle cx="1" cy="2" r="3" fill="#000" />\n</svg>'
+    raw = (
+        "<<<SEARCH>>>\n"
+        '<circle cx="1"   cy="2"\n     r="3" fill="#000" />\n'
+        "<<<REPLACE>>>\n"
+        '<circle cx="1" cy="2" r="9" fill="#000" />\n'
+        "<<<END>>>"
+    )
+    patched = apply_search_replace(parent, raw)
+    assert patched is not None
+    assert 'r="9"' in patched
+
+
+def test_loose_matching_does_not_negotiate_anything_but_whitespace():
+    """A block naming an element that is not there must still fail, or a paid
+    call silently patches the wrong part of the drawing."""
+    from vectrify.formats.base import NoEditAppliedError, apply_search_replace
+
+    parent = '<svg>\n  <circle cx="1" cy="2" r="3" />\n</svg>'
+    raw = (
+        "<<<SEARCH>>>\n"
+        '<circle cx="1" cy="2" r="4" />\n'
+        "<<<REPLACE>>>\n"
+        '<circle cx="1" cy="2" r="9" />\n'
+        "<<<END>>>"
+    )
+    with pytest.raises(NoEditAppliedError):
+        apply_search_replace(parent, raw)
+
+
+def test_a_block_indented_differently_from_the_parent_applies():
+    """A block copied out of the markup carries the surrounding indentation."""
+    from vectrify.formats.base import apply_search_replace
+
+    parent = '<svg>\n    <rect width="4" height="5" />\n</svg>'
+    raw = (
+        "<<<SEARCH>>>\n"
+        '  <rect width="4" height="5" />  \n'
+        "<<<REPLACE>>>\n"
+        '<rect width="8" height="5" />\n'
+        "<<<END>>>"
+    )
+    patched = apply_search_replace(parent, raw)
+    assert patched is not None
+    assert 'width="8"' in patched

@@ -15,6 +15,22 @@ _SEARCH_REPLACE_RE = re.compile(
 )
 
 
+def _loose_match(haystack: str, needle: str) -> tuple[int, int] | None:
+    """Where *needle* sits in *haystack*, ignoring how whitespace is written.
+
+    Returns the half-open span, or None. Only whitespace is negotiable: every
+    other character still has to match, so this cannot silently patch the wrong
+    element. Leading and trailing whitespace on the needle is dropped, since a
+    block copied out of the markup usually carries the surrounding indentation.
+    """
+    stripped = needle.strip()
+    if not stripped:
+        return None
+    pattern = r"\s+".join(re.escape(part) for part in stripped.split())
+    found = re.search(pattern, haystack)
+    return found.span() if found else None
+
+
 class NoEditAppliedError(ValueError):
     """Raised when diff blocks were present but none matched the parent."""
 
@@ -68,6 +84,20 @@ def apply_search_replace(parent: str, raw: str) -> str | None:
         if search in result:
             result = result.replace(search, replace, 1)
             applied += 1
+            continue
+        # Exact matching failed, which is usually transcription rather than a
+        # wrong edit: the model has to copy the markup back byte for byte, and
+        # measured on one run 3 of 5 failed seed edits were blocks whose SEARCH
+        # text differed from the parent only in whitespace. The edit itself was
+        # fine. So try again treating any run of whitespace as equivalent to
+        # any other, which is exactly the freedom XML already gives between
+        # attributes and tags.
+        span = _loose_match(result, search)
+        if span is not None:
+            start, end = span
+            result = result[:start] + replace + result[end:]
+            applied += 1
+            log.debug("Applied a search/replace block on whitespace alone.")
 
     if applied == 0:
         raise NoEditAppliedError(
