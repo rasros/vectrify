@@ -139,6 +139,8 @@ def main():
             epoch_max_tasks=args.epoch_max_tasks,
             epoch_eval_interval=args.epoch_eval_interval,
             epoch_eval_patience=args.epoch_eval_patience,
+            epoch_improvement=args.epoch_improvement,
+            epoch_improvement_patience=args.epoch_improvement_patience,
             tournament_size=args.tournament_size,
             adaptive_operators=args.adaptive_operators,
             epochs=args.epochs,

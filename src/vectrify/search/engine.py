@@ -186,6 +186,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_max_tasks: int | None = None,
         epoch_eval_interval: int | None = None,
         epoch_eval_patience: int | None = None,
+        epoch_improvement: float = 0.0,
+        epoch_improvement_patience: int = 1,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
     ) -> None:
@@ -316,6 +318,22 @@ class MultiprocessSearchEngine(Generic[TState]):
         # check is the evaluator's own observation, which is the thing whose
         # failures are being counted.
         checks_without_gain = 0
+        # The evaluator's best as it stood when the current epoch opened, and
+        # how many consecutive epochs have failed to beat it by the required
+        # margin. This is a run-level test, and deliberately separate from
+        # checks_without_gain, which ends one epoch so the model can re-seed:
+        # an epoch ending is a decision to try a different starting point,
+        # while this is the decision that trying again is not paying for
+        # itself. It also asks a different question from staleness, which
+        # counts tasks since anything reached the top tier of the cheap
+        # measures -- on a measured run the evaluator found a better candidate
+        # 16 seconds before staleness ended the epoch, so the two disagree
+        # about whether a run is still going anywhere.
+        panel_at_epoch_open: float | None = None
+        epochs_without_gain = 0
+        # Set when the epochs stop paying, so the loop stops without the
+        # transition having opened a seed batch it is about to discard.
+        epochs_exhausted = False
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
         pool_refilling = False  # True until a fresh epoch's pool reaches capacity
@@ -736,6 +754,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         def _do_epoch_transition(reason: str) -> None:
             nonlocal epoch, epoch_started_at, checks_without_gain
+            nonlocal panel_at_epoch_open, epochs_without_gain, epochs_exhausted
 
             epoch_started_at = tasks_completed
             # The evaluator's best carries across epochs -- it is an absolute
@@ -755,6 +774,29 @@ class MultiprocessSearchEngine(Generic[TState]):
                 # The run loop is about to stop; a batch opened here would be
                 # paid for and discarded.
                 return
+
+            # Ask the evaluator what the epoch just ended actually bought,
+            # before deciding to pay for another batch of seeds. The pool it
+            # sees is the one the epoch finished with, since _close_generation
+            # has already run. A second call here is close to free: the score
+            # is absolute and cached per node, so re-ranking the same field in
+            # _begin_seed_phase re-prices only what is new.
+            _run_panel_check()
+            if epoch_improvement_patience > 0 and best_panel is not None:
+                if panel_at_epoch_open is not None:
+                    if panel_at_epoch_open - best_panel > epoch_improvement:
+                        epochs_without_gain = 0
+                    else:
+                        epochs_without_gain += 1
+                panel_at_epoch_open = best_panel
+                if epochs_without_gain >= epoch_improvement_patience:
+                    log.info(
+                        f"Epochs stopped paying: {epochs_without_gain} in a row "
+                        f"improved the evaluator's best by no more than "
+                        f"{epoch_improvement:g} (best {best_panel:.6f})."
+                    )
+                    epochs_exhausted = True
+                    return
             _begin_seed_phase()
 
         def _run_panel_check() -> None:
@@ -767,6 +809,12 @@ class MultiprocessSearchEngine(Generic[TState]):
             new work, not about the size of the field.
             """
             nonlocal best_panel, last_eval_at, checks_without_gain, best_node
+
+            # Before anything else, including ranking a field: with no
+            # evaluator there is no check to run, and building the field costs
+            # the strategy a pass over the pool for a verdict nobody can give.
+            if self.rank_front is None:
+                return
 
             last_eval_at = tasks_completed
             checks_without_gain += 1
@@ -948,6 +996,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                     break
                 if epochs is not None and epoch >= epochs:
                     log.info(f"Max epochs ({epochs}) reached.")
+                    break
+                if epochs_exhausted:
                     break
 
                 _dispatch_tasks()
