@@ -13,6 +13,7 @@ from vectrify.formats.svg.ownership import (
     overlaps,
     owner_labels,
 )
+from vectrify.formats.svg.pathdata import PATH_TOKEN_RE
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -62,7 +63,7 @@ _NUM_RE = re.compile(r"^(-?\d+(?:\.\d+)?)([a-z%]*)$")
 _PATH_NUM_RE = re.compile(r"(-?(?:\d+\.\d+|\.\d+|\d+))")
 # Path data as commands and numbers, so an argument can be read in the context
 # of the command it belongs to.
-_PATH_TOKEN_RE = re.compile(r"([MmLlHhVvCcSsQqTtAaZz])|(-?(?:\d+\.\d+|\.\d+|\d+))")
+_PATH_TOKEN_RE = PATH_TOKEN_RE
 _HEX_COLOR_RE = re.compile(r"#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})")
 # How far one channel may move in a single mutation.
 _COLOR_STEP = 8

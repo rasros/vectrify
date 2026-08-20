@@ -56,8 +56,8 @@ class FakePlugin:
         _ = content, reference_png
         return {}
 
-    def mutate(self, content, operator=None, targets=None):
-        _ = targets
+    def mutate(self, content, operator=None, targets=None, reference_png=None):
+        _ = targets, reference_png
         self.mutate_ops.append(operator)
         self.mutate_calls += 1
         return self._edited(content), "mutation"

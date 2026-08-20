@@ -178,7 +178,10 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
                         log.debug(f"Error attribution failed: {exc}")
                         target_cache[key] = {}
                 content, origin = plugin.mutate(
-                    source, task.operator, target_cache[key]
+                    source,
+                    task.operator,
+                    target_cache[key],
+                    reference_png=ctx.original_png_bytes,
                 )
 
             # An operator that could not find anything to change hands back the
