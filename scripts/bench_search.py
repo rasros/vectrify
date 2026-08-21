@@ -170,6 +170,10 @@ def run_case(case: Path, seed: int, args) -> dict:
         ]
         if not args.adaptive_operators:
             cmd.append("--no-adaptive-operators")
+        # Arbitrary flags, so an A/B of one setting runs both arms from the same
+        # commit. Two arms in separate worktrees is how a comparison silently
+        # ends up measuring the environment instead of the change.
+        cmd.extend(args.extra)
         done = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO)
         if done.returncode != 0:
             raise SystemExit(
@@ -215,6 +219,7 @@ def cmd_run(args) -> None:
         "config": {
             "tasks": args.tasks,
             "reps": args.reps,
+            "extra": " ".join(args.extra),
             "workers": args.workers,
             "resolution": args.resolution,
             "scorer": args.scorer,
@@ -337,6 +342,14 @@ def main() -> None:
     )
     run.add_argument("--epochs", type=int, default=1, metavar="N")
     run.add_argument("--seed-base", type=int, default=1000, dest="seed_base")
+    run.add_argument(
+        "--extra",
+        nargs=argparse.REMAINDER,
+        default=[],
+        metavar="ARG",
+        help="Remaining arguments are passed to every vectrify invocation, so "
+        "one setting can be A/B'd from a single commit. Must come last.",
+    )
     run.add_argument(
         "--adaptive-operators",
         dest="adaptive_operators",
