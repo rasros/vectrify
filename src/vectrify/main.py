@@ -144,6 +144,7 @@ def main():
             epoch_improvement=args.epoch_improvement,
             epoch_improvement_patience=args.epoch_improvement_patience,
             tournament_size=args.tournament_size,
+            crossover_distance=args.crossover_distance,
             adaptive_operators=args.adaptive_operators,
             epochs=args.epochs,
             max_total_tasks=args.max_total_tasks,
