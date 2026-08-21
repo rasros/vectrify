@@ -41,8 +41,6 @@ class SvgPlugin:
     # millisecond, so it opens on a small share of the draws and the policy
     # moves it from there on what it actually returns.
     PATH_FIT_WEIGHT = 0.03
-    # Halved: a draw of the fit is 0.5s of GPU against ~1ms for the others.
-    PATH_FIT_REWARD_SCALE = 0.5
 
     def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
         return rasterize_svg_to_png_bytes(content, out_w=out_w, out_h=out_h)
@@ -117,10 +115,6 @@ class SvgPlugin:
         if fit_available():
             weights[PATH_FIT] = self.PATH_FIT_WEIGHT
         return weights
-
-    def operator_reward_scale(self) -> Mapping[str, float]:
-        """The path fit's reward, discounted for what a draw of it costs."""
-        return {PATH_FIT: self.PATH_FIT_REWARD_SCALE}
 
     def mutate(
         self,
