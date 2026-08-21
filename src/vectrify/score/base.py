@@ -37,6 +37,14 @@ class Scorer(ABC):
     @abstractmethod
     def score(self, reference: Any, candidate_png: bytes) -> float: ...
 
+    def validate_environment(self) -> None:  # noqa: B027 - a hook, not a stub
+        """Raise if this scorer cannot run here.
+
+        Called before a run commits to a scorer, so asking for one that cannot
+        load fails immediately rather than at the first epoch boundary. A
+        scorer with no dependencies beyond numpy and PIL has nothing to check.
+        """
+
     def score_many(self, reference: Any, candidate_pngs: list[bytes]) -> list[float]:
         """Score several candidates at once.
 

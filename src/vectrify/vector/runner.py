@@ -1,3 +1,4 @@
+import contextlib
 import io
 import logging
 import os
@@ -32,7 +33,7 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm.models import api_key_env
-from vectrify.score import ScorerType, get_scorer
+from vectrify.score import ScorerType, choose_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
 from vectrify.score.complexity import detail, detail_excess
@@ -330,14 +331,26 @@ def run_vector_search(
             f"(batch={epoch_seeds}, already seeded={epoch_seeds - first_batch})"
         )
 
-    # Built on first use so a run that never reaches an epoch boundary -- and a
-    # machine without CUDA using --scorer simple -- never pays for the model.
+    # Chosen now rather than at the first epoch boundary. The choice decides
+    # what every score in this run means, so a run that cannot have the scorer
+    # it asked for should fail before it spends anything, and one that silently
+    # degrades has to leave a record something downstream can read.
+    choice = choose_scorer(scorer_type, vision_model=vision_model)
+    if storage.current_run_dir is not None:
+        with contextlib.suppress(OSError):
+            (storage.current_run_dir / "scorer.txt").write_text(choice.as_record())
+    if choice.degraded:
+        log.error(f"This run is NOT comparable with a {choice.requested} run.")
+
+    # The reference is still built on first use: a run that never reaches an
+    # epoch boundary never pays for the embedding pass.
     _front: list[Any] = []
 
     def _front_scorer() -> tuple[Any, Any]:
         if not _front:
-            scorer = get_scorer(scorer_type, vision_model=vision_model)
-            _front.extend([scorer, scorer.prepare_reference(original_img)])
+            _front.extend(
+                [choice.scorer, choice.scorer.prepare_reference(original_img)]
+            )
         return _front[0], _front[1]
 
     def rank_front(nodes: list[SearchNode]) -> list[SearchNode]:
@@ -463,6 +476,10 @@ def run_vector_search(
             operator_policy=operator_policy,
             collector=collector,
         )
+
+        # Repeated here because the warning at startup is thousands of lines
+        # above the number it invalidates.
+        log.info(f"Run scored with: {choice.summary()}")
 
         if isinstance(operator_policy, Exp3Policy):
             probs = operator_policy.probabilities()
