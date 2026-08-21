@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 from PIL import Image, UnidentifiedImageError
 
 from vectrify.cli import (
+    DEFAULT_CROSSOVER_DISTANCE,
     DEFAULT_EPOCH_EVAL_INTERVAL,
     DEFAULT_EPOCH_EVAL_PATIENCE,
     DEFAULT_EPOCH_IMPROVEMENT,
@@ -206,6 +207,7 @@ def run_vector_search(
     epoch_improvement: float = DEFAULT_EPOCH_IMPROVEMENT,
     epoch_improvement_patience: int = DEFAULT_EPOCH_IMPROVEMENT_PATIENCE,
     tournament_size: int = DEFAULT_TOURNAMENT_SIZE,
+    crossover_distance: int = DEFAULT_CROSSOVER_DISTANCE,
     adaptive_operators: bool = True,
     epochs: int | None = None,
     max_total_tasks: int | None = DEFAULT_MAX_TOTAL_TASKS,
@@ -367,6 +369,7 @@ def run_vector_search(
         strategy=NsgaStrategy[VectorStatePayload](
             pool_size=pool_size,
             tournament_size=tournament_size,
+            crossover_distance_threshold=crossover_distance,
         ),
         storage=storage,
         max_total_tasks=max_total_tasks,

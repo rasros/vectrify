@@ -110,6 +110,13 @@ DEFAULT_EPOCH_EVAL_PATIENCE = 5
 # found, which argues for clearing the observed maximum rather than sitting
 # just above the percentile.
 DEFAULT_EPOCH_PATIENCE = 500
+# Simhash Hamming distance two parents must exceed before they are crossed.
+# Below it they are the same drawing at different stages, so grafting between
+# them reshuffles a candidate into itself: measured on the bench, crossover in a
+# single-seed pool took the largest share of the task budget for 1-10% of the
+# gain. The signature is 64 bits, so any value above 64 disables crossover --
+# which is how its contribution can be measured rather than assumed.
+DEFAULT_CROSSOVER_DISTANCE = 10
 DEFAULT_TOURNAMENT_SIZE = 2
 DEFAULT_ADAPTIVE_OPERATORS = True
 # Unset: the run is bounded by --epochs and --max-wall-seconds, which are the
@@ -359,6 +366,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         help="End the epoch and re-seed if no candidate reaches the "
         "best-ranked tier over this many consecutive local tasks. 0 disables. "
         f"Default: {DEFAULT_EPOCH_PATIENCE}",
+    )
+    g_search.add_argument(
+        "--crossover-distance",
+        type=int,
+        default=DEFAULT_CROSSOVER_DISTANCE,
+        dest="crossover_distance",
+        metavar="N",
+        help="Simhash Hamming distance two parents must exceed to be crossed. "
+        "The signature is 64 bits, so any value above 64 turns crossover off. "
+        f"Default: {DEFAULT_CROSSOVER_DISTANCE}",
     )
     g_search.add_argument(
         "--tournament-size",
