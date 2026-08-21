@@ -26,8 +26,12 @@ distortion, and sharpness/contrast. These are damage the search cannot itself
 produce, and they test whether a scorer is measuring the picture or only the
 particular things our operators happen to change.
 
-Only the clean drawings are committed, under bench/distortions. Everything else
-is generated here, so the set cannot drift from the code that reads it.
+The base drawings are the benchmark corpus's own first seeds, read straight
+from bench/cases rather than copied here, so the two cannot drift apart. Clean
+means undamaged, not correct: a seed is one of five deliberately-off attempts
+at its target, which costs the screen nothing, because the known order comes
+from damaging whatever it starts from. Damage is generated at run time, so the
+set cannot drift from the code that reads it either.
 
     uv run --extra vision scripts/distortion_screen.py
     uv run --extra vision --with datasets scripts/distortion_screen.py --hf 8
@@ -63,7 +67,7 @@ from vectrify.formats.svg import operations as ops
 from vectrify.formats.svg.plugin import SvgPlugin
 
 REPO = Path(__file__).resolve().parent.parent
-SOURCES = REPO / "bench" / "distortions"
+CASES = REPO / "bench" / "cases"
 
 # Streamed rather than downloaded whole: these run to hundreds of thousands of
 # drawings and the screen wants a handful from each.
@@ -95,6 +99,11 @@ VECTOR_OPERATORS = {
     "drop-style": ops.mutate_drop_style_property,
     "delete": ops.mutate_remove_node,
 }
+
+
+def first_seed(case: Path) -> Path:
+    """The case's lowest-numbered seed, by the same glob the corpus tests use."""
+    return sorted((case / "seeds").glob("*.svg"))[0]
 
 
 def vector_levels(clean: str, operator, seed: int = 1000) -> list[str]:
@@ -642,8 +651,8 @@ def main(per_set: int = 0) -> None:
         )
 
     drawings = [
-        (source.stem, source.read_text(encoding="utf-8"))
-        for source in sorted(SOURCES.glob("*.svg"))
+        (case.name, first_seed(case).read_text(encoding="utf-8"))
+        for case in sorted(d for d in CASES.iterdir() if d.is_dir())
     ]
     if per_set:
         drawings += hf_sources(per_set)
