@@ -1,33 +1,8 @@
-"""Fit a group's stroked paths to the target by gradient descent.
+"""Fit a group of stroked cubic paths to a target by gradient descent.
 
-Every other operator is a pure markup transform: it edits numbers without ever
-seeing the picture it is trying to match, and finds a better curve only by
-proposing random nudges until one measures better. That works for placement and
-colour and does not work for shape -- four consecutive runs left the beak with
-the same notch, because reaching the right curve means moving several control
-points together and each one alone measures worse.
-
-This is the same idea as the differentiable-rasterizer line of work (diffvg,
-Li et al. 2020, and CLIPasso, Vinker et al. 2022, which descends on encoder
-features rather than pixels): render the paths in a way that has a derivative,
-compare against the target, and let the gradient move the control points. The
-rasterizer here covers only stroked cubics -- no fills, no clipping, no z-order
--- because that is what the drawings this search produces are made of, and the
-general case is what makes diffvg a build rather than a file.
-
-Two details are load-bearing, both learned by getting them wrong:
-
-Pixels are sampled at their centres. Sampling at integer coordinates puts every
-stroke half a pixel off its rendered position, which on a 1.75px stroke is most
-of its width: measured against the real renderer, intersection-over-union rose
-from 0.573 to 0.888 when the offset was added, and a fit without it spends its
-budget compensating for an error that exists only in the proxy.
-
-A group is fitted jointly, not path by path. With one path optimized at a time
-and its neighbours baked into the backdrop, a misplaced neighbour's ink reads as
-target already covered, and the path under optimization is pushed away from the
-region its neighbour should have covered. Overlapping strokes -- a wing drawn as
-three -- are exactly the case that needs this.
+The differentiable rasterizer supports stroked cubics only. Pixels are sampled
+at their centres, and paths in a group are fitted jointly so overlapping
+strokes can move together.
 """
 
 from __future__ import annotations
@@ -121,18 +96,7 @@ def parse_cubics(d: str) -> list[list[tuple[float, float]]]:
 
 
 def to_knots(segments) -> list[tuple[float, float]]:
-    """Segments as one chain of 3n+1 points, sharing each join.
-
-    Stored per segment, a join is two numbers that happen to be equal, and an
-    optimizer moves them apart: measured on a real beak, joins drifted a mean
-    of 2.08px and up to 4.00px on a stroke 3.5px wide. `to_path_d` then writes
-    `M` once and a `C` per segment, so each curve silently starts wherever the
-    last one ended and the drift is discarded -- the fit optimizes one curve and
-    emits a different one.
-
-    Shared here instead, so a join cannot come apart and a gradient arriving
-    from either side moves both curves together, which is what continuity is.
-    """
+    """Flatten segments into one 3n+1 chain so joins share parameters."""
     for before, after in itertools.pairwise(segments):
         if before[3] != after[0]:
             raise UnsupportedPathError("path is not one connected chain")
@@ -143,20 +107,7 @@ def to_knots(segments) -> list[tuple[float, float]]:
 
 
 def weld(chains, tolerance: float = 0.01):
-    """One point per distinct location, and an index per chain into it.
-
-    Coincident points are how a drawing states that two curves meet, and a fit
-    that gives each its own parameter lets the meeting come apart. Two cases
-    appear in real output and neither is inside a single chain, so sharing
-    knots along a chain does not reach them: the beak tip, where the upper and
-    lower bill are separate paths ending at the same coordinate, and a closed
-    path, whose last point is its first. Measured on one beak, fitting split the
-    tip by 2.42px and opened the closure by 1.06px, on a stroke 3.5px wide.
-
-    Welding them makes the junction a single parameter, so a gradient from
-    either curve moves both and the meeting is preserved by construction rather
-    than by a penalty that has to be tuned.
-    """
+    """Weld coincident points so shared junctions use one parameter."""
     points: list[tuple[float, float]] = []
     index: list[list[int]] = []
     for chain in chains:
@@ -216,10 +167,8 @@ def coverage(
     all at the edge, so coverage falls off through a sigmoid instead: a pixel
     just outside the stroke still knows which way the stroke is.
 
-    *box* is (left, top, right, bottom) in the drawing's own units, which keeps
-    the cost proportional to the part being fitted rather than to the canvas --
-    a beak is a fraction of a percent of a 700x700 page, and computing the other
-    99% both wastes the time and dilutes the loss.
+    *box* is (left, top, right, bottom) in the drawing's own units, keeping cost
+    proportional to the part being fitted rather than the full canvas.
     """
     import torch
 
@@ -261,13 +210,8 @@ def coverage(
     return torch.sigmoid((width / 2 - distance) / softness)
 
 
-# One sample per this many units of curve. A cubic is sampled into a polyline
-# and the distance field is measured to its chords, so too few samples cut the
-# corners off a long curve: at eight samples a 480-unit segment agreed with the
-# real renderer 0.43 of the time against 0.93 for a 79-unit one. Fixed sampling
-# therefore drew short strokes faithfully and long ones badly, which is why one
-# run's body outline -- a single path across half the canvas -- improved a tenth
-# as much as its beak.
+# Sample density scales with curve length because coverage is measured to
+# sampled chords.
 _UNITS_PER_SAMPLE = 15.0
 _MIN_SAMPLES, _MAX_SAMPLES = 8, 48
 
@@ -282,20 +226,7 @@ def _samples_for(control: Any) -> int:
 
 
 def _focus_mask(covers: list[Any], reach: int) -> Any:
-    """Where in the crop this group's strokes can actually be judged.
-
-    A bounding box is the wrong unit once a path is long: the body outline is
-    one stroke across half the canvas, so its box is most of the page and its
-    own ink is a fraction of a percent of it. Averaging over that box buries
-    the signal exactly as averaging over the whole canvas did -- measured, the
-    body's loss moved 9.3% where a compact group's moved 44.6%.
-
-    So the loss is averaged over a band around the strokes instead: dilate
-    their starting coverage by roughly how far a control point should travel,
-    and judge inside that. Fixed at the start rather than recomputed as they
-    move, because a mask that follows the strokes would let them escape their
-    own errors by walking away from them.
-    """
+    """Return a fixed dilated band around the group's initial coverage."""
     import torch
     import torch.nn.functional as functional
 
@@ -412,16 +343,7 @@ def fit_group(
                 loss + redundancy * ((stacked.sum(0) - 1).clamp_min(0) * weight).sum()
             )
         if smooth:
-            # Two curves meeting at a knot continue smoothly when their handles
-            # are collinear with it: P2 + P1' = 2*P3. The distance from that is
-            # the corner, and nothing else in the loss objects to one -- ink
-            # lands in much the same place whether a join turns or flows, so a
-            # fit leaves the kink it started with (measured: a mean bend of 52
-            # degrees before, 50 after, with the sharpest corner getting worse).
-            #
-            # A penalty rather than a constraint, because the target has real
-            # corners too -- a beak tip is one -- and a chain forced smooth
-            # everywhere cannot draw them.
+            # Penalize non-collinear handles without forbidding real corners.
             loss = loss + smooth * sum(
                 ((k[:-2:3] + k[2::3] - 2 * k[1:-1:3]) ** 2).mean()
                 for k in (chain_of(r) for r in rows)
@@ -448,14 +370,7 @@ PATH_FIT = "Mutation: path fit"
 
 
 def _stroke_width(element, ancestors) -> float | None:
-    """The stroke width in force for *element*, walking SVG inheritance.
-
-    A width can be declared on the element, on any group above it, or on the
-    root, and real output puts it in all three places -- one model wrote it on
-    every `<path>` and none on their groups, which an element-and-root lookup
-    misses entirely. That silently made every group unfittable, so the operator
-    never once fired in a full run.
-    """
+    """Return the inherited stroke width, or ``None`` for an unpainted path."""
     for node in (element, *ancestors):
         raw = node.get("stroke-width")
         if raw:
@@ -550,16 +465,8 @@ def fit_random_group(
     fixed the threshold would make that choice once for the whole run, where the
     search can afford to make it differently each time and keep what worked.
 
-    Eight steps, not the two hundred a standalone fit converges with. Measured
-    on a run's own candidate, the panel improved 6.5% at 25 steps costing 0.51s
-    and 4-5% at 6-10 steps costing 0.08-0.13s, so the last two points cost five
-    times the time. What that time buys elsewhere is the whole run: the
-    evaluator and every epoch boundary are counted in tasks, so an operator that
-    slows the task rate stretches the run's clock. At 25 steps the rate fell from
-    25 tasks a second to 4 and the evaluator did not run once in four minutes.
-
-    Full resolution though: at half, the stroke is under two pixels and the fit
-    returns +0.7% where the same steps at full size return +4%.
+    The default uses a small number of full-resolution steps so this remains an
+    occasional, expensive operator rather than dominating the search.
     """
     import xml.etree.ElementTree as ET
 
@@ -664,15 +571,7 @@ _FIT_HEADROOM = 512 * 1024 * 1024
 
 
 def fit_available() -> bool:
-    """Whether fitting is cheap enough to hand a worker.
-
-    Gated on CUDA rather than on torch alone. Measured on one beak group at 25
-    steps: 0.5s on a GPU, 9.3s on one CPU thread, against about 1ms for an
-    ordinary mutation. At GPU speed the fit is a rare expensive operator the
-    policy can weigh against the others; at CPU speed it holds a worker for
-    seconds while its siblings complete thousands of tasks, which is not a
-    trade worth offering.
-    """
+    """Whether CUDA has enough capacity for a path fit."""
     try:
         import torch
     except ImportError:
@@ -680,11 +579,7 @@ def fit_available() -> bool:
     try:
         if not torch.cuda.is_available():
             return False
-        # Every worker that fits holds a CUDA context of a few hundred MB, and
-        # there are as many workers as cores. On a 16GB card with twenty of them
-        # that is most of the device before a single tensor is allocated, and a
-        # run that ran out failed thousands of tasks rather than skipping the
-        # operator. Ask whether there is room instead of finding out.
+        # Each fitting worker owns a CUDA context, so reserve headroom first.
         free, _total = torch.cuda.mem_get_info()
         return free > _FIT_HEADROOM
     except Exception:  # pragma: no cover - driver trouble is not our business
@@ -701,19 +596,7 @@ def _touching(
 
 
 def fittable_clusters(root, reach_multiple: float = 2.5):
-    """Paths grouped by whether they touch, not by what the model called them.
-
-    A fit moves a set of paths together, so the set has to be the ones that
-    actually meet -- and `<g>` is an unreliable account of that. In one drawing
-    the wing arrived as two groups, `body_outline` for its sweep and
-    `tail_feathers` for the feathers at its tip, when the body outline is the
-    dots and there is no tail. Fitting either alone can only ever move half a
-    wing, and that wing was the one part a fit never improved.
-
-    Contact is the signal instead: strokes that meet are drawn to meet, whatever
-    they are called. Reach scales with stroke width, because what counts as
-    touching depends on how thick the line is.
-    """
+    """Group touching stroked paths, with contact reach scaled by width."""
     table = _parents(root)
     entries = []
     for element in root.iter():

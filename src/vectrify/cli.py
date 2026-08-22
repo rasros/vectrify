@@ -10,31 +10,8 @@ from vectrify.score.vision import DEFAULT_VISION_MODEL
 DEFAULT_OUTPUT = "output.svg"
 DEFAULT_PROVIDER = "auto"
 DEFAULT_SCORER = "auto"
-# An epoch is where the LLM sees the front and rewrites what local search
-# cannot reach. Two spends most of a run refining whatever the first batch
-# happened to produce, and a run that draws a poor first batch has one chance
-# to recover from it.
-#
-# A ceiling now rather than a budget: --epoch-improvement-patience is what
-# ends a run, when an epoch stops buying anything the evaluator can see. At 4
-# this was the binding limit and it bound early -- measured on two runs of the
-# same image, both ended on the epoch count inside 13 minutes of a one-hour
-# wall, and one of them found its best candidate on the very last node it
-# produced. Fifty is high enough to be reached only when the wall or the
-# improvement test does not fire first.
 DEFAULT_EPOCHS = 50
-# How much better an epoch has to leave the evaluator's best for the epoch to
-# have been worth its seed batch. Zero: any improvement at all counts, which
-# is the weakest form of the test and the one that assumes least. Raise it to
-# stop paying for epochs that only buy noise.
 DEFAULT_EPOCH_IMPROVEMENT = 0.0
-# Consecutive epochs improving by no more than that margin before the run
-# stops. Two rather than one, which is what it shipped as and what a run then
-# measured against: at one, a run ended after three epochs and 7 minutes of a
-# 60-minute wall on a single epoch that failed to improve, having improved on
-# each of the two before it. One verdict is not a settled opinion -- the same
-# argument puts --epoch-eval-patience at five inside an epoch -- and this ends
-# the whole run rather than one epoch.
 DEFAULT_EPOCH_IMPROVEMENT_PATIENCE = 2
 DEFAULT_WORKERS = os.cpu_count() or 4
 DEFAULT_MAX_WALL_SECONDS = 60 * 60
@@ -48,91 +25,15 @@ DEFAULT_RESOLUTION_LLM = 512
 DEFAULT_REASONING = "medium"
 
 DEFAULT_POOL_SIZE = 100
-# LLM calls opening each epoch. Five rather than ten, and a fixed number rather
-# than pool-size // 10: the divisor tied the LLM budget to a pool size chosen for
-# entirely separate reasons, so widening the pool silently bought more LLM calls.
-#
-# Five because the LLM calls are what produce candidates the evaluator rewards
-# and local search is what drifts away from them. Measured on a 45-minute run,
-# ten calls opened the only epoch that fit and the evaluator's best arrived in
-# the first 2000 of 146,806 tasks; nothing in the remainder beat it. Half the
-# batch is half the wait before an epoch can end and re-seed, at the same cost
-# per epoch, so the same LLM spend buys twice as many chances to re-seed.
 DEFAULT_SEEDS = 5
-# Off, after trying it on. A pool collapses into agreement long before it stops
-# improving: on a measured run the score spread had fallen to a fiftieth of its
-# peak by task 500 of an epoch whose best went on to improve a further 77%
-# before going stale at task 5200. Given floors of 0.10 and 0.05, all four
-# epochs of a real run ended on a pool measure rather than on staleness and the
-# run stopped after 3821 of its 12000 tasks.
-# A ceiling on how long one epoch may run before the evaluator gets to steer
-# again. Off by default: the right value is a judgement about how much drift on
-# the cheap measures is acceptable between evaluations, and nothing measured so
-# far pins it. Measured on one run, staleness at 500 first fired 150,800 tasks
-# into an epoch -- all of it with no evaluator in the loop, which is where the
-# proxy runs away from what a viewer would call better.
 DEFAULT_EPOCH_MAX_TASKS = None
-# How often the evaluator is asked about the front mid-epoch, in tasks. The
-# cheap measures can be driven a long way without the drawing improving -- one
-# run took them 64% down while the evaluator saw no difference at all -- and
-# asking it only at the boundary means noticing that after the fact.
-#
-# A check costs one panel call over the front, about 13s measured, against a
-# throughput near 60 tasks/s. Nothing is asked twice: the evaluator's score is
-# absolute and cached per node, so a check re-prices only what is new.
 DEFAULT_EPOCH_EVAL_INTERVAL = 2000
-# Evaluator checks without a better candidate before the epoch ends and the
-# model re-seeds. Counted in checks because that is the only unit that does not
-# depend on something else: a generation is 100 accepted candidates, so its size
-# in tasks moves with the acceptance rate and with --pool-size, and a threshold
-# in generations below one interval's worth would fire before a check could ever
-# intervene.
-#
-# Five, which is five checks and so five intervals of drift -- 10,000 tasks at
-# the default interval. Measured on one 45-minute run the evaluator's best came
-# at the first check and 73 further checks over 145,000 tasks never beat it,
-# while the front it was shown degraded 40%, so the tolerance wanted is far
-# below what an unset value gave. Five rather than two because a single
-# evaluator verdict is noisy and an epoch ending on one costs a seed batch to
-# reopen; five consecutive refusals is a settled opinion.
-#
-# It interacts with two other limits. Each ending costs an LLM batch, so
-# --epochs is what caps the spend, and at this patience an epoch is roughly
-# 10,000 tasks -- so --epochs 4 ends a run around 40,000 tasks, well short of a
-# one-hour wall budget. Raise --epochs to spend the rest.
 DEFAULT_EPOCH_EVAL_PATIENCE = 5
-# Tasks without improvement before an epoch is called converged. Measured over
-# eleven runs and 145 improvements, the gap between one improvement and the
-# next is 25 tasks at the median, 142 at the 95th percentile and 497 at the
-# longest observed -- so the previous 200 stopped epochs while improvements
-# were still arriving. That measurement is also censored, since those runs were
-# themselves cut off at 200 and cannot show what waiting longer would have
-# found, which argues for clearing the observed maximum rather than sitting
-# just above the percentile.
 DEFAULT_EPOCH_PATIENCE = 500
-# Simhash Hamming distance two parents must exceed before they are crossed.
-# Below it they are the same drawing at different stages, so grafting between
-# them reshuffles a candidate into itself: measured on the bench, crossover in a
-# single-seed pool took the largest share of the task budget for 1-10% of the
-# gain. The signature is 64 bits, so any value above 64 disables crossover --
-# which is how its contribution can be measured rather than assumed.
 DEFAULT_CROSSOVER_DISTANCE = 10
 DEFAULT_TOURNAMENT_SIZE = 2
 DEFAULT_ADAPTIVE_OPERATORS = True
-# Unset: the run is bounded by --epochs and --max-wall-seconds, which are the
-# limits that describe what the search is meant to do. A task cap was binding
-# before either of them -- at a measured 18 tasks/sec, 10000 tasks is nine
-# minutes against a one-hour wall budget, and an epoch that runs to staleness
-# takes 3600-5200 tasks, so four epochs could not fit inside it.
 DEFAULT_MAX_TOTAL_TASKS = None
-# Long-side the pixel objectives are measured at, and how far a boundary may be
-# off and still count as the same boundary. Swept together against the damage
-# bench over 174 cases: every combination of 128-512 px and 0-4 px of tolerance
-# ordered known damage within 92.2-93.4% (vector) and 97.3-99.5% (raster), with
-# neither parameter monotone in either column. Nothing beat these, and 512 px
-# costs four times the pixels for 0.2pp, so they stay and are knobs instead.
-# What the bench does not test: near-miss positioning, which is the tolerance's
-# actual purpose, since its damage families move things far rather than barely.
 DEFAULT_SCORE_RESOLUTION = 256
 DEFAULT_EDGE_TOLERANCE = 2.0
 DEFAULT_FORMAT = "svg"
