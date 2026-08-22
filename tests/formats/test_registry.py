@@ -22,8 +22,13 @@ def test_plugins_implement_the_protocol_surface(name):
         "validate",
         "extract_from_llm",
         "apply_edit",
+        "apply_edits",
         "build_generate_prompt",
+        "mutation_weights",
         "mutate",
+        "element_targets",
+        "invisible_elements",
+        "operator_reward_scale",
         "crossover",
     ):
         assert callable(getattr(plugin, method)), f"{name} missing {method}"
