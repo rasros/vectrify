@@ -7,6 +7,7 @@ from google.genai import types
 from vectrify.llm.base import (
     LLMConfig,
     LLMProvider,
+    reasoning_budget,
     resolve_api_key,
     split_data_url,
 )
@@ -34,8 +35,7 @@ class GeminiProvider(LLMProvider):
         generation_config = types.GenerateContentConfig(temperature=config.temperature)
 
         if config.reasoning:
-            budget_map = {"low": 1024, "medium": 8192, "high": 24576}
-            budget = budget_map.get(config.reasoning, 8192)
+            budget = reasoning_budget(config.reasoning)
             generation_config.thinking_config = types.ThinkingConfig(
                 thinking_budget=budget
             )

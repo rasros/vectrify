@@ -32,11 +32,6 @@ def test_a_negative_seed_count_is_floored_at_zero():
     assert resolve_seeds(-5) == 0
 
 
-def test_a_small_pool_still_derives_a_seed_count():
-    # A pool size no longer has any say in the LLM budget.
-    assert resolve_seeds(None) == resolve_seeds(None)
-
-
 def test_resumed_nodes_pay_for_themselves():
     assert initial_seed_tasks(4, [_node("<svg/>"), _node("<svg/>")]) == 2
 
