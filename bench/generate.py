@@ -488,6 +488,16 @@ def main() -> None:
         target().save(case_dir / "target.png")
         print(f"{name}: wrote target.png and {len(variants)} seeds")
 
+    try:
+        from bench.non_svg import CASES as NON_SVG_CASES
+        from bench.non_svg import generate as generate_non_svg
+
+        generate_non_svg(root)
+        for name, (_format, _target, variants) in NON_SVG_CASES.items():
+            print(f"{name}: wrote target.png and {len(variants)} seeds")
+    except (ImportError, OSError) as exc:
+        print(f"non-SVG corpus skipped (renderer unavailable: {exc})")
+
 
 if __name__ == "__main__":
     main()
