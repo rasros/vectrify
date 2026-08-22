@@ -46,6 +46,12 @@ def test_set_graph_attr_inserts_new():
     assert "splines=ortho" in result
 
 
+def test_set_graph_attr_preserves_bracketed_graph_attributes():
+    dot = "digraph G {\n    graph [rankdir=LR, ranksep=0.65, nodesep=0.4];\n}"
+    result = _set_graph_attr(dot, "ranksep", "1.2")
+    assert "graph [rankdir=LR, ranksep=1.2, nodesep=0.4];" in result
+
+
 @pytest.mark.parametrize(
     "op",
     [_random_node_attr_tweak, _random_edge_attr_tweak, _random_layout_tweak],
@@ -63,6 +69,21 @@ def test_random_layout_tweak_changes_something():
             changed = True
             break
     assert changed
+
+
+@pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
+def test_layout_tweaks_keep_bracketed_graph_attributes_valid():
+    dot = (
+        "digraph G {\n"
+        "    graph [rankdir=LR, ranksep=0.65, nodesep=0.4];\n"
+        "    A -> B;\n}"
+    )
+    from vectrify.formats.graphviz.plugin import GraphvizPlugin
+
+    plugin = GraphvizPlugin()
+    for _ in range(40):
+        valid, error = plugin.validate(_random_layout_tweak(dot))
+        assert valid, error
 
 
 def test_apply_mutation_returns_dot_string():
