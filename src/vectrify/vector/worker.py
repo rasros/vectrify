@@ -77,6 +77,138 @@ class MessageQueue(Protocol):
     def put(self, obj: Any, /) -> None: ...
 
 
+def _build_llm_contents(
+    ctx: WorkerContext, task: Any, plugin: Any, client: Any, log: logging.Logger
+) -> tuple[list[str], str, Any]:
+    """Generate or edit with the model, returning the lazily-created client."""
+    parent = task.parent_state
+    has_content = bool(parent.payload.content)
+    if client is None:
+        client = get_provider(ctx.llm_provider, ctx.api_key)
+    if ctx.llm_in_flight is not None:
+        with ctx.llm_in_flight.get_lock():
+            ctx.llm_in_flight.value += 1
+    try:
+        parent_preview = (
+            parent.payload.raster_preview_data_url or parent.payload.raster_data_url
+        )
+        invisible: list[str] = []
+        if has_content:
+            try:
+                invisible = plugin.invisible_elements(parent.payload.content)
+                if invisible:
+                    log.debug(
+                        f"{len(invisible)} element(s) paint nothing "
+                        f"in parent {task.parent_id}"
+                    )
+            except Exception as exc:
+                log.debug(f"Invisible-element check failed: {exc}")
+        prompt = plugin.build_generate_prompt(
+            ctx.image_data_url,
+            task.parent_id,
+            content_prev=parent.payload.content,
+            raster_preview_url=parent_preview if has_content else None,
+            goal=ctx.goal,
+            canvas=(ctx.original_w, ctx.original_h),
+            source_name=ctx.source_name,
+            invisible=invisible,
+        )
+        log.debug(
+            f"LLM call [generate] task={task.task_id} "
+            f"parent={task.parent_id} model={ctx.llm_model}"
+        )
+        raw = client.generate(
+            prompt, LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
+        )
+        contents = (
+            plugin.apply_edits(parent.payload.content, raw)
+            if has_content
+            else [plugin.extract_from_llm(raw)]
+        )
+        return contents, "llm edit", client
+    finally:
+        if ctx.llm_in_flight is not None:
+            with ctx.llm_in_flight.get_lock():
+                ctx.llm_in_flight.value -= 1
+
+
+def _build_local_contents(
+    ctx: WorkerContext,
+    task: Any,
+    plugin: Any,
+    target_cache: dict[str, dict[int, float]],
+    log: logging.Logger,
+) -> tuple[list[str], str]:
+    """Apply crossover when available, otherwise a targeted local mutation."""
+    parent = task.parent_state
+    if task.secondary_parent_state and task.secondary_parent_state.payload.content:
+        content, origin = plugin.crossover(
+            parent.payload.content, task.secondary_parent_state.payload.content
+        )
+        return [content], origin
+    source = parent.payload.content
+    key = hashlib.blake2b(source.encode(), digest_size=16).hexdigest()
+    if key not in target_cache:
+        if len(target_cache) > 64:
+            target_cache.clear()
+        try:
+            target_cache[key] = plugin.element_targets(source, ctx.original_png_bytes)
+        except Exception as exc:
+            log.debug(f"Error attribution failed: {exc}")
+            target_cache[key] = {}
+    content, origin = plugin.mutate(
+        source, task.operator, target_cache[key], reference_png=ctx.original_png_bytes
+    )
+    return [content], origin
+
+
+def _materialize_results(
+    ctx: WorkerContext,
+    task: Any,
+    plugin: Any,
+    contents: list[str],
+    origin: str,
+    llm_type: str | None,
+) -> list[Result]:
+    """Validate, rasterize, and package each candidate returned by an operator."""
+    built: list[Result] = []
+    last_error: Exception | None = None
+    for content in contents:
+        valid, err = plugin.validate(content)
+        if not valid:
+            last_error = ValueError(err)
+            continue
+        png = plugin.rasterize(content, out_w=ctx.original_w, out_h=ctx.original_h)
+        full_img = Image.open(io.BytesIO(png)).convert("RGB")
+        preview_img = resize_long_side(full_img, ctx.resolution_llm)
+        preview_buf = io.BytesIO()
+        preview_img.save(preview_buf, format="PNG")
+        built.append(
+            Result(
+                task_id=task.task_id,
+                parent_id=task.parent_id,
+                valid=True,
+                measured=False,
+                payload=VectorResultPayload(
+                    content=content,
+                    raster_png=png,
+                    origin=origin,
+                    raster_preview_data_url=png_bytes_to_data_url(
+                        preview_buf.getvalue()
+                    ),
+                ),
+                secondary_parent_id=task.secondary_parent_id,
+                metrics={},
+                signature=simhash(content),
+                llm_type=llm_type,
+                operator=None if llm_type else origin,
+            )
+        )
+    if not built:
+        raise last_error or ValueError("no candidate could be built")
+    return built
+
+
 def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext):
     signal.signal(signal.SIGINT, signal.SIG_IGN)
     setup_worker_logger(ctx.log_level, ctx.log_queue)
@@ -108,7 +240,6 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
             break
 
         parent = task.parent_state
-        has_content = bool(parent.payload.content)
 
         # LLM calls happen only in an epoch's seed batch; the engine decides.
         use_llm = task.force_llm
@@ -117,93 +248,13 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
         try:
             if use_llm:
                 llm_type = "llm-generate"
-                if client is None:
-                    client = get_provider(ctx.llm_provider, ctx.api_key)
-                if ctx.llm_in_flight is not None:
-                    with ctx.llm_in_flight.get_lock():
-                        ctx.llm_in_flight.value += 1
-                try:
-                    parent_preview = (
-                        parent.payload.raster_preview_data_url
-                        or parent.payload.raster_data_url
-                    )
-
-                    gen_config = LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
-                    # Only for an edit: there is no parent to inspect
-                    # otherwise. Costs a render per drawable element at
-                    # thumbnail size against an LLM call about to take
-                    # seconds, and it is the one operator that can act on the
-                    # answer.
-                    invisible: list[str] = []
-                    if has_content:
-                        try:
-                            invisible = plugin.invisible_elements(
-                                parent.payload.content
-                            )
-                            if invisible:
-                                log.debug(
-                                    f"{len(invisible)} element(s) paint nothing "
-                                    f"in parent {task.parent_id}"
-                                )
-                        except Exception as exc:
-                            log.debug(f"Invisible-element check failed: {exc}")
-                    gen_prompt = plugin.build_generate_prompt(
-                        ctx.image_data_url,
-                        task.parent_id,
-                        content_prev=parent.payload.content,
-                        raster_preview_url=parent_preview if has_content else None,
-                        goal=ctx.goal,
-                        canvas=(ctx.original_w, ctx.original_h),
-                        source_name=ctx.source_name,
-                        invisible=invisible,
-                    )
-                    log.debug(
-                        f"LLM call [generate] task={task.task_id} "
-                        f"parent={task.parent_id} model={ctx.llm_model}"
-                    )
-                    raw = client.generate(gen_prompt, gen_config)
-                    contents = (
-                        plugin.apply_edits(parent.payload.content, raw)
-                        if has_content
-                        else [plugin.extract_from_llm(raw)]
-                    )
-                    origin = "llm edit"
-                finally:
-                    if ctx.llm_in_flight is not None:
-                        with ctx.llm_in_flight.get_lock():
-                            ctx.llm_in_flight.value -= 1
-
-            elif (
-                task.secondary_parent_state
-                and task.secondary_parent_state.payload.content
-            ):
-                secondary_content = task.secondary_parent_state.payload.content
-                content, origin = plugin.crossover(
-                    parent.payload.content,
-                    secondary_content,
+                contents, origin, client = _build_llm_contents(
+                    ctx, task, plugin, client, log
                 )
-                contents = [content]
-
             else:
-                source = parent.payload.content
-                key = hashlib.blake2b(source.encode(), digest_size=16).hexdigest()
-                if key not in target_cache:
-                    if len(target_cache) > 64:
-                        target_cache.clear()
-                    try:
-                        target_cache[key] = plugin.element_targets(
-                            source, ctx.original_png_bytes
-                        )
-                    except Exception as exc:
-                        log.debug(f"Error attribution failed: {exc}")
-                        target_cache[key] = {}
-                content, origin = plugin.mutate(
-                    source,
-                    task.operator,
-                    target_cache[key],
-                    reference_png=ctx.original_png_bytes,
+                contents, origin = _build_local_contents(
+                    ctx, task, plugin, target_cache, log
                 )
-                contents = [content]
 
             # An operator that could not find anything to change hands back the
             # parent it was given, and nothing downstream can tell that apart
@@ -221,52 +272,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
             # counted as tasks completed, worker slots freed, or seeds of the
             # batch delivered. If every one of them fails to validate the task
             # fails, which is what a single bad edit always did.
-            built: list[Result] = []
-            last_error: Exception | None = None
-            for content in contents:
-                valid, err = plugin.validate(content)
-                if not valid:
-                    last_error = ValueError(err)
-                    continue
-
-                png = plugin.rasterize(
-                    content,
-                    out_w=ctx.original_w,
-                    out_h=ctx.original_h,
-                )
-                signature = simhash(content)
-
-                full_img = Image.open(io.BytesIO(png)).convert("RGB")
-                preview_img = resize_long_side(full_img, ctx.resolution_llm)
-                preview_buf = io.BytesIO()
-                preview_img.save(preview_buf, format="PNG")
-                preview_data_url = png_bytes_to_data_url(preview_buf.getvalue())
-
-                built.append(
-                    Result(
-                        task_id=task.task_id,
-                        parent_id=task.parent_id,
-                        valid=True,
-                        measured=False,
-                        payload=VectorResultPayload(
-                            content=content,
-                            raster_png=png,
-                            origin=origin,
-                            raster_preview_data_url=preview_data_url,
-                        ),
-                        secondary_parent_id=task.secondary_parent_id,
-                        metrics={},
-                        signature=signature,
-                        llm_type=llm_type,
-                        # What actually ran, not what was asked for: crossover
-                        # can fall back to mutation, and a task can name an
-                        # operator this backend does not have.
-                        operator=None if use_llm else origin,
-                    )
-                )
-
-            if not built:
-                raise last_error or ValueError("no candidate could be built")
+            built = _materialize_results(ctx, task, plugin, contents, origin, llm_type)
 
             # Extras first, the dispatched one last. Delivering the asked-for
             # call is what closes the seed batch and installs the epoch's pool,

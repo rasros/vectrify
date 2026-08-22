@@ -5,6 +5,7 @@ import queue
 import threading
 import time
 from collections.abc import Callable
+from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
 from vectrify.score.metrics import FRONT_SCORE, SCORER_METRICS
@@ -122,6 +123,97 @@ def _spread_parents(
     return chosen
 
 
+@dataclass
+class _RunState(Generic[TState]):
+    """Mutable state owned by one execution of the search loop.
+
+    Keeping this state together makes the lifetime of IDs, lineages, and the
+    active pool explicit.  The engine itself is reusable: queues and worker
+    processes live on it, while none of these values do.
+    """
+
+    node_states: dict[int, ChainState[TState]]
+    node_metrics: dict[int, dict[str, float]]
+    node_roots: dict[int, int]
+    node_origins: dict[int, int]
+    active_pool: list[SearchNode[TState]]
+    next_node_id: int
+
+    @classmethod
+    def from_initial_nodes(
+        cls,
+        nodes: list[SearchNode[TState]],
+        *,
+        pool_size: int,
+        storage_max_node_id: int,
+    ) -> "_RunState[TState]":
+        return cls(
+            node_states={node.id: node.state for node in nodes},
+            node_metrics={node.id: dict(node.metrics) for node in nodes},
+            node_roots={node.id: node.root_id or node.id for node in nodes},
+            node_origins={node.id: node.origin_id or node.id for node in nodes},
+            active_pool=list(nodes)[:pool_size],
+            next_node_id=max(
+                storage_max_node_id,
+                max((node.id for node in nodes), default=0),
+            ),
+        )
+
+
+class _ScoringRelay:
+    """Batch worker output, score it, then forward it to the search loop."""
+
+    def __init__(
+        self,
+        unscored_q: Any,
+        result_q: queue.Queue[Result | None],
+        score_fn: Callable[[list[Result]], None] | None,
+    ) -> None:
+        self.unscored_q = unscored_q
+        self.result_q = result_q
+        self.score_fn = score_fn
+
+    def _gather_batch(self) -> tuple[list[Result], bool]:
+        """Block for one result, then take results that are already queued."""
+        first = self.unscored_q.get()
+        if first is None:
+            return [], True
+
+        batch = [first]
+        while len(batch) < SCORE_BATCH_SIZE:
+            try:
+                result = self.unscored_q.get_nowait()
+            except queue.Empty:
+                break
+            if result is None:
+                return batch, True
+            batch.append(result)
+        return batch, False
+
+    def run(self) -> None:
+        while True:
+            batch, done = self._gather_batch()
+            pending = [
+                result for result in batch if result.valid and not result.measured
+            ]
+            if pending and self.score_fn is not None:
+                try:
+                    self.score_fn(pending)
+                except Exception as exc:
+                    # Preserve successfully scored peers if one batch score fails.
+                    for result in pending:
+                        if not result.measured:
+                            result.valid = False
+                            result.invalid_msg = f"Scoring error: {exc}"
+                            result.measured = True
+
+            for result in batch:
+                self.result_q.put(result)
+            if done:
+                self.result_q.put(None)
+                return
+
+
 class MultiprocessSearchEngine(Generic[TState]):
     """Alternating LLM-seed / local-refine epochs.
 
@@ -206,77 +298,33 @@ class MultiprocessSearchEngine(Generic[TState]):
                 epoch_patience=epoch_patience or 0,
             )
 
-        def _gather_batch() -> tuple[list[Result], bool]:
-            """Block for one result, then take whatever else is already waiting.
-
-            It never waits for a batch to fill. Waiting on a timeout made a
-            slow producer pay that timeout on every single-candidate batch,
-            which cost more than batching saved; taking only what is already
-            queued means batches form exactly when scoring is the bottleneck
-            and the queue is backing up, and cost nothing when it is not.
-
-            Returns the batch and whether the shutdown sentinel arrived.
-            """
-            first = self.unscored_q.get()
-            if first is None:
-                return [], True
-
-            batch = [first]
-            while len(batch) < SCORE_BATCH_SIZE:
-                try:
-                    res = self.unscored_q.get_nowait()
-                except queue.Empty:
-                    break
-                if res is None:
-                    return batch, True
-                batch.append(res)
-            return batch, False
-
-        def _scorer_worker():
-            while True:
-                batch, done = _gather_batch()
-
-                pending = [r for r in batch if r.valid and not r.measured]
-                if pending and score_fn is not None:
-                    try:
-                        score_fn(pending)
-                    except Exception as e:
-                        # One scoring failure must not discard the candidates
-                        # batched alongside it, so each is marked individually
-                        # and only those still unscored are lost.
-                        for res in pending:
-                            if not res.measured:
-                                res.valid = False
-                                res.invalid_msg = f"Scoring error: {e}"
-                                res.measured = True
-
-                for res in batch:
-                    self.result_q.put(res)
-
-                if done:
-                    self.result_q.put(None)
-                    break
-
         scorer_thread = threading.Thread(
-            target=_scorer_worker, daemon=True, name="ScorerThread"
+            target=_ScoringRelay(self.unscored_q, self.result_q, score_fn).run,
+            daemon=True,
+            name="ScorerThread",
         )
         scorer_thread.start()
 
-        node_states = {n.id: n.state for n in initial_nodes}
+        run_state = _RunState.from_initial_nodes(
+            initial_nodes,
+            pool_size=active_pool_size,
+            storage_max_node_id=self.storage.max_node_id,
+        )
+        node_states = run_state.node_states
         # Each node's measures, kept so a child can be compared with the parent
         # it came from. A candidate measuring the same on every objective is
         # indistinguishable from its parent to everything downstream: it cannot
         # be ranked above or below it, so it is admitted wherever the parent
         # sits and reports back as a survivor. See _is_no_op.
-        node_metrics = {n.id: dict(n.metrics) for n in initial_nodes}
+        node_metrics = run_state.node_metrics
         # One scale for the whole run, so every operator's children are graded
         # against the same notion of how big a step currently is.
         graded_reward = GradedReward()
         # Each starting candidate is its own lineage; children inherit it.
-        node_roots = {n.id: n.root_id or n.id for n in initial_nodes}
+        node_roots = run_state.node_roots
         # Origins outlive lineages: an epoch's LLM edit opens a lineage but
         # continues the original attempt it was derived from.
-        node_origins = {n.id: n.origin_id or n.id for n in initial_nodes}
+        node_origins = run_state.node_origins
         # The LLM's own output from earlier epochs, kept as a candidate for the
         # fronts later epochs are seeded from. Local refinement is not monotone
         # -- measured on the corpus it finishes behind best-of-5 seeding on half
@@ -297,7 +345,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         # No ordering to apply: the measures are traded off by dominance and
         # nothing ranks a candidate on its own. The pool is a set, and the cap
         # takes whatever arrived.
-        active_pool: list[SearchNode[TState]] = list(initial_nodes)[:active_pool_size]
+        active_pool = run_state.active_pool
         # Set by the evaluator, the run's only score, at each epoch boundary and
         # at the end. There is deliberately no best between those points.
         best_node: SearchNode[TState] | None = None
@@ -381,10 +429,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         tasks_completed = 0
         in_flight = 0
         last_invalid_msg = "unknown error"
-
-        next_node_id = max(
-            self.storage.max_node_id, max((n.id for n in initial_nodes), default=0)
-        )
 
         log.info(f"Search started with {len(active_pool)} candidate(s) in the pool.")
         if phase == SEED_PHASE:
@@ -510,7 +554,9 @@ class MultiprocessSearchEngine(Generic[TState]):
                     new_pool = valid_children
 
                 active_pool = new_pool[:active_pool_size]
+                run_state.active_pool = active_pool
                 node_states = {n.id: n.state for n in active_pool}
+                run_state.node_states = node_states
                 for nid in previous_ids - set(node_states):
                     self.storage.record_eviction(nid, tasks_completed)
 
@@ -581,25 +627,24 @@ class MultiprocessSearchEngine(Generic[TState]):
                 return True, None
 
         def _make_node(res: Result, *, new_lineage: bool = False) -> SearchNode[TState]:
-            nonlocal next_node_id
-
             if not res.measured:
                 raise RuntimeError("Result was never measured and no score_fn ran")
 
-            next_node_id += 1
+            run_state.next_node_id += 1
+            node_id = run_state.next_node_id
             # An LLM seed is an independent attempt at the picture, so it opens
             # a lineage; a local child continues its parent's.
             root = (
-                next_node_id
+                node_id
                 if new_lineage
-                else node_roots.get(res.parent_id, next_node_id)
+                else node_roots.get(res.parent_id, node_id)
             )
-            node_roots[next_node_id] = root
-            origin = node_origins.get(res.parent_id) or next_node_id
-            node_origins[next_node_id] = origin
+            node_roots[node_id] = root
+            origin = node_origins.get(res.parent_id) or node_id
+            node_origins[node_id] = origin
             return SearchNode(
                 valid=True,
-                id=next_node_id,
+                id=node_id,
                 parent_id=res.parent_id,
                 state=self.make_state(res),
                 secondary_parent_id=res.secondary_parent_id,
@@ -740,6 +785,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             # pool is an unordered set to every reader, and reshuffling it each
             # generation would churn the dashboard for nothing.
             active_pool = [n for n in combined if n.id in kept]
+            run_state.active_pool = active_pool
             pending_children.clear()
 
         def _is_no_op(res: Result) -> bool:
