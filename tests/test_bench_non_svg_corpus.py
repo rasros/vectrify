@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 
 from bench.non_svg import CASES
+
 BENCH = Path(__file__).resolve().parent.parent / "bench" / "cases"
 _AVAILABLE = {
     "typst": importlib.util.find_spec("typst") is not None,
