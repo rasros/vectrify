@@ -11,27 +11,38 @@ from __future__ import annotations
 from pathlib import Path
 
 
-def _typst(page: str, circle: str, card: str, line: str) -> str:
+def _typst(primary: str, accent: str, progress: str, stroke: str) -> str:
+    """A compact status-card layout, rich enough to exercise scene operators."""
     return (
         "#set page(width: 384pt, height: 384pt, margin: 0pt)\n"
-        f"#place(dx: 80pt, dy: 80pt)[#circle(radius: {circle}pt, "
-        f'fill: rgb("{page}"))]\n'
-        "#place(dx: 230pt, dy: 80pt)[#rect(width: 74pt, height: 74pt, "
-        f'radius: 10pt, fill: rgb("{card}"))]\n'
-        "#place(dx: 128pt, dy: 208pt)[#rect(width: 130pt, height: 48pt, "
-        'radius: 8pt, fill: rgb("65a30d"))]\n'
-        "#place(dx: 155pt, dy: 123pt)[#line(start: (0pt, 0pt), "
-        f'end: (78pt, 85pt), stroke: {line}pt + rgb("334155"))]\n'
+        "#place(dx: 40pt, dy: 36pt)[#text(size: 24pt, weight: "
+        '"bold", fill: rgb("172554"))[Project pulse]]\n'
+        "#place(dx: 40pt, dy: 90pt)[#rect(width: 304pt, height: 112pt, "
+        f'radius: 16pt, fill: rgb("{primary}"))]\n'
+        "#place(dx: 66pt, dy: 117pt)[#text(size: 15pt, fill: white)"
+        "[This week]]\n"
+        "#place(dx: 66pt, dy: 145pt)[#text(size: 32pt, weight: "
+        '"bold", fill: white)[24 tasks]]\n'
+        "#place(dx: 40pt, dy: 234pt)[#rect(width: 304pt, height: 20pt, "
+        'radius: 10pt, fill: rgb("e2e8f0"))]\n'
+        "#place(dx: 40pt, dy: 234pt)[#rect(width: 208pt, height: 20pt, "
+        f'radius: 10pt, fill: rgb("{progress}"))]\n'
+        "#place(dx: 40pt, dy: 279pt)[#circle(radius: 18pt, "
+        f'fill: rgb("{accent}"))]\n'
+        "#place(dx: 74pt, dy: 273pt)[#text(size: 15pt, fill: "
+        'rgb("334155"))[On track for Friday]]\n'
+        "#place(dx: 40pt, dy: 327pt)[#line(start: (0pt, 0pt), "
+        f'end: (304pt, 0pt), stroke: {stroke}pt + rgb("cbd5e1"))]\n'
     )
 
 
-TYPST_TARGET = _typst("4f7ecb", "36", "e6a23c", "4")
+TYPST_TARGET = _typst("4f7ecb", "f59e0b", "84cc16", "2")
 TYPST_SEEDS = [
-    _typst("588bcf", "30", "e0a04a", "2"),
-    _typst("3d6fb5", "43", "f0ad38", "6"),
-    _typst("6f9bd7", "34", "d58f2c", "3"),
-    _typst("4878c1", "39", "e8b14d", "5"),
-    _typst("557fbb", "32", "d99a40", "7"),
+    _typst("588bcf", "f97316", "65a30d", "1"),
+    _typst("3d6fb5", "eab308", "a3e635", "4"),
+    _typst("6f9bd7", "fb923c", "4d7c0f", "3"),
+    _typst("4878c1", "d97706", "bef264", "5"),
+    _typst("557fbb", "fbbf24", "22c55e", "2.5"),
 ]
 
 
