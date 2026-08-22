@@ -72,10 +72,11 @@ class FakePlugin:
 
 
 def _run_one(
-    task: Task, monkeypatch, *, no_change: bool = False
+    task: Task, monkeypatch, *, no_change: bool = False, plugin=None
 ) -> tuple[Result, FakeClient, FakePlugin]:
     png = _make_png()
-    client, plugin = FakeClient(), FakePlugin(png, no_change=no_change)
+    client = FakeClient()
+    plugin = plugin or FakePlugin(png, no_change=no_change)
     monkeypatch.setattr(worker_module, "get_provider", lambda *_a, **_kw: client)
 
     task_q: queue.Queue = queue.Queue()

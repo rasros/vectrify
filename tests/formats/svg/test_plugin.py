@@ -361,3 +361,32 @@ def test_an_unrelated_failure_in_the_fit_is_not_swallowed():
     finally:
         plugin_module.fit_random_group = original
         plugin_module.fit_available = paths.fit_available
+
+
+def test_path_fit_receives_the_shared_gpu_gate():
+    from vectrify.formats.svg import plugin as plugin_module
+    from vectrify.refine.paths import PATH_FIT
+
+    class Gate:
+        pass
+
+    plugin = SvgPlugin()
+    plugin.gpu_gate = gate = Gate()
+    png = plugin.rasterize(_STROKED, 64, 64)
+    original_fit = plugin_module.fit_random_group
+    original_available = plugin_module.fit_available
+    seen = {}
+
+    def fit(*args, **kwargs):
+        seen["gpu_gate"] = kwargs["gpu_gate"]
+        return args[0]
+
+    plugin_module.fit_random_group = fit
+    plugin_module.fit_available = lambda: True
+    try:
+        plugin.mutate(_STROKED, operator=PATH_FIT, reference_png=png)
+    finally:
+        plugin_module.fit_random_group = original_fit
+        plugin_module.fit_available = original_available
+
+    assert seen["gpu_gate"] is gate

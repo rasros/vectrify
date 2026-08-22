@@ -13,7 +13,8 @@ import logging
 import math
 import random
 import re
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
 from typing import Any
 
 import numpy as np
@@ -446,6 +447,7 @@ def fit_random_group(
     samples: int | None = None,
     weights: Mapping[int, float] | None = None,
     reach: tuple[float, float] = (0.8, 3.5),
+    gpu_gate: Any = None,
 ) -> str:
     """Fit one cluster of touching paths to the reference, returning the edit.
 
@@ -521,16 +523,17 @@ def fit_random_group(
         path.set("d", data)
 
     held = _shared_vertices([parse_cubics(d) for d in original], excluded)
-    fitted, _first, _last = fit_group(
-        original,
-        widths,
-        target,
-        backdrop,
-        size=size,
-        steps=steps,
-        samples=samples,
-        pinned=held,
-    )
+    with gpu_slot(gpu_gate):
+        fitted, _first, _last = fit_group(
+            original,
+            widths,
+            target,
+            backdrop,
+            size=size,
+            steps=steps,
+            samples=samples,
+            pinned=held,
+        )
     for path, data in zip(paths, fitted, strict=True):
         path.set("d", data)
     return ET.tostring(root, encoding="unicode")
@@ -568,6 +571,19 @@ def _canvas_side(root) -> float:
 
 # Enough device memory to be worth starting: a context plus the crop's tensors.
 _FIT_HEADROOM = 512 * 1024 * 1024
+
+
+@contextmanager
+def gpu_slot(gpu_gate: Any) -> Iterator[None]:
+    """Hold the run-wide GPU slot for a path fit, when one is configured."""
+    if gpu_gate is None:
+        yield
+        return
+    gpu_gate.acquire()
+    try:
+        yield
+    finally:
+        gpu_gate.release()
 
 
 def fit_available() -> bool:
