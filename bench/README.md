@@ -94,6 +94,23 @@ size wrong instead. If you add a case, check its perturbations against
 `_NUMERIC_ATTRS` and `_COLOR_ATTRS` in `formats/svg/operations.py` — an
 unreachable gap silently caps the whole case.
 
+### Typst and Graphviz cases
+
+The SVG corpus is intentionally freeform, so it is not used to judge the
+other backends. `typst-process` is a fixed-page Typst infographic and
+`graphviz-pipeline` is a layout-managed directed graph. Each has a rendered
+target and five source seeds in its native extension (`.typ` or `.dot`).
+
+`tests/test_bench_non_svg_corpus.py` is their fast quality gate: it checks the
+committed seeds match the declared corpus, validates and rasterizes them when
+the corresponding optional renderer is installed, and runs one deterministic
+mutation/crossover generation without any LLM call. Renderer-dependent checks
+skip cleanly in minimal installs. Regenerate all targets and seeds with:
+
+```bash
+uv run python bench/generate.py
+```
+
 ## Caveats
 
 `vision` is scored on whatever the run wrote as its artifact, and the run picks

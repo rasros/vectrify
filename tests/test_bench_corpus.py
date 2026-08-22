@@ -8,7 +8,11 @@ from vectrify.formats.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
 from vectrify.formats.svg.plugin import SvgPlugin
 
 BENCH = Path(__file__).resolve().parent.parent / "bench"
-CASES = sorted(d for d in (BENCH / "cases").iterdir() if d.is_dir())
+CASES = sorted(
+    d
+    for d in (BENCH / "cases").iterdir()
+    if d.is_dir() and any((d / "seeds").glob("*.svg"))
+)
 
 sys.path.insert(0, str(BENCH.parent))
 

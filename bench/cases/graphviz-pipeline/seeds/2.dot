@@ -1,0 +1,10 @@
+digraph Pipeline {
+    graph [rankdir=LR, ranksep=0.92, nodesep=0.65, bgcolor="white", pad=0.15];
+    node [shape=box, style="rounded,filled", fontname="Arial", fontsize=16,
+          color="#334155", penwidth=2.5, fillcolor="#a8c9ef", margin="0.20,0.12"];
+    edge [color="#475569", penwidth=2.5, arrowsize=0.8];
+    ingest [label="Ingest"];
+    clean [label="Clean"];
+    publish [label="Publish", fillcolor="#bef264"];
+    ingest -> clean -> publish;
+}
