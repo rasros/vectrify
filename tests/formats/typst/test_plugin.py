@@ -41,6 +41,21 @@ def test_extract_fallback_returns_stripped_raw():
     assert result == "#rect()"
 
 
+def test_extract_canonicalizes_page_after_canvas_is_known():
+    plugin = TypstPlugin()
+    plugin.build_generate_prompt(
+        "data:image/png;base64,x", 0, None, None, None, (320, 240)
+    )
+    result = plugin.extract_from_llm(
+        "```typst\n#set page(width: auto)\n#rect(width: 10pt)\n"
+        "#set page(height: auto)\n```"
+    )
+    assert (
+        result
+        == "#set page(width: 320pt, height: 240pt, margin: 0pt)\n#rect(width: 10pt)\n"
+    )
+
+
 @pytest.mark.skipif(not _TYPST_AVAILABLE, reason="typst package not installed")
 def test_validate_valid_typst():
     plugin = TypstPlugin()

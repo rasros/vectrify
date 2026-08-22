@@ -7,6 +7,8 @@ from vectrify.formats.typst.operations import (
     _reorder_elements,
     apply_crossover,
     apply_mutation,
+    canonicalize_page_setup,
+    scene_units,
 )
 
 _TYPST_AVAILABLE = importlib.util.find_spec("typst") is not None
@@ -155,9 +157,11 @@ def test_apply_mutation_returns_valid_label():
     _, summary = apply_mutation(_TYPST_CODE)
     assert summary in {
         "Mutation: color tweak",
-        "Mutation: numeric tweak",
+        "Mutation: position tweak",
+        "Mutation: size/stroke tweak",
         "Mutation: removed element",
         "Mutation: reordered elements",
+        "Mutation: added element",
     }
 
 
@@ -167,7 +171,40 @@ def test_apply_crossover_returns_typst_string():
     )
     result, summary = apply_crossover(_TYPST_CODE, code_b)
     assert "#set page" in result
-    assert summary == "Crossover: element injection"
+    assert summary == "Crossover: scene element injection"
+
+
+def test_scene_units_keep_multiline_place_and_nested_content_together():
+    code = """#set page(width: 100pt, height: 100pt, margin: 0pt)
+#place(
+  dx: 10pt,
+  dy: 20pt,
+)[
+  #rect(width: 20pt, height: 10pt, fill: red)
+]
+#circle(radius: 4pt)
+"""
+    units = scene_units(code)
+    assert [unit.name for unit in units] == ["place", "circle"]
+    assert "#rect" in code[units[0].start : units[0].end]
+
+
+def test_page_canonicalization_removes_auto_and_duplicate_settings():
+    code = "#set page(width: auto)\n#rect(width: 5pt)\n#set page(height: auto)"
+    assert canonicalize_page_setup(code, (320, 240)) == (
+        "#set page(width: 320pt, height: 240pt, margin: 0pt)\n#rect(width: 5pt)\n"
+    )
+
+
+def test_mutations_never_change_fixed_page_setup():
+    code = (
+        "#set page(width: 320pt, height: 240pt, margin: 0pt)\n"
+        "#rect(width: 10pt, fill: red)\n#circle(radius: 4pt)"
+    )
+    page = code.splitlines()[0]
+    for _ in range(50):
+        result, _ = apply_mutation(code)
+        assert result.splitlines()[0] == page
 
 
 def test_crossover_falls_back_to_mutation_when_no_elements_in_b():
