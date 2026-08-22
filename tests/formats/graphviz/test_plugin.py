@@ -156,6 +156,25 @@ def test_rasterize_output_dimensions():
     assert img.size == (128, 96)
 
 
+def test_rasterize_letterboxes_instead_of_distorting(monkeypatch):
+    import io
+
+    from PIL import Image
+
+    plugin = GraphvizPlugin()
+    source = Image.new("RGBA", (200, 100), "red")
+    buf = io.BytesIO()
+    source.save(buf, format="PNG")
+    monkeypatch.setattr(plugin, "_render_png", lambda _content: buf.getvalue())
+
+    rendered = Image.open(io.BytesIO(plugin.rasterize("digraph G {}", 100, 100)))
+    assert rendered.size == (100, 100)
+    # The 2:1 graph occupies the middle half vertically; white margins prove
+    # the renderer fit its layout rather than stretching it square.
+    assert rendered.getpixel((50, 0)) == (255, 255, 255)
+    assert rendered.getpixel((50, 50)) == (255, 0, 0)
+
+
 @pytest.mark.llm
 @pytest.mark.skipif(not _DOT_AVAILABLE, reason="graphviz system binary not installed")
 def test_llm_dot_generation_produces_valid_dot():

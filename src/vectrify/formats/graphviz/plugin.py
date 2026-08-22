@@ -1,3 +1,4 @@
+import io
 import logging
 import re
 from collections.abc import Mapping
@@ -110,12 +111,42 @@ class GraphvizPlugin(BaseFormatPlugin):
     def _render_png(self, content: str) -> bytes:
         import graphviz
 
-        return graphviz.Source(content).pipe(format="png", quiet=True)
+        # Select the engine explicitly.  DOT's `layout=` graph attribute is a
+        # request, not a reliable renderer selection, and letting the wrapper
+        # choose makes identical diagrams differ across callers.
+        return graphviz.Source(content, engine="dot").pipe(format="png", quiet=True)
 
     def _compile(self, content: str) -> None:
         import graphviz
 
-        graphviz.Source(content).pipe(format="svg", quiet=True)
+        graphviz.Source(content, engine="dot").pipe(format="svg", quiet=True)
+
+    def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
+        """Fit a layout-managed diagram onto the scoring canvas without warp.
+
+        Graphviz computes a graph's natural aspect ratio.  Stretching that PNG
+        to a target canvas changes circles to ellipses and makes pixel scoring
+        reward distortion.  Keep that geometry and composite on white instead.
+        """
+        if out_w <= 0 or out_h <= 0:
+            raise ValueError(f"Invalid raster target size: {out_w}x{out_h}")
+        from PIL import Image
+        from PIL.Image import Resampling
+
+        rendered = Image.open(io.BytesIO(self._render_png(content))).convert("RGBA")
+        scale = min(out_w / rendered.width, out_h / rendered.height)
+        size = (
+            max(1, round(rendered.width * scale)),
+            max(1, round(rendered.height * scale)),
+        )
+        rendered = rendered.resize(size, Resampling.LANCZOS)
+        canvas = Image.new("RGBA", (out_w, out_h), "white")
+        canvas.alpha_composite(
+            rendered, ((out_w - size[0]) // 2, (out_h - size[1]) // 2)
+        )
+        out = io.BytesIO()
+        canvas.convert("RGB").save(out, format="PNG")
+        return out.getvalue()
 
     def extract_from_llm(self, raw: str) -> str:
         m = _DOT_FENCE.search(raw)
