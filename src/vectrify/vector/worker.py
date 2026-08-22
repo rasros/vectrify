@@ -157,7 +157,10 @@ def _build_local_contents(
             log.debug(f"Error attribution failed: {exc}")
             target_cache[key] = {}
     content, origin = plugin.mutate(
-        source, task.operator, target_cache[key], reference_png=ctx.original_png_bytes
+        source,
+        task.operator,
+        target_cache[key],
+        reference_png=ctx.original_png_bytes,
     )
     return [content], origin
 

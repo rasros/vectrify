@@ -2,6 +2,7 @@ import contextlib
 import dataclasses
 import io
 import logging
+import multiprocessing as mp
 import os
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -425,6 +426,14 @@ def run_vector_search(
     # The reference is still built on first use: a run that never reaches an
     # epoch boundary never pays for the embedding pass.
     _front: list[Any] = []
+    # GPU-bound path fitting happens in workers while the panel/vision
+    # evaluator runs in the main process. One shared gate makes the device a
+    # bounded resource instead of multiplying its memory footprint by the CPU
+    # worker count.
+    gpu_gate = mp.get_context("spawn").Semaphore(1)
+    # Only the SVG plugin consumes this optional hook; other format plugins
+    # safely ignore the shared resource handle.
+    format_plugin.gpu_gate = gpu_gate
 
     def _front_scorer() -> tuple[Any, Any]:
         if not _front:
@@ -434,13 +443,17 @@ def run_vector_search(
         return _front[0], _front[1]
 
     def rank_front(nodes: list[SearchNode]) -> list[SearchNode]:
-        return evaluate_front(
-            nodes,
-            front_scorer=_front_scorer,
-            format_plugin=format_plugin,
-            out_w=original_w,
-            out_h=original_h,
-        )
+        gpu_gate.acquire()
+        try:
+            return evaluate_front(
+                nodes,
+                front_scorer=_front_scorer,
+                format_plugin=format_plugin,
+                out_w=original_w,
+                out_h=original_h,
+            )
+        finally:
+            gpu_gate.release()
 
     engine = MultiprocessSearchEngine(
         workers=workers,

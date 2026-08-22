@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 import re
 from collections.abc import Mapping
-from typing import Protocol
+from typing import Any, Protocol
 
 from vectrify.image_utils import png_resize_exact
 
@@ -140,6 +140,8 @@ def apply_search_replace(parent: str, raw: str) -> str | None:
 class FormatPlugin(Protocol):
     name: str
     file_extension: str
+    # Optional run-scoped resource shared by GPU-aware format plugins.
+    gpu_gate: Any
 
     def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
         """Render content to PNG bytes at given dimensions."""
@@ -256,6 +258,7 @@ class BaseFormatPlugin:
 
     name: str
     file_extension: str
+    gpu_gate: Any = None
 
     def _render_png(self, content: str) -> bytes:
         """Render *content* to PNG bytes at the renderer's natural size."""

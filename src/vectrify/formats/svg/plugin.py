@@ -2,6 +2,7 @@ import logging
 import random
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
+from typing import Any
 
 from vectrify.formats.base import (
     NoUsableOutputError,
@@ -37,6 +38,11 @@ log = logging.getLogger(__name__)
 class SvgPlugin:
     name = "svg"
     file_extension = ".svg"
+    # The path fitter is the only mutation that may allocate CUDA tensors.
+    # Workers use this marker to join the runner-wide GPU admission gate.
+    gpu_bound_mutation = True
+    gpu_mutation_operator = PATH_FIT
+    gpu_gate: Any = None
     # A fit costs about 0.5s on a GPU where an ordinary mutation costs about a
     # millisecond, so it opens on a small share of the draws and the policy
     # moves it from there on what it actually returns.
@@ -157,6 +163,7 @@ class SvgPlugin:
                         reference_png,
                         rasterize=lambda svg, w, h: self.rasterize(svg, w, h),
                         weights=targets,
+                        gpu_gate=self.gpu_gate,
                     ),
                     PATH_FIT,
                 )
