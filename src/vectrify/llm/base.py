@@ -5,6 +5,10 @@ from typing import Any, Protocol
 from vectrify.llm.models import api_key_env
 
 
+def reasoning_budget(reasoning: str | None) -> int:
+    return {"low": 1024, "medium": 8192, "high": 24576}.get(reasoning, 8192)
+
+
 def resolve_api_key(provider: str, api_key: str | None = None) -> str:
     """Return the explicit key, else the provider's env var. Raises if unset."""
     env_var = api_key_env(provider)
