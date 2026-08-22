@@ -21,7 +21,7 @@ pipx install "vectrify[vision]"  # recommended
 # or: uv tool install "vectrify[vision]"
 ```
 
-The `vision` extra enables the perceptual scorer. Use
+The vision extra enables the perceptual scorer. Use
 `pipx install "vectrify[all]"` to also install the Graphviz and Typst output
 backends.
 
@@ -33,8 +33,8 @@ to CPU, and the simple scorer does not require a GPU.
 Graphviz output also needs the Graphviz system package. SVG rendering needs
 Cairo. On Debian/Ubuntu, install both with `sudo apt install graphviz libcairo2`.
 
-Set one LLM provider key before running: `OPENAI_API_KEY`,
-`ANTHROPIC_API_KEY`, or `GEMINI_API_KEY`.
+Set one LLM provider key before running: OPENAI_API_KEY,
+ANTHROPIC_API_KEY, or GEMINI_API_KEY.
 
 With `--provider auto` (the default), vectrify uses the first configured key
 in this order: OpenAI, Anthropic, Gemini. Select one explicitly when more than
@@ -46,8 +46,8 @@ Convert an image to SVG with `vectrify input.png -o output.svg`.
 
 Supported input formats are PNG, JPEG, WEBP, and GIF. The default run uses up
 to 50 epochs, stops after two unimproved epochs, or ends at the one-hour wall
-clock limit. LLM calls are bounded by `--epochs` × `--seeds` (50 × 5 by
-default).
+clock limit. LLM calls are bounded by epochs x seed (50 and 5 by
+default, respectively).
 
 Here are some common options:
 
@@ -102,19 +102,3 @@ output/
 
 Lineage is enabled by default. Rendered PNGs are saved alongside node files
 by default; add `--save-heatmap` for perceptual difference maps.
-
-## Development
-
-From a checkout, install the development environment and run the checks with:
-
-```bash
-uv sync --extra dev --extra graphviz --extra typst --extra vision
-uv run pytest -q
-uv run ruff check src/ tests/ scripts/
-```
-
-See [`bench/README.md`](bench/README.md) for the local-search benchmark.
-
-## License
-
-Apache 2.0. See [LICENSE](LICENSE).
