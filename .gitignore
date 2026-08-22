@@ -11,8 +11,9 @@
 # Run output: vectrify writes <output-stem>/runs/ next to the output file
 */runs/
 
-# Agent worktrees and coverage artifacts
-.claude/worktrees/
+# Agent metadata, worktrees, and coverage artifacts
+.claude/
+.codex/
 .coverage
 
 # The benchmark corpus is source, not run output
