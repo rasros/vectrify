@@ -3,6 +3,7 @@ import shutil
 import pytest
 
 from vectrify.formats.graphviz.operations import (
+    _node_graft,
     _parse_node_names,
     _random_edge_attr_tweak,
     _random_layout_tweak,
@@ -77,7 +78,7 @@ def test_apply_crossover_returns_dot_string():
     }"""
     result, summary = apply_crossover(_DOT, dot_b)
     assert "digraph" in result
-    assert summary == "Crossover: attributes"
+    assert summary.startswith("Crossover:")
 
 
 def test_crossover_falls_back_to_mutation_when_no_attrs_in_b():
@@ -118,3 +119,35 @@ def test_insert_after_first_brace_without_a_brace_is_a_noop():
     from vectrify.formats.graphviz.operations import _insert_after_first_brace
 
     assert _insert_after_first_brace("not a graph", "node [];") == "not a graph"
+
+
+def test_node_mutation_edits_an_explicit_node_not_global_defaults():
+    dot = """digraph G {
+    node [shape=box];
+    A [label=\"first\", shape=ellipse];
+    B [label=\"second\"];
+    A -> B;
+}"""
+    result = _random_node_attr_tweak(dot)
+    assert "node [shape=box]" in result
+    assert result != dot
+
+
+def test_node_graft_renames_colliding_donor_and_keeps_incident_edge():
+    target = "digraph G {\n    A -> B;\n}"
+    donor = """digraph H {
+    A [label=\"donor\"];
+    A -> C [label=\"go\"];
+}"""
+    # choose the first donor node deterministically for the collision case
+    import random
+
+    state = random.getstate()
+    random.seed(1)
+    try:
+        result = _node_graft(target, donor)
+    finally:
+        random.setstate(state)
+    assert result is not None
+    assert "donor_A" in result
+    assert "donor_A -> C" in result
