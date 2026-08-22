@@ -1,4 +1,5 @@
 import contextlib
+import dataclasses
 import io
 import logging
 import os
@@ -63,6 +64,37 @@ from vectrify.vector.state import VectorStateBuilder
 from vectrify.vector.worker import WorkerContext, worker_loop
 
 log = logging.getLogger("main")
+
+
+@dataclasses.dataclass(frozen=True)
+class VectorSearchConfig:
+    """Options for a vector-search run, independent of its input/output wiring.
+
+    ``run_vector_search`` remains the public, CLI-friendly entry point.  This
+    object gives programmatic callers and the runner internals a single value
+    to pass around as the option set grows.
+    """
+
+    resolution_llm: int = DEFAULT_RESOLUTION_LLM
+    score_resolution: int | None = None
+    edge_tolerance: float | None = None
+    write_lineage: bool = True
+    save_raster: bool = False
+    epoch_patience: int | None = None
+    pool_size: int = DEFAULT_POOL_SIZE
+    seeds: int | None = None
+    epoch_max_tasks: int | None = DEFAULT_EPOCH_MAX_TASKS
+    epoch_eval_interval: int | None = DEFAULT_EPOCH_EVAL_INTERVAL
+    epoch_eval_patience: int | None = DEFAULT_EPOCH_EVAL_PATIENCE
+    epoch_improvement: float = DEFAULT_EPOCH_IMPROVEMENT
+    epoch_improvement_patience: int = DEFAULT_EPOCH_IMPROVEMENT_PATIENCE
+    tournament_size: int = DEFAULT_TOURNAMENT_SIZE
+    crossover_distance: int = DEFAULT_CROSSOVER_DISTANCE
+    adaptive_operators: bool = True
+    epochs: int | None = None
+    max_total_tasks: int | None = DEFAULT_MAX_TOTAL_TASKS
+    random_seed: int | None = None
+    vision_model: str = DEFAULT_VISION_MODEL
 
 
 def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, int, int]:
@@ -215,7 +247,53 @@ def run_vector_search(
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
+    config: VectorSearchConfig | None = None,
 ) -> None:
+    # Keep the established keyword-heavy API for the CLI and integrations,
+    # while allowing internal/programmatic callers to pass one cohesive option
+    # object.  A supplied config deliberately owns every search option.
+    config = config or VectorSearchConfig(
+        resolution_llm=resolution_llm,
+        score_resolution=score_resolution,
+        edge_tolerance=edge_tolerance,
+        write_lineage=write_lineage,
+        save_raster=save_raster,
+        epoch_patience=epoch_patience,
+        pool_size=pool_size,
+        seeds=seeds,
+        epoch_max_tasks=epoch_max_tasks,
+        epoch_eval_interval=epoch_eval_interval,
+        epoch_eval_patience=epoch_eval_patience,
+        epoch_improvement=epoch_improvement,
+        epoch_improvement_patience=epoch_improvement_patience,
+        tournament_size=tournament_size,
+        crossover_distance=crossover_distance,
+        adaptive_operators=adaptive_operators,
+        epochs=epochs,
+        max_total_tasks=max_total_tasks,
+        random_seed=random_seed,
+        vision_model=vision_model,
+    )
+    resolution_llm = config.resolution_llm
+    score_resolution = config.score_resolution
+    edge_tolerance = config.edge_tolerance
+    write_lineage = config.write_lineage
+    save_raster = config.save_raster
+    epoch_patience = config.epoch_patience
+    pool_size = config.pool_size
+    seeds = config.seeds
+    epoch_max_tasks = config.epoch_max_tasks
+    epoch_eval_interval = config.epoch_eval_interval
+    epoch_eval_patience = config.epoch_eval_patience
+    epoch_improvement = config.epoch_improvement
+    epoch_improvement_patience = config.epoch_improvement_patience
+    tournament_size = config.tournament_size
+    crossover_distance = config.crossover_distance
+    adaptive_operators = config.adaptive_operators
+    epochs = config.epochs
+    max_total_tasks = config.max_total_tasks
+    random_seed = config.random_seed
+    vision_model = config.vision_model
     epoch_seeds = resolve_seeds(seeds)
 
     # Validate the reference image up front so a missing or corrupt input fails

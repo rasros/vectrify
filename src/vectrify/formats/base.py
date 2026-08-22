@@ -195,12 +195,14 @@ class FormatPlugin(Protocol):
         content: str,
         operator: str | None = None,
         targets: dict[int, float] | None = None,
+        reference_png: bytes | None = None,
     ) -> tuple[str, str]:
         """Mutate existing content. Return (new_content, origin).
 
         *operator* names one of ``mutation_weights``; None lets the backend
         pick for itself. *targets* weights which element to work on, by its
-        position among the drawable elements.
+        position among the drawable elements. *reference_png* is available to
+        formats with image-aware operators.
         """
         ...
 

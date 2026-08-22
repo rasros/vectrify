@@ -3,7 +3,8 @@ import functools
 import random
 import re
 import xml.etree.ElementTree as ET
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from typing import cast
 
 import numpy as np
 
@@ -15,6 +16,7 @@ from vectrify.formats.svg.ownership import (
     owner_labels,
 )
 from vectrify.formats.svg.pathdata import PATH_TOKEN_RE
+from vectrify.formats.svg.selection import MutationContext, NoChangeError
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -82,88 +84,34 @@ def _is_valid_svg(svg: str) -> bool:
         return False
 
 
-class _NoChangeError(Exception):
-    """Raised by an operator when there is nothing it can mutate."""
-
-
-# How much error each element answers for, by its position among the drawable
-# elements. A module-level channel rather than an argument because every
-# operator picks its own target in its own way, and threading a table through
-# all of them would touch each one twice.
-#
-# Keyed by position, not identity: every operator re-parses the SVG, so the
-# element objects a caller could point at are not the ones being mutated.
-_TARGET_BY_INDEX: dict[int, float] = {}
-
-# Resolved against the parse the operator is actually working on.
-_TARGET_WEIGHTS: dict[int, float] = {}
-
-
-def _pick(candidates: list):
-    """Choose an element to mutate, favouring the ones answering for the error.
-
-    Uniform choice spends most of a run on elements that are already right. On
-    an emblem seed the background answers for 57% of the error and the star for
-    3.5%, and picking uniformly gives them equal attention forever.
-    """
-    if not candidates:
-        raise _NoChangeError
-    if not _TARGET_WEIGHTS:
-        return random.choice(candidates)
-
-    weights = [_TARGET_WEIGHTS.get(id(_element_of(item)), 0.0) for item in candidates]
-    total = sum(weights)
-    if total <= 0.0:
-        return random.choice(candidates)
-    # A floor under every candidate: attributed error says where the error is
-    # now, not where a fix is available, so nothing should be unreachable.
-    floor = total * _TARGET_FLOOR / len(candidates)
-    return random.choices(candidates, weights=[w + floor for w in weights], k=1)[0]
-
-
-def _element_of(item):
-    """Operators offer elements, or tuples with the element first or second."""
-    if isinstance(item, tuple):
-        for part in item:
-            if isinstance(part, ET.Element):
-                return part
-        return item[0]
-    return item
-
-
-# Share of the selection mass spread evenly over every candidate.
-_TARGET_FLOOR = 0.25
-
-
-def svg_transform(fn: Callable[[ET.Element], None]) -> Callable[[str], str]:
+def svg_transform(
+    fn: Callable[[ET.Element, MutationContext], None],
+) -> Callable[[str], str]:
     """Turn an in-place root-element edit into an SVG-string mutation.
 
     Handles parsing, namespace registration, and serialization, and returns
     the input unchanged when it does not parse or *fn* finds nothing to do
-    (signalled by raising _NoChangeError).
+    (signalled by raising ``NoChangeError``).
     """
 
     @functools.wraps(fn)
-    def wrapper(svg: str) -> str:
+    def wrapper(svg: str, targets: Mapping[int, float] | None = None) -> str:
         try:
             root = ET.fromstring(svg)
         except ET.ParseError:
             return svg
 
-        _TARGET_WEIGHTS.clear()
-        if _TARGET_BY_INDEX:
-            for index, (_chain, element) in enumerate(drawable_elements(root)):
-                _TARGET_WEIGHTS[id(element)] = _TARGET_BY_INDEX.get(index, 0.0)
         try:
-            fn(root)
-        except _NoChangeError:
+            fn(root, MutationContext(root, targets))
+        except NoChangeError:
             return svg
-        finally:
-            _TARGET_WEIGHTS.clear()
         ET.register_namespace("", SVG_NS)
         return ET.tostring(root, encoding="unicode", method="xml")
 
-    return wrapper
+    # MutationTable exposes format mutations as single-argument callables.
+    # `wrapper` also accepts target weights for the internal dispatcher below,
+    # but those are not part of the public mutator contract.
+    return cast(Callable[[str], str], wrapper)
 
 
 def with_retries(
@@ -334,15 +282,15 @@ def crossover(svg_a: str, svg_b: str) -> str:
 
 
 @svg_transform
-def mutate_drop_style_property(root: ET.Element) -> None:
+def mutate_drop_style_property(root: ET.Element, context: MutationContext) -> None:
     styled = [el for el in root.iter() if el.get("style", "").strip()]
     if not styled:
-        raise _NoChangeError
+        raise NoChangeError
 
-    el = _pick(styled)
+    el = context.pick(styled)
     props = [p.strip() for p in el.get("style", "").split(";") if p.strip()]
     if len(props) <= 1:
-        raise _NoChangeError
+        raise NoChangeError
 
     props.pop(random.randrange(len(props)))
     el.set("style", "; ".join(props))
@@ -377,7 +325,7 @@ def movable_elements(root: ET.Element) -> list[tuple[tuple, ET.Element]]:
 
 
 @svg_transform
-def mutate_numeric(root: ET.Element) -> None:
+def mutate_numeric(root: ET.Element, context: MutationContext) -> None:
     span = _canvas_span(root)
     candidates: list[tuple[ET.Element, str, float, str]] = []
     for elem in root.iter():
@@ -392,9 +340,9 @@ def mutate_numeric(root: ET.Element) -> None:
                 candidates.append((elem, attr, float(m.group(1)), m.group(2)))
 
     if not candidates:
-        raise _NoChangeError
+        raise NoChangeError
 
-    elem, attr, num, unit = _pick(candidates)
+    elem, attr, num, unit = context.pick(candidates)
     bare = attr.split("}")[-1]
 
     if bare in _OPACITY_ATTRS:
@@ -431,7 +379,7 @@ def mutate_numeric(root: ET.Element) -> None:
 
 
 @svg_transform
-def mutate_color(root: ET.Element) -> None:
+def mutate_color(root: ET.Element, context: MutationContext) -> None:
     """Tweak a fill or stroke color — nudge hex channels or swap named color."""
     # Collect (elem, source, key, current_value) for every color reference
     candidates: list[tuple[ET.Element, str, str, str]] = []
@@ -453,16 +401,16 @@ def mutate_color(root: ET.Element) -> None:
                 candidates.append((elem, "style", k, v))
 
     if not candidates:
-        raise _NoChangeError
+        raise NoChangeError
 
     # Only a hex value can be fudged. A name has no channels, so "changing" it
     # means jumping to some other colour, which is not a search step -- it is
     # how stray blues and browns arrived in drawings that are otherwise grey.
     candidates = [c for c in candidates if _HEX_COLOR_RE.search(c[3])]
     if not candidates:
-        raise _NoChangeError
+        raise NoChangeError
 
-    elem, source, key, val = _pick(candidates)
+    elem, source, key, val = context.pick(candidates)
 
     h = _HEX_COLOR_RE.search(val).group(1)  # type: ignore[union-attr]
     if len(h) == 3:
@@ -490,13 +438,13 @@ def mutate_color(root: ET.Element) -> None:
 
 
 @svg_transform
-def mutate_stroke(root: ET.Element) -> None:
+def mutate_stroke(root: ET.Element, context: MutationContext) -> None:
     """Add, remove, or change stroke on a random shape element."""
     shapes = [el for el in root.iter() if _local_tag(el) in _SHAPE_TAGS]
     if not shapes:
-        raise _NoChangeError
+        raise NoChangeError
 
-    el = _pick(shapes)
+    el = context.pick(shapes)
     has_stroke = el.get("stroke") not in (None, "none", "")
 
     op = random.choice(["add", "remove"])
@@ -508,12 +456,12 @@ def mutate_stroke(root: ET.Element) -> None:
         # blue ring on a black dot. Colour itself is mutate_color's business.
         fill = el.get("fill")
         if not fill or fill in ("none", "inherit", "transparent"):
-            raise _NoChangeError
+            raise NoChangeError
         el.set("stroke", fill)
         if not el.get("stroke-width"):
             el.set("stroke-width", str(random.choice([1, 2, 3])))
     else:
-        raise _NoChangeError
+        raise NoChangeError
 
 
 def _nudgeable_numbers(d: str) -> list[re.Match]:
@@ -559,17 +507,17 @@ def _nudgeable_numbers(d: str) -> list[re.Match]:
 
 
 @svg_transform
-def mutate_path(root: ET.Element) -> None:
+def mutate_path(root: ET.Element, context: MutationContext) -> None:
     """Nudge one numeric coordinate in a path 'd' attribute."""
     paths = [el for el in root.iter() if el.get("d")]
     if not paths:
-        raise _NoChangeError
+        raise NoChangeError
 
-    el = _pick(paths)
+    el = context.pick(paths)
     d = el.get("d", "")
     nums = _nudgeable_numbers(d)
     if not nums:
-        raise _NoChangeError
+        raise NoChangeError
 
     m = random.choice(nums)
     val = float(m.group(0))
@@ -710,7 +658,7 @@ def _shift_element(el: ET.Element, dx: float, dy: float) -> bool:
 
 
 @svg_transform
-def mutate_translate(root: ET.Element) -> None:
+def mutate_translate(root: ET.Element, context: MutationContext) -> None:
     """Move one element along both axes at once.
 
     The other numeric operator scales a single attribute, which cannot express
@@ -731,9 +679,9 @@ def mutate_translate(root: ET.Element) -> None:
     """
     units = movable_elements(root)
     if not units:
-        raise _NoChangeError
+        raise NoChangeError
 
-    element = _pick([el for _chain, el in units])
+    element = context.pick([el for _chain, el in units])
     step = max(2.0, _canvas_span(root) * 0.05)
     dx = random.uniform(-step, step)
     dy = random.uniform(-step, step)
@@ -744,11 +692,11 @@ def mutate_translate(root: ET.Element) -> None:
     for el in element.iter():
         moved = _shift_element(el, dx, dy) or moved
     if not moved:
-        raise _NoChangeError
+        raise NoChangeError
 
 
 @svg_transform
-def mutate_remove_node(root: ET.Element) -> None:
+def mutate_remove_node(root: ET.Element, context: MutationContext) -> None:
     """Delete one drawable element.
 
     Not in the operator table: no operator adds an element, so leaving this one
@@ -758,23 +706,23 @@ def mutate_remove_node(root: ET.Element) -> None:
     """
     units = drawable_elements(root)
     if len(units) < 2:
-        raise _NoChangeError
+        raise NoChangeError
 
-    victim = _pick([element for _chain, element in units])
+    victim = context.pick([element for _chain, element in units])
     for parent in root.iter():
         for child in list(parent):
             if child is victim:
                 parent.remove(child)
                 return
-    raise _NoChangeError
+    raise NoChangeError
 
 
 @svg_transform
-def mutate_reorder(root: ET.Element) -> None:
+def mutate_reorder(root: ET.Element, _context: MutationContext) -> None:
     """Swap two adjacent sibling elements to change z-order."""
     candidates = [el for el in root.iter() if len(list(el)) >= 2]
     if not candidates:
-        raise _NoChangeError
+        raise NoChangeError
 
     parent = random.choice(candidates)
     children = list(parent)
@@ -811,12 +759,10 @@ def apply_mutation(
     fn, name = pick_operator(MUTATIONS, operator)
 
     def run() -> str:
-        _TARGET_BY_INDEX.clear()
-        _TARGET_BY_INDEX.update(targets or {})
-        try:
-            return fn(parent_svg)
-        finally:
-            _TARGET_BY_INDEX.clear()
+        targeted_fn = cast(
+            Callable[[str, Mapping[int, float] | None], str], fn
+        )
+        return targeted_fn(parent_svg, targets)
 
     return with_retries(run, fallback=parent_svg), name
 
