@@ -78,6 +78,17 @@ def _set_attr(attrs: str, key: str, value: str) -> str:
 
 
 def _set_graph_attr(dot: str, key: str, value: str) -> str:
+    attr_block = re.compile(r"(?P<prefix>\bgraph\s*\[)(?P<attrs>[^\]]*)(?P<suffix>\])")
+    if attr_block.search(dot):
+        return attr_block.sub(
+            lambda m: (
+                f"{m.group('prefix')}"
+                f"{_set_attr(m.group('attrs'), key, value)}"
+                f"{m.group('suffix')}"
+            ),
+            dot,
+            count=1,
+        )
     assignment = re.compile(rf"(?P<prefix>\b{re.escape(key)}\s*=\s*)[^;\n]+;")
     if assignment.search(dot):
         return assignment.sub(lambda m: f"{m.group('prefix')}{value};", dot, count=1)

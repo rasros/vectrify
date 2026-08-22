@@ -92,6 +92,14 @@ def test_mutate_color_changes_stroke():
     assert changed
 
 
+def test_mutate_color_preserves_rgb_function_syntax():
+    code = '#rect(fill: rgb("4f7ecb"))'
+    for _ in range(30):
+        result = _mutate_color(code)
+        assert "fill: rgb(" in result
+        assert result != code
+
+
 def test_mutate_color_no_match_returns_unchanged():
     code = "#rect(width: 10pt)"
     result = _mutate_color(code)

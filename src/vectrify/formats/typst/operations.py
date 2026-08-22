@@ -15,7 +15,7 @@ _NUM_RE = re.compile(r"(?<![\w.])-?(\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)\b")
 _ATTR_NUMBER_RE = re.compile(
     r"\b(?P<key>dx|dy|x|y|width|height|radius|rx|ry|size|stroke|thickness)\s*:\s*(?P<value>-?\d+(?:\.\d+)?)(?P<unit>pt|em|%|mm|cm|in)\b"
 )
-_NAMED_COLOR_ATTR_RE = re.compile(r"\b(fill|stroke)\s*:\s*([a-z]+)\b")
+_NAMED_COLOR_ATTR_RE = re.compile(r"\b(fill|stroke)\s*:\s*([a-z]+)\b(?!\s*\()")
 _RGB_COLOR_ATTR_RE = re.compile(
     r"\b(fill|stroke)\s*:\s*rgb\(\s*\"([0-9a-fA-F]{6})\"\s*\)"
 )
@@ -32,17 +32,12 @@ _TYPST_COLORS = [
     "yellow",
     "orange",
     "purple",
-    "cyan",
-    "magenta",
-    "pink",
     "black",
     "white",
     "gray",
     "navy",
     "teal",
     "olive",
-    "coral",
-    "gold",
     "lime",
     "maroon",
     "silver",

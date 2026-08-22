@@ -73,8 +73,12 @@ def test_non_svg_seed_pool_can_evolve_without_an_llm(name):
     seeds = sorted((BENCH / name / "seeds").glob(f"*{_SUFFIXES[format_name]}"))
     parent_a = seeds[0].read_text(encoding="utf-8")
     parent_b = seeds[1].read_text(encoding="utf-8")
-    random.seed(20260822)
-    children = [plugin.mutate(parent_a)[0], plugin.crossover(parent_a, parent_b)[0]]
+    state = random.getstate()
+    try:
+        random.seed(20260822)
+        children = [plugin.mutate(parent_a)[0], plugin.crossover(parent_a, parent_b)[0]]
+    finally:
+        random.setstate(state)
     assert any(child != parent_a for child in children)
     for child in children:
         valid, error = plugin.validate(child)
