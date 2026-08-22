@@ -6,6 +6,8 @@ from vectrify.llm.models import api_key_env
 
 
 def reasoning_budget(reasoning: str | None) -> int:
+    if reasoning is None:
+        return 8192
     return {"low": 1024, "medium": 8192, "high": 24576}.get(reasoning, 8192)
 
 
