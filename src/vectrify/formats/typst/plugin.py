@@ -10,6 +10,7 @@ from vectrify.formats.typst.operations import (
     MUTATIONS,
     apply_crossover,
     apply_mutation,
+    canonicalize_page_setup,
     render_typst_png,
 )
 from vectrify.formats.typst.prompts import build_typst_gen_prompt
@@ -27,6 +28,12 @@ class TypstPlugin(BaseFormatPlugin):
     name = "typst"
     file_extension = ".typ"
 
+    def __init__(self) -> None:
+        # The worker calls build_generate_prompt before extracting the reply.
+        # Retaining this run-local canvas lets extraction remove any model
+        # supplied auto/multiple page settings before they enter the pool.
+        self._canvas: tuple[int, int] | None = None
+
     def _render_png(self, content: str) -> bytes:
         return render_typst_png(content)
 
@@ -38,9 +45,14 @@ class TypstPlugin(BaseFormatPlugin):
 
     def extract_from_llm(self, raw: str) -> str:
         m = _TYPST_FENCE.search(raw)
-        if m:
-            return m.group(1).strip()
-        return raw.strip()
+        content = m.group(1).strip() if m else raw.strip()
+        return canonicalize_page_setup(content, self._canvas or (0, 0))
+
+    def apply_edit(self, parent: str, raw: str) -> str:
+        """Keep an LLM edit from changing the immutable page coordinate space."""
+        return canonicalize_page_setup(
+            super().apply_edit(parent, raw), self._canvas or (0, 0)
+        )
 
     def build_generate_prompt(
         self,
@@ -56,6 +68,7 @@ class TypstPlugin(BaseFormatPlugin):
         # hand off to an external tool. Same limit as `element_targets`.
         invisible: list[str] | None = None,  # noqa: ARG002
     ) -> list[dict]:
+        self._canvas = canvas
         return build_typst_gen_prompt(
             image_data_url=image_data_url,
             node_index=node_index,

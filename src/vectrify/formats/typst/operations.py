@@ -1,20 +1,30 @@
+"""Structure-aware local search operators for Typst scenes."""
+
+from __future__ import annotations
+
 import random
 import re
+from dataclasses import dataclass
 
 from vectrify.formats.mutations import MutationTable, pick_operator
 
-# Matches numeric values with Typst units: 12pt, 1.5em, 50%, 3mm, etc.
-_NUM_RE = re.compile(r"(\b|-)(\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)\b")
-
-# Matches a simple named color after fill: or stroke:
-_NAMED_COLOR_ATTR_RE = re.compile(r"\b(fill|stroke)\s*:\s*([a-z]+)\b")
-
-# Lines that are renderable shape/layout elements (not page/text setup)
-_ELEMENT_LINE_RE = re.compile(
-    r"^\s*#(rect|circle|ellipse|line|polygon|place|square|path)\b",
-    re.MULTILINE,
+_VISUAL_NAMES = frozenset(
+    {"rect", "circle", "ellipse", "line", "polygon", "place", "square", "path"}
 )
-
+_NUM_RE = re.compile(r"(?<![\w.])-?(\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)\b")
+_ATTR_NUMBER_RE = re.compile(
+    r"\b(?P<key>dx|dy|x|y|width|height|radius|rx|ry|size|stroke|thickness)\s*:\s*(?P<value>-?\d+(?:\.\d+)?)(?P<unit>pt|em|%|mm|cm|in)\b"
+)
+_NAMED_COLOR_ATTR_RE = re.compile(r"\b(fill|stroke)\s*:\s*([a-z]+)\b")
+_RGB_COLOR_ATTR_RE = re.compile(
+    r"\b(fill|stroke)\s*:\s*rgb\(\s*\"([0-9a-fA-F]{6})\"\s*\)"
+)
+_PAGE_RE = re.compile(r"#set\s+page\s*\(")
+# Kept for callers that used the old line-level helper. New mutations use
+# ``scene_units`` instead, so this is only a compatibility view.
+_ELEMENT_LINE_RE = re.compile(
+    r"^\s*#(rect|circle|ellipse|line|polygon|place|square|path)\b", re.MULTILINE
+)
 _TYPST_COLORS = [
     "red",
     "blue",
@@ -39,88 +49,237 @@ _TYPST_COLORS = [
 ]
 
 
-def _random_numeric_tweak(typst_code: str) -> str:
-    """Find a random numeric value with a unit and scale it by ±30%."""
-    matches = list(_NUM_RE.finditer(typst_code))
-    if not matches:
-        return typst_code
-
-    m = random.choice(matches)
-    prefix = m.group(1)
-    val = float(m.group(2))
-    unit = m.group(3)
-
-    factor = random.uniform(0.7, 1.3)
-    new_val = max(0.1, val * factor)
-    formatted = f"{prefix}{new_val:.2f}{unit}".replace(".00", "")
-
-    return typst_code[: m.start()] + formatted + typst_code[m.end() :]
-
-
-def _mutate_color(typst_code: str) -> str:
-    """Replace a named fill or stroke color with a random one."""
-    matches = list(_NAMED_COLOR_ATTR_RE.finditer(typst_code))
-    if not matches:
-        return typst_code
-
-    m = random.choice(matches)
-    current = m.group(2)
-    candidates = [c for c in _TYPST_COLORS if c != current]
-    if not candidates:
-        return typst_code
-
-    new_color = random.choice(candidates)
-    start = m.start(2)
-    end = m.end(2)
-    return typst_code[:start] + new_color + typst_code[end:]
+@dataclass(frozen=True)
+class SceneUnit:
+    start: int
+    end: int
+    name: str
 
 
 def _split_lines(typst_code: str) -> list[str]:
-    """Split into lines that each end with a newline.
-
-    Splicing with ``keepends=True`` alone fuses two elements onto one physical
-    line whenever the moved line is the last one and lacks a trailing newline.
-    A fused line then no longer matches _ELEMENT_LINE_RE, which is anchored per
-    line, so the hidden element becomes unreachable by every later mutation.
-    """
+    """Compatibility helper; scene operations no longer use physical lines."""
     return [
         line if line.endswith("\n") else line + "\n"
         for line in typst_code.splitlines(keepends=True)
     ]
 
 
-def _remove_element(typst_code: str) -> str:
-    """Remove a random shape element line, keeping at least one."""
-    lines = typst_code.splitlines(keepends=True)
-    element_indices = [
-        i for i, line in enumerate(lines) if _ELEMENT_LINE_RE.match(line)
-    ]
-    if len(element_indices) <= 1:
-        return typst_code
+def _balanced_end(source: str, start: int, opener: str, closer: str) -> int | None:
+    """End of a balanced group, without being confused by quoted delimiters."""
+    if start >= len(source) or source[start] != opener:
+        return None
+    depth, quote, escaped = 0, None, False
+    for index in range(start, len(source)):
+        char = source[index]
+        if quote:
+            if escaped:
+                escaped = False
+            elif char == "\\":
+                escaped = True
+            elif char == quote:
+                quote = None
+            continue
+        if char in ('"', "'"):
+            quote = char
+        elif char == opener:
+            depth += 1
+        elif char == closer:
+            depth -= 1
+            if depth == 0:
+                return index + 1
+    return None
 
-    idx = random.choice(element_indices)
-    return "".join(line for i, line in enumerate(lines) if i != idx)
+
+def scene_units(typst_code: str) -> list[SceneUnit]:
+    """Find complete top-level visual expressions, including #place blocks."""
+    units: list[SceneUnit] = []
+    pattern = re.compile(r"#(" + "|".join(_VISUAL_NAMES) + r")\b")
+    cursor = 0
+    while match := pattern.search(typst_code, cursor):
+        pos = match.end()
+        while pos < len(typst_code) and typst_code[pos].isspace():
+            pos += 1
+        end = (
+            _balanced_end(typst_code, pos, "(", ")")
+            if pos < len(typst_code) and typst_code[pos] == "("
+            else pos
+        )
+        if end is None:
+            cursor = match.end()
+            continue
+        probe = end
+        while probe < len(typst_code) and typst_code[probe].isspace():
+            probe += 1
+        if probe < len(typst_code) and typst_code[probe] == "[":
+            block_end = _balanced_end(typst_code, probe, "[", "]")
+            if block_end is None:
+                cursor = end
+                continue
+            end = block_end
+        units.append(SceneUnit(match.start(), end, match.group(1)))
+        cursor = end  # Nested elements belong to their enclosing #place.
+    return units
+
+
+def canonicalize_page_setup(typst_code: str, canvas: tuple[int, int]) -> str:
+    """Install exactly one fixed page setup, removing all model-provided ones."""
+    width, height = canvas
+    if width <= 0 or height <= 0:
+        return typst_code
+    spans = []
+    for match in _PAGE_RE.finditer(typst_code):
+        end = _balanced_end(
+            typst_code, typst_code.find("(", match.start(), match.end()), "(", ")"
+        )
+        if end is not None:
+            spans.append((match.start(), end))
+    for start, end in reversed(spans):
+        if typst_code[end : end + 1] == "\n":
+            end += 1
+        typst_code = typst_code[:start] + typst_code[end:]
+    return (
+        f"#set page(width: {width}pt, height: {height}pt, margin: 0pt)\n"
+        + typst_code.lstrip("\n")
+    )
+
+
+def _replace(code: str, unit: SceneUnit, text: str) -> str:
+    return code[: unit.start] + text + code[unit.end :]
+
+
+def _choose(code: str) -> SceneUnit | None:
+    units = scene_units(code)
+    return random.choice(units) if units else None
+
+
+def _random_numeric_tweak(typst_code: str) -> str:
+    """Tweak only scene numbers, so page dimensions and margin never drift."""
+    unit = _choose(typst_code)
+    if not unit:
+        return typst_code
+    text, matches = typst_code[unit.start : unit.end], None
+    matches = list(_NUM_RE.finditer(text))
+    if not matches:
+        return typst_code
+    match = random.choice(matches)
+    value = max(0.1, float(match.group(1)) * random.uniform(0.7, 1.3))
+    return _replace(
+        typst_code,
+        unit,
+        text[: match.start()]
+        + f"{value:.2f}".replace(".00", "")
+        + match.group(2)
+        + text[match.end() :],
+    )
+
+
+def _mutate_position(typst_code: str) -> str:
+    unit = _choose(typst_code)
+    if not unit:
+        return typst_code
+    text = typst_code[unit.start : unit.end]
+    matches = [
+        m
+        for m in _ATTR_NUMBER_RE.finditer(text)
+        if m.group("key") in {"dx", "dy", "x", "y"}
+    ]
+    if not matches:
+        return typst_code
+    m = random.choice(matches)
+    value = float(m.group("value")) + random.uniform(-12, 12)
+    replacement = f"{m.group('key')}: {value:.2f}{m.group('unit')}".replace(".00", "")
+    return _replace(typst_code, unit, text[: m.start()] + replacement + text[m.end() :])
+
+
+def _mutate_size_or_stroke(typst_code: str) -> str:
+    unit = _choose(typst_code)
+    if not unit:
+        return typst_code
+    text = typst_code[unit.start : unit.end]
+    matches = [
+        m
+        for m in _ATTR_NUMBER_RE.finditer(text)
+        if m.group("key") not in {"dx", "dy", "x", "y"}
+    ]
+    if not matches:
+        return _random_numeric_tweak(typst_code)
+    m = random.choice(matches)
+    value = max(0.1, float(m.group("value")) * random.uniform(0.7, 1.3))
+    replacement = f"{m.group('key')}: {value:.2f}{m.group('unit')}".replace(".00", "")
+    return _replace(typst_code, unit, text[: m.start()] + replacement + text[m.end() :])
+
+
+def _mutate_color(typst_code: str) -> str:
+    unit = _choose(typst_code)
+    if not unit:
+        return typst_code
+    text = typst_code[unit.start : unit.end]
+    named, rgb = (
+        list(_NAMED_COLOR_ATTR_RE.finditer(text)),
+        list(_RGB_COLOR_ATTR_RE.finditer(text)),
+    )
+    if named:
+        m = random.choice(named)
+        color = random.choice([c for c in _TYPST_COLORS if c != m.group(2)])
+        return _replace(typst_code, unit, text[: m.start(2)] + color + text[m.end(2) :])
+    if rgb:
+        m = random.choice(rgb)
+        values = [int(m.group(2)[i : i + 2], 16) for i in range(0, 6, 2)]
+        index = random.randrange(3)
+        values[index] = max(0, min(255, values[index] + random.choice((-24, 24))))
+        return _replace(
+            typst_code,
+            unit,
+            text[: m.start(2)] + "".join(f"{v:02x}" for v in values) + text[m.end(2) :],
+        )
+    return typst_code
+
+
+def _remove_element(typst_code: str) -> str:
+    units = scene_units(typst_code)
+    if len(units) <= 1:
+        return typst_code
+    unit = random.choice(units)
+    end = unit.end + (typst_code[unit.end : unit.end + 1] == "\n")
+    return typst_code[: unit.start] + typst_code[end:]
 
 
 def _reorder_elements(typst_code: str) -> str:
-    """Swap two element lines to change rendering order."""
-    lines = _split_lines(typst_code)
-    element_indices = [
-        i for i, line in enumerate(lines) if _ELEMENT_LINE_RE.match(line)
-    ]
-    if len(element_indices) < 2:
+    units = scene_units(typst_code)
+    if len(units) < 2:
         return typst_code
+    first, second = sorted(random.sample(units, 2), key=lambda unit: unit.start)
+    a, b = typst_code[first.start : first.end], typst_code[second.start : second.end]
+    return (
+        typst_code[: first.start]
+        + b
+        + typst_code[first.end : second.start]
+        + a
+        + typst_code[second.end :]
+    )
 
-    i, j = random.sample(element_indices, 2)
-    lines[i], lines[j] = lines[j], lines[i]
-    return "".join(lines)
+
+def _add_element(typst_code: str) -> str:
+    unit = _choose(typst_code)
+    if not unit:
+        return typst_code
+    duplicate = typst_code[unit.start : unit.end]
+    duplicate = re.sub(
+        r"\b(dx|dy)\s*:\s*(-?\d+(?:\.\d+)?)(pt|em|%|mm|cm|in)",
+        lambda m: f"{m.group(1)}: {float(m.group(2)) + 8:g}{m.group(3)}",
+        duplicate,
+        count=1,
+    )
+    return typst_code[: unit.end] + "\n" + duplicate + typst_code[unit.end :]
 
 
 MUTATIONS: MutationTable = (
-    (_mutate_color, "Mutation: color tweak", 0.30),
-    (_random_numeric_tweak, "Mutation: numeric tweak", 0.30),
-    (_remove_element, "Mutation: removed element", 0.20),
-    (_reorder_elements, "Mutation: reordered elements", 0.20),
+    (_mutate_color, "Mutation: color tweak", 0.22),
+    (_mutate_position, "Mutation: position tweak", 0.18),
+    (_mutate_size_or_stroke, "Mutation: size/stroke tweak", 0.20),
+    (_remove_element, "Mutation: removed element", 0.18),
+    (_reorder_elements, "Mutation: reordered elements", 0.12),
+    (_add_element, "Mutation: added element", 0.10),
 )
 
 
@@ -130,10 +289,8 @@ def apply_mutation(typst_code: str, operator: str | None = None) -> tuple[str, s
 
 
 def render_typst_png(typst_code: str) -> bytes:
-    """Render Typst source to PNG bytes (first page). Raises on failure."""
     import typst
 
-    # Must encode to bytes — typst-py treats a plain str as a file path
     result = typst.compile(typst_code.encode("utf-8"), format="png", ppi=144)
     if isinstance(result, list):
         if not result:
@@ -145,19 +302,11 @@ def render_typst_png(typst_code: str) -> bytes:
 
 
 def apply_crossover(code_a: str, code_b: str) -> tuple[str, str]:
-    """Inject one element line from *code_b* into *code_a*."""
-    lines_b = [line for line in _split_lines(code_b) if _ELEMENT_LINE_RE.match(line)]
-    lines_a = _split_lines(code_a)
-    element_indices_a = [
-        i for i, line in enumerate(lines_a) if _ELEMENT_LINE_RE.match(line)
-    ]
-    if not lines_b or not element_indices_a:
+    """Inject one whole visual expression, never a line fragment or setup."""
+    units_a, units_b = scene_units(code_a), scene_units(code_b)
+    if not units_a or not units_b:
         return apply_mutation(code_a)
-
-    insert_after = random.choice(element_indices_a)
-    candidate_lines = [
-        *lines_a[: insert_after + 1],
-        random.choice(lines_b),
-        *lines_a[insert_after + 1 :],
-    ]
-    return "".join(candidate_lines), "Crossover: element injection"
+    anchor, donor = random.choice(units_a), random.choice(units_b)
+    return code_a[: anchor.end] + "\n" + code_b[donor.start : donor.end] + code_a[
+        anchor.end :
+    ], "Crossover: scene element injection"
