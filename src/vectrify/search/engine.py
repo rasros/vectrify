@@ -26,28 +26,16 @@ log = logging.getLogger(__name__)
 SEED_PHASE = "seed"
 LOCAL_PHASE = "local"
 
-# How much of a converged front to hand the evaluator. The front can be large
-# and the evaluator is the expensive part of the run, so it sees the best few
-# by dominance over the measures rather than all of them.
+# Cap the expensive evaluator's front.
 FRONT_EVAL_CAP = 24
 
-# What share of the active pool the remembered LLM seeds may add to a front.
-# They are there to give the evolved pool something to beat, so a handful is
-# enough; letting them grow with the epoch count would eventually make the
-# front mostly old seeds and spend the batch re-editing candidates the search
-# has already moved past.
+# Limit remembered LLM seeds in each front.
 SEED_ARCHIVE_POOL_SHARE = 4
 
-# How many candidates the scorer thread scores in one call. A model-backed
-# scorer costs almost the same for a batch as for a single candidate, so
-# anything already queued rides along nearly free.
+# Batch candidates for model-backed scoring.
 SCORE_BATCH_SIZE = 32
 
-# Replacement seed edits an epoch may ask for, as a share of the batch it
-# wanted. One, so a batch of five may spend up to five retries and no more: a
-# model that cannot produce a usable edit for this drawing at all would
-# otherwise retry until the wall, and an epoch running on a short batch is
-# still better than an epoch that never starts.
+# Bound replacement seed edits to the requested batch size.
 SEED_RETRY_SHARE = 1.0
 
 
@@ -61,23 +49,9 @@ def _spread_parents(
 ) -> list[SearchNode[TState]]:
     """The best *count* candidates that are not near-copies of each other.
 
-    An epoch has one LLM call per parent and a run has at most epochs x seeds
-    of them, so they are the scarcest thing in the search. Taking the top
-    *count* by evaluator rank spends them badly: the evaluator ranks
-    near-identical drawings adjacently because they look near-identical, so the
-    slots fill with variants of one candidate. Measured over one run's nine
-    epochs, the five chosen parents were cousins a median three generations
-    apart, and their mean pairwise distance over the measures was 0.0056 where
-    five random survivors of the same pool stood 0.0543 apart -- ten times less
-    variety than picking at random would have given.
-
-    So walk the ranking in order and skip anything sitting closer to an
-    already-chosen parent than the field's own median separation. The threshold
-    is read off the candidates rather than fixed: what counts as near-identical
-    depends on the drawing and on how far the run has converged, and a constant
-    would stop meaning the same thing between the first epoch and the last. If
-    too few clear it, the remainder falls back to rank order, because an LLM
-    call left unspent is worse than one spent on a near-copy.
+    Walk the ranking in order and skip near-copies using the field's median
+    separation as a data-dependent threshold. If too few candidates clear it,
+    fill the remainder by rank order so the LLM batch is not undersized.
     """
     if count <= 0 or len(ranked) <= count:
         return ranked[:count]
@@ -218,10 +192,8 @@ class MultiprocessSearchEngine(Generic[TState]):
     """Alternating LLM-seed / local-refine epochs.
 
     Every epoch opens with a batch of LLM calls and then runs local mutation
-    and crossover only, until it converges. The operators are never mixed: an
-    LLM edit degrades the median parent ~4x as much as a local mutation at
-    ~1000x the cost, so it earns its keep as a restart point rather than as a
-    move competing against local ones.
+    and crossover only, until it converges. LLM edits are restart points rather
+    than moves competing with local operators.
     """
 
     def __init__(
@@ -239,10 +211,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         self.storage = storage
         self.max_total_tasks = max_total_tasks
         self.make_state = make_state
-        # Orders a converged front by the run's real objective. The round
-        # optimises pixel L1 because it is ~300x cheaper; this is where
-        # perceptual judgement decides direction, once per epoch over a front
-        # of tens rather than once per task over thousands.
+        # Orders a converged front by the run's real objective.
         self.rank_front = rank_front
 
         self.ctx = mp.get_context("spawn")
@@ -325,20 +294,10 @@ class MultiprocessSearchEngine(Generic[TState]):
         # Origins outlive lineages: an epoch's LLM edit opens a lineage but
         # continues the original attempt it was derived from.
         node_origins = run_state.node_origins
-        # The LLM's own output from earlier epochs, kept as a candidate for the
-        # fronts later epochs are seeded from. Local refinement is not monotone
-        # -- measured on the corpus it finishes behind best-of-5 seeding on half
-        # the cases -- so a front drawn only from the evolved pool can hand the
-        # model back a worse drawing than the one it produced itself, and the
-        # next epoch then builds on the damage. Keyed by lineage, which a seed
-        # opens and its descendants inherit, so this holds each seed once and
-        # never the local children that came after it.
-        #
-        # It starts empty even on --resume: what storage restores is drawings
-        # and ids, with no record of which the LLM wrote. Assuming they were
-        # seeds would give a locally degraded candidate exactly the protection
-        # this exists to escape, where assuming none were costs only the first
-        # epoch's, which that epoch's own batch immediately restores.
+        # Keep each epoch's LLM output reachable for later fronts: local
+        # refinement is not monotone. Key by lineage so local descendants do
+        # not fill the archive, and start empty because resume data lacks
+        # provenance.
         seed_archive: dict[int, SearchNode[TState]] = {}
         seed_archive_cap = max(1, active_pool_size // SEED_ARCHIVE_POOL_SHARE)
 
@@ -350,12 +309,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         # at the end. There is deliberately no best between those points.
         best_node: SearchNode[TState] | None = None
 
-        # Children are held back and merged as a generation, NSGA-II's mu+lambda
-        # replacement: the truncation is a whole-population sort, so paying it
-        # once per lambda children rather than once per child keeps the engine
-        # from becoming the bottleneck. At the pool size runs actually use it
-        # costs ~23 ms, against ~13 ms to produce a candidate -- per child that
-        # would make selection, not search, the thing the run spends its time on.
+        # Hold children back and merge them as a generation: selection is a
+        # whole-population NSGA-II truncation.
         pending_children: list[SearchNode[TState]] = []
         lambda_size = max(1, generation_size or active_pool_size)
 
@@ -368,25 +323,12 @@ class MultiprocessSearchEngine(Generic[TState]):
         # tracked at all.
         best_panel: float | None = None
         last_eval_at = 0
-        # Counted in evaluator checks, not generations. A generation is 100
-        # accepted candidates, so its size in tasks moves with the acceptance
-        # rate and with --pool-size, and a threshold in generations quietly
-        # depends on both -- and on --epoch-eval-interval, since a threshold
-        # below one interval's worth fires before a check can ever intervene. A
-        # check is the evaluator's own observation, which is the thing whose
-        # failures are being counted.
+        # Counted in evaluator checks, not generations, because checks are the
+        # evaluator's observations.
         checks_without_gain = 0
-        # The evaluator's best as it stood when the current epoch opened, and
-        # how many consecutive epochs have failed to beat it by the required
-        # margin. This is a run-level test, and deliberately separate from
-        # checks_without_gain, which ends one epoch so the model can re-seed:
-        # an epoch ending is a decision to try a different starting point,
-        # while this is the decision that trying again is not paying for
-        # itself. It also asks a different question from staleness, which
-        # counts tasks since anything reached the top tier of the cheap
-        # measures -- on a measured run the evaluator found a better candidate
-        # 16 seconds before staleness ended the epoch, so the two disagree
-        # about whether a run is still going anywhere.
+        # Track run-level evaluator progress separately from per-epoch
+        # staleness: one decides whether to re-seed, the other whether another
+        # epoch is worth starting.
         panel_at_epoch_open: float | None = None
         epochs_without_gain = 0
         # Set when the epochs stop paying, so the loop stops without the
@@ -406,16 +348,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         seeds_target = first_batch
         seeds_dispatched = 0
         seeds_completed = 0
-        # Replacements left for seed edits that came back unusable. An epoch
-        # asks for a batch and previously took whatever survived: measured on
-        # one run, 5 of 15 edits failed and the epochs opened with 5, then 3,
-        # then 2 candidates, and the last of those went stale in 14 seconds
-        # because a pool grown from two seeds runs out of anything that can
-        # outrank its own members. The failures are the model's formatting
-        # rather than the drawing -- 3 of them were search/replace blocks that
-        # matched nothing, 2 were replies with no parseable block at all -- so
-        # another sample usually succeeds where the last one did not.
-        #
+        # Replacements left for unusable seed edits, preventing a short batch
+        # from starving the next epoch.
         # Seeded here as well as in _begin_seed_phase because epoch 0 does not
         # go through it -- its batch is sized from initial_seeds and the phase
         # is set directly -- and epoch 0 is where the run's seeds come from.
@@ -477,13 +411,9 @@ class MultiprocessSearchEngine(Generic[TState]):
             if parents and self.rank_front is not None:
                 try:
                     parents = self.rank_front(parents)
-                    # The evaluator has just spoken, which is the only occasion
-                    # anything in the run is called best -- but only a candidate
-                    # it rates higher takes the title. Assigning the boundary's
-                    # top pick outright let a run find 0.340 and ship 0.377: the
-                    # pick is the best of whatever survived selection on the
-                    # measures, which need not include what the evaluator
-                    # already preferred.
+                    # Only a candidate that improves the evaluator's score
+                    # takes the title; dominance ranking may omit its prior
+                    # choice.
                     top = parents[0] if parents else None
                     value = top.metrics.get(FRONT_SCORE) if top is not None else None
                     if (
@@ -714,11 +644,8 @@ class MultiprocessSearchEngine(Generic[TState]):
         def _close_generation() -> None:
             """Merge the finished batch of children into the pool.
 
-            Survival is an NSGA-II truncation of parents+children by
-            non-dominated rank then crowding distance, the same comparison
-            parent selection uses. Doing it per arriving child would mean a
-            full sort per result, which at pool size 20 costs about as much as
-            producing the candidate did.
+            Survival is an NSGA-II truncation of parents and children by
+            non-dominated rank then crowding distance.
             """
             nonlocal active_pool, epoch_no_improve
 
@@ -757,11 +684,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if child.id in kept:
                     node_states[child.id] = child.state
                     node_metrics[child.id] = dict(child.metrics)
-                    # Content only for candidates that reached the best-ranked
-                    # tier. A run admits most of what it produces -- one wrote
-                    # 106,640 files -- and a node that never outranked anything
-                    # is not worth reading back. The lineage row is written
-                    # either way, so the record of what happened is complete.
+                    # Only best-tier candidates need their content persisted;
+                    # lineage is recorded for every candidate.
                     self.storage.save_node(
                         child, tasks_completed, keep_content=child.id in top_tier
                     )
@@ -797,12 +721,9 @@ class MultiprocessSearchEngine(Generic[TState]):
             clearest case -- and the result is a candidate that differs in bytes
             and not in anything the search can perceive.
 
-            Those are worse than wasted. Identical objectives cannot be ranked
+            Identical objectives cannot be ranked
             against the parent, so the candidate survives selection wherever the
-            parent does and the operator policy is told it succeeded. Measured
-            on one run, 58% of all candidates were of this kind, none of them
-            catchable by the byte comparison, and the operator that produces
-            them most reliably had taken 74% of the policy's weight.
+            parent does and the operator policy is told it succeeded.
             """
             parent = node_metrics.get(res.parent_id)
             if parent is None or not res.metrics:
@@ -939,31 +860,18 @@ class MultiprocessSearchEngine(Generic[TState]):
             staleness = (
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
-            # Still reported, no longer a criterion: read against the epoch's
-            # opening value it was a ratio to a moment, and across real runs that
-            # moment was a trough as often as a peak -- epoch 0 opened on the
-            # "too little data" sentinel of 1.0 and later epochs ended above
-            # their own baseline, so the rule fired at once or never.
+            # Still reported, but not a stopping criterion: the opening ratio
+            # is too dependent on the moment at which an epoch starts.
             pool_div = pool_diversity(active_pool)
 
             if collector is not None:
                 collector.on_pool_state(diversity=pool_div)
                 collector.on_epoch_progress(tasks_completed - epoch_started_at)
 
-            # A ceiling on how long one epoch may run. Staleness measures
-            # whether the pool has stopped producing; this measures how long the
-            # proxy has been left unsupervised, which is a different thing.
-            # Measured on one run, the gap between top-tier entries has a median
-            # of 68 tasks and a 99th percentile of 285, so staleness at 500 only
-            # arrives at the far tail -- 150,800 tasks into the epoch, all of it
-            # without the evaluator seeing anything. The epoch boundary is where
-            # the evaluator ranks the front and the model re-seeds from its
-            # choice, so capping the epoch caps the drift.
-            # Ask the evaluator what it makes of the current front, now and
-            # then rather than only at the boundary. The cheap measures can be
-            # improved without the drawing getting better -- one run drove them
-            # 64% down while the evaluator saw no difference at all -- and the
-            # only way to notice is to ask the evaluator while it is happening.
+            # A ceiling on how long one epoch may run. Staleness measures pool
+            # progress; this caps time without evaluator feedback. Cheap
+            # measures can improve without the drawing getting better, so ask
+            # the evaluator while an epoch is running.
             if (
                 self.rank_front is not None
                 and epoch_eval_interval
@@ -984,20 +892,8 @@ class MultiprocessSearchEngine(Generic[TState]):
                 and tasks_completed - epoch_started_at >= epoch_max_tasks
             )
 
-            # Any one of these ending the epoch, rather than all of them
-            # agreeing. Each is meant to be set tight enough that its firing is
-            # sufficient on its own -- a pool that has collapsed into clones is
-            # done whatever the score is still doing -- and the two rules fail
-            # very differently when one is set wrongly. Under this rule a
-            # criterion that seldom reaches its threshold simply sits idle;
-            # requiring all of them would let that same criterion block every
-            # transition, so the LLM would never re-seed and the epochs would
-            # be spent as one long local search.
-            #
-            # Diversity stays opt-in. A pool collapses into agreement long
-            # before it stops improving, so a threshold that looks safe ends
-            # search while it is still working; staleness on the best score is
-            # the criterion that measures the thing we mean by converged.
+            # Any one stopping condition is sufficient; diversity is optional
+            # because a pool can converge in shape while still improving.
             if staleness:
                 reason = (
                     f"staleness ({epoch_no_improve} >="
@@ -1039,12 +935,8 @@ class MultiprocessSearchEngine(Generic[TState]):
             this cannot come out worse by the evaluator's own judgement than its
             previous pick.
 
-            The whole pool is evaluated, not the capped front an epoch boundary
-            gets: FRONT_EVAL_CAP exists because a boundary pays that cost every
-            epoch, and this happens once. Measured on the bench, restricting it
-            to the front would have left most of the gap unclaimed -- on one
-            case the pool held a candidate the evaluator scored 8x better than
-            the one the measures alone would have picked.
+            The whole pool is evaluated, not the capped front used at epoch
+            boundaries, so the final choice can include any valid candidate.
             """
             fallback = best_node or _any_top_tier()
             if self.rank_front is None or not active_pool:

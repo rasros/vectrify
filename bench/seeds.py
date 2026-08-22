@@ -1,45 +1,4 @@
-"""Seed pools for the benchmark corpus.
-
-Every case starts from five seeds, standing in for an LLM's opening batch:
-five independent attempts at the same picture, each decomposing it a
-different way. Crossover grafts subtrees between candidates, so the pool only
-pays for itself when the subtrees differ structurally -- five re-jitterings
-of one drawing give it nothing to recombine.
-
-The seeds disagree along four axes, not just on numbers:
-
-* which element type stands for a part -- ``circle`` vs ``ellipse`` vs a
-  ``path`` of cubics, a stroked ring vs two stacked discs, a block as a
-  ``rect`` vs a ``line`` thick enough to read as one, a word as a single
-  ``<text>`` vs one per letter or per digit;
-* how the parts are grouped -- thematic groups, one group per part,
-  left/right halves, flats-then-linework, or a flat list with no ``<g>``;
-* whether a flat region is painted flat. Several seeds fill a solid part with
-  a gradient the target does not have, band a smooth ramp into eight flat
-  strips, or stack translucent discs where the target has one smooth glow;
-* draw order, which no numeric or colour mutation can reach at all.
-
-The pool is built so that no single seed can win. Each seed is *close* on most
-parts -- a few pixels and one colour step out -- and structurally unable to
-converge on one or two others: a mouth drawn as a straight ``<line>`` never
-curves, a ``<rect>`` with no ``rx`` never rounds its corners, a block drawn as
-a round-capped stroke never squares off, a blade built from stacked ellipses
-never smooths out, and a bowed star never straightens its arms. Those seeds
-still look plausible at a glance, which is the point: the best reachable
-drawing is a merge, taking each part from whichever seed drew it with the
-right structure.
-
-Every seed is nonetheless structurally complete -- each part the target shows
-is present in every one of them, with the wrong colour, position, size,
-stroke width and font size. Local search moves numbers and shifts colours but
-cannot invent a shape, so a seed missing a part would measure an unreachable
-ceiling instead of the operators' actual job.
-
-Only markup the operators can reach is used: numbers live in shape attributes
-and in ``<path d>``, colours in ``fill``/``stroke``/``stop-color``. No
-``points``, no ``transform``, no ``<style>``, no ``<use>`` -- positioning is
-baked into coordinates.
-"""
+"""Seed pools for the benchmark corpus."""
 
 import math
 
@@ -128,17 +87,6 @@ def _round_rect_path(x, y, w, h, r, quad: bool = False) -> str:
         f"C{_n(x)} {_n(y + k)} {_n(x + k)} {_n(y)} {_n(x + r)} {_n(y)} Z"
     )
 
-
-# --------------------------------------------------------------------------
-# mascot: bear head with ears, eyes, pupils, glints, cheeks, muzzle, body
-#
-# Each seed is close on four of the five soft shapes and structurally stuck on
-# one: 1 has a straight mouth, 2 a round nose, 3 square cheeks, 4 a stadium
-# body and square glints, 5 square ears.
-# --------------------------------------------------------------------------
-
-# 1: every part an <ellipse>, three thematic groups, the target's draw order.
-#    Stuck: the smile is a straight <line> and can never bow.
 _MASCOT_1 = (
     f"{HEAD}{_bg('#e9f3fa')}"
     '<g id="parts">'
@@ -168,8 +116,6 @@ _MASCOT_1 = (
     "</g></svg>"
 )
 
-# 2: fill and outline split into two elements per part, all circles, and the
-#    ears stacked on top of the head. Stuck: the nose is a <circle>.
 _MASCOT_2 = (
     f"{HEAD}{_bg('#f2f7fc')}"
     '<g id="body">'
@@ -207,9 +153,6 @@ _MASCOT_2 = (
     "</g></svg>"
 )
 
-# 3: flat list, no groups; the discs are cubic paths and the head carries a
-#    gradient the target paints flat. Stuck: the cheeks are <rect>s with no
-#    rx, so their corners stay square.
 _MASCOT_3 = (
     f"{HEAD}<defs>{_linear('hide', '#5fc7b2', '#2c7f74')}</defs>"
     f"{_bg('#eaf2f9')}"
@@ -237,10 +180,6 @@ _MASCOT_3 = (
     "</svg>"
 )
 
-# 4: grouped by side of the face instead of by kind, radial gradient on the
-#    head, cheeks laid over the muzzle. Stuck: the body is a pair of
-#    round-capped <line>s -- a stadium, never an ellipse -- and the glints are
-#    <rect>s with no rx.
 _MASCOT_4 = (
     f"{HEAD}<defs>{_radial('fur', '#3fb0a2', '#1d6f68', mid='0.35')}</defs>"
     f"{_bg('#f0f7fa')}"
@@ -277,10 +216,6 @@ _MASCOT_4 = (
     "</g></svg>"
 )
 
-# 5: flats and linework as two passes, the way an illustrator layers them --
-#    every fill first with no stroke, then one group of unfilled outlines over
-#    the top -- with the body stacked after the head. Stuck: the ears are
-#    <rect>s with no rx and stay square.
 _MASCOT_5 = (
     f"{HEAD}{_bg('#eaf4fb')}"
     '<g id="flats">'
@@ -315,16 +250,6 @@ _MASCOT_5 = (
     "</g></svg>"
 )
 
-
-# --------------------------------------------------------------------------
-# wordmark: two overlapping rounded squares, a white disc, two lines of type
-#
-# 1 cannot round its hole, 2 cannot square its orange block, 3 has the stack
-# inverted, 4 cannot square its blocks, 5 cannot kern its tagline.
-# --------------------------------------------------------------------------
-
-# 1: two <rect rx> blocks and one <text> per line. Stuck: the hole is a <rect>
-#    with no rx and stays a square.
 _WORDMARK_1 = (
     f"{HEAD}{_bg('#fbfbfb')}"
     '<g id="mark">'
@@ -337,8 +262,6 @@ _WORDMARK_1 = (
     + "</g></svg>"
 )
 
-# 2: rects with rx and ry, a gradient the target does not have, and a good
-#    round hole. Stuck: the orange block is an <ellipse> and never squares up.
 _WORDMARK_2 = (
     f"{HEAD}<defs>{_linear('warm', '#f2a95c', '#c96a1e', vertical=False)}</defs>"
     f"{_bg('#f6f4f0')}"
@@ -352,9 +275,6 @@ _WORDMARK_2 = (
     + "</g></svg>"
 )
 
-# 3: both blocks are cubic-corner paths and the stack is inverted, so the
-#    orange block lands on top -- an order no mutation can undo. NOVA is split
-#    into two halves that will never kern like one word.
 _WORDMARK_3 = (
     f"{HEAD}{_bg('#ffffff')}"
     f'<path d="{_round_rect_path(152, 124, 80, 80, 18)}" fill="#2f5eab"/>'
@@ -367,9 +287,6 @@ _WORDMARK_3 = (
     + "</g></svg>"
 )
 
-# 4: both blocks are round-capped <line>s thick enough to read as blocks --
-#    plausible at a glance, and permanently unable to reach a square edge. The
-#    hole is a cubic path, and nothing is grouped.
 _WORDMARK_4 = (
     f"{HEAD}{_bg('#f4f4f6')}"
     '<line x1="142" y1="102" x2="142" y2="138" stroke="#e07b2c" '
@@ -382,8 +299,6 @@ _WORDMARK_4 = (
     + "</svg>"
 )
 
-# 5: quadratic-corner block paths and a translucent hole. Stuck: SYSTEMS is
-#    seven separate <text>s whose tracking never resolves into one word.
 _WORDMARK_5 = (
     f"{HEAD}{_bg('#fdfaf6')}"
     '<g id="mark">'
@@ -402,16 +317,6 @@ _WORDMARK_5 = (
     + _text(234, 304, 15, "#55637a", "S")
     + "</g></svg>"
 )
-
-
-# --------------------------------------------------------------------------
-# emblem: navy disc, gold ring, inner disc, five-point star, arched wordmark
-#
-# 1 bows the star's arms, 2 buries the ring under the inner disc and splits
-# the date, 4 rotates the star off true, 5 beads the ring out of short lines.
-# Only 3 draws both star and ring straight, and it is the loosest on colour.
-# --------------------------------------------------------------------------
-
 
 def _star_points(cx, cy, outer, inner, rot=0.0):
     out = []
@@ -473,8 +378,6 @@ def _beaded_ring(cx, cy, r, count, color, width) -> str:
     return "".join(out)
 
 
-# 1: three <circle>s with the ring as a stroke, date as one <text>. Stuck: the
-#    star's sides are quadratics and the arms stay bowed.
 _EMBLEM_1 = (
     f"{HEAD}{_bg('#f9f5ea')}"
     '<g id="rings">'
@@ -489,9 +392,6 @@ _EMBLEM_1 = (
     "</svg>"
 )
 
-# 2: the ring is two filled discs rather than a stroke -- a gold disc with a
-#    navy one dropped on top of it. Stuck: the date is two runs whose gap
-#    never closes. The star itself is straight-sided and close.
 _EMBLEM_2 = (
     f"{HEAD}{_bg('#fffdf6')}"
     '<g id="disc">'
@@ -507,9 +407,6 @@ _EMBLEM_2 = (
     + "</g></svg>"
 )
 
-# 3: <ellipse> discs, a radial gradient on the inner plate, the star built
-#    from a pentagon core plus five arm triangles, date drawn before the star.
-#    Structurally the most capable of the five, and the furthest off on colour.
 _EMBLEM_3 = (
     f"{HEAD}<defs>{_radial('plate', '#2c6597', '#132f4d', mid='0.3')}</defs>"
     f"{_bg('#f0e9d6')}"
@@ -522,9 +419,6 @@ _EMBLEM_3 = (
     + "</svg>"
 )
 
-# 4: the outer plate is a ring stroked so thick it closes into a disc, the
-#    inner disc is a cubic path under a gradient, the gold ring is a hairline.
-#    Stuck: the star is rotated off true.
 _EMBLEM_4 = (
     f"{HEAD}<defs>{_linear('well', '#3873ab', '#10375c')}</defs>"
     f"{_bg('#fbf8ee')}"
@@ -541,9 +435,6 @@ _EMBLEM_4 = (
     + "</svg>"
 )
 
-# 5: the gold ring is beaded out of sixteen chords and can never close into a
-#    smooth circle. Everything else -- discs, straight star, single date --
-#    is drawn the way the target has it.
 _EMBLEM_5 = (
     f"{HEAD}{_bg('#f9f6ec')}"
     '<ellipse cx="196" cy="190" rx="148" ry="132" fill="#264a6d"/>'
@@ -553,16 +444,6 @@ _EMBLEM_5 = (
     + _text(200, 294, 24, "#faf4e6", "EST 1994", weight="bold")
     + "</svg>"
 )
-
-
-# --------------------------------------------------------------------------
-# sunset: gradient sky, sun with halo, two hills, haze band, dark ground
-#
-# 1 draws the near hill as two fat strokes, 2 bands the sky and stacks the
-# glow out of flat discs, 3 gives the glow a square footprint and hides the
-# haze under the hills, 4 seams the sky in two. Only 5 has a smooth sky and a
-# smooth glow at once, and it floats the sun over the hills.
-# --------------------------------------------------------------------------
 
 _SKY_BANDS = [
     "#f8a95c",
@@ -575,8 +456,6 @@ _SKY_BANDS = [
     "#563a74",
 ]
 
-# 1: two-stop sky, halo as one radial-gradient disc. Stuck: the near hill is a
-#    chevron of two round-capped <line>s, not a filled triangle.
 _SUNSET_1 = (
     f"{HEAD}<defs>"
     + _linear("sky", "#f09a5c", "#5c4290")
@@ -602,9 +481,6 @@ _SUNSET_1 = (
     "</svg>"
 )
 
-# 2: no gradient anywhere -- the sky is eight flat bands and the halo is four
-#    stacked translucent discs, neither of which can smooth out. The hills,
-#    haze and ground are close, and the haze sits under the sun.
 _SUNSET_2 = (
     f"{HEAD}"
     + "".join(
@@ -629,9 +505,6 @@ _SUNSET_2 = (
     "</svg>"
 )
 
-# 3: the halo is a gradient-filled <rect>, so its footprint stays square; each
-#    hill is split into two triangles; the haze is stacked under the hills and
-#    the ground is a path.
 _SUNSET_3 = (
     f"{HEAD}<defs>"
     + _linear("sky", "#ffbf78", "#764a94")
@@ -654,9 +527,6 @@ _SUNSET_3 = (
     "</svg>"
 )
 
-# 4: the sky is two rects with a gradient each, so a seam runs across it that
-#    no stop colour can erase, and the near hill is one path doubling back on
-#    itself. The sun is the closest of the five.
 _SUNSET_4 = (
     f"{HEAD}<defs>"
     + _linear("skytop", "#ffa860", "#d08a86")
@@ -677,9 +547,6 @@ _SUNSET_4 = (
     "</svg>"
 )
 
-# 5: one smooth sky ramp and one smooth radial glow, the core as a cubic path,
-#    crisp triangular hills. Stuck: the sun is drawn last and floats over the
-#    hills, and the ground carries a gradient the target paints flat.
 _SUNSET_5 = (
     f"{HEAD}<defs>"
     + _linear("sky", "#f89a52", "#553c88")
@@ -699,15 +566,6 @@ _SUNSET_5 = (
     f'<path d="{_circle_path(188, 156, 46)}" fill="#ffeeb6"/>'
     "</svg>"
 )
-
-
-# --------------------------------------------------------------------------
-# connect-dots: 22 numbered dots tracing a duck, plus a lone eye dot
-#
-# 1 splits every two-digit number into two <text>s, 2 marks the dots with
-# square-cornered rects, 5 rings them instead of filling them. 3 and 4 have
-# round marks and whole numbers, and are the loosest on size and colour.
-# --------------------------------------------------------------------------
 
 # (dot x, dot y, label x, label y, label)
 _DOTS = [
@@ -841,17 +699,6 @@ def _dots_5() -> str:
         "</svg>"
     )
 
-
-# --------------------------------------------------------------------------
-# leaf: pointed blade with a straight top-left edge, midrib, one side vein
-#
-# 2 straightens the midrib for good, 3 builds the blade from stacked ellipses
-# that never smooth into one outline, 4 makes the blade symmetric so the
-# target's flat top-left edge is out of reach and chains its veins out of
-# straight segments. 1 and 5 have the blade right and are loose on colour.
-# --------------------------------------------------------------------------
-
-# 1: one blade path of two cubics, two stroked vein paths, two groups.
 _LEAF_1 = (
     f"{HEAD}{_bg('#f0f2ea')}"
     '<g id="blade">'
@@ -865,8 +712,6 @@ _LEAF_1 = (
     "</g></svg>"
 )
 
-# 2: the blade is two stacked half-paths under a gradient. Stuck: the midrib
-#    is a straight <line> and can never take the target's slight bow.
 _LEAF_2 = (
     f"{HEAD}<defs>{_linear('blade', '#4f9040', '#2c5c24', vertical=False)}</defs>"
     f"{_bg('#eef1e6')}"
@@ -881,9 +726,6 @@ _LEAF_2 = (
     "</g></svg>"
 )
 
-# 3: the blade is three stacked ellipses plus two triangular tips, so its
-#    outline stays lumpy no matter what the numbers do. The veins are close,
-#    and the tips are drawn after them.
 _LEAF_3 = (
     f"{HEAD}{_bg('#f4f6ee')}"
     '<g id="blade">'
@@ -901,9 +743,6 @@ _LEAF_3 = (
     "</g></svg>"
 )
 
-# 4: the blade is a lens of two mirrored cubics, so the target's straight
-#    top-left edge is unreachable, and every vein is a chain of <line>
-#    segments that can never curve. Colour and scale are the closest here.
 _LEAF_4 = (
     f"{HEAD}<defs>{_radial('lens', '#5fae42', '#255a1e', mid='0.25')}</defs>"
     f"{_bg('#f6f7f1')}"
@@ -924,9 +763,6 @@ _LEAF_4 = (
     "</g></svg>"
 )
 
-# 5: a quadratic blade that keeps the straight top-left edge, with
-#    fill-opacity below 1, a flat structure and the side vein drawn before the
-#    midrib.
 _LEAF_5 = (
     f"{HEAD}{_bg('#f8f9f0')}"
     '<path d="M190 60 Q306 152 198 314 Q88 190 116 104 L190 60 Z" '
