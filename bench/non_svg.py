@@ -14,10 +14,14 @@ from pathlib import Path
 def _typst(page: str, circle: str, card: str, line: str) -> str:
     return (
         "#set page(width: 384pt, height: 384pt, margin: 0pt)\n"
-        f"#place(dx: 80pt, dy: 80pt)[#circle(radius: {circle}pt, fill: rgb(\"{page}\"))]\n"
-        f"#place(dx: 230pt, dy: 80pt)[#rect(width: 74pt, height: 74pt, radius: 10pt, fill: rgb(\"{card}\"))]\n"
-        "#place(dx: 128pt, dy: 208pt)[#rect(width: 130pt, height: 48pt, radius: 8pt, fill: rgb(\"65a30d\"))]\n"
-        f"#place(dx: 155pt, dy: 123pt)[#line(start: (0pt, 0pt), end: (78pt, 85pt), stroke: {line}pt + rgb(\"334155\"))]\n"
+        f"#place(dx: 80pt, dy: 80pt)[#circle(radius: {circle}pt, "
+        f'fill: rgb("{page}"))]\n'
+        "#place(dx: 230pt, dy: 80pt)[#rect(width: 74pt, height: 74pt, "
+        f'radius: 10pt, fill: rgb("{card}"))]\n'
+        "#place(dx: 128pt, dy: 208pt)[#rect(width: 130pt, height: 48pt, "
+        'radius: 8pt, fill: rgb("65a30d"))]\n'
+        "#place(dx: 155pt, dy: 123pt)[#line(start: (0pt, 0pt), "
+        f'end: (78pt, 85pt), stroke: {line}pt + rgb("334155"))]\n'
     )
 
 
