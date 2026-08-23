@@ -53,8 +53,6 @@ dependencies = [
 vision = [
     "scipy>=1.11.0",
     "torch>=2.0.0",
-    "tgmm>=0.3.0",
-    "seaborn>=0.13.0",
     "torchvision>=0.28.0",
     "transformers>=4.40.0",
 ]
