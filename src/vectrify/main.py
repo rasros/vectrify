@@ -135,6 +135,7 @@ def main():
             format_plugin=plugin,
             write_lineage=args.write_lineage,
             save_raster=args.save_raster,
+            save_segments=args.save_segments,
             epoch_patience=args.epoch_patience or None,
             pool_size=args.pool_size,
             seeds=args.seeds,
