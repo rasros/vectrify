@@ -59,7 +59,7 @@ vectrify logo.png -o logo.svg \
 # Spend more or less on each epoch
 vectrify photo.jpg -o sketch.svg --seeds 10 --epochs 4 \
   --max-wall-seconds 1800
-vectrify mascot.png -o mascot.svg --segment-count 12  # tiles/local elites (8)
+vectrify mascot.png -o mascot.svg --segment-count 12  # tiles/local elites (default: 8)
 
 # Choose a provider, model, or scorer explicitly
 vectrify input.png --provider anthropic --model MODEL_NAME
