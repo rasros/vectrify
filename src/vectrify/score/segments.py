@@ -16,6 +16,7 @@ DETAIL_SLOTS = 2
 DETAIL_EDGE_THRESHOLD = 0.25
 DETAIL_GROUP_RADIUS = 4
 DETAIL_PADDING = 6
+VORONOI_FEATHER = 8.0
 DETAIL_MAX_AREA_FRACTION = 0.12
 MIN_SEGMENT_PIXELS = 64
 SEGMENT_COLOURS = np.array(
@@ -284,6 +285,12 @@ def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
 
     masks: list[np.ndarray] = []
     yy, xx = np.indices(edges.shape)
+    coordinates = np.stack((yy, xx), axis=-1)
+    site_distances = np.sqrt(
+        ((coordinates[..., None, :] - centers_array[None, None, :, :]) ** 2).sum(
+            axis=-1
+        )
+    )
     for index in range(count):
         cluster = points[assignment == index]
         cluster_weights = weights[assignment == index]
@@ -299,6 +306,15 @@ def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
         )
         distance = np.einsum("...i,ij,...j->...", delta, inverse, delta)
         field = np.exp(-0.5 * distance).astype(np.float32)
+        if count == 1:
+            membership = np.ones(edges.shape, dtype=np.float32)
+        else:
+            closest_other = np.min(np.delete(site_distances, index, axis=2), axis=2)
+            membership = 1.0 / (
+                1.0
+                + np.exp((site_distances[..., index] - closest_other) / VORONOI_FEATHER)
+            )
+        field *= membership.astype(np.float32)
         field[field < 0.03] = 0.0
         masks.append(field)
     return masks
