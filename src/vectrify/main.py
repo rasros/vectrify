@@ -150,6 +150,7 @@ def main():
             max_total_tasks=args.max_total_tasks,
             random_seed=args.random_seed,
             vision_model=args.vision_model,
+            auto_crop=args.auto_crop,
             stats=stats,
             dashboard=dashboard,
         )

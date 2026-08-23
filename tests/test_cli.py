@@ -156,3 +156,8 @@ def test_resolution_llm_defaults_below_the_vision_tile_boundary():
     """Vision pricing tiles at 512px, so anything above triples image cost for
     detail that never reaches the scorer."""
     assert parse_args(["img.png"]).resolution_llm <= 512
+
+
+def test_auto_crop_defaults_to_enabled_and_can_be_disabled():
+    assert parse_args(["img.png"]).auto_crop is True
+    assert parse_args(["img.png", "--no-auto-crop"]).auto_crop is False
