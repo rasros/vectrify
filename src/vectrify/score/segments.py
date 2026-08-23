@@ -15,6 +15,7 @@ PALETTE_SIZE = 16
 DETAIL_SLOTS = 2
 DETAIL_EDGE_THRESHOLD = 0.25
 DETAIL_GROUP_RADIUS = 4
+DETAIL_PADDING = 6
 DETAIL_MAX_AREA_FRACTION = 0.12
 SEGMENT_COLOURS = np.array(
     [
@@ -136,10 +137,10 @@ def _detail_masks(image: Image.Image, count: int) -> list[np.ndarray]:
                     queue.append((ny, nx))
 
         ys, xs = zip(*points, strict=True)
-        top = max(0, min(ys) - DETAIL_GROUP_RADIUS)
-        bottom = min(height, max(ys) + DETAIL_GROUP_RADIUS + 1)
-        left = max(0, min(xs) - DETAIL_GROUP_RADIUS)
-        right = min(width, max(xs) + DETAIL_GROUP_RADIUS + 1)
+        top = max(0, min(ys) - DETAIL_PADDING)
+        bottom = min(height, max(ys) + DETAIL_PADDING + 1)
+        left = max(0, min(xs) - DETAIL_PADDING)
+        right = min(width, max(xs) + DETAIL_PADDING + 1)
         area = (bottom - top) * (right - left)
         mass = float(edges[top:bottom, left:right].sum())
         if 8 <= area <= max_area and mass >= 4.0:
