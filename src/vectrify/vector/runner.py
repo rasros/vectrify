@@ -403,7 +403,7 @@ def run_vector_search(
         save_segment_map(segments, storage.current_run_dir)
     if not segments:
         raise ValueError("target segmentation returned no regions")
-    log.info("Target attention: %d overlapping edge cluster(s).", len(segments))
+    log.info("Target attention: %d edge-aware Voronoi mask(s).", len(segments))
     if dry_run:
         report = preflight_report(
             image_size=(original_w, original_h),

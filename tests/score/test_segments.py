@@ -42,7 +42,7 @@ def test_detail_segment_prioritises_edges_over_colour():
     assert segment_error(comparison, mask, detail=True) == 0.25
 
 
-def test_segment_target_returns_overlapping_edge_clusters():
+def test_segment_target_returns_an_edge_aware_voronoi_partition():
     image = Image.new("RGB", (64, 64), "white")
     for coordinate in range(8, 56):
         image.putpixel((coordinate, coordinate), (0, 0, 0))
@@ -50,9 +50,9 @@ def test_segment_target_returns_overlapping_edge_clusters():
     segments = segment_target(image, max_regions=8)
 
     assert len(segments) == 8
-    assert all(segment.mask.dtype == np.float32 for segment in segments)
+    assert all(segment.mask.dtype == bool for segment in segments)
     coverage = np.sum([segment.mask for segment in segments], axis=0)
-    assert coverage.max() > 1.0
+    assert np.all(coverage == 1)
 
 
 def test_segment_target_returns_nonempty_clusters_for_sparse_targets():

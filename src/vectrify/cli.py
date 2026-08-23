@@ -194,7 +194,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=8,
         metavar="N",
-        help="Overlapping edge clusters retained as local elites. Default: 8",
+        help="Edge-aware Voronoi masks retained as local elites. Default: 8",
     )
 
     g_epoch = parser.add_argument_group(
