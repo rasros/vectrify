@@ -59,9 +59,7 @@ vectrify logo.png -o logo.svg \
 # Spend more or less on each epoch
 vectrify photo.jpg -o sketch.svg --seeds 10 --epochs 4 \
   --max-wall-seconds 1800
-
-# Change the number of target tiles and local elites (default: 8)
-vectrify mascot.png -o mascot.svg --segment-count 12
+vectrify mascot.png -o mascot.svg --segment-count 12  # tiles/local elites (8)
 
 # Choose a provider, model, or scorer explicitly
 vectrify input.png --provider anthropic --model MODEL_NAME
@@ -97,9 +95,6 @@ output/
 └── runs/
     └── 2026-08-22_13-00-00/
         ├── lineage.csv
-        ├── segments/
-        │   ├── manifest.json
-        │   └── segment-00.png
         └── nodes/
             ├── 1.svg
             ├── eval0.123456_2.svg
