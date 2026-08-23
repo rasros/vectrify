@@ -51,9 +51,11 @@ from vectrify.score.metrics import (
 )
 from vectrify.score.segments import (
     Segment,
-    save_segments,
     segment_error,
     segment_target,
+)
+from vectrify.score.segments import (
+    save_segments as save_segment_map,
 )
 from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
@@ -88,6 +90,7 @@ class VectorSearchConfig:
     edge_tolerance: float | None = None
     write_lineage: bool = True
     save_raster: bool = False
+    save_segments: bool = True
     epoch_patience: int | None = None
     pool_size: int = DEFAULT_POOL_SIZE
     seeds: int | None = None
@@ -290,6 +293,7 @@ def run_vector_search(
     edge_tolerance: float | None = None,
     write_lineage: bool = True,
     save_raster: bool = False,
+    save_segments: bool = True,
     epoch_patience: int | None = None,
     pool_size: int = DEFAULT_POOL_SIZE,
     seeds: int | None = None,
@@ -322,6 +326,7 @@ def run_vector_search(
         edge_tolerance=edge_tolerance,
         write_lineage=write_lineage,
         save_raster=save_raster,
+        save_segments=save_segments,
         epoch_patience=epoch_patience,
         pool_size=pool_size,
         seeds=seeds,
@@ -346,6 +351,7 @@ def run_vector_search(
     edge_tolerance = config.edge_tolerance
     write_lineage = config.write_lineage
     save_raster = config.save_raster
+    save_segments = config.save_segments
     epoch_patience = config.epoch_patience
     pool_size = config.pool_size
     seeds = config.seeds
@@ -393,7 +399,8 @@ def run_vector_search(
     )
     pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
     segments: list[Segment] = segment_target(scoring_img, max_regions=segment_count)
-    save_segments(segments, storage.current_run_dir)
+    if save_segments:
+        save_segment_map(segments, storage.current_run_dir)
     if not segments:
         raise ValueError("target segmentation returned no regions")
     log.info("Target segmentation: %d disjoint region(s).", len(segments))

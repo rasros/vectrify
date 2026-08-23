@@ -19,6 +19,7 @@ DEFAULT_RESUME = False
 DEFAULT_WRITE_LINEAGE = True
 DEFAULT_SAVE_RASTER = True
 DEFAULT_SAVE_HEATMAP = False
+DEFAULT_SAVE_SEGMENTS = True
 DEFAULT_DASHBOARD = True
 DEFAULT_RESOLUTION = 768
 DEFAULT_RESOLUTION_LLM = 512
@@ -345,6 +346,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=DEFAULT_SAVE_HEATMAP,
         help="Save a perceptual diff .heatmap.png alongside each accepted node.",
+    )
+    g_artifacts.add_argument(
+        "--save-segments",
+        dest="save_segments",
+        action=argparse.BooleanOptionalAction,
+        default=DEFAULT_SAVE_SEGMENTS,
+        help="Save the colour-coded segments.png run artifact.",
     )
 
     g_runtime = parser.add_argument_group("Runtime")

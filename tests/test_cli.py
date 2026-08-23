@@ -113,6 +113,7 @@ def test_defaults_pinned():
     ("flag", "attr", "default", "flagged"),
     [
         ("--no-dashboard", "dashboard", True, False),
+        ("--no-save-segments", "save_segments", True, False),
         ("--debug", "debug", False, True),
     ],
 )
