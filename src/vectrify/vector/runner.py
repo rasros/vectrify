@@ -4,7 +4,7 @@ import io
 import logging
 import multiprocessing as mp
 import os
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -105,6 +105,7 @@ class VectorSearchConfig:
     vision_model: str = DEFAULT_VISION_MODEL
     auto_crop: bool = True
     segment_count: int = 8
+    dry_run: bool = False
 
 
 def _load_image(
@@ -155,6 +156,51 @@ def initial_seed_tasks(epoch_seeds: int, initial_nodes: list[SearchNode]) -> int
     """
     seeded = sum(1 for n in initial_nodes if n.state.payload.content)
     return max(0, epoch_seeds - seeded)
+
+
+def preflight_report(
+    *,
+    image_size: tuple[int, int],
+    segment_count: int,
+    scorer_type: ScorerType | str,
+    parameters: Mapping[str, Any] | None = None,
+) -> str:
+    """Report the local runtime features a real run would depend on."""
+    lines = [
+        "dry_run=true",
+        f"image={image_size[0]}x{image_size[1]}",
+        f"segments={segment_count}",
+        f"scorer_requested={ScorerType(scorer_type).value}",
+    ]
+    try:
+        import torch
+
+        lines.extend(
+            [
+                f"torch={torch.__version__}",
+                f"cuda_available={torch.cuda.is_available()}",
+            ]
+        )
+        if torch.cuda.is_available():
+            try:
+                torch.empty(1, device="cuda")
+                torch.cuda.synchronize()
+                lines.extend(
+                    [
+                        "cuda_test=passed",
+                        f"cuda_device={torch.cuda.get_device_name(0)}",
+                    ]
+                )
+            except Exception as exc:
+                lines.append(f"cuda_test=failed: {exc}")
+        elif hasattr(torch.backends, "mps"):
+            lines.append(f"mps_available={torch.backends.mps.is_available()}")
+    except ImportError:
+        lines.append("torch=unavailable")
+    if parameters is not None:
+        lines.append("parameters:")
+        lines.extend(f"{name}={value!r}" for name, value in sorted(parameters.items()))
+    return "\n".join(lines) + "\n"
 
 
 def evaluate_front(
@@ -261,6 +307,8 @@ def run_vector_search(
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
     auto_crop: bool = True,
     segment_count: int = 8,
+    dry_run: bool = False,
+    dry_run_parameters: Mapping[str, Any] | None = None,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
     config: VectorSearchConfig | None = None,
@@ -291,6 +339,7 @@ def run_vector_search(
         vision_model=vision_model,
         auto_crop=auto_crop,
         segment_count=segment_count,
+        dry_run=dry_run,
     )
     resolution_llm = config.resolution_llm
     score_resolution = config.score_resolution
@@ -314,6 +363,7 @@ def run_vector_search(
     vision_model = config.vision_model
     auto_crop = config.auto_crop
     segment_count = config.segment_count
+    dry_run = config.dry_run
     epoch_seeds = resolve_seeds(seeds)
 
     # Validate the reference image up front so a missing or corrupt input fails
@@ -338,6 +388,27 @@ def run_vector_search(
 
     api_key = os.getenv(api_key_env(llm_provider))
 
+    scoring_img = resize_long_side(
+        original_img, score_resolution or DEFAULT_CONFIG.target_long_side
+    )
+    pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
+    segments: list[Segment] = segment_target(scoring_img, max_regions=segment_count)
+    save_segments(segments, storage.current_run_dir)
+    if not segments:
+        raise ValueError("target segmentation returned no regions")
+    log.info("Target segmentation: %d disjoint region(s).", len(segments))
+    if dry_run:
+        report = preflight_report(
+            image_size=(original_w, original_h),
+            segment_count=len(segments),
+            scorer_type=scorer_type,
+            parameters=dry_run_parameters,
+        )
+        (storage.current_run_dir / "dry-run.txt").write_text(report)
+        log.info("Dry run complete; no workers or LLM calls were started.")
+        log_listener.stop()
+        return
+
     # A small encoder rather than a pixel measure: where selection decides, one
     # mutation from the parent, it is right about its accepted mutations far
     # more often, and that ratio is what the search compounds. The configured
@@ -348,16 +419,6 @@ def run_vector_search(
     pixel_pool = ThreadPoolExecutor(
         max_workers=min(8, (os.cpu_count() or 4)), thread_name_prefix="pixel"
     )
-
-    scoring_img = resize_long_side(
-        original_img, score_resolution or DEFAULT_CONFIG.target_long_side
-    )
-    pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
-    segments: list[Segment] = segment_target(scoring_img, max_regions=segment_count)
-    save_segments(segments, storage.current_run_dir)
-    if not segments:
-        raise ValueError("target segmentation returned no regions")
-    log.info("Target segmentation: %d disjoint region(s).", len(segments))
     # The target's own detail, measured once, at the size candidates are
     # rasterized at -- original_png_bytes, not the smaller image the pixel
     # comparison resizes to. Compressed size grows with pixel count, so reading

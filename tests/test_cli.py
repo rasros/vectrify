@@ -67,6 +67,13 @@ def test_seeds_zero_requires_resume():
     assert parse_args(["img.png", "--seeds", "0", "--resume"]).seeds == 0
 
 
+def test_dry_run_needs_no_resume_when_seeds_are_zero():
+    args = parse_args(["img.png", "--dry-run", "--seeds", "0"])
+
+    assert args.dry_run is True
+    assert args.seeds == 0
+
+
 # Defaults are pinned as literals so a change to any default is a visible,
 # deliberate edit here rather than silently tracking the constant.
 def test_defaults_pinned():
