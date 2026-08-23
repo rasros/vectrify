@@ -259,7 +259,7 @@ def _detail_masks(image: Image.Image, count: int) -> list[np.ndarray]:
 
 
 def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
-    """Fit edge clusters, then turn them into connected geodesic Voronoi masks."""
+    """Fit edge clusters, then turn them into Voronoi masks."""
     edges = edge_map(image, tolerance=0)
     points = np.argwhere(edges >= DETAIL_EDGE_THRESHOLD)
     if len(points) < count:
@@ -290,13 +290,80 @@ def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
     return [ownership == index for index in range(count)]
 
 
+def _balanced_region_labels(masks: list[np.ndarray]) -> np.ndarray:
+    """Expand small SAM regions into adjacent background territory."""
+    from scipy.ndimage import distance_transform_edt
+
+    regions = [~np.logical_or.reduce(masks), *masks]
+    distances = np.stack(
+        [np.asarray(distance_transform_edt(~mask)) for mask in regions]
+    )
+    labels = np.argmin(distances, axis=0)
+    areas = np.bincount(labels.ravel(), minlength=len(regions)).astype(float)
+    target = areas + 0.35 * (areas.mean() - areas)
+    bias = np.zeros(len(regions))
+    for _ in range(40):
+        labels = np.argmax(-distances + bias[:, None, None], axis=0)
+        areas = np.bincount(labels.ravel(), minlength=len(regions))
+        bias += 0.08 * (target - areas) / np.maximum(target, 1)
+    return labels
+
+
+def _merge_indistinguishable(labels: np.ndarray, image: Image.Image) -> np.ndarray:
+    """Merge touching regions with a weak, low-contrast shared boundary."""
+    rgb = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    edges = edge_map(image, tolerance=0)
+    changed = True
+    while changed:
+        changed = False
+        for first, second in (
+            (labels[:, :-1], labels[:, 1:]),
+            (labels[:-1], labels[1:]),
+        ):
+            different = first != second
+            for left, right in zip(first[different], second[different], strict=True):
+                a, b = sorted((int(left), int(right)))
+                if a == b:
+                    continue
+                mask_a, mask_b = labels == a, labels == b
+                colour = float(
+                    np.abs(rgb[mask_a].mean(axis=0) - rgb[mask_b].mean(axis=0)).mean()
+                )
+                boundary = (labels == a) & np.asarray(
+                    Image.fromarray(mask_b.astype(np.uint8) * 255).filter(
+                        ImageFilter.MaxFilter(3)
+                    )
+                ).astype(bool)
+                edge_strength = float(edges[boundary].mean()) if boundary.any() else 0.0
+                if colour < 0.035 and edge_strength < 0.12:
+                    labels[labels == b] = a
+                    changed = True
+                    break
+            if changed:
+                break
+    return labels
+
+
 def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]:
-    """Return exactly ``max_regions`` edge-aware Voronoi masks."""
+    """Return meaningful SAM regions after merging indistinguishable neighbours."""
     if max_regions < 1:
         return []
+    from transformers import pipeline
+
+    generated = pipeline("mask-generation", model="facebook/sam-vit-base", device=0)(
+        image, points_per_batch=32, points_per_crop=16
+    )["masks"]
+    masks = [np.asarray(mask, dtype=bool) for mask in generated]
+    labels = _merge_indistinguishable(_balanced_region_labels(masks), image)
+    candidates = [labels == label for label in np.unique(labels)]
+    edges = edge_map(image, tolerance=0)
+    candidates.sort(
+        key=lambda mask: float(edges[mask].sum()) + 0.05 * np.sqrt(mask.sum()),
+        reverse=True,
+    )
     return [
         Segment(index=index, label_id=None, mask=mask)
-        for index, mask in enumerate(_cluster_masks(image, max_regions))
+        for index, mask in enumerate(candidates[:max_regions])
     ]
 
 
