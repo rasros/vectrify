@@ -49,6 +49,12 @@ from vectrify.score.metrics import (
     FRONT_SCORE,
     SHAPE,
 )
+from vectrify.score.segments import (
+    Segment,
+    save_segments,
+    segment_error,
+    segment_target,
+)
 from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
@@ -98,6 +104,7 @@ class VectorSearchConfig:
     random_seed: int | None = None
     vision_model: str = DEFAULT_VISION_MODEL
     auto_crop: bool = True
+    segment_count: int = 8
 
 
 def _load_image(
@@ -253,6 +260,7 @@ def run_vector_search(
     random_seed: int | None = None,
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
     auto_crop: bool = True,
+    segment_count: int = 8,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
     config: VectorSearchConfig | None = None,
@@ -282,6 +290,7 @@ def run_vector_search(
         random_seed=random_seed,
         vision_model=vision_model,
         auto_crop=auto_crop,
+        segment_count=segment_count,
     )
     resolution_llm = config.resolution_llm
     score_resolution = config.score_resolution
@@ -304,6 +313,7 @@ def run_vector_search(
     random_seed = config.random_seed
     vision_model = config.vision_model
     auto_crop = config.auto_crop
+    segment_count = config.segment_count
     epoch_seeds = resolve_seeds(seeds)
 
     # Validate the reference image up front so a missing or corrupt input fails
@@ -343,6 +353,11 @@ def run_vector_search(
         original_img, score_resolution or DEFAULT_CONFIG.target_long_side
     )
     pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
+    segments: list[Segment] = segment_target(scoring_img, max_regions=segment_count)
+    save_segments(segments, storage.current_run_dir / "segments")
+    if not segments:
+        raise ValueError("target segmentation returned no regions")
+    log.info("Target segmentation: %d disjoint region(s).", len(segments))
     # The target's own detail, measured once, at the size candidates are
     # rasterized at -- original_png_bytes, not the smaller image the pixel
     # comparison resizes to. Compressed size grows with pixel count, so reading
@@ -479,6 +494,7 @@ def run_vector_search(
             write_lineage=write_lineage,
             save_raster=save_raster,
         ),
+        elite_metric_names=tuple(segment.metric_name for segment in segments),
     )
 
     # What the LLM sees, deliberately not the raster: vision billing tiles at
@@ -516,6 +532,10 @@ def run_vector_search(
             res.metrics[COLOUR] = float(comparison.colour.mean())
             res.metrics[SHAPE] = comparison.shape
             res.metrics[DETAIL] = detail_excess(reference_detail, png)
+            for segment in segments:
+                res.metrics[segment.metric_name] = segment_error(
+                    comparison, segment.mask, detail=segment.detail
+                )
             # Measured, so valid. `score` carries no magnitude any more: the
             # measures are ranked by dominance and the only score in the run is
             # the evaluator's, recorded as FRONT_SCORE on the nodes it sees.

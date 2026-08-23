@@ -205,6 +205,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         make_state: Callable[[Result], ChainState[TState]] = keep_payload,
         rank_front: Callable[[list[SearchNode[TState]]], list[SearchNode[TState]]]
         | None = None,
+        elite_metric_names: tuple[str, ...] = (),
     ):
         self.workers = workers
         self.strategy = strategy
@@ -213,6 +214,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         self.make_state = make_state
         # Orders a converged front by the run's real objective.
         self.rank_front = rank_front
+        self.elite_metric_names = elite_metric_names
 
         self.ctx = mp.get_context("spawn")
         self.task_q = self.ctx.Queue(maxsize=max(64, workers * 8))
@@ -300,6 +302,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         # provenance.
         seed_archive: dict[int, SearchNode[TState]] = {}
         seed_archive_cap = max(1, active_pool_size // SEED_ARCHIVE_POOL_SHARE)
+        # Per-region champions intentionally sit outside the main population:
+        # the best rendition of a target part must survive global trade-offs.
+        segment_elites: dict[str, SearchNode[TState]] = {}
 
         # No ordering to apply: the measures are traded off by dominance and
         # nothing ranks a candidate on its own. The pool is a set, and the cap
@@ -398,9 +403,22 @@ class MultiprocessSearchEngine(Generic[TState]):
             candidates = active_pool + [
                 n for n in seed_archive.values() if n.id not in pool_ids
             ]
+            remembered = {n.id for n in candidates}
+            candidates.extend(
+                n for n in segment_elites.values() if n.id not in remembered
+            )
+            # Reserve part of the next seed batch for locally best drawings.
+            # They stay in the main candidate field too, but global ranking
+            # alone would immediately erase the reason this archive exists.
+            region_champions = list(
+                {node.id: node for node in segment_elites.values()}.values()
+            )
             parents = self.strategy.epoch_parents(
                 candidates, max(epoch_seeds, FRONT_EVAL_CAP)
             )
+            for champion in region_champions:
+                if all(champion.id != parent.id for parent in parents):
+                    parents.append(champion)
             # The standing best joins the ranked set afterwards, not before:
             # epoch_parents selects by dominance over the measures, and the
             # candidate the evaluator likes best is often dominated on those --
@@ -430,7 +448,17 @@ class MultiprocessSearchEngine(Generic[TState]):
                             )
                 except Exception as exc:
                     log.warning(f"Front evaluation failed, keeping rank order: {exc}")
-            parents = _spread_parents(parents, epoch_seeds)
+            elite_slots = min(len(region_champions), max(1, epoch_seeds // 2))
+            elite_parents = _spread_parents(region_champions, elite_slots)
+            other_parents = _spread_parents(
+                [
+                    parent
+                    for parent in parents
+                    if all(parent.id != elite.id for elite in elite_parents)
+                ],
+                max(0, epoch_seeds - len(elite_parents)),
+            )
+            parents = elite_parents + other_parents
             if not parents:
                 parents = list(active_pool)
 
@@ -632,10 +660,21 @@ class MultiprocessSearchEngine(Generic[TState]):
                 worst = max(entries, key=lambda n: losses[n.root_id])
                 del seed_archive[worst.root_id]
 
+        def _archive_segment_elites(node: SearchNode[TState]) -> None:
+            """Remember the best candidate ever measured for every tile."""
+            for name in self.elite_metric_names:
+                value = node.metrics.get(name)
+                if value is None:
+                    continue
+                current = segment_elites.get(name)
+                if current is None or value < current.metrics.get(name, float("inf")):
+                    segment_elites[name] = node
+
         def _process_seed_result(res: Result) -> None:
             new_node = _make_node(res, new_lineage=True)
             seed_children.append(new_node)
             _archive_seed(new_node)
+            _archive_segment_elites(new_node)
             node_states[new_node.id] = new_node.state
             node_metrics[new_node.id] = dict(new_node.metrics)
             _note_accepted(new_node, res)
@@ -747,6 +786,7 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             new_node = _make_node(res)
             pending_children.append(new_node)
+            _archive_segment_elites(new_node)
             _note_accepted(new_node, res)
 
             # Progress is decided when the generation closes, where the pool is
