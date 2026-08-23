@@ -54,6 +54,15 @@ def test_segment_target_returns_the_requested_disjoint_partition():
     assert np.all(coverage == 1)
 
 
+def test_segment_target_merges_tiny_palette_fragments():
+    image = Image.new("RGB", (32, 32), "white")
+    image.putpixel((0, 0), (255, 0, 0))
+
+    segments = segment_target(image, max_regions=8)
+
+    assert min(int(segment.mask.sum()) for segment in segments) >= 64
+
+
 def test_save_segments_writes_directly_to_the_run_directory(tmp_path):
     save_segments(
         [Segment(index=0, label_id=3, mask=np.array([[True, False]]))], tmp_path
