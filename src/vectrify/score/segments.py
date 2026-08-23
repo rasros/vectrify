@@ -66,6 +66,63 @@ def _split(mask: np.ndarray) -> tuple[np.ndarray, np.ndarray] | None:
     return (first, second) if first.any() and second.any() else None
 
 
+def _fill_holes(mask: np.ndarray) -> np.ndarray:
+    """Fill background components that cannot reach the canvas boundary."""
+    height, width = mask.shape
+    exterior = np.zeros(mask.shape, dtype=bool)
+    queue: deque[tuple[int, int]] = deque()
+    for x in range(width):
+        for y in (0, height - 1):
+            if not mask[y, x] and not exterior[y, x]:
+                exterior[y, x] = True
+                queue.append((y, x))
+    for y in range(height):
+        for x in (0, width - 1):
+            if not mask[y, x] and not exterior[y, x]:
+                exterior[y, x] = True
+                queue.append((y, x))
+    while queue:
+        y, x = queue.popleft()
+        for ny, nx in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
+            if (
+                0 <= ny < height
+                and 0 <= nx < width
+                and not mask[ny, nx]
+                and not exterior[ny, nx]
+            ):
+                exterior[ny, nx] = True
+                queue.append((ny, nx))
+    return ~exterior
+
+
+def _remove_tile_holes(
+    pieces: list[tuple[int | None, np.ndarray]],
+) -> list[tuple[int | None, np.ndarray]]:
+    """Give each enclosed void to the tile that surrounds it."""
+    for index in sorted(
+        range(len(pieces)), key=lambda item: int(pieces[item][1].sum()), reverse=True
+    ):
+        label, mask = pieces[index]
+        # The canvas tile necessarily surrounds every drawing element. It is
+        # not a meaningful hole in the target partition, so never absorb it.
+        if (
+            mask[0, :].any()
+            or mask[-1, :].any()
+            or mask[:, 0].any()
+            or mask[:, -1].any()
+        ):
+            continue
+        filled = _fill_holes(mask)
+        gained = filled & ~mask
+        if not gained.any():
+            continue
+        pieces[index] = (label, filled)
+        for other, (other_label, other_mask) in enumerate(pieces):
+            if other != index:
+                pieces[other] = (other_label, other_mask & ~gained)
+    return [(label, mask) for label, mask in pieces if mask.any()]
+
+
 def _merge_weak_boundaries(
     pieces: list[tuple[int, np.ndarray]], edges: np.ndarray, count: int
 ) -> list[tuple[int, np.ndarray]]:
@@ -99,10 +156,12 @@ def _merge_weak_boundaries(
     return pieces
 
 
-def _merge_small_tiles(
-    pieces: list[tuple[int, np.ndarray]], edges: np.ndarray, minimum_pixels: int
-) -> list[tuple[int, np.ndarray]]:
-    """Fold undersized fragments into the neighbour with the weakest edge."""
+def _grow_small_tiles(
+    pieces: list[tuple[int | None, np.ndarray]],
+    edges: np.ndarray,
+    minimum_pixels: int,
+) -> list[tuple[int | None, np.ndarray]]:
+    """Expand undersized fragments through their lowest-edge boundary."""
     while len(pieces) > 1:
         source = min(range(len(pieces)), key=lambda index: int(pieces[index][1].sum()))
         if int(pieces[source][1].sum()) >= minimum_pixels:
@@ -111,25 +170,25 @@ def _merge_small_tiles(
         owner = np.full(edges.shape, -1, dtype=np.int16)
         for index, (_label, mask) in enumerate(pieces):
             owner[mask] = index
-        neighbours: dict[int, list[float]] = {}
-        for left, right, left_edge, right_edge in (
-            (owner[:, :-1], owner[:, 1:], edges[:, :-1], edges[:, 1:]),
-            (owner[:-1, :], owner[1:, :], edges[:-1, :], edges[1:, :]),
-        ):
-            touching = (left == source) != (right == source)
-            other = np.where(left[touching] == source, right[touching], left[touching])
-            strengths = np.maximum(left_edge[touching], right_edge[touching])
-            for index, strength in zip(other.tolist(), strengths.tolist(), strict=True):
-                neighbours.setdefault(index, []).append(strength)
-        if not neighbours:
+        source_mask = owner == source
+        touching = np.zeros(owner.shape, dtype=bool)
+        touching[1:, :] |= source_mask[:-1, :]
+        touching[:-1, :] |= source_mask[1:, :]
+        touching[:, 1:] |= source_mask[:, :-1]
+        touching[:, :-1] |= source_mask[:, 1:]
+        candidates = touching & ~source_mask
+        ys, xs = np.nonzero(candidates)
+        if len(xs) == 0:
             break
-        target = min(
-            neighbours,
-            key=lambda index: sum(neighbours[index]) / len(neighbours[index]),
-        )
-        label, mask = pieces[target]
-        pieces[target] = (label, mask | pieces[source][1])
-        del pieces[source]
+        needed = minimum_pixels - int(source_mask.sum())
+        order = np.argsort(edges[ys, xs], kind="stable")[:needed]
+        grown = np.zeros(owner.shape, dtype=bool)
+        grown[ys[order], xs[order]] = True
+        label, mask = pieces[source]
+        pieces[source] = (label, mask | grown)
+        for index, (other_label, other_mask) in enumerate(pieces):
+            if index != source:
+                pieces[index] = (other_label, other_mask & ~grown)
     return pieces
 
 
@@ -217,7 +276,10 @@ def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]
         pieces = _merge_weak_boundaries(
             pieces, edge_map(image, tolerance=0), base_count
         )
-    pieces = _merge_small_tiles(pieces, edge_map(image, tolerance=0), minimum_pixels)
+    grown_pieces: list[tuple[int | None, np.ndarray]] = list(pieces)
+    pieces = _grow_small_tiles(
+        grown_pieces, edge_map(image, tolerance=0), minimum_pixels
+    )
     while len(pieces) < base_count:
         index = max(range(len(pieces)), key=lambda item: int(pieces[item][1].sum()))
         label, mask = pieces[index]
@@ -244,6 +306,20 @@ def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]
         *pieces,
         *((None, mask) for mask in detail_masks),
     ]
+    all_pieces = _remove_tile_holes(all_pieces)
+    all_pieces = _grow_small_tiles(
+        all_pieces, edge_map(image, tolerance=0), minimum_pixels
+    )
+    all_pieces = _remove_tile_holes(all_pieces)
+    while len(all_pieces) < max_regions:
+        index = max(
+            range(len(all_pieces)), key=lambda item: int(all_pieces[item][1].sum())
+        )
+        label, mask = all_pieces[index]
+        split = _split(mask)
+        if split is None:
+            break
+        all_pieces[index : index + 1] = [(label, split[0]), (label, split[1])]
     all_pieces.sort(key=lambda item: int(item[1].sum()), reverse=True)
     return [
         Segment(index=index, label_id=label, mask=mask, detail=label is None)
