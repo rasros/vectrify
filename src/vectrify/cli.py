@@ -430,6 +430,12 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "stdout is not a terminal (e.g. piped or redirected).",
     )
     g_runtime.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Write run artifacts and environment checks, then exit before "
+        "workers or LLM calls.",
+    )
+    g_runtime.add_argument(
         "--random-seed",
         type=int,
         default=None,
@@ -470,7 +476,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
     if ns.seeds is not None and ns.seeds < 0:
         raise SystemExit("Error: --seeds must be 0 or greater")
-    if ns.seeds == 0 and not ns.resume and ns.resume_top is None:
+    if ns.seeds == 0 and not ns.dry_run and not ns.resume and ns.resume_top is None:
         raise SystemExit(
             "Error: --seeds 0 disables every LLM call, so the search has "
             "nothing to mutate unless it starts from existing candidates. "

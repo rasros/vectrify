@@ -18,8 +18,8 @@ def determine_provider_and_model(args) -> tuple[str, str]:
     provider = args.provider
     model = args.model
 
-    # --seeds 0 never calls the LLM, so it needs no key.
-    if args.seeds == 0:
+    # --dry-run and --seeds 0 never call the LLM, so they need no key.
+    if getattr(args, "dry_run", False) or args.seeds == 0:
         return provider if provider != "auto" else PROVIDERS[0], model or ""
 
     if provider == "auto":
@@ -152,6 +152,8 @@ def main():
             vision_model=args.vision_model,
             segment_count=args.segment_count,
             auto_crop=args.auto_crop,
+            dry_run=args.dry_run,
+            dry_run_parameters=vars(args),
             stats=stats,
             dashboard=dashboard,
         )

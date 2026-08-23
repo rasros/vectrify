@@ -70,6 +70,38 @@ def test_corrupt_image_raises_value_error_before_creating_output_dirs(tmp_path):
     assert not storage.project_dir.exists()
 
 
+def test_dry_run_writes_preflight_artifacts_without_starting_search(tmp_path):
+    image_path = tmp_path / "input.png"
+    Image.new("RGB", (32, 32), "blue").save(image_path)
+    plugin, storage = _make_storage(tmp_path)
+
+    run_vector_search(
+        image_path=str(image_path),
+        storage=storage,
+        workers=1,
+        resolution=32,
+        max_wall_seconds=None,
+        log_level="ERROR",
+        scorer_type=ScorerType.SIMPLE,
+        goal=None,
+        reasoning="none",
+        llm_provider="openai",
+        llm_model="",
+        format_plugin=plugin,
+        dry_run=True,
+        dry_run_parameters={"segment_count": 8, "dry_run": True},
+    )
+
+    assert storage.current_run_dir is not None
+    assert storage.nodes_dir is not None
+    assert (storage.current_run_dir / "segments.png").is_file()
+    report = (storage.current_run_dir / "dry-run.txt").read_text()
+    assert "dry_run=true" in report
+    assert "parameters:" in report
+    assert "segment_count=8" in report
+    assert not list(storage.nodes_dir.iterdir())
+
+
 @pytest.mark.llm
 def test_run_svg_search_end_to_end(tmp_path):
     img_path = tmp_path / "test.png"
