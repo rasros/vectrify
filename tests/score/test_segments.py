@@ -43,5 +43,7 @@ def test_segment_target_returns_the_requested_disjoint_partition():
     segments = segment_target(image, max_regions=8)
 
     assert len(segments) == 8
-    coverage = sum(segment.mask.astype(int) for segment in segments)
-    assert coverage.min() == coverage.max() == 1
+    coverage = np.zeros((16, 16), dtype=int)
+    for segment in segments:
+        coverage += segment.mask
+    assert np.all(coverage == 1)
