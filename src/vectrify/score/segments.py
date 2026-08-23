@@ -370,6 +370,35 @@ def _split_regions_and_absorb_background(
     return [background, *retained]
 
 
+def _merge_compact_features(parts: list[np.ndarray]) -> list[np.ndarray]:
+    """Keep the pieces of a tiny outlined feature in one local region."""
+    changed = True
+    while changed:
+        changed = False
+        for first, mask_a in enumerate(parts):
+            if int(mask_a.sum()) > 1_200:
+                continue
+            grown = np.asarray(
+                Image.fromarray(mask_a.astype(np.uint8) * 255).filter(
+                    ImageFilter.MaxFilter(13)
+                )
+            ).astype(bool)
+            for second in range(first + 1, len(parts)):
+                mask_b = parts[second]
+                if int(mask_b.sum()) > 1_200 or not (grown & mask_b).any():
+                    continue
+                ys, xs = np.nonzero(mask_a | mask_b)
+                if xs.max() - xs.min() > 30 or ys.max() - ys.min() > 30:
+                    continue
+                parts[first] = mask_a | mask_b
+                del parts[second]
+                changed = True
+                break
+            if changed:
+                break
+    return parts
+
+
 def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]:
     """Return meaningful SAM regions after merging indistinguishable neighbours."""
     if max_regions < 1:
@@ -381,7 +410,9 @@ def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]
     )["masks"]
     masks = [np.asarray(mask, dtype=bool) for mask in generated]
     labels = _merge_indistinguishable(_balanced_region_labels(masks), image)
-    candidates = _split_regions_and_absorb_background(labels, image)
+    candidates = _merge_compact_features(
+        _split_regions_and_absorb_background(labels, image)
+    )
     edges = edge_map(image, tolerance=0)
     candidates.sort(
         key=lambda mask: float(edges[mask].sum()) + 0.05 * np.sqrt(mask.sum()),
