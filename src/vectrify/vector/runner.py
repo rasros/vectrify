@@ -30,6 +30,7 @@ from vectrify.cli import (
 )
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import (
+    crop_single_color_background,
     downscale_png_bytes,
     png_bytes_to_data_url,
     resize_long_side,
@@ -95,9 +96,12 @@ class VectorSearchConfig:
     max_total_tasks: int | None = DEFAULT_MAX_TOTAL_TASKS
     random_seed: int | None = None
     vision_model: str = DEFAULT_VISION_MODEL
+    auto_crop: bool = True
 
 
-def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, int, int]:
+def _load_image(
+    image_path: str, long_side: int, *, auto_crop: bool = True
+) -> tuple[Image.Image, bytes, int, int]:
     """Open the reference image and return (img, png_bytes, width, height).
 
     Downscaled to *long_side*, which makes the raster the single resolution in
@@ -116,6 +120,8 @@ def _load_image(image_path: str, long_side: int) -> tuple[Image.Image, bytes, in
         raise ValueError(
             f"input image could not be read as an image: {image_path} ({exc})"
         ) from exc
+    if auto_crop:
+        img = crop_single_color_background(img)
     img = resize_long_side(img, long_side)
     w, h = img.size
     buf = io.BytesIO()
@@ -245,6 +251,7 @@ def run_vector_search(
     max_total_tasks: int | None = DEFAULT_MAX_TOTAL_TASKS,
     random_seed: int | None = None,
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
+    auto_crop: bool = True,
     stats: "SearchStats | None" = None,
     dashboard: "Dashboard | None" = None,
     config: VectorSearchConfig | None = None,
@@ -273,6 +280,7 @@ def run_vector_search(
         max_total_tasks=max_total_tasks,
         random_seed=random_seed,
         vision_model=vision_model,
+        auto_crop=auto_crop,
     )
     resolution_llm = config.resolution_llm
     score_resolution = config.score_resolution
@@ -294,12 +302,13 @@ def run_vector_search(
     max_total_tasks = config.max_total_tasks
     random_seed = config.random_seed
     vision_model = config.vision_model
+    auto_crop = config.auto_crop
     epoch_seeds = resolve_seeds(seeds)
 
     # Validate the reference image up front so a missing or corrupt input fails
     # before storage.initialize() creates the output directory tree.
     original_img, original_png_bytes, original_w, original_h = _load_image(
-        image_path, resolution
+        image_path, resolution, auto_crop=auto_crop
     )
 
     storage.initialize()

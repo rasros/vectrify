@@ -408,6 +408,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"triples the cost of every image. Default: {DEFAULT_RESOLUTION_LLM}",
     )
     g_runtime.add_argument(
+        "--auto-crop",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Trim a surrounding single-colour background before vectorizing. "
+        "Use --no-auto-crop to retain the original canvas.",
+    )
+    g_runtime.add_argument(
         "--dashboard",
         dest="dashboard",
         action=argparse.BooleanOptionalAction,

@@ -2,10 +2,67 @@ import base64
 import io
 
 import cairosvg
+import numpy as np
 from PIL import Image, ImageChops
 from PIL.Image import Resampling
 
 DIFF_BRIGHTNESS_BOOST = 3
+BACKGROUND_TOLERANCE = 16
+BACKGROUND_EDGE_COVERAGE = 0.9
+BACKGROUND_PADDING_RATIO = 0.04
+BACKGROUND_PADDING_MIN_PIXELS = 2
+
+
+def crop_single_color_background(
+    image: Image.Image,
+    *,
+    tolerance: int = BACKGROUND_TOLERANCE,
+) -> Image.Image:
+    """Trim a nearly solid background which encloses the whole canvas.
+
+    The corners must agree on the background colour and that colour must cover
+    nearly all of the canvas edge. This avoids cropping photos and gradients.
+    A small proportional margin is retained around the detected foreground,
+    without ever enlarging the original canvas.
+    """
+    if image.width < 2 or image.height < 2:
+        return image
+
+    rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
+    corners = np.array(
+        [rgb[0, 0], rgb[0, -1], rgb[-1, 0], rgb[-1, -1]], dtype=np.int16
+    )
+    background = np.median(corners, axis=0)
+    if np.max(np.abs(corners - background)) > tolerance:
+        return image
+
+    edge = np.concatenate((rgb[0], rgb[-1], rgb[1:-1, 0], rgb[1:-1, -1]))
+    edge_matches = np.max(np.abs(edge - background), axis=1) <= tolerance
+    if float(edge_matches.mean()) < BACKGROUND_EDGE_COVERAGE:
+        return image
+
+    foreground = np.argwhere(np.max(np.abs(rgb - background), axis=2) > tolerance)
+    if foreground.size == 0:
+        return image
+
+    top, left = foreground.min(axis=0)
+    bottom, right = foreground.max(axis=0)
+    if (
+        top == 0
+        and left == 0
+        and bottom == image.height - 1
+        and right == image.width - 1
+    ):
+        return image
+    padding = max(
+        BACKGROUND_PADDING_MIN_PIXELS,
+        round(min(image.size) * BACKGROUND_PADDING_RATIO),
+    )
+    top = max(0, top - padding)
+    left = max(0, left - padding)
+    bottom = min(image.height - 1, bottom + padding)
+    right = min(image.width - 1, right + padding)
+    return image.crop((int(left), int(top), int(right) + 1, int(bottom) + 1))
 
 
 def resize_long_side(im: Image.Image, long_side: int) -> Image.Image:

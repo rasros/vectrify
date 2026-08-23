@@ -22,6 +22,7 @@ def test_runner_defaults_match_cli_defaults():
     # seeds has no static default; the runner derives it from pool_size so the
     # per-epoch LLM batch scales with the pool it has to fill.
     assert defaults["seeds"] is None
+    assert defaults["auto_crop"] is True
 
 
 def _make_storage(tmp_path):

@@ -6,6 +6,7 @@ from PIL import Image
 
 from tests.helpers import make_png
 from vectrify.image_utils import (
+    crop_single_color_background,
     downscale_png_bytes,
     pixel_diff_png,
     png_bytes_to_data_url,
@@ -34,6 +35,42 @@ def test_resize_long_side_square_already_small():
     img = Image.new("RGB", (256, 256))
     resized = resize_long_side(img, 512)
     assert resized.size == (256, 256)
+
+
+def test_crop_single_color_background_trims_the_outer_canvas():
+    image = Image.new("RGB", (20, 16), "white")
+    image.paste("red", (4, 3, 15, 12))
+
+    cropped = crop_single_color_background(image)
+
+    assert cropped.size == (15, 13)
+    assert cropped.getpixel((0, 0)) == (255, 255, 255)
+    assert cropped.getpixel((2, 2)) == (255, 0, 0)
+
+
+def test_crop_single_color_background_padding_never_exceeds_original_canvas():
+    image = Image.new("RGB", (6, 6), "white")
+    image.putpixel((0, 0), (255, 0, 0))
+
+    cropped = crop_single_color_background(image)
+
+    assert cropped.size == image.size
+
+
+def test_crop_single_color_background_leaves_solid_images_unchanged():
+    image = Image.new("RGB", (20, 16), "white")
+
+    assert crop_single_color_background(image) is image
+
+
+def test_crop_single_color_background_rejects_non_uniform_edges():
+    image = Image.new("RGB", (20, 16), "white")
+    image.paste("red", (4, 3, 15, 12))
+    for y in range(1, 15):
+        image.putpixel((0, y), (0, 0, 255))
+        image.putpixel((19, y), (0, 0, 255))
+
+    assert crop_single_color_background(image) is image
 
 
 def test_png_bytes_to_data_url():
