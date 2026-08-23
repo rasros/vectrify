@@ -66,7 +66,9 @@ def test_segment_target_returns_nonempty_clusters_for_sparse_targets():
 
 def test_save_segments_writes_directly_to_the_run_directory(tmp_path):
     save_segments(
-        [Segment(index=0, label_id=3, mask=np.array([[True, False]]))], tmp_path
+        [Segment(index=0, label_id=3, mask=np.array([[True, False]]))],
+        tmp_path,
+        Image.new("RGB", (2, 1), "white"),
     )
 
     assert (tmp_path / "segments.png").is_file()

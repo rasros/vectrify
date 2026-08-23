@@ -400,7 +400,7 @@ def run_vector_search(
     pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
     segments: list[Segment] = segment_target(scoring_img, max_regions=segment_count)
     if save_segments:
-        save_segment_map(segments, storage.current_run_dir)
+        save_segment_map(segments, storage.current_run_dir, scoring_img)
     if not segments:
         raise ValueError("target segmentation returned no regions")
     log.info("Target attention: %d edge-aware Voronoi mask(s).", len(segments))
