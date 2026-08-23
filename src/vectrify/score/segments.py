@@ -282,25 +282,11 @@ def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
                     points[assigned], axis=0, weights=weights[assigned]
                 )
 
-    attention: list[np.ndarray] = []
     yy, xx = np.indices(edges.shape)
-    for index in range(count):
-        cluster = points[assignment == index]
-        cluster_weights = weights[assignment == index]
-        covariance = (
-            np.cov(cluster.T, aweights=cluster_weights)
-            if len(cluster) > 1
-            else np.zeros((2, 2))
-        )
-        covariance += np.eye(2) * DETAIL_PADDING**2
-        inverse = np.linalg.inv(covariance)
-        delta = np.stack(
-            (yy - centers_array[index, 0], xx - centers_array[index, 1]), axis=-1
-        )
-        distance = np.einsum("...i,ij,...j->...", delta, inverse, delta)
-        field = np.exp(-0.5 * distance).astype(np.float32)
-        attention.append(field)
-    ownership = np.argmax(np.stack(attention), axis=0)
+    distances = (yy[..., None] - centers_array[None, None, :, 0]) ** 2 + (
+        xx[..., None] - centers_array[None, None, :, 1]
+    ) ** 2
+    ownership = np.argmin(distances, axis=2)
     return [ownership == index for index in range(count)]
 
 
@@ -330,23 +316,16 @@ def segment_error(
     return clamp01(edge_weight * structure + (1.0 - edge_weight) * colour)
 
 
-def save_segments(segments: list[Segment], run_dir: Path) -> None:
-    """Persist a colour-coded tile map alongside ``lineage.csv``."""
+def save_segments(segments: list[Segment], run_dir: Path, target: Image.Image) -> None:
+    """Persist translucent Voronoi masks over the scoring target."""
     run_dir.mkdir(parents=True, exist_ok=True)
     if not segments:
         return
-    image = np.full((*segments[0].mask.shape, 3), 255, dtype=np.uint8)
-    colours = np.zeros_like(image, dtype=np.float32)
-    coverage = np.zeros(segments[0].mask.shape, dtype=np.float32)
+    height, width = segments[0].mask.shape
+    image = np.asarray(target.convert("RGB").resize((width, height)), dtype=np.float32)
     for segment in segments:
-        colours += (
-            segment.mask[..., None]
-            * SEGMENT_COLOURS[segment.index % len(SEGMENT_COLOURS)]
+        image[segment.mask] = (
+            0.62 * image[segment.mask]
+            + 0.38 * SEGMENT_COLOURS[segment.index % len(SEGMENT_COLOURS)]
         )
-        coverage += segment.mask
-    occupied = coverage > 0
-    colour = np.zeros_like(colours)
-    colour[occupied] = colours[occupied] / coverage[occupied, None]
-    alpha = np.minimum(coverage, 1.0)[..., None]
-    image[:] = (255 * (1.0 - alpha) + colour * alpha).astype(np.uint8)
-    Image.fromarray(image, mode="RGB").save(run_dir / "segments.png")
+    Image.fromarray(image.astype(np.uint8), mode="RGB").save(run_dir / "segments.png")
