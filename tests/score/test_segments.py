@@ -2,7 +2,12 @@ import numpy as np
 from PIL import Image
 
 from vectrify.score.compare import Comparison
-from vectrify.score.segments import segment_error, segment_target
+from vectrify.score.segments import (
+    Segment,
+    save_segments,
+    segment_error,
+    segment_target,
+)
 
 
 def test_segment_error_only_reads_pixels_inside_its_mask():
@@ -47,3 +52,12 @@ def test_segment_target_returns_the_requested_disjoint_partition():
     for segment in segments:
         coverage += segment.mask
     assert np.all(coverage == 1)
+
+
+def test_save_segments_writes_directly_to_the_run_directory(tmp_path):
+    save_segments(
+        [Segment(index=0, label_id=3, mask=np.array([[True, False]]))], tmp_path
+    )
+
+    assert (tmp_path / "segment-00.png").is_file()
+    assert (tmp_path / "segments.json").is_file()
