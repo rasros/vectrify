@@ -215,14 +215,14 @@ def segment_error(
     return clamp01(edge_weight * structure + (1.0 - edge_weight) * colour)
 
 
-def save_segments(segments: list[Segment], directory: Path) -> None:
-    """Persist tiles as inspectable PNG masks plus their stable manifest."""
-    directory.mkdir(parents=True, exist_ok=True)
+def save_segments(segments: list[Segment], run_dir: Path) -> None:
+    """Persist tile masks and their manifest alongside ``lineage.csv``."""
+    run_dir.mkdir(parents=True, exist_ok=True)
     manifest = []
     for segment in segments:
         filename = f"segment-{segment.index:02d}.png"
         Image.fromarray(segment.mask.astype(np.uint8) * 255, mode="L").save(
-            directory / filename
+            run_dir / filename
         )
         manifest.append(
             {
@@ -233,4 +233,4 @@ def save_segments(segments: list[Segment], directory: Path) -> None:
                 "mask": filename,
             }
         )
-    (directory / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+    (run_dir / "segments.json").write_text(json.dumps(manifest, indent=2) + "\n")

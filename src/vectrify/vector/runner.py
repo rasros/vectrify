@@ -354,7 +354,7 @@ def run_vector_search(
     )
     pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
     segments: list[Segment] = segment_target(scoring_img, max_regions=segment_count)
-    save_segments(segments, storage.current_run_dir / "segments")
+    save_segments(segments, storage.current_run_dir)
     if not segments:
         raise ValueError("target segmentation returned no regions")
     log.info("Target segmentation: %d disjoint region(s).", len(segments))
