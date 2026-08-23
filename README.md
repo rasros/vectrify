@@ -60,6 +60,10 @@ vectrify logo.png -o logo.svg \
 vectrify photo.jpg -o sketch.svg --seeds 10 --epochs 4 \
   --max-wall-seconds 1800
 
+# Retain the best candidates for local parts of the target.
+# Eight disjoint target tiles is the default; increase this for detail-heavy art.
+vectrify mascot.png -o mascot.svg --segment-count 12
+
 # Choose a provider, model, or scorer explicitly
 vectrify input.png --provider anthropic --model MODEL_NAME
 vectrify input.png --scorer simple
@@ -94,6 +98,9 @@ output/
 └── runs/
     └── 2026-08-22_13-00-00/
         ├── lineage.csv
+        ├── segments/
+        │   ├── manifest.json
+        │   └── segment-00.png
         └── nodes/
             ├── 1.svg
             ├── eval0.123456_2.svg
@@ -102,3 +109,12 @@ output/
 
 Lineage is enabled by default. Rendered PNGs are saved alongside node files
 by default; add `--save-heatmap` for perceptual difference maps.
+
+## Segment elites
+
+`--segment-count N` controls both the number of disjoint target tiles and the
+maximum number of locally retained elites (one champion per tile). It defaults
+to `8`. The search remembers the candidate with the best masked colour-and-edge
+match for each tile, then reserves part of later LLM seed batches for those
+local champions. The generated masks and their manifest are saved in each run's
+`segments/` directory.
