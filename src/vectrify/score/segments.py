@@ -1,4 +1,4 @@
-"""Overlapping, edge-aware clusters for retaining locally good candidates."""
+"""Edge-aware Voronoi masks for retaining locally good candidates."""
 
 from collections import deque
 from dataclasses import dataclass
@@ -16,7 +16,6 @@ DETAIL_SLOTS = 2
 DETAIL_EDGE_THRESHOLD = 0.25
 DETAIL_GROUP_RADIUS = 4
 DETAIL_PADDING = 6
-VORONOI_FEATHER = 8.0
 DETAIL_MAX_AREA_FRACTION = 0.12
 MIN_SEGMENT_PIXELS = 64
 SEGMENT_COLOURS = np.array(
@@ -260,7 +259,7 @@ def _detail_masks(image: Image.Image, count: int) -> list[np.ndarray]:
 
 
 def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
-    """Fit overlapping Gaussian attention fields to clusters of target edges."""
+    """Fit Gaussian edge clusters, then turn them into Voronoi masks."""
     edges = edge_map(image, tolerance=0)
     points = np.argwhere(edges >= DETAIL_EDGE_THRESHOLD)
     if len(points) < count:
@@ -283,14 +282,8 @@ def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
                     points[assigned], axis=0, weights=weights[assigned]
                 )
 
-    masks: list[np.ndarray] = []
+    attention: list[np.ndarray] = []
     yy, xx = np.indices(edges.shape)
-    coordinates = np.stack((yy, xx), axis=-1)
-    site_distances = np.sqrt(
-        ((coordinates[..., None, :] - centers_array[None, None, :, :]) ** 2).sum(
-            axis=-1
-        )
-    )
     for index in range(count):
         cluster = points[assignment == index]
         cluster_weights = weights[assignment == index]
@@ -306,26 +299,17 @@ def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
         )
         distance = np.einsum("...i,ij,...j->...", delta, inverse, delta)
         field = np.exp(-0.5 * distance).astype(np.float32)
-        if count == 1:
-            membership = np.ones(edges.shape, dtype=np.float32)
-        else:
-            closest_other = np.min(np.delete(site_distances, index, axis=2), axis=2)
-            membership = 1.0 / (
-                1.0
-                + np.exp((site_distances[..., index] - closest_other) / VORONOI_FEATHER)
-            )
-        field *= membership.astype(np.float32)
-        field[field < 0.03] = 0.0
-        masks.append(field)
-    return masks
+        attention.append(field)
+    ownership = np.argmax(np.stack(attention), axis=0)
+    return [ownership == index for index in range(count)]
 
 
 def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]:
-    """Return exactly ``max_regions`` padded clusters centred on target edges."""
+    """Return exactly ``max_regions`` edge-aware Voronoi masks."""
     if max_regions < 1:
         return []
     return [
-        Segment(index=index, label_id=None, mask=mask, detail=True)
+        Segment(index=index, label_id=None, mask=mask)
         for index, mask in enumerate(_cluster_masks(image, max_regions))
     ]
 
