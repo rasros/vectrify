@@ -190,11 +190,14 @@ def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]
         if split is None:
             break
         pieces[index : index + 1] = [(label, split[0]), (label, split[1])]
-    pieces.extend((None, mask) for mask in detail_masks)
-    pieces.sort(key=lambda item: int(item[1].sum()), reverse=True)
+    all_pieces: list[tuple[int | None, np.ndarray]] = [
+        *pieces,
+        *((None, mask) for mask in detail_masks),
+    ]
+    all_pieces.sort(key=lambda item: int(item[1].sum()), reverse=True)
     return [
         Segment(index=index, label_id=label, mask=mask, detail=label is None)
-        for index, (label, mask) in enumerate(pieces[:max_regions])
+        for index, (label, mask) in enumerate(all_pieces[:max_regions])
     ]
 
 
