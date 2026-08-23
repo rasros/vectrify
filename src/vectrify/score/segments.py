@@ -17,6 +17,7 @@ DETAIL_EDGE_THRESHOLD = 0.25
 DETAIL_GROUP_RADIUS = 4
 DETAIL_PADDING = 6
 DETAIL_MAX_AREA_FRACTION = 0.12
+MIN_SEGMENT_PIXELS = 64
 SEGMENT_COLOURS = np.array(
     [
         (222, 82, 83),
@@ -98,6 +99,40 @@ def _merge_weak_boundaries(
     return pieces
 
 
+def _merge_small_tiles(
+    pieces: list[tuple[int, np.ndarray]], edges: np.ndarray, minimum_pixels: int
+) -> list[tuple[int, np.ndarray]]:
+    """Fold undersized fragments into the neighbour with the weakest edge."""
+    while len(pieces) > 1:
+        source = min(range(len(pieces)), key=lambda index: int(pieces[index][1].sum()))
+        if int(pieces[source][1].sum()) >= minimum_pixels:
+            break
+
+        owner = np.full(edges.shape, -1, dtype=np.int16)
+        for index, (_label, mask) in enumerate(pieces):
+            owner[mask] = index
+        neighbours: dict[int, list[float]] = {}
+        for left, right, left_edge, right_edge in (
+            (owner[:, :-1], owner[:, 1:], edges[:, :-1], edges[:, 1:]),
+            (owner[:-1, :], owner[1:, :], edges[:-1, :], edges[1:, :]),
+        ):
+            touching = (left == source) != (right == source)
+            other = np.where(left[touching] == source, right[touching], left[touching])
+            strengths = np.maximum(left_edge[touching], right_edge[touching])
+            for index, strength in zip(other.tolist(), strengths.tolist(), strict=True):
+                neighbours.setdefault(index, []).append(strength)
+        if not neighbours:
+            break
+        target = min(
+            neighbours,
+            key=lambda index: sum(neighbours[index]) / len(neighbours[index]),
+        )
+        label, mask = pieces[target]
+        pieces[target] = (label, mask | pieces[source][1])
+        del pieces[source]
+    return pieces
+
+
 def _detail_masks(image: Image.Image, count: int) -> list[np.ndarray]:
     """Find compact, ink-dense neighbourhoods such as text and small features."""
     if count <= 0:
@@ -171,6 +206,7 @@ def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]
         return []
     detail_masks = _detail_masks(image, min(DETAIL_SLOTS, max_regions - 1))
     base_count = max_regions - len(detail_masks)
+    minimum_pixels = min(MIN_SEGMENT_PIXELS, image.width * image.height // max_regions)
     labels = np.asarray(
         image.convert("RGB").quantize(
             colors=PALETTE_SIZE, method=Image.Quantize.MEDIANCUT
@@ -181,6 +217,7 @@ def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]
         pieces = _merge_weak_boundaries(
             pieces, edge_map(image, tolerance=0), base_count
         )
+    pieces = _merge_small_tiles(pieces, edge_map(image, tolerance=0), minimum_pixels)
     while len(pieces) < base_count:
         index = max(range(len(pieces)), key=lambda item: int(pieces[item][1].sum()))
         label, mask = pieces[index]
