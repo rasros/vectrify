@@ -2,7 +2,6 @@
 
 from collections import deque
 from dataclasses import dataclass
-from heapq import heappop, heappush
 from pathlib import Path
 
 import numpy as np
@@ -17,7 +16,6 @@ DETAIL_SLOTS = 2
 DETAIL_EDGE_THRESHOLD = 0.25
 DETAIL_GROUP_RADIUS = 4
 DETAIL_PADDING = 6
-EDGE_CROSSING_COST = 24.0
 DETAIL_MAX_AREA_FRACTION = 0.12
 MIN_SEGMENT_PIXELS = 64
 SEGMENT_COLOURS = np.array(
@@ -284,47 +282,11 @@ def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
                     points[assigned], axis=0, weights=weights[assigned]
                 )
 
-    height, width = edges.shape
     yy, xx = np.indices(edges.shape)
-    terrain = (
-        1.0
-        + EDGE_CROSSING_COST
-        * np.asarray(
-            Image.fromarray((edges * 255).astype(np.uint8)).filter(
-                ImageFilter.GaussianBlur(1.0)
-            ),
-            dtype=np.float32,
-        )
-        / 255.0
-    )
-    ownership = np.full(edges.shape, -1, dtype=np.int16)
-    distances = np.full(edges.shape, np.inf, dtype=np.float32)
-    queue: list[tuple[float, int, int, int]] = []
-    used: set[tuple[int, int]] = set()
-    for index, (centre_y, centre_x) in enumerate(centers_array):
-        choices = np.argsort((yy - centre_y) ** 2 + (xx - centre_x) ** 2, axis=None)
-        flat = next(
-            choice
-            for choice in choices
-            if np.unravel_index(choice, edges.shape) not in used
-        )
-        y, x = np.unravel_index(flat, edges.shape)
-        used.add((y, x))
-        distances[y, x] = 0.0
-        ownership[y, x] = index
-        heappush(queue, (0.0, index, y, x))
-    while queue:
-        distance, index, y, x = heappop(queue)
-        if distance != distances[y, x] or ownership[y, x] != index:
-            continue
-        for next_y, next_x in ((y - 1, x), (y + 1, x), (y, x - 1), (y, x + 1)):
-            if not (0 <= next_y < height and 0 <= next_x < width):
-                continue
-            candidate = distance + (terrain[y, x] + terrain[next_y, next_x]) / 2
-            if candidate < distances[next_y, next_x]:
-                distances[next_y, next_x] = candidate
-                ownership[next_y, next_x] = index
-                heappush(queue, (float(candidate), index, next_y, next_x))
+    distances = (yy[..., None] - centers_array[None, None, :, 0]) ** 2 + (
+        xx[..., None] - centers_array[None, None, :, 1]
+    ) ** 2
+    ownership = np.argmin(distances, axis=2)
     return [ownership == index for index in range(count)]
 
 
