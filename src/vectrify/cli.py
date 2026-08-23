@@ -188,6 +188,13 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         f"0 disables the LLM entirely (requires --resume). Default: "
         f"{DEFAULT_SEEDS}",
     )
+    g_search.add_argument(
+        "--segment-count",
+        type=int,
+        default=8,
+        metavar="N",
+        help="Maximum disjoint target segments retained as local elites. Default: 8",
+    )
 
     g_epoch = parser.add_argument_group(
         "Epoch control. Any convergence criterion that is set can end an epoch "
@@ -452,6 +459,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --epochs must be at least 1")
     if ns.workers <= 0 or ns.pool_size <= 0:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
+    if ns.segment_count <= 0:
+        raise SystemExit("Error: --segment-count must be > 0")
     if ns.resolution <= 0:
         raise SystemExit("Error: --resolution must be > 0")
     if ns.resolution_llm <= 0:
