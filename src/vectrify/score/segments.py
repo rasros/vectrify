@@ -344,6 +344,32 @@ def _merge_indistinguishable(labels: np.ndarray, image: Image.Image) -> np.ndarr
     return labels
 
 
+def _split_regions_and_absorb_background(
+    labels: np.ndarray, image: Image.Image
+) -> list[np.ndarray]:
+    """Separate disconnected islands and fold plain background fragments together."""
+    from scipy.ndimage import label
+
+    parts: list[np.ndarray] = []
+    for region in np.unique(labels):
+        components, count = label(labels == region)
+        parts.extend(components == index for index in range(1, count + 1))
+    background_index = max(range(len(parts)), key=lambda index: int(parts[index].sum()))
+    background = parts.pop(background_index)
+    rgb = np.asarray(image.convert("RGB"), dtype=np.float32) / 255.0
+    edges = edge_map(image, tolerance=0)
+    background_colour = rgb[background].mean(axis=0)
+    retained: list[np.ndarray] = []
+    for part in parts:
+        colour_delta = float(np.abs(rgb[part].mean(axis=0) - background_colour).mean())
+        edge_density = float(edges[part].mean())
+        if colour_delta < 0.035 and edge_density < 0.08:
+            background |= part
+        else:
+            retained.append(part)
+    return [background, *retained]
+
+
 def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]:
     """Return meaningful SAM regions after merging indistinguishable neighbours."""
     if max_regions < 1:
@@ -355,7 +381,7 @@ def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]
     )["masks"]
     masks = [np.asarray(mask, dtype=bool) for mask in generated]
     labels = _merge_indistinguishable(_balanced_region_labels(masks), image)
-    candidates = [labels == label for label in np.unique(labels)]
+    candidates = _split_regions_and_absorb_background(labels, image)
     edges = edge_map(image, tolerance=0)
     candidates.sort(
         key=lambda mask: float(edges[mask].sum()) + 0.05 * np.sqrt(mask.sum()),
