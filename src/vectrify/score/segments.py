@@ -1,6 +1,5 @@
 """Approximate, disjoint cartoon tiles for retaining locally good candidates."""
 
-import json
 from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
@@ -17,6 +16,19 @@ DETAIL_SLOTS = 2
 DETAIL_EDGE_THRESHOLD = 0.25
 DETAIL_GROUP_RADIUS = 4
 DETAIL_MAX_AREA_FRACTION = 0.12
+SEGMENT_COLOURS = np.array(
+    [
+        (222, 82, 83),
+        (65, 160, 212),
+        (94, 184, 118),
+        (239, 178, 72),
+        (166, 103, 190),
+        (68, 187, 178),
+        (220, 118, 160),
+        (144, 144, 144),
+    ],
+    dtype=np.uint8,
+)
 
 
 @dataclass(frozen=True)
@@ -216,21 +228,11 @@ def segment_error(
 
 
 def save_segments(segments: list[Segment], run_dir: Path) -> None:
-    """Persist tile masks and their manifest alongside ``lineage.csv``."""
+    """Persist a colour-coded tile map alongside ``lineage.csv``."""
     run_dir.mkdir(parents=True, exist_ok=True)
-    manifest = []
+    if not segments:
+        return
+    image = np.zeros((*segments[0].mask.shape, 3), dtype=np.uint8)
     for segment in segments:
-        filename = f"segment-{segment.index:02d}.png"
-        Image.fromarray(segment.mask.astype(np.uint8) * 255, mode="L").save(
-            run_dir / filename
-        )
-        manifest.append(
-            {
-                "index": segment.index,
-                "label_id": segment.label_id,
-                "pixels": int(segment.mask.sum()),
-                "detail": segment.detail,
-                "mask": filename,
-            }
-        )
-    (run_dir / "segments.json").write_text(json.dumps(manifest, indent=2) + "\n")
+        image[segment.mask] = SEGMENT_COLOURS[segment.index % len(SEGMENT_COLOURS)]
+    Image.fromarray(image, mode="RGB").save(run_dir / "segments.png")

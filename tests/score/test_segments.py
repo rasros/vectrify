@@ -59,5 +59,5 @@ def test_save_segments_writes_directly_to_the_run_directory(tmp_path):
         [Segment(index=0, label_id=3, mask=np.array([[True, False]]))], tmp_path
     )
 
-    assert (tmp_path / "segment-00.png").is_file()
-    assert (tmp_path / "segments.json").is_file()
+    assert (tmp_path / "segments.png").is_file()
+    assert not (tmp_path / "segments.json").exists()
