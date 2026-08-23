@@ -152,6 +152,7 @@ def main():
             random_seed=args.random_seed,
             vision_model=args.vision_model,
             segment_count=args.segment_count,
+            samvg_seed=args.samvg_seed,
             auto_crop=args.auto_crop,
             dry_run=args.dry_run,
             dry_run_parameters=vars(args),

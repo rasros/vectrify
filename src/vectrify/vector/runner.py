@@ -4,6 +4,7 @@ import io
 import logging
 import multiprocessing as mp
 import os
+import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -33,10 +34,12 @@ from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import (
     crop_single_color_background,
     downscale_png_bytes,
+    make_preview_data_url,
     png_bytes_to_data_url,
     resize_long_side,
 )
 from vectrify.llm.models import api_key_env
+from vectrify.refine.samvg import generate_svg
 from vectrify.score import ScorerType, choose_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
@@ -67,6 +70,7 @@ from vectrify.search import (
     StorageAdapter,
 )
 from vectrify.search.collector import StatCollector
+from vectrify.search.diversity import simhash
 from vectrify.search.operators import Exp3Policy, FixedWeightPolicy
 from vectrify.utils import setup_logger, start_log_listener
 from vectrify.vector.resume import filter_to_pool_size, resume_nodes
@@ -108,6 +112,7 @@ class VectorSearchConfig:
     vision_model: str = DEFAULT_VISION_MODEL
     auto_crop: bool = True
     segment_count: int = 8
+    samvg_seed: bool = True
     dry_run: bool = False
 
 
@@ -311,6 +316,7 @@ def run_vector_search(
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
     auto_crop: bool = True,
     segment_count: int = 8,
+    samvg_seed: bool = True,
     dry_run: bool = False,
     dry_run_parameters: Mapping[str, Any] | None = None,
     stats: "SearchStats | None" = None,
@@ -344,6 +350,7 @@ def run_vector_search(
         vision_model=vision_model,
         auto_crop=auto_crop,
         segment_count=segment_count,
+        samvg_seed=samvg_seed,
         dry_run=dry_run,
     )
     resolution_llm = config.resolution_llm
@@ -369,6 +376,7 @@ def run_vector_search(
     vision_model = config.vision_model
     auto_crop = config.auto_crop
     segment_count = config.segment_count
+    samvg_seed = config.samvg_seed
     dry_run = config.dry_run
     epoch_seeds = resolve_seeds(seeds)
 
@@ -460,6 +468,71 @@ def run_vector_search(
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
 
+    # This is intentionally an *additional* seed, rather than one of the LLM
+    # batch: it gives the search a segmentation-derived structural hypothesis
+    # without reducing the configured LLM exploration budget.  It is created
+    # in the main process so SAM is loaded once, not once per worker.
+    resumed_seed_nodes = list(initial_nodes)
+    if samvg_seed:
+        if getattr(format_plugin, "name", None) != "svg":
+            log.info("SAMVG-inspired seed skipped: it is available for SVG only.")
+        else:
+            try:
+                content = format_plugin.extract_from_llm(
+                    generate_svg(original_img)
+                )
+                valid, error = format_plugin.validate(content)
+                if not valid:
+                    raise ValueError(error or "generated SVG failed validation")
+                png = format_plugin.rasterize(
+                    content, out_w=original_w, out_h=original_h
+                )
+                comparison = compare(pixel_ref, png)
+                metrics = {
+                    EDGE: overlap_distance(
+                        comparison.reference_edges, comparison.candidate_edges
+                    ),
+                    COLOUR: float(comparison.colour.mean()),
+                    SHAPE: comparison.shape,
+                    DETAIL: detail_excess(reference_detail, png),
+                }
+                for segment in segments:
+                    metrics[segment.metric_name] = segment_error(
+                        comparison, segment.mask, detail=segment.detail
+                    )
+                node_id = max((node.id for node in initial_nodes), default=0) + 1
+                seed = SearchNode(
+                    valid=True,
+                    id=node_id,
+                    parent_id=0,
+                    metrics=metrics,
+                    signature=simhash(content),
+                    state=ChainState(
+                        VectorStatePayload(
+                            content=content,
+                            raster_data_url=None,
+                            raster_preview_data_url=make_preview_data_url(
+                                png, resolution_llm
+                            ),
+                            origin="SAMVG-inspired seed",
+                        )
+                    ),
+                )
+                storage.save_node(seed)
+                initial_nodes.append(seed)
+                initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
+                root = ET.fromstring(content)
+                layer_count = sum(
+                    element.tag.split("}")[-1] == "path" for element in root.iter()
+                )
+                log.info(
+                    "Added SAMVG-inspired seed with %d traced layer(s).", layer_count
+                )
+            except Exception as exc:
+                raise RuntimeError(
+                    f"SAMVG-inspired seed generation failed: {exc}"
+                ) from exc
+
     # With the LLM disabled the search can only mutate existing candidates, so
     # without at least one it would dispatch nothing and idle until the wall
     # clock. Fail immediately with the reason instead.
@@ -497,7 +570,7 @@ def run_vector_search(
             epochs=epochs,
         )
 
-    first_batch = initial_seed_tasks(epoch_seeds, initial_nodes)
+    first_batch = initial_seed_tasks(epoch_seeds, resumed_seed_nodes)
     if first_batch < epoch_seeds:
         log.info(
             f"Epoch 0: {first_batch} LLM seed task(s) "

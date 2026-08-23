@@ -196,6 +196,14 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         metavar="N",
         help="Edge-aware Voronoi masks retained as local elites. Default: 8",
     )
+    g_search.add_argument(
+        "--samvg-seed",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Add one SAMVG-inspired SVG seed made from automatic SAM masks, "
+        "impact filtering, and contour tracing. Requires vectrify[vision] and "
+        "is available for SVG output only. Default: on",
+    )
 
     g_epoch = parser.add_argument_group(
         "Epoch control. Any convergence criterion that is set can end an epoch "
@@ -484,11 +492,17 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
 
     if ns.seeds is not None and ns.seeds < 0:
         raise SystemExit("Error: --seeds must be 0 or greater")
-    if ns.seeds == 0 and not ns.dry_run and not ns.resume and ns.resume_top is None:
+    if (
+        ns.seeds == 0
+        and not ns.dry_run
+        and not ns.resume
+        and ns.resume_top is None
+        and not ns.samvg_seed
+    ):
         raise SystemExit(
             "Error: --seeds 0 disables every LLM call, so the search has "
             "nothing to mutate unless it starts from existing candidates. "
-            "Add --resume, or raise --seeds."
+            "Add --resume, --samvg-seed, or raise --seeds."
         )
 
     if ns.tournament_size < 2:

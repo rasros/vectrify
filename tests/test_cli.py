@@ -61,9 +61,10 @@ def test_negative_seeds_raises():
         parse_args(["img.png", "--seeds", "-1"])
 
 
-def test_seeds_zero_requires_resume():
+def test_seeds_zero_uses_the_default_samvg_seed_or_requires_resume_when_disabled():
+    assert parse_args(["img.png", "--seeds", "0"]).seeds == 0
     with pytest.raises(SystemExit):
-        parse_args(["img.png", "--seeds", "0"])
+        parse_args(["img.png", "--seeds", "0", "--no-samvg-seed"])
     assert parse_args(["img.png", "--seeds", "0", "--resume"]).seeds == 0
 
 
@@ -72,6 +73,18 @@ def test_dry_run_needs_no_resume_when_seeds_are_zero():
 
     assert args.dry_run is True
     assert args.seeds == 0
+
+
+def test_samvg_seed_allows_a_local_only_run():
+    args = parse_args(["img.png", "--seeds", "0", "--samvg-seed"])
+
+    assert args.samvg_seed is True
+    assert args.seeds == 0
+
+
+def test_samvg_seed_is_enabled_by_default_and_can_be_disabled():
+    assert parse_args(["img.png"]).samvg_seed is True
+    assert parse_args(["img.png", "--no-samvg-seed"]).samvg_seed is False
 
 
 # Defaults are pinned as literals so a change to any default is a visible,
