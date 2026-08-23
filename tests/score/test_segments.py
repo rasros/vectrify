@@ -42,25 +42,26 @@ def test_detail_segment_prioritises_edges_over_colour():
     assert segment_error(comparison, mask, detail=True) == 0.25
 
 
-def test_segment_target_returns_the_requested_disjoint_partition():
-    image = Image.new("RGB", (16, 16), "white")
+def test_segment_target_returns_overlapping_edge_clusters():
+    image = Image.new("RGB", (64, 64), "white")
+    for coordinate in range(8, 56):
+        image.putpixel((coordinate, coordinate), (0, 0, 0))
 
     segments = segment_target(image, max_regions=8)
 
     assert len(segments) == 8
-    coverage = np.zeros((16, 16), dtype=int)
-    for segment in segments:
-        coverage += segment.mask
-    assert np.all(coverage == 1)
+    assert all(segment.mask.dtype == np.float32 for segment in segments)
+    coverage = np.sum([segment.mask for segment in segments], axis=0)
+    assert coverage.max() > 1.0
 
 
-def test_segment_target_merges_tiny_palette_fragments():
+def test_segment_target_returns_nonempty_clusters_for_sparse_targets():
     image = Image.new("RGB", (32, 32), "white")
     image.putpixel((0, 0), (255, 0, 0))
 
     segments = segment_target(image, max_regions=8)
 
-    assert min(int(segment.mask.sum()) for segment in segments) >= 64
+    assert min(float(segment.mask.sum()) for segment in segments) > 0.0
 
 
 def test_save_segments_writes_directly_to_the_run_directory(tmp_path):

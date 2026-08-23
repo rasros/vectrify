@@ -1,4 +1,4 @@
-"""Approximate, disjoint cartoon tiles for retaining locally good candidates."""
+"""Overlapping, edge-aware clusters for retaining locally good candidates."""
 
 from collections import deque
 from dataclasses import dataclass
@@ -35,7 +35,7 @@ SEGMENT_COLOURS = np.array(
 
 @dataclass(frozen=True)
 class Segment:
-    """One flat-colour connected component at scoring resolution."""
+    """One soft, edge-centred attention field at scoring resolution."""
 
     index: int
     label_id: int | None
@@ -230,16 +230,21 @@ def _detail_masks(image: Image.Image, count: int) -> list[np.ndarray]:
                     seen[ny, nx] = True
                     queue.append((ny, nx))
 
+        component = np.zeros(grouped.shape, dtype=np.uint8)
         ys, xs = zip(*points, strict=True)
-        top = max(0, min(ys) - DETAIL_PADDING)
-        bottom = min(height, max(ys) + DETAIL_PADDING + 1)
-        left = max(0, min(xs) - DETAIL_PADDING)
-        right = min(width, max(xs) + DETAIL_PADDING + 1)
-        area = (bottom - top) * (right - left)
-        mass = float(edges[top:bottom, left:right].sum())
+        component[ys, xs] = 255
+        mask = (
+            np.asarray(
+                Image.fromarray(component, mode="L").filter(
+                    ImageFilter.MaxFilter(DETAIL_PADDING * 2 + 1)
+                )
+            )
+            > 0
+        )
+        mask = _fill_holes(mask)
+        area = int(mask.sum())
+        mass = float(edges[mask].sum())
         if 8 <= area <= max_area and mass >= 4.0:
-            mask = np.zeros(grouped.shape, dtype=bool)
-            mask[top:bottom, left:right] = True
             candidates.append((mass, mask))
 
     selected: list[np.ndarray] = []
@@ -253,89 +258,73 @@ def _detail_masks(image: Image.Image, count: int) -> list[np.ndarray]:
     return selected
 
 
-def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]:
-    """Return exactly ``max_regions`` disjoint, non-empty cartoon tiles.
+def _cluster_masks(image: Image.Image, count: int) -> list[np.ndarray]:
+    """Fit overlapping Gaussian attention fields to clusters of target edges."""
+    edges = edge_map(image, tolerance=0)
+    points = np.argwhere(edges >= DETAIL_EDGE_THRESHOLD)
+    if len(points) < count:
+        points = np.argwhere(np.ones(edges.shape, dtype=bool))
+    weights = edges[points[:, 0], points[:, 1]] + 0.05
+    centers = [points[int(np.argmax(weights))].astype(float)]
+    nearest = np.sum((points - centers[0]) ** 2, axis=1)
+    for _ in range(1, count):
+        index = int(np.argmax(nearest * weights))
+        centers.append(points[index].astype(float))
+        nearest = np.minimum(nearest, np.sum((points - centers[-1]) ** 2, axis=1))
+    centers_array = np.asarray(centers)
+    for _ in range(12):
+        distances = ((points[:, None, :] - centers_array[None, :, :]) ** 2).sum(axis=2)
+        assignment = distances.argmin(axis=1)
+        for index in range(count):
+            assigned = assignment == index
+            if assigned.any():
+                centers_array[index] = np.average(
+                    points[assigned], axis=0, weights=weights[assigned]
+                )
 
-    Palette quantisation absorbs antialiasing and shading. Adjacent palette
-    regions merge across weak target edges first, so a smooth gradient stays
-    whole while real outlines survive. Up to two compact high-edge regions are
-    protected as detail tiles; broad tiles are bisected only if needed.
-    """
+    masks: list[np.ndarray] = []
+    yy, xx = np.indices(edges.shape)
+    for index in range(count):
+        cluster = points[assignment == index]
+        cluster_weights = weights[assignment == index]
+        covariance = (
+            np.cov(cluster.T, aweights=cluster_weights)
+            if len(cluster) > 1
+            else np.zeros((2, 2))
+        )
+        covariance += np.eye(2) * DETAIL_PADDING**2
+        inverse = np.linalg.inv(covariance)
+        delta = np.stack(
+            (yy - centers_array[index, 0], xx - centers_array[index, 1]), axis=-1
+        )
+        distance = np.einsum("...i,ij,...j->...", delta, inverse, delta)
+        field = np.exp(-0.5 * distance).astype(np.float32)
+        field[field < 0.03] = 0.0
+        masks.append(field)
+    return masks
+
+
+def segment_target(image: Image.Image, *, max_regions: int = 8) -> list[Segment]:
+    """Return exactly ``max_regions`` padded clusters centred on target edges."""
     if max_regions < 1:
         return []
-    detail_masks = _detail_masks(image, min(DETAIL_SLOTS, max_regions - 1))
-    base_count = max_regions - len(detail_masks)
-    minimum_pixels = min(MIN_SEGMENT_PIXELS, image.width * image.height // max_regions)
-    labels = np.asarray(
-        image.convert("RGB").quantize(
-            colors=PALETTE_SIZE, method=Image.Quantize.MEDIANCUT
-        )
-    )
-    pieces = [(int(label), labels == label) for label in np.unique(labels)]
-    if len(pieces) > base_count:
-        pieces = _merge_weak_boundaries(
-            pieces, edge_map(image, tolerance=0), base_count
-        )
-    grown_pieces: list[tuple[int | None, np.ndarray]] = list(pieces)
-    pieces = _grow_small_tiles(
-        grown_pieces, edge_map(image, tolerance=0), minimum_pixels
-    )
-    while len(pieces) < base_count:
-        index = max(range(len(pieces)), key=lambda item: int(pieces[item][1].sum()))
-        label, mask = pieces[index]
-        split = _split(mask)
-        if split is None:
-            break
-        pieces[index : index + 1] = [(label, split[0]), (label, split[1])]
-    detail_coverage = np.logical_or.reduce(detail_masks)
-    pieces = [
-        (label, remainder)
-        for label, mask in pieces
-        if (remainder := mask & ~detail_coverage).any()
-    ]
-    # A protected detail box can entirely consume a small colour region. Split
-    # a broad remainder to keep the promised tile count without discarding it.
-    while len(pieces) < base_count:
-        index = max(range(len(pieces)), key=lambda item: int(pieces[item][1].sum()))
-        label, mask = pieces[index]
-        split = _split(mask)
-        if split is None:
-            break
-        pieces[index : index + 1] = [(label, split[0]), (label, split[1])]
-    all_pieces: list[tuple[int | None, np.ndarray]] = [
-        *pieces,
-        *((None, mask) for mask in detail_masks),
-    ]
-    all_pieces = _remove_tile_holes(all_pieces)
-    all_pieces = _grow_small_tiles(
-        all_pieces, edge_map(image, tolerance=0), minimum_pixels
-    )
-    all_pieces = _remove_tile_holes(all_pieces)
-    while len(all_pieces) < max_regions:
-        index = max(
-            range(len(all_pieces)), key=lambda item: int(all_pieces[item][1].sum())
-        )
-        label, mask = all_pieces[index]
-        split = _split(mask)
-        if split is None:
-            break
-        all_pieces[index : index + 1] = [(label, split[0]), (label, split[1])]
-    all_pieces.sort(key=lambda item: int(item[1].sum()), reverse=True)
     return [
-        Segment(index=index, label_id=label, mask=mask, detail=label is None)
-        for index, (label, mask) in enumerate(all_pieces[:max_regions])
+        Segment(index=index, label_id=None, mask=mask, detail=True)
+        for index, mask in enumerate(_cluster_masks(image, max_regions))
     ]
 
 
 def segment_error(
     comparison: Comparison, mask: np.ndarray, *, detail: bool = False
 ) -> float:
-    """Colour-and-structure error reduced within one tile."""
-    if not mask.any():
+    """Colour-and-structure error weighted by one local attention field."""
+    weights = mask.astype(np.float32)
+    total_weight = float(weights.sum())
+    if total_weight == 0.0:
         return 1.0
-    colour = float(comparison.colour[mask].mean())
+    colour = float((comparison.colour * weights).sum() / total_weight)
     structure = overlap_distance(
-        comparison.reference_edges * mask, comparison.candidate_edges * mask
+        comparison.reference_edges * weights, comparison.candidate_edges * weights
     )
     edge_weight = 0.75 if detail else 0.5
     return clamp01(edge_weight * structure + (1.0 - edge_weight) * colour)
@@ -346,7 +335,18 @@ def save_segments(segments: list[Segment], run_dir: Path) -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
     if not segments:
         return
-    image = np.zeros((*segments[0].mask.shape, 3), dtype=np.uint8)
+    image = np.full((*segments[0].mask.shape, 3), 255, dtype=np.uint8)
+    colours = np.zeros_like(image, dtype=np.float32)
+    coverage = np.zeros(segments[0].mask.shape, dtype=np.float32)
     for segment in segments:
-        image[segment.mask] = SEGMENT_COLOURS[segment.index % len(SEGMENT_COLOURS)]
+        colours += (
+            segment.mask[..., None]
+            * SEGMENT_COLOURS[segment.index % len(SEGMENT_COLOURS)]
+        )
+        coverage += segment.mask
+    occupied = coverage > 0
+    colour = np.zeros_like(colours)
+    colour[occupied] = colours[occupied] / coverage[occupied, None]
+    alpha = np.minimum(coverage, 1.0)[..., None]
+    image[:] = (255 * (1.0 - alpha) + colour * alpha).astype(np.uint8)
     Image.fromarray(image, mode="RGB").save(run_dir / "segments.png")
