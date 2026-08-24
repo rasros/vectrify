@@ -109,6 +109,33 @@ def test_generate_svg_writes_detected_words_as_editable_text(monkeypatch):
     assert text.get("font-size") == "8.00"
 
 
+def test_generate_svg_keeps_only_pixel_improving_text(monkeypatch):
+    target = Image.new("RGB", (32, 16), "black")
+    monkeypatch.setattr(samvg, "retrieve_layers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        samvg,
+        "detect_text",
+        lambda _image: [
+            TextLayer("keep", 2, 3, 18, 8, (20, 30, 40)),
+            TextLayer("discard", 2, 3, 18, 8, (20, 30, 40)),
+        ],
+    )
+    monkeypatch.setattr(
+        samvg,
+        "_render_svg",
+        lambda svg, _image, _rasterize: (
+            target if "keep" in svg else Image.new("RGB", (32, 16), "white")
+        ),
+    )
+
+    root = ET.fromstring(generate_svg(target, rasterize=lambda *_args: b""))
+    labels = [
+        element.text for element in root.findall("{http://www.w3.org/2000/svg}text")
+    ]
+
+    assert labels == ["keep"]
+
+
 def test_automatic_masks_uses_source_sized_first_layer_crops(monkeypatch):
     calls = []
 
