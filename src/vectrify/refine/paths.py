@@ -818,6 +818,194 @@ def _fill_path_coverage(
     return torch.stack(coverages).mean(dim=0)
 
 
+def _large_path_tile_candidates(
+    contours: list[Any],
+    width: int,
+    height: int,
+    *,
+    tile_size: int = 16,
+    margin: float = 2.0,
+) -> list[tuple[int, int, int, int, tuple[int, ...]]]:
+    """Build conservative ray-crossing candidates for a large filled path.
+
+    A horizontal ray from a tile pixel can only cross a contour whose control
+    hull overlaps the tile vertically and reaches to the pixel's right.  The
+    latter becomes ``max_x >= tile_left`` for every pixel in a tile.  Cubic
+    curves lie inside their control hulls, making this a conservative spatial
+    index: it may retain an unnecessary contour but never drops a crossing.
+    ``margin`` also admits nearby contours to the boundary-gradient pass.
+    """
+    if tile_size <= 0:
+        raise ValueError("tile_size must be positive")
+    bounds = []
+    for contour in contours:
+        points = contour.detach().reshape(-1, 2)
+        bounds.append(
+            (
+                float(points[:, 0].min()),
+                float(points[:, 1].min()),
+                float(points[:, 0].max()),
+                float(points[:, 1].max()),
+            )
+        )
+    tiles = []
+    for top in range(0, height, tile_size):
+        for left in range(0, width, tile_size):
+            right = min(width, left + tile_size)
+            bottom = min(height, top + tile_size)
+            candidates = tuple(
+                index
+                for index, (_min_x, min_y, max_x, max_y) in enumerate(bounds)
+                if max_y >= top - margin
+                and min_y <= bottom + margin
+                and max_x >= left - margin
+            )
+            if candidates:
+                tiles.append((left, top, right - left, bottom - top, candidates))
+    return tiles
+
+
+def _large_path_tile_boundary_candidates(
+    contours: list[Any],
+    tiles: list[tuple[int, int, int, int, tuple[int, ...]]],
+    *,
+    margin: float = 2.0,
+) -> list[tuple[int, ...]]:
+    """Return nearby-contour subsets for the boundary-gradient pass.
+
+    Winding rays must retain any contour extending to a tile's right.  The
+    closest-boundary surrogate is local, so it only needs contours whose
+    conservative control hull overlaps the tile plus its antialias band.
+    """
+    bounds = []
+    for contour in contours:
+        points = contour.detach().reshape(-1, 2)
+        bounds.append(
+            (
+                float(points[:, 0].min()),
+                float(points[:, 1].min()),
+                float(points[:, 0].max()),
+                float(points[:, 1].max()),
+            )
+        )
+    return [
+        tuple(
+            index
+            for index in ray_candidates
+            if bounds[index][2] >= left - margin
+            and bounds[index][0] <= left + tile_width + margin
+            and bounds[index][3] >= top - margin
+            and bounds[index][1] <= top + tile_height + margin
+        )
+        for left, top, tile_width, tile_height, ray_candidates in tiles
+    ]
+
+
+def _tiled_large_path_coverage(
+    contours: list[Any],
+    box: tuple[int, int, int, int],
+    tiles: list[tuple[int, int, int, int, tuple[int, ...]]],
+    *,
+    fill_rule: str,
+    subpixels: int,
+    packed_contours: Any | None = None,
+    candidate_indices: list[Any] | None = None,
+    boundary_candidate_indices: list[Any] | None = None,
+    topology_workspaces: dict[tuple[int, int], Any] | None = None,
+) -> Any | None:
+    """Analytically rasterise a large path from conservative contour tiles.
+
+    ``packed_contours`` is normally a contiguous fixed-16 slice of the fit
+    parameter.  Reusing it and the device-resident ``candidate_indices``
+    avoids rebuilding the same per-tile Python concatenations each Adam step.
+    """
+    import torch
+
+    left, top, right, bottom = box
+    height, width = bottom - top, right - left
+    output = None
+    from vectrify.refine.cuda_renderer import multi_coverage
+
+    # Tile dimensions have only edge variants.  Rendering one CUDA batch per
+    # dimension replaces the old one-launch-per-tile graph without mixing
+    # candidate sets: each tile remains an independent SVG compound path.
+    tile_groups: dict[tuple[int, int], list[tuple[int, Any]]] = defaultdict(list)
+    for tile_number, tile in enumerate(tiles):
+        tile_groups[(tile[2], tile[3])].append((tile_number, tile))
+    for (tile_width, tile_height), group in tile_groups.items():
+        packed_tiles = []
+        offsets = [0]
+        boundary_offsets = [0]
+        boundary_indices = []
+        for tile_number, tile in group:
+            tile_left, tile_top, _tile_width, _tile_height, candidates = tile
+            offset = contours[0].new_tensor((left + tile_left, top + tile_top))
+            if packed_contours is None:
+                packed = torch.cat(
+                    [
+                        _pad_fused_cubics((contours[candidate] - offset)[None])
+                        for candidate in candidates
+                    ]
+                )
+            else:
+                indices = (
+                    candidate_indices[tile_number]
+                    if candidate_indices is not None
+                    else torch.tensor(
+                        candidates, dtype=torch.long, device=packed_contours.device
+                    )
+                )
+                packed = packed_contours.index_select(0, indices) - offset
+            packed_tiles.append(packed)
+            offsets.append(offsets[-1] + len(candidates))
+            if boundary_candidate_indices is None:
+                local_boundary = torch.arange(
+                    len(candidates), dtype=torch.long, device=packed.device
+                )
+            else:
+                local_boundary = boundary_candidate_indices[tile_number]
+            boundary_indices.append(local_boundary)
+            boundary_offsets.append(boundary_offsets[-1] + local_boundary.numel())
+        topology_workspace = None
+        if topology_workspaces is not None:
+            shape = (len(group), tile_height, tile_width)
+            topology_workspace = topology_workspaces.get((tile_width, tile_height))
+            if topology_workspace is None or tuple(topology_workspace.shape) != shape:
+                topology_workspace = torch.empty(
+                    shape, dtype=torch.uint16, device=packed_tiles[0].device
+                )
+                topology_workspaces[(tile_width, tile_height)] = topology_workspace
+        coverage = multi_coverage(
+            torch.cat(packed_tiles),
+            offsets,
+            (0, 0, tile_width, tile_height),
+            subpixels=subpixels,
+            fill_rule=fill_rule,
+            boundary_indices=torch.cat(boundary_indices),
+            boundary_offsets=boundary_offsets,
+            topology_workspace=topology_workspace,
+        )
+        if coverage is None:
+            return None
+        for alpha, (_tile_number, tile) in zip(coverage, group, strict=True):
+            tile_left, tile_top, _tile_width, _tile_height, _candidates = tile
+            restored = torch.nn.functional.pad(
+                alpha,
+                (
+                    tile_left,
+                    width - tile_left - tile_width,
+                    tile_top,
+                    height - tile_top - tile_height,
+                ),
+            )
+            output = restored if output is None else output + restored
+    if output is None:
+        return torch.zeros(
+            (height, width), dtype=contours[0].dtype, device=contours[0].device
+        )
+    return output
+
+
 def _fill_coverages(
     controls: Any,
     box: tuple[int, int, int, int],
@@ -840,6 +1028,20 @@ def _fill_coverages(
 
     left, top, right, bottom = box
     height, width = bottom - top, right - left
+    # Simple closed contours are the common SAMVG case.  Use the native
+    # cubic-intersection renderer here; the sampled winding implementation
+    # below remains the portable oracle and handles arbitrary layouts.
+    if controls.is_cuda and controls.shape[1] <= _FUSED_CUBICS:
+        from vectrify.refine.cuda_renderer import coverage as cuda_coverage
+
+        native = cuda_coverage(
+            _pad_fused_cubics(controls),
+            box,
+            subpixels=subpixels,
+            fill_rule=fill_rule,
+        )
+        if native is not None:
+            return native
     steps = torch.linspace(0, 1, samples, device=controls.device, dtype=controls.dtype)
     basis = torch.stack(
         [
@@ -1113,7 +1315,7 @@ def fit_filled_svg(
     xing_weight: float = 0.02,
     optimisation_long_side: int | None = None,
     subpixels: int = 2,
-    monolithic: bool = False,
+    monolithic: bool | None = None,
     curve_samples: int | None = None,
 ) -> str:
     """Optimise opaque filled cubic SVG paths against an RGB target.
@@ -1127,7 +1329,9 @@ def fit_filled_svg(
     Cairo-fidelity checks.  Small clipped tiles use fewer cubic samples because
     their screen-space deviation is bounded by the tile size; pass
     ``curve_samples`` to override that adaptive choice.  ``optimisation_long_side``
-    is available only as an explicit caller-selected preview mode.
+    is available only as an explicit caller-selected preview mode. CUDA uses
+    one monolithic compositor graph for 64px-or-smaller working canvases by
+    default; larger canvases retain the memory-bounded replay.
     """
     import xml.etree.ElementTree as ET
 
@@ -1160,6 +1364,13 @@ def fit_filled_svg(
         else min(1.0, optimisation_long_side / max(width, height))
     )
     work_width, work_height = round(width * scale), round(height * scale)
+    if monolithic is None:
+        # At SAMVG's 64px seed-fitting resolution the complete opaque-layer
+        # graph is small, avoids renderer replay for each bounded layer batch,
+        # and has exactly the same painter-order MSE derivative.  Preserve the
+        # bounded path at larger resolutions, where its saved alpha/canvas
+        # representation is intentionally memory conservative.
+        monolithic = device == "cuda" and work_width * work_height <= 64 * 64
     # The target is resized to the integer working raster.  Map coordinates
     # with those exact axis scales too: applying the single nominal scale to
     # both axes subtly shifts every horizontal edge when rounding makes the
@@ -1169,20 +1380,48 @@ def fit_filled_svg(
         dtype=torch.float32,
         device=device,
     )
-    controls = [
+    initial_controls = [
         [
             (
                 torch.tensor(contour, dtype=torch.float32, device=device)
                 * coordinate_scale
-            ).requires_grad_()
+            )
             for contour in contours
         ]
         for _element, contours, _colour, _fill_rule in entries
     ]
-    colours = [
-        torch.tensor(colour, dtype=torch.float32, device=device, requires_grad=True)
-        for _element, _contours, colour, _fill_rule in entries
-    ]
+    # A detailed SAMVG seed has hundreds of contours.  Keeping each one as a
+    # separate Adam parameter turns one optimiser update into hundreds of tiny
+    # CUDA kernels.  Store fixed-width contour slots in one parameter and use
+    # narrow views below, retaining every original contour length in the SVG
+    # and Xing terms.
+    flat_controls = [control for path in initial_controls for control in path]
+    contour_sizes = [len(control) for control in flat_controls]
+    control_storage = torch.nn.Parameter(
+        torch.cat([_pad_fused_cubics(control[None]) for control in flat_controls])
+    )
+    controls = []
+    path_storage_spans = []
+    storage_offset = 0
+    for path in initial_controls:
+        path_start = storage_offset
+        views = []
+        for _control in path:
+            size = contour_sizes[storage_offset]
+            views.append(control_storage[storage_offset, :size])
+            storage_offset += 1
+        controls.append(views)
+        path_storage_spans.append((path_start, storage_offset))
+    # Match the fixed-width geometry storage above: one colour parameter
+    # avoids launching Adam's tiny update kernels once per SVG layer.
+    color_storage = torch.nn.Parameter(
+        torch.tensor(
+            [colour for _element, _contours, colour, _fill_rule in entries],
+            dtype=torch.float32,
+            device=device,
+        )
+    )
+    colours = list(color_storage.unbind(0))
     goal = torch.tensor(
         np.asarray(
             target.convert("RGB").resize((work_width, work_height)), dtype=np.float32
@@ -1191,9 +1430,11 @@ def fit_filled_svg(
         device=device,
     )
     point_optimizer = torch.optim.Adam(
-        [control for path in controls for control in path], lr=point_learning_rate
+        [control_storage], lr=point_learning_rate, fused=device == "cuda"
     )
-    colour_optimizer = torch.optim.Adam(colours, lr=color_learning_rate)
+    colour_optimizer = torch.optim.Adam(
+        [color_storage], lr=color_learning_rate, fused=device == "cuda"
+    )
     # The dissertation averages Xing within each contour then sums contours.
     # Keep that weighting while evaluating the 413 cat contours in one CUDA
     # expression rather than launching one tiny graph for each.
@@ -1293,10 +1534,65 @@ def fit_filled_svg(
         ]
 
     def rasterise_multi(index: int, path: list[Any]) -> Any:
-        # Very hole-heavy masks already amortise the fused full-frame kernel.
-        # Tile smaller multi-contour paths, where culling most of their empty
-        # canvas wins over compiling another specialised large batch.
+        # Large paths use fixed conservative candidate tiles.  Every tile
+        # sees all contours that can cross one of its horizontal rays, while
+        # avoiding the old all-contours-at-every-pixel winding fallback.
         if len(path) >= 16:
+            # The index has a two-pixel conservative guard band.  Rebuild it
+            # after local optimisation consumes half that allowance, so a
+            # stale index cannot exclude a valid ray crossing.
+            reference = large_multi_index_references[index]
+            movement = max(
+                float((control.detach() - saved).abs().amax())
+                for control, saved in zip(path, reference, strict=True)
+            )
+            if movement > 1.0:
+                initial_large_multi_tiles[index] = _large_path_tile_candidates(
+                    path, work_width, work_height
+                )
+                large_multi_tile_indices[index] = [
+                    torch.tensor(candidates, dtype=torch.long, device=device)
+                    for _left, _top, _width, _height, candidates in (
+                        initial_large_multi_tiles[index]
+                    )
+                ]
+                large_multi_boundary_indices[index] = [
+                    torch.tensor(
+                        [ray_candidates.index(candidate) for candidate in candidates],
+                        dtype=torch.long,
+                        device=device,
+                    )
+                    for (
+                        _left,
+                        _top,
+                        _width,
+                        _height,
+                        ray_candidates,
+                    ), candidates in zip(
+                        initial_large_multi_tiles[index],
+                        _large_path_tile_boundary_candidates(
+                            path, initial_large_multi_tiles[index]
+                        ),
+                        strict=True,
+                    )
+                ]
+                large_multi_index_references[index] = tuple(
+                    control.detach().clone() for control in path
+                )
+                large_multi_topology_workspaces[index].clear()
+            tiled_alpha = _tiled_large_path_coverage(
+                path,
+                (0, 0, work_width, work_height),
+                initial_large_multi_tiles[index],
+                fill_rule=entries[index][3],
+                subpixels=subpixels,
+                packed_contours=control_storage[slice(*path_storage_spans[index])],
+                candidate_indices=large_multi_tile_indices[index],
+                boundary_candidate_indices=large_multi_boundary_indices[index],
+                topology_workspaces=large_multi_topology_workspaces[index],
+            )
+            if tiled_alpha is not None:
+                return tiled_alpha
             return _fill_path_coverage(
                 path,
                 (0, 0, work_width, work_height),
@@ -1304,7 +1600,7 @@ def fit_filled_svg(
                 samples=samples_for(work_width, work_height),
                 subpixels=subpixels,
             )
-        left, top, tile_width, tile_height = tile_for(path)
+        left, top, tile_width, tile_height = initial_multi_tiles[index]
         offset = path[0].new_tensor((left, top))
         alpha = _fill_path_coverage(
             [control - offset for control in path],
@@ -1316,6 +1612,146 @@ def fit_filled_svg(
         )
         return restore_tile(alpha, left, top)
 
+    def rasterise_multi_group(
+        fill_rule: str,
+        tile_width: int,
+        tile_height: int,
+        items: list[tuple[int, int, int]],
+    ) -> list[tuple[int, Any]]:
+        """Rasterise equal-sized multi-contour paths in one contour batch."""
+        translated = []
+        spans = []
+        for index, left, top in items:
+            offset = controls[index][0].new_tensor((left, top))
+            start = len(translated)
+            translated.extend(control - offset for control in controls[index])
+            spans.append((start, len(translated)))
+        # Native winding uses one CUDA block per contour.  Combining contours
+        # from otherwise independent paths lets its blocks occupy the GPU at
+        # once, while summing each recorded span before the fill nonlinearity
+        # preserves SVG path semantics (including holes).
+        packed = torch.cat([_pad_fused_cubics(control[None]) for control in translated])
+        from vectrify.refine.cuda_renderer import multi_coverage
+
+        analytic = multi_coverage(
+            packed,
+            [start for start, _end in spans] + [spans[-1][1]],
+            (0, 0, tile_width, tile_height),
+            subpixels=subpixels,
+            fill_rule=fill_rule,
+        )
+        if analytic is not None:
+            return [
+                (index, restore_tile(alpha, left, top))
+                for (index, left, top), alpha in zip(items, analytic, strict=True)
+            ]
+        from vectrify.refine.cuda_renderer import windings as cuda_windings
+
+        native_winding = cuda_windings(
+            packed,
+            (0, 0, tile_width, tile_height),
+            samples=samples_for(tile_width, tile_height),
+            subpixels=subpixels,
+        )
+        if native_winding is not None:
+            path_winding = torch.stack(
+                [native_winding[start:end].sum(dim=0) for start, end in spans]
+            )
+            if fill_rule == "evenodd":
+                coverage = 0.5 * (1 - torch.cos(path_winding / 2))
+            else:
+                coverage = torch.sigmoid((path_winding.abs() - math.pi) / 0.25)
+            return [
+                (index, restore_tile(alpha, left, top))
+                for (index, left, top), alpha in zip(
+                    items, coverage.mean(dim=1), strict=True
+                )
+            ]
+        coverage_sum = None
+        for y in range(subpixels):
+            for x in range(subpixels):
+                winding = _fill_batched_windings(
+                    packed,
+                    (0, 0, tile_width, tile_height),
+                    samples=samples_for(tile_width, tile_height),
+                    x_offset=(x + 0.5) / subpixels,
+                    y_offset=(y + 0.5) / subpixels,
+                    batch_size=64,
+                )
+                path_winding = torch.stack(
+                    [winding[start:end].sum(dim=0) for start, end in spans]
+                )
+                if fill_rule == "evenodd":
+                    coverage = 0.5 * (1 - torch.cos(path_winding / 2))
+                else:
+                    coverage = torch.sigmoid((path_winding.abs() - math.pi) / 0.25)
+                coverage_sum = (
+                    coverage if coverage_sum is None else coverage_sum + coverage
+                )
+        assert coverage_sum is not None
+        return [
+            (index, restore_tile(alpha, left, top))
+            for (index, left, top), alpha in zip(
+                items,
+                coverage_sum / (subpixels * subpixels),
+                strict=True,
+            )
+        ]
+
+    # Tile layout is part of the seed rasterisation setup, not optimisation
+    # state.  Re-reading each CUDA control tensor's extrema every Adam step
+    # introduces hundreds of device synchronisations on a detailed SAMVG
+    # seed.  The two-pixel antialias margin already makes these fixed tiles
+    # conservative for the local coordinate updates used by the fit.
+    initial_simple_groups = cropped_simple_groups()
+    initial_multi_tiles = {
+        index: tile_for(path)
+        for index, path in enumerate(controls)
+        if len(path) != 1 and len(path) < 16
+    }
+    initial_large_multi_tiles = {
+        index: _large_path_tile_candidates(path, work_width, work_height)
+        for index, path in enumerate(controls)
+        if len(path) >= 16
+    }
+    large_multi_tile_indices = {
+        index: [
+            torch.tensor(candidates, dtype=torch.long, device=device)
+            for _left, _top, _width, _height, candidates in tiles
+        ]
+        for index, tiles in initial_large_multi_tiles.items()
+    }
+    large_multi_boundary_indices = {
+        index: [
+            torch.tensor(
+                [ray_candidates.index(candidate) for candidate in candidates],
+                dtype=torch.long,
+                device=device,
+            )
+            for (_left, _top, _width, _height, ray_candidates), candidates in zip(
+                tiles,
+                _large_path_tile_boundary_candidates(controls[index], tiles),
+                strict=True,
+            )
+        ]
+        for index, tiles in initial_large_multi_tiles.items()
+    }
+    large_multi_topology_workspaces: dict[int, dict[tuple[int, int], Any]] = {
+        index: {} for index in initial_large_multi_tiles
+    }
+    large_multi_index_references = {
+        index: tuple(control.detach().clone() for control in path)
+        for index, path in enumerate(controls)
+        if len(path) >= 16
+    }
+    initial_multi_groups: dict[tuple[str, int, int], list[tuple[int, int, int]]] = (
+        defaultdict(list)
+    )
+    for index, (left, top, tile_width, tile_height) in initial_multi_tiles.items():
+        initial_multi_groups[(entries[index][3], tile_width, tile_height)].append(
+            (index, left, top)
+        )
+
     log.info(
         "Filled-path optimisation: %d path(s), %dx%d working raster on %s.",
         len(entries),
@@ -1326,7 +1762,7 @@ def fit_filled_svg(
     for _step in range(steps):
         point_optimizer.zero_grad()
         colour_optimizer.zero_grad()
-        simple_groups = cropped_simple_groups()
+        simple_groups = initial_simple_groups
         all_controls = torch.cat([control for path in controls for control in path])
 
         if monolithic:
@@ -1341,6 +1777,15 @@ def fit_filled_svg(
                     fill_rule, tile_width, tile_height, items
                 ):
                     alphas[index] = alpha
+            for (
+                fill_rule,
+                tile_width,
+                tile_height,
+            ), items in initial_multi_groups.items():
+                for index, alpha in rasterise_multi_group(
+                    fill_rule, tile_width, tile_height, items
+                ):
+                    alphas[index] = alpha
             for index, path in enumerate(controls):
                 if alphas[index] is None:
                     alphas[index] = rasterise_multi(index, path)
@@ -1350,7 +1795,7 @@ def fit_filled_svg(
                 if goal.is_cuda
                 else _composite_opaque_fills
             )
-            rendered = composite(alpha_stack, torch.stack(colours))
+            rendered = composite(alpha_stack, color_storage)
             loss = ((rendered - goal) ** 2).mean()
             loss = (
                 loss
@@ -1374,6 +1819,15 @@ def fit_filled_svg(
                 tile_height,
             ), items in simple_groups.items():
                 for index, alpha in rasterise_simple(
+                    fill_rule, tile_width, tile_height, items
+                ):
+                    initial_alphas[index] = alpha
+            for (
+                fill_rule,
+                tile_width,
+                tile_height,
+            ), items in initial_multi_groups.items():
+                for index, alpha in rasterise_multi_group(
                     fill_rule, tile_width, tile_height, items
                 ):
                     initial_alphas[index] = alpha
@@ -1444,8 +1898,22 @@ def fit_filled_svg(
         simple_indices = {
             index for group in simple_groups.values() for index, _left, _top in group
         }
+        multi_indices = {
+            index
+            for group in initial_multi_groups.values()
+            for index, _left, _top in group
+        }
+        for (fill_rule, tile_width, tile_height), items in initial_multi_groups.items():
+            for offset in range(0, len(items), 64):
+                batch = items[offset : offset + 64]
+                loss = torch.zeros((), device=device)
+                for index, alpha in rasterise_multi_group(
+                    fill_rule, tile_width, tile_height, batch
+                ):
+                    loss = loss + layer_loss(index, alpha)
+                loss.backward()
         for index, path in enumerate(controls):
-            if index not in simple_indices:
+            if index not in simple_indices and index not in multi_indices:
                 layer_loss(
                     index,
                     rasterise_multi(index, path),
