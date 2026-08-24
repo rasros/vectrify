@@ -1947,6 +1947,55 @@ def fit_filled_svg(
 PATH_FIT = "Mutation: path fit"
 
 
+def fittable_opaque_fills(svg: str) -> bool:
+    """Whether *svg* contains a fill the analytic CUDA fitter can optimise."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        root = ET.fromstring(svg)
+    except ET.ParseError:
+        return False
+    for element in root.iter():
+        if (
+            element.tag.split("}")[-1] != "path"
+            or _fill_rgb(element.get("fill")) is None
+        ):
+            continue
+        try:
+            parse_filled_cubics(element.get("d", ""))
+        except UnsupportedPathError:
+            continue
+        if element.get("fill-rule", "nonzero").strip().lower() in {
+            "evenodd",
+            "nonzero",
+        }:
+            return True
+    return False
+
+
+def fit_opaque_fills_locally(
+    svg: str,
+    reference_png: bytes,
+    *,
+    steps: int = 8,
+    gpu_gate: Any = None,
+) -> str:
+    """Use SAMVG's analytic opaque-fill fitter as one local-search move.
+
+    Unlike the legacy stroke fitter this operates on complete filled shapes,
+    including compound paths and holes.  It deliberately keeps the 64px
+    optimisation raster used by SAMVG; this is a local move, not its 500-step
+    seed-fitting phase.
+    """
+    from PIL import Image
+
+    if not fittable_opaque_fills(svg):
+        raise UnsupportedPathError("no opaque filled cubic paths to fit")
+    target = Image.open(io.BytesIO(reference_png)).convert("RGB")
+    with gpu_slot(gpu_gate):
+        return fit_filled_svg(svg, target, steps=steps, optimisation_long_side=64)
+
+
 def _stroke_width(element, ancestors) -> float | None:
     """Return the inherited stroke width, or ``None`` for an unpainted path."""
     for node in (element, *ancestors):

@@ -29,7 +29,9 @@ from vectrify.refine.paths import (
     PATH_FIT,
     UnsupportedPathError,
     fit_available,
+    fit_opaque_fills_locally,
     fit_random_group,
+    fittable_opaque_fills,
 )
 
 log = logging.getLogger(__name__)
@@ -157,6 +159,18 @@ class SvgPlugin:
             if reference_png is None or not fit_available():
                 return content, PATH_FIT
             try:
+                # SAMVG seeds are opaque closed fills, so they use the exact
+                # analytic CUDA fitter.  The older sampled operator remains
+                # the style-specific path for stroked cubic drawings.
+                if fittable_opaque_fills(content):
+                    return (
+                        fit_opaque_fills_locally(
+                            content,
+                            reference_png,
+                            gpu_gate=self.gpu_gate,
+                        ),
+                        PATH_FIT,
+                    )
                 return (
                     fit_random_group(
                         content,

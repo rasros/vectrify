@@ -222,6 +222,11 @@ _STROKED = (
     '<path d="M 8 32 C 20 20 44 20 56 32" /></g></svg>'
 )
 
+_FILLED = (
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">'
+    '<path fill="#111111" d="M 8 8 L 56 8 L 56 56 L 8 56 Z" /></svg>'
+)
+
 
 def test_the_path_fit_is_only_offered_where_it_is_cheap_enough():
     """It costs ~0.5s on a GPU against ~9s on one CPU thread, where an ordinary
@@ -256,6 +261,35 @@ def test_a_drawing_with_nothing_fittable_reports_a_blank_draw():
     content, origin = SvgPlugin().mutate(dots, operator=PATH_FIT, reference_png=png)
     assert content == dots
     assert origin == PATH_FIT
+
+
+def test_path_fit_dispatches_opaque_fills_to_the_samvg_renderer(monkeypatch):
+    """SAMVG-style fill seeds must not fall back to the sampled stroke fit."""
+    from vectrify.formats.svg import plugin as plugin_module
+    from vectrify.refine.paths import PATH_FIT
+
+    plugin = SvgPlugin()
+    seen = {}
+
+    def fit(svg, reference_png, *, gpu_gate):
+        seen["svg"] = svg
+        seen["reference"] = reference_png
+        seen["gpu_gate"] = gpu_gate
+        return svg.replace("#111111", "#ff0000")
+
+    monkeypatch.setattr(plugin_module, "fit_available", lambda: True)
+    monkeypatch.setattr(plugin_module, "fit_opaque_fills_locally", fit)
+    monkeypatch.setattr(
+        plugin_module, "fit_random_group", lambda *_args, **_kwargs: None
+    )
+    reference = plugin.rasterize(_FILLED, 64, 64)
+
+    content, origin = plugin.mutate(_FILLED, operator=PATH_FIT, reference_png=reference)
+
+    assert origin == PATH_FIT
+    assert "#ff0000" in content
+    assert seen["svg"] == _FILLED
+    assert seen["reference"] == reference
 
 
 def test_a_width_on_the_path_is_found_as_readily_as_one_on_the_group():
