@@ -3203,6 +3203,16 @@ dev = [
 graphviz = [
     { name = "graphviz" },
 ]
+samvg = [
+    { name = "scikit-learn", version = "1.7.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scikit-learn", version = "1.9.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.11'" },
+    { name = "scipy", version = "1.15.3", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
+    { name = "scipy", version = "1.17.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
+    { name = "scipy", version = "1.18.1", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
+    { name = "torch" },
+    { name = "torchvision" },
+    { name = "transformers" },
+]
 typst = [
     { name = "typst" },
 ]
@@ -3233,16 +3243,21 @@ requires-dist = [
     { name = "pytest-xdist", marker = "extra == 'dev'" },
     { name = "rich", specifier = ">=14.3.3" },
     { name = "ruff", marker = "extra == 'dev'" },
+    { name = "scikit-learn", marker = "extra == 'samvg'", specifier = ">=1.3.0" },
     { name = "scikit-learn", marker = "extra == 'vision'", specifier = ">=1.3.0" },
+    { name = "scipy", marker = "extra == 'samvg'", specifier = ">=1.11.0" },
     { name = "scipy", marker = "extra == 'vision'", specifier = ">=1.11.0" },
+    { name = "torch", marker = "extra == 'samvg'", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "torch", marker = "extra == 'vision'", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cu126" },
+    { name = "torchvision", marker = "extra == 'samvg'", specifier = ">=0.28.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "torchvision", marker = "extra == 'vision'", specifier = ">=0.28.0", index = "https://download.pytorch.org/whl/cu126" },
     { name = "tqdm", specifier = ">=4.67.3" },
+    { name = "transformers", marker = "extra == 'samvg'", specifier = ">=4.40.0" },
     { name = "transformers", marker = "extra == 'vision'", specifier = ">=4.40.0" },
     { name = "typst", marker = "extra == 'typst'", specifier = ">=0.11.0" },
-    { name = "vectrify", extras = ["graphviz", "typst", "vision"], marker = "extra == 'all'" },
+    { name = "vectrify", extras = ["graphviz", "samvg", "typst", "vision"], marker = "extra == 'all'" },
 ]
-provides-extras = ["vision", "graphviz", "typst", "all", "dev"]
+provides-extras = ["vision", "samvg", "graphviz", "typst", "all", "dev"]
 
 [[package]]
 name = "webencodings"
