@@ -478,9 +478,7 @@ def run_vector_search(
             log.info("SAMVG-inspired seed skipped: it is available for SVG only.")
         else:
             try:
-                content = format_plugin.extract_from_llm(
-                    generate_svg(original_img)
-                )
+                content = format_plugin.extract_from_llm(generate_svg(original_img))
                 valid, error = format_plugin.validate(content)
                 if not valid:
                     raise ValueError(error or "generated SVG failed validation")

@@ -592,11 +592,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             node_id = run_state.next_node_id
             # An LLM seed is an independent attempt at the picture, so it opens
             # a lineage; a local child continues its parent's.
-            root = (
-                node_id
-                if new_lineage
-                else node_roots.get(res.parent_id, node_id)
-            )
+            root = node_id if new_lineage else node_roots.get(res.parent_id, node_id)
             node_roots[node_id] = root
             origin = node_origins.get(res.parent_id) or node_id
             node_origins[node_id] = origin
