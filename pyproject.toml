@@ -61,8 +61,6 @@ vision = [
 # extra is deliberately sufficient for the SAMVG seed even on machines that
 # use the portable Torch renderer fallback.
 samvg = [
-    "scipy>=1.11.0",
-    "scikit-learn>=1.3.0",
     "torch>=2.0.0",
     "torchvision>=0.28.0",
     "transformers>=4.49.0",

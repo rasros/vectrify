@@ -16,7 +16,7 @@ import math
 import os
 import re
 import xml.etree.ElementTree as ET
-from collections import defaultdict
+from collections import defaultdict, deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
@@ -241,6 +241,137 @@ def _is_crop_edge_mask(
     return bool(np.any(at_crop_edge & ~at_image_edge))
 
 
+def _label(mask: np.ndarray) -> tuple[np.ndarray, int]:
+    """Label 4-connected foreground components like scipy.ndimage.label."""
+    foreground = np.asarray(mask, dtype=bool)
+    labels = np.zeros(foreground.shape, dtype=np.int32)
+    height, width = foreground.shape
+    count = 0
+    for y, x in zip(*np.nonzero(foreground), strict=True):
+        if labels[y, x]:
+            continue
+        count += 1
+        labels[y, x] = count
+        pending = deque([(int(y), int(x))])
+        while pending:
+            row, column = pending.popleft()
+            for next_y, next_x in (
+                (row - 1, column),
+                (row + 1, column),
+                (row, column - 1),
+                (row, column + 1),
+            ):
+                if (
+                    0 <= next_y < height
+                    and 0 <= next_x < width
+                    and foreground[next_y, next_x]
+                    and not labels[next_y, next_x]
+                ):
+                    labels[next_y, next_x] = count
+                    pending.append((next_y, next_x))
+    return labels, count
+
+
+def _edt_1d(values: np.ndarray) -> np.ndarray:
+    """Squared lower envelope for the linear-time Euclidean distance transform."""
+    size = len(values)
+    infinity = np.inf
+    sites = np.flatnonzero(np.isfinite(values))
+    if not len(sites):
+        return np.full(size, infinity, dtype=np.float64)
+    vertices = np.empty(len(sites), dtype=np.int32)
+    intersections = np.empty(len(sites) + 1, dtype=np.float64)
+    count = 0
+    vertices[0] = sites[0]
+    intersections[0], intersections[1] = -infinity, infinity
+    for site in sites[1:]:
+        intersection = (
+            (values[site] + site * site)
+            - (values[vertices[count]] + vertices[count] * vertices[count])
+        ) / (2 * (site - vertices[count]))
+        while intersection <= intersections[count]:
+            count -= 1
+            intersection = (
+                (values[site] + site * site)
+                - (values[vertices[count]] + vertices[count] * vertices[count])
+            ) / (2 * (site - vertices[count]))
+        count += 1
+        vertices[count] = site
+        intersections[count], intersections[count + 1] = intersection, infinity
+    output = np.empty(size, dtype=np.float64)
+    index = 0
+    for position in range(size):
+        while intersections[index + 1] < position:
+            index += 1
+        site = vertices[index]
+        output[position] = (position - site) ** 2 + values[site]
+    return output
+
+
+def _distance_transform_edt(mask: np.ndarray) -> np.ndarray:
+    """Exact CPU Euclidean distance to the nearest false pixel, without SciPy."""
+    foreground = np.asarray(mask, dtype=bool)
+    height, width = foreground.shape
+    squared = np.where(foreground, np.inf, 0.0)
+    if not np.isfinite(squared).any():
+        yy, xx = np.indices((height, width), dtype=np.float64)
+        return np.hypot(yy + 1, xx)
+    columns = np.empty_like(squared)
+    for column in range(width):
+        columns[:, column] = _edt_1d(squared[:, column])
+    output = np.empty_like(squared)
+    for row in range(height):
+        output[row] = _edt_1d(columns[row])
+    return np.sqrt(output)
+
+
+def _binary_dilation(mask: np.ndarray, iterations: int) -> np.ndarray:
+    """Apply scipy's default 4-connected binary dilation with Torch kernels."""
+    if iterations <= 0:
+        return np.asarray(mask, dtype=bool)
+    import torch
+    import torch.nn.functional as functional
+
+    source = torch.as_tensor(mask, dtype=torch.float32)[None, None]
+    cross = source.new_tensor([[[[0, 1, 0], [1, 1, 1], [0, 1, 0]]]])
+    for _ in range(iterations):
+        source = (functional.conv2d(source, cross, padding=1) > 0).to(source.dtype)
+    return source[0, 0].bool().numpy()
+
+
+def _mean_shift_centres(points: np.ndarray, bandwidth: float) -> np.ndarray:
+    """Deterministic bin-seeded mean shift matching SAMVG's prompt clustering."""
+    bins = np.unique(np.rint(points / bandwidth).astype(np.int32), axis=0)
+    seeds = bins.astype(np.float64) * bandwidth
+    centres: dict[tuple[float, float], int] = {}
+    for seed in seeds:
+        centre = seed
+        members = np.empty(0, dtype=np.int64)
+        for _ in range(300):
+            delta = points - centre
+            members = np.flatnonzero((delta * delta).sum(axis=1) <= bandwidth**2)
+            if not len(members):
+                break
+            updated = points[members].mean(axis=0)
+            if np.linalg.norm(updated - centre) < bandwidth * 1e-3:
+                centre = updated
+                break
+            centre = updated
+        if len(members):
+            centres[tuple(centre)] = len(members)
+    # This intentionally follows sklearn's intensity-then-coordinate ordering
+    # and radius duplicate suppression, preserving the old prompt priority.
+    ordered = sorted(centres.items(), key=lambda item: (item[1], item[0]), reverse=True)
+    candidates = np.asarray([centre for centre, _count in ordered], dtype=np.float64)
+    unique = np.ones(len(candidates), dtype=bool)
+    for index, centre in enumerate(candidates):
+        if unique[index]:
+            neighbours = np.linalg.norm(candidates - centre, axis=1) <= bandwidth
+            unique[neighbours] = False
+            unique[index] = True
+    return candidates[unique]
+
+
 def automatic_masks(image: Image.Image) -> list[np.ndarray]:
     """Retrieve SAM AMG masks with the thesis's 32-point grid and crops."""
     try:
@@ -301,9 +432,7 @@ def _components(
     holes before tracing matches AMG's small-region cleanup and prevents a
     noisy mask from becoming hundreds of even-odd SVG contours.
     """
-    from scipy.ndimage import label
-
-    labels, count = label(mask)
+    labels, count = _label(mask)
     components = []
     for index in range(1, count + 1):
         component = labels == index
@@ -314,7 +443,7 @@ def _components(
             # than turning meaningful cutouts such as an eye into a solid
             # region.  The same area cutoff as tiny components keeps those
             # two decisions consistent.
-            background, hole_count = label(~component)
+            background, hole_count = _label(~component)
             for hole in range(1, hole_count + 1):
                 points = background == hole
                 if (
@@ -452,18 +581,15 @@ def coverage_prompt_points(
     max_points: int = 16,
 ) -> list[tuple[int, int]]:
     """Find mean-shift centres of large circles untouched by retained masks."""
-    from scipy.ndimage import distance_transform_edt
-    from sklearn.cluster import MeanShift
-
     _canvas, coverage = _render_layers(shape, layers)
     radius = max(2, round(min(shape) * radius_fraction))
-    distance = np.asarray(distance_transform_edt(~coverage))
+    distance = _distance_transform_edt(~coverage)
     ys, xs = np.nonzero(distance >= radius)
     if len(xs) == 0:
         return []
     stride = max(1, len(xs) // 2_048)
     points = np.column_stack((xs[::stride], ys[::stride]))
-    centres = MeanShift(bandwidth=radius, bin_seeding=True).fit(points).cluster_centers_
+    centres = _mean_shift_centres(points, radius)
     ranked = sorted(
         ((float(distance[round(y), round(x)]), round(x), round(y)) for x, y in centres),
         reverse=True,
@@ -716,9 +842,7 @@ def mask_path(
 ) -> str | None:
     """Fit every mask contour as a fixed-count cubic Bezier SVG path."""
     if overlap_pixels:
-        from scipy.ndimage import binary_dilation
-
-        mask = binary_dilation(mask, iterations=overlap_pixels)
+        mask = _binary_dilation(mask, overlap_pixels)
     parts = [piece for loop in _loops(mask) if (piece := _cubic_loop(loop, segments))]
     return " ".join(parts) or None
 
@@ -734,9 +858,7 @@ def mask_stroke(
     original filled-path treatment.
     """
     if overlap_pixels:
-        from scipy.ndimage import binary_dilation
-
-        mask = binary_dilation(mask, iterations=overlap_pixels)
+        mask = _binary_dilation(mask, overlap_pixels)
     ys, xs = np.nonzero(mask)
     if len(xs) < 8:
         return None
@@ -866,8 +988,8 @@ def residual_prompt_points(
     max_points: int = 16,
 ) -> list[tuple[int, int]]:
     """Locate SAMVG's convolved, thresholded residual components."""
-    from scipy.ndimage import label
-    from scipy.signal import fftconvolve
+    import torch
+    import torch.nn.functional as functional
 
     target_pixels = np.asarray(target.convert("RGB"), dtype=np.float32) / 255.0
     rendered_pixels = np.asarray(rendered.convert("RGB"), dtype=np.float32) / 255.0
@@ -881,8 +1003,11 @@ def residual_prompt_points(
     # Reflected padding preserves the prior symmetric-boundary definition;
     # FFT convolution keeps the full-resolution recovery pass practical.
     padded = np.pad(difference, radius, mode="symmetric")
-    smoothed = fftconvolve(padded, kernel / kernel.sum(), mode="valid")
-    labels, count = label(smoothed >= threshold)
+    smoothed = functional.conv2d(
+        torch.from_numpy(padded)[None, None],
+        torch.from_numpy((kernel / kernel.sum())[None, None]),
+    )[0, 0].numpy()
+    labels, count = _label(smoothed >= threshold)
     points: list[tuple[float, int, int]] = []
     for index in range(1, count + 1):
         ys, xs = np.nonzero(labels == index)

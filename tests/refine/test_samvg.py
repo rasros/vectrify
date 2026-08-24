@@ -10,9 +10,12 @@ import vectrify.refine.samvg as samvg
 from vectrify.refine.samvg import (
     MaskLayer,
     TextLayer,
+    _binary_dilation,
     _components,
+    _distance_transform_edt,
     _fit_cubic,
     _is_crop_edge_mask,
+    _label,
     _text_svg_attributes,
     automatic_masks,
     coverage_prompt_points,
@@ -251,6 +254,21 @@ def test_components_fill_only_tiny_enclosed_holes():
     assert components[0].all()
 
 
+def test_internal_morphology_matches_scipy_default_connectivity():
+    mask = np.array(
+        [[False, True, True], [True, True, True], [True, True, True]], dtype=bool
+    )
+
+    labels, count = _label(np.array([[True, False], [False, True]], dtype=bool))
+    distance = _distance_transform_edt(mask)
+    dilated = _binary_dilation(np.array([[False, True, False]], dtype=bool), 1)
+
+    assert count == 2
+    assert labels.tolist() == [[1, 0], [0, 2]]
+    assert np.allclose(distance, [[0, 1, 2], [1, 2**0.5, 5**0.5], [2, 5**0.5, 8**0.5]])
+    assert dilated.tolist() == [[True, True, True]]
+
+
 def test_crop_edge_masks_are_rejected_unless_they_reach_the_image_edge():
     cropped = np.ones((20, 30), dtype=bool)
     at_image_edge = np.zeros((20, 30), dtype=bool)
@@ -318,7 +336,18 @@ def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():
     )
 
     assert points
-    assert all(x >= 16 for x, _y in points)
+    assert points == [
+        (27, 20),
+        (27, 10),
+        (25, 25),
+        (25, 15),
+        (25, 5),
+        (20, 27),
+        (20, 20),
+        (20, 15),
+        (20, 10),
+        (20, 4),
+    ]
 
 
 def test_residual_points_use_summed_rgb_difference_at_the_paper_threshold():
