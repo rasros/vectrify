@@ -17,9 +17,9 @@ import os
 import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, cast
-from xml.sax.saxutils import escape
 
 import numpy as np
 from PIL import Image
@@ -814,6 +814,7 @@ def generate_svg(
     segments: int = 16,
     fill_holes: bool = True,
     ocr: bool = True,
+    rasterize: Callable[[str, int, int], bytes] | None = None,
 ) -> str:
     """Generate SAMVG's traced, pre-optimisation SVG from a target image."""
     image = image.convert("RGB")
@@ -841,17 +842,15 @@ def generate_svg(
         if attributes:
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
-    text_layers = detect_text(image) if ocr and masks is None else []
-    text = []
-    for layer in text_layers:
-        attributes = _text_svg_attributes(layer)
-        markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
-        text.append(f"<text {markup}>{escape(layer.text)}</text>")
     width, height = image.size
-    return (
+    svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}">' + "".join(paths) + "".join(text) + "</svg>"
+        f'viewBox="0 0 {width} {height}">' + "".join(paths) + "</svg>"
     )
+    text_layers = detect_text(image) if ocr and masks is None else []
+    if text_layers and rasterize is not None:
+        return _accept_text_layers(svg, image, text_layers, rasterize)
+    return _append_text_layers(svg, text_layers)
 
 
 def residual_prompt_points(
@@ -905,6 +904,19 @@ def _append_layers(svg: str, layers: list[MaskLayer], segments: int) -> str:
     return ET.tostring(root, encoding="unicode")
 
 
+def _append_text_layers(svg: str, layers: list[TextLayer]) -> str:
+    """Append editable OCR text without changing the pre-existing drawing."""
+    if not layers:
+        return svg
+    root = ET.fromstring(svg)
+    for layer in layers:
+        element = ET.SubElement(
+            root, "{http://www.w3.org/2000/svg}text", _text_svg_attributes(layer)
+        )
+        element.text = layer.text
+    return ET.tostring(root, encoding="unicode")
+
+
 def _render_svg(svg: str, image: Image.Image, rasterize) -> Image.Image:
     return Image.open(io.BytesIO(rasterize(svg, image.width, image.height))).convert(
         "RGB"
@@ -915,6 +927,35 @@ def _mse(image: Image.Image, rendered: Image.Image) -> float:
     target = np.asarray(image.convert("RGB"), dtype=np.float32)
     candidate = np.asarray(rendered.convert("RGB"), dtype=np.float32)
     return float(((target - candidate) ** 2).mean())
+
+
+def _accept_text_layers(
+    svg: str,
+    image: Image.Image,
+    layers: list[TextLayer],
+    rasterize: Callable[[str, int, int], bytes],
+) -> str:
+    """Greedily retain only OCR text that improves the Cairo pixel loss.
+
+    A VLM's asserted confidence is not evidence that a word is present. The
+    same rasterisation used to score the seed is the final verifier, including
+    font mismatch, positioning, and any existing SAM paths beneath the text.
+    """
+    accepted = svg
+    error = _mse(image, _render_svg(accepted, image, rasterize))
+    retained = 0
+    for layer in layers:
+        candidate = _append_text_layers(accepted, [layer])
+        candidate_error = _mse(image, _render_svg(candidate, image, rasterize))
+        if candidate_error < error:
+            accepted, error = candidate, candidate_error
+            retained += 1
+    log.info(
+        "SAMVG OCR: retained %d/%d text layer(s) after pixel verification.",
+        retained,
+        len(layers),
+    )
+    return accepted
 
 
 def _accepted_fit(
