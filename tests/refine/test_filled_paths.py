@@ -11,6 +11,10 @@ from vectrify.refine.paths import (
     _fill_coverage,
     _fill_coverages,
     _fill_path_coverage,
+    _large_path_tile_boundary_candidates,
+    _large_path_tile_candidates,
+    _pad_fused_cubics,
+    _tiled_large_path_coverage,
     _xing_loss,
     fit_filled_svg,
     parse_filled_cubics,
@@ -75,6 +79,40 @@ def test_native_winding_falls_back_without_the_optional_extension(monkeypatch):
     )
 
 
+def test_native_subpixel_windings_share_the_separate_winding_result():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available, winding, windings
+
+    if not available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    controls = _sixteen_cubic_circle(torch).requires_grad_()
+    fused = windings(controls, (0, 0, 24, 24), samples=16, subpixels=2)
+    separate = torch.stack(
+        [
+            winding(
+                controls,
+                (0, 0, 24, 24),
+                samples=16,
+                x_offset=(x + 0.5) / 2,
+                y_offset=(y + 0.5) / 2,
+            )
+            for y in range(2)
+            for x in range(2)
+        ],
+        dim=1,
+    )
+    upstream = torch.randn_like(fused)
+    (fused * upstream).sum().backward()
+    fused_gradient = controls.grad.detach().clone()
+    controls.grad = None
+    (separate * upstream).sum().backward()
+
+    assert torch.allclose(fused, separate, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(fused_gradient, controls.grad, atol=1e-4, rtol=1e-4)
+
+
 def test_native_even_odd_coverage_stays_cairo_validated():
     """The native winding path preserves SVG hole coverage, not just tensors."""
     torch = pytest.importorskip("torch")
@@ -112,6 +150,77 @@ def test_native_even_odd_coverage_stays_cairo_validated():
 
     assert np.abs(native - real).mean() < 0.002
     assert native[48, 48] < 0.01
+
+
+def test_native_analytic_cubic_coverage_stays_cairo_validated():
+    """The production single-contour path uses cubic intersections, not samples."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available
+
+    if not available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    size = 96
+    contour = torch.tensor(
+        parse_filled_cubics("M 12 48 C 12 5 84 5 84 48 C 84 91 12 91 12 48 Z")[0],
+        dtype=torch.float32,
+        device="cuda",
+    )
+    contour = torch.cat((contour, contour[:1].expand(16 - len(contour), -1, -1)))[
+        None
+    ]
+    native = _fill_coverages(contour, (0, 0, size, size), subpixels=4).cpu().numpy()
+    head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
+    blank = f"{head}</svg>"
+    path = "M 12 48 C 12 5 84 5 84 48 C 84 91 12 91 12 48 Z"
+    drawn = f'{head}<path d="{path}" fill="#000" /></svg>'
+    real = (
+        np.asarray(
+            Image.open(
+                io.BytesIO(rasterize_svg_to_png_bytes(blank, out_w=size, out_h=size))
+            ).convert("L"),
+            dtype=np.float32,
+        )
+        - np.asarray(
+            Image.open(
+                io.BytesIO(rasterize_svg_to_png_bytes(drawn, out_w=size, out_h=size))
+            ).convert("L"),
+            dtype=np.float32,
+        )
+    ) / 255.0
+
+    assert np.abs(native - real).mean() < 0.002
+
+
+def test_native_analytic_multi_contour_coverage_preserves_a_hole():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available, multi_coverage
+
+    if not available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    contours = [
+        torch.tensor(contour, dtype=torch.float32, device="cuda")
+        for contour in parse_filled_cubics(DONUT_PATH)
+    ]
+    controls = torch.cat(
+        [
+            torch.cat((contour, contour[:1].expand(16 - len(contour), -1, -1)))[
+                None
+            ]
+            for contour in contours
+        ]
+    ).requires_grad_()
+    coverage = multi_coverage(
+        controls, [0, 2], (0, 0, 96, 96), subpixels=4, fill_rule="evenodd"
+    )
+    assert coverage is not None
+    assert coverage[0, 48, 48] < 0.01
+    coverage.sum().backward()
+    assert controls.grad is not None
+    assert controls.grad.abs().sum() > 0
 
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">'
@@ -247,6 +356,238 @@ def test_batched_fill_coverage_matches_each_individual_contour():
     separate = torch.stack([_fill_coverage(control, box) for control in controls])
 
     assert torch.allclose(batched, separate, atol=1e-6)
+
+
+def test_large_path_tile_candidates_keep_every_possible_ray_crossing():
+    torch = pytest.importorskip("torch")
+    # The second contour is horizontally left of the right tile and cannot
+    # cross rays from it; the tall first contour must remain in both tiles.
+    contours = [
+        torch.tensor([[2.0, 2.0], [2.0, 30.0], [30.0, 2.0], [30.0, 30.0]])
+        .expand(16, -1, -1)
+        .clone(),
+        torch.tensor([[1.0, 2.0], [1.0, 30.0], [7.0, 2.0], [7.0, 30.0]])
+        .expand(16, -1, -1)
+        .clone(),
+    ]
+
+    tiles = _large_path_tile_candidates(contours, 32, 32, tile_size=16, margin=0)
+    by_origin = {(left, top): candidates for left, top, _w, _h, candidates in tiles}
+
+    assert 0 in by_origin[(0, 0)]
+    assert 0 in by_origin[(16, 0)]
+    assert 1 not in by_origin[(16, 0)]
+
+
+def test_large_path_boundary_candidates_are_a_local_subset_of_ray_candidates():
+    torch = pytest.importorskip("torch")
+    contours = [
+        torch.tensor([[2.0, 2.0], [2.0, 14.0], [30.0, 2.0], [30.0, 14.0]])
+        .expand(16, -1, -1)
+        .clone(),
+        torch.tensor([[20.0, 2.0], [20.0, 14.0], [30.0, 2.0], [30.0, 14.0]])
+        .expand(16, -1, -1)
+        .clone(),
+    ]
+    tiles = _large_path_tile_candidates(contours, 32, 16, tile_size=16, margin=0)
+    boundary = _large_path_tile_boundary_candidates(contours, tiles, margin=0)
+    by_origin = {
+        (left, top): (candidates, nearby)
+        for (left, top, _w, _h, candidates), nearby in zip(tiles, boundary, strict=True)
+    }
+    ray, nearby = by_origin[(0, 0)]
+    assert ray == (0, 1)
+    assert nearby == (0,)
+
+
+def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available, multi_coverage
+
+    if not available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    contours = []
+    for row in range(4):
+        for column in range(4):
+            x, y = 2 + column * 14, 2 + row * 14
+            contours.append(
+                torch.tensor(
+                    [[x, y], [x + 4, y], [x + 4, y + 4], [x, y + 4]],
+                    device="cuda",
+                    dtype=torch.float32,
+                )
+                .expand(16, -1, -1)
+                .clone()
+            )
+    controls = torch.stack(contours).requires_grad_()
+    full = multi_coverage(
+        controls, [0, len(controls)], (0, 0, 64, 64), subpixels=2, fill_rule="evenodd"
+    )
+    assert full is not None
+    tiles = _large_path_tile_candidates(list(controls), 64, 64)
+    boundary_global = _large_path_tile_boundary_candidates(list(controls), tiles)
+    tiled = _tiled_large_path_coverage(
+        list(controls),
+        (0, 0, 64, 64),
+        tiles,
+        fill_rule="evenodd",
+        subpixels=2,
+        packed_contours=controls,
+        candidate_indices=[
+            torch.tensor(candidates, dtype=torch.long, device="cuda")
+            for _left, _top, _width, _height, candidates in tiles
+        ],
+        boundary_candidate_indices=[
+            torch.tensor(
+                [candidates.index(candidate) for candidate in nearby],
+                dtype=torch.long,
+                device="cuda",
+            )
+            for (_left, _top, _width, _height, candidates), nearby in zip(
+                tiles, boundary_global, strict=True
+            )
+        ],
+    )
+    assert tiled is not None
+    assert torch.allclose(tiled, full[0], atol=1e-6)
+    tiled.sum().backward()
+    assert controls.grad is not None
+    assert controls.grad.abs().sum() > 0
+
+
+def test_analytic_multi_coverage_reuses_topology_workspace_between_steps():
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available, multi_coverage
+
+    if not available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    controls = torch.tensor(
+        [[[[0.0, 0.0], [0.0, 4.0], [4.0, 4.0], [4.0, 0.0]]] * 16],
+        device="cuda",
+        requires_grad=True,
+    )
+    workspace = torch.empty((1, 4, 4), dtype=torch.uint16, device="cuda")
+    pointer = workspace.data_ptr()
+    for _ in range(2):
+        controls.grad = None
+        coverage = multi_coverage(
+            controls,
+            [0, 1],
+            (0, 0, 4, 4),
+            subpixels=2,
+            fill_rule="nonzero",
+            topology_workspace=workspace,
+        )
+        assert coverage is not None
+        coverage.sum().backward()
+        assert torch.isfinite(controls.grad).all()
+        assert workspace.data_ptr() == pointer
+
+
+@pytest.mark.parametrize("fill_rule", ["evenodd", "nonzero"])
+def test_tiled_analytic_large_compound_path_matches_cairo(fill_rule):
+    """The 16-contour production tile path preserves holes in Cairo terms."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available
+
+    if not available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    size = 64
+    pieces = []
+    for row in range(2):
+        for column in range(4):
+            x, y = 2 + column * 16, 6 + row * 28
+            # Reverse the inner contour, so it is a hole for both SVG rules.
+            pieces.extend(
+                (
+                    f"M {x} {y} L {x + 12} {y} L {x + 12} {y + 12} L {x} {y + 12} Z",
+                    (
+                        f"M {x + 3} {y + 3} L {x + 3} {y + 9} "
+                        f"L {x + 9} {y + 9} L {x + 9} {y + 3} Z"
+                    ),
+                )
+            )
+    path = " ".join(pieces)
+    contours = [
+        torch.tensor(contour, dtype=torch.float32, device="cuda")
+        for contour in parse_filled_cubics(path)
+    ]
+    assert len(contours) == 16
+    padded = [_pad_fused_cubics(contour[None])[0] for contour in contours]
+    native = _tiled_large_path_coverage(
+        padded,
+        (0, 0, size, size),
+        _large_path_tile_candidates(padded, size, size),
+        fill_rule=fill_rule,
+        subpixels=4,
+    )
+    assert native is not None
+    head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
+    blank = f"{head}</svg>"
+    drawn = f'{head}<path d="{path}" fill="#000" fill-rule="{fill_rule}" /></svg>'
+    cairo = (
+        np.asarray(
+            Image.open(
+                io.BytesIO(rasterize_svg_to_png_bytes(blank, out_w=size, out_h=size))
+            ).convert("L"),
+            dtype=np.float32,
+        )
+        - np.asarray(
+            Image.open(
+                io.BytesIO(rasterize_svg_to_png_bytes(drawn, out_w=size, out_h=size))
+            ).convert("L"),
+            dtype=np.float32,
+        )
+    ) / 255.0
+    rendered = native.detach().cpu().numpy()
+    assert np.abs(rendered - cairo).mean() < 0.002
+    assert rendered[12, 8] < 0.01
+
+
+def test_filled_fit_uses_analytic_tiles_for_large_cuda_paths(monkeypatch):
+    """A supported large path must not silently enter sampled winding."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine import cuda_renderer
+    from vectrify.refine import paths as filled_paths
+
+    if not cuda_renderer.available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    pieces = []
+    for row in range(2):
+        for column in range(8):
+            x, y = 2 + column * 7, 8 + row * 24
+            pieces.append(
+                f"M {x} {y} L {x + 5} {y} L {x + 5} {y + 5} L {x} {y + 5} Z"
+            )
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">'
+        f'<path d="{" ".join(pieces)}" fill="#4080c0" fill-rule="nonzero" />'
+        "</svg>"
+    )
+
+    def unexpected_sampled_fallback(*_args, **_kwargs):
+        raise AssertionError("supported large CUDA path entered sampled winding")
+
+    monkeypatch.setattr(
+        filled_paths, "_fill_path_coverage", unexpected_sampled_fallback
+    )
+    fitted = fit_filled_svg(
+        svg,
+        Image.new("RGB", (64, 64), "white"),
+        steps=1,
+        point_learning_rate=0.0,
+        color_learning_rate=0.0,
+        optimisation_long_side=64,
+    )
+    assert "path" in fitted
 
 
 def test_bounded_compositing_gradient_matches_monolithic_render():
