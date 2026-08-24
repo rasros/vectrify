@@ -124,7 +124,11 @@ def test_generate_svg_keeps_only_pixel_improving_text(monkeypatch):
         samvg,
         "_render_svg",
         lambda svg, _image, _rasterize: (
-            target if "keep" in svg else Image.new("RGB", (32, 16), "white")
+            Image.new("RGB", (32, 16), "white")
+            if "discard" in svg
+            else target
+            if "keep" in svg
+            else Image.new("RGB", (32, 16), "white")
         ),
     )
 
@@ -134,6 +138,26 @@ def test_generate_svg_keeps_only_pixel_improving_text(monkeypatch):
     ]
 
     assert labels == ["keep"]
+
+
+def test_pixel_gate_allows_a_small_font_or_placement_mismatch(monkeypatch):
+    target = Image.new("RGB", (32, 16), "black")
+    monkeypatch.setattr(
+        samvg,
+        "_render_svg",
+        lambda svg, _image, _rasterize: (
+            Image.new("RGB", (32, 16), (2, 2, 2)) if "near" in svg else target
+        ),
+    )
+
+    result = samvg._accept_text_layers(
+        '<svg xmlns="http://www.w3.org/2000/svg" />',
+        target,
+        [TextLayer("near", 2, 3, 18, 8, (20, 30, 40))],
+        lambda *_args: b"",
+    )
+
+    assert "near" in result
 
 
 def test_automatic_masks_uses_source_sized_first_layer_crops(monkeypatch):
