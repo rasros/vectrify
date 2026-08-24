@@ -271,17 +271,16 @@ def test_path_fit_dispatches_opaque_fills_to_the_samvg_renderer(monkeypatch):
     plugin = SvgPlugin()
     seen = {}
 
-    def fit(svg, reference_png, *, gpu_gate):
+    def fit(svg, reference_png, *, rasterize, weights, gpu_gate):
         seen["svg"] = svg
         seen["reference"] = reference_png
         seen["gpu_gate"] = gpu_gate
+        assert rasterize(svg, 64, 64)
+        assert weights is None
         return svg.replace("#111111", "#ff0000")
 
     monkeypatch.setattr(plugin_module, "fit_available", lambda: True)
-    monkeypatch.setattr(plugin_module, "fit_opaque_fills_locally", fit)
-    monkeypatch.setattr(
-        plugin_module, "fit_random_group", lambda *_args, **_kwargs: None
-    )
+    monkeypatch.setattr(plugin_module, "fit_svg_primitives_locally", fit)
     reference = plugin.rasterize(_FILLED, 64, 64)
 
     content, origin = plugin.mutate(_FILLED, operator=PATH_FIT, reference_png=reference)
@@ -351,50 +350,49 @@ def test_a_full_device_skips_the_fit_instead_of_failing_the_task():
     Every worker that fits holds a context of a few hundred MB and there are as
     many workers as cores, so running out is a normal condition, not a bug.
     """
-    import vectrify.refine.paths as paths
+    import vectrify.formats.svg.plugin as plugin_module
     from vectrify.refine.paths import PATH_FIT
 
     plugin = SvgPlugin()
     png = plugin.rasterize(_STROKED, 64, 64)
-    original = paths.fit_random_group
 
     def out_of_memory(*_args, **_kwargs):
         raise RuntimeError("CUDA error: out of memory")
 
-    from vectrify.formats.svg import plugin as plugin_module
-
-    plugin_module.fit_random_group = out_of_memory
+    original = plugin_module.fit_svg_primitives_locally
+    original_available = plugin_module.fit_available
+    plugin_module.fit_svg_primitives_locally = out_of_memory
     plugin_module.fit_available = lambda: True
     try:
         content, origin = plugin.mutate(_STROKED, operator=PATH_FIT, reference_png=png)
     finally:
-        plugin_module.fit_random_group = original
-        plugin_module.fit_available = paths.fit_available
+        plugin_module.fit_svg_primitives_locally = original
+        plugin_module.fit_available = original_available
 
     assert content == _STROKED
     assert origin == PATH_FIT
 
 
 def test_an_unrelated_failure_in_the_fit_is_not_swallowed():
-    import vectrify.refine.paths as paths
     from vectrify.formats.svg import plugin as plugin_module
     from vectrify.refine.paths import PATH_FIT
 
     plugin = SvgPlugin()
     png = plugin.rasterize(_STROKED, 64, 64)
-    original = plugin_module.fit_random_group
+    original = plugin_module.fit_svg_primitives_locally
+    original_available = plugin_module.fit_available
 
     def bug(*_args, **_kwargs):
         raise ValueError("something genuinely wrong")
 
-    plugin_module.fit_random_group = bug
+    plugin_module.fit_svg_primitives_locally = bug
     plugin_module.fit_available = lambda: True
     try:
         with pytest.raises(ValueError, match="genuinely wrong"):
             plugin.mutate(_STROKED, operator=PATH_FIT, reference_png=png)
     finally:
-        plugin_module.fit_random_group = original
-        plugin_module.fit_available = paths.fit_available
+        plugin_module.fit_svg_primitives_locally = original
+        plugin_module.fit_available = original_available
 
 
 def test_path_fit_receives_the_shared_gpu_gate():
@@ -407,7 +405,7 @@ def test_path_fit_receives_the_shared_gpu_gate():
     plugin = SvgPlugin()
     plugin.gpu_gate = gate = Gate()
     png = plugin.rasterize(_STROKED, 64, 64)
-    original_fit = plugin_module.fit_random_group
+    original_fit = plugin_module.fit_svg_primitives_locally
     original_available = plugin_module.fit_available
     seen = {}
 
@@ -415,12 +413,12 @@ def test_path_fit_receives_the_shared_gpu_gate():
         seen["gpu_gate"] = kwargs["gpu_gate"]
         return args[0]
 
-    plugin_module.fit_random_group = fit
+    plugin_module.fit_svg_primitives_locally = fit
     plugin_module.fit_available = lambda: True
     try:
         plugin.mutate(_STROKED, operator=PATH_FIT, reference_png=png)
     finally:
-        plugin_module.fit_random_group = original_fit
+        plugin_module.fit_svg_primitives_locally = original_fit
         plugin_module.fit_available = original_available
 
     assert seen["gpu_gate"] is gate
