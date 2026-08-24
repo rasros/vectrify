@@ -492,45 +492,138 @@ def _sam_autocast():
 
 
 def _automatic_forward(inputs: Any, runtime: _SamRuntime) -> dict[str, Any]:
-    """Decode on CUDA, then expand and filter masks on CPU.
+    """Decode one prompt batch and retain compact GPU candidates."""
+    import torch
 
-    The stock Transformers pipeline expands a prompt batch to the original
-    image size on CUDA. At 1024px that transient allocation is larger than the
-    decoder itself. Its filtering sequence is unchanged here; only the
-    post-decoder device changes.
-    """
     generator = runtime.generator
-    input_boxes = inputs.pop("input_boxes").detach().cpu().float()
+    input_boxes = inputs.pop("input_boxes").float()
     is_last = inputs.pop("is_last")
     original_sizes = inputs.pop("original_sizes").detach().cpu().tolist()
     reshaped_sizes = inputs.pop("reshaped_input_sizes", None)
     if reshaped_sizes is not None:
         reshaped_sizes = reshaped_sizes.detach().cpu().tolist()
-    with _sam_autocast():
+    # `.cpu()` alone preserves the decoder's autograd graph, retaining every
+    # prior prompt batch's CUDA activations. AMG is inference-only, so make
+    # that lifetime explicit before handing compact candidates to the host.
+    with torch.inference_mode(), _sam_autocast():
         model_outputs = generator.model(**inputs)
-    masks = generator.image_processor.post_process_masks(
-        model_outputs.pred_masks.detach().cpu(),
-        original_sizes,
-        mask_threshold=0,
-        reshaped_input_sizes=reshaped_sizes,
-        binarize=False,
-    )
-    filtered_masks, scores, boxes = generator.image_processor.filter_masks(
-        masks[0],
-        model_outputs.iou_scores.detach().cpu().float()[0],
-        original_sizes[0],
-        input_boxes[0],
-        SAMVG_PRED_IOU_THRESH,
-        SAMVG_STABILITY_SCORE_THRESH,
-        0,
-        1,
-    )
+        masks, scores, boxes = _low_resolution_candidates(
+            model_outputs.pred_masks, model_outputs.iou_scores
+        )
     return {
-        "masks": filtered_masks,
+        "masks": masks,
         "is_last": is_last,
         "boxes": boxes,
-        "iou_scores": scores,
+        "scores": scores,
+        "original_size": original_sizes[0],
+        "reshaped_size": reshaped_sizes[0] if reshaped_sizes is not None else None,
+        "crop_box": input_boxes[0],
     }
+
+
+def _low_resolution_candidates(
+    pred_masks: Any, iou_scores: Any
+) -> tuple[Any, Any, Any]:
+    """Filter and box decoder masks before full-resolution interpolation."""
+    import torch
+    from transformers.models.sam.image_processing_sam import (
+        _batched_mask_to_box,
+        _compute_stability_score,
+    )
+
+    masks = pred_masks.reshape(-1, *pred_masks.shape[-2:])
+    scores = iou_scores.reshape(-1)
+    keep = torch.ones(len(masks), dtype=torch.bool, device=masks.device)
+    if SAMVG_PRED_IOU_THRESH > 0:
+        keep &= scores > SAMVG_PRED_IOU_THRESH
+    if SAMVG_STABILITY_SCORE_THRESH > 0:
+        stability = _compute_stability_score(masks, 0, 1)
+        keep &= stability > SAMVG_STABILITY_SCORE_THRESH
+    masks, scores = masks[keep] > 0, scores[keep]
+    return masks, scores, _batched_mask_to_box(masks)
+
+
+def _filter_automatic_masks(
+    masks: Any,
+    iou_scores: Any,
+    original_size: list[int],
+    cropped_box_image: Any,
+) -> tuple[Any, Any, Any]:
+    """Apply AMG's score/edge filter without its lossy RLE round trip."""
+    import torch
+    from transformers.models.sam.image_processing_sam import (
+        _batched_mask_to_box,
+        _compute_stability_score,
+        _is_box_near_crop_edge,
+        _pad_masks,
+    )
+
+    original_height, original_width = original_size
+    scores = iou_scores.reshape(-1)
+    masks = masks.reshape(-1, *masks.shape[-2:])
+    keep = torch.ones(len(masks), dtype=torch.bool, device=masks.device)
+    if SAMVG_PRED_IOU_THRESH > 0:
+        keep &= scores > SAMVG_PRED_IOU_THRESH
+    if SAMVG_STABILITY_SCORE_THRESH > 0:
+        stability = _compute_stability_score(masks, 0, 1)
+        keep &= stability > SAMVG_STABILITY_SCORE_THRESH
+    scores, masks = scores[keep], masks[keep] > 0
+    boxes = _batched_mask_to_box(masks)
+    keep = ~_is_box_near_crop_edge(
+        boxes, cropped_box_image, [0, 0, original_width, original_height]
+    )
+    return (
+        _pad_masks(masks[keep], cropped_box_image, original_height, original_width),
+        scores[keep],
+        boxes[keep],
+    )
+
+
+def _finalize_automatic_masks(
+    outputs: list[dict[str, Any]], runtime: _SamRuntime
+) -> list[np.ndarray]:
+    """NMS compact candidates, then expand and transfer only survivors."""
+    import torch
+    from torchvision.ops import batched_nms
+
+    masks = [output["masks"] for output in outputs if len(output["masks"])]
+    if not masks:
+        return []
+    scores = torch.cat([output["scores"] for output in outputs])
+    boxes = torch.cat([output["boxes"] for output in outputs])
+    keep = batched_nms(
+        boxes=boxes.float(),
+        scores=scores.float(),
+        idxs=torch.zeros(len(boxes), dtype=torch.long),
+        iou_threshold=0.7,
+    )
+    selected_masks = torch.cat(masks)[keep]
+    selected_scores = scores[keep]
+    metadata = outputs[0]
+    expanded: list[np.ndarray] = []
+    # A small final batch bounds GPU interpolation memory. Every survivor is
+    # still expanded with Transformers' exact bilinear mask post-processing.
+    for start in range(0, len(selected_masks), 16):
+        stop = start + 16
+        masks_at_size = runtime.generator.image_processor.post_process_masks(
+            [
+                selected_masks[start:stop]
+                .unsqueeze(1)
+                .to(runtime.generator.device, dtype=torch.float16)
+            ],
+            [metadata["original_size"]],
+            [metadata["reshaped_size"]],
+            mask_threshold=0,
+            binarize=False,
+        )[0]
+        filtered, _scores, _boxes = _filter_automatic_masks(
+            masks_at_size,
+            selected_scores[start:stop].to(runtime.generator.device),
+            metadata["original_size"],
+            metadata["crop_box"],
+        )
+        expanded.extend(np.asarray(mask.cpu(), dtype=bool) for mask in filtered)
+    return expanded
 
 
 def _automatic_masks_for(
@@ -579,8 +672,13 @@ def _automatic_masks_for(
             runtime.image_embeddings = embedding
             runtime.embedding_size = source.size
         outputs.append(_automatic_forward(inputs, runtime))
-    output = generator.postprocess(outputs)
-    return [np.asarray(mask, dtype=bool) for mask in output["masks"]]
+        # Keep the GPU bounded to one decoder batch. Binary 256px masks are
+        # four times smaller than the previous float logits and will undergo
+        # one global NMS before any full-resolution interpolation.
+        outputs[-1]["masks"] = outputs[-1]["masks"].cpu()
+        outputs[-1]["scores"] = outputs[-1]["scores"].cpu()
+        outputs[-1]["boxes"] = outputs[-1]["boxes"].cpu()
+    return _finalize_automatic_masks(outputs, runtime)
 
 
 def automatic_masks(
