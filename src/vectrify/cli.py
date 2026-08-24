@@ -201,7 +201,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         action=argparse.BooleanOptionalAction,
         default=True,
         help="Add one SAMVG-inspired SVG seed made from automatic SAM masks, "
-        "impact filtering, and contour tracing. Requires vectrify[vision] and "
+        "impact filtering, contour tracing, and Torch OCR. Requires "
+        "vectrify[samvg] and "
         "is available for SVG output only. Default: on",
     )
 

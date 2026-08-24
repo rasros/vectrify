@@ -66,6 +66,7 @@ samvg = [
     "torch>=2.0.0",
     "torchvision>=0.28.0",
     "transformers>=4.40.0",
+    "easyocr>=1.7.2",
 ]
 graphviz = [
     "graphviz>=0.21",

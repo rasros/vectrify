@@ -17,6 +17,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import cast
+from xml.sax.saxutils import escape
 
 import numpy as np
 from PIL import Image
@@ -42,6 +43,103 @@ class MaskLayer:
     colour: tuple[int, int, int]
     impact: float
     overlap_pixels: int = 0
+
+
+@dataclass(frozen=True)
+class TextLayer:
+    """A high-confidence OCR word represented as editable SVG text."""
+
+    text: str
+    x: float
+    y: float
+    width: float
+    height: float
+    colour: tuple[int, int, int]
+    angle: float = 0.0
+
+
+def _text_colour(pixels: np.ndarray) -> tuple[int, int, int]:
+    """Estimate ink colour by contrasting a word crop with its border."""
+    height, width, _channels = pixels.shape
+    if height < 3 or width < 3:
+        colour = pixels.reshape(-1, 3).mean(axis=0)
+    else:
+        border = np.concatenate(
+            (pixels[0], pixels[-1], pixels[1:-1, 0], pixels[1:-1, -1])
+        )
+        background = border.mean(axis=0)
+        distance = np.linalg.norm(pixels.astype(np.float32) - background, axis=2)
+        ink = pixels[distance >= np.percentile(distance, 80)]
+        colour = ink.mean(axis=0) if len(ink) else background
+    return cast(tuple[int, int, int], tuple(int(value) for value in np.rint(colour)))
+
+
+def detect_text(image: Image.Image, *, confidence: float = 0.7) -> list[TextLayer]:
+    """Read editable words with EasyOCR's Torch detector and recogniser.
+
+    The detector is deliberately conservative. The SVG font is necessarily an
+    approximation of the source font, so uncertain single characters remain
+    with the normal SAMVG filled-path pipeline.
+    """
+    try:
+        import easyocr
+        import torch
+    except ImportError as exc:  # pragma: no cover - installation-specific
+        raise ImportError(
+            "SAMVG OCR requires the samvg extra. Install 'vectrify[samvg]'."
+        ) from exc
+    reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available(), verbose=False)
+    source = np.asarray(image.convert("RGB"))
+    detected: list[TextLayer] = []
+    for box, text, score in reader.readtext(source, detail=1, paragraph=False):
+        if float(score) < confidence or len(text.strip()) < 2:
+            continue
+        corners = np.asarray(box, dtype=np.float32)
+        if corners.shape != (4, 2):
+            continue
+        x, y = corners.min(axis=0)
+        right, bottom = corners.max(axis=0)
+        width, height = float(right - x), float(bottom - y)
+        if width < 4 or height < 4:
+            continue
+        direction = corners[1] - corners[0]
+        angle = math.degrees(math.atan2(float(direction[1]), float(direction[0])))
+        crop = source[
+            max(0, math.floor(y)) : math.ceil(bottom),
+            max(0, math.floor(x)) : math.ceil(right),
+        ]
+        if not crop.size:
+            continue
+        detected.append(
+            TextLayer(
+                text=text.strip(),
+                x=float(x),
+                y=float(y),
+                width=width,
+                height=height,
+                colour=_text_colour(crop),
+                angle=angle,
+            )
+        )
+    log.info("SAMVG OCR: retained %d editable text layer(s).", len(detected))
+    return detected
+
+
+def _text_svg_attributes(layer: TextLayer) -> dict[str, str]:
+    """Map OCR geometry to a portable editable SVG text element."""
+    colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
+    attributes = {
+        "x": f"{layer.x:.2f}",
+        "y": f"{layer.y + layer.height * 0.8:.2f}",
+        "font-family": "sans-serif",
+        "font-size": f"{layer.height:.2f}",
+        "fill": colour,
+    }
+    if abs(layer.angle) > 1:
+        attributes["transform"] = (
+            f"rotate({layer.angle:.2f} {layer.x:.2f} {layer.y:.2f})"
+        )
+    return attributes
 
 
 def _is_crop_edge_mask(
@@ -73,7 +171,7 @@ def automatic_masks(image: Image.Image) -> list[np.ndarray]:
         from transformers import pipeline
     except ImportError as exc:  # pragma: no cover - installation-specific
         raise ImportError(
-            "SAMVG requires the vision extra. Install 'vectrify[vision]'."
+            "SAMVG requires the samvg extra. Install 'vectrify[samvg]'."
         ) from exc
     image = image.convert("RGB")
     generator = pipeline("mask-generation", model=SAMVG_MODEL, device=0)
@@ -628,9 +726,7 @@ def _layer_svg_attributes(layer: MaskLayer, segments: int) -> dict[str, str] | N
             "stroke-linecap": "round",
             "stroke-linejoin": "round",
         }
-    data = mask_path(
-        layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels
-    )
+    data = mask_path(layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels)
     if data is None:
         return None
     return {"d": data, "fill": colour, "fill-rule": "evenodd"}
@@ -645,6 +741,7 @@ def generate_svg(
     max_layers: int = 512,
     segments: int = 16,
     fill_holes: bool = True,
+    ocr: bool = True,
 ) -> str:
     """Generate SAMVG's traced, pre-optimisation SVG from a target image."""
     image = image.convert("RGB")
@@ -670,16 +767,18 @@ def generate_svg(
     for layer in layers:
         attributes = _layer_svg_attributes(layer, segments)
         if attributes:
-            markup = " ".join(
-                f'{key}="{value}"' for key, value in attributes.items()
-            )
-            paths.append(
-                f"<path {markup} />"
-            )
+            markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
+            paths.append(f"<path {markup} />")
+    text_layers = detect_text(image) if ocr and masks is None else []
+    text = []
+    for layer in text_layers:
+        attributes = _text_svg_attributes(layer)
+        markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
+        text.append(f"<text {markup}>{escape(layer.text)}</text>")
     width, height = image.size
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
-        f'viewBox="0 0 {width} {height}">' + "".join(paths) + "</svg>"
+        f'viewBox="0 0 {width} {height}">' + "".join(paths) + "".join(text) + "</svg>"
     )
 
 
