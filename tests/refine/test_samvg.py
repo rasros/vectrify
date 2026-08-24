@@ -5,13 +5,17 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
+import vectrify.refine.samvg as samvg
 from vectrify.refine.samvg import (
     MaskLayer,
+    TextLayer,
     _components,
     _fit_cubic,
     _is_crop_edge_mask,
+    _text_svg_attributes,
     automatic_masks,
     coverage_prompt_points,
+    detect_text,
     filter_by_impact,
     generate_svg,
     mask_path,
@@ -19,6 +23,51 @@ from vectrify.refine.samvg import (
     recolour_visible_layers,
     residual_prompt_points,
 )
+
+
+def test_detect_text_retains_high_confidence_editable_words(monkeypatch):
+    class Reader:
+        def __init__(self, languages, *, gpu, verbose):
+            assert languages == ["en"]
+            assert gpu is True
+            assert verbose is False
+
+        def readtext(self, source, **kwargs):
+            assert source.shape == (16, 32, 3)
+            assert kwargs == {"detail": 1, "paragraph": False}
+            return [
+                ([[2, 3], [20, 3], [20, 11], [2, 11]], "Cats & dogs", 0.94),
+                ([[2, 12], [4, 12], [4, 14], [2, 14]], "I", 0.99),
+                ([[2, 3], [20, 3], [20, 11], [2, 11]], "blur", 0.2),
+            ]
+
+    monkeypatch.setitem(sys.modules, "easyocr", SimpleNamespace(Reader=Reader))
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True)),
+    )
+
+    layers = detect_text(Image.new("RGB", (32, 16), "white"))
+
+    assert layers == [TextLayer("Cats & dogs", 2.0, 3.0, 18.0, 8.0, (255, 255, 255))]
+    assert _text_svg_attributes(layers[0])["font-family"] == "sans-serif"
+
+
+def test_generate_svg_writes_detected_words_as_editable_text(monkeypatch):
+    monkeypatch.setattr(samvg, "retrieve_layers", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(
+        samvg,
+        "detect_text",
+        lambda _image: [TextLayer("Cats & dogs", 2, 3, 18, 8, (20, 30, 40))],
+    )
+
+    root = ET.fromstring(generate_svg(Image.new("RGB", (32, 16))))
+    text = root.find("{http://www.w3.org/2000/svg}text")
+
+    assert text is not None
+    assert text.text == "Cats & dogs"
+    assert text.get("font-size") == "8.00"
 
 
 def test_automatic_masks_uses_source_sized_first_layer_crops(monkeypatch):
