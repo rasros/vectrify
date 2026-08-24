@@ -15,6 +15,7 @@ from vectrify.refine.samvg import (
     filter_by_impact,
     generate_svg,
     mask_path,
+    mask_stroke,
     recolour_visible_layers,
     residual_prompt_points,
 )
@@ -146,6 +147,26 @@ def test_generate_svg_creates_editable_layered_paths_from_supplied_masks():
     assert root.get("viewBox") == "0 0 10 8"
     assert len(paths) == 1
     assert paths[0].get("fill") == "#1482dc"
+
+
+def test_thin_single_contour_mask_is_emitted_as_a_round_stroke():
+    image = Image.new("RGB", (12, 32), "white")
+    pixels = np.asarray(image).copy()
+    pixels[4:28, 5:8] = (20, 130, 220)
+    image = Image.fromarray(pixels)
+    mask = np.zeros((32, 12), dtype=bool)
+    mask[4:28, 5:8] = True
+
+    stroke = mask_stroke(mask)
+    svg = generate_svg(image, [mask], min_pixels=1, min_impact=0.00001)
+    path = ET.fromstring(svg).find("{http://www.w3.org/2000/svg}path")
+
+    assert stroke is not None
+    assert path is not None
+    assert path.get("fill") == "none"
+    assert path.get("stroke") == "#1482dc"
+    assert path.get("stroke-linecap") == "round"
+    assert " Z" not in path.get("d", "")
 
 
 def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():
