@@ -138,7 +138,7 @@ def test_a_pinned_vertex_does_not_move():
     ).convert("L")
     path_d = "M 300 300 C 340 280 400 280 440 300"
     knots = to_knots(parse_cubics(path_d))
-    fitted, _first, _last = fit_group(
+    fitted, _widths, _colours, _first, _last = fit_group(
         [path_d], [3.5], target, target, steps=6, pinned={0}
     )
     moved = to_knots(parse_cubics(fitted[0]))

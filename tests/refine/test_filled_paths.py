@@ -1,4 +1,5 @@
 import io
+import xml.etree.ElementTree as ET
 
 import numpy as np
 import pytest
@@ -17,6 +18,7 @@ from vectrify.refine.paths import (
     _tiled_large_path_coverage,
     _xing_loss,
     fit_filled_svg,
+    fit_opaque_fills_locally,
     parse_filled_cubics,
 )
 
@@ -127,9 +129,11 @@ def test_native_even_odd_coverage_stays_cairo_validated():
         torch.tensor(contour, dtype=torch.float32, device="cuda")
         for contour in parse_filled_cubics(DONUT_PATH)
     ]
-    native = _fill_path_coverage(
-        contours, (0, 0, size, size), fill_rule="evenodd"
-    ).cpu().numpy()
+    native = (
+        _fill_path_coverage(contours, (0, 0, size, size), fill_rule="evenodd")
+        .cpu()
+        .numpy()
+    )
     head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
     blank = f"{head}</svg>"
     drawn = f'{head}<path d="{DONUT_PATH}" fill="#000" fill-rule="evenodd" /></svg>'
@@ -167,9 +171,7 @@ def test_native_analytic_cubic_coverage_stays_cairo_validated():
         dtype=torch.float32,
         device="cuda",
     )
-    contour = torch.cat((contour, contour[:1].expand(16 - len(contour), -1, -1)))[
-        None
-    ]
+    contour = torch.cat((contour, contour[:1].expand(16 - len(contour), -1, -1)))[None]
     native = _fill_coverages(contour, (0, 0, size, size), subpixels=4).cpu().numpy()
     head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
     blank = f"{head}</svg>"
@@ -207,9 +209,7 @@ def test_native_analytic_multi_contour_coverage_preserves_a_hole():
     ]
     controls = torch.cat(
         [
-            torch.cat((contour, contour[:1].expand(16 - len(contour), -1, -1)))[
-                None
-            ]
+            torch.cat((contour, contour[:1].expand(16 - len(contour), -1, -1)))[None]
             for contour in contours
         ]
     ).requires_grad_()
@@ -221,6 +221,7 @@ def test_native_analytic_multi_contour_coverage_preserves_a_hole():
     coverage.sum().backward()
     assert controls.grad is not None
     assert controls.grad.abs().sum() > 0
+
 
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">'
@@ -258,6 +259,48 @@ def test_filled_path_fit_moves_fill_colour_toward_target():
     )
 
     assert _mse(fitted, target) < _mse(SVG, target)
+
+
+def test_local_fill_fit_changes_only_one_bounded_group():
+    paths = []
+    for index in range(20):
+        x = (index % 5) * 20 + 2
+        y = (index // 5) * 20 + 2
+        paths.append(
+            f'<path d="M {x} {y} L {x + 12} {y} L {x + 12} {y + 12} '
+            f'L {x} {y + 12} Z" fill="#ff0000" />'
+        )
+    source = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80">'
+        + "".join(paths)
+        + "</svg>"
+    )
+    target = Image.new("RGB", (100, 80), "black")
+    reference = io.BytesIO()
+    target.save(reference, format="PNG")
+
+    fitted = fit_opaque_fills_locally(
+        source,
+        reference.getvalue(),
+        steps=1,
+        maximum_paths=4,
+        rasterize=lambda markup, width, height: rasterize_svg_to_png_bytes(
+            markup, out_w=width, out_h=height
+        ),
+    )
+
+    before = [
+        element.get("fill")
+        for element in ET.fromstring(source).iter()
+        if element.get("d")
+    ]
+    after = [
+        element.get("fill")
+        for element in ET.fromstring(fitted).iter()
+        if element.get("d")
+    ]
+    assert len(before) == len(after) == 20
+    assert sum(left != right for left, right in zip(before, after, strict=True)) <= 4
 
 
 DONUT_PATH = (
@@ -564,9 +607,7 @@ def test_filled_fit_uses_analytic_tiles_for_large_cuda_paths(monkeypatch):
     for row in range(2):
         for column in range(8):
             x, y = 2 + column * 7, 8 + row * 24
-            pieces.append(
-                f"M {x} {y} L {x + 5} {y} L {x + 5} {y + 5} L {x} {y + 5} Z"
-            )
+            pieces.append(f"M {x} {y} L {x + 5} {y} L {x + 5} {y + 5} L {x} {y + 5} Z")
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64">'
         f'<path d="{" ".join(pieces)}" fill="#4080c0" fill-rule="nonzero" />'

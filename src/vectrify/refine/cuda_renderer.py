@@ -184,6 +184,62 @@ def coverage(
     return Coverage.apply(controls)
 
 
+def stroke_coverage(
+    controls: Any,
+    widths: Any,
+    box: tuple[int, int, int, int],
+    *,
+    subpixels: int = 2,
+) -> Any | None:
+    """Differentiable cubic-tube coverage with round caps and joins on CUDA."""
+    import torch
+
+    extension = _extension()
+    if (
+        extension is None
+        or not controls.is_cuda
+        or controls.dtype != torch.float32
+        or controls.ndim != 4
+        or controls.shape[1:] != (16, 4, 2)
+        or not widths.is_cuda
+        or widths.dtype != torch.float32
+        or widths.ndim != 1
+        or widths.shape[0] != controls.shape[0]
+        or subpixels not in {1, 2, 4}
+    ):
+        return None
+    left, top, right, bottom = box
+    height, width = bottom - top, right - left
+
+    class StrokeCoverage(torch.autograd.Function):
+        @staticmethod
+        def forward(ctx, values, stroke_widths):
+            values = values.contiguous()
+            stroke_widths = stroke_widths.contiguous()
+            ctx.save_for_backward(values, stroke_widths)
+            return extension.stroke_forward(
+                values, stroke_widths, height, width, subpixels, left, top
+            )
+
+        @staticmethod
+        def backward(ctx: Any, *upstreams: Any) -> Any:
+            values, stroke_widths = ctx.saved_tensors
+            upstream = upstreams[0]
+            control_gradients, width_gradients = extension.stroke_backward(
+                values,
+                stroke_widths,
+                upstream.contiguous(),
+                height,
+                width,
+                subpixels,
+                left,
+                top,
+            )
+            return control_gradients, width_gradients
+
+    return StrokeCoverage.apply(controls, widths)
+
+
 def multi_coverage_forward(
     controls: Any,
     offsets: list[int],

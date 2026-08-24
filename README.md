@@ -118,6 +118,29 @@ inspired by SAMVG, not an installation of the unreleased research code. Use
 `--no-samvg-seed` to skip it; the feature is currently available for SVG output
 only.
 
+SAM inputs default to a 1024px maximum side, the model's native encoder size;
+the returned masks are restored to the target's original canvas before tracing.
+Set `VECTRIFY_SAMVG_MAX_SIDE` to choose another cap, or pass `max_side=None` to
+the Python API to opt out explicitly.
+
+Automatic SAM masks retain the dissertation's 32×32 prompt grid but decode 64
+prompts per CUDA batch in FP16 by default. Set `VECTRIFY_SAMVG_POINTS_PER_BATCH`
+for a larger-memory GPU; full-resolution mask filtering remains on CPU so the
+batch does not consume the renderer's CUDA memory.
+
 The default candidate is deliberately the segmentation-and-tracing seed only;
 it does not run the path optimiser. This keeps seed quality measurable without
 mixing in local refinement.
+
+For the dissertation-style two-phase measurement (initial fit, residual prompts,
+and recovery fit), build with the optional native CUDA renderer and run:
+
+```sh
+VECTRIFY_BUILD_SAMVG_CUDA=1 uv build --wheel --no-build-isolation
+uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
+.venv/bin/python scripts/bench_samvg_two_phase.py --cat
+```
+
+`--all` also evaluates every benchmark target and the connect-the-dots duck.
+Each target directory contains the five stage rasters, SVGs, a gallery,
+pixel-error table, and per-bounded-group CUDA memory/timing data.
