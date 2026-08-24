@@ -42,6 +42,10 @@ SAMVG_STABILITY_SCORE_THRESH = 0.0
 SAMVG_OCR_MODEL = os.environ.get(
     "VECTRIFY_SAMVG_OCR_MODEL", "Qwen/Qwen2.5-VL-3B-Instruct"
 )
+# OCR text is often a few pixels off because its original font is unknown.
+# Permit that small mismatch (per affected channel), but never a large visual
+# regression just because the VLM claimed confidence.
+OCR_TEXT_RMSE_TOLERANCE = 0.02
 
 
 @dataclass(frozen=True)
@@ -929,13 +933,22 @@ def _mse(image: Image.Image, rendered: Image.Image) -> float:
     return float(((target - candidate) ** 2).mean())
 
 
+def _text_error_tolerance(layer: TextLayer, image: Image.Image) -> float:
+    """Return the whole-image MSE budget for this one text bounding box."""
+    padding = 2
+    width = min(image.width, max(1, math.ceil(layer.width) + padding * 2))
+    height = min(image.height, max(1, math.ceil(layer.height) + padding * 2))
+    affected_fraction = (width * height) / (image.width * image.height)
+    return affected_fraction * (255 * OCR_TEXT_RMSE_TOLERANCE) ** 2
+
+
 def _accept_text_layers(
     svg: str,
     image: Image.Image,
     layers: list[TextLayer],
     rasterize: Callable[[str, int, int], bytes],
 ) -> str:
-    """Greedily retain only OCR text that improves the Cairo pixel loss.
+    """Retain OCR text that improves, or only negligibly worsens, pixel loss.
 
     A VLM's asserted confidence is not evidence that a word is present. The
     same rasterisation used to score the seed is the final verifier, including
@@ -947,7 +960,7 @@ def _accept_text_layers(
     for layer in layers:
         candidate = _append_text_layers(accepted, [layer])
         candidate_error = _mse(image, _render_svg(candidate, image, rasterize))
-        if candidate_error < error:
+        if candidate_error <= error + _text_error_tolerance(layer, image):
             accepted, error = candidate, candidate_error
             retained += 1
     log.info(
