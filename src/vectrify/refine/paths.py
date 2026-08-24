@@ -1270,7 +1270,9 @@ def _fill_rgb(value: str | None) -> tuple[float, float, float] | None:
     )
 
 
-def _composite_opaque_fills(alphas: Any, colours: Any) -> Any:
+def _composite_opaque_fills(
+    alphas: Any, colours: Any, backdrop: Any | None = None
+) -> Any:
     """Composite opaque SVG fills in document order without a layer loop.
 
     Each layer contributes its premultiplied colour through the product of the
@@ -1283,9 +1285,12 @@ def _composite_opaque_fills(alphas: Any, colours: Any) -> Any:
     transparency = 1 - alphas
     above_inclusive = torch.cumprod(transparency.flip(0), dim=0).flip(0)
     above = torch.cat((above_inclusive[1:], torch.ones_like(alphas[:1])), dim=0)
-    return (
+    painted = (
         colours.clamp(0, 1)[:, None, None, :] * alphas[..., None] * above[..., None]
     ).sum(dim=0)
+    if backdrop is None:
+        return painted
+    return painted + backdrop * above_inclusive[0][..., None]
 
 
 @lru_cache(maxsize=1)
@@ -1320,6 +1325,7 @@ def fit_filled_svg(
     subpixels: int = 2,
     monolithic: bool | None = None,
     curve_samples: int | None = None,
+    backdrop: Image.Image | None = None,
 ) -> str:
     """Optimise opaque filled cubic SVG paths against an RGB target.
 
@@ -1430,6 +1436,18 @@ def fit_filled_svg(
         )
         / 255.0,
         device=device,
+    )
+    under = (
+        None
+        if backdrop is None
+        else torch.tensor(
+            np.asarray(
+                backdrop.convert("RGB").resize((work_width, work_height)),
+                dtype=np.float32,
+            )
+            / 255.0,
+            device=device,
+        )
     )
     point_optimizer = torch.optim.Adam(
         [control_storage], lr=point_learning_rate, fused=device == "cuda"
@@ -1797,7 +1815,11 @@ def fit_filled_svg(
                 if goal.is_cuda
                 else _composite_opaque_fills
             )
-            rendered = composite(alpha_stack, color_storage)
+            rendered = (
+                composite(alpha_stack, color_storage)
+                if under is None
+                else _composite_opaque_fills(alpha_stack, color_storage, under)
+            )
             loss = ((rendered - goal) ** 2).mean()
             loss = (
                 loss
@@ -1838,7 +1860,7 @@ def fit_filled_svg(
                     initial_alphas[index] = rasterise_multi(index, path)
 
             before: list[Any] = []
-            rendered = torch.zeros_like(goal)
+            rendered = torch.zeros_like(goal) if under is None else under
             for index, alpha in enumerate(initial_alphas):
                 assert alpha is not None
                 colour = color_storage[index]
@@ -1978,6 +2000,7 @@ def fit_opaque_fills_locally(
     reference_png: bytes,
     *,
     steps: int = 8,
+    rasterize=None,
     gpu_gate: Any = None,
 ) -> str:
     """Use SAMVG's analytic opaque-fill fitter as one local-search move.
@@ -1992,8 +2015,84 @@ def fit_opaque_fills_locally(
     if not fittable_opaque_fills(svg):
         raise UnsupportedPathError("no opaque filled cubic paths to fit")
     target = Image.open(io.BytesIO(reference_png)).convert("RGB")
+    backdrop = None
+    if rasterize is not None:
+        import xml.etree.ElementTree as ET
+
+        root = ET.fromstring(svg)
+        for element in root.iter():
+            if element.tag.split("}")[-1] != "path":
+                continue
+            if _fill_rgb(element.get("fill")) is None:
+                continue
+            try:
+                parse_filled_cubics(element.get("d", ""))
+            except UnsupportedPathError:
+                continue
+            element.set("d", "")
+        backdrop = Image.open(
+            io.BytesIO(
+                rasterize(
+                    ET.tostring(root, encoding="unicode"), target.width, target.height
+                )
+            )
+        ).convert("RGB")
     with gpu_slot(gpu_gate):
-        return fit_filled_svg(svg, target, steps=steps, optimisation_long_side=64)
+        return fit_filled_svg(
+            svg,
+            target,
+            steps=steps,
+            optimisation_long_side=64,
+            backdrop=backdrop,
+        )
+
+
+def fittable_strokes(svg: str) -> bool:
+    """Whether the legacy cubic stroke parser can select a stroke group."""
+    import xml.etree.ElementTree as ET
+
+    try:
+        return bool(fittable_clusters(ET.fromstring(svg)))
+    except ET.ParseError:
+        return False
+
+
+def fit_svg_primitives_locally(
+    svg: str,
+    reference_png: bytes,
+    *,
+    rasterize,
+    weights: Mapping[int, float] | None = None,
+    steps: int = 8,
+    gpu_gate: Any = None,
+) -> str:
+    """Fit analytic fills then a selected cubic-stroke group over that result.
+
+    Each fitter rasterizes the non-active document as a fixed backdrop.  This
+    prevents a fill from being rewarded for covering a line or editable text,
+    while the subsequent stroke move sees the newly fitted fills unchanged.
+    """
+    fitted = svg
+    if fittable_opaque_fills(fitted):
+        fitted = fit_opaque_fills_locally(
+            fitted,
+            reference_png,
+            steps=steps,
+            rasterize=rasterize,
+            gpu_gate=gpu_gate,
+        )
+    if fittable_strokes(fitted):
+        fitted = fit_random_group(
+            fitted,
+            reference_png,
+            rasterize=rasterize,
+            steps=steps,
+            weights=weights,
+            gpu_gate=gpu_gate,
+        )
+    if fitted == svg:
+        raise UnsupportedPathError("no supported filled or stroked cubics to fit")
+    return fitted
 
 
 def _stroke_width(element, ancestors) -> float | None:

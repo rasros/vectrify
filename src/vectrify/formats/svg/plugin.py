@@ -29,9 +29,9 @@ from vectrify.refine.paths import (
     PATH_FIT,
     UnsupportedPathError,
     fit_available,
-    fit_opaque_fills_locally,
-    fit_random_group,
+    fit_svg_primitives_locally,
     fittable_opaque_fills,
+    fittable_strokes,
 )
 
 log = logging.getLogger(__name__)
@@ -159,28 +159,18 @@ class SvgPlugin:
             if reference_png is None or not fit_available():
                 return content, PATH_FIT
             try:
-                # SAMVG seeds are opaque closed fills, so they use the exact
-                # analytic CUDA fitter.  The older sampled operator remains
-                # the style-specific path for stroked cubic drawings.
-                if fittable_opaque_fills(content):
+                if fittable_opaque_fills(content) or fittable_strokes(content):
                     return (
-                        fit_opaque_fills_locally(
+                        fit_svg_primitives_locally(
                             content,
                             reference_png,
+                            rasterize=lambda svg, w, h: self.rasterize(svg, w, h),
+                            weights=targets,
                             gpu_gate=self.gpu_gate,
                         ),
                         PATH_FIT,
                     )
-                return (
-                    fit_random_group(
-                        content,
-                        reference_png,
-                        rasterize=lambda svg, w, h: self.rasterize(svg, w, h),
-                        weights=targets,
-                        gpu_gate=self.gpu_gate,
-                    ),
-                    PATH_FIT,
-                )
+                raise UnsupportedPathError("no supported SVG primitive to fit")
             except UnsupportedPathError as exc:
                 log.debug(f"Nothing to fit: {exc}")
                 return content, PATH_FIT
