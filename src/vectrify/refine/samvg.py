@@ -9,6 +9,7 @@ fixed-count cubic Bezier path.
 from __future__ import annotations
 
 import io
+import itertools
 import logging
 import math
 import os
@@ -548,6 +549,93 @@ def mask_path(
     return " ".join(parts) or None
 
 
+def mask_stroke(
+    mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
+) -> tuple[str, float] | None:
+    """Return a conservative centreline stroke for one thin mask component.
+
+    SAMVG itself uses closed filled shapes.  This optional hybrid extension is
+    deliberately strict: a component must be long, narrow, and have no holes
+    before it can be represented by a stroke.  Other masks preserve SAMVG's
+    original filled-path treatment.
+    """
+    if overlap_pixels:
+        from scipy.ndimage import binary_dilation
+
+        mask = binary_dilation(mask, iterations=overlap_pixels)
+    ys, xs = np.nonzero(mask)
+    if len(xs) < 8:
+        return None
+    min_x, max_x = int(xs.min()), int(xs.max())
+    min_y, max_y = int(ys.min()), int(ys.max())
+    width, height = max_x - min_x + 1, max_y - min_y + 1
+    major, minor = max(width, height), min(width, height)
+    if minor == 0 or major < 12 or major / minor < 3:
+        return None
+    # A component's area divided by its long span is its average orthogonal
+    # width.  This rejects narrow-looking leaves and regions with broad ends.
+    estimated_width = len(xs) / major
+    if estimated_width > min(8.0, major * 0.18):
+        return None
+    # A hole is topology that a single centreline cannot preserve.
+    if len(_loops(mask)) != 1:
+        return None
+
+    points = np.column_stack((xs, ys)).astype(np.float64)
+    centre = points.mean(axis=0)
+    _values, vectors = np.linalg.eigh(np.cov((points - centre).T))
+    direction = vectors[:, -1]
+    projection = (points - centre) @ direction
+    bin_count = min(64, max(4, segments * 4))
+    bins = np.linspace(projection.min(), projection.max(), bin_count + 1)
+    line = []
+    for start, end in itertools.pairwise(bins):
+        selected = points[(projection >= start) & (projection <= end)]
+        if len(selected):
+            line.append(selected.mean(axis=0))
+    if len(line) < 2:
+        return None
+    trace = np.asarray(line)
+    if len(trace) == 2:
+        data = (
+            f"M {trace[0, 0]:.2f} {trace[0, 1]:.2f} "
+            f"L {trace[1, 0]:.2f} {trace[1, 1]:.2f}"
+        )
+    else:
+        control_a, control_b = _fit_cubic(trace)
+        data = (
+            f"M {trace[0, 0]:.2f} {trace[0, 1]:.2f} C "
+            f"{control_a[0]:.2f} {control_a[1]:.2f} "
+            f"{control_b[0]:.2f} {control_b[1]:.2f} "
+            f"{trace[-1, 0]:.2f} {trace[-1, 1]:.2f}"
+        )
+    return data, max(1.0, float(estimated_width))
+
+
+def _layer_svg_attributes(layer: MaskLayer, segments: int) -> dict[str, str] | None:
+    """Choose the fill or stroke primitive appropriate for one SAM mask."""
+    colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
+    stroke = mask_stroke(
+        layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels
+    )
+    if stroke is not None:
+        data, width = stroke
+        return {
+            "d": data,
+            "fill": "none",
+            "stroke": colour,
+            "stroke-width": f"{width:.2f}",
+            "stroke-linecap": "round",
+            "stroke-linejoin": "round",
+        }
+    data = mask_path(
+        layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels
+    )
+    if data is None:
+        return None
+    return {"d": data, "fill": colour, "fill-rule": "evenodd"}
+
+
 def generate_svg(
     image: Image.Image,
     masks: list[np.ndarray] | None = None,
@@ -580,12 +668,14 @@ def generate_svg(
     )
     paths = []
     for layer in layers:
-        data = mask_path(
-            layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels
-        )
-        if data:
-            colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
-            paths.append(f'<path d="{data}" fill="{colour}" fill-rule="evenodd" />')
+        attributes = _layer_svg_attributes(layer, segments)
+        if attributes:
+            markup = " ".join(
+                f'{key}="{value}"' for key, value in attributes.items()
+            )
+            paths.append(
+                f"<path {markup} />"
+            )
     width, height = image.size
     return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
@@ -633,20 +723,13 @@ def _append_layers(svg: str, layers: list[MaskLayer], segments: int) -> str:
     """Add newly prompted paths to an already optimised SVG."""
     root = ET.fromstring(svg)
     for layer in layers:
-        data = mask_path(
-            layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels
-        )
-        if not data:
+        attributes = _layer_svg_attributes(layer, segments)
+        if attributes is None:
             continue
-        colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
         ET.SubElement(
             root,
             "{http://www.w3.org/2000/svg}path",
-            {
-                "d": data,
-                "fill": colour,
-                "fill-rule": "evenodd",
-            },
+            attributes,
         )
     return ET.tostring(root, encoding="unicode")
 
