@@ -1424,7 +1424,6 @@ def fit_filled_svg(
             device=device,
         )
     )
-    colours = list(color_storage.unbind(0))
     goal = torch.tensor(
         np.asarray(
             target.convert("RGB").resize((work_width, work_height)), dtype=np.float32
@@ -1840,8 +1839,9 @@ def fit_filled_svg(
 
             before: list[Any] = []
             rendered = torch.zeros_like(goal)
-            for alpha, colour in zip(initial_alphas, colours, strict=True):
+            for index, alpha in enumerate(initial_alphas):
                 assert alpha is not None
+                colour = color_storage[index]
                 before.append(rendered)
                 rendered = (
                     rendered * (1 - alpha[..., None])
@@ -1871,7 +1871,7 @@ def fit_filled_svg(
             suffix = suffixes[index]
             assert stored_alpha is not None
             assert suffix is not None
-            colour = colours[index]
+            colour = color_storage[index]
             colour_delta = colour.detach().clamp(0, 1) - canvases[index]
             alpha_gradient = (gradient * suffix[..., None] * colour_delta).sum(dim=-1)
             colour_gradient = (
@@ -1928,9 +1928,10 @@ def fit_filled_svg(
         colour_optimizer.step()
 
     coordinate_scale_cpu = coordinate_scale.cpu()
-    for (element, _contours, _colour, _fill_rule), path, colour in zip(
-        entries, controls, colours, strict=True
+    for index, ((element, _contours, _colour, _fill_rule), path) in enumerate(
+        zip(entries, controls, strict=True)
     ):
+        colour = color_storage[index]
         data = " ".join(
             to_path_d((control.detach().cpu() / coordinate_scale_cpu).tolist()) + " Z"
             for control in path
