@@ -759,9 +759,7 @@ def apply_mutation(
     fn, name = pick_operator(MUTATIONS, operator)
 
     def run() -> str:
-        targeted_fn = cast(
-            Callable[[str, Mapping[int, float] | None], str], fn
-        )
+        targeted_fn = cast(Callable[[str, Mapping[int, float] | None], str], fn)
         return targeted_fn(parent_svg, targets)
 
     return with_retries(run, fallback=parent_svg), name

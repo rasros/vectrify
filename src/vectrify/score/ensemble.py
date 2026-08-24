@@ -154,8 +154,7 @@ class EnsembleScorer(Scorer):
             return []
 
         images = [
-            self._decode(png)
-            or Image.new("RGB", reference.image.size, (255, 255, 255))
+            self._decode(png) or Image.new("RGB", reference.image.size, (255, 255, 255))
             for png in candidate_pngs
         ]
 

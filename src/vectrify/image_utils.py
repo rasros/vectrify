@@ -29,9 +29,7 @@ def crop_single_color_background(
         return image
 
     rgb = np.asarray(image.convert("RGB"), dtype=np.int16)
-    corners = np.array(
-        [rgb[0, 0], rgb[0, -1], rgb[-1, 0], rgb[-1, -1]], dtype=np.int16
-    )
+    corners = np.array([rgb[0, 0], rgb[0, -1], rgb[-1, 0], rgb[-1, -1]], dtype=np.int16)
     background = np.median(corners, axis=0)
     if np.max(np.abs(corners - background)) > tolerance:
         return image
