@@ -15,6 +15,7 @@ import os
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
+from typing import cast
 
 import numpy as np
 from PIL import Image
@@ -183,8 +184,9 @@ def recolour_visible_layers(
         visible = layer.mask & ~covered_above
         colour = layer.colour
         if visible.any():
-            colour = tuple(
-                int(value) for value in np.rint(target[visible].mean(axis=0))
+            colour = cast(
+                tuple[int, int, int],
+                tuple(int(value) for value in np.rint(target[visible].mean(axis=0))),
             )
         revised.append(
             MaskLayer(layer.mask, colour, layer.impact, layer.overlap_pixels)
@@ -246,7 +248,10 @@ def filter_by_impact(
     for mask in candidates:
         if int(mask.sum()) < min_pixels:
             continue
-        colour = tuple(int(v) for v in np.rint(target[mask].mean(axis=0)))
+        colour = cast(
+            tuple[int, int, int],
+            tuple(int(value) for value in np.rint(target[mask].mean(axis=0))),
+        )
         next_canvas = canvas.copy()
         next_coverage = coverage | mask
         next_canvas[mask] = colour
@@ -277,7 +282,7 @@ def coverage_prompt_points(
 
     _canvas, coverage = _render_layers(shape, layers)
     radius = max(2, round(min(shape) * radius_fraction))
-    distance = distance_transform_edt(~coverage)
+    distance = np.asarray(distance_transform_edt(~coverage))
     ys, xs = np.nonzero(distance >= radius)
     if len(xs) == 0:
         return []
@@ -393,7 +398,7 @@ def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
     loops: list[list[tuple[float, float]]] = []
     while edges:
         start = next(iter(edges))
-        current, loop = start, [tuple(map(float, start))]
+        current, loop = start, [cast(tuple[float, float], tuple(map(float, start)))]
         while current in edges:
             following = edges[current].pop()
             if not edges[current]:
@@ -401,7 +406,7 @@ def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
             current = following
             if current == start:
                 break
-            loop.append(tuple(map(float, current)))
+            loop.append(cast(tuple[float, float], tuple(map(float, current))))
         if current == start and len(loop) >= 3:
             loops.append(loop)
     return loops

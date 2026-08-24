@@ -62,8 +62,9 @@ def winding(
             )
 
         @staticmethod
-        def backward(ctx, upstream):
+        def backward(ctx: Any, *upstreams: Any) -> Any:
             (value,) = ctx.saved_tensors
+            upstream = upstreams[0]
             return extension.backward(
                 value,
                 upstream.contiguous(),
@@ -111,8 +112,9 @@ def windings(
             )
 
         @staticmethod
-        def backward(ctx, upstream):
+        def backward(ctx: Any, *upstreams: Any) -> Any:
             (value,) = ctx.saved_tensors
+            upstream = upstreams[0]
             return extension.backwards(
                 value,
                 upstream.contiguous(),
@@ -166,8 +168,9 @@ def coverage(
             )
 
         @staticmethod
-        def backward(ctx, upstream):
+        def backward(ctx: Any, *upstreams: Any) -> Any:
             (value,) = ctx.saved_tensors
+            upstream = upstreams[0]
             return extension.coverage_backward(
                 value,
                 upstream.contiguous(),
@@ -307,7 +310,7 @@ def multi_coverage(
             return coverage
 
         @staticmethod
-        def backward(ctx, upstream):
+        def backward(ctx: Any, *upstreams: Any) -> Any:
             (
                 value,
                 saved_offsets,
@@ -315,6 +318,7 @@ def multi_coverage(
                 saved_boundary_indices,
                 topology,
             ) = ctx.saved_tensors
+            upstream = upstreams[0]
             return extension.multi_coverage_backward_topology(
                 value,
                 saved_offsets,
