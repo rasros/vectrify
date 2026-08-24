@@ -17,6 +17,7 @@ from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from functools import lru_cache
+from time import perf_counter
 from typing import Any
 
 import numpy as np
@@ -234,7 +235,7 @@ def to_path_d(segments) -> str:
 
 def coverage(
     control: Any,
-    width: float,
+    width: float | Any,
     box: tuple[int, int, int, int],
     samples: int | None = None,
     softness: float = 0.25,
@@ -250,6 +251,21 @@ def coverage(
     proportional to the part being fitted rather than the full canvas.
     """
     import torch
+
+    if control.is_cuda and control.shape[0] <= _FUSED_CUBICS:
+        from vectrify.refine.cuda_renderer import stroke_coverage
+
+        padded = _pad_fused_cubics(control[None])
+        stroke_width = (
+            width.reshape(1)
+            if isinstance(width, torch.Tensor)
+            else torch.full(
+                (1,), float(width), dtype=control.dtype, device=control.device
+            )
+        )
+        native = stroke_coverage(padded, stroke_width, box, subpixels=2)
+        if native is not None:
+            return native[0]
 
     if samples is None:
         samples = _samples_for(control)
@@ -334,6 +350,7 @@ def fit_group(
     widths: float | list[float],
     target: Image.Image,
     backdrop: Image.Image,
+    colours: list[tuple[float, float, float]] | None = None,
     size: int = 700,
     steps: int = 200,
     samples: int | None = None,
@@ -343,23 +360,20 @@ def fit_group(
     redundancy: float = 0.15,
     smooth: float = 0.0,
     anchor: float = 0.001,
-) -> tuple[list[str], float, float]:
+) -> tuple[list[str], list[float], list[tuple[float, float, float]], float, float]:
     """Fit every path in *paths* together, returning new path data and losses.
 
     *backdrop* is the drawing rendered with this group removed; *target* is the
-    picture being matched. Both are greyscale and the same size as the canvas.
+    picture being matched. Both are RGB and the same size as the canvas.
 
     *pinned* names welded vertices that must not move: a point this set shares
     with a path outside it. Without them a partial fit tears the drawing at
     exactly the junctions welding exists to hold -- the fitted side walks away
     while the neighbour it meets stays put.
 
-    The paths composite as a soft union -- one minus the product of their
-    complements -- which is what "any of these strokes covers this pixel" means
-    and what the real renderer shows. A redundancy term charges for pixels more
-    than one stroke covers, because the union alone is indifferent between three
-    strokes doing a third of the work each and one doing all of it while the
-    other two collapse onto it.
+    Each path is composited in SVG document order over the fixed backdrop. This
+    retains different stroke colours and makes width, colour, and cubic controls
+    jointly differentiable parameters of the same local move.
     """
     import torch
 
@@ -371,7 +385,7 @@ def fit_group(
 
     def crop(image: Image.Image) -> Any:
 
-        array = np.asarray(image.convert("L").resize((size, size)), dtype=np.float32)
+        array = np.asarray(image.convert("RGB").resize((size, size)), dtype=np.float32)
         return torch.tensor(array[top:bottom, left:right] / 255.0, device=device)
 
     goal = crop(target)
@@ -385,12 +399,25 @@ def fit_group(
         if isinstance(widths, int | float)
         else list(widths)
     )
+    colour_values = colours or [(0.0, 0.0, 0.0)] * len(paths)
+    if len(colour_values) != len(paths):
+        raise ValueError("each stroked path needs one RGB colour")
     welded, index = weld(chains)
     vertices = torch.tensor(welded, device=device, dtype=torch.float32)
     vertices.requires_grad_(True)
+    stroke_widths = torch.tensor(each, device=device, dtype=torch.float32)
+    stroke_widths.requires_grad_(True)
+    stroke_colours = torch.tensor(colour_values, device=device, dtype=torch.float32)
+    stroke_colours.requires_grad_(True)
     original = vertices.detach().clone()
     rows = [torch.tensor(r, device=device, dtype=torch.long) for r in index]
-    optimizer = torch.optim.Adam([vertices], lr=learning_rate)
+    optimizer = torch.optim.Adam(
+        [
+            {"params": [vertices], "lr": learning_rate},
+            {"params": [stroke_widths], "lr": learning_rate * 0.1},
+            {"params": [stroke_colours], "lr": learning_rate * 0.05},
+        ]
+    )
 
     def chain_of(row: Any) -> Any:
         return vertices[row]
@@ -402,7 +429,7 @@ def fit_group(
         mask = _focus_mask(
             [
                 coverage(controls_of(chain_of(r)), w, box, samples=samples)
-                for r, w in zip(rows, each, strict=True)
+                for r, w in zip(rows, stroke_widths, strict=True)
             ],
             int(margin),
         )
@@ -412,12 +439,15 @@ def fit_group(
     for step in range(steps):
         covers = [
             coverage(controls_of(chain_of(r)), w, box, samples=samples)
-            for r, w in zip(rows, each, strict=True)
+            for r, w in zip(rows, stroke_widths, strict=True)
         ]
         stacked = torch.stack(covers)
-        union = 1 - torch.prod(1 - stacked, dim=0)
-        drawn = under * (1 - union)
-        loss = ((drawn - goal).abs() * weight).sum()
+        drawn = under
+        for alpha, colour in zip(stacked, stroke_colours, strict=True):
+            drawn = drawn * (1 - alpha[..., None]) + (
+                colour.clamp(0, 1) * alpha[..., None]
+            )
+        loss = ((drawn - goal).abs() * weight[..., None]).sum()
         if redundancy:
             loss = (
                 loss + redundancy * ((stacked.sum(0) - 1).clamp_min(0) * weight).sum()
@@ -436,6 +466,9 @@ def fit_group(
         optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        with torch.no_grad():
+            stroke_widths.clamp_(min=0.1)
+            stroke_colours.clamp_(0, 1)
         if pinned:
             with torch.no_grad():
                 held = torch.tensor(sorted(pinned), device=device, dtype=torch.long)
@@ -443,7 +476,13 @@ def fit_group(
         last = float(loss.detach())
 
     fitted = [knots_to_path_d(chain_of(r).detach().cpu().tolist()) for r in rows]
-    return fitted, first, last
+    return (
+        fitted,
+        stroke_widths.detach().cpu().tolist(),
+        [tuple(colour) for colour in stroke_colours.detach().cpu().tolist()],
+        first,
+        last,
+    )
 
 
 def _fill_winding(
@@ -1995,15 +2034,161 @@ def fittable_opaque_fills(svg: str) -> bool:
     return False
 
 
+_FillBounds = tuple[float, float, float, float]
+_FittableFill = tuple[int, Any, _FillBounds]
+
+
+def _fittable_fill_elements(root) -> list[_FittableFill]:
+    """Return document-indexed opaque fills with conservative control bounds."""
+    entries = []
+    for document_index, element in enumerate(root.iter()):
+        if element.tag.split("}")[-1] != "path" or not element.get("d"):
+            continue
+        if _fill_rgb(element.get("fill")) is None:
+            continue
+        try:
+            contours = parse_filled_cubics(element.get("d", ""))
+        except UnsupportedPathError:
+            continue
+        if element.get("fill-rule", "nonzero").strip().lower() not in {
+            "evenodd",
+            "nonzero",
+        }:
+            continue
+        points = [point for contour in contours for cubic in contour for point in cubic]
+        entries.append(
+            (
+                document_index,
+                element,
+                (
+                    min(point[0] for point in points),
+                    min(point[1] for point in points),
+                    max(point[0] for point in points),
+                    max(point[1] for point in points),
+                ),
+            )
+        )
+    return entries
+
+
+def _select_fill_group(
+    entries: list[_FittableFill],
+    *,
+    weights: Mapping[int, float] | None,
+    maximum_paths: int,
+) -> set[int]:
+    """Choose one bounded spatial fill group, biased toward attributed error."""
+    if maximum_paths < 1:
+        raise ValueError("maximum_paths must be positive")
+    scores = [max(0.0, (weights or {}).get(index, 0.0)) for index, _el, _box in entries]
+    focal = (
+        random.choices(entries, weights=scores, k=1)[0]
+        if sum(scores) > 0
+        else random.choice(entries)
+    )
+    focal_index, _element, (left, top, right, bottom) = focal
+    centre_x, centre_y = (left + right) / 2, (top + bottom) / 2
+    extent = max(right - left, bottom - top, 8.0)
+
+    def distance(entry: _FittableFill) -> tuple[int, float, int]:
+        (
+            index,
+            _candidate,
+            (
+                candidate_left,
+                candidate_top,
+                candidate_right,
+                candidate_bottom,
+            ),
+        ) = entry
+        candidate_x = (candidate_left + candidate_right) / 2
+        candidate_y = (candidate_top + candidate_bottom) / 2
+        overlap = not (
+            candidate_right < left - extent
+            or candidate_left > right + extent
+            or candidate_bottom < top - extent
+            or candidate_top > bottom + extent
+        )
+        return (
+            0 if overlap else 1,
+            (candidate_x - centre_x) ** 2 + (candidate_y - centre_y) ** 2,
+            index,
+        )
+
+    selected = sorted(entries, key=distance)[:maximum_paths]
+    return {index for index, _element, _box in selected} | {focal_index}
+
+
+def fill_groups(svg: str, *, maximum_paths: int = 16) -> list[set[int]]:
+    """Partition opaque fills into bounded spatial groups for coordinate descent."""
+    import xml.etree.ElementTree as ET
+
+    entries = _fittable_fill_elements(ET.fromstring(svg))
+    remaining = {index for index, _element, _box in entries}
+    groups = []
+    while remaining:
+        focal = next(entry for entry in entries if entry[0] in remaining)
+        focal_index, _element, (left, top, right, bottom) = focal
+        centre_x, centre_y = (left + right) / 2, (top + bottom) / 2
+        extent = max(right - left, bottom - top, 8.0)
+
+        def key(
+            entry: _FittableFill,
+            bounds: _FillBounds = (left, top, right, bottom),
+            radius: float = extent,
+            centre: tuple[float, float] = (centre_x, centre_y),
+        ) -> tuple[int, float, int]:
+            (
+                index,
+                _candidate,
+                (
+                    candidate_left,
+                    candidate_top,
+                    candidate_right,
+                    candidate_bottom,
+                ),
+            ) = entry
+            focal_left, focal_top, focal_right, focal_bottom = bounds
+            focal_x, focal_y = centre
+            candidate_x = (candidate_left + candidate_right) / 2
+            candidate_y = (candidate_top + candidate_bottom) / 2
+            overlap = not (
+                candidate_right < focal_left - radius
+                or candidate_left > focal_right + radius
+                or candidate_bottom < focal_top - radius
+                or candidate_top > focal_bottom + radius
+            )
+            return (
+                0 if overlap else 1,
+                (candidate_x - focal_x) ** 2 + (candidate_y - focal_y) ** 2,
+                index,
+            )
+
+        group = {
+            index
+            for index, _element, _bounds in sorted(
+                (entry for entry in entries if entry[0] in remaining), key=key
+            )[:maximum_paths]
+        }
+        group.add(focal_index)
+        groups.append(group)
+        remaining -= group
+    return groups
+
+
 def fit_opaque_fills_locally(
     svg: str,
     reference_png: bytes,
     *,
     steps: int = 8,
     rasterize=None,
+    weights: Mapping[int, float] | None = None,
+    maximum_paths: int = 16,
+    selected_indices: set[int] | None = None,
+    optimisation_long_side: int | None = 64,
     gpu_gate: Any = None,
 ) -> str:
-    """Use SAMVG's analytic opaque-fill fitter as one local-search move.
+    """Fit one spatially bounded opaque-fill group as a local-search move.
 
     Unlike the legacy stroke fitter this operates on complete filled shapes,
     including compound paths and holes.  It deliberately keeps the 64px
@@ -2012,43 +2197,120 @@ def fit_opaque_fills_locally(
     """
     from PIL import Image
 
-    if not fittable_opaque_fills(svg):
-        raise UnsupportedPathError("no opaque filled cubic paths to fit")
     target = Image.open(io.BytesIO(reference_png)).convert("RGB")
-    backdrop = None
-    if rasterize is not None:
-        import xml.etree.ElementTree as ET
+    if rasterize is None:
+        raise UnsupportedPathError("bounded fill fitting needs an SVG rasterizer")
+    import xml.etree.ElementTree as ET
 
-        root = ET.fromstring(svg)
-        for element in root.iter():
-            if element.tag.split("}")[-1] != "path":
-                continue
-            if _fill_rgb(element.get("fill")) is None:
-                continue
-            try:
-                parse_filled_cubics(element.get("d", ""))
-            except UnsupportedPathError:
-                continue
+    original = ET.fromstring(svg)
+    entries = _fittable_fill_elements(original)
+    if not entries:
+        raise UnsupportedPathError("no opaque filled cubic paths to fit")
+    selected_indices = selected_indices or _select_fill_group(
+        entries, weights=weights, maximum_paths=maximum_paths
+    )
+    backdrop_root = ET.fromstring(svg)
+    working_root = ET.fromstring(svg)
+    for index, element in enumerate(backdrop_root.iter()):
+        if index in selected_indices:
             element.set("d", "")
-        backdrop = Image.open(
-            io.BytesIO(
-                rasterize(
-                    ET.tostring(root, encoding="unicode"), target.width, target.height
-                )
+    for index, element in enumerate(working_root.iter()):
+        if index not in selected_indices and element.tag.split("}")[-1] == "path":
+            element.set("d", "")
+    backdrop = Image.open(
+        io.BytesIO(
+            rasterize(
+                ET.tostring(backdrop_root, encoding="unicode"),
+                target.width,
+                target.height,
             )
-        ).convert("RGB")
+        )
+    ).convert("RGB")
     with gpu_slot(gpu_gate):
-        return fit_filled_svg(
-            svg,
+        fitted = fit_filled_svg(
+            ET.tostring(working_root, encoding="unicode"),
             target,
             steps=steps,
-            optimisation_long_side=64,
+            optimisation_long_side=optimisation_long_side,
             backdrop=backdrop,
         )
+    fitted_root = ET.fromstring(fitted)
+    fitted_by_index = dict(enumerate(fitted_root.iter()))
+    for index, element in enumerate(original.iter()):
+        if index not in selected_indices:
+            continue
+        updated = fitted_by_index[index]
+        element.set("d", updated.get("d", ""))
+        element.set("fill", updated.get("fill", element.get("fill", "")))
+    return ET.tostring(original, encoding="unicode")
+
+
+def fit_filled_svg_bounded(
+    svg: str,
+    target: Image.Image,
+    *,
+    rasterize,
+    steps: int = 500,
+    maximum_paths: int = 16,
+    gpu_gate: Any = None,
+    measurements: list[dict[str, int | float]] | None = None,
+) -> str:
+    """Run one full SAMVG fill phase as bounded spatial coordinate descent.
+
+    ``steps`` is the per-group phase budget.  Coordinate descent needs to give
+    every group the same fitting opportunity that it would have had in the
+    original global graph; splitting that budget between groups loses detail.
+    It consequently trades wall time for a strictly bounded differentiable
+    graph.  When requested, ``measurements`` receives one timing and CUDA-peak
+    record for each local group mutation.
+    """
+    if steps < 1:
+        raise ValueError("steps must be positive")
+    groups = fill_groups(svg, maximum_paths=maximum_paths)
+    if not groups:
+        raise UnsupportedPathError("no opaque filled cubic paths to optimise")
+    encoded = io.BytesIO()
+    target.convert("RGB").save(encoded, format="PNG")
+    fitted = svg
+    for index, group in enumerate(groups):
+        peak_before = 0
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+                peak_before = int(torch.cuda.max_memory_allocated())
+        except ImportError:
+            torch = None  # type: ignore[assignment]
+        started = perf_counter()
+        fitted = fit_opaque_fills_locally(
+            fitted,
+            encoded.getvalue(),
+            steps=steps,
+            rasterize=rasterize,
+            maximum_paths=maximum_paths,
+            selected_indices=group,
+            optimisation_long_side=None,
+            gpu_gate=gpu_gate,
+        )
+        if measurements is not None:
+            peak = peak_before
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.synchronize()
+                peak = int(torch.cuda.max_memory_allocated())
+            measurements.append(
+                {
+                    "group": index,
+                    "paths": len(group),
+                    "seconds": perf_counter() - started,
+                    "peak_cuda_bytes": peak,
+                }
+            )
+    return fitted
 
 
 def fittable_strokes(svg: str) -> bool:
-    """Whether the legacy cubic stroke parser can select a stroke group."""
+    """Whether the unified cubic-stroke fitter can select a stroke group."""
     import xml.etree.ElementTree as ET
 
     try:
@@ -2066,33 +2328,33 @@ def fit_svg_primitives_locally(
     steps: int = 8,
     gpu_gate: Any = None,
 ) -> str:
-    """Fit analytic fills then a selected cubic-stroke group over that result.
+    """Fit one selected fill or stroke primitive group over fixed SVG context.
 
     Each fitter rasterizes the non-active document as a fixed backdrop.  This
     prevents a fill from being rewarded for covering a line or editable text,
     while the subsequent stroke move sees the newly fitted fills unchanged.
     """
-    fitted = svg
-    if fittable_opaque_fills(fitted):
-        fitted = fit_opaque_fills_locally(
-            fitted,
+    fills = fittable_opaque_fills(svg)
+    strokes = fittable_strokes(svg)
+    if fills and (not strokes or random.random() < 0.5):
+        return fit_opaque_fills_locally(
+            svg,
             reference_png,
             steps=steps,
             rasterize=rasterize,
+            weights=weights,
             gpu_gate=gpu_gate,
         )
-    if fittable_strokes(fitted):
-        fitted = fit_random_group(
-            fitted,
+    if strokes:
+        return fit_random_group(
+            svg,
             reference_png,
             rasterize=rasterize,
             steps=steps,
             weights=weights,
             gpu_gate=gpu_gate,
         )
-    if fitted == svg:
-        raise UnsupportedPathError("no supported filled or stroked cubics to fit")
-    return fitted
+    raise UnsupportedPathError("no supported filled or stroked cubics to fit")
 
 
 def _stroke_width(element, ancestors) -> float | None:
@@ -2106,6 +2368,20 @@ def _stroke_width(element, ancestors) -> float | None:
                 return None
         if (node.get("stroke") or "").strip() in ("none",):
             return None
+    return None
+
+
+def _stroke_rgb(
+    element: Any, ancestors: list[Any]
+) -> tuple[float, float, float] | None:
+    """Return an inherited opaque hex stroke colour, if the path paints one."""
+    for node in (element, *ancestors):
+        raw = node.get("stroke")
+        if raw is None:
+            continue
+        if raw.strip().lower() == "none":
+            return None
+        return _fill_rgb(raw)
     return None
 
 
@@ -2232,7 +2508,7 @@ def fit_random_group(
         paths = [p for i, p in enumerate(paths) if i in chosen]
 
     size = int(_canvas_side(root))
-    target = Image.open(io.BytesIO(reference_png)).convert("L").resize((size, size))
+    target = Image.open(io.BytesIO(reference_png)).convert("RGB").resize((size, size))
 
     # The backdrop is the drawing without these paths, so the fit sees the rest
     # of the picture as a constant and cannot be rewarded for redrawing it.
@@ -2243,24 +2519,37 @@ def fit_random_group(
         path.set("d", "")
     backdrop = Image.open(
         io.BytesIO(rasterize(ET.tostring(root, encoding="unicode"), size, size))
-    ).convert("L")
+    ).convert("RGB")
     for path, data in zip(paths, original, strict=True):
         path.set("d", data)
 
     held = _shared_vertices([parse_cubics(d) for d in original], excluded)
+    parents = _parents(root)
+    colours = [
+        _stroke_rgb(path, _ancestry(path, parents, root)) or (0.0, 0.0, 0.0)
+        for path in paths
+    ]
     with gpu_slot(gpu_gate):
-        fitted, _first, _last = fit_group(
+        fitted, fitted_widths, fitted_colours, _first, _last = fit_group(
             original,
             widths,
             target,
             backdrop,
+            colours,
             size=size,
             steps=steps,
             samples=samples,
             pinned=held,
         )
-    for path, data in zip(paths, fitted, strict=True):
+    for path, data, width, colour in zip(
+        paths, fitted, fitted_widths, fitted_colours, strict=True
+    ):
         path.set("d", data)
+        path.set("stroke-width", f"{width:.2f}")
+        path.set(
+            "stroke",
+            "#" + "".join(f"{round(channel * 255):02x}" for channel in colour),
+        )
     return ET.tostring(root, encoding="unicode")
 
 

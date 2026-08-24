@@ -16,8 +16,9 @@ import math
 import os
 import re
 import xml.etree.ElementTree as ET
-from collections import defaultdict, deque
+from collections import defaultdict
 from collections.abc import Callable
+from contextlib import nullcontext
 from dataclasses import dataclass
 from typing import Any, cast
 
@@ -30,6 +31,14 @@ log = logging.getLogger(__name__)
 # ViT-H is the paper-quality default; users who need the smaller checkpoint can
 # opt down without changing the package through VECTRIFY_SAMVG_MODEL.
 SAMVG_MODEL = os.environ.get("VECTRIFY_SAMVG_MODEL", "facebook/sam-vit-huge")
+# SAM encodes images at a native 1024px long side.  Keep that encoder-size cap
+# as the default even when Vectrify is asked to vectorize a larger original;
+# masks are restored to the original canvas before tracing.
+SAMVG_MAX_SIDE = int(os.environ.get("VECTRIFY_SAMVG_MAX_SIDE", "1024"))
+# This is the decoder prompt batch, not the dissertation's 32x32 sampling
+# grid. 64 doubles the old 32 while leaving full-resolution-mask
+# headroom on a 16 GB GPU; users with larger cards can raise it by environment.
+SAMVG_POINTS_PER_BATCH = int(os.environ.get("VECTRIFY_SAMVG_POINTS_PER_BATCH", "64"))
 # SAMVG's own impact filter selects useful masks against the image.  Retaining
 # AMG's score gates here discarded the small facial candidates needed by the
 # photo seed before that image-aware test could evaluate them.
@@ -241,35 +250,72 @@ def _is_crop_edge_mask(
     return bool(np.any(at_crop_edge & ~at_image_edge))
 
 
+def _run_components(mask: np.ndarray) -> list[list[tuple[int, int, int]]]:
+    """Return 4-connected components as row spans in row-major order.
+
+    The old breadth-first walk crossed the Python interpreter once for every
+    foreground pixel. SAM masks are usually broad regions, so representing
+    each row as contiguous runs reduces that to a small number of intervals
+    while retaining scipy.ndimage's 4-connected ordering.
+    """
+    foreground = np.asarray(mask, dtype=bool)
+    _height, width = foreground.shape
+    parent = [0]
+
+    def root(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = parent[index]
+        return index
+
+    def merge(left: int, right: int) -> None:
+        left, right = root(left), root(right)
+        if left != right:
+            parent[right] = left
+
+    rows: list[list[tuple[int, int, int]]] = []
+    previous: list[tuple[int, int, int]] = []
+    for row in foreground:
+        padded = np.empty(width + 2, dtype=bool)
+        padded[0] = padded[-1] = False
+        padded[1:-1] = row
+        edges = np.flatnonzero(padded[1:] != padded[:-1])
+        current: list[tuple[int, int, int]] = []
+        prior = 0
+        for start, end in edges.reshape(-1, 2):
+            while prior < len(previous) and previous[prior][1] <= start:
+                prior += 1
+            index = len(parent)
+            parent.append(index)
+            candidate = prior
+            while candidate < len(previous) and previous[candidate][0] < end:
+                merge(index, previous[candidate][2])
+                candidate += 1
+            current.append((int(start), int(end), index))
+        rows.append(current)
+        previous = current
+
+    components: list[list[tuple[int, int, int]]] = []
+    component_ids: dict[int, int] = {}
+    for y, runs in enumerate(rows):
+        for start, end, index in runs:
+            component = root(index)
+            label = component_ids.setdefault(component, len(component_ids))
+            if label == len(components):
+                components.append([])
+            components[label].append((y, start, end))
+    return components
+
+
 def _label(mask: np.ndarray) -> tuple[np.ndarray, int]:
-    """Label 4-connected foreground components like scipy.ndimage.label."""
+    """Materialize 4-connected scanline components as an integer label map."""
     foreground = np.asarray(mask, dtype=bool)
     labels = np.zeros(foreground.shape, dtype=np.int32)
-    height, width = foreground.shape
-    count = 0
-    for y, x in zip(*np.nonzero(foreground), strict=True):
-        if labels[y, x]:
-            continue
-        count += 1
-        labels[y, x] = count
-        pending = deque([(int(y), int(x))])
-        while pending:
-            row, column = pending.popleft()
-            for next_y, next_x in (
-                (row - 1, column),
-                (row + 1, column),
-                (row, column - 1),
-                (row, column + 1),
-            ):
-                if (
-                    0 <= next_y < height
-                    and 0 <= next_x < width
-                    and foreground[next_y, next_x]
-                    and not labels[next_y, next_x]
-                ):
-                    labels[next_y, next_x] = count
-                    pending.append((next_y, next_x))
-    return labels, count
+    components = _run_components(foreground)
+    for index, runs in enumerate(components, start=1):
+        for y, start, end in runs:
+            labels[y, start:end] = index
+    return labels, len(components)
 
 
 def _edt_1d(values: np.ndarray) -> np.ndarray:
@@ -372,55 +418,221 @@ def _mean_shift_centres(points: np.ndarray, bandwidth: float) -> np.ndarray:
     return candidates[unique]
 
 
-def automatic_masks(image: Image.Image) -> list[np.ndarray]:
-    """Retrieve SAM AMG masks with the thesis's 32-point grid and crops."""
+def _sam_image(image: Image.Image, max_side: int | None) -> tuple[Image.Image, float]:
+    """Bound a SAM pass while retaining masks in the original canvas space."""
+    image = image.convert("RGB")
+    if max_side is None:
+        return image, 1.0
+    if max_side < 1:
+        raise ValueError("max_side must be positive")
+    longest = max(image.size)
+    if longest <= max_side:
+        return image, 1.0
+    scale = max_side / longest
+    return (
+        image.resize(
+            (round(image.width * scale), round(image.height * scale)),
+            Image.Resampling.LANCZOS,
+        ),
+        scale,
+    )
+
+
+def _restore_mask(mask: np.ndarray, size: tuple[int, int]) -> np.ndarray:
+    """Nearest-neighbour restore keeps SAM's binary mask semantics."""
+    if mask.shape == (size[1], size[0]):
+        return np.asarray(mask, dtype=bool)
+    return np.asarray(
+        Image.fromarray(np.asarray(mask, dtype=np.uint8) * 255).resize(
+            size, Image.Resampling.NEAREST
+        ),
+        dtype=bool,
+    )
+
+
+@dataclass
+class _SamRuntime:
+    """One SAM model lifetime, including a reusable full-image embedding."""
+
+    generator: Any
+    processor: Any | None = None
+    image_embeddings: Any | None = None
+    embedding_size: tuple[int, int] | None = None
+
+
+def _sam_runtime() -> _SamRuntime:
+    """Load SAM once, in half precision when CUDA is available."""
     try:
+        import torch
         from transformers import pipeline
     except ImportError as exc:  # pragma: no cover - installation-specific
         raise ImportError(
             "SAMVG requires the samvg extra. Install 'vectrify[samvg]'."
         ) from exc
-    image = image.convert("RGB")
-    generator = pipeline("mask-generation", model=SAMVG_MODEL, device=0)
-    log.info("SAMVG automatic masks: %s on %s.", SAMVG_MODEL, generator.device)
+    options: dict[str, Any] = {"model": SAMVG_MODEL, "device": 0}
+    if torch.cuda.is_available():
+        options["dtype"] = torch.float16
+    generator = pipeline("mask-generation", **options)
+    log.info(
+        "SAMVG automatic masks: %s on %s (%s).",
+        SAMVG_MODEL,
+        generator.device,
+        "fp16" if torch.cuda.is_available() else "fp32",
+    )
+    return _SamRuntime(generator)
 
-    def masks_for(source: Image.Image) -> list[np.ndarray]:
-        return [
-            np.asarray(mask, dtype=bool)
-            for mask in generator(
-                source,
-                points_per_batch=32,
-                points_per_crop=32,
-                crops_n_layers=0,
-                pred_iou_thresh=SAMVG_PRED_IOU_THRESH,
-                stability_score_thresh=SAMVG_STABILITY_SCORE_THRESH,
-            )["masks"]
-        ]
+
+def _sam_autocast():
+    """Use Tensor Cores for inference while keeping exported masks binary."""
+    import torch
+
+    if torch.cuda.is_available():
+        return torch.autocast(device_type="cuda", dtype=torch.float16)
+    return nullcontext()
+
+
+def _automatic_forward(inputs: Any, runtime: _SamRuntime) -> dict[str, Any]:
+    """Decode on CUDA, then expand and filter masks on CPU.
+
+    The stock Transformers pipeline expands a prompt batch to the original
+    image size on CUDA. At 1024px that transient allocation is larger than the
+    decoder itself. Its filtering sequence is unchanged here; only the
+    post-decoder device changes.
+    """
+    generator = runtime.generator
+    input_boxes = inputs.pop("input_boxes").detach().cpu().float()
+    is_last = inputs.pop("is_last")
+    original_sizes = inputs.pop("original_sizes").detach().cpu().tolist()
+    reshaped_sizes = inputs.pop("reshaped_input_sizes", None)
+    if reshaped_sizes is not None:
+        reshaped_sizes = reshaped_sizes.detach().cpu().tolist()
+    with _sam_autocast():
+        model_outputs = generator.model(**inputs)
+    masks = generator.image_processor.post_process_masks(
+        model_outputs.pred_masks.detach().cpu(),
+        original_sizes,
+        mask_threshold=0,
+        reshaped_input_sizes=reshaped_sizes,
+        binarize=False,
+    )
+    filtered_masks, scores, boxes = generator.image_processor.filter_masks(
+        masks[0],
+        model_outputs.iou_scores.detach().cpu().float()[0],
+        original_sizes[0],
+        input_boxes[0],
+        SAMVG_PRED_IOU_THRESH,
+        SAMVG_STABILITY_SCORE_THRESH,
+        0,
+        1,
+    )
+    return {
+        "masks": filtered_masks,
+        "is_last": is_last,
+        "boxes": boxes,
+        "iou_scores": scores,
+    }
+
+
+def _automatic_masks_for(
+    source: Image.Image,
+    runtime: _SamRuntime,
+    *,
+    cache_embedding: bool,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
+) -> list[np.ndarray]:
+    """Run one AMG image/crop without recomputing prompt-grid embeddings.
+
+    Transformers' public mask-generation call already encodes an image once
+    per 32x32 prompt grid. For the full image we use the same pipeline stages
+    directly so the resulting embedding can be reused by coverage/residual
+    prompts. Crops intentionally retain their own embeddings.
+    """
+    generator = runtime.generator
+    arguments = {
+        "points_per_batch": points_per_batch,
+        "points_per_crop": 32,
+        "crops_n_layers": 0,
+        "pred_iou_thresh": SAMVG_PRED_IOU_THRESH,
+        "stability_score_thresh": SAMVG_STABILITY_SCORE_THRESH,
+    }
+    # Keep a small compatibility path for mocked/older Transformers pipelines.
+    if not hasattr(generator, "preprocess"):
+        output = generator(source, **arguments)
+        return [np.asarray(mask, dtype=bool) for mask in output["masks"]]
+
+    outputs = []
+    for inputs in generator.preprocess(
+        source,
+        points_per_batch=points_per_batch,
+        points_per_crop=32,
+        crops_n_layers=0,
+    ):
+        # ChunkPipeline normally performs this transfer between preprocess and
+        # _forward. We call those stages directly to retain the embedding.
+        inputs = generator._ensure_tensor_on_device(inputs, device=generator.device)
+        embedding = inputs.get("image_embeddings")
+        if (
+            cache_embedding
+            and embedding is not None
+            and runtime.image_embeddings is None
+        ):
+            runtime.image_embeddings = embedding
+            runtime.embedding_size = source.size
+        outputs.append(_automatic_forward(inputs, runtime))
+    output = generator.postprocess(outputs)
+    return [np.asarray(mask, dtype=bool) for mask in output["masks"]]
+
+
+def automatic_masks(
+    image: Image.Image,
+    *,
+    max_side: int | None = SAMVG_MAX_SIDE,
+    _runtime: _SamRuntime | None = None,
+) -> list[np.ndarray]:
+    """Retrieve SAM AMG masks with the thesis grid, optionally size-capped."""
+    original_size = image.size
+    image, _scale = _sam_image(image, max_side)
+    runtime = _runtime or _sam_runtime()
 
     # transformers' built-in crop layer tries to stack unequal crop tensors.
     # Run that first crop layer one crop at a time instead.  Crucially, do not
     # pre-pad a rectangular image: the original AMG formula uses the source's
     # short side for overlap, and black padding changes SAM's visual context.
     width, height = image.size
-    collected = masks_for(image)
-    overlap = int((512 / 1500) * min(width, height))
-    crop_width = math.ceil((overlap + width) / 2)
-    crop_height = math.ceil((overlap + height) / 2)
-    for x, y in {
-        (0, 0),
-        (crop_width - overlap, 0),
-        (0, crop_height - overlap),
-        (crop_width - overlap, crop_height - overlap),
-    }:
-        right, bottom = min(x + crop_width, width), min(y + crop_height, height)
-        crop_box = (x, y, right, bottom)
-        for crop_mask in masks_for(image.crop(crop_box)):
-            if _is_crop_edge_mask(crop_mask, crop_box, image.size):
-                continue
-            mask = np.zeros((height, width), dtype=bool)
-            mask[y:bottom, x:right] = crop_mask
-            collected.append(mask)
-    return collected
+
+    def collect(points_per_batch: int) -> list[np.ndarray]:
+        collected = _automatic_masks_for(
+            image,
+            runtime,
+            cache_embedding=True,
+            points_per_batch=points_per_batch,
+        )
+        overlap = int((512 / 1500) * min(width, height))
+        crop_width = math.ceil((overlap + width) / 2)
+        crop_height = math.ceil((overlap + height) / 2)
+        for x, y in {
+            (0, 0),
+            (crop_width - overlap, 0),
+            (0, crop_height - overlap),
+            (crop_width - overlap, crop_height - overlap),
+        }:
+            right, bottom = min(x + crop_width, width), min(y + crop_height, height)
+            crop_box = (x, y, right, bottom)
+            for crop_mask in _automatic_masks_for(
+                image.crop(crop_box),
+                runtime,
+                cache_embedding=False,
+                points_per_batch=points_per_batch,
+            ):
+                if _is_crop_edge_mask(crop_mask, crop_box, image.size):
+                    continue
+                mask = np.zeros((height, width), dtype=bool)
+                mask[y:bottom, x:right] = crop_mask
+                collected.append(mask)
+        return collected
+
+    collected = collect(SAMVG_POINTS_PER_BATCH)
+    return [_restore_mask(mask, original_size) for mask in collected]
 
 
 def _components(
@@ -432,28 +644,33 @@ def _components(
     holes before tracing matches AMG's small-region cleanup and prevents a
     noisy mask from becoming hundreds of even-odd SVG contours.
     """
-    labels, count = _label(mask)
+    foreground = np.asarray(mask, dtype=bool)
+    if int(foreground.sum()) < min_pixels:
+        return []
+    height, width = foreground.shape
     components = []
-    for index in range(1, count + 1):
-        component = labels == index
-        if int(component.sum()) < min_pixels:
+    for runs in _run_components(foreground):
+        if sum(end - start for _y, start, end in runs) < min_pixels:
             continue
+        component = np.zeros((height, width), dtype=bool)
+        for y, start, end in runs:
+            component[y, start:end] = True
         if fill_holes:
             # AMG's postprocessing removes *small* enclosed holes, rather
             # than turning meaningful cutouts such as an eye into a solid
             # region.  The same area cutoff as tiny components keeps those
             # two decisions consistent.
-            background, hole_count = _label(~component)
-            for hole in range(1, hole_count + 1):
-                points = background == hole
-                if (
-                    int(points.sum()) <= min_pixels
-                    and not points[0].any()
-                    and not points[-1].any()
-                    and not points[:, 0].any()
-                    and not points[:, -1].any()
-                ):
-                    component[points] = True
+            for hole in _run_components(~component):
+                area = sum(end - start for _y, start, end in hole)
+                if area > min_pixels:
+                    continue
+                touches_border = any(
+                    y in {0, height - 1} or start == 0 or end == width
+                    for y, start, end in hole
+                )
+                if not touches_border:
+                    for y, start, end in hole:
+                        component[y, start:end] = True
         components.append(np.asarray(component, dtype=bool))
     return components
 
@@ -499,13 +716,20 @@ def recolour_visible_layers(
     return list(reversed(revised))
 
 
-def _impact_error(
+def _impact_error_map(
     target: np.ndarray, canvas: np.ndarray, coverage: np.ndarray
-) -> float:
+) -> np.ndarray:
     """SAMVG's blank-canvas error, charging uncovered pixels maximally."""
     error = ((target.astype(np.float32) - canvas.astype(np.float32)) / 255.0) ** 2
     error[~coverage] = 1.0
-    return float(error.mean())
+    return error
+
+
+def _impact_error(
+    target: np.ndarray, canvas: np.ndarray, coverage: np.ndarray
+) -> float:
+    """Return the scalar blank-canvas reconstruction error."""
+    return float(_impact_error_map(target, canvas, coverage).mean())
 
 
 def filter_by_impact(
@@ -538,7 +762,9 @@ def filter_by_impact(
         if initial_coverage.shape != coverage.shape:
             raise ValueError("initial coverage does not match the target size")
         coverage = initial_coverage.astype(bool, copy=True)
-    error = _impact_error(target, canvas, coverage)
+    error_map = _impact_error_map(target, canvas, coverage)
+    error_total = float(error_map.sum(dtype=np.float64))
+    error = error_total / error_map.size
     initial_count = len(accepted)
     candidates = [
         component
@@ -556,15 +782,22 @@ def filter_by_impact(
             tuple[int, int, int],
             tuple(int(value) for value in np.rint(target[mask].mean(axis=0))),
         )
-        next_canvas = canvas.copy()
-        next_coverage = coverage | mask
-        next_canvas[mask] = colour
-        next_error = _impact_error(target, next_canvas, next_coverage)
+        old_error = error_map[mask]
+        next_error_values = (
+            (target[mask].astype(np.float32) - np.asarray(colour, dtype=np.float32))
+            / 255.0
+        ) ** 2
+        next_error_total = error_total - float(old_error.sum(dtype=np.float64))
+        next_error_total += float(next_error_values.sum(dtype=np.float64))
+        next_error = next_error_total / error_map.size
         impact = error - next_error
         if impact < min_impact:
             continue
         accepted.append(MaskLayer(mask, colour, impact))
-        canvas, coverage, error = next_canvas, next_coverage, next_error
+        canvas[mask] = colour
+        coverage |= mask
+        error_map[mask] = next_error_values
+        error_total, error = next_error_total, next_error
         # Each SAMVG stage is allowed its own retained-mask budget.  Applying
         # this to the combined existing+new list silently limited recovery to
         # one path once the automatic stage had filled its budget.
@@ -598,7 +831,11 @@ def coverage_prompt_points(
 
 
 def prompted_masks(
-    image: Image.Image, points: list[tuple[int, int]]
+    image: Image.Image,
+    points: list[tuple[int, int]],
+    *,
+    max_side: int | None = SAMVG_MAX_SIDE,
+    _runtime: _SamRuntime | None = None,
 ) -> list[np.ndarray]:
     """Prompt SAM at centres and return all three masks per point.
 
@@ -609,32 +846,47 @@ def prompted_masks(
     if not points:
         return []
     import torch
-    from transformers import SamModel, SamProcessor
+    from transformers import SamProcessor
 
+    original_size = image.size
+    image, scale = _sam_image(image, max_side)
+    if scale != 1.0:
+        points = [(round(x * scale), round(y * scale)) for x, y in points]
+    own_runtime = _runtime is None
+    runtime = _runtime or _sam_runtime()
     device = "cuda" if torch.cuda.is_available() else "cpu"
     log.info("SAMVG prompted masks: using %s.", device)
-    processor = SamProcessor.from_pretrained(SAMVG_MODEL)
-    model = SamModel.from_pretrained(SAMVG_MODEL).to(device)
+    if runtime.processor is None:
+        runtime.processor = SamProcessor(runtime.generator.image_processor)
     try:
         input_points = [[[list(point)] for point in points]]
-        inputs = processor(
+        inputs = runtime.processor(
             images=image, input_points=input_points, return_tensors="pt"
         ).to(device)
-        with torch.inference_mode():
-            output = model(**inputs)
-        post = processor.image_processor.post_process_masks(
+        if (
+            runtime.embedding_size == image.size
+            and runtime.image_embeddings is not None
+        ):
+            # The full-image automatic pass has already encoded these pixels.
+            # Retain only decoder inputs for the coverage/residual prompts.
+            inputs.pop("pixel_values")
+            inputs["image_embeddings"] = runtime.image_embeddings
+        with torch.inference_mode(), _sam_autocast():
+            output = runtime.generator.model(**inputs)
+        post = runtime.processor.image_processor.post_process_masks(
             output.pred_masks.detach().cpu(),
             inputs["original_sizes"].detach().cpu(),
             inputs["reshaped_input_sizes"].detach().cpu(),
         )[0]
         return [
-            np.asarray(post[prompt, candidate], dtype=bool)
+            _restore_mask(
+                np.asarray(post[prompt, candidate], dtype=bool), original_size
+            )
             for prompt in range(post.shape[0])
             for candidate in range(post.shape[1])
         ]
     finally:
-        del model
-        if torch.cuda.is_available():
+        if own_runtime and torch.cuda.is_available():
             torch.cuda.empty_cache()
 
 
@@ -646,10 +898,17 @@ def retrieve_layers(
     min_impact: float = 1e-5,
     max_layers: int = 512,
     fill_holes: bool = True,
+    max_side: int | None = SAMVG_MAX_SIDE,
+    _runtime: _SamRuntime | None = None,
 ) -> list[MaskLayer]:
     """Run SAMVG's automatic-mask, coverage-prompt, filter sequence."""
     image = image.convert("RGB")
-    initial = automatic_masks(image) if masks is None else masks
+    runtime = _runtime
+    if masks is None:
+        runtime = runtime or _sam_runtime()
+        initial = automatic_masks(image, max_side=max_side, _runtime=runtime)
+    else:
+        initial = masks
     layers = filter_by_impact(
         image,
         initial,
@@ -660,7 +919,7 @@ def retrieve_layers(
     )
     layers = recolour_visible_layers(image, layers)
     points = coverage_prompt_points(layers, (image.height, image.width))
-    prompted = prompted_masks(image, points)
+    prompted = prompted_masks(image, points, max_side=max_side, _runtime=runtime)
     recovered = filter_by_impact(
         image,
         prompted,
@@ -847,6 +1106,179 @@ def mask_path(
     return " ".join(parts) or None
 
 
+_SKELETON_NEIGHBOURS = (
+    (-1, -1),
+    (-1, 0),
+    (-1, 1),
+    (0, -1),
+    (0, 1),
+    (1, -1),
+    (1, 0),
+    (1, 1),
+)
+
+
+def _thin_mask(mask: np.ndarray) -> np.ndarray:
+    """Zhang--Suen thinning without adding a SciPy/skimage dependency."""
+    thin = np.pad(mask.astype(np.uint8), 1).copy()
+    changed = True
+    while changed:
+        changed = False
+        for phase in range(2):
+            remove: list[tuple[int, int]] = []
+            for y, x in zip(*np.nonzero(thin), strict=True):
+                if y in {0, thin.shape[0] - 1} or x in {0, thin.shape[1] - 1}:
+                    continue
+                ring = [
+                    thin[y - 1, x],
+                    thin[y - 1, x + 1],
+                    thin[y, x + 1],
+                    thin[y + 1, x + 1],
+                    thin[y + 1, x],
+                    thin[y + 1, x - 1],
+                    thin[y, x - 1],
+                    thin[y - 1, x - 1],
+                ]
+                count = sum(ring)
+                transitions = sum(
+                    left == 0 and right == 1
+                    for left, right in zip(ring, [*ring[1:], ring[0]], strict=True)
+                )
+                if not (2 <= count <= 6 and transitions == 1):
+                    continue
+                north, east, south, west = ring[0], ring[2], ring[4], ring[6]
+                blocked = (
+                    (north and east and south) or (east and south and west)
+                    if phase == 0
+                    else (north and east and west) or (north and south and west)
+                )
+                if not blocked:
+                    remove.append((y, x))
+            if remove:
+                changed = True
+                for y, x in remove:
+                    thin[y, x] = 0
+    return thin[1:-1, 1:-1].astype(bool)
+
+
+def _skeleton_traces(mask: np.ndarray) -> list[np.ndarray]:
+    """Split a thinned medial-axis graph into its endpoint/junction traces."""
+    points = {tuple(point) for point in np.argwhere(_thin_mask(mask))}
+    if len(points) < 2:
+        return []
+
+    def adjacent(point: tuple[int, int]) -> list[tuple[int, int]]:
+        y, x = point
+        output = []
+        for dy, dx in _SKELETON_NEIGHBOURS:
+            candidate = y + dy, x + dx
+            if candidate not in points:
+                continue
+            # A diagonal across an orthogonal staircase is not another graph
+            # edge. Keeping it creates artificial triangles and turns every
+            # curved pixel line into a forest of tiny branches.
+            if dy and dx and ((y + dy, x) in points or (y, x + dx) in points):
+                continue
+            output.append(candidate)
+        return output
+
+    nodes = {point for point in points if len(adjacent(point)) != 2}
+    # Closed loops are better represented by SAMVG's filled path: an open
+    # stroke would introduce caps and a stroke-only loop has no stable start.
+    if not nodes:
+        return []
+    traversed: set[tuple[tuple[int, int], tuple[int, int]]] = set()
+
+    def edge_key(
+        first: tuple[int, int], second: tuple[int, int]
+    ) -> tuple[tuple[int, int], tuple[int, int]]:
+        return (first, second) if first <= second else (second, first)
+
+    traces: list[np.ndarray] = []
+    for node in nodes:
+        for neighbour in adjacent(node):
+            edge = edge_key(node, neighbour)
+            if edge in traversed:
+                continue
+            trace, previous, current = [node], node, neighbour
+            traversed.add(edge)
+            while current not in nodes:
+                trace.append(current)
+                choices = [point for point in adjacent(current) if point != previous]
+                if len(choices) != 1:
+                    trace = []
+                    break
+                previous, current = current, choices[0]
+                traversed.add(edge_key(previous, current))
+            if trace:
+                trace.append(current)
+                if len(trace) >= 2:
+                    traces.append(
+                        np.asarray([(x, y) for y, x in trace], dtype=np.float64)
+                    )
+    return traces
+
+
+def _trace_path_data(trace: np.ndarray, segments: int) -> str:
+    """Fit multiple cubic sections to a skeleton rather than one global PCA line."""
+    count = max(1, min(segments, math.ceil((len(trace) - 1) / 8)))
+    boundaries = np.linspace(0, len(trace) - 1, count + 1, dtype=int)
+    output = [f"M {trace[0, 0]:.2f} {trace[0, 1]:.2f}"]
+    for first, last in itertools.pairwise(boundaries):
+        sample = trace[first : last + 1]
+        if len(sample) == 2:
+            output.append(f"L {sample[-1, 0]:.2f} {sample[-1, 1]:.2f}")
+        else:
+            control_a, control_b = _fit_cubic(sample)
+            end = sample[-1]
+            output.append(
+                f"C {control_a[0]:.2f} {control_a[1]:.2f} "
+                f"{control_b[0]:.2f} {control_b[1]:.2f} {end[0]:.2f} {end[1]:.2f}"
+            )
+    return " ".join(output)
+
+
+def _mask_distance(mask: np.ndarray) -> np.ndarray:
+    """Two-pass chamfer distance to the background in mask-pixel units."""
+    distance = np.where(mask, np.inf, 0.0).astype(np.float64)
+    diagonal = math.sqrt(2.0)
+    for y in range(distance.shape[0]):
+        for x in range(distance.shape[1]):
+            if not mask[y, x]:
+                continue
+            candidates = []
+            if y:
+                candidates.append(distance[y - 1, x] + 1)
+                if x:
+                    candidates.append(distance[y - 1, x - 1] + diagonal)
+                if x + 1 < distance.shape[1]:
+                    candidates.append(distance[y - 1, x + 1] + diagonal)
+            if x:
+                candidates.append(distance[y, x - 1] + 1)
+            distance[y, x] = min(candidates, default=distance[y, x])
+    for y in range(distance.shape[0] - 1, -1, -1):
+        for x in range(distance.shape[1] - 1, -1, -1):
+            if not mask[y, x]:
+                continue
+            candidates = [distance[y, x]]
+            if y + 1 < distance.shape[0]:
+                candidates.append(distance[y + 1, x] + 1)
+                if x:
+                    candidates.append(distance[y + 1, x - 1] + diagonal)
+                if x + 1 < distance.shape[1]:
+                    candidates.append(distance[y + 1, x + 1] + diagonal)
+            if x + 1 < distance.shape[1]:
+                candidates.append(distance[y, x + 1] + 1)
+            distance[y, x] = min(candidates)
+    return distance
+
+
+def _trace_sections(trace: np.ndarray, segments: int) -> list[np.ndarray]:
+    count = max(1, min(segments, math.ceil((len(trace) - 1) / 8)))
+    boundaries = np.linspace(0, len(trace) - 1, count + 1, dtype=int)
+    return [trace[first : last + 1] for first, last in itertools.pairwise(boundaries)]
+
+
 def mask_stroke(
     mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
 ) -> tuple[str, float] | None:
@@ -859,75 +1291,92 @@ def mask_stroke(
     """
     if overlap_pixels:
         mask = _binary_dilation(mask, overlap_pixels)
-    ys, xs = np.nonzero(mask)
+    _ys, xs = np.nonzero(mask)
     if len(xs) < 8:
-        return None
-    min_x, max_x = int(xs.min()), int(xs.max())
-    min_y, max_y = int(ys.min()), int(ys.max())
-    width, height = max_x - min_x + 1, max_y - min_y + 1
-    major, minor = max(width, height), min(width, height)
-    if minor == 0 or major < 12 or major / minor < 3:
-        return None
-    # A component's area divided by its long span is its average orthogonal
-    # width.  This rejects narrow-looking leaves and regions with broad ends.
-    estimated_width = len(xs) / major
-    if estimated_width > min(8.0, major * 0.18):
         return None
     # A hole is topology that a single centreline cannot preserve.
     if len(_loops(mask)) != 1:
         return None
 
-    points = np.column_stack((xs, ys)).astype(np.float64)
-    centre = points.mean(axis=0)
-    _values, vectors = np.linalg.eigh(np.cov((points - centre).T))
-    direction = vectors[:, -1]
-    projection = (points - centre) @ direction
-    bin_count = min(64, max(4, segments * 4))
-    bins = np.linspace(projection.min(), projection.max(), bin_count + 1)
-    line = []
-    for start, end in itertools.pairwise(bins):
-        selected = points[(projection >= start) & (projection <= end)]
-        if len(selected):
-            line.append(selected.mean(axis=0))
-    if len(line) < 2:
+    traces = _skeleton_traces(mask)
+    if len(traces) != 1:
         return None
-    trace = np.asarray(line)
-    if len(trace) == 2:
-        data = (
-            f"M {trace[0, 0]:.2f} {trace[0, 1]:.2f} "
-            f"L {trace[1, 0]:.2f} {trace[1, 1]:.2f}"
-        )
-    else:
-        control_a, control_b = _fit_cubic(trace)
-        data = (
-            f"M {trace[0, 0]:.2f} {trace[0, 1]:.2f} C "
-            f"{control_a[0]:.2f} {control_a[1]:.2f} "
-            f"{control_b[0]:.2f} {control_b[1]:.2f} "
-            f"{trace[-1, 0]:.2f} {trace[-1, 1]:.2f}"
-        )
-    return data, max(1.0, float(estimated_width))
+    trace = traces[0]
+    length = float(np.linalg.norm(np.diff(trace, axis=0), axis=1).sum())
+    # Arc length, rather than a bounding-box axis, preserves strongly curved
+    # thin components whose width and height are similar.
+    estimated_width = len(xs) / max(length, 1.0)
+    if length < 12 or estimated_width > min(8.0, length * 0.3):
+        return None
+    distance = _mask_distance(mask)
+    widths = [2 * (distance[int(y), int(x)] - 0.5) for x, y in trace]
+    data = _trace_path_data(trace, segments)
+    return data, max(1.0, float(np.median(widths)))
 
 
-def _layer_svg_attributes(layer: MaskLayer, segments: int) -> dict[str, str] | None:
-    """Choose the fill or stroke primitive appropriate for one SAM mask."""
-    colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
-    stroke = mask_stroke(
-        layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels
+def mask_strokes(
+    mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
+) -> list[tuple[str, float]]:
+    """Trace a thin component into independently editable constant-width paths.
+
+    A branch becomes one path per medial-axis edge. Each long edge is divided
+    into cubic sections and each section gets its local median width, giving an
+    SVG approximation of a variable-width centreline without nonstandard SVG
+    extensions. Round caps and joins make the adjacent sections continuous.
+    """
+    if overlap_pixels:
+        mask = _binary_dilation(mask, overlap_pixels)
+    _ys, xs = np.nonzero(mask)
+    if len(xs) < 8:
+        return []
+    if len(_loops(mask)) != 1:
+        return []
+    traces = _skeleton_traces(mask)
+    length = sum(
+        float(np.linalg.norm(np.diff(trace, axis=0), axis=1).sum()) for trace in traces
     )
-    if stroke is not None:
-        data, width = stroke
-        return {
-            "d": data,
-            "fill": "none",
-            "stroke": colour,
-            "stroke-width": f"{width:.2f}",
-            "stroke-linecap": "round",
-            "stroke-linejoin": "round",
-        }
+    estimated_width = len(xs) / max(length, 1.0)
+    if length < 12 or estimated_width > min(8.0, length * 0.3):
+        return []
+    distance = _mask_distance(mask)
+    output: list[tuple[str, float]] = []
+    for trace in traces:
+        for section in _trace_sections(trace, segments):
+            if len(section) < 2:
+                continue
+            widths = [2 * (distance[int(y), int(x)] - 0.5) for x, y in section]
+            output.append(
+                (_trace_path_data(section, 1), max(1.0, float(np.median(widths))))
+            )
+    return output
+
+
+def _layer_svg_attributes(
+    layer: MaskLayer, segments: int, *, hybrid_strokes: bool = True
+) -> list[dict[str, str]]:
+    """Trace one SAM mask, using optional strokes only outside the thesis mode."""
+    colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
+    strokes = (
+        mask_strokes(layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels)
+        if hybrid_strokes
+        else []
+    )
+    if strokes:
+        return [
+            {
+                "d": data,
+                "fill": "none",
+                "stroke": colour,
+                "stroke-width": f"{width:.2f}",
+                "stroke-linecap": "round",
+                "stroke-linejoin": "round",
+            }
+            for data, width in strokes
+        ]
     data = mask_path(layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels)
     if data is None:
-        return None
-    return {"d": data, "fill": colour, "fill-rule": "evenodd"}
+        return []
+    return [{"d": data, "fill": colour, "fill-rule": "evenodd"}]
 
 
 def generate_svg(
@@ -939,7 +1388,9 @@ def generate_svg(
     max_layers: int = 512,
     segments: int = 16,
     fill_holes: bool = True,
+    hybrid_strokes: bool = True,
     ocr: bool = True,
+    max_side: int | None = SAMVG_MAX_SIDE,
     rasterize: Callable[[str, int, int], bytes] | None = None,
 ) -> str:
     """Generate SAMVG's traced, pre-optimisation SVG from a target image."""
@@ -960,12 +1411,14 @@ def generate_svg(
             min_impact=min_impact,
             max_layers=max_layers,
             fill_holes=fill_holes,
+            max_side=max_side,
         )
     )
     paths = []
     for layer in layers:
-        attributes = _layer_svg_attributes(layer, segments)
-        if attributes:
+        for attributes in _layer_svg_attributes(
+            layer, segments, hybrid_strokes=hybrid_strokes
+        ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
     width, height = image.size
@@ -1018,18 +1471,24 @@ def residual_prompt_points(
     return [(x, y) for _score, x, y in sorted(points, reverse=True)[:max_points]]
 
 
-def _append_layers(svg: str, layers: list[MaskLayer], segments: int) -> str:
+def _append_layers(
+    svg: str,
+    layers: list[MaskLayer],
+    segments: int,
+    *,
+    hybrid_strokes: bool = True,
+) -> str:
     """Add newly prompted paths to an already optimised SVG."""
     root = ET.fromstring(svg)
     for layer in layers:
-        attributes = _layer_svg_attributes(layer, segments)
-        if attributes is None:
-            continue
-        ET.SubElement(
-            root,
-            "{http://www.w3.org/2000/svg}path",
-            attributes,
-        )
+        for attributes in _layer_svg_attributes(
+            layer, segments, hybrid_strokes=hybrid_strokes
+        ):
+            ET.SubElement(
+                root,
+                "{http://www.w3.org/2000/svg}path",
+                attributes,
+            )
     return ET.tostring(root, encoding="unicode")
 
 
@@ -1100,10 +1559,10 @@ def _accepted_fit(
     svg: str, image: Image.Image, *, rasterize, steps: int
 ) -> tuple[str, Image.Image]:
     """Keep a differentiable fit only when the actual SVG renderer improves."""
-    from vectrify.refine.paths import fit_filled_svg
+    from vectrify.refine.paths import fit_filled_svg_bounded
 
     before = _render_svg(svg, image, rasterize)
-    fitted = fit_filled_svg(svg, image, steps=steps)
+    fitted = fit_filled_svg_bounded(svg, image, rasterize=rasterize, steps=steps)
     after = _render_svg(fitted, image, rasterize)
     if _mse(image, after) <= _mse(image, before):
         return fitted, after
@@ -1119,7 +1578,8 @@ def vectorize_svg(
     min_pixels: int = 32,
     min_impact: float = 1e-5,
     max_layers: int = 512,
-    segments: int = 8,
+    segments: int = 16,
+    max_side: int | None = SAMVG_MAX_SIDE,
 ) -> str:
     """Run SAMVG's two 500-step optimise-and-recover phases.
 
@@ -1128,38 +1588,56 @@ def vectorize_svg(
     built-in filled-path optimiser so SAMVG has no external renderer dependency.
     """
     image = image.convert("RGB")
-    layers = retrieve_layers(
-        image,
-        min_pixels=min_pixels,
-        min_impact=min_impact,
-        max_layers=max_layers,
-    )
-    initial = _append_layers(
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{image.width}" '
-        f'height="{image.height}" viewBox="0 0 {image.width} {image.height}"></svg>',
-        layers,
-        segments,
-    )
-    first, first_render = _accepted_fit(
-        initial, image, rasterize=rasterize, steps=steps
-    )
-    points = residual_prompt_points(image, first_render)
-    _canvas, coverage = _render_layers((image.height, image.width), layers)
-    added = filter_by_impact(
-        image,
-        prompted_masks(image, points),
-        existing=layers,
-        initial_canvas=np.asarray(first_render, dtype=np.uint8),
-        initial_coverage=coverage,
-        min_pixels=min_pixels,
-        min_impact=min_impact,
-        max_layers=max_layers,
-    )[len(layers) :]
-    log.info(
-        "SAMVG residual pass: %d prompt(s), %d accepted added path(s).",
-        len(points),
-        len(added),
-    )
-    return _accepted_fit(
-        _append_layers(first, added, segments), image, rasterize=rasterize, steps=steps
-    )[0]
+    runtime = _sam_runtime()
+    try:
+        layers = retrieve_layers(
+            image,
+            min_pixels=min_pixels,
+            min_impact=min_impact,
+            max_layers=max_layers,
+            max_side=max_side,
+            _runtime=runtime,
+        )
+        initial = _append_layers(
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{image.width}" '
+            f'height="{image.height}" '
+            f'viewBox="0 0 {image.width} {image.height}"></svg>',
+            layers,
+            segments,
+            hybrid_strokes=False,
+        )
+        first, first_render = _accepted_fit(
+            initial, image, rasterize=rasterize, steps=steps
+        )
+        points = residual_prompt_points(image, first_render)
+        _canvas, coverage = _render_layers((image.height, image.width), layers)
+        added = filter_by_impact(
+            image,
+            prompted_masks(image, points, max_side=max_side, _runtime=runtime),
+            existing=layers,
+            initial_canvas=np.asarray(first_render, dtype=np.uint8),
+            initial_coverage=coverage,
+            min_pixels=min_pixels,
+            min_impact=min_impact,
+            max_layers=max_layers,
+        )[len(layers) :]
+        log.info(
+            "SAMVG residual pass: %d prompt(s), %d accepted added path(s).",
+            len(points),
+            len(added),
+        )
+        return _accepted_fit(
+            _append_layers(first, added, segments, hybrid_strokes=False),
+            image,
+            rasterize=rasterize,
+            steps=steps,
+        )[0]
+    finally:
+        del runtime
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+        except ImportError:  # pragma: no cover - installation-specific
+            pass

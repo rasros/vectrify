@@ -232,6 +232,128 @@ __global__ void coverage_backward_kernel(const float* controls, const float* ups
     }
 }
 
+// The stroke is the union of discs centred along its cubics.  Clamping the
+// closest-point parameter to [0, 1] makes the end discs round caps, while the
+// minimum over adjacent cubics gives round joins without separate join code.
+__device__ inline void closest_stroke_point(const float* path, float px, float py,
+                                            int& best_cubic, float& best_t,
+                                            float& best_x, float& best_y,
+                                            float& best_distance_sq) {
+    best_distance_sq = 1e30f;
+    best_cubic = 0; best_t = 0.f; best_x = path[0]; best_y = path[1];
+    for (int cubic = 0; cubic < kCubics; ++cubic) {
+        for (int seed = 0; seed < 5; ++seed) {
+            float t = .25f * seed;
+            for (int iteration = 0; iteration < 3; ++iteration) {
+                const float qx = cubic_component(path, cubic, t, 0) - px;
+                const float qy = cubic_component(path, cubic, t, 1) - py;
+                const float dx = cubic_derivative(path, cubic, t, 0);
+                const float dy = cubic_derivative(path, cubic, t, 1);
+                t = fminf(1.f, fmaxf(0.f, t - (qx*dx + qy*dy) / (dx*dx + dy*dy + 1e-6f)));
+            }
+            const float qx = cubic_component(path, cubic, t, 0);
+            const float qy = cubic_component(path, cubic, t, 1);
+            const float dx = qx - px, dy = qy - py;
+            const float distance_sq = dx*dx + dy*dy;
+            if (distance_sq < best_distance_sq) {
+                best_distance_sq = distance_sq; best_cubic = cubic; best_t = t;
+                best_x = qx; best_y = qy;
+            }
+        }
+    }
+}
+
+__global__ void stroke_forward_kernel(const float* controls, const float* widths,
+                                      float* output, int batches, int height, int width,
+                                      int subpixels, float x_base, float y_base) {
+    const int pixels = height * width, batch = blockIdx.x;
+    if (batch >= batches) return;
+    const float* path = controls + batch * kCubics * 8;
+    const float radius = fmaxf(0.f, widths[batch]) * .5f;
+    __shared__ float bounds[4];
+    path_bounds(path, bounds);
+    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+        const float base_x = x_base + float(pixel % width);
+        const float base_y = y_base + float(pixel / width);
+        float covered = 0.f;
+        if (base_x >= bounds[0] - radius - 2.f && base_x <= bounds[2] + radius + 2.f &&
+            base_y >= bounds[1] - radius - 2.f && base_y <= bounds[3] + radius + 2.f) {
+            for (int subpixel = 0; subpixel < subpixels * subpixels; ++subpixel) {
+                const float px = base_x + (float(subpixel % subpixels) + .5f) / subpixels;
+                const float py = base_y + (float(subpixel / subpixels) + .5f) / subpixels;
+                int cubic; float t, qx, qy, distance_sq;
+                closest_stroke_point(path, px, py, cubic, t, qx, qy, distance_sq);
+                const float distance = sqrtf(distance_sq + 1e-12f);
+                covered += 1.f / (1.f + expf((distance - radius) / .25f));
+            }
+        }
+        output[batch * pixels + pixel] = covered / float(subpixels * subpixels);
+    }
+}
+
+__global__ void stroke_backward_kernel(const float* controls, const float* widths,
+                                       const float* upstream, float* gradients,
+                                       float* width_gradients, int batches, int height,
+                                       int width, int subpixels, float x_base, float y_base) {
+    const int pixels = height * width, batch = blockIdx.x;
+    if (batch >= batches) return;
+    const float* path = controls + batch * kCubics * 8;
+    float* gradient = gradients + batch * kCubics * 8;
+    const float radius = fmaxf(0.f, widths[batch]) * .5f;
+    __shared__ float bounds[4];
+    __shared__ float reduction[8][256];
+    __shared__ float width_reduction[256];
+    float accumulated[kCubics * 8] = {0.f};
+    float accumulated_width = 0.f;
+    path_bounds(path, bounds);
+    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+        const float base_x = x_base + float(pixel % width);
+        const float base_y = y_base + float(pixel / width);
+        if (base_x < bounds[0] - radius - 2.f || base_x > bounds[2] + radius + 2.f ||
+            base_y < bounds[1] - radius - 2.f || base_y > bounds[3] + radius + 2.f) continue;
+        const float d_output = upstream[batch * pixels + pixel] / float(subpixels * subpixels);
+        for (int subpixel = 0; subpixel < subpixels * subpixels; ++subpixel) {
+            const float px = base_x + (float(subpixel % subpixels) + .5f) / subpixels;
+            const float py = base_y + (float(subpixel / subpixels) + .5f) / subpixels;
+            int cubic; float t, qx, qy, distance_sq;
+            closest_stroke_point(path, px, py, cubic, t, qx, qy, distance_sq);
+            const float distance = sqrtf(distance_sq + 1e-12f);
+            const float alpha = 1.f / (1.f + expf((distance - radius) / .25f));
+            const float edge = d_output * alpha * (1.f - alpha) / .25f;
+            const float u = 1.f - t;
+            const float basis[4] = {u*u*u, 3.f*u*u*t, 3.f*u*t*t, t*t*t};
+            for (int control = 0; control < 4; ++control) {
+                const int offset = cubic * 8 + control * 2;
+                accumulated[offset] -= edge * (qx - px) * basis[control] / distance;
+                accumulated[offset + 1] -= edge * (qy - py) * basis[control] / distance;
+            }
+            accumulated_width += edge * .5f;
+        }
+    }
+    for (int cubic = 0; cubic < kCubics; ++cubic) {
+        for (int component = 0; component < 8; ++component)
+            reduction[component][threadIdx.x] = accumulated[cubic * 8 + component];
+        __syncthreads();
+        for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+            if (threadIdx.x < stride)
+                for (int component = 0; component < 8; ++component)
+                    reduction[component][threadIdx.x] += reduction[component][threadIdx.x + stride];
+            __syncthreads();
+        }
+        if (threadIdx.x == 0)
+            for (int component = 0; component < 8; ++component)
+                gradient[cubic * 8 + component] = reduction[component][0];
+        __syncthreads();
+    }
+    width_reduction[threadIdx.x] = accumulated_width;
+    __syncthreads();
+    for (int stride = blockDim.x / 2; stride > 0; stride /= 2) {
+        if (threadIdx.x < stride) width_reduction[threadIdx.x] += width_reduction[threadIdx.x + stride];
+        __syncthreads();
+    }
+    if (threadIdx.x == 0) width_gradients[batch] = width_reduction[0];
+}
+
 __device__ inline void contours_bounds(const float* controls, int first, int last, float* bounds) {
     if (threadIdx.x == 0) {
         const float* first_path = controls + first * kCubics * 8;
@@ -617,6 +739,37 @@ torch::Tensor coverage_backward(torch::Tensor controls, torch::Tensor upstream, 
     return gradients;
 }
 
+torch::Tensor stroke_forward(torch::Tensor controls, torch::Tensor widths, int64_t height,
+                             int64_t width, int64_t subpixels, double x_origin,
+                             double y_origin) {
+    TORCH_CHECK(controls.is_cuda() && controls.scalar_type() == torch::kFloat32);
+    TORCH_CHECK(widths.is_cuda() && widths.scalar_type() == torch::kFloat32);
+    TORCH_CHECK(widths.dim() == 1 && widths.size(0) == controls.size(0));
+    TORCH_CHECK(subpixels >= 1 && subpixels <= 4);
+    at::cuda::CUDAGuard guard(controls.device());
+    auto output = torch::zeros({controls.size(0), height, width}, controls.options());
+    stroke_forward_kernel<<<controls.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+        controls.data_ptr<float>(), widths.data_ptr<float>(), output.data_ptr<float>(),
+        controls.size(0), height, width, subpixels, float(x_origin), float(y_origin));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return output;
+}
+
+std::vector<torch::Tensor> stroke_backward(torch::Tensor controls, torch::Tensor widths,
+                                            torch::Tensor upstream, int64_t height,
+                                            int64_t width, int64_t subpixels,
+                                            double x_origin, double y_origin) {
+    at::cuda::CUDAGuard guard(controls.device());
+    auto gradients = torch::zeros_like(controls);
+    auto width_gradients = torch::zeros_like(widths);
+    stroke_backward_kernel<<<controls.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+        controls.data_ptr<float>(), widths.data_ptr<float>(), upstream.data_ptr<float>(),
+        gradients.data_ptr<float>(), width_gradients.data_ptr<float>(), controls.size(0),
+        height, width, subpixels, float(x_origin), float(y_origin));
+    C10_CUDA_KERNEL_LAUNCH_CHECK();
+    return {gradients, width_gradients};
+}
+
 torch::Tensor multi_coverage_forward(torch::Tensor controls, torch::Tensor offsets,
                                      int64_t height, int64_t width, int64_t subpixels,
                                      double x_origin, double y_origin, bool evenodd) {
@@ -693,6 +846,8 @@ PYBIND11_MODULE(TORCH_EXTENSION_NAME, m) {
     m.def("backwards", &backwards);
     m.def("coverage_forward", &coverage_forward);
     m.def("coverage_backward", &coverage_backward);
+    m.def("stroke_forward", &stroke_forward);
+    m.def("stroke_backward", &stroke_backward);
     m.def("multi_coverage_forward", &multi_coverage_forward);
     m.def("multi_coverage_forward_topology", &multi_coverage_forward_topology);
     m.def("multi_coverage_backward", &multi_coverage_backward);
