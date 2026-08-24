@@ -1,5 +1,6 @@
 import sys
 import xml.etree.ElementTree as ET
+from contextlib import nullcontext
 from types import SimpleNamespace
 
 import numpy as np
@@ -26,26 +27,64 @@ from vectrify.refine.samvg import (
 
 
 def test_detect_text_retains_high_confidence_editable_words(monkeypatch):
-    class Reader:
-        def __init__(self, languages, *, gpu, verbose):
-            assert languages == ["en"]
-            assert gpu is True
-            assert verbose is False
+    class Inputs(dict):
+        input_ids = SimpleNamespace(shape=(1, 4))
 
-        def readtext(self, source, **kwargs):
-            assert source.shape == (16, 32, 3)
-            assert kwargs == {"detail": 1, "paragraph": False}
+        def to(self, device):
+            assert device == "cuda"
+            return self
+
+    class Processor:
+        def apply_chat_template(self, messages, **kwargs):
+            assert messages[0]["content"][0]["image"].size == (32, 16)
+            assert kwargs == {"tokenize": False, "add_generation_prompt": True}
+            return "prompt"
+
+        def __call__(self, **kwargs):
+            assert kwargs["text"] == ["prompt"]
+            assert kwargs["images"][0].size == (32, 16)
+            return Inputs()
+
+        def batch_decode(self, generated, **kwargs):
+            assert generated.shape == (1, 1)
+            assert kwargs == {
+                "skip_special_tokens": True,
+                "clean_up_tokenization_spaces": False,
+            }
             return [
-                ([[2, 3], [20, 3], [20, 11], [2, 11]], "Cats & dogs", 0.94),
-                ([[2, 12], [4, 12], [4, 14], [2, 14]], "I", 0.99),
-                ([[2, 3], [20, 3], [20, 11], [2, 11]], "blur", 0.2),
+                '[{"text":"Cats & dogs","box":[2,3,20,11],"confidence":0.94},'
+                '{"text":"I","box":[2,12,4,14],"confidence":0.99},'
+                '{"text":"blur","box":[2,3,20,11],"confidence":0.2}]'
             ]
 
-    monkeypatch.setitem(sys.modules, "easyocr", SimpleNamespace(Reader=Reader))
+    class Model:
+        def to(self, device):
+            assert device == "cuda"
+            return self
+
+        def generate(self, **kwargs):
+            assert kwargs == {"max_new_tokens": 768, "do_sample": False}
+            return np.zeros((1, 5), dtype=int)
+
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            AutoProcessor=SimpleNamespace(from_pretrained=lambda _model: Processor()),
+            Qwen2_5_VLForConditionalGeneration=SimpleNamespace(
+                from_pretrained=lambda _model, **_kwargs: Model()
+            ),
+        ),
+    )
     monkeypatch.setitem(
         sys.modules,
         "torch",
-        SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: True)),
+        SimpleNamespace(
+            bfloat16="bf16",
+            float32="float32",
+            cuda=SimpleNamespace(is_available=lambda: True, empty_cache=lambda: None),
+            inference_mode=nullcontext,
+        ),
     )
 
     layers = detect_text(Image.new("RGB", (32, 16), "white"))

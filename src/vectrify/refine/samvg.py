@@ -10,13 +10,15 @@ from __future__ import annotations
 
 import io
 import itertools
+import json
 import logging
 import math
 import os
+import re
 import xml.etree.ElementTree as ET
 from collections import defaultdict
 from dataclasses import dataclass
-from typing import cast
+from typing import Any, cast
 from xml.sax.saxutils import escape
 
 import numpy as np
@@ -33,6 +35,13 @@ SAMVG_MODEL = os.environ.get("VECTRIFY_SAMVG_MODEL", "facebook/sam-vit-huge")
 # photo seed before that image-aware test could evaluate them.
 SAMVG_PRED_IOU_THRESH = 0.0
 SAMVG_STABILITY_SCORE_THRESH = 0.0
+# The SAMVG seed only needs OCR once and does it after SAM has released its
+# automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
+# detector: it can decide which visible labels deserve editable text and place
+# them in the source coordinate system.
+SAMVG_OCR_MODEL = os.environ.get(
+    "VECTRIFY_SAMVG_OCR_MODEL", "Qwen/Qwen2.5-VL-3B-Instruct"
+)
 
 
 @dataclass(frozen=True)
@@ -74,53 +83,116 @@ def _text_colour(pixels: np.ndarray) -> tuple[int, int, int]:
     return cast(tuple[int, int, int], tuple(int(value) for value in np.rint(colour)))
 
 
-def detect_text(image: Image.Image, *, confidence: float = 0.7) -> list[TextLayer]:
-    """Read editable words with EasyOCR's Torch detector and recogniser.
+def _ocr_json(response: str) -> list[dict[str, object]]:
+    """Decode the strict JSON array requested from the vision-language model."""
+    match = re.search(r"\[[\s\S]*\]", response)
+    if match is None:
+        return []
+    try:
+        parsed = json.loads(match.group())
+    except json.JSONDecodeError:
+        return []
+    if not isinstance(parsed, list):
+        return []
+    return [item for item in parsed if isinstance(item, dict)]
 
-    The detector is deliberately conservative. The SVG font is necessarily an
-    approximation of the source font, so uncertain single characters remain
-    with the normal SAMVG filled-path pipeline.
+
+def detect_text(image: Image.Image, *, confidence: float = 0.8) -> list[TextLayer]:
+    """Read editable text using Qwen2.5-VL's 3B Torch model.
+
+    It returns content and source-pixel bounding boxes in one inference pass.
+    We keep only the VLM's high-confidence multi-character labels: a guessed
+    font is worse than the normal SAMVG filled-path representation.
     """
     try:
-        import easyocr
         import torch
+        from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
     except ImportError as exc:  # pragma: no cover - installation-specific
         raise ImportError(
             "SAMVG OCR requires the samvg extra. Install 'vectrify[samvg]'."
         ) from exc
-    reader = easyocr.Reader(["en"], gpu=torch.cuda.is_available(), verbose=False)
     source = np.asarray(image.convert("RGB"))
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    dtype = torch.bfloat16 if device == "cuda" else torch.float32
+    prompt = (
+        "Read visible text in this image. Return only a JSON array. Each entry "
+        'must be {"text": string, "box": [left, top, right, bottom], '
+        '"confidence": number}. Boxes must use this image\'s pixel '
+        "coordinates. Include only clearly readable labels of at least two "
+        "characters, and do not describe icons, logos, or non-text shapes."
+    )
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {"type": "image", "image": image},
+                {"type": "text", "text": prompt},
+            ],
+        }
+    ]
+    processor = AutoProcessor.from_pretrained(SAMVG_OCR_MODEL)
+    # Transformers currently exposes a descriptor mismatch between this model
+    # class and GenerationMixin to Pyrefly; runtime generation is the normal
+    # PreTrainedModel API.
+    model: Any = Qwen2_5_VLForConditionalGeneration.from_pretrained(
+        SAMVG_OCR_MODEL, torch_dtype=dtype
+    ).to(device)
     detected: list[TextLayer] = []
-    for box, text, score in reader.readtext(source, detail=1, paragraph=False):
-        if float(score) < confidence or len(text.strip()) < 2:
-            continue
-        corners = np.asarray(box, dtype=np.float32)
-        if corners.shape != (4, 2):
-            continue
-        x, y = corners.min(axis=0)
-        right, bottom = corners.max(axis=0)
-        width, height = float(right - x), float(bottom - y)
-        if width < 4 or height < 4:
-            continue
-        direction = corners[1] - corners[0]
-        angle = math.degrees(math.atan2(float(direction[1]), float(direction[0])))
-        crop = source[
-            max(0, math.floor(y)) : math.ceil(bottom),
-            max(0, math.floor(x)) : math.ceil(right),
-        ]
-        if not crop.size:
-            continue
-        detected.append(
-            TextLayer(
-                text=text.strip(),
-                x=float(x),
-                y=float(y),
-                width=width,
-                height=height,
-                colour=_text_colour(crop),
-                angle=angle,
-            )
+    try:
+        chat = processor.apply_chat_template(
+            messages, tokenize=False, add_generation_prompt=True
         )
+        inputs = processor(
+            text=[chat], images=[image], padding=True, return_tensors="pt"
+        ).to(device)
+        with torch.inference_mode():
+            output = model.generate(**inputs, max_new_tokens=768, do_sample=False)
+        generated = output[:, inputs.input_ids.shape[1] :]
+        response = processor.batch_decode(
+            generated, skip_special_tokens=True, clean_up_tokenization_spaces=False
+        )[0]
+        for entry in _ocr_json(response):
+            text = entry.get("text")
+            box = entry.get("box")
+            score = entry.get("confidence")
+            if (
+                not isinstance(text, str)
+                or not isinstance(box, list)
+                or len(box) != 4
+                or not isinstance(score, (int, float))
+                or float(score) < confidence
+                or len(text.strip()) < 2
+            ):
+                continue
+            try:
+                x, y, right, bottom = (float(value) for value in box)
+            except (TypeError, ValueError):
+                continue
+            x, y = max(0.0, x), max(0.0, y)
+            right = min(float(image.width), right)
+            bottom = min(float(image.height), bottom)
+            width, height = right - x, bottom - y
+            if width < 4 or height < 4:
+                continue
+            crop = source[
+                math.floor(y) : math.ceil(bottom), math.floor(x) : math.ceil(right)
+            ]
+            if not crop.size:
+                continue
+            detected.append(
+                TextLayer(
+                    text=text.strip(),
+                    x=x,
+                    y=y,
+                    width=width,
+                    height=height,
+                    colour=_text_colour(crop),
+                )
+            )
+    finally:
+        del model
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
     log.info("SAMVG OCR: retained %d editable text layer(s).", len(detected))
     return detected
 
