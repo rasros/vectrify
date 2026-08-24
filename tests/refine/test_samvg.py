@@ -101,6 +101,16 @@ def test_components_are_separate_and_do_not_fill_meaningful_holes():
     assert not components[0][3, 3]
 
 
+def test_components_fill_only_tiny_enclosed_holes():
+    mask = np.ones((8, 8), dtype=bool)
+    mask[3:5, 3:5] = False
+
+    components = _components(mask, min_pixels=4)
+
+    assert len(components) == 1
+    assert components[0].all()
+
+
 def test_crop_edge_masks_are_rejected_unless_they_reach_the_image_edge():
     cropped = np.ones((20, 30), dtype=bool)
     at_image_edge = np.zeros((20, 30), dtype=bool)

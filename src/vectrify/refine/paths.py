@@ -16,6 +16,7 @@ import re
 from collections import defaultdict
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
+from functools import lru_cache
 from typing import Any
 
 import numpy as np
@@ -292,6 +293,7 @@ def coverage(
 # sampled chords.
 _UNITS_PER_SAMPLE = 15.0
 _MIN_SAMPLES, _MAX_SAMPLES = 8, 48
+_FUSED_CUBICS = 16
 
 
 def _samples_for(control: Any) -> int:
@@ -515,6 +517,182 @@ def _fill_coverage(
     return torch.stack(coverages).mean(dim=0)
 
 
+def _fill_winding_chunk(start: Any, end: Any, pixels: Any) -> Any:
+    """Sum the winding angles of batched sampled contours at ``pixels``.
+
+    Keeping this primitive separate gives ``torch.compile`` one regular,
+    side-effect-free GPU expression to fuse.  In eager mode it is deliberately
+    the same arithmetic previously in :func:`_fill_coverages`.
+    """
+    import torch
+
+    offset_start = start[:, None] - pixels[None, :, None]
+    offset_end = end[:, None] - pixels[None, :, None]
+    cross = (
+        offset_start[..., 0] * offset_end[..., 1]
+        - offset_start[..., 1] * offset_end[..., 0]
+    )
+    dot = (offset_start * offset_end).sum(dim=-1)
+    return torch.atan2(cross, dot).sum(dim=-1)
+
+
+def _dynamic_fill_winding_chunk(start: Any, end: Any, pixels: Any) -> Any:
+    """The tiled counterpart with only its pixel dimension left symbolic."""
+    return _fill_winding_chunk(start, end, pixels)
+
+
+@lru_cache(maxsize=1)
+def _compiled_fill_winding_chunk() -> Any:
+    """Return the CUDA-fused winding primitive when this torch supports it.
+
+    This is intentionally lazy: installing Vectrify must not require a CUDA
+    compiler, and the normal CPU renderer remains useful for tests and small
+    jobs.  Inductor generates a kernel for this exact operation rather than
+    adding an external renderer dependency.
+    """
+    import torch
+
+    compile_fn = getattr(torch, "compile", None)
+    if compile_fn is None:
+        return _fill_winding_chunk
+    try:
+        return compile_fn(
+            _fill_winding_chunk,
+            fullgraph=True,
+            dynamic=False,
+            # This primitive is invoked repeatedly while its earlier outputs
+            # still participate in one optimisation graph.  CUDA graph replay
+            # cannot safely reuse those outputs and adds substantial overhead.
+            options={"triton.cudagraphs": False},
+        )
+    except (RuntimeError, TypeError):
+        log.warning("CUDA winding fusion is unavailable; using eager torch.")
+        return _fill_winding_chunk
+
+
+@lru_cache(maxsize=1)
+def _compiled_tiled_fill_winding_chunk() -> Any:
+    """Fuse arbitrary-size clipped tiles after path shapes were normalized."""
+    import torch
+
+    compile_fn = getattr(torch, "compile", None)
+    if compile_fn is None:
+        return _fill_winding_chunk
+    try:
+        return compile_fn(
+            _dynamic_fill_winding_chunk,
+            fullgraph=True,
+            dynamic=True,
+            options={"triton.cudagraphs": False},
+        )
+    except (RuntimeError, TypeError):
+        log.warning("CUDA tiled winding fusion is unavailable; using eager torch.")
+        return _fill_winding_chunk
+
+
+def _pad_fused_cubics(controls: Any) -> Any:
+    """Pad a short closed contour with zero-length cubics for CUDA fusion."""
+    import torch
+
+    count = controls.shape[1]
+    if count >= _FUSED_CUBICS:
+        return controls
+    # All four points are the contour origin, so every added sampled segment
+    # has zero angle at every pixel and cannot change its winding number.
+    point = controls[:, :1, :1].expand(-1, _FUSED_CUBICS - count, 4, -1)
+    return torch.cat((controls, point), dim=1)
+
+
+def _fill_batched_windings(
+    controls: Any,
+    box: tuple[int, int, int, int],
+    *,
+    samples: int,
+    x_offset: float,
+    y_offset: float,
+    batch_size: int = 4,
+    pixel_chunk: int = 4_096,
+    winding_chunk: Any | None = None,
+) -> Any:
+    """Return one winding field per equal-sized contour on CUDA.
+
+    Unlike :func:`_fill_coverages`, this stops before applying a fill rule.
+    A multi-contour SVG path needs its contour windings summed before that
+    nonlinearity, so this is the reusable GPU building block for holes.
+    """
+    import torch
+
+    # The packaged native operator uses SAMVG's fixed 16-cubic contour
+    # representation.  It remains deliberately narrow: every
+    # other contour/layout continues through the proven Torch implementation.
+    if samples in {8, 16, 32}:
+        from vectrify.refine.cuda_renderer import winding as cuda_winding
+
+        native = cuda_winding(
+            controls,
+            box,
+            samples=samples,
+            x_offset=x_offset,
+            y_offset=y_offset,
+        )
+        if native is not None:
+            return native
+
+    left, top, right, bottom = box
+    height, width = bottom - top, right - left
+    steps = torch.linspace(0, 1, samples, device=controls.device, dtype=controls.dtype)
+    basis = torch.stack(
+        [
+            (1 - steps) ** 3,
+            3 * steps * (1 - steps) ** 2,
+            3 * steps**2 * (1 - steps),
+            steps**3,
+        ],
+        dim=-1,
+    )
+    ys, xs = torch.meshgrid(
+        torch.arange(height, device=controls.device, dtype=controls.dtype)
+        + top
+        + y_offset,
+        torch.arange(width, device=controls.device, dtype=controls.dtype)
+        + left
+        + x_offset,
+        indexing="ij",
+    )
+    pixels = torch.stack((xs, ys), dim=-1).reshape(-1, 2)
+    if winding_chunk is None:
+        winding_chunk = (
+            _compiled_fill_winding_chunk()
+            if controls.shape[1] <= _FUSED_CUBICS
+            else _fill_winding_chunk
+        )
+    output = []
+    for control in controls.split(batch_size):
+        count = len(control)
+        if count < batch_size:
+            # Keep the compiled kernel's leading dimension static.  The
+            # padding is sliced away before it reaches the caller, so it has
+            # no effect on pixels or gradients of the real contours.
+            control = torch.cat(
+                (control, control[:1].expand(batch_size - count, -1, -1, -1))
+            )
+        if control.shape[1] <= _FUSED_CUBICS:
+            control = _pad_fused_cubics(control)
+        curve = torch.einsum("sk,nqkc->nqsc", basis, control).flatten(1, 2)
+        curve = torch.cat((curve, curve[:, :1]), dim=1)
+        winding = []
+        for pixel_start in range(0, len(pixels), pixel_chunk):
+            winding.append(
+                winding_chunk(
+                    curve[:, :-1],
+                    curve[:, 1:],
+                    pixels[pixel_start : pixel_start + pixel_chunk],
+                )
+            )
+        output.append(torch.cat(winding, dim=1)[:count])
+    return torch.cat(output).reshape(-1, height, width)
+
+
 def _fill_path_coverage(
     contours: list[Any],
     box: tuple[int, int, int, int],
@@ -523,21 +701,109 @@ def _fill_path_coverage(
     samples: int = 32,
     softness: float = 0.25,
     subpixels: int = 4,
+    fuse: bool = True,
+    dynamic_fuse: bool = False,
 ) -> Any:
     """Rasterise every contour according to SVG's fill-rule semantics."""
     import torch
+
+    if contours and contours[0].is_cuda:
+        # SAM's detailed masks can have many contours.  Sum each contour's
+        # winding before applying the SVG fill rule, exactly as the eager
+        # implementation below does, but keep the pixel/segment loops in the
+        # fused CUDA primitive.
+        fused = [contour for contour in contours if contour.shape[0] <= _FUSED_CUBICS]
+        unfused: dict[tuple[int, ...], list[Any]] = defaultdict(list)
+        for contour in contours:
+            if contour.shape[0] > _FUSED_CUBICS:
+                unfused[tuple(contour.shape)].append(contour)
+        # SAMVG's tracer normally emits at most 16 cubics per contour.  Pad
+        # those contours once and render a whole path in one large GPU batch,
+        # rather than launching a tiny batch for each contour-shape group.
+        fused_controls = (
+            torch.cat([_pad_fused_cubics(contour[None]) for contour in fused])
+            if fused
+            else None
+        )
+        if fuse:
+            winding_chunk = _compiled_fill_winding_chunk()
+        elif dynamic_fuse:
+            winding_chunk = _compiled_tiled_fill_winding_chunk()
+        else:
+            winding_chunk = _fill_winding_chunk
+        contour_batch_size = 64 if (fuse or dynamic_fuse) else 4
+        coverages = []
+        for y in range(subpixels):
+            for x in range(subpixels):
+                winding = torch.zeros(
+                    (box[3] - box[1], box[2] - box[0]),
+                    dtype=contours[0].dtype,
+                    device=contours[0].device,
+                )
+                if fused_controls is not None:
+                    winding = winding + _fill_batched_windings(
+                        fused_controls,
+                        box,
+                        samples=samples,
+                        x_offset=(x + 0.5) / subpixels,
+                        y_offset=(y + 0.5) / subpixels,
+                        batch_size=contour_batch_size,
+                        winding_chunk=winding_chunk,
+                    ).sum(dim=0)
+                for group in unfused.values():
+                    winding = winding + _fill_batched_windings(
+                        torch.stack(group),
+                        box,
+                        samples=samples,
+                        x_offset=(x + 0.5) / subpixels,
+                        y_offset=(y + 0.5) / subpixels,
+                        winding_chunk=winding_chunk,
+                    ).sum(dim=0)
+                if fill_rule == "evenodd":
+                    coverages.append(0.5 * (1 - torch.cos(winding / 2)))
+                else:
+                    coverages.append(
+                        torch.sigmoid((winding.abs() - math.pi) / softness)
+                    )
+        return torch.stack(coverages).mean(dim=0)
+
+    def contour_winding(contour: Any, x_offset: float, y_offset: float) -> Any:
+        # A noisy SAM mask can contain dozens of enclosed contours.  Keeping
+        # every pixel-by-segment intermediate alive until its layer loss is
+        # backpropagated exhausts VRAM even on a small working canvas.
+        # Checkpointing recomputes the same differentiable winding field during
+        # backward, preserving renderer semantics and gradients exactly.
+        if contour.requires_grad:
+            from torch.utils.checkpoint import checkpoint
+
+            return checkpoint(
+                lambda value: _fill_winding(
+                    value,
+                    box,
+                    samples=samples,
+                    x_offset=x_offset,
+                    y_offset=y_offset,
+                ),
+                contour,
+                use_reentrant=False,
+            )
+        return _fill_winding(
+            contour,
+            box,
+            samples=samples,
+            x_offset=x_offset,
+            y_offset=y_offset,
+        )
 
     coverages = []
     for y in range(subpixels):
         for x in range(subpixels):
             winding = sum(
                 (
-                    _fill_winding(
+                    contour_winding(
                         contour,
-                        box,
-                        samples=samples,
-                        x_offset=(x + 0.5) / subpixels,
-                        y_offset=(y + 0.5) / subpixels,
+                        (x + 0.5) / subpixels,
+                        (y + 0.5) / subpixels,
                     )
                     for contour in contours
                 ),
@@ -548,9 +814,7 @@ def _fill_path_coverage(
                 # expression is zero for an even count and one for an odd one.
                 coverages.append(0.5 * (1 - torch.cos(winding / 2)))
             else:
-                coverages.append(
-                    torch.sigmoid((winding.abs() - math.pi) / softness)
-                )
+                coverages.append(torch.sigmoid((winding.abs() - math.pi) / softness))
     return torch.stack(coverages).mean(dim=0)
 
 
@@ -563,6 +827,8 @@ def _fill_coverages(
     fill_rule: str = "nonzero",
     pixel_chunk: int = 1_024,
     subpixels: int = 4,
+    fuse: bool = True,
+    dynamic_fuse: bool = False,
 ) -> Any:
     """Rasterise equal-sized closed cubic paths together on the GPU.
 
@@ -585,7 +851,30 @@ def _fill_coverages(
         dim=-1,
     )
     output = []
+    can_fuse = controls.is_cuda and controls.shape[1] <= _FUSED_CUBICS
+    if fuse and can_fuse:
+        winding_chunk = _compiled_fill_winding_chunk()
+    elif dynamic_fuse and can_fuse:
+        winding_chunk = _compiled_tiled_fill_winding_chunk()
+    else:
+        winding_chunk = _fill_winding_chunk
+    # The fused CUDA kernel consumes far less temporary memory than eager
+    # broadcasting, so one complete small SAMVG working raster is faster than
+    # many 1,024-pixel launches.  Retain the conservative caller-selected
+    # chunking on CPU.
+    active_pixel_chunk = (
+        max(pixel_chunk, 4_096)
+        if controls.is_cuda and (fuse or dynamic_fuse)
+        else pixel_chunk
+    )
     for control in controls.split(batch_size):
+        count = len(control)
+        if controls.is_cuda and count < batch_size:
+            control = torch.cat(
+                (control, control[:1].expand(batch_size - count, -1, -1, -1))
+            )
+        if controls.is_cuda and control.shape[1] <= _FUSED_CUBICS:
+            control = _pad_fused_cubics(control)
         curve = torch.einsum("sk,nqkc->nqsc", basis, control).flatten(1, 2)
         curve = torch.cat((curve, curve[:, :1]), dim=1)
         start = curve[:, :-1]
@@ -604,16 +893,9 @@ def _fill_coverages(
                 )
                 pixels = torch.stack((xs, ys), dim=-1).reshape(-1, 2)
                 coverages = []
-                for pixel_start in range(0, len(pixels), pixel_chunk):
-                    pixel_block = pixels[pixel_start : pixel_start + pixel_chunk]
-                    offset_start = start[:, None] - pixel_block[None, :, None]
-                    offset_end = end[:, None] - pixel_block[None, :, None]
-                    cross = (
-                        offset_start[..., 0] * offset_end[..., 1]
-                        - offset_start[..., 1] * offset_end[..., 0]
-                    )
-                    dot = (offset_start * offset_end).sum(dim=-1)
-                    winding = torch.atan2(cross, dot).sum(dim=-1)
+                for pixel_start in range(0, len(pixels), active_pixel_chunk):
+                    pixel_block = pixels[pixel_start : pixel_start + active_pixel_chunk]
+                    winding = winding_chunk(start, end, pixel_block)
                     if fill_rule == "evenodd":
                         coverages.append(0.5 * (1 - torch.cos(winding / 2)))
                     else:
@@ -622,27 +904,154 @@ def _fill_coverages(
                         )
                 coverage = torch.cat(coverages, dim=1)
                 coverage_sum = (
-                    coverage
-                    if coverage_sum is None
-                    else coverage_sum + coverage
+                    coverage if coverage_sum is None else coverage_sum + coverage
                 )
         assert coverage_sum is not None
-        output.append(coverage_sum / (subpixels * subpixels))
+        output.append((coverage_sum / (subpixels * subpixels))[:count])
     return torch.cat(output).reshape(-1, height, width)
 
 
-def _xing_loss(control: Any) -> Any:
-    """Return SAMVG's normalized per-cubic Xing regularizer (Eq. 3-6--3-8)."""
+def _fill_distance_surrogate_coverages(
+    controls: Any,
+    box: tuple[int, int, int, int],
+    *,
+    samples: int = 32,
+    softness: float = 0.25,
+    subpixels: int = 2,
+    pixel_chunk: int = 1_024,
+) -> Any:
+    """Exact sampled-fill forward values with closest-cubic surrogate gradients.
+
+    This is the same forward/backward split used by differentiable vector
+    renderers: topology is a discrete winding decision, while a local signed
+    distance provides useful boundary gradients.  The hard forward samples
+    retain the existing renderer's fill semantics; only the expensive
+    pixel-by-512-segment autograd graph is replaced for simple contours.
+    """
+    import torch
+
+    left, top, right, bottom = box
+    height, width = bottom - top, right - left
+    result = []
+    seeds = torch.linspace(0, 1, 5, dtype=controls.dtype, device=controls.device)
+    for y in range(subpixels):
+        for x in range(subpixels):
+            x_offset, y_offset = (x + 0.5) / subpixels, (y + 0.5) / subpixels
+            with torch.no_grad():
+                winding = _fill_batched_windings(
+                    controls.detach(),
+                    box,
+                    samples=samples,
+                    x_offset=x_offset,
+                    y_offset=y_offset,
+                    batch_size=4,
+                    pixel_chunk=pixel_chunk,
+                    winding_chunk=_compiled_tiled_fill_winding_chunk(),
+                )
+                inside = winding.abs() >= math.pi
+            ys, xs = torch.meshgrid(
+                torch.arange(height, device=controls.device, dtype=controls.dtype)
+                + top
+                + y_offset,
+                torch.arange(width, device=controls.device, dtype=controls.dtype)
+                + left
+                + x_offset,
+                indexing="ij",
+            )
+            pixels = torch.stack((xs, ys), dim=-1).reshape(-1, 2)
+            surrogate_parts = []
+            for start in range(0, len(pixels), pixel_chunk):
+                pixel = pixels[start : start + pixel_chunk]
+                parameter = seeds[None, None, None].expand(
+                    len(controls), len(pixel), controls.shape[1], -1
+                )
+                cubic = controls[:, None, :, None]
+                for _ in range(5):
+                    inverse = 1 - parameter
+                    point = (
+                        inverse[..., None] ** 3 * cubic[..., 0, :]
+                        + 3
+                        * inverse[..., None] ** 2
+                        * parameter[..., None]
+                        * cubic[..., 1, :]
+                        + 3
+                        * inverse[..., None]
+                        * parameter[..., None] ** 2
+                        * cubic[..., 2, :]
+                        + parameter[..., None] ** 3 * cubic[..., 3, :]
+                    )
+                    tangent = (
+                        3
+                        * inverse[..., None] ** 2
+                        * (cubic[..., 1, :] - cubic[..., 0, :])
+                        + 6
+                        * inverse[..., None]
+                        * parameter[..., None]
+                        * (cubic[..., 2, :] - cubic[..., 1, :])
+                        + 3
+                        * parameter[..., None] ** 2
+                        * (cubic[..., 3, :] - cubic[..., 2, :])
+                    )
+                    acceleration = 6 * inverse[..., None] * (
+                        cubic[..., 2, :] - 2 * cubic[..., 1, :] + cubic[..., 0, :]
+                    ) + 6 * parameter[..., None] * (
+                        cubic[..., 3, :] - 2 * cubic[..., 2, :] + cubic[..., 1, :]
+                    )
+                    delta = point - pixel[None, :, None, None, :]
+                    parameter = (
+                        parameter
+                        - (delta * tangent).sum(dim=-1)
+                        / (
+                            (tangent * tangent).sum(dim=-1)
+                            + (delta * acceleration).sum(dim=-1)
+                        ).clamp_min(1e-8)
+                    ).clamp(0, 1)
+                inverse = 1 - parameter
+                point = (
+                    inverse[..., None] ** 3 * cubic[..., 0, :]
+                    + 3
+                    * inverse[..., None] ** 2
+                    * parameter[..., None]
+                    * cubic[..., 1, :]
+                    + 3
+                    * inverse[..., None]
+                    * parameter[..., None] ** 2
+                    * cubic[..., 2, :]
+                    + parameter[..., None] ** 3 * cubic[..., 3, :]
+                )
+                distance = (
+                    (point - pixel[None, :, None, None, :])
+                    .norm(dim=-1)
+                    .amin(dim=(-1, -2))
+                )
+                sign = torch.where(
+                    inside.reshape(len(controls), -1)[:, start : start + len(pixel)],
+                    -1.0,
+                    1.0,
+                )
+                surrogate_parts.append(torch.sigmoid(-sign * distance / softness))
+            surrogate = torch.cat(surrogate_parts, dim=1).reshape(-1, height, width)
+            hard = inside.to(dtype=controls.dtype)
+            result.append(hard + surrogate - surrogate.detach())
+    return torch.stack(result).mean(dim=0)
+
+
+def _xing_penalties(control: Any) -> Any:
+    """Return SAMVG's normalized Xing penalty for every cubic in ``control``."""
     import torch
 
     start_handle = control[:, 1] - control[:, 0]
     end_handle = control[:, 3] - control[:, 2]
     cross = (
-        start_handle[:, 0] * end_handle[:, 1]
-        - start_handle[:, 1] * end_handle[:, 0]
+        start_handle[:, 0] * end_handle[:, 1] - start_handle[:, 1] * end_handle[:, 0]
     )
     sine = cross / (start_handle.norm(dim=-1) * end_handle.norm(dim=-1) + 1e-12)
-    return torch.where(cross < 0, torch.relu(-sine), torch.relu(sine)).mean()
+    return torch.where(cross < 0, torch.relu(-sine), torch.relu(sine))
+
+
+def _xing_loss(control: Any) -> Any:
+    """Return SAMVG's normalized per-cubic Xing regularizer (Eq. 3-6--3-8)."""
+    return _xing_penalties(control).mean()
 
 
 _HEX_FILL = re.compile(r"^#([0-9a-fA-F]{6})$")
@@ -656,6 +1065,44 @@ def _fill_rgb(value: str | None) -> tuple[float, float, float] | None:
     return tuple(int(digits[index : index + 2], 16) / 255 for index in range(0, 6, 2))
 
 
+def _composite_opaque_fills(alphas: Any, colours: Any) -> Any:
+    """Composite opaque SVG fills in document order without a layer loop.
+
+    Each layer contributes its premultiplied colour through the product of the
+    transparencies above it.  This is algebraically identical to repeatedly
+    applying ``canvas * (1 - alpha) + colour * alpha`` over a black canvas,
+    but lets Torch execute the 223-layer cat seed in a few large operations.
+    """
+    import torch
+
+    transparency = 1 - alphas
+    above_inclusive = torch.cumprod(transparency.flip(0), dim=0).flip(0)
+    above = torch.cat((above_inclusive[1:], torch.ones_like(alphas[:1])), dim=0)
+    return (
+        colours.clamp(0, 1)[:, None, None, :] * alphas[..., None] * above[..., None]
+    ).sum(dim=0)
+
+
+@lru_cache(maxsize=1)
+def _compiled_opaque_fill_composite() -> Any:
+    """Return the CUDA-fused painter's-order compositing kernel when possible."""
+    import torch
+
+    compile_fn = getattr(torch, "compile", None)
+    if compile_fn is None:
+        return _composite_opaque_fills
+    try:
+        return compile_fn(
+            _composite_opaque_fills,
+            fullgraph=True,
+            dynamic=False,
+            options={"triton.cudagraphs": False},
+        )
+    except (RuntimeError, TypeError):
+        log.warning("CUDA fill compositing fusion is unavailable; using eager torch.")
+        return _composite_opaque_fills
+
+
 def fit_filled_svg(
     svg: str,
     target: Image.Image,
@@ -665,6 +1112,9 @@ def fit_filled_svg(
     color_learning_rate: float = 0.01,
     xing_weight: float = 0.02,
     optimisation_long_side: int | None = None,
+    subpixels: int = 2,
+    monolithic: bool = False,
+    curve_samples: int | None = None,
 ) -> str:
     """Optimise opaque filled cubic SVG paths against an RGB target.
 
@@ -672,8 +1122,12 @@ def fit_filled_svg(
     iterations in each of its two passes. This implementation reuses
     Vectrify's torch renderer instead of requiring DiffVG, while retaining the
     dissertation's full-resolution Adam defaults: point LR 1, colour LR .01,
-    and MSE plus .02 Xing loss.  ``optimisation_long_side`` is available only
-    as an explicit caller-selected preview mode.
+    and MSE plus .02 Xing loss.  It uses DiffVG's standard 2x2 optimisation
+    sampling; the standalone renderer retains its stricter 4x4 default for
+    Cairo-fidelity checks.  Small clipped tiles use fewer cubic samples because
+    their screen-space deviation is bounded by the tile size; pass
+    ``curve_samples`` to override that adaptive choice.  ``optimisation_long_side``
+    is available only as an explicit caller-selected preview mode.
     """
     import xml.etree.ElementTree as ET
 
@@ -740,12 +1194,128 @@ def fit_filled_svg(
         [control for path in controls for control in path], lr=point_learning_rate
     )
     colour_optimizer = torch.optim.Adam(colours, lr=color_learning_rate)
-    box = (0, 0, work_width, work_height)
-    simple_groups: dict[tuple[tuple[int, ...], str], list[int]] = defaultdict(list)
-    for index, path in enumerate(controls):
-        if len(path) == 1:
-            fill_rule = entries[index][3]
-            simple_groups[(tuple(path[0].shape), fill_rule)].append(index)
+    # The dissertation averages Xing within each contour then sums contours.
+    # Keep that weighting while evaluating the 413 cat contours in one CUDA
+    # expression rather than launching one tiny graph for each.
+    xing_contour_weights = torch.cat(
+        [
+            torch.full(
+                (len(control),),
+                1 / len(control),
+                dtype=goal.dtype,
+                device=device,
+            )
+            for path in controls
+            for control in path
+        ]
+    )
+
+    def tile_for(path: list[Any]) -> tuple[int, int, int, int]:
+        """A fixed, antialiased raster tile covering a path's control hull."""
+        points = torch.cat([control.detach().reshape(-1, 2) for control in path])
+        # Cubic Beziers lie in their control hull.  Two pixels retain the
+        # entire soft edge while avoiding the full-canvas work DiffVG culls.
+        left = max(0, math.floor(float(points[:, 0].min())) - 2)
+        top = max(0, math.floor(float(points[:, 1].min())) - 2)
+        right = min(work_width, math.ceil(float(points[:, 0].max())) + 2)
+        bottom = min(work_height, math.ceil(float(points[:, 1].max())) + 2)
+
+        # Bucket dimensions keep many unrelated small paths in the same CUDA
+        # batch.  Shift a bucket at the canvas edge rather than clipping its
+        # protected coverage margin.
+        tile_width = min(work_width, 8 * math.ceil(max(right - left, 1) / 8))
+        tile_height = min(work_height, 8 * math.ceil(max(bottom - top, 1) / 8))
+        left = min(left, work_width - tile_width)
+        top = min(top, work_height - tile_height)
+        return left, top, tile_width, tile_height
+
+    def samples_for(tile_width: int, tile_height: int) -> int:
+        """Choose winding tessellation from the cubic's visible pixel extent."""
+        if curve_samples is not None:
+            return curve_samples
+        longest_side = max(tile_width, tile_height)
+        if longest_side <= 32:
+            return 8
+        if longest_side <= 64:
+            return 16
+        return 32
+
+    def restore_tile(alpha: Any, left: int, top: int) -> Any:
+        return torch.nn.functional.pad(
+            alpha,
+            (
+                left,
+                work_width - left - alpha.shape[1],
+                top,
+                work_height - top - alpha.shape[0],
+            ),
+        )
+
+    def cropped_simple_groups() -> dict[
+        tuple[tuple[int, ...], str, int, int], list[tuple[int, int, int]]
+    ]:
+        groups: dict[
+            tuple[tuple[int, ...], str, int, int], list[tuple[int, int, int]]
+        ] = defaultdict(list)
+        for index, path in enumerate(controls):
+            if len(path) != 1:
+                continue
+            left, top, tile_width, tile_height = tile_for(path)
+            groups[
+                (tuple(path[0].shape), entries[index][3], tile_width, tile_height)
+            ].append((index, left, top))
+        return groups
+
+    def rasterise_simple(
+        fill_rule: str,
+        tile_width: int,
+        tile_height: int,
+        items: list[tuple[int, int, int]],
+    ) -> list[tuple[int, Any]]:
+        translated = torch.stack(
+            [
+                controls[index][0] - controls[index][0].new_tensor((left, top))
+                for index, left, top in items
+            ]
+        )
+        rasterised = _fill_coverages(
+            translated,
+            (0, 0, tile_width, tile_height),
+            fill_rule=fill_rule,
+            samples=samples_for(tile_width, tile_height),
+            subpixels=subpixels,
+            fuse=False,
+            dynamic_fuse=len(items) >= 4,
+        )
+        return [
+            (index, restore_tile(alpha, left, top))
+            for (index, left, top), alpha in zip(items, rasterised, strict=True)
+        ]
+
+    def rasterise_multi(index: int, path: list[Any]) -> Any:
+        # Very hole-heavy masks already amortise the fused full-frame kernel.
+        # Tile smaller multi-contour paths, where culling most of their empty
+        # canvas wins over compiling another specialised large batch.
+        if len(path) >= 16:
+            return _fill_path_coverage(
+                path,
+                (0, 0, work_width, work_height),
+                fill_rule=entries[index][3],
+                samples=samples_for(work_width, work_height),
+                subpixels=subpixels,
+            )
+        left, top, tile_width, tile_height = tile_for(path)
+        offset = path[0].new_tensor((left, top))
+        alpha = _fill_path_coverage(
+            [control - offset for control in path],
+            (0, 0, tile_width, tile_height),
+            fill_rule=entries[index][3],
+            samples=samples_for(tile_width, tile_height),
+            subpixels=subpixels,
+            fuse=False,
+        )
+        return restore_tile(alpha, left, top)
+
     log.info(
         "Filled-path optimisation: %d path(s), %dx%d working raster on %s.",
         len(entries),
@@ -756,25 +1326,60 @@ def fit_filled_svg(
     for _step in range(steps):
         point_optimizer.zero_grad()
         colour_optimizer.zero_grad()
+        simple_groups = cropped_simple_groups()
+        all_controls = torch.cat([control for path in controls for control in path])
+
+        if monolithic:
+            alphas: list[Any | None] = [None] * len(entries)
+            for (
+                _shape,
+                fill_rule,
+                tile_width,
+                tile_height,
+            ), items in simple_groups.items():
+                for index, alpha in rasterise_simple(
+                    fill_rule, tile_width, tile_height, items
+                ):
+                    alphas[index] = alpha
+            for index, path in enumerate(controls):
+                if alphas[index] is None:
+                    alphas[index] = rasterise_multi(index, path)
+            alpha_stack = torch.stack([alpha for alpha in alphas if alpha is not None])
+            composite = (
+                _compiled_opaque_fill_composite()
+                if goal.is_cuda
+                else _composite_opaque_fills
+            )
+            rendered = composite(alpha_stack, torch.stack(colours))
+            loss = ((rendered - goal) ** 2).mean()
+            loss = (
+                loss
+                + xing_weight
+                * (_xing_penalties(all_controls) * xing_contour_weights).sum()
+            )
+            loss.backward()
+            point_optimizer.step()
+            colour_optimizer.step()
+            continue
 
         # First composite the exact same soft fills without recording an
         # autograd graph.  The saved canvases and suffix transparencies are
         # enough to derive the MSE gradient of each layer independently.
         with torch.no_grad():
             initial_alphas: list[Any | None] = [None] * len(entries)
-            for (_shape, fill_rule), indices in simple_groups.items():
-                rasterised = _fill_coverages(
-                    torch.stack([controls[index][0] for index in indices]),
-                    box,
-                    fill_rule=fill_rule,
-                )
-                for index, alpha in zip(indices, rasterised, strict=True):
+            for (
+                _shape,
+                fill_rule,
+                tile_width,
+                tile_height,
+            ), items in simple_groups.items():
+                for index, alpha in rasterise_simple(
+                    fill_rule, tile_width, tile_height, items
+                ):
                     initial_alphas[index] = alpha
             for index, path in enumerate(controls):
                 if initial_alphas[index] is None:
-                    initial_alphas[index] = _fill_path_coverage(
-                        path, box, fill_rule=entries[index][3]
-                    )
+                    initial_alphas[index] = rasterise_multi(index, path)
 
             before: list[Any] = []
             rendered = torch.zeros_like(goal)
@@ -810,41 +1415,44 @@ def fit_filled_svg(
             assert stored_alpha is not None
             assert suffix is not None
             colour = colours[index]
-            path = controls[index]
             colour_delta = colour.detach().clamp(0, 1) - canvases[index]
-            alpha_gradient = (
-                gradient * suffix[..., None] * colour_delta
-            ).sum(dim=-1)
+            alpha_gradient = (gradient * suffix[..., None] * colour_delta).sum(dim=-1)
             colour_gradient = (
                 gradient * suffix[..., None] * stored_alpha[..., None]
             ).sum(dim=(0, 1))
-            loss = (alpha * alpha_gradient.detach()).sum()
-            loss = loss + (colour.clamp(0, 1) * colour_gradient.detach()).sum()
-            for control in path:
-                loss = loss + xing_weight * _xing_loss(control)
-            return loss
+            return (alpha * alpha_gradient.detach()).sum() + (
+                colour.clamp(0, 1) * colour_gradient.detach()
+            ).sum()
 
         # Backpropagate a bounded batch at a time.  The compositing derivative
         # above accounts for all later opaque layers, so this has the same MSE
         # gradient as one monolithic render without its peak-memory cost.
-        for (_shape, fill_rule), indices in simple_groups.items():
-            for offset in range(0, len(indices), 4):
-                batch = indices[offset : offset + 4]
-                rasterised = _fill_coverages(
-                    torch.stack([controls[index][0] for index in batch]),
-                    box,
-                    fill_rule=fill_rule,
-                )
+        for (
+            _shape,
+            fill_rule,
+            tile_width,
+            tile_height,
+        ), items in simple_groups.items():
+            for offset in range(0, len(items), 4):
+                batch = items[offset : offset + 4]
                 loss = torch.zeros((), device=device)
-                for index, alpha in zip(batch, rasterised, strict=True):
+                for index, alpha in rasterise_simple(
+                    fill_rule, tile_width, tile_height, batch
+                ):
                     loss = loss + layer_loss(index, alpha)
                 loss.backward()
-        simple_indices = {index for group in simple_groups.values() for index in group}
+        simple_indices = {
+            index for group in simple_groups.values() for index, _left, _top in group
+        }
         for index, path in enumerate(controls):
             if index not in simple_indices:
                 layer_loss(
-                    index, _fill_path_coverage(path, box, fill_rule=entries[index][3])
+                    index,
+                    rasterise_multi(index, path),
                 ).backward()
+        (
+            xing_weight * (_xing_penalties(all_controls) * xing_contour_weights).sum()
+        ).backward()
         point_optimizer.step()
         colour_optimizer.step()
 
@@ -853,8 +1461,7 @@ def fit_filled_svg(
         entries, controls, colours, strict=True
     ):
         data = " ".join(
-            to_path_d((control.detach().cpu() / coordinate_scale_cpu).tolist())
-            + " Z"
+            to_path_d((control.detach().cpu() / coordinate_scale_cpu).tolist()) + " Z"
             for control in path
         )
         element.set("d", data)

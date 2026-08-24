@@ -6,6 +6,8 @@ from PIL import Image
 
 from vectrify.image_utils import rasterize_svg_to_png_bytes
 from vectrify.refine.paths import (
+    _composite_opaque_fills,
+    _fill_batched_windings,
     _fill_coverage,
     _fill_coverages,
     _fill_path_coverage,
@@ -13,6 +15,103 @@ from vectrify.refine.paths import (
     fit_filled_svg,
     parse_filled_cubics,
 )
+
+
+def _sixteen_cubic_circle(torch):
+    angle = torch.arange(17, device="cuda", dtype=torch.float32) * (2 * torch.pi / 16)
+    points = torch.stack((12 + 7 * torch.cos(angle), 13 + 6 * torch.sin(angle)), -1)
+    return torch.stack(
+        (
+            points[:-1],
+            points[:-1] * (2 / 3) + points[1:] * (1 / 3),
+            points[:-1] * (1 / 3) + points[1:] * (2 / 3),
+            points[1:],
+        ),
+        1,
+    )[None]
+
+
+@pytest.mark.parametrize("samples", [8, 16, 32])
+def test_native_winding_matches_torch_forward_and_gradient(samples, monkeypatch):
+    """Release-wheel CUDA path agrees with the portable sampled renderer."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine import cuda_renderer
+
+    if not cuda_renderer.available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    controls = _sixteen_cubic_circle(torch).requires_grad_()
+    native = _fill_batched_windings(
+        controls, (0, 0, 24, 24), samples=samples, x_offset=0.25, y_offset=0.25
+    )
+    extension = cuda_renderer._extension
+    monkeypatch.setattr(cuda_renderer, "_extension", lambda: None)
+    portable = _fill_batched_windings(
+        controls, (0, 0, 24, 24), samples=samples, x_offset=0.25, y_offset=0.25
+    )
+    upstream = torch.randn_like(native)
+    (native * upstream).sum().backward()
+    native_gradient = controls.grad.detach().clone()
+    controls.grad = None
+    (portable * upstream).sum().backward()
+
+    assert torch.allclose(native, portable, atol=1e-5, rtol=1e-5)
+    assert torch.allclose(native_gradient, controls.grad, atol=1e-4, rtol=1e-4)
+    monkeypatch.setattr(cuda_renderer, "_extension", extension)
+
+
+def test_native_winding_falls_back_without_the_optional_extension(monkeypatch):
+    torch = pytest.importorskip("torch")
+    from vectrify.refine import cuda_renderer
+
+    monkeypatch.setattr(cuda_renderer, "_extension", lambda: None)
+    controls = torch.zeros((1, 16, 4, 2))
+    assert (
+        cuda_renderer.winding(
+            controls, (0, 0, 8, 8), samples=16, x_offset=0.5, y_offset=0.5
+        )
+        is None
+    )
+
+
+def test_native_even_odd_coverage_stays_cairo_validated():
+    """The native winding path preserves SVG hole coverage, not just tensors."""
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available
+
+    if not available():
+        pytest.skip("optional SAMVG CUDA extension is not installed")
+    size = 96
+    contours = [
+        torch.tensor(contour, dtype=torch.float32, device="cuda")
+        for contour in parse_filled_cubics(DONUT_PATH)
+    ]
+    native = _fill_path_coverage(
+        contours, (0, 0, size, size), fill_rule="evenodd"
+    ).cpu().numpy()
+    head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
+    blank = f"{head}</svg>"
+    drawn = f'{head}<path d="{DONUT_PATH}" fill="#000" fill-rule="evenodd" /></svg>'
+    real = (
+        np.asarray(
+            Image.open(
+                io.BytesIO(rasterize_svg_to_png_bytes(blank, out_w=size, out_h=size))
+            ).convert("L"),
+            dtype=np.float32,
+        )
+        - np.asarray(
+            Image.open(
+                io.BytesIO(rasterize_svg_to_png_bytes(drawn, out_w=size, out_h=size))
+            ).convert("L"),
+            dtype=np.float32,
+        )
+    ) / 255.0
+
+    assert np.abs(native - real).mean() < 0.002
+    assert native[48, 48] < 0.01
 
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">'
@@ -71,11 +170,10 @@ def test_even_odd_filled_renderer_matches_exported_svg_with_a_hole():
     head = f'<svg xmlns="http://www.w3.org/2000/svg" width="{size}" height="{size}">'
     blank = f"{head}</svg>"
     drawn = f'{head}<path d="{DONUT_PATH}" fill="#000" fill-rule="evenodd" /></svg>'
+
     def luminance(svg: str) -> np.ndarray:
         png = rasterize_svg_to_png_bytes(svg, out_w=size, out_h=size)
-        return np.asarray(
-            Image.open(io.BytesIO(png)).convert("L"), dtype=np.float32
-        )
+        return np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=np.float32)
 
     real = (luminance(blank) - luminance(drawn)) / 255.0
 
@@ -99,7 +197,7 @@ def test_filled_fit_preserves_even_odd_contours_at_zero_steps():
     fitted = fit_filled_svg(svg, target, steps=0)
 
     assert fitted.count("M ") == 2
-    assert "fill-rule=\"evenodd\"" in fitted
+    assert 'fill-rule="evenodd"' in fitted
 
 
 def test_filled_fit_can_optimise_an_even_odd_path_without_losing_its_hole():
@@ -124,10 +222,10 @@ def test_filled_fit_can_optimise_an_even_odd_path_without_losing_its_hole():
     rendered = Image.open(
         io.BytesIO(rasterize_svg_to_png_bytes(fitted, out_w=96, out_h=96))
     ).convert("RGB")
+
     def error(candidate: Image.Image) -> float:
-        difference = (
-            np.asarray(candidate, dtype=np.float32)
-            - np.asarray(target, dtype=np.float32)
+        difference = np.asarray(candidate, dtype=np.float32) - np.asarray(
+            target, dtype=np.float32
         )
         return float((difference**2).mean())
 
@@ -215,6 +313,25 @@ def test_bounded_compositing_gradient_matches_monolithic_render():
         assert torch.allclose(actual, expected, atol=1e-6, rtol=1e-5)
 
 
+def test_tensorised_opaque_compositing_matches_layer_loop():
+    torch = pytest.importorskip("torch")
+    alphas = torch.tensor(
+        [
+            [[0.2, 0.7], [0.3, 0.5]],
+            [[0.6, 0.1], [0.8, 0.4]],
+            [[0.9, 0.2], [0.4, 0.3]],
+        ]
+    )
+    colours = torch.tensor([[0.1, 0.3, 0.9], [0.9, 0.2, 0.4], [0.2, 0.8, 0.5]])
+    expected = torch.zeros(2, 2, 3)
+    for alpha, colour in zip(alphas, colours, strict=True):
+        expected = expected * (1 - alpha[..., None]) + colour * alpha[..., None]
+
+    actual = _composite_opaque_fills(alphas, colours)
+
+    assert torch.allclose(actual, expected)
+
+
 def test_xing_loss_is_normalized_and_penalizes_either_turn_direction():
     torch = pytest.importorskip("torch")
     controls = torch.tensor(
@@ -244,12 +361,8 @@ def test_even_odd_uses_winding_parity_for_a_double_wound_contour():
         for contour in parse_filled_cubics(double_loop)
     ]
 
-    even_odd = _fill_path_coverage(
-        contours, (0, 0, 96, 96), fill_rule="evenodd"
-    )
-    nonzero = _fill_path_coverage(
-        contours, (0, 0, 96, 96), fill_rule="nonzero"
-    )
+    even_odd = _fill_path_coverage(contours, (0, 0, 96, 96), fill_rule="evenodd")
+    nonzero = _fill_path_coverage(contours, (0, 0, 96, 96), fill_rule="nonzero")
     batched_even_odd = _fill_coverages(
         torch.stack(contours), (0, 0, 96, 96), fill_rule="evenodd"
     )

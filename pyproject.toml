@@ -57,6 +57,16 @@ vision = [
     "torchvision>=0.28.0",
     "transformers>=4.40.0",
 ]
+# The CUDA extension is shipped in platform-specific wheels.  Installing this
+# extra is deliberately sufficient for the SAMVG seed even on machines that
+# use the portable Torch renderer fallback.
+samvg = [
+    "scipy>=1.11.0",
+    "scikit-learn>=1.3.0",
+    "torch>=2.0.0",
+    "torchvision>=0.28.0",
+    "transformers>=4.40.0",
+]
 graphviz = [
     "graphviz>=0.21",
 ]
@@ -64,7 +74,7 @@ typst = [
     "typst>=0.11.0",
 ]
 all = [
-    "vectrify[vision,graphviz,typst]",
+    "vectrify[vision,samvg,graphviz,typst]",
 ]
 dev = [
     "pytest",
@@ -95,6 +105,9 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+vectrify = ["refine/*.cu"]
 
 [tool.pytest.ini_options]
 addopts = "-m 'not llm'"

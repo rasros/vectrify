@@ -25,6 +25,11 @@ log = logging.getLogger(__name__)
 # ViT-H is the paper-quality default; users who need the smaller checkpoint can
 # opt down without changing the package through VECTRIFY_SAMVG_MODEL.
 SAMVG_MODEL = os.environ.get("VECTRIFY_SAMVG_MODEL", "facebook/sam-vit-huge")
+# SAMVG's own impact filter selects useful masks against the image.  Retaining
+# AMG's score gates here discarded the small facial candidates needed by the
+# photo seed before that image-aware test could evaluate them.
+SAMVG_PRED_IOU_THRESH = 0.0
+SAMVG_STABILITY_SCORE_THRESH = 0.0
 
 
 @dataclass(frozen=True)
@@ -80,6 +85,8 @@ def automatic_masks(image: Image.Image) -> list[np.ndarray]:
                 points_per_batch=32,
                 points_per_crop=32,
                 crops_n_layers=0,
+                pred_iou_thresh=SAMVG_PRED_IOU_THRESH,
+                stability_score_thresh=SAMVG_STABILITY_SCORE_THRESH,
             )["masks"]
         ]
 
@@ -110,17 +117,15 @@ def automatic_masks(image: Image.Image) -> list[np.ndarray]:
 
 
 def _components(
-    mask: np.ndarray, min_pixels: int, *, fill_holes: bool = False
+    mask: np.ndarray, min_pixels: int, *, fill_holes: bool = True
 ) -> list[np.ndarray]:
-    """Return traceable mask components without inventing filled regions.
+    """Return traceable AMG components after its required hole cleanup.
 
-    AMG already performs its configured small-region postprocessing.  Filling
-    every remaining hole changes an eye, ear, or gap between hairs into a
-    solid region, and keeping disconnected pieces in one SVG path turns them
-    into one optimisation unit.  SAMVG traces each component, so impact
-    filtering must receive those components separately.
+    SAMVG traces each connected component independently.  Filling its mask
+    holes before tracing matches AMG's small-region cleanup and prevents a
+    noisy mask from becoming hundreds of even-odd SVG contours.
     """
-    from scipy.ndimage import binary_fill_holes, label
+    from scipy.ndimage import label
 
     labels, count = label(mask)
     components = []
@@ -129,7 +134,21 @@ def _components(
         if int(component.sum()) < min_pixels:
             continue
         if fill_holes:
-            component = binary_fill_holes(component)
+            # AMG's postprocessing removes *small* enclosed holes, rather
+            # than turning meaningful cutouts such as an eye into a solid
+            # region.  The same area cutoff as tiny components keeps those
+            # two decisions consistent.
+            background, hole_count = label(~component)
+            for hole in range(1, hole_count + 1):
+                points = background == hole
+                if (
+                    int(points.sum()) <= min_pixels
+                    and not points[0].any()
+                    and not points[-1].any()
+                    and not points[:, 0].any()
+                    and not points[:, -1].any()
+                ):
+                    component[points] = True
         components.append(np.asarray(component, dtype=bool))
     return components
 
@@ -193,7 +212,7 @@ def filter_by_impact(
     min_pixels: int = 32,
     min_impact: float = 1e-5,
     max_layers: int = 128,
-    fill_holes: bool = False,
+    fill_holes: bool = True,
 ) -> list[MaskLayer]:
     """Keep masks that lower blank-canvas reconstruction error.
 
@@ -320,6 +339,7 @@ def retrieve_layers(
     min_pixels: int = 32,
     min_impact: float = 1e-5,
     max_layers: int = 512,
+    fill_holes: bool = True,
 ) -> list[MaskLayer]:
     """Run SAMVG's automatic-mask, coverage-prompt, filter sequence."""
     image = image.convert("RGB")
@@ -330,6 +350,7 @@ def retrieve_layers(
         min_pixels=min_pixels,
         min_impact=min_impact,
         max_layers=max_layers,
+        fill_holes=fill_holes,
     )
     layers = recolour_visible_layers(image, layers)
     points = coverage_prompt_points(layers, (image.height, image.width))
@@ -341,6 +362,7 @@ def retrieve_layers(
         min_pixels=min_pixels,
         min_impact=min_impact,
         max_layers=max_layers,
+        fill_holes=fill_holes,
     )
     recovered = recolour_visible_layers(image, recovered)
     log.info(
@@ -434,10 +456,7 @@ def _fit_cubic(
                 3 * (1 - parameters) * parameters**2,
             )
         )
-        base = (
-            (1 - parameters)[:, None] ** 3 * start
-            + parameters[:, None] ** 3 * end
-        )
+        base = (1 - parameters)[:, None] ** 3 * start + parameters[:, None] ** 3 * end
         controls, *_ = np.linalg.lstsq(matrix, points - base, rcond=None)
         return controls
 
@@ -460,9 +479,8 @@ def _fit_cubic(
                 + 6 * omt[:, None] * t[:, None] * (p1 - p0)
                 + 3 * t[:, None] ** 2 * (end - p1)
             )
-            second = (
-                6 * omt[:, None] * (p1 - 2 * p0 + start)
-                + 6 * t[:, None] * (end - 2 * p1 + p0)
+            second = 6 * omt[:, None] * (p1 - 2 * p0 + start) + 6 * t[:, None] * (
+                end - 2 * p1 + p0
             )
             offset = curve - points
             numerator = (offset * first).sum(axis=1)
@@ -532,7 +550,8 @@ def generate_svg(
     min_pixels: int = 32,
     min_impact: float = 1e-5,
     max_layers: int = 512,
-    segments: int = 8,
+    segments: int = 16,
+    fill_holes: bool = True,
 ) -> str:
     """Generate SAMVG's traced, pre-optimisation SVG from a target image."""
     image = image.convert("RGB")
@@ -543,6 +562,7 @@ def generate_svg(
             min_pixels=min_pixels,
             min_impact=min_impact,
             max_layers=max_layers,
+            fill_holes=fill_holes,
         )
         if masks is not None
         else retrieve_layers(
@@ -550,6 +570,7 @@ def generate_svg(
             min_pixels=min_pixels,
             min_impact=min_impact,
             max_layers=max_layers,
+            fill_holes=fill_holes,
         )
     )
     paths = []
@@ -626,9 +647,9 @@ def _append_layers(svg: str, layers: list[MaskLayer], segments: int) -> str:
 
 
 def _render_svg(svg: str, image: Image.Image, rasterize) -> Image.Image:
-    return Image.open(
-        io.BytesIO(rasterize(svg, image.width, image.height))
-    ).convert("RGB")
+    return Image.open(io.BytesIO(rasterize(svg, image.width, image.height))).convert(
+        "RGB"
+    )
 
 
 def _mse(image: Image.Image, rendered: Image.Image) -> float:
