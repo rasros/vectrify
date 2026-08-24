@@ -798,17 +798,16 @@ def _fill_path_coverage(
     coverages = []
     for y in range(subpixels):
         for x in range(subpixels):
-            winding = sum(
-                (
+            winding = torch.stack(
+                [
                     contour_winding(
                         contour,
                         (x + 0.5) / subpixels,
                         (y + 0.5) / subpixels,
                     )
                     for contour in contours
-                ),
-                start=0,
-            )
+                ]
+            ).sum(dim=0)
             if fill_rule == "evenodd":
                 # Winding changes by 2π for every crossing.  This periodic
                 # expression is zero for an even count and one for an odd one.
@@ -1264,7 +1263,11 @@ def _fill_rgb(value: str | None) -> tuple[float, float, float] | None:
     if not match:
         return None
     digits = match.group(1)
-    return tuple(int(digits[index : index + 2], 16) / 255 for index in range(0, 6, 2))
+    return (
+        int(digits[0:2], 16) / 255,
+        int(digits[2:4], 16) / 255,
+        int(digits[4:6], 16) / 255,
+    )
 
 
 def _composite_opaque_fills(alphas: Any, colours: Any) -> Any:
