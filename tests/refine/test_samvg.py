@@ -265,6 +265,21 @@ def test_automatic_masks_uses_source_sized_first_layer_crops(monkeypatch):
     assert all(mask.shape == (8, 12) for mask in masks)
 
 
+def test_low_resolution_candidates_keep_logits_until_interpolation(monkeypatch):
+    torch = __import__("torch")
+    monkeypatch.setattr(samvg, "SAMVG_PRED_IOU_THRESH", 0.0)
+    monkeypatch.setattr(samvg, "SAMVG_STABILITY_SCORE_THRESH", 0.0)
+    logits = torch.tensor([[[[-2.0, 1.0], [1.0, -2.0]]]])
+
+    masks, scores, boxes = samvg._low_resolution_candidates(
+        logits, torch.tensor([[[0.9]]])
+    )
+
+    assert torch.allclose(scores, torch.tensor([0.9]))
+    assert torch.equal(masks, logits.reshape(1, 2, 2))
+    assert boxes.shape == (1, 4)
+
+
 def test_retrieve_layers_reuses_one_runtime_for_automatic_and_coverage_prompts(
     monkeypatch,
 ):

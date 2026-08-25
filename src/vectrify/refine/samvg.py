@@ -531,7 +531,7 @@ def _automatic_forward(inputs: Any, runtime: _SamRuntime) -> dict[str, Any]:
 def _low_resolution_candidates(
     pred_masks: Any, iou_scores: Any
 ) -> tuple[Any, Any, Any]:
-    """Filter and box decoder masks before full-resolution interpolation."""
+    """Filter decoder logits and box their thresholded low-resolution masks."""
     import torch
     from transformers.models.sam.image_processing_sam import (
         _batched_mask_to_box,
@@ -546,8 +546,12 @@ def _low_resolution_candidates(
     if SAMVG_STABILITY_SCORE_THRESH > 0:
         stability = _compute_stability_score(masks, 0, 1)
         keep &= stability > SAMVG_STABILITY_SCORE_THRESH
-    masks, scores = masks[keep] > 0, scores[keep]
-    return masks, scores, _batched_mask_to_box(masks)
+    # SAM's AMG performs NMS on thresholded 256px masks but delays the actual
+    # threshold until after its full-resolution interpolation.  Keeping the
+    # logits here is essential: interpolating a binary mask turns every soft
+    # edge into positive coverage and blunts narrow masks such as cat fur.
+    masks, scores = masks[keep], scores[keep]
+    return masks, scores, _batched_mask_to_box(masks > 0)
 
 
 def _filter_automatic_masks(
@@ -566,10 +570,9 @@ def _filter_automatic_masks(
     original_height, original_width = original_size
     scores = iou_scores.reshape(-1)
     masks = masks.reshape(-1, *masks.shape[-2:])
-    # Candidates arrive here as binary low-resolution masks. Their predicted
-    # IoU and stability were evaluated against decoder logits in
-    # `_low_resolution_candidates`; repeating AMG's stability test after this
-    # conversion would compare a binary mask to ``+1`` and discard everything.
+    # Candidate logits were scored at decoder resolution and interpolated in
+    # the same order as SAM's AMG. Threshold only now, after resizing them to
+    # the crop canvas, so narrow boundaries retain their signed contour.
     masks = masks > 0
     boxes = _batched_mask_to_box(masks)
     keep = ~_is_box_near_crop_edge(
@@ -675,9 +678,9 @@ def _automatic_masks_for(
             runtime.image_embeddings = embedding
             runtime.embedding_size = source.size
         outputs.append(_automatic_forward(inputs, runtime))
-        # Keep the GPU bounded to one decoder batch. Binary 256px masks are
-        # four times smaller than the previous float logits and will undergo
-        # one global NMS before any full-resolution interpolation.
+        # Keep the GPU bounded to one decoder batch. NMS and score filtering
+        # have already retained only the decoder logits that need the
+        # full-resolution SAM post-processing.
         outputs[-1]["masks"] = outputs[-1]["masks"].cpu()
         outputs[-1]["scores"] = outputs[-1]["scores"].cpu()
         outputs[-1]["boxes"] = outputs[-1]["boxes"].cpu()
