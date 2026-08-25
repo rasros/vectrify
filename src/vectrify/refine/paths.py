@@ -1881,6 +1881,24 @@ def fit_filled_svg(
     # seed.  The two-pixel antialias margin already makes these fixed tiles
     # conservative for the local coordinate updates used by the fit.
     initial_simple_groups = cropped_simple_groups()
+    # Simple paths use cropped tiles, so unlike the full-canvas compositor
+    # their bounds are optimisation state.  A SAMVG coordinate update can move
+    # a boundary outside its initial two-pixel antialias fringe; continuing to
+    # rasterise the old crop silently clips that fill and creates the holes and
+    # spikes visible in long fits.  Keep one packed reference so the movement
+    # check is a single device reduction; rebuild the inexpensive Python tile
+    # grouping only after a meaningful move.
+    simple_tile_reference = control_storage.detach().clone()
+
+    def refresh_simple_tiles() -> None:
+        nonlocal initial_simple_groups, simple_tile_reference
+
+        movement = (control_storage.detach() - simple_tile_reference).abs().amax()
+        if float(movement) <= 1.0:
+            return
+        initial_simple_groups = cropped_simple_groups()
+        simple_tile_reference = control_storage.detach().clone()
+
     initial_multi_tiles = {
         index: tile_for(path)
         for index, path in enumerate(controls)
@@ -1989,6 +2007,7 @@ def fit_filled_svg(
             point_optimizer.step()
             colour_optimizer.step()
             close_contours()
+            refresh_simple_tiles()
             continue
 
         if sparse_replay:
@@ -2127,6 +2146,7 @@ def fit_filled_svg(
             point_optimizer.step()
             colour_optimizer.step()
             close_contours()
+            refresh_simple_tiles()
             continue
 
         # First composite the exact same soft fills without recording an
@@ -2263,6 +2283,7 @@ def fit_filled_svg(
         point_optimizer.step()
         colour_optimizer.step()
         close_contours()
+        refresh_simple_tiles()
 
     coordinate_scale_cpu = coordinate_scale.cpu()
     for index, ((element, _contours, _colour, _fill_rule, _opacity), path) in enumerate(
