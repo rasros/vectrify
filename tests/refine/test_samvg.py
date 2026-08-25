@@ -331,7 +331,7 @@ def test_filter_by_impact_keeps_useful_nested_masks_in_layer_order():
     assert all(layer.impact > 0 for layer in layers)
 
 
-def test_filter_by_impact_keeps_disconnected_mask_as_one_compound_layer():
+def test_filter_by_impact_scores_a_disconnected_mask_before_emitting_components():
     pixels = np.zeros((12, 12, 3), dtype=np.uint8)
     pixels[2:5, 2:5] = (220, 20, 20)
     pixels[7:10, 7:10] = (20, 20, 220)
@@ -342,8 +342,9 @@ def test_filter_by_impact_keeps_disconnected_mask_as_one_compound_layer():
 
     layers = filter_by_impact(image, [mask], min_pixels=1, min_impact=0)
 
-    assert [int(layer.mask.sum()) for layer in layers] == [18]
-    assert layers[0].colour == (120, 20, 120)
+    assert [int(layer.mask.sum()) for layer in layers] == [9, 9]
+    assert {layer.colour for layer in layers} == {(120, 20, 120)}
+    assert layers[0].impact == layers[1].impact
 
 
 def test_filter_by_impact_residual_canvas_does_not_charge_covered_pixels_as_blank():
