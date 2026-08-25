@@ -307,6 +307,40 @@ def test_filter_by_impact_keeps_useful_nested_masks_in_layer_order():
     assert all(layer.impact > 0 for layer in layers)
 
 
+def test_filter_by_impact_scores_a_disconnected_mask_before_emitting_components():
+    pixels = np.zeros((12, 12, 3), dtype=np.uint8)
+    pixels[2:5, 2:5] = (220, 20, 20)
+    pixels[7:10, 7:10] = (20, 20, 220)
+    image = Image.fromarray(pixels)
+    mask = np.zeros((12, 12), dtype=bool)
+    mask[2:5, 2:5] = True
+    mask[7:10, 7:10] = True
+
+    layers = filter_by_impact(image, [mask], min_pixels=1, min_impact=0)
+
+    assert [int(layer.mask.sum()) for layer in layers] == [9, 9]
+    assert {layer.colour for layer in layers} == {(120, 20, 120)}
+    assert layers[0].impact == layers[1].impact
+
+
+def test_filter_by_impact_residual_canvas_does_not_charge_covered_pixels_as_blank():
+    image = Image.new("RGB", (8, 8), (128, 128, 128))
+    mask = np.zeros((8, 8), dtype=bool)
+    mask[2:6, 2:6] = True
+    fitted = np.full((8, 8, 3), 128, dtype=np.uint8)
+
+    layers = filter_by_impact(
+        image,
+        [mask],
+        initial_canvas=fitted,
+        initial_coverage=np.ones((8, 8), dtype=bool),
+        min_pixels=1,
+        min_impact=1e-6,
+    )
+
+    assert layers == []
+
+
 def test_incremental_impact_scoring_matches_full_canvas_recomputation():
     pixels = np.full((16, 16, 3), 255, dtype=np.uint8)
     pixels[2:12, 2:12] = (180, 60, 30)

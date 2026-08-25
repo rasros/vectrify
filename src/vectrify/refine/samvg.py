@@ -39,11 +39,10 @@ SAMVG_MAX_SIDE = int(os.environ.get("VECTRIFY_SAMVG_MAX_SIDE", "1024"))
 # grid. 64 doubles the old 32 while leaving full-resolution-mask
 # headroom on a 16 GB GPU; users with larger cards can raise it by environment.
 SAMVG_POINTS_PER_BATCH = int(os.environ.get("VECTRIFY_SAMVG_POINTS_PER_BATCH", "64"))
-# SAMVG's own impact filter selects useful masks against the image.  Retaining
-# AMG's score gates here discarded the small facial candidates needed by the
-# photo seed before that image-aware test could evaluate them.
-SAMVG_PRED_IOU_THRESH = 0.0
-SAMVG_STABILITY_SCORE_THRESH = 0.0
+# Preserve SAM AMG's confidence and stability filtering before SAMVG evaluates
+# a complete cleaned mask by render impact, as described in the dissertation.
+SAMVG_PRED_IOU_THRESH = 0.88
+SAMVG_STABILITY_SCORE_THRESH = 0.95
 # The SAMVG seed only needs OCR once and does it after SAM has released its
 # automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
 # detector: it can decide which visible labels deserve editable text and place
@@ -549,11 +548,9 @@ def _filter_automatic_masks(
     original_size: list[int],
     cropped_box_image: Any,
 ) -> tuple[Any, Any, Any]:
-    """Apply AMG's score/edge filter without its lossy RLE round trip."""
-    import torch
+    """Apply AMG's crop-edge filter after low-resolution score filtering."""
     from transformers.models.sam.image_processing_sam import (
         _batched_mask_to_box,
-        _compute_stability_score,
         _is_box_near_crop_edge,
         _pad_masks,
     )
@@ -561,13 +558,11 @@ def _filter_automatic_masks(
     original_height, original_width = original_size
     scores = iou_scores.reshape(-1)
     masks = masks.reshape(-1, *masks.shape[-2:])
-    keep = torch.ones(len(masks), dtype=torch.bool, device=masks.device)
-    if SAMVG_PRED_IOU_THRESH > 0:
-        keep &= scores > SAMVG_PRED_IOU_THRESH
-    if SAMVG_STABILITY_SCORE_THRESH > 0:
-        stability = _compute_stability_score(masks, 0, 1)
-        keep &= stability > SAMVG_STABILITY_SCORE_THRESH
-    scores, masks = scores[keep], masks[keep] > 0
+    # Candidates arrive here as binary low-resolution masks. Their predicted
+    # IoU and stability were evaluated against decoder logits in
+    # `_low_resolution_candidates`; repeating AMG's stability test after this
+    # conversion would compare a binary mask to ``+1`` and discard everything.
+    masks = masks > 0
     boxes = _batched_mask_to_box(masks)
     keep = ~_is_box_near_crop_edge(
         boxes, cropped_box_image, [0, 0, original_width, original_height]
@@ -882,19 +877,24 @@ def filter_by_impact(
     error_map = _impact_error_map(target, canvas, coverage)
     error_total = float(error_map.sum(dtype=np.float64))
     error = error_total / error_map.size
-    initial_count = len(accepted)
-    candidates = [
-        component
-        for mask in masks
-        if np.asarray(mask).shape == (height, width)
-        for component in _components(
-            np.asarray(mask, dtype=bool), min_pixels, fill_holes=fill_holes
-        )
-    ]
-    candidates.sort(key=lambda mask: int(mask.sum()), reverse=True)
-    for mask in candidates:
-        if int(mask.sum()) < min_pixels:
+    # SAMVG filters an AMG *mask* by its rendered impact, after AMG's component
+    # cleanup. Components are independent paths only in the subsequent tracing
+    # stage. Scoring every disconnected component here changes the paper's
+    # painter-order decision and promotes low-information rectangular fragments.
+    candidates = []
+    for raw_mask in masks:
+        if np.asarray(raw_mask).shape != (height, width):
             continue
+        components = _components(
+            np.asarray(raw_mask, dtype=bool), min_pixels, fill_holes=fill_holes
+        )
+        if not components:
+            continue
+        mask = np.logical_or.reduce(components)
+        candidates.append((mask, components))
+    candidates.sort(key=lambda candidate: int(candidate[0].sum()), reverse=True)
+    retained: list[tuple[list[np.ndarray], tuple[int, int, int], float]] = []
+    for mask, components in candidates:
         colour = cast(
             tuple[int, int, int],
             tuple(int(value) for value in np.rint(target[mask].mean(axis=0))),
@@ -910,7 +910,7 @@ def filter_by_impact(
         impact = error - next_error
         if impact < min_impact:
             continue
-        accepted.append(MaskLayer(mask, colour, impact))
+        retained.append((components, colour, impact))
         canvas[mask] = colour
         coverage |= mask
         error_map[mask] = next_error_values
@@ -918,8 +918,12 @@ def filter_by_impact(
         # Each SAMVG stage is allowed its own retained-mask budget.  Applying
         # this to the combined existing+new list silently limited recovery to
         # one path once the automatic stage had filled its budget.
-        if len(accepted) - initial_count >= max_layers:
+        if len(retained) >= max_layers:
             break
+    for components, colour, impact in retained:
+        accepted.extend(
+            MaskLayer(component, colour, impact) for component in components
+        )
     return accepted
 
 
@@ -1034,7 +1038,6 @@ def retrieve_layers(
         max_layers=max_layers,
         fill_holes=fill_holes,
     )
-    layers = recolour_visible_layers(image, layers)
     points = coverage_prompt_points(layers, (image.height, image.width))
     prompted = prompted_masks(image, points, max_side=max_side, _runtime=runtime)
     recovered = filter_by_impact(
@@ -1046,7 +1049,6 @@ def retrieve_layers(
         max_layers=max_layers,
         fill_holes=fill_holes,
     )
-    recovered = recolour_visible_layers(image, recovered)
     log.info(
         "SAMVG first pass: %d automatic mask(s), %d retained; %d coverage "
         "prompt(s), %d prompted mask(s), %d total retained.",
@@ -1727,13 +1729,16 @@ def vectorize_svg(
             initial, image, rasterize=rasterize, steps=steps
         )
         points = residual_prompt_points(image, first_render)
-        _canvas, coverage = _render_layers((image.height, image.width), layers)
         added = filter_by_impact(
             image,
             prompted_masks(image, points, max_side=max_side, _runtime=runtime),
             existing=layers,
             initial_canvas=np.asarray(first_render, dtype=np.uint8),
-            initial_coverage=coverage,
+            # Residual recovery scores against the fitted raster, not a blank
+            # segmentation canvas.  Every pixel therefore has ordinary raster
+            # error; marking holes in the old masks uncovered would falsely
+            # reward any prompted mask placed there.
+            initial_coverage=np.ones((image.height, image.width), dtype=bool),
             min_pixels=min_pixels,
             min_impact=min_impact,
             max_layers=max_layers,

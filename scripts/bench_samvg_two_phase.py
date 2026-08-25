@@ -26,7 +26,6 @@ from vectrify.refine.paths import fit_filled_svg_bounded
 from vectrify.refine.samvg import (
     _append_layers,
     _mse,
-    _render_layers,
     _render_svg,
     filter_by_impact,
     prompted_masks,
@@ -108,13 +107,14 @@ def run_target(
         initial, target, plugin, steps
     )
     points = residual_prompt_points(target, first_render)
-    _canvas, coverage = _render_layers((target.height, target.width), layers)
     added = filter_by_impact(
         target,
         prompted_masks(target, points),
         existing=layers,
         initial_canvas=np.asarray(first_render, dtype=np.uint8),
-        initial_coverage=coverage,
+        # The residual pass starts from the first fitted raster.  It is not an
+        # uncovered-mask pass, so all pixels must use their actual raster MSE.
+        initial_coverage=np.ones((target.height, target.width), dtype=bool),
     )[len(layers) :]
     recovery = _append_layers(first, added, 16, hybrid_strokes=False)
     final, final_render, final_measurements, final_accepted = _fit_if_improved(
