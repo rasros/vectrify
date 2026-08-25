@@ -1710,6 +1710,18 @@ def fit_filled_svg(
             )
         ]
 
+    def sparse_backward_batch_size(tile_width: int, tile_height: int) -> int:
+        """Bound the live tile-local autograd graph while filling the GPU.
+
+        Sparse replay never needs a full-canvas alpha stack, but it does keep
+        the coverage graph for one backward batch alive.  A fixed 16-path
+        batch underutilises CUDA for SAMVG's common 32--64px tiles; allowing
+        up to 64 such paths is still smaller than the former 16 large-tile
+        batches.  The tile-area budget preserves that memory bound for large
+        shapes without changing the rendered image or its derivative.
+        """
+        return max(1, min(64, (1 << 20) // max(1, tile_width * tile_height)))
+
     def rasterise_multi(index: int, path: list[Any]) -> Any:
         # Large paths use fixed conservative candidate tiles.  Every tile
         # sees all contours that can cross one of its horizontal rays, while
@@ -2137,10 +2149,14 @@ def fit_filled_svg(
                 # batch more equal-size paths than the legacy dense replay.
                 # This reduces native coverage launches without increasing the
                 # full-canvas memory footprint.
-                for offset in range(0, len(items), 16):
+                batch_size = sparse_backward_batch_size(tile_width, tile_height)
+                for offset in range(0, len(items), batch_size):
                     loss = torch.zeros((), device=device)
                     for index, alpha, left, top in rasterise_simple_tiles(
-                        fill_rule, tile_width, tile_height, items[offset : offset + 16]
+                        fill_rule,
+                        tile_width,
+                        tile_height,
+                        items[offset : offset + batch_size],
                     ):
                         loss = loss + sparse_layer_loss(index, alpha, left, top)
                     loss.backward()
