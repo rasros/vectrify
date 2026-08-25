@@ -397,6 +397,44 @@ def test_components_fill_only_tiny_enclosed_holes():
     assert components[0].all()
 
 
+def test_bounded_component_hole_checks_match_full_canvas_semantics():
+    def full_canvas(mask: np.ndarray, min_pixels: int) -> list[np.ndarray]:
+        result = []
+        for runs in samvg._run_components(mask):
+            if sum(end - start for _y, start, end in runs) < min_pixels:
+                continue
+            component = np.zeros(mask.shape, dtype=bool)
+            for y, start, end in runs:
+                component[y, start:end] = True
+            for hole in samvg._run_components(~component):
+                area = sum(end - start for _y, start, end in hole)
+                touches_border = any(
+                    y in {0, mask.shape[0] - 1} or start == 0 or end == mask.shape[1]
+                    for y, start, end in hole
+                )
+                if area <= min_pixels and not touches_border:
+                    for y, start, end in hole:
+                        component[y, start:end] = True
+            result.append(component)
+        return result
+
+    mask = np.zeros((20, 24), dtype=bool)
+    mask[1:12, 1:12] = True
+    mask[4:6, 4:6] = False
+    mask[7:10, 7:10] = False
+    mask[3:5, 18:20] = True
+    mask[14:17, 2:5] = True
+
+    bounded = _components(mask, min_pixels=4)
+    original = full_canvas(mask, min_pixels=4)
+
+    assert len(bounded) == len(original)
+    assert all(
+        np.array_equal(left, right)
+        for left, right in zip(bounded, original, strict=True)
+    )
+
+
 def test_internal_morphology_matches_scipy_default_connectivity():
     mask = np.array(
         [[False, True, True], [True, True, True], [True, True, True]], dtype=bool

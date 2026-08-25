@@ -750,25 +750,44 @@ def _components(
     for runs in _run_components(foreground):
         if sum(end - start for _y, start, end in runs) < min_pixels:
             continue
+        min_y = min(y for y, _start, _end in runs)
+        max_y = max(y for y, _start, _end in runs)
+        min_x = min(start for _y, start, _end in runs)
+        max_x = max(end for _y, _start, end in runs)
+        local = np.zeros((max_y - min_y + 1, max_x - min_x), dtype=bool)
+        for y, start, end in runs:
+            local[y - min_y, start - min_x : end - min_x] = True
         component = np.zeros((height, width), dtype=bool)
         for y, start, end in runs:
             component[y, start:end] = True
-        if fill_holes:
+        # A hole must contain at least one non-component pixel strictly inside
+        # this box. Most small SAM fragments are solid or only touch the box
+        # boundary, so avoid a connected-components pass when a hole is
+        # impossible.
+        has_interior_background = (
+            local.shape[0] > 2 and local.shape[1] > 2 and not local[1:-1, 1:-1].all()
+        )
+        if fill_holes and has_interior_background:
             # AMG's postprocessing removes *small* enclosed holes, rather
             # than turning meaningful cutouts such as an eye into a solid
             # region.  The same area cutoff as tiny components keeps those
             # two decisions consistent.
-            for hole in _run_components(~component):
+            # The exterior background necessarily reaches a component bounding
+            # box edge, while an enclosed hole cannot.  Checking this compact
+            # box is equivalent to checking the full mask, without scanning a
+            # 1024px canvas once for every small disconnected component.
+            local_height, local_width = local.shape
+            for hole in _run_components(~local):
                 area = sum(end - start for _y, start, end in hole)
                 if area > min_pixels:
                     continue
                 touches_border = any(
-                    y in {0, height - 1} or start == 0 or end == width
+                    y in {0, local_height - 1} or start == 0 or end == local_width
                     for y, start, end in hole
                 )
                 if not touches_border:
                     for y, start, end in hole:
-                        component[y, start:end] = True
+                        component[y + min_y, start + min_x : end + min_x] = True
         components.append(np.asarray(component, dtype=bool))
     return components
 
@@ -838,7 +857,7 @@ def filter_by_impact(
     initial_canvas: np.ndarray | None = None,
     initial_coverage: np.ndarray | None = None,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 128,
     fill_holes: bool = True,
 ) -> list[MaskLayer]:
@@ -993,7 +1012,7 @@ def retrieve_layers(
     masks: list[np.ndarray] | None = None,
     *,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 512,
     fill_holes: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
@@ -1482,7 +1501,7 @@ def generate_svg(
     masks: list[np.ndarray] | None = None,
     *,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 512,
     segments: int = 16,
     fill_holes: bool = True,
@@ -1674,7 +1693,7 @@ def vectorize_svg(
     rasterize,
     steps: int = 500,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 512,
     segments: int = 16,
     max_side: int | None = SAMVG_MAX_SIDE,
