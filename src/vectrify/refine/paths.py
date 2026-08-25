@@ -1715,12 +1715,13 @@ def fit_filled_svg(
 
         Sparse replay never needs a full-canvas alpha stack, but it does keep
         the coverage graph for one backward batch alive.  A fixed 16-path
-        batch underutilises CUDA for SAMVG's common 32--64px tiles; allowing
-        up to 64 such paths is still smaller than the former 16 large-tile
-        batches.  The tile-area budget preserves that memory bound for large
-        shapes without changing the rendered image or its derivative.
+        batch underutilises CUDA for SAMVG's common 32--64px tiles, but a
+        recovery pass can create a much larger equal-tile group than the
+        initial seed.  Retain the proven 16-path graph cap and apply the
+        tile-area budget beneath it.  This bounds peak memory for every
+        document without changing the rendered image or its derivative.
         """
-        return max(1, min(64, (1 << 20) // max(1, tile_width * tile_height)))
+        return max(1, min(16, (1 << 20) // max(1, tile_width * tile_height)))
 
     def rasterise_multi(index: int, path: list[Any]) -> Any:
         # Large paths use fixed conservative candidate tiles.  Every tile
