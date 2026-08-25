@@ -43,15 +43,6 @@ def _path_count(svg: str) -> int:
     )
 
 
-def _l1(target: Image.Image, rendered: Image.Image) -> float:
-    return float(
-        np.abs(
-            np.asarray(target.convert("RGB"), dtype=np.float32) / 255.0
-            - np.asarray(rendered.convert("RGB"), dtype=np.float32) / 255.0
-        ).mean()
-    )
-
-
 def _write_gallery(images: list[tuple[str, Image.Image]], destination: Path) -> None:
     width = max(image.width for _name, image in images)
     height = max(image.height for _name, image in images)
@@ -163,7 +154,6 @@ def run_target(
         rows.append(
             {
                 "stage": name,
-                "l1": _l1(target, rendered),
                 "mse": _mse(target, rendered),
                 "paths": _path_count(svg) if svg is not None else 0,
             }
@@ -172,7 +162,7 @@ def run_target(
         [(name, image) for name, image, _svg in stages], destination / "gallery.png"
     )
     with (destination / "stages.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["stage", "l1", "mse", "paths"])
+        writer = csv.DictWriter(handle, fieldnames=["stage", "mse", "paths"])
         writer.writeheader()
         writer.writerows(rows)
     measurements = [
