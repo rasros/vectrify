@@ -49,7 +49,7 @@ SAMVG_STABILITY_SCORE_THRESH = float(
 # image, but not its fraction. Cat calibration selects this value by final
 # raster error and complexity; callers can reproduce alternate sweeps.
 SAMVG_RESIDUAL_RADIUS_FRACTION = float(
-    os.environ.get("VECTRIFY_SAMVG_RESIDUAL_RADIUS_FRACTION", "0.0085")
+    os.environ.get("VECTRIFY_SAMVG_RESIDUAL_RADIUS_FRACTION", "0.005")
 )
 # The SAMVG seed only needs OCR once and does it after SAM has released its
 # automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
