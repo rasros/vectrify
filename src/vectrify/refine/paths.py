@@ -661,21 +661,30 @@ def _fill_batched_windings(
     """
     import torch
 
-    # The packaged native operator uses SAMVG's fixed 16-cubic contour
-    # representation.  It remains deliberately narrow: every
-    # other contour/layout continues through the proven Torch implementation.
+    # The native primitive is fixed-width, but winding is additive over cubic
+    # ranges.  Chunk a long contour into padded 16-cubic ranges and sum its
+    # exact native winding fields before applying the SVG fill rule.  This is
+    # the same representation as the fixed SAMVG path, not a tessellation or
+    # geometry approximation, and keeps SAMVG+var off Torch's huge broadcast
+    # fallback.
     if samples in {8, 16, 32}:
         from vectrify.refine.cuda_renderer import winding as cuda_winding
 
+        chunks = math.ceil(controls.shape[1] / _FUSED_CUBICS)
+        padded = controls
+        if chunks > 1:
+            count = chunks * _FUSED_CUBICS - controls.shape[1]
+            point = controls[:, :1, :1].expand(-1, count, 4, -1)
+            padded = torch.cat((controls, point), dim=1)
         native = cuda_winding(
-            controls,
+            padded.reshape(-1, _FUSED_CUBICS, 4, 2),
             box,
             samples=samples,
             x_offset=x_offset,
             y_offset=y_offset,
         )
         if native is not None:
-            return native
+            return native.reshape(len(controls), chunks, *native.shape[1:]).sum(dim=1)
 
     left, top, right, bottom = box
     height, width = bottom - top, right - left
@@ -1614,6 +1623,24 @@ def fit_filled_svg(
         tile_height: int,
         items: list[tuple[int, int, int]],
     ) -> list[tuple[int, Any]]:
+        # SAMVG+var can emit a contour longer than the fixed-width coverage
+        # primitive.  Route those through the chunked native winding path;
+        # packing them into the old batched coverage call would force eager
+        # Torch broadcasting over every cubic and pixel.
+        if controls[items[0][0]][0].shape[0] > _FUSED_CUBICS:
+            output = []
+            for index, left, top in items:
+                offset = controls[index][0].new_tensor((left, top))
+                alpha = _fill_path_coverage(
+                    [controls[index][0] - offset],
+                    (0, 0, tile_width, tile_height),
+                    fill_rule=fill_rule,
+                    samples=samples_for(tile_width, tile_height),
+                    subpixels=subpixels,
+                    fuse=False,
+                )
+                output.append((index, restore_tile(alpha, left, top)))
+            return output
         translated = torch.stack(
             [
                 controls[index][0] - controls[index][0].new_tensor((left, top))
