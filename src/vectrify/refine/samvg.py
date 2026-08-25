@@ -934,7 +934,7 @@ def coverage_prompt_points(
     shape: tuple[int, int],
     *,
     radius_fraction: float = 0.06,
-    max_points: int = 16,
+    max_points: int | None = None,
 ) -> list[tuple[int, int]]:
     """Find mean-shift centres of large circles untouched by retained masks."""
     _canvas, coverage = _render_layers(shape, layers)
@@ -950,7 +950,8 @@ def coverage_prompt_points(
         ((float(distance[round(y), round(x)]), round(x), round(y)) for x, y in centres),
         reverse=True,
     )
-    return [(x, y) for _distance, x, y in ranked[:max_points]]
+    selected = ranked if max_points is None else ranked[:max_points]
+    return [(x, y) for _distance, x, y in selected]
 
 
 def prompted_masks(
@@ -982,32 +983,36 @@ def prompted_masks(
     if runtime.processor is None:
         runtime.processor = SamProcessor(runtime.generator.image_processor)
     try:
-        input_points = [[[list(point)] for point in points]]
-        inputs = runtime.processor(
-            images=image, input_points=input_points, return_tensors="pt"
-        ).to(device)
-        if (
-            runtime.embedding_size == image.size
-            and runtime.image_embeddings is not None
-        ):
-            # The full-image automatic pass has already encoded these pixels.
-            # Retain only decoder inputs for the coverage/residual prompts.
-            inputs.pop("pixel_values")
-            inputs["image_embeddings"] = runtime.image_embeddings
-        with torch.inference_mode(), _sam_autocast():
-            output = runtime.generator.model(**inputs)
-        post = runtime.processor.image_processor.post_process_masks(
-            output.pred_masks.detach().cpu(),
-            inputs["original_sizes"].detach().cpu(),
-            inputs["reshaped_input_sizes"].detach().cpu(),
-        )[0]
-        return [
-            _restore_mask(
-                np.asarray(post[prompt, candidate], dtype=bool), original_size
+        output_masks = []
+        for start in range(0, len(points), SAMVG_POINTS_PER_BATCH):
+            batch = points[start : start + SAMVG_POINTS_PER_BATCH]
+            input_points = [[[list(point)] for point in batch]]
+            inputs = runtime.processor(
+                images=image, input_points=input_points, return_tensors="pt"
+            ).to(device)
+            if (
+                runtime.embedding_size == image.size
+                and runtime.image_embeddings is not None
+            ):
+                # The full-image automatic pass has already encoded these pixels.
+                # Retain only decoder inputs for the coverage/residual prompts.
+                inputs.pop("pixel_values")
+                inputs["image_embeddings"] = runtime.image_embeddings
+            with torch.inference_mode(), _sam_autocast():
+                output = runtime.generator.model(**inputs)
+            post = runtime.processor.image_processor.post_process_masks(
+                output.pred_masks.detach().cpu(),
+                inputs["original_sizes"].detach().cpu(),
+                inputs["reshaped_input_sizes"].detach().cpu(),
+            )[0]
+            output_masks.extend(
+                _restore_mask(
+                    np.asarray(post[prompt, candidate], dtype=bool), original_size
+                )
+                for prompt in range(post.shape[0])
+                for candidate in range(post.shape[1])
             )
-            for prompt in range(post.shape[0])
-            for candidate in range(post.shape[1])
-        ]
+        return output_masks
     finally:
         if own_runtime and torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -1559,7 +1564,7 @@ def residual_prompt_points(
     *,
     radius_fraction: float = 0.06,
     threshold: float = 0.784,
-    max_points: int = 16,
+    max_points: int | None = None,
 ) -> list[tuple[int, int]]:
     """Locate SAMVG's convolved, thresholded residual components."""
     import torch
@@ -1589,7 +1594,9 @@ def residual_prompt_points(
             points.append(
                 (float(smoothed[ys, xs].mean()), round(xs.mean()), round(ys.mean()))
             )
-    return [(x, y) for _score, x, y in sorted(points, reverse=True)[:max_points]]
+    ranked = sorted(points, reverse=True)
+    selected = ranked if max_points is None else ranked[:max_points]
+    return [(x, y) for _score, x, y in selected]
 
 
 def _append_layers(

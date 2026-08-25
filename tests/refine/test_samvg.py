@@ -591,6 +591,7 @@ def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():
         [MaskLayer(occupied, (10, 20, 30), 1.0)],
         (32, 32),
         radius_fraction=0.15,
+        max_points=10,
     )
 
     assert points
