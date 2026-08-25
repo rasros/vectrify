@@ -719,8 +719,8 @@ def automatic_masks(
         crop_height = math.ceil((overlap + height) / 2)
         for x, y in (
             (0, 0),
-            (crop_width - overlap, 0),
             (0, crop_height - overlap),
+            (crop_width - overlap, 0),
             (crop_width - overlap, crop_height - overlap),
         ):
             right, bottom = min(x + crop_width, width), min(y + crop_height, height)
