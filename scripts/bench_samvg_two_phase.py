@@ -26,6 +26,7 @@ from vectrify.refine.paths import fit_filled_svg_bounded
 from vectrify.refine.samvg import (
     _append_layers,
     _mse,
+    _render_layers,
     _render_svg,
     _sam_runtime,
     filter_by_impact,
@@ -113,7 +114,14 @@ def run_target(
     (destination / "first-seed.svg").write_text(initial)
     if seed_only:
         seed_render = _render_svg(initial, target, plugin.rasterize)
-        stages = [("target", target, None), ("first-seed", seed_render, initial)]
+        mask_canvas, _coverage = _render_layers(
+            (target.height, target.width), layers
+        )
+        stages = [
+            ("target", target, None),
+            ("mask-canvas", Image.fromarray(mask_canvas), None),
+            ("first-seed", seed_render, initial),
+        ]
         if reference_svg is not None:
             reference = _render_svg(reference_svg.read_text(), target, plugin.rasterize)
             stages.append(("reference-svg", reference, reference_svg.read_text()))
