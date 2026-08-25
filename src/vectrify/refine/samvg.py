@@ -577,19 +577,24 @@ def _filter_automatic_masks(
     )
 
 
-def _finalize_automatic_masks(masks: Any, scores: Any, boxes: Any) -> list[np.ndarray]:
-    """Apply AMG's final image-global NMS and transfer binary masks."""
+def _nms_indices(boxes: Any, scores: Any) -> Any:
+    """Use SAM AMG's box-NMS configuration with dtype-safe scores."""
     import torch
     from torchvision.ops import batched_nms
 
-    if not len(masks):
-        return []
-    keep = batched_nms(
+    return batched_nms(
         boxes=boxes.float(),
         scores=scores.float(),
         idxs=torch.zeros(len(boxes), dtype=torch.long),
         iou_threshold=0.7,
     )
+
+
+def _finalize_automatic_masks(masks: Any, scores: Any, boxes: Any) -> list[np.ndarray]:
+    """Apply AMG's final image-global NMS and transfer binary masks."""
+    if not len(masks):
+        return []
+    keep = _nms_indices(boxes, scores)
     selected_masks = masks[keep]
     return [np.asarray(mask.cpu(), dtype=bool) for mask in selected_masks]
 
@@ -634,7 +639,9 @@ def _automatic_mask_candidates_for(
             boxes[index] = torch.tensor(
                 (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1), dtype=torch.float32
             )
-        return masks, torch.ones(len(masks)), boxes
+        scores = torch.ones(len(masks))
+        keep = _nms_indices(boxes, scores) if len(masks) else []
+        return masks[keep], scores[keep], boxes[keep]
 
     outputs = []
     for inputs in generator.preprocess(
@@ -668,11 +675,14 @@ def _automatic_mask_candidates_for(
             torch.empty(0),
             torch.empty((0, 4)),
         )
-    return (
-        torch.cat(masks),
-        torch.cat([output["scores"] for output in outputs if len(output["masks"])]),
-        torch.cat([output["boxes"] for output in outputs if len(output["masks"])]),
-    )
+    masks = torch.cat(masks)
+    scores = torch.cat([output["scores"] for output in outputs if len(output["masks"])])
+    boxes = torch.cat([output["boxes"] for output in outputs if len(output["masks"])])
+    # Meta's AMG first suppresses candidates within each crop by predicted
+    # quality.  Its second, cross-crop pass happens in ``automatic_masks``
+    # below and deliberately ranks the surviving masks by crop area instead.
+    keep = _nms_indices(boxes, scores)
+    return masks[keep], scores[keep], boxes[keep]
 
 
 def automatic_masks(
@@ -702,17 +712,17 @@ def automatic_masks(
             points_per_batch=points_per_batch,
         )
         all_masks = [masks]
-        all_scores = [scores]
+        all_scores = [torch.full_like(scores, 1 / (width * height))]
         all_boxes = [boxes]
         overlap = int((512 / 1500) * min(width, height))
         crop_width = math.ceil((overlap + width) / 2)
         crop_height = math.ceil((overlap + height) / 2)
-        for x, y in {
+        for x, y in (
             (0, 0),
             (crop_width - overlap, 0),
             (0, crop_height - overlap),
             (crop_width - overlap, crop_height - overlap),
-        }:
+        ):
             right, bottom = min(x + crop_width, width), min(y + crop_height, height)
             crop_box = (x, y, right, bottom)
             crop_masks, crop_scores, crop_boxes = _automatic_mask_candidates_for(
@@ -728,7 +738,10 @@ def automatic_masks(
                 mask = np.zeros((height, width), dtype=bool)
                 mask[y:bottom, x:right] = crop_mask_array
                 all_masks.append(torch.from_numpy(mask)[None])
-                all_scores.append(crop_scores[index : index + 1])
+                crop_area = (right - x) * (bottom - y)
+                all_scores.append(
+                    torch.full_like(crop_scores[index : index + 1], 1 / crop_area)
+                )
                 box = crop_boxes[index].clone()
                 box[[0, 2]] += x
                 box[[1, 3]] += y
