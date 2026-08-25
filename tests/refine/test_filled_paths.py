@@ -261,6 +261,25 @@ def test_filled_path_fit_moves_fill_colour_toward_target():
     assert _mse(fitted, target) < _mse(SVG, target)
 
 
+def test_filled_path_fit_can_learn_fill_opacity():
+    source = SVG.replace('#0000ff"', '#ff0000" fill-opacity="1"')
+    target = Image.new("RGB", (24, 24), "black")
+    target.paste("#400000", (4, 4, 16, 16))
+
+    fitted = fit_filled_svg(
+        source,
+        target,
+        steps=12,
+        point_learning_rate=0.0,
+        color_learning_rate=0.1,
+        learn_alpha=True,
+    )
+
+    root = ET.fromstring(fitted)
+    path = next(element for element in root.iter() if element.get("d"))
+    assert 0 < float(path.get("fill-opacity", "0")) < 1
+
+
 def test_filled_path_fit_preserves_a_closed_contours_segment_count():
     target = Image.new("RGB", (24, 24), "black")
     target.paste("red", (4, 4, 16, 16))

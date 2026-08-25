@@ -1365,11 +1365,15 @@ def fit_filled_svg(
     monolithic: bool | None = None,
     curve_samples: int | None = None,
     backdrop: Image.Image | None = None,
+    learn_alpha: bool = False,
 ) -> str:
-    """Optimise opaque filled cubic SVG paths against an RGB target.
+    """Optimise filled cubic SVG paths against an RGB target.
 
     SAMVG optimises opaque path coordinates and fill colours for 500 Adam
-    iterations in each of its two passes. This implementation reuses
+    iterations in each of its two passes.  ``learn_alpha`` enables the
+    dissertation's SAMVG+alpha variation: each selected path receives a
+    learnable fill opacity.  The standard SAMVG configuration deliberately
+    keeps it disabled and treats fills as opaque. This implementation reuses
     Vectrify's torch renderer instead of requiring DiffVG, while retaining the
     dissertation's full-resolution Adam defaults: point LR 1, colour LR .01,
     and MSE plus .02 Xing loss.  It uses DiffVG's standard 2x2 optimisation
@@ -1386,6 +1390,16 @@ def fit_filled_svg(
     import torch
 
     root = ET.fromstring(svg)
+
+    def opacity(element) -> float:
+        """Read the directly applied SVG fill opacity, clamped for Adam."""
+        try:
+            fill_opacity = float(element.get("fill-opacity", "1"))
+            element_opacity = float(element.get("opacity", "1"))
+        except ValueError:
+            return 1.0
+        return min(1.0, max(0.0, fill_opacity * element_opacity))
+
     entries = []
     for element in root.iter():
         if element.tag.split("}")[-1] != "path" or not element.get("d"):
@@ -1400,7 +1414,7 @@ def fit_filled_svg(
         fill_rule = element.get("fill-rule", "nonzero").strip().lower()
         if fill_rule not in {"evenodd", "nonzero"}:
             continue
-        entries.append((element, contours, colour, fill_rule))
+        entries.append((element, contours, colour, fill_rule, opacity(element)))
     if not entries:
         raise UnsupportedPathError("no opaque filled cubic paths to optimise")
 
@@ -1436,7 +1450,7 @@ def fit_filled_svg(
             )
             for contour in contours
         ]
-        for _element, contours, _colour, _fill_rule in entries
+        for _element, contours, _colour, _fill_rule, _opacity in entries
     ]
     # A detailed SAMVG seed has hundreds of contours.  Keeping each one as a
     # separate Adam parameter turns one optimiser update into hundreds of tiny
@@ -1464,7 +1478,7 @@ def fit_filled_svg(
     # avoids launching Adam's tiny update kernels once per SVG layer.
     color_storage = torch.nn.Parameter(
         torch.tensor(
-            [colour for _element, _contours, colour, _fill_rule in entries],
+            [colour for _element, _contours, colour, _fill_rule, _opacity in entries],
             dtype=torch.float32,
             device=device,
         )
@@ -1488,11 +1502,24 @@ def fit_filled_svg(
             device=device,
         )
     )
+    alpha_values = (
+        torch.nn.Parameter(
+            torch.tensor(
+                [entry[4] for entry in entries],
+                dtype=torch.float32,
+                device=device,
+            )
+        )
+        if learn_alpha
+        else None
+    )
     point_optimizer = torch.optim.Adam(
         [control_storage], lr=point_learning_rate, fused=device == "cuda"
     )
     colour_optimizer = torch.optim.Adam(
-        [color_storage], lr=color_learning_rate, fused=device == "cuda"
+        [color_storage, *([] if alpha_values is None else [alpha_values])],
+        lr=color_learning_rate,
+        fused=device == "cuda",
     )
     # The dissertation averages Xing within each contour then sums contours.
     # Keep that weighting while evaluating the 413 cat contours in one CUDA
@@ -1864,6 +1891,8 @@ def fit_filled_svg(
                 if alphas[index] is None:
                     alphas[index] = rasterise_multi(index, path)
             alpha_stack = torch.stack([alpha for alpha in alphas if alpha is not None])
+            if alpha_values is not None:
+                alpha_stack = alpha_stack * alpha_values.clamp(0, 1)[:, None, None]
             composite = (
                 _compiled_opaque_fill_composite()
                 if goal.is_cuda
@@ -1916,8 +1945,15 @@ def fit_filled_svg(
 
             before: list[Any] = []
             rendered = torch.zeros_like(goal) if under is None else under
+            opacity_values = (
+                alpha_values.detach().clamp(0, 1) if alpha_values is not None else None
+            )
+            initial_coverages: list[Any | None] = initial_alphas.copy()
             for index, alpha in enumerate(initial_alphas):
                 assert alpha is not None
+                if opacity_values is not None:
+                    alpha = alpha * opacity_values[index]
+                    initial_alphas[index] = alpha
                 colour = color_storage[index]
                 before.append(rendered)
                 rendered = (
@@ -1942,6 +1978,7 @@ def fit_filled_svg(
             alphas: list[Any | None] = initial_alphas,
             suffixes: list[Any | None] = downstream,
             canvases: list[Any] = before,
+            coverages: list[Any | None] = initial_coverages,
             gradient: Any = image_gradient,
         ) -> Any:
             stored_alpha = alphas[index]
@@ -1951,12 +1988,20 @@ def fit_filled_svg(
             colour = color_storage[index]
             colour_delta = colour.detach().clamp(0, 1) - canvases[index]
             alpha_gradient = (gradient * suffix[..., None] * colour_delta).sum(dim=-1)
+            opacity = (
+                alpha_values[index].clamp(0, 1) if alpha_values is not None else None
+            )
             colour_gradient = (
                 gradient * suffix[..., None] * stored_alpha[..., None]
             ).sum(dim=(0, 1))
-            return (alpha * alpha_gradient.detach()).sum() + (
-                colour.clamp(0, 1) * colour_gradient.detach()
-            ).sum()
+            geometry_loss = (alpha * alpha_gradient.detach()).sum()
+            if opacity is not None:
+                geometry_loss = geometry_loss * opacity
+                coverage = coverages[index]
+                assert coverage is not None
+                opacity_gradient = (coverage * alpha_gradient.detach()).sum()
+                geometry_loss = geometry_loss + opacity * opacity_gradient
+            return geometry_loss + (colour.clamp(0, 1) * colour_gradient.detach()).sum()
 
         # Backpropagate a bounded batch at a time.  The compositing derivative
         # above accounts for all later opaque layers, so this has the same MSE
@@ -2006,7 +2051,7 @@ def fit_filled_svg(
         close_contours()
 
     coordinate_scale_cpu = coordinate_scale.cpu()
-    for index, ((element, _contours, _colour, _fill_rule), path) in enumerate(
+    for index, ((element, _contours, _colour, _fill_rule, _opacity), path) in enumerate(
         zip(entries, controls, strict=True)
     ):
         colour = color_storage[index]
@@ -2019,6 +2064,11 @@ def fit_filled_svg(
             round(float(v) * 255) for v in colour.detach().clamp(0, 1).cpu()
         )
         element.set("fill", f"#{red:02x}{green:02x}{blue:02x}")
+        if alpha_values is not None:
+            element.set(
+                "fill-opacity",
+                f"{float(alpha_values[index].detach().clamp(0, 1).cpu()):.8g}",
+            )
     return ET.tostring(root, encoding="unicode")
 
 
@@ -2204,8 +2254,9 @@ def fit_opaque_fills_locally(
     selected_indices: set[int] | None = None,
     optimisation_long_side: int | None = 64,
     gpu_gate: Any = None,
+    learn_alpha: bool = False,
 ) -> str:
-    """Fit one spatially bounded opaque-fill group as a local-search move.
+    """Fit one spatially bounded fill group as a local-search move.
 
     Unlike the legacy stroke fitter this operates on complete filled shapes,
     including compound paths and holes.  It deliberately keeps the 64px
@@ -2250,6 +2301,7 @@ def fit_opaque_fills_locally(
             steps=steps,
             optimisation_long_side=optimisation_long_side,
             backdrop=backdrop,
+            learn_alpha=learn_alpha,
         )
     fitted_root = ET.fromstring(fitted)
     fitted_by_index = dict(enumerate(fitted_root.iter()))
@@ -2259,6 +2311,8 @@ def fit_opaque_fills_locally(
         updated = fitted_by_index[index]
         element.set("d", updated.get("d", ""))
         element.set("fill", updated.get("fill", element.get("fill", "")))
+        if learn_alpha:
+            element.set("fill-opacity", updated.get("fill-opacity", "1"))
     return ET.tostring(original, encoding="unicode")
 
 
@@ -2271,6 +2325,7 @@ def fit_filled_svg_bounded(
     maximum_paths: int = 16,
     gpu_gate: Any = None,
     measurements: list[dict[str, int | float]] | None = None,
+    learn_alpha: bool = False,
 ) -> str:
     """Run one full SAMVG fill phase as bounded spatial coordinate descent.
 
@@ -2309,6 +2364,7 @@ def fit_filled_svg_bounded(
             selected_indices=group,
             optimisation_long_side=None,
             gpu_gate=gpu_gate,
+            learn_alpha=learn_alpha,
         )
         if measurements is not None:
             peak = peak_before

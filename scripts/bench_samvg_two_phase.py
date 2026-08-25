@@ -67,6 +67,7 @@ def _fit_if_improved(
     target: Image.Image,
     plugin: SvgPlugin,
     steps: int,
+    learn_alpha: bool,
 ) -> tuple[str, Image.Image, list[dict[str, int | float]], bool]:
     before = _render_svg(svg, target, plugin.rasterize)
     measurements: list[dict[str, int | float]] = []
@@ -76,6 +77,7 @@ def _fit_if_improved(
         rasterize=plugin.rasterize,
         steps=steps,
         measurements=measurements,
+        learn_alpha=learn_alpha,
     )
     after = _render_svg(candidate, target, plugin.rasterize)
     if _mse(target, after) <= _mse(target, before):
@@ -89,6 +91,7 @@ def run_target(
     *,
     steps: int,
     reference_svg: Path | None = None,
+    learn_alpha: bool = False,
 ) -> None:
     target = Image.open(target_path).convert("RGB")
     plugin = SvgPlugin()
@@ -106,7 +109,7 @@ def run_target(
     _render_svg(initial, target, plugin.rasterize).save(destination / "first-seed.png")
     (destination / "first-seed.svg").write_text(initial)
     first, first_render, first_measurements, first_accepted = _fit_if_improved(
-        initial, target, plugin, steps
+        initial, target, plugin, steps, learn_alpha
     )
     first_render.save(destination / "first-fit.png")
     (destination / "first-fit.svg").write_text(first)
@@ -126,7 +129,7 @@ def run_target(
     )
     (destination / "residual-recovery.svg").write_text(recovery)
     final, final_render, final_measurements, final_accepted = _fit_if_improved(
-        recovery, target, plugin, steps
+        recovery, target, plugin, steps, learn_alpha
     )
     stages = [
         ("target", target, None),
@@ -198,6 +201,11 @@ def main() -> None:
         "--output", type=Path, default=ROOT / "bench/results/samvg-two-phase"
     )
     parser.add_argument("--steps", type=int, default=500)
+    parser.add_argument(
+        "--learn-alpha",
+        action="store_true",
+        help="Use the dissertation's SAMVG+alpha fitter variation.",
+    )
     args = parser.parse_args()
     targets = list(args.target)
     if args.cat or args.all:
@@ -222,6 +230,7 @@ def main() -> None:
             args.output,
             steps=args.steps,
             reference_svg=reference_svg,
+            learn_alpha=args.learn_alpha,
         )
 
 
