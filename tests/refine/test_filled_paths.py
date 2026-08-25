@@ -280,6 +280,33 @@ def test_filled_path_fit_can_learn_fill_opacity():
     assert 0 < float(path.get("fill-opacity", "0")) < 1
 
 
+def test_sparse_fill_replay_matches_dense_replay_update():
+    source = SVG.replace(
+        "</svg>",
+        '<path d="M 8 8 L 20 8 L 20 20 L 8 20 Z" fill="#00ff00" /></svg>',
+    )
+    target = Image.new("RGB", (24, 24), "black")
+    target.paste("red", (4, 4, 16, 16))
+
+    dense = fit_filled_svg(
+        source,
+        target,
+        steps=1,
+        point_learning_rate=0.0,
+        color_learning_rate=0.1,
+    )
+    sparse = fit_filled_svg(
+        source,
+        target,
+        steps=1,
+        point_learning_rate=0.0,
+        color_learning_rate=0.1,
+        sparse_replay=True,
+    )
+
+    assert abs(_mse(dense, target) - _mse(sparse, target)) < 2
+
+
 def test_filled_path_fit_preserves_a_closed_contours_segment_count():
     target = Image.new("RGB", (24, 24), "black")
     target.paste("red", (4, 4, 16, 16))

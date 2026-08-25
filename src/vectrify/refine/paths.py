@@ -1375,6 +1375,7 @@ def fit_filled_svg(
     curve_samples: int | None = None,
     backdrop: Image.Image | None = None,
     learn_alpha: bool = False,
+    sparse_replay: bool = False,
 ) -> str:
     """Optimise filled cubic SVG paths against an RGB target.
 
@@ -1393,6 +1394,9 @@ def fit_filled_svg(
     is available only as an explicit caller-selected preview mode. CUDA uses
     one monolithic compositor graph for 64px-or-smaller working canvases by
     default; larger canvases retain the memory-bounded replay.
+    ``sparse_replay`` retains the same painter-order MSE derivative while
+    saving layer state only within each path's raster tile; it makes a full
+    1024px SAMVG phase practical without a monolithic alpha stack.
     """
     import xml.etree.ElementTree as ET
 
@@ -1617,12 +1621,12 @@ def fit_filled_svg(
             ].append((index, left, top))
         return groups
 
-    def rasterise_simple(
+    def rasterise_simple_tiles(
         fill_rule: str,
         tile_width: int,
         tile_height: int,
         items: list[tuple[int, int, int]],
-    ) -> list[tuple[int, Any]]:
+    ) -> list[tuple[int, Any, int, int]]:
         # SAMVG+var can emit a contour longer than the fixed-width coverage
         # primitive.  Route those through the chunked native winding path;
         # packing them into the old batched coverage call would force eager
@@ -1639,7 +1643,7 @@ def fit_filled_svg(
                     subpixels=subpixels,
                     fuse=False,
                 )
-                output.append((index, restore_tile(alpha, left, top)))
+                output.append((index, alpha, left, top))
             return output
         translated = torch.stack(
             [
@@ -1657,8 +1661,21 @@ def fit_filled_svg(
             dynamic_fuse=len(items) >= 4,
         )
         return [
-            (index, restore_tile(alpha, left, top))
+            (index, alpha, left, top)
             for (index, left, top), alpha in zip(items, rasterised, strict=True)
+        ]
+
+    def rasterise_simple(
+        fill_rule: str,
+        tile_width: int,
+        tile_height: int,
+        items: list[tuple[int, int, int]],
+    ) -> list[tuple[int, Any]]:
+        return [
+            (index, restore_tile(alpha, left, top))
+            for index, alpha, left, top in rasterise_simple_tiles(
+                fill_rule, tile_width, tile_height, items
+            )
         ]
 
     def rasterise_multi(index: int, path: list[Any]) -> Any:
@@ -1937,6 +1954,140 @@ def fit_filled_svg(
                 * (_xing_penalties(all_controls) * xing_contour_weights).sum()
             )
             loss.backward()
+            point_optimizer.step()
+            colour_optimizer.step()
+            close_contours()
+            continue
+
+        if sparse_replay:
+            # Dense replay previously saved a full alpha, pre-layer canvas and
+            # downstream-transparency map for every SVG path.  Painter-order
+            # compositing is local to a path's coverage tile, so retain only
+            # those slices while keeping the current canvas/transparency as
+            # full images. This is algebraically the same replay derivative.
+            with torch.no_grad():
+                coverages: list[tuple[Any, int, int] | None] = [None] * len(entries)
+                for (
+                    _shape,
+                    fill_rule,
+                    tile_width,
+                    tile_height,
+                ), items in simple_groups.items():
+                    for index, alpha, left, top in rasterise_simple_tiles(
+                        fill_rule, tile_width, tile_height, items
+                    ):
+                        coverages[index] = (alpha, left, top)
+                for index, path in enumerate(controls):
+                    if coverages[index] is None:
+                        coverages[index] = (rasterise_multi(index, path), 0, 0)
+
+                opacity_values = (
+                    alpha_values.detach().clamp(0, 1)
+                    if alpha_values is not None
+                    else None
+                )
+                stored_alphas: list[Any] = []
+                before_tiles: list[Any] = []
+                rendered = torch.zeros_like(goal) if under is None else under.clone()
+                for index, item in enumerate(coverages):
+                    assert item is not None
+                    alpha, left, top = item
+                    if opacity_values is not None:
+                        alpha = alpha * opacity_values[index]
+                    bottom, right = top + alpha.shape[0], left + alpha.shape[1]
+                    canvas = rendered[top:bottom, left:right]
+                    before_tiles.append(canvas.clone())
+                    rendered[top:bottom, left:right] = (
+                        canvas * (1 - alpha[..., None])
+                        + color_storage[index].detach().clamp(0, 1) * alpha[..., None]
+                    )
+                    stored_alphas.append(alpha)
+
+                suffix_tiles: list[Any] = [None] * len(entries)
+                transparency = torch.ones(
+                    (work_height, work_width), dtype=goal.dtype, device=device
+                )
+                for index in range(len(entries) - 1, -1, -1):
+                    item = coverages[index]
+                    assert item is not None
+                    alpha, left, top = item
+                    bottom, right = top + alpha.shape[0], left + alpha.shape[1]
+                    suffix = transparency[top:bottom, left:right]
+                    suffix_tiles[index] = suffix.clone()
+                    suffix.mul_(1 - stored_alphas[index])
+                image_gradient = 2 * (rendered - goal) / rendered.numel()
+
+            def sparse_layer_loss(
+                index: int,
+                alpha: Any,
+                left: int,
+                top: int,
+                *,
+                saved_coverages: list[tuple[Any, int, int] | None] = coverages,
+                saved_alphas: list[Any] = stored_alphas,
+                saved_suffixes: list[Any] = suffix_tiles,
+                saved_canvases: list[Any] = before_tiles,
+                gradient: Any = image_gradient,
+            ) -> Any:
+                item = saved_coverages[index]
+                assert item is not None
+                coverage, _stored_left, _stored_top = item
+                stored_alpha = saved_alphas[index]
+                suffix = saved_suffixes[index]
+                canvas = saved_canvases[index]
+                bottom, right = top + alpha.shape[0], left + alpha.shape[1]
+                gradient = gradient[top:bottom, left:right]
+                colour = color_storage[index]
+                colour_delta = colour.detach().clamp(0, 1) - canvas
+                alpha_gradient = (gradient * suffix[..., None] * colour_delta).sum(
+                    dim=-1
+                )
+                opacity = (
+                    alpha_values[index].clamp(0, 1)
+                    if alpha_values is not None
+                    else None
+                )
+                colour_gradient = (
+                    gradient * suffix[..., None] * stored_alpha[..., None]
+                ).sum(dim=(0, 1))
+                geometry_loss = (alpha * alpha_gradient.detach()).sum()
+                if opacity is not None:
+                    geometry_loss = geometry_loss * opacity
+                    geometry_loss = (
+                        geometry_loss
+                        + opacity * (coverage * alpha_gradient.detach()).sum()
+                    )
+                return (
+                    geometry_loss
+                    + (colour.clamp(0, 1) * colour_gradient.detach()).sum()
+                )
+
+            for (
+                _shape,
+                fill_rule,
+                tile_width,
+                tile_height,
+            ), items in simple_groups.items():
+                for offset in range(0, len(items), 4):
+                    loss = torch.zeros((), device=device)
+                    for index, alpha, left, top in rasterise_simple_tiles(
+                        fill_rule, tile_width, tile_height, items[offset : offset + 4]
+                    ):
+                        loss = loss + sparse_layer_loss(index, alpha, left, top)
+                    loss.backward()
+            simple_indices = {
+                index
+                for group in simple_groups.values()
+                for index, _left, _top in group
+            }
+            for index, path in enumerate(controls):
+                if index not in simple_indices:
+                    alpha = rasterise_multi(index, path)
+                    sparse_layer_loss(index, alpha, 0, 0).backward()
+            (
+                xing_weight
+                * (_xing_penalties(all_controls) * xing_contour_weights).sum()
+            ).backward()
             point_optimizer.step()
             colour_optimizer.step()
             close_contours()
@@ -2353,10 +2504,15 @@ def fit_filled_svg_bounded(
     gpu_gate: Any = None,
     measurements: list[dict[str, int | float]] | None = None,
     learn_alpha: bool = False,
+    global_replay: bool = True,
 ) -> str:
     """Run one full SAMVG fill phase as bounded spatial coordinate descent.
 
-    ``steps`` is the per-group phase budget.  Coordinate descent needs to give
+    ``steps`` is the per-group phase budget.  ``global_replay`` uses the
+    sparse painter-order replay to give every path the dissertation's one
+    simultaneous Adam update per iteration without materialising a full alpha
+    stack.  The older coordinate-descent path remains available for local
+    experiments. Coordinate descent needs to give
     every group the same fitting opportunity that it would have had in the
     original global graph; splitting that budget between groups loses detail.
     It consequently trades wall time for a strictly bounded differentiable
@@ -2365,6 +2521,41 @@ def fit_filled_svg_bounded(
     """
     if steps < 1:
         raise ValueError("steps must be positive")
+    if global_replay:
+        import xml.etree.ElementTree as ET
+
+        started = perf_counter()
+        peak_before = 0
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                torch.cuda.reset_peak_memory_stats()
+                peak_before = int(torch.cuda.max_memory_allocated())
+        except ImportError:
+            torch = None  # type: ignore[assignment]
+        with gpu_slot(gpu_gate):
+            fitted = fit_filled_svg(
+                svg,
+                target,
+                steps=steps,
+                learn_alpha=learn_alpha,
+                sparse_replay=True,
+            )
+        if measurements is not None:
+            peak = peak_before
+            if torch is not None and torch.cuda.is_available():
+                torch.cuda.synchronize()
+                peak = int(torch.cuda.max_memory_allocated())
+            measurements.append(
+                {
+                    "group": 0,
+                    "paths": len(_fittable_fill_elements(ET.fromstring(svg))),
+                    "seconds": perf_counter() - started,
+                    "peak_cuda_bytes": peak,
+                }
+            )
+        return fitted
     groups = fill_groups(svg, maximum_paths=maximum_paths)
     if not groups:
         raise UnsupportedPathError("no opaque filled cubic paths to optimise")
