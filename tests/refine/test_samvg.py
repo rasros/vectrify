@@ -540,6 +540,18 @@ def test_mask_path_supports_the_variable_segment_tracing_variation():
     assert 6 <= path.count("C ") <= 12
 
 
+def test_variable_corners_retains_nearby_local_extrema(monkeypatch):
+    monkeypatch.setattr(
+        samvg,
+        "_curvature_scores",
+        lambda _loop: np.array((1.0, -0.9, 1.0, -0.8, 1.0, -0.7, 1.0, -0.6)),
+    )
+
+    corners = samvg._variable_corners([(0.0, 0.0)] * 8, threshold=0, maximum=16)
+
+    assert corners == [1, 3, 5, 7]
+
+
 def test_generate_svg_creates_editable_layered_paths_from_supplied_masks():
     image = Image.new("RGB", (10, 8), "white")
     pixels = np.asarray(image).copy()

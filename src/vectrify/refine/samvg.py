@@ -1159,7 +1159,7 @@ def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
 def _variable_corners(
     loop: list[tuple[float, float]], *, threshold: float, maximum: int
 ) -> list[int]:
-    """Select locally distinct curvature extrema below SAMVG+var's threshold.
+    """Select local curvature extrema below SAMVG+var's threshold.
 
     The dissertation's variable-segment variation replaces the fixed top-N
     selection with a curvature threshold.  Its threshold is not published, so
@@ -1170,38 +1170,24 @@ def _variable_corners(
     if size < 3:
         return []
     score = _curvature_scores(loop)
-    # The variable-segment algorithm is the unmodified local-extrema method,
-    # unlike the fixed-count variant above which repeatedly chooses global
-    # extrema.  Thresholding every low-scoring raster point changes that
-    # procedure into an edge-density sampler and wildly over-segments masks.
-    # Use the same k-neighbourhood that defines the curvature measurement to
-    # identify a local curvature maximum (a minimum cosine score).
-    neighbourhood = max(1, size // 12)
-    local_minimum = np.ones(size, dtype=bool)
-    for offset in range(1, neighbourhood + 1):
-        previous = np.roll(score, offset)
-        following = np.roll(score, -offset)
-        local_minimum &= (score <= previous) & (score <= following)
+    # SAMVG+var reverts the fixed variant's global-maxima-with-exclusion rule
+    # to the conventional local-extrema selector.  The curvature *score*
+    # itself uses k-neighbours (Eq. 3-4); expanding the extrema neighbourhood
+    # to that same k suppresses genuine nearby corners and is not part of the
+    # variable-segment procedure.  The asymmetric comparison retains one
+    # representative for a flat raster-corner plateau without coalescing
+    # separate extrema.
+    previous = np.roll(score, 1)
+    following = np.roll(score, -1)
+    local_minimum = (score < previous) & (score <= following)
     eligible = np.flatnonzero(local_minimum & (score <= threshold))
     if len(eligible) < 3:
         return _corners(loop, min(3, size))
-    # Pixel contours often have equal-valued plateaux at a single geometric
-    # corner. Coalesce only those ties in the curvature neighbourhood; this
-    # does not impose a fixed segment count.
-    exclusion = neighbourhood
-    blocked = np.zeros(size, dtype=bool)
-    chosen: list[int] = []
-    for index in eligible[np.argsort(score[eligible], kind="stable")]:
-        if blocked[index]:
-            continue
-        chosen.append(int(index))
-        offsets = (np.arange(index - exclusion, index + exclusion + 1) % size).astype(
-            int
-        )
-        blocked[offsets] = True
-        if len(chosen) == maximum:
-            break
-    return sorted(chosen) if len(chosen) >= 3 else _corners(loop, min(3, size))
+    return (
+        sorted(int(index) for index in eligible[:maximum])
+        if len(eligible) >= 3
+        else _corners(loop, min(3, size))
+    )
 
 
 def _fit_cubic(
@@ -1281,7 +1267,7 @@ def _cubic_loop(
     segments: int,
     *,
     curvature_threshold: float | None = None,
-    maximum_segments: int = 512,
+    maximum_segments: int = 2048,
 ) -> str | None:
     size = len(loop)
     if size < 3:
@@ -1318,7 +1304,7 @@ def mask_path(
     segments: int = 8,
     overlap_pixels: int = 0,
     curvature_threshold: float | None = None,
-    maximum_segments: int = 512,
+    maximum_segments: int = 2048,
 ) -> str | None:
     """Fit every mask contour as fixed-count or thresholded cubic Beziers."""
     if overlap_pixels:
@@ -1589,7 +1575,7 @@ def _layer_svg_attributes(
     *,
     hybrid_strokes: bool = True,
     curvature_threshold: float | None = None,
-    maximum_segments: int = 512,
+    maximum_segments: int = 2048,
 ) -> list[dict[str, str]]:
     """Trace one SAM mask, using optional strokes only outside the thesis mode."""
     colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
@@ -1631,7 +1617,7 @@ def generate_svg(
     max_layers: int = 512,
     segments: int = 16,
     curvature_threshold: float | None = None,
-    maximum_segments: int = 512,
+    maximum_segments: int = 2048,
     fill_holes: bool = True,
     hybrid_strokes: bool = True,
     ocr: bool = True,
@@ -1729,7 +1715,7 @@ def _append_layers(
     *,
     hybrid_strokes: bool = True,
     curvature_threshold: float | None = None,
-    maximum_segments: int = 512,
+    maximum_segments: int = 2048,
 ) -> str:
     """Add newly prompted paths to an already optimised SVG."""
     root = ET.fromstring(svg)
