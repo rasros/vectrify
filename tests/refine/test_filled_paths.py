@@ -16,6 +16,7 @@ from vectrify.refine.paths import (
     _large_path_tile_candidates,
     _pad_fused_cubics,
     _tiled_large_path_coverage,
+    _torch_compile_enabled,
     _xing_loss,
     fit_filled_svg,
     fit_opaque_fills_locally,
@@ -35,6 +36,11 @@ def _sixteen_cubic_circle(torch):
         ),
         1,
     )[None]
+
+
+def test_torch_compile_can_be_explicitly_disabled(monkeypatch):
+    monkeypatch.setenv("TORCH_COMPILE_DISABLE", "1")
+    assert not _torch_compile_enabled()
 
 
 @pytest.mark.parametrize("samples", [8, 16, 32])

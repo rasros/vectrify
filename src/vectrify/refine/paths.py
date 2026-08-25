@@ -11,6 +11,7 @@ import io
 import itertools
 import logging
 import math
+import os
 import random
 import re
 from collections import defaultdict
@@ -580,6 +581,15 @@ def _dynamic_fill_winding_chunk(start: Any, end: Any, pixels: Any) -> Any:
     return _fill_winding_chunk(start, end, pixels)
 
 
+def _torch_compile_enabled() -> bool:
+    """Whether this process permits Torch Dynamo to compile renderer kernels."""
+    # PyTorch raises from an already-created ``torch.compile`` wrapper when
+    # this environment switch is set.  Respect it before creating the cached
+    # wrapper so the advertised eager renderer is actually usable for
+    # debugging, constrained deployments, and compiler-cache recovery.
+    return os.environ.get("TORCH_COMPILE_DISABLE", "0") not in {"1", "true", "True"}
+
+
 @lru_cache(maxsize=1)
 def _compiled_fill_winding_chunk() -> Any:
     """Return the CUDA-fused winding primitive when this torch supports it.
@@ -592,7 +602,7 @@ def _compiled_fill_winding_chunk() -> Any:
     import torch
 
     compile_fn = getattr(torch, "compile", None)
-    if compile_fn is None:
+    if compile_fn is None or not _torch_compile_enabled():
         return _fill_winding_chunk
     try:
         return compile_fn(
@@ -615,7 +625,7 @@ def _compiled_tiled_fill_winding_chunk() -> Any:
     import torch
 
     compile_fn = getattr(torch, "compile", None)
-    if compile_fn is None:
+    if compile_fn is None or not _torch_compile_enabled():
         return _fill_winding_chunk
     try:
         return compile_fn(
