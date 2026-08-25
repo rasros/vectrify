@@ -1104,18 +1104,24 @@ def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
     return loops
 
 
-def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
-    """Global curvature maxima with the local exclusion SAMVG describes."""
+def _curvature_scores(loop: list[tuple[float, float]]) -> np.ndarray:
+    """Return SAMVG's scale-aware cosine curvature score for a contour."""
     points = np.asarray(loop, dtype=np.float32)
     size = len(points)
-    count = min(count, size)
     step = max(1, size // 12)
     before = points - np.roll(points, step, axis=0)
     after = np.roll(points, -step, axis=0) - points
     denom = np.linalg.norm(before, axis=1) * np.linalg.norm(after, axis=1)
-    score = np.divide(
+    return np.divide(
         (before * after).sum(axis=1), denom, out=np.ones(size), where=denom > 0
     )
+
+
+def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
+    """Global curvature maxima with the local exclusion SAMVG describes."""
+    size = len(loop)
+    count = min(count, size)
+    score = _curvature_scores(loop)
     blocked = np.zeros(size, dtype=bool)
     chosen: list[int] = []
     exclusion = max(1, size // (count * 2))
@@ -1130,6 +1136,42 @@ def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
         )
         blocked[offsets] = True
     return sorted(chosen)
+
+
+def _variable_corners(
+    loop: list[tuple[float, float]], *, threshold: float, maximum: int
+) -> list[int]:
+    """Select locally distinct curvature extrema below SAMVG+var's threshold.
+
+    The dissertation's variable-segment variation replaces the fixed top-N
+    selection with a curvature threshold.  Its threshold is not published, so
+    callers must choose it explicitly.  ``maximum`` is only a safety bound for
+    pathological raster staircases, not a target complexity.
+    """
+    size = len(loop)
+    if size < 3:
+        return []
+    score = _curvature_scores(loop)
+    eligible = np.flatnonzero(score <= threshold)
+    if len(eligible) < 3:
+        return _corners(loop, min(3, size))
+    # Keep one representative from each local curvature neighbourhood.  The
+    # radius scales with the user safety limit, unlike the fixed 16-segment
+    # procedure above, so detailed contours remain able to grow when needed.
+    exclusion = max(1, size // (max(maximum, 3) * 2))
+    blocked = np.zeros(size, dtype=bool)
+    chosen: list[int] = []
+    for index in eligible[np.argsort(score[eligible], kind="stable")]:
+        if blocked[index]:
+            continue
+        chosen.append(int(index))
+        offsets = (np.arange(index - exclusion, index + exclusion + 1) % size).astype(
+            int
+        )
+        blocked[offsets] = True
+        if len(chosen) == maximum:
+            break
+    return sorted(chosen) if len(chosen) >= 3 else _corners(loop, min(3, size))
 
 
 def _fit_cubic(
@@ -1204,11 +1246,23 @@ def _fit_cubic(
     return controls[0], controls[1]
 
 
-def _cubic_loop(loop: list[tuple[float, float]], segments: int) -> str | None:
+def _cubic_loop(
+    loop: list[tuple[float, float]],
+    segments: int,
+    *,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 512,
+) -> str | None:
     size = len(loop)
     if size < 3:
         return None
-    corners = _corners(loop, segments)
+    corners = (
+        _corners(loop, segments)
+        if curvature_threshold is None
+        else _variable_corners(
+            loop, threshold=curvature_threshold, maximum=maximum_segments
+        )
+    )
     if len(corners) < 3:
         return None
     points = np.asarray(loop, dtype=np.float32)
@@ -1229,12 +1283,28 @@ def _cubic_loop(loop: list[tuple[float, float]], segments: int) -> str | None:
 
 
 def mask_path(
-    mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
+    mask: np.ndarray,
+    *,
+    segments: int = 8,
+    overlap_pixels: int = 0,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 512,
 ) -> str | None:
-    """Fit every mask contour as a fixed-count cubic Bezier SVG path."""
+    """Fit every mask contour as fixed-count or thresholded cubic Beziers."""
     if overlap_pixels:
         mask = _binary_dilation(mask, overlap_pixels)
-    parts = [piece for loop in _loops(mask) if (piece := _cubic_loop(loop, segments))]
+    parts = [
+        piece
+        for loop in _loops(mask)
+        if (
+            piece := _cubic_loop(
+                loop,
+                segments,
+                curvature_threshold=curvature_threshold,
+                maximum_segments=maximum_segments,
+            )
+        )
+    ]
     return " ".join(parts) or None
 
 
@@ -1484,7 +1554,12 @@ def mask_strokes(
 
 
 def _layer_svg_attributes(
-    layer: MaskLayer, segments: int, *, hybrid_strokes: bool = True
+    layer: MaskLayer,
+    segments: int,
+    *,
+    hybrid_strokes: bool = True,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 512,
 ) -> list[dict[str, str]]:
     """Trace one SAM mask, using optional strokes only outside the thesis mode."""
     colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
@@ -1505,7 +1580,13 @@ def _layer_svg_attributes(
             }
             for data, width in strokes
         ]
-    data = mask_path(layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels)
+    data = mask_path(
+        layer.mask,
+        segments=segments,
+        overlap_pixels=layer.overlap_pixels,
+        curvature_threshold=curvature_threshold,
+        maximum_segments=maximum_segments,
+    )
     if data is None:
         return []
     return [{"d": data, "fill": colour, "fill-rule": "evenodd"}]
@@ -1519,6 +1600,8 @@ def generate_svg(
     min_impact: float = 3e-6,
     max_layers: int = 512,
     segments: int = 16,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 512,
     fill_holes: bool = True,
     hybrid_strokes: bool = True,
     ocr: bool = True,
@@ -1549,7 +1632,11 @@ def generate_svg(
     paths = []
     for layer in layers:
         for attributes in _layer_svg_attributes(
-            layer, segments, hybrid_strokes=hybrid_strokes
+            layer,
+            segments,
+            hybrid_strokes=hybrid_strokes,
+            curvature_threshold=curvature_threshold,
+            maximum_segments=maximum_segments,
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
@@ -1611,12 +1698,18 @@ def _append_layers(
     segments: int,
     *,
     hybrid_strokes: bool = True,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 512,
 ) -> str:
     """Add newly prompted paths to an already optimised SVG."""
     root = ET.fromstring(svg)
     for layer in layers:
         for attributes in _layer_svg_attributes(
-            layer, segments, hybrid_strokes=hybrid_strokes
+            layer,
+            segments,
+            hybrid_strokes=hybrid_strokes,
+            curvature_threshold=curvature_threshold,
+            maximum_segments=maximum_segments,
         ):
             ET.SubElement(
                 root,

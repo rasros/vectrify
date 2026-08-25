@@ -504,6 +504,18 @@ def test_mask_path_keeps_a_hole_as_a_second_even_odd_subpath():
     assert path.count(" Z") == 2
 
 
+def test_mask_path_supports_the_variable_segment_tracing_variation():
+    mask = np.zeros((48, 48), dtype=bool)
+    mask[8:40, 8:40] = True
+    mask[16:32, 16:32] = False
+
+    path = mask_path(mask, curvature_threshold=0.8, maximum_segments=6)
+
+    assert path is not None
+    assert path.count("M ") == 2
+    assert 6 <= path.count("C ") <= 12
+
+
 def test_generate_svg_creates_editable_layered_paths_from_supplied_masks():
     image = Image.new("RGB", (10, 8), "white")
     pixels = np.asarray(image).copy()

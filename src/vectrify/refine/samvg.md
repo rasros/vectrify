@@ -23,6 +23,22 @@ and optimiser hyperparameters as implementation choices.  Keep those as
 explicit parameters and benchmark them; do not infer a canonical value from a
 path-count target alone.
 
+## Reported representation variations
+
+The baseline uses a fixed number of cubic segments per closed contour and
+opaque fills.  The dissertation also reports two independent variations:
+
+```text
+SAMVG+var   = select locally distinct contour points whose curvature score
+              crosses a caller-selected threshold, then fit one cubic between
+              each adjacent selected pair
+SAMVG+alpha = make every path fill opacity an optimisation parameter
+```
+
+These are representation changes, not mask-selection changes.  They must be
+enabled explicitly when comparing with an SVG made by either variation; the
+threshold value itself is not specified by the dissertation.
+
 ## Data types
 
 ```text

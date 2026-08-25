@@ -92,6 +92,7 @@ def run_target(
     steps: int,
     reference_svg: Path | None = None,
     learn_alpha: bool = False,
+    curvature_threshold: float | None = None,
 ) -> None:
     target = Image.open(target_path).convert("RGB")
     plugin = SvgPlugin()
@@ -105,6 +106,7 @@ def run_target(
         layers,
         16,
         hybrid_strokes=False,
+        curvature_threshold=curvature_threshold,
     )
     _render_svg(initial, target, plugin.rasterize).save(destination / "first-seed.png")
     (destination / "first-seed.svg").write_text(initial)
@@ -123,7 +125,13 @@ def run_target(
         # uncovered-mask pass, so all pixels must use their actual raster MSE.
         initial_coverage=np.ones((target.height, target.width), dtype=bool),
     )[len(layers) :]
-    recovery = _append_layers(first, added, 16, hybrid_strokes=False)
+    recovery = _append_layers(
+        first,
+        added,
+        16,
+        hybrid_strokes=False,
+        curvature_threshold=curvature_threshold,
+    )
     _render_svg(recovery, target, plugin.rasterize).save(
         destination / "residual-recovery.png"
     )
@@ -193,6 +201,11 @@ def main() -> None:
         type=Path,
         help="Reference SVG to Cairo-rasterize alongside a single target.",
     )
+    parser.add_argument(
+        "--curvature-threshold",
+        type=float,
+        help="Use the dissertation's variable-segment tracing variation.",
+    )
     parser.add_argument("--cat", action="store_true")
     parser.add_argument(
         "--all", action="store_true", help="Run cat, duck, and all bench targets."
@@ -231,6 +244,7 @@ def main() -> None:
             steps=args.steps,
             reference_svg=reference_svg,
             learn_alpha=args.learn_alpha,
+            curvature_threshold=args.curvature_threshold,
         )
 
 
