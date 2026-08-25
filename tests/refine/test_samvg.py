@@ -168,6 +168,39 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
     assert all(path.get("stroke") is None for path in paths)
 
 
+def test_vectorize_svg_rejects_a_residual_phase_that_regresses_first_fit(monkeypatch):
+    image = Image.new("RGB", (16, 16), "white")
+    base = np.zeros((16, 16), dtype=bool)
+    base[2:10, 2:10] = True
+    added = np.zeros((16, 16), dtype=bool)
+    added[10:14, 10:14] = True
+    initial_layer = MaskLayer(base, (10, 20, 30), 1.0)
+    added_layer = MaskLayer(added, (40, 50, 60), 1.0)
+    monkeypatch.setattr(samvg, "_sam_runtime", lambda: object())
+    monkeypatch.setattr(
+        samvg, "retrieve_layers", lambda *_args, **_kwargs: [initial_layer]
+    )
+    monkeypatch.setattr(samvg, "residual_prompt_points", lambda *_args: [(12, 12)])
+    monkeypatch.setattr(samvg, "prompted_masks", lambda *_args, **_kwargs: [added])
+    monkeypatch.setattr(
+        samvg,
+        "filter_by_impact",
+        lambda _image, _masks, **kwargs: [*kwargs["existing"], added_layer],
+    )
+    renders = [image, Image.new("RGB", image.size, "black")]
+    monkeypatch.setattr(
+        samvg,
+        "_accepted_fit",
+        lambda svg, _image, **_kwargs: (svg, renders.pop(0)),
+    )
+
+    result = samvg.vectorize_svg(image, rasterize=SvgPlugin().rasterize, steps=3)
+
+    root = ET.fromstring(result)
+    path_count = sum(element.tag.endswith("path") for element in root.iter())
+    assert path_count == 1
+
+
 def test_generate_svg_writes_detected_words_as_editable_text(monkeypatch):
     monkeypatch.setattr(samvg, "retrieve_layers", lambda *_args, **_kwargs: [])
     monkeypatch.setattr(

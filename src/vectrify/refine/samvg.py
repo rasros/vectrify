@@ -1893,12 +1893,19 @@ def vectorize_svg(
             len(points),
             len(added),
         )
-        return _accepted_fit(
+        final, final_render = _accepted_fit(
             _append_layers(first, added, segments, hybrid_strokes=False),
             image,
             rasterize=rasterize,
             steps=steps,
-        )[0]
+        )
+        # A locally accepted second fit can still be worse than the first fit
+        # if its residual additions were harmful.  The public two-phase result
+        # must never discard an already accepted Cairo-raster improvement.
+        if _mse(image, final_render) <= _mse(image, first_render):
+            return final
+        log.info("SAMVG residual phase rejected: it increased exported SVG MSE.")
+        return first
     finally:
         del runtime
         try:

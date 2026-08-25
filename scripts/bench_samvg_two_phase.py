@@ -183,6 +183,11 @@ def run_target(
     final, final_render, final_measurements, final_accepted = _fit_if_improved(
         recovery, target, plugin, steps, learn_alpha
     )
+    if _mse(target, final_render) > _mse(target, first_render):
+        # Phase-two fitting is accepted relative to the recovered document,
+        # but the benchmark's final result must retain the already accepted
+        # first fit when residual additions regress the exported Cairo raster.
+        final, final_render, final_accepted = first, first_render, False
     stages = [
         ("target", target, None),
         ("first-seed", _render_svg(initial, target, plugin.rasterize), initial),
