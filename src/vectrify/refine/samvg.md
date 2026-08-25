@@ -124,7 +124,8 @@ function FIRST_PHASE(target):
     # still part of segmentation, before any SVG path optimisation.
     uncovered = NOT union(mask for (mask, _, _) in first_masks)
     coverage_map = circular_convolution(uncovered)
-    coverage_centres = component_centres(threshold(coverage_map))
+    coverage_candidates = coordinates_of_full_empty_circles(coverage_map)
+    coverage_centres = mean_shift_clusters(coverage_candidates)
     coverage_raw = SAM_PROMPTED_MASKS(target, coverage_centres)
 
     # Score newly prompted masks against the retained-mask composite, not a

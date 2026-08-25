@@ -962,25 +962,22 @@ def coverage_prompt_points(
     radius_fraction: float = 0.06,
     max_points: int | None = None,
 ) -> list[tuple[int, int]]:
-    """Find centres of circularly-smoothed uncovered components.
-
-    This is the first-phase coverage detector from the dissertation.  It is
-    deliberately distinct from the residual detector below: its input is the
-    binary union of retained masks, so a full-kernel threshold means every
-    selected point is safely inside an uncovered region.  One prompt per
-    connected component avoids the old mean-shift sampling heuristic, whose
-    number and placement varied with component area.
-    """
+    """Find mean-shift centres of large circles untouched by retained masks."""
     _canvas, coverage = _render_layers(shape, layers)
     radius = max(2, round(min(shape) * radius_fraction))
-    return _circular_component_centres(
-        (~coverage).astype(np.float32),
-        radius,
-        # Float32 convolution can undershoot one by a few ulps even for a
-        # completely uncovered disk.
-        threshold=1.0 - 1e-6,
-        max_points=max_points,
+    distance = _distance_transform_edt(~coverage)
+    ys, xs = np.nonzero(distance >= radius)
+    if len(xs) == 0:
+        return []
+    stride = max(1, len(xs) // 2_048)
+    points = np.column_stack((xs[::stride], ys[::stride]))
+    centres = _mean_shift_centres(points, radius)
+    ranked = sorted(
+        ((float(distance[round(y), round(x)]), round(x), round(y)) for x, y in centres),
+        reverse=True,
     )
+    selected = ranked if max_points is None else ranked[:max_points]
+    return [(x, y) for _distance, x, y in selected]
 
 
 def _circular_component_centres(
