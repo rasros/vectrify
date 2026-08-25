@@ -1575,11 +1575,19 @@ def fit_filled_svg(
         right = min(work_width, math.ceil(float(points[:, 0].max())) + 2)
         bottom = min(work_height, math.ceil(float(points[:, 1].max())) + 2)
 
-        # Bucket dimensions keep many unrelated small paths in the same CUDA
-        # batch.  Shift a bucket at the canvas edge rather than clipping its
-        # protected coverage margin.
-        tile_width = min(work_width, 8 * math.ceil(max(right - left, 1) / 8))
-        tile_height = min(work_height, 8 * math.ceil(max(bottom - top, 1) / 8))
+        # Bucket dimensions keep unrelated paths in the same CUDA batch.  A
+        # 32px bucket roughly halves the distinct sizes of the 1024px cat
+        # seed versus 8px buckets while adding only a small protected fringe
+        # to the right/bottom of each tile.  The origin—and therefore every
+        # coverage sample belonging to the path—remains unchanged.  Shift a
+        # bucket at the canvas edge rather than clipping its antialias margin.
+        tile_bucket = 32
+        tile_width = min(
+            work_width, tile_bucket * math.ceil(max(right - left, 1) / tile_bucket)
+        )
+        tile_height = min(
+            work_height, tile_bucket * math.ceil(max(bottom - top, 1) / tile_bucket)
+        )
         left = min(left, work_width - tile_width)
         top = min(top, work_height - tile_height)
         return left, top, tile_width, tile_height
