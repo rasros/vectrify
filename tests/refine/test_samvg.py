@@ -104,9 +104,10 @@ def test_detect_text_retains_high_confidence_editable_words(monkeypatch):
 def test_accepted_fit_uses_bounded_fill_coordinate_descent(monkeypatch):
     seen = {}
 
-    def bounded(svg, image, *, rasterize, steps):
+    def bounded(svg, image, *, rasterize, steps, learn_alpha):
         seen["image"] = image.size
         seen["steps"] = steps
+        seen["learn_alpha"] = learn_alpha
         assert rasterize is not None
         return svg
 
@@ -121,7 +122,7 @@ def test_accepted_fit_uses_bounded_fill_coordinate_descent(monkeypatch):
 
     assert fitted == svg
     assert rendered.size == image.size
-    assert seen == {"image": (16, 16), "steps": 7}
+    assert seen == {"image": (16, 16), "steps": 7, "learn_alpha": False}
 
 
 def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
@@ -145,7 +146,7 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
         lambda _image, _masks, **kwargs: [*kwargs["existing"], added_layer],
     )
 
-    def accepted(svg, _image, *, rasterize, steps):
+    def accepted(svg, _image, *, rasterize, steps, learn_alpha):
         assert rasterize is not None
         calls.append(
             (
@@ -154,14 +155,17 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
                     for element in ET.fromstring(svg).iter()
                 ),
                 steps,
+                learn_alpha,
             )
         )
         return svg, image
 
     monkeypatch.setattr(samvg, "_accepted_fit", accepted)
-    result = samvg.vectorize_svg(image, rasterize=SvgPlugin().rasterize, steps=3)
+    result = samvg.vectorize_svg(
+        image, rasterize=SvgPlugin().rasterize, steps=3, learn_alpha=True
+    )
 
-    assert calls == [(1, 3), (2, 3)]
+    assert calls == [(1, 3, True), (2, 3, True)]
     root = ET.fromstring(result)
     paths = list(root.findall("{http://www.w3.org/2000/svg}path"))
     assert len(paths) == 2

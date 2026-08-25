@@ -1817,13 +1817,15 @@ def _accept_text_layers(
 
 
 def _accepted_fit(
-    svg: str, image: Image.Image, *, rasterize, steps: int
+    svg: str, image: Image.Image, *, rasterize, steps: int, learn_alpha: bool = False
 ) -> tuple[str, Image.Image]:
     """Keep a differentiable fit only when the actual SVG renderer improves."""
     from vectrify.refine.paths import fit_filled_svg_bounded
 
     before = _render_svg(svg, image, rasterize)
-    fitted = fit_filled_svg_bounded(svg, image, rasterize=rasterize, steps=steps)
+    fitted = fit_filled_svg_bounded(
+        svg, image, rasterize=rasterize, steps=steps, learn_alpha=learn_alpha
+    )
     after = _render_svg(fitted, image, rasterize)
     if _mse(image, after) <= _mse(image, before):
         return fitted, after
@@ -1841,12 +1843,17 @@ def vectorize_svg(
     max_layers: int = 512,
     segments: int = 16,
     max_side: int | None = SAMVG_MAX_SIDE,
+    learn_alpha: bool = False,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 2048,
 ) -> str:
     """Run SAMVG's two 500-step optimise-and-recover phases.
 
     ``rasterize`` is the format backend's renderer, used solely to form the
     residual map after the first pass. The actual differentiable fit is the
     built-in filled-path optimiser so SAMVG has no external renderer dependency.
+    ``learn_alpha`` and ``curvature_threshold`` select the dissertation's
+    SAMVG+alpha and SAMVG+var representation variations, respectively.
     """
     image = image.convert("RGB")
     runtime = _sam_runtime()
@@ -1866,9 +1873,15 @@ def vectorize_svg(
             layers,
             segments,
             hybrid_strokes=False,
+            curvature_threshold=curvature_threshold,
+            maximum_segments=maximum_segments,
         )
         first, first_render = _accepted_fit(
-            initial, image, rasterize=rasterize, steps=steps
+            initial,
+            image,
+            rasterize=rasterize,
+            steps=steps,
+            learn_alpha=learn_alpha,
         )
         points = residual_prompt_points(image, first_render)
         added = filter_by_impact(
@@ -1891,10 +1904,18 @@ def vectorize_svg(
             len(added),
         )
         final, final_render = _accepted_fit(
-            _append_layers(first, added, segments, hybrid_strokes=False),
+            _append_layers(
+                first,
+                added,
+                segments,
+                hybrid_strokes=False,
+                curvature_threshold=curvature_threshold,
+                maximum_segments=maximum_segments,
+            ),
             image,
             rasterize=rasterize,
             steps=steps,
+            learn_alpha=learn_alpha,
         )
         # A locally accepted second fit can still be worse than the first fit
         # if its residual additions were harmful.  The public two-phase result
