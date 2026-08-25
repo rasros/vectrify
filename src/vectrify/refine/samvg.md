@@ -111,6 +111,9 @@ function FIRST_PHASE(target):
         point_grid = AUTOMATIC_POINT_GRID,
         crop_schedule = SAM_AMG_CROP_SCHEDULE,
     )
+    # AMG removes duplicate candidates in two passes: predicted-IoU NMS
+    # within each crop, then crop-area-priority NMS across all crop outputs.
+    # The latter prefers a duplicate from the smaller crop.
 
     # Begin on a blank canvas and retain useful whole masks in area order.
     first_masks, mask_canvas = FILTER_BY_IMPACT(
