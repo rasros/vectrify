@@ -960,22 +960,61 @@ def coverage_prompt_points(
     radius_fraction: float = 0.06,
     max_points: int | None = None,
 ) -> list[tuple[int, int]]:
-    """Find mean-shift centres of large circles untouched by retained masks."""
+    """Find centres of circularly-smoothed uncovered components.
+
+    This is the first-phase coverage detector from the dissertation.  It is
+    deliberately distinct from the residual detector below: its input is the
+    binary union of retained masks, so a full-kernel threshold means every
+    selected point is safely inside an uncovered region.  One prompt per
+    connected component avoids the old mean-shift sampling heuristic, whose
+    number and placement varied with component area.
+    """
     _canvas, coverage = _render_layers(shape, layers)
     radius = max(2, round(min(shape) * radius_fraction))
-    distance = _distance_transform_edt(~coverage)
-    ys, xs = np.nonzero(distance >= radius)
-    if len(xs) == 0:
-        return []
-    stride = max(1, len(xs) // 2_048)
-    points = np.column_stack((xs[::stride], ys[::stride]))
-    centres = _mean_shift_centres(points, radius)
-    ranked = sorted(
-        ((float(distance[round(y), round(x)]), round(x), round(y)) for x, y in centres),
-        reverse=True,
+    return _circular_component_centres(
+        (~coverage).astype(np.float32),
+        radius,
+        # Float32 convolution can undershoot one by a few ulps even for a
+        # completely uncovered disk.
+        threshold=1.0 - 1e-6,
+        max_points=max_points,
     )
-    selected = ranked if max_points is None else ranked[:max_points]
-    return [(x, y) for _distance, x, y in selected]
+
+
+def _circular_component_centres(
+    values: np.ndarray,
+    radius: int,
+    *,
+    threshold: float,
+    max_points: int | None = None,
+) -> list[tuple[int, int]]:
+    """Return ranked centres of thresholded circular-convolution components."""
+    import torch
+    import torch.nn.functional as functional
+
+    if radius < 1:
+        raise ValueError("radius must be positive")
+    yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    kernel = (xx * xx + yy * yy <= radius * radius).astype(np.float32)
+    padded = np.pad(np.asarray(values, dtype=np.float32), radius, mode="symmetric")
+    smoothed = functional.conv2d(
+        torch.from_numpy(padded)[None, None],
+        torch.from_numpy((kernel / kernel.sum())[None, None]),
+    )[0, 0].numpy()
+    labels, count = _label(smoothed >= threshold)
+    ranked: list[tuple[float, int, int]] = []
+    for index in range(1, count + 1):
+        ys, xs = np.nonzero(labels == index)
+        if len(xs):
+            # The mean is the component centre prescribed by SAMVG.  Ranking
+            # by response is deterministic when callers cap prompt count.
+            ranked.append(
+                (float(smoothed[ys, xs].mean()), round(xs.mean()), round(ys.mean()))
+            )
+    selected = sorted(ranked, reverse=True)
+    if max_points is not None:
+        selected = selected[:max_points]
+    return [(x, y) for _score, x, y in selected]
 
 
 def prompted_masks(
@@ -1676,9 +1715,6 @@ def residual_prompt_points(
     max_points: int | None = None,
 ) -> list[tuple[int, int]]:
     """Locate SAMVG's convolved, thresholded residual components."""
-    import torch
-    import torch.nn.functional as functional
-
     target_pixels = np.asarray(target.convert("RGB"), dtype=np.float32) / 255.0
     rendered_pixels = np.asarray(rendered.convert("RGB"), dtype=np.float32) / 255.0
     # SAMVG sums RGB-channel difference before applying its 0.784 threshold.
@@ -1686,26 +1722,9 @@ def residual_prompt_points(
     difference = np.abs(target_pixels - rendered_pixels).sum(axis=2)
     height, width = difference.shape
     radius = max(2, round(min(height, width) * radius_fraction))
-    yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
-    kernel = (xx * xx + yy * yy <= radius * radius).astype(np.float32)
-    # Reflected padding preserves the prior symmetric-boundary definition;
-    # FFT convolution keeps the full-resolution recovery pass practical.
-    padded = np.pad(difference, radius, mode="symmetric")
-    smoothed = functional.conv2d(
-        torch.from_numpy(padded)[None, None],
-        torch.from_numpy((kernel / kernel.sum())[None, None]),
-    )[0, 0].numpy()
-    labels, count = _label(smoothed >= threshold)
-    points: list[tuple[float, int, int]] = []
-    for index in range(1, count + 1):
-        ys, xs = np.nonzero(labels == index)
-        if len(xs):
-            points.append(
-                (float(smoothed[ys, xs].mean()), round(xs.mean()), round(ys.mean()))
-            )
-    ranked = sorted(points, reverse=True)
-    selected = ranked if max_points is None else ranked[:max_points]
-    return [(x, y) for _score, x, y in selected]
+    return _circular_component_centres(
+        difference, radius, threshold=threshold, max_points=max_points
+    )
 
 
 def _append_layers(

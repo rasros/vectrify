@@ -643,18 +643,24 @@ def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():
     )
 
     assert points
-    assert points == [
-        (27, 20),
-        (27, 10),
-        (25, 25),
-        (25, 15),
-        (25, 5),
-        (20, 27),
-        (20, 20),
-        (20, 15),
-        (20, 10),
-        (20, 4),
-    ]
+    # One thresholded circular-convolution component gets one prompt at its
+    # geometric centre; coverage recovery is no longer area-dependent
+    # mean-shift sampling.
+    assert points == [(24, 16)]
+
+
+def test_coverage_prompt_points_keeps_separate_uncovered_components():
+    occupied = np.ones((40, 40), dtype=bool)
+    occupied[4:16, 4:16] = False
+    occupied[24:36, 24:36] = False
+
+    points = coverage_prompt_points(
+        [MaskLayer(occupied, (10, 20, 30), 1.0)],
+        (40, 40),
+        radius_fraction=0.1,
+    )
+
+    assert set(points) == {(10, 10), (30, 30)}
 
 
 def test_residual_points_use_summed_rgb_difference_at_the_paper_threshold():
