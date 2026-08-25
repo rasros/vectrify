@@ -1152,13 +1152,25 @@ def _variable_corners(
     if size < 3:
         return []
     score = _curvature_scores(loop)
-    eligible = np.flatnonzero(score <= threshold)
+    # The variable-segment algorithm is the unmodified local-extrema method,
+    # unlike the fixed-count variant above which repeatedly chooses global
+    # extrema.  Thresholding every low-scoring raster point changes that
+    # procedure into an edge-density sampler and wildly over-segments masks.
+    # Use the same k-neighbourhood that defines the curvature measurement to
+    # identify a local curvature maximum (a minimum cosine score).
+    neighbourhood = max(1, size // 12)
+    local_minimum = np.ones(size, dtype=bool)
+    for offset in range(1, neighbourhood + 1):
+        previous = np.roll(score, offset)
+        following = np.roll(score, -offset)
+        local_minimum &= (score <= previous) & (score <= following)
+    eligible = np.flatnonzero(local_minimum & (score <= threshold))
     if len(eligible) < 3:
         return _corners(loop, min(3, size))
-    # Keep one representative from each local curvature neighbourhood.  The
-    # radius scales with the user safety limit, unlike the fixed 16-segment
-    # procedure above, so detailed contours remain able to grow when needed.
-    exclusion = max(1, size // (max(maximum, 3) * 2))
+    # Pixel contours often have equal-valued plateaux at a single geometric
+    # corner. Coalesce only those ties in the curvature neighbourhood; this
+    # does not impose a fixed segment count.
+    exclusion = neighbourhood
     blocked = np.zeros(size, dtype=bool)
     chosen: list[int] = []
     for index in eligible[np.argsort(score[eligible], kind="stable")]:
