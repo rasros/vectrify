@@ -2082,10 +2082,14 @@ def fit_filled_svg(
                 tile_width,
                 tile_height,
             ), items in simple_groups.items():
-                for offset in range(0, len(items), 4):
+                # Sparse replay keeps only a tile-local graph, so it can
+                # batch more equal-size paths than the legacy dense replay.
+                # This reduces native coverage launches without increasing the
+                # full-canvas memory footprint.
+                for offset in range(0, len(items), 16):
                     loss = torch.zeros((), device=device)
                     for index, alpha, left, top in rasterise_simple_tiles(
-                        fill_rule, tile_width, tile_height, items[offset : offset + 4]
+                        fill_rule, tile_width, tile_height, items[offset : offset + 16]
                     ):
                         loss = loss + sparse_layer_loss(index, alpha, left, top)
                     loss.backward()
