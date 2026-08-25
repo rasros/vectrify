@@ -45,6 +45,12 @@ SAMVG_PRED_IOU_THRESH = float(os.environ.get("VECTRIFY_SAMVG_PRED_IOU_THRESH", "
 SAMVG_STABILITY_SCORE_THRESH = float(
     os.environ.get("VECTRIFY_SAMVG_STABILITY_SCORE_THRESH", "0.95")
 )
+# The dissertation specifies a fixed circular residual kernel scaled to the
+# image, but not its fraction. Cat calibration selects this value by final
+# raster error and complexity; callers can reproduce alternate sweeps.
+SAMVG_RESIDUAL_RADIUS_FRACTION = float(
+    os.environ.get("VECTRIFY_SAMVG_RESIDUAL_RADIUS_FRACTION", "0.0085")
+)
 # The SAMVG seed only needs OCR once and does it after SAM has released its
 # automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
 # detector: it can decide which visible labels deserve editable text and place
@@ -1562,7 +1568,7 @@ def residual_prompt_points(
     target: Image.Image,
     rendered: Image.Image,
     *,
-    radius_fraction: float = 0.06,
+    radius_fraction: float = SAMVG_RESIDUAL_RADIUS_FRACTION,
     threshold: float = 0.784,
     max_points: int | None = None,
 ) -> list[tuple[int, int]]:
