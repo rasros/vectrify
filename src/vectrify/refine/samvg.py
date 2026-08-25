@@ -919,8 +919,8 @@ def filter_by_impact(
         mask = np.logical_or.reduce(components)
         candidates.append((mask, components))
     candidates.sort(key=lambda candidate: int(candidate[0].sum()), reverse=True)
-    retained: list[tuple[list[np.ndarray], tuple[int, int, int], float]] = []
-    for mask, components in candidates:
+    retained: list[tuple[np.ndarray, tuple[int, int, int], float]] = []
+    for mask, _parts in candidates:
         colour = cast(
             tuple[int, int, int],
             tuple(int(value) for value in np.rint(target[mask].mean(axis=0))),
@@ -936,7 +936,11 @@ def filter_by_impact(
         impact = error - next_error
         if impact < min_impact:
             continue
-        retained.append((components, colour, impact))
+        # Components are traced as compound subpaths of one accepted SAM mask.
+        # This preserves every disconnected detail and its one painter-order
+        # slot, matching the compound-path topology in the thesis SVG; making
+        # every component a new SVG element only fragments the document.
+        retained.append((mask, colour, impact))
         canvas[mask] = colour
         coverage |= mask
         error_map[mask] = next_error_values
@@ -946,10 +950,9 @@ def filter_by_impact(
         # one path once the automatic stage had filled its budget.
         if len(retained) >= max_layers:
             break
-    for components, colour, impact in retained:
-        accepted.extend(
-            MaskLayer(component, colour, impact) for component in components
-        )
+    accepted.extend(
+        MaskLayer(mask, colour, impact) for mask, colour, impact in retained
+    )
     return accepted
 
 
