@@ -41,8 +41,10 @@ SAMVG_MAX_SIDE = int(os.environ.get("VECTRIFY_SAMVG_MAX_SIDE", "1024"))
 SAMVG_POINTS_PER_BATCH = int(os.environ.get("VECTRIFY_SAMVG_POINTS_PER_BATCH", "64"))
 # Preserve SAM AMG's confidence and stability filtering before SAMVG evaluates
 # a complete cleaned mask by render impact, as described in the dissertation.
-SAMVG_PRED_IOU_THRESH = 0.88
-SAMVG_STABILITY_SCORE_THRESH = 0.95
+SAMVG_PRED_IOU_THRESH = float(os.environ.get("VECTRIFY_SAMVG_PRED_IOU_THRESH", "0.88"))
+SAMVG_STABILITY_SCORE_THRESH = float(
+    os.environ.get("VECTRIFY_SAMVG_STABILITY_SCORE_THRESH", "0.95")
+)
 # The SAMVG seed only needs OCR once and does it after SAM has released its
 # automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
 # detector: it can decide which visible labels deserve editable text and place

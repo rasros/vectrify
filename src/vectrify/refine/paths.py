@@ -1510,6 +1510,21 @@ def fit_filled_svg(
         ]
     )
 
+    def close_contours() -> None:
+        """Restore the shared joins of every traced closed Bezier contour.
+
+        SAMVG traces closed fixed-segment loops.  The packed parameter storage
+        keeps their cubic endpoints as separate Adam values for efficient
+        rasterisation, so project them back to a continuous closed contour
+        after each update.  Otherwise a subpixel gap becomes an extra implicit
+        SVG closing cubic on export, violating the fixed-segment invariant.
+        """
+        with torch.no_grad():
+            for path in controls:
+                for contour in path:
+                    contour[1:, 0].copy_(contour[:-1, 3])
+                    contour[-1, 3].copy_(contour[0, 0])
+
     def tile_for(path: list[Any]) -> tuple[int, int, int, int]:
         """A fixed, antialiased raster tile covering a path's control hull."""
         points = torch.cat([control.detach().reshape(-1, 2) for control in path])
@@ -1868,6 +1883,7 @@ def fit_filled_svg(
             loss.backward()
             point_optimizer.step()
             colour_optimizer.step()
+            close_contours()
             continue
 
         # First composite the exact same soft fills without recording an
@@ -1987,6 +2003,7 @@ def fit_filled_svg(
         ).backward()
         point_optimizer.step()
         colour_optimizer.step()
+        close_contours()
 
     coordinate_scale_cpu = coordinate_scale.cpu()
     for index, ((element, _contours, _colour, _fill_rule), path) in enumerate(

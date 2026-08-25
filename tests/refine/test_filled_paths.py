@@ -261,6 +261,47 @@ def test_filled_path_fit_moves_fill_colour_toward_target():
     assert _mse(fitted, target) < _mse(SVG, target)
 
 
+def test_filled_path_fit_preserves_a_closed_contours_segment_count():
+    target = Image.new("RGB", (24, 24), "black")
+    target.paste("red", (4, 4, 16, 16))
+
+    fitted = fit_filled_svg(
+        SVG,
+        target,
+        steps=1,
+        point_learning_rate=0.5,
+        color_learning_rate=0.0,
+    )
+
+    root = ET.fromstring(fitted)
+    path = next(element for element in root.iter() if element.get("d"))
+    assert [len(contour) for contour in parse_filled_cubics(path.get("d", ""))] == [4]
+
+
+def test_filled_path_fit_preserves_each_compound_contours_closure():
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">'
+        '<path d="M 2 2 L 22 2 L 22 22 L 2 22 Z '
+        'M 8 8 L 16 8 L 16 16 L 8 16 Z" fill="#ff0000" fill-rule="evenodd" />'
+        "</svg>"
+    )
+
+    fitted = fit_filled_svg(
+        svg,
+        Image.new("RGB", (24, 24), "black"),
+        steps=1,
+        point_learning_rate=0.5,
+        color_learning_rate=0.0,
+    )
+
+    root = ET.fromstring(fitted)
+    path = next(element for element in root.iter() if element.get("d"))
+    assert [len(contour) for contour in parse_filled_cubics(path.get("d", ""))] == [
+        4,
+        4,
+    ]
+
+
 def test_local_fill_fit_changes_only_one_bounded_group():
     paths = []
     for index in range(20):

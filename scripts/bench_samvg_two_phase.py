@@ -103,9 +103,13 @@ def run_target(
         16,
         hybrid_strokes=False,
     )
+    _render_svg(initial, target, plugin.rasterize).save(destination / "first-seed.png")
+    (destination / "first-seed.svg").write_text(initial)
     first, first_render, first_measurements, first_accepted = _fit_if_improved(
         initial, target, plugin, steps
     )
+    first_render.save(destination / "first-fit.png")
+    (destination / "first-fit.svg").write_text(first)
     points = residual_prompt_points(target, first_render)
     added = filter_by_impact(
         target,
@@ -117,6 +121,10 @@ def run_target(
         initial_coverage=np.ones((target.height, target.width), dtype=bool),
     )[len(layers) :]
     recovery = _append_layers(first, added, 16, hybrid_strokes=False)
+    _render_svg(recovery, target, plugin.rasterize).save(
+        destination / "residual-recovery.png"
+    )
+    (destination / "residual-recovery.svg").write_text(recovery)
     final, final_render, final_measurements, final_accepted = _fit_if_improved(
         recovery, target, plugin, steps
     )
