@@ -43,6 +43,13 @@ def _path_count(svg: str) -> int:
     )
 
 
+def _result_name(target_path: Path) -> str:
+    """Give standard bench targets stable, non-colliding output directories."""
+    if target_path.name == "target.png":
+        return target_path.parent.name
+    return target_path.stem
+
+
 def _write_gallery(images: list[tuple[str, Image.Image]], destination: Path) -> None:
     width = max(image.width for _name, image in images)
     height = max(image.height for _name, image in images)
@@ -85,10 +92,11 @@ def run_target(
     reference_svg: Path | None = None,
     learn_alpha: bool = False,
     curvature_threshold: float | None = None,
+    seed_only: bool = False,
 ) -> None:
     target = Image.open(target_path).convert("RGB")
     plugin = SvgPlugin()
-    destination = output / target_path.stem
+    destination = output / _result_name(target_path)
     destination.mkdir(parents=True, exist_ok=True)
     started = perf_counter()
     runtime = _sam_runtime()
@@ -103,6 +111,41 @@ def run_target(
     )
     _render_svg(initial, target, plugin.rasterize).save(destination / "first-seed.png")
     (destination / "first-seed.svg").write_text(initial)
+    if seed_only:
+        seed_render = _render_svg(initial, target, plugin.rasterize)
+        stages = [("target", target, None), ("first-seed", seed_render, initial)]
+        if reference_svg is not None:
+            reference = _render_svg(reference_svg.read_text(), target, plugin.rasterize)
+            stages.append(("reference-svg", reference, reference_svg.read_text()))
+        rows = [
+            {
+                "stage": name,
+                "mse": _mse(target, rendered),
+                "paths": _path_count(svg) if svg is not None else 0,
+            }
+            for name, rendered, svg in stages
+        ]
+        _write_gallery(
+            [(name, image) for name, image, _svg in stages], destination / "gallery.png"
+        )
+        with (destination / "stages.csv").open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["stage", "mse", "paths"])
+            writer.writeheader()
+            writer.writerows(rows)
+        (destination / "fit-groups.json").write_text("[]\n")
+        (destination / "summary.json").write_text(
+            json.dumps(
+                {
+                    "target": str(target_path),
+                    "seed_only": True,
+                    "initial_layers": len(layers),
+                    "wall_seconds": perf_counter() - started,
+                    "stages": rows,
+                },
+                indent=2,
+            )
+        )
+        return
     first, first_render, first_measurements, first_accepted = _fit_if_improved(
         initial, target, plugin, steps, learn_alpha
     )
@@ -207,6 +250,11 @@ def main() -> None:
     )
     parser.add_argument("--steps", type=int, default=500)
     parser.add_argument(
+        "--seed-only",
+        action="store_true",
+        help="Benchmark automatic masks and coverage recovery without fitting.",
+    )
+    parser.add_argument(
         "--learn-alpha",
         action="store_true",
         help="Use the dissertation's SAMVG+alpha fitter variation.",
@@ -237,6 +285,7 @@ def main() -> None:
             reference_svg=reference_svg,
             learn_alpha=args.learn_alpha,
             curvature_threshold=args.curvature_threshold,
+            seed_only=args.seed_only,
         )
 
 
