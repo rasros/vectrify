@@ -1747,6 +1747,20 @@ def fit_filled_svg(
             )
         left, top, tile_width, tile_height = initial_multi_tiles[index]
         offset = path[0].new_tensor((left, top))
+        from vectrify.refine.cuda_renderer import multi_coverage
+
+        packed = torch.cat(
+            [_pad_fused_cubics((control - offset)[None]) for control in path]
+        )
+        analytic = multi_coverage(
+            packed,
+            [0, len(path)],
+            (0, 0, tile_width, tile_height),
+            subpixels=subpixels,
+            fill_rule=entries[index][3],
+        )
+        if analytic is not None:
+            return restore_tile(analytic[0], left, top)
         alpha = _fill_path_coverage(
             [control - offset for control in path],
             (0, 0, tile_width, tile_height),
