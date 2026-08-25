@@ -39,11 +39,13 @@ SAMVG_MAX_SIDE = int(os.environ.get("VECTRIFY_SAMVG_MAX_SIDE", "1024"))
 # grid. 64 doubles the old 32 while leaving full-resolution-mask
 # headroom on a 16 GB GPU; users with larger cards can raise it by environment.
 SAMVG_POINTS_PER_BATCH = int(os.environ.get("VECTRIFY_SAMVG_POINTS_PER_BATCH", "64"))
-# Preserve SAM AMG's confidence and stability filtering before SAMVG evaluates
-# a complete cleaned mask by render impact, as described in the dissertation.
-SAMVG_PRED_IOU_THRESH = float(os.environ.get("VECTRIFY_SAMVG_PRED_IOU_THRESH", "0.88"))
+# SAMVG's image-aware impact filter is the retained-mask decision specified by
+# the dissertation.  Keep AMG's confidence gates configurable, but disable
+# them by default so a small, useful candidate reaches that later test instead
+# of being discarded by a checkpoint-confidence heuristic.
+SAMVG_PRED_IOU_THRESH = float(os.environ.get("VECTRIFY_SAMVG_PRED_IOU_THRESH", "0"))
 SAMVG_STABILITY_SCORE_THRESH = float(
-    os.environ.get("VECTRIFY_SAMVG_STABILITY_SCORE_THRESH", "0.95")
+    os.environ.get("VECTRIFY_SAMVG_STABILITY_SCORE_THRESH", "0")
 )
 # The dissertation specifies a fixed circular residual kernel scaled to the
 # image, but not its fraction. Cat calibration selects this value by final
