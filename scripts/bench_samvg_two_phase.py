@@ -27,6 +27,7 @@ from vectrify.refine.samvg import (
     _append_layers,
     _mse,
     _render_svg,
+    _sam_runtime,
     filter_by_impact,
     prompted_masks,
     residual_prompt_points,
@@ -99,7 +100,8 @@ def run_target(
     destination = output / target_path.stem
     destination.mkdir(parents=True, exist_ok=True)
     started = perf_counter()
-    layers = retrieve_layers(target)
+    runtime = _sam_runtime()
+    layers = retrieve_layers(target, _runtime=runtime)
     initial = _append_layers(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{target.width}" '
         f'height="{target.height}" viewBox="0 0 {target.width} {target.height}"></svg>',
@@ -118,7 +120,7 @@ def run_target(
     points = residual_prompt_points(target, first_render)
     added = filter_by_impact(
         target,
-        prompted_masks(target, points),
+        prompted_masks(target, points, _runtime=runtime),
         existing=layers,
         initial_canvas=np.asarray(first_render, dtype=np.uint8),
         # The residual pass starts from the first fitted raster.  It is not an
