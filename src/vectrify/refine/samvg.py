@@ -577,44 +577,39 @@ def _filter_automatic_masks(
     )
 
 
-def _finalize_automatic_masks(
-    outputs: list[dict[str, Any]], runtime: _SamRuntime
-) -> list[np.ndarray]:
-    """NMS SAM's already full-resolution binary candidates and transfer them."""
+def _finalize_automatic_masks(masks: Any, scores: Any, boxes: Any) -> list[np.ndarray]:
+    """Apply AMG's final image-global NMS and transfer binary masks."""
     import torch
     from torchvision.ops import batched_nms
 
-    masks = [output["masks"] for output in outputs if len(output["masks"])]
-    if not masks:
+    if not len(masks):
         return []
-    scores = torch.cat([output["scores"] for output in outputs])
-    boxes = torch.cat([output["boxes"] for output in outputs])
     keep = batched_nms(
         boxes=boxes.float(),
         scores=scores.float(),
         idxs=torch.zeros(len(boxes), dtype=torch.long),
         iou_threshold=0.7,
     )
-    selected_masks = torch.cat(masks)[keep]
-    selected_scores = scores[keep]
-    del selected_scores, runtime
+    selected_masks = masks[keep]
     return [np.asarray(mask.cpu(), dtype=bool) for mask in selected_masks]
 
 
-def _automatic_masks_for(
+def _automatic_mask_candidates_for(
     source: Image.Image,
     runtime: _SamRuntime,
     *,
     cache_embedding: bool,
     points_per_batch: int = SAMVG_POINTS_PER_BATCH,
-) -> list[np.ndarray]:
-    """Run one AMG image/crop without recomputing prompt-grid embeddings.
+) -> tuple[Any, Any, Any]:
+    """Return post-filter AMG candidates before its image-global crop NMS.
 
     Transformers' public mask-generation call already encodes an image once
     per 32x32 prompt grid. For the full image we use the same pipeline stages
     directly so the resulting embedding can be reused by coverage/residual
     prompts. Crops intentionally retain their own embeddings.
     """
+    import torch
+
     generator = runtime.generator
     arguments = {
         "points_per_batch": points_per_batch,
@@ -626,7 +621,20 @@ def _automatic_masks_for(
     # Keep a small compatibility path for mocked/older Transformers pipelines.
     if not hasattr(generator, "preprocess"):
         output = generator(source, **arguments)
-        return [np.asarray(mask, dtype=bool) for mask in output["masks"]]
+        masks = (
+            torch.from_numpy(
+                np.stack([np.asarray(mask, dtype=bool) for mask in output["masks"]])
+            )
+            if output["masks"]
+            else torch.empty((0, source.height, source.width), dtype=torch.bool)
+        )
+        boxes = torch.empty((len(masks), 4), dtype=torch.float32)
+        for index, mask in enumerate(masks):
+            ys, xs = torch.where(mask)
+            boxes[index] = torch.tensor(
+                (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1), dtype=torch.float32
+            )
+        return masks, torch.ones(len(masks)), boxes
 
     outputs = []
     for inputs in generator.preprocess(
@@ -653,7 +661,18 @@ def _automatic_masks_for(
         outputs[-1]["masks"] = outputs[-1]["masks"].cpu()
         outputs[-1]["scores"] = outputs[-1]["scores"].cpu()
         outputs[-1]["boxes"] = outputs[-1]["boxes"].cpu()
-    return _finalize_automatic_masks(outputs, runtime)
+    masks = [output["masks"] for output in outputs if len(output["masks"])]
+    if not masks:
+        return (
+            torch.empty((0, source.height, source.width), dtype=torch.bool),
+            torch.empty(0),
+            torch.empty((0, 4)),
+        )
+    return (
+        torch.cat(masks),
+        torch.cat([output["scores"] for output in outputs if len(output["masks"])]),
+        torch.cat([output["boxes"] for output in outputs if len(output["masks"])]),
+    )
 
 
 def automatic_masks(
@@ -674,12 +693,17 @@ def automatic_masks(
     width, height = image.size
 
     def collect(points_per_batch: int) -> list[np.ndarray]:
-        collected = _automatic_masks_for(
+        import torch
+
+        masks, scores, boxes = _automatic_mask_candidates_for(
             image,
             runtime,
             cache_embedding=True,
             points_per_batch=points_per_batch,
         )
+        all_masks = [masks]
+        all_scores = [scores]
+        all_boxes = [boxes]
         overlap = int((512 / 1500) * min(width, height))
         crop_width = math.ceil((overlap + width) / 2)
         crop_height = math.ceil((overlap + height) / 2)
@@ -691,18 +715,27 @@ def automatic_masks(
         }:
             right, bottom = min(x + crop_width, width), min(y + crop_height, height)
             crop_box = (x, y, right, bottom)
-            for crop_mask in _automatic_masks_for(
+            crop_masks, crop_scores, crop_boxes = _automatic_mask_candidates_for(
                 image.crop(crop_box),
                 runtime,
                 cache_embedding=False,
                 points_per_batch=points_per_batch,
-            ):
-                if _is_crop_edge_mask(crop_mask, crop_box, image.size):
+            )
+            for index, crop_mask in enumerate(crop_masks):
+                crop_mask_array = np.asarray(crop_mask, dtype=bool)
+                if _is_crop_edge_mask(crop_mask_array, crop_box, image.size):
                     continue
                 mask = np.zeros((height, width), dtype=bool)
-                mask[y:bottom, x:right] = crop_mask
-                collected.append(mask)
-        return collected
+                mask[y:bottom, x:right] = crop_mask_array
+                all_masks.append(torch.from_numpy(mask)[None])
+                all_scores.append(crop_scores[index : index + 1])
+                box = crop_boxes[index].clone()
+                box[[0, 2]] += x
+                box[[1, 3]] += y
+                all_boxes.append(box[None])
+        return _finalize_automatic_masks(
+            torch.cat(all_masks), torch.cat(all_scores), torch.cat(all_boxes)
+        )
 
     collected = collect(SAMVG_POINTS_PER_BATCH)
     return [_restore_mask(mask, original_size) for mask in collected]

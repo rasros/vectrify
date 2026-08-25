@@ -265,6 +265,30 @@ def test_automatic_masks_uses_source_sized_first_layer_crops(monkeypatch):
     assert all(mask.shape == (8, 12) for mask in masks)
 
 
+def test_automatic_mask_finalization_suppresses_across_crop_sources():
+    import torch
+
+    masks = torch.tensor(
+        [
+            [[True, True], [True, True]],
+            [[False, False], [False, True]],
+        ]
+    )
+    # These candidates represent the same image-space crop box.  The second
+    # candidate has a different raster but a higher SAM IoU, so AMG's one
+    # image-global NMS must retain it instead of allowing each source to keep
+    # its own duplicate.
+    retained = samvg._finalize_automatic_masks(
+        masks,
+        torch.tensor([0.8, 0.9]),
+        torch.tensor([[0.0, 0.0, 2.0, 2.0], [0.0, 0.0, 2.0, 2.0]]),
+    )
+
+    assert len(retained) == 1
+    assert retained[0][1, 1]
+    assert not retained[0][0, 0]
+
+
 def test_retrieve_layers_reuses_one_runtime_for_automatic_and_coverage_prompts(
     monkeypatch,
 ):
