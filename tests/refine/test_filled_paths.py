@@ -724,6 +724,19 @@ def test_filled_fit_uses_analytic_tiles_for_large_cuda_paths(monkeypatch):
     assert "path" in fitted
 
 
+def test_filled_fit_initialises_a_variable_length_contour():
+    commands = " ".join("C 0 0 1 0 2 0" for _ in range(17))
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">'
+        f'<path d="M 0 0 {commands} Z" fill="#4080c0" />'
+        "</svg>"
+    )
+
+    fitted = fit_filled_svg(svg, Image.new("RGB", (8, 8), "white"), steps=0)
+
+    assert "path" in fitted
+
+
 def test_bounded_compositing_gradient_matches_monolithic_render():
     """The memory-bounded fit pass must retain the full painter's-order MSE gradient."""
     torch = pytest.importorskip("torch")

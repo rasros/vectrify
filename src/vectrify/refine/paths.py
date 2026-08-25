@@ -1477,13 +1477,27 @@ def fit_filled_svg(
     ]
     # A detailed SAMVG seed has hundreds of contours.  Keeping each one as a
     # separate Adam parameter turns one optimiser update into hundreds of tiny
-    # CUDA kernels.  Store fixed-width contour slots in one parameter and use
+    # CUDA kernels.  Store equal-width contour slots in one parameter and use
     # narrow views below, retaining every original contour length in the SVG
-    # and Xing terms.
+    # and Xing terms.  The native coverage primitive itself uses 16-cubic
+    # chunks, but SAMVG+var legitimately emits longer contours; storage must
+    # therefore use the document maximum rather than that renderer chunk size.
     flat_controls = [control for path in initial_controls for control in path]
     contour_sizes = [len(control) for control in flat_controls]
+    storage_width = max(contour_sizes)
+
+    def pad_storage_control(control: Any) -> Any:
+        if len(control) == storage_width:
+            return control
+        return torch.cat(
+            (
+                control,
+                control[:1].expand(storage_width - len(control), -1, -1),
+            )
+        )
+
     control_storage = torch.nn.Parameter(
-        torch.cat([_pad_fused_cubics(control[None]) for control in flat_controls])
+        torch.stack([pad_storage_control(control) for control in flat_controls])
     )
     controls = []
     path_storage_spans = []
