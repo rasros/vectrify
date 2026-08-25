@@ -499,7 +499,7 @@ def _sam_autocast():
 
 
 def _automatic_forward(inputs: Any, runtime: _SamRuntime) -> dict[str, Any]:
-    """Decode one prompt batch and retain compact GPU candidates."""
+    """Decode and filter one AMG prompt batch in SAM's original order."""
     import torch
 
     generator = runtime.generator
@@ -514,8 +514,22 @@ def _automatic_forward(inputs: Any, runtime: _SamRuntime) -> dict[str, Any]:
     # that lifetime explicit before handing compact candidates to the host.
     with torch.inference_mode(), _sam_autocast():
         model_outputs = generator.model(**inputs)
-        masks, scores, boxes = _low_resolution_candidates(
-            model_outputs.pred_masks, model_outputs.iou_scores
+        # Official AMG interpolates decoder logits to the crop canvas before
+        # its confidence, stability, and crop-edge tests.  Filtering at 256px
+        # is faster but changes which fine masks survive, so it cannot be used
+        # for the dissertation-faithful seed.
+        masks_at_size = generator.image_processor.post_process_masks(
+            model_outputs.pred_masks,
+            original_sizes,
+            reshaped_input_sizes=reshaped_sizes,
+            mask_threshold=0,
+            binarize=False,
+        )[0]
+        masks, scores, boxes = _filter_automatic_masks(
+            masks_at_size,
+            model_outputs.iou_scores[0],
+            original_sizes[0],
+            input_boxes[0],
         )
     return {
         "masks": masks,
@@ -528,41 +542,17 @@ def _automatic_forward(inputs: Any, runtime: _SamRuntime) -> dict[str, Any]:
     }
 
 
-def _low_resolution_candidates(
-    pred_masks: Any, iou_scores: Any
-) -> tuple[Any, Any, Any]:
-    """Filter decoder logits and box their thresholded low-resolution masks."""
-    import torch
-    from transformers.models.sam.image_processing_sam import (
-        _batched_mask_to_box,
-        _compute_stability_score,
-    )
-
-    masks = pred_masks.reshape(-1, *pred_masks.shape[-2:])
-    scores = iou_scores.reshape(-1)
-    keep = torch.ones(len(masks), dtype=torch.bool, device=masks.device)
-    if SAMVG_PRED_IOU_THRESH > 0:
-        keep &= scores > SAMVG_PRED_IOU_THRESH
-    if SAMVG_STABILITY_SCORE_THRESH > 0:
-        stability = _compute_stability_score(masks, 0, 1)
-        keep &= stability > SAMVG_STABILITY_SCORE_THRESH
-    # SAM's AMG performs NMS on thresholded 256px masks but delays the actual
-    # threshold until after its full-resolution interpolation.  Keeping the
-    # logits here is essential: interpolating a binary mask turns every soft
-    # edge into positive coverage and blunts narrow masks such as cat fur.
-    masks, scores = masks[keep], scores[keep]
-    return masks, scores, _batched_mask_to_box(masks > 0)
-
-
 def _filter_automatic_masks(
     masks: Any,
     iou_scores: Any,
     original_size: list[int],
     cropped_box_image: Any,
 ) -> tuple[Any, Any, Any]:
-    """Apply AMG's crop-edge filter after low-resolution score filtering."""
+    """Apply SAM AMG's full-resolution confidence and crop-edge filtering."""
+    import torch
     from transformers.models.sam.image_processing_sam import (
         _batched_mask_to_box,
+        _compute_stability_score,
         _is_box_near_crop_edge,
         _pad_masks,
     )
@@ -570,10 +560,12 @@ def _filter_automatic_masks(
     original_height, original_width = original_size
     scores = iou_scores.reshape(-1)
     masks = masks.reshape(-1, *masks.shape[-2:])
-    # Candidate logits were scored at decoder resolution and interpolated in
-    # the same order as SAM's AMG. Threshold only now, after resizing them to
-    # the crop canvas, so narrow boundaries retain their signed contour.
-    masks = masks > 0
+    keep = torch.ones(len(masks), dtype=torch.bool, device=masks.device)
+    if SAMVG_PRED_IOU_THRESH > 0:
+        keep &= scores > SAMVG_PRED_IOU_THRESH
+    if SAMVG_STABILITY_SCORE_THRESH > 0:
+        keep &= _compute_stability_score(masks, 0, 1) > SAMVG_STABILITY_SCORE_THRESH
+    masks, scores = masks[keep] > 0, scores[keep]
     boxes = _batched_mask_to_box(masks)
     keep = ~_is_box_near_crop_edge(
         boxes, cropped_box_image, [0, 0, original_width, original_height]
@@ -588,7 +580,7 @@ def _filter_automatic_masks(
 def _finalize_automatic_masks(
     outputs: list[dict[str, Any]], runtime: _SamRuntime
 ) -> list[np.ndarray]:
-    """NMS compact candidates, then expand and transfer only survivors."""
+    """NMS SAM's already full-resolution binary candidates and transfer them."""
     import torch
     from torchvision.ops import batched_nms
 
@@ -605,31 +597,8 @@ def _finalize_automatic_masks(
     )
     selected_masks = torch.cat(masks)[keep]
     selected_scores = scores[keep]
-    metadata = outputs[0]
-    expanded: list[np.ndarray] = []
-    # A small final batch bounds GPU interpolation memory. Every survivor is
-    # still expanded with Transformers' exact bilinear mask post-processing.
-    for start in range(0, len(selected_masks), 16):
-        stop = start + 16
-        masks_at_size = runtime.generator.image_processor.post_process_masks(
-            [
-                selected_masks[start:stop]
-                .unsqueeze(1)
-                .to(runtime.generator.device, dtype=torch.float16)
-            ],
-            [metadata["original_size"]],
-            [metadata["reshaped_size"]],
-            mask_threshold=0,
-            binarize=False,
-        )[0]
-        filtered, _scores, _boxes = _filter_automatic_masks(
-            masks_at_size,
-            selected_scores[start:stop].to(runtime.generator.device),
-            metadata["original_size"],
-            metadata["crop_box"],
-        )
-        expanded.extend(np.asarray(mask.cpu(), dtype=bool) for mask in filtered)
-    return expanded
+    del selected_scores, runtime
+    return [np.asarray(mask.cpu(), dtype=bool) for mask in selected_masks]
 
 
 def _automatic_masks_for(
