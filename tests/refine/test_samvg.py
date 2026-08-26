@@ -104,9 +104,10 @@ def test_detect_text_retains_high_confidence_editable_words(monkeypatch):
 def test_accepted_fit_uses_bounded_fill_coordinate_descent(monkeypatch):
     seen = {}
 
-    def bounded(svg, image, *, rasterize, steps):
+    def bounded(svg, image, *, rasterize, steps, learn_alpha):
         seen["image"] = image.size
         seen["steps"] = steps
+        seen["learn_alpha"] = learn_alpha
         assert rasterize is not None
         return svg
 
@@ -121,7 +122,7 @@ def test_accepted_fit_uses_bounded_fill_coordinate_descent(monkeypatch):
 
     assert fitted == svg
     assert rendered.size == image.size
-    assert seen == {"image": (16, 16), "steps": 7}
+    assert seen == {"image": (16, 16), "steps": 7, "learn_alpha": False}
 
 
 def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
@@ -133,7 +134,7 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
     initial_layer = MaskLayer(base, (10, 20, 30), 1.0)
     added_layer = MaskLayer(added, (40, 50, 60), 1.0)
     calls = []
-    monkeypatch.setattr(samvg, "_sam_runtime", lambda: object())
+    monkeypatch.setattr(samvg, "_sam_runtime", lambda **_kwargs: object())
     monkeypatch.setattr(
         samvg, "retrieve_layers", lambda *_args, **_kwargs: [initial_layer]
     )
@@ -145,7 +146,7 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
         lambda _image, _masks, **kwargs: [*kwargs["existing"], added_layer],
     )
 
-    def accepted(svg, _image, *, rasterize, steps):
+    def accepted(svg, _image, *, rasterize, steps, learn_alpha):
         assert rasterize is not None
         calls.append(
             (
@@ -154,18 +155,54 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
                     for element in ET.fromstring(svg).iter()
                 ),
                 steps,
+                learn_alpha,
             )
         )
         return svg, image
 
     monkeypatch.setattr(samvg, "_accepted_fit", accepted)
-    result = samvg.vectorize_svg(image, rasterize=SvgPlugin().rasterize, steps=3)
+    result = samvg.vectorize_svg(
+        image, rasterize=SvgPlugin().rasterize, steps=3, learn_alpha=True
+    )
 
-    assert calls == [(1, 3), (2, 3)]
+    assert calls == [(1, 3, True), (2, 3, True)]
     root = ET.fromstring(result)
     paths = list(root.findall("{http://www.w3.org/2000/svg}path"))
     assert len(paths) == 2
     assert all(path.get("stroke") is None for path in paths)
+
+
+def test_vectorize_svg_rejects_a_residual_phase_that_regresses_first_fit(monkeypatch):
+    image = Image.new("RGB", (16, 16), "white")
+    base = np.zeros((16, 16), dtype=bool)
+    base[2:10, 2:10] = True
+    added = np.zeros((16, 16), dtype=bool)
+    added[10:14, 10:14] = True
+    initial_layer = MaskLayer(base, (10, 20, 30), 1.0)
+    added_layer = MaskLayer(added, (40, 50, 60), 1.0)
+    monkeypatch.setattr(samvg, "_sam_runtime", lambda **_kwargs: object())
+    monkeypatch.setattr(
+        samvg, "retrieve_layers", lambda *_args, **_kwargs: [initial_layer]
+    )
+    monkeypatch.setattr(samvg, "residual_prompt_points", lambda *_args: [(12, 12)])
+    monkeypatch.setattr(samvg, "prompted_masks", lambda *_args, **_kwargs: [added])
+    monkeypatch.setattr(
+        samvg,
+        "filter_by_impact",
+        lambda _image, _masks, **kwargs: [*kwargs["existing"], added_layer],
+    )
+    renders = [image, Image.new("RGB", image.size, "black")]
+    monkeypatch.setattr(
+        samvg,
+        "_accepted_fit",
+        lambda svg, _image, **_kwargs: (svg, renders.pop(0)),
+    )
+
+    result = samvg.vectorize_svg(image, rasterize=SvgPlugin().rasterize, steps=3)
+
+    root = ET.fromstring(result)
+    path_count = sum(element.tag.endswith("path") for element in root.iter())
+    assert path_count == 1
 
 
 def test_generate_svg_writes_detected_words_as_editable_text(monkeypatch):
@@ -265,6 +302,30 @@ def test_automatic_masks_uses_source_sized_first_layer_crops(monkeypatch):
     assert all(mask.shape == (8, 12) for mask in masks)
 
 
+def test_automatic_mask_finalization_suppresses_across_crop_sources():
+    import torch
+
+    masks = torch.tensor(
+        [
+            [[True, True], [True, True]],
+            [[False, False], [False, True]],
+        ]
+    )
+    # These candidates represent the same image-space crop box.  The second
+    # candidate has a different raster but a higher SAM IoU, so AMG's one
+    # image-global NMS must retain it instead of allowing each source to keep
+    # its own duplicate.
+    retained = samvg._finalize_automatic_masks(
+        masks,
+        torch.tensor([0.8, 0.9]),
+        torch.tensor([[0.0, 0.0, 2.0, 2.0], [0.0, 0.0, 2.0, 2.0]]),
+    )
+
+    assert len(retained) == 1
+    assert retained[0][1, 1]
+    assert not retained[0][0, 0]
+
+
 def test_retrieve_layers_reuses_one_runtime_for_automatic_and_coverage_prompts(
     monkeypatch,
 ):
@@ -305,6 +366,40 @@ def test_filter_by_impact_keeps_useful_nested_masks_in_layer_order():
     assert [int(layer.mask.sum()) for layer in layers] == [64, 4]
     assert layers[1].colour == (20, 40, 230)
     assert all(layer.impact > 0 for layer in layers)
+
+
+def test_filter_by_impact_scores_a_disconnected_mask_before_emitting_components():
+    pixels = np.zeros((12, 12, 3), dtype=np.uint8)
+    pixels[2:5, 2:5] = (220, 20, 20)
+    pixels[7:10, 7:10] = (20, 20, 220)
+    image = Image.fromarray(pixels)
+    mask = np.zeros((12, 12), dtype=bool)
+    mask[2:5, 2:5] = True
+    mask[7:10, 7:10] = True
+
+    layers = filter_by_impact(image, [mask], min_pixels=1, min_impact=0)
+
+    assert [int(layer.mask.sum()) for layer in layers] == [9, 9]
+    assert {layer.colour for layer in layers} == {(120, 20, 120)}
+    assert layers[0].impact == layers[1].impact
+
+
+def test_filter_by_impact_residual_canvas_does_not_charge_covered_pixels_as_blank():
+    image = Image.new("RGB", (8, 8), (128, 128, 128))
+    mask = np.zeros((8, 8), dtype=bool)
+    mask[2:6, 2:6] = True
+    fitted = np.full((8, 8, 3), 128, dtype=np.uint8)
+
+    layers = filter_by_impact(
+        image,
+        [mask],
+        initial_canvas=fitted,
+        initial_coverage=np.ones((8, 8), dtype=bool),
+        min_pixels=1,
+        min_impact=1e-6,
+    )
+
+    assert layers == []
 
 
 def test_incremental_impact_scoring_matches_full_canvas_recomputation():
@@ -397,6 +492,44 @@ def test_components_fill_only_tiny_enclosed_holes():
     assert components[0].all()
 
 
+def test_bounded_component_hole_checks_match_full_canvas_semantics():
+    def full_canvas(mask: np.ndarray, min_pixels: int) -> list[np.ndarray]:
+        result = []
+        for runs in samvg._run_components(mask):
+            if sum(end - start for _y, start, end in runs) < min_pixels:
+                continue
+            component = np.zeros(mask.shape, dtype=bool)
+            for y, start, end in runs:
+                component[y, start:end] = True
+            for hole in samvg._run_components(~component):
+                area = sum(end - start for _y, start, end in hole)
+                touches_border = any(
+                    y in {0, mask.shape[0] - 1} or start == 0 or end == mask.shape[1]
+                    for y, start, end in hole
+                )
+                if area <= min_pixels and not touches_border:
+                    for y, start, end in hole:
+                        component[y, start:end] = True
+            result.append(component)
+        return result
+
+    mask = np.zeros((20, 24), dtype=bool)
+    mask[1:12, 1:12] = True
+    mask[4:6, 4:6] = False
+    mask[7:10, 7:10] = False
+    mask[3:5, 18:20] = True
+    mask[14:17, 2:5] = True
+
+    bounded = _components(mask, min_pixels=4)
+    original = full_canvas(mask, min_pixels=4)
+
+    assert len(bounded) == len(original)
+    assert all(
+        np.array_equal(left, right)
+        for left, right in zip(bounded, original, strict=True)
+    )
+
+
 def test_internal_morphology_matches_scipy_default_connectivity():
     mask = np.array(
         [[False, True, True], [True, True, True], [True, True, True]], dtype=bool
@@ -432,6 +565,30 @@ def test_mask_path_keeps_a_hole_as_a_second_even_odd_subpath():
     assert path.count(" Z") == 2
 
 
+def test_mask_path_supports_the_variable_segment_tracing_variation():
+    mask = np.zeros((48, 48), dtype=bool)
+    mask[8:40, 8:40] = True
+    mask[16:32, 16:32] = False
+
+    path = mask_path(mask, curvature_threshold=0.8, maximum_segments=6)
+
+    assert path is not None
+    assert path.count("M ") == 2
+    assert 6 <= path.count("C ") <= 12
+
+
+def test_variable_corners_retains_nearby_local_extrema(monkeypatch):
+    monkeypatch.setattr(
+        samvg,
+        "_curvature_scores",
+        lambda _loop: np.array((1.0, -0.9, 1.0, -0.8, 1.0, -0.7, 1.0, -0.6)),
+    )
+
+    corners = samvg._variable_corners([(0.0, 0.0)] * 8, threshold=0, maximum=16)
+
+    assert corners == [1, 3, 5, 7]
+
+
 def test_generate_svg_creates_editable_layered_paths_from_supplied_masks():
     image = Image.new("RGB", (10, 8), "white")
     pixels = np.asarray(image).copy()
@@ -447,6 +604,28 @@ def test_generate_svg_creates_editable_layered_paths_from_supplied_masks():
     assert root.get("viewBox") == "0 0 10 8"
     assert len(paths) == 1
     assert paths[0].get("fill") == "#1482dc"
+
+
+def test_generate_svg_refits_each_visible_fill_colour_after_mask_selection():
+    pixels = np.full((12, 12, 3), (220, 30, 30), dtype=np.uint8)
+    pixels[4:8, 4:8] = (20, 40, 230)
+    image = Image.fromarray(pixels)
+    outer = np.ones((12, 12), dtype=bool)
+    inner = np.zeros((12, 12), dtype=bool)
+    inner[4:8, 4:8] = True
+
+    root = ET.fromstring(
+        generate_svg(
+            image,
+            [outer, inner],
+            min_pixels=1,
+            min_impact=0,
+            ocr=False,
+        )
+    )
+    paths = list(root.findall("{http://www.w3.org/2000/svg}path"))
+
+    assert [path.get("fill") for path in paths] == ["#dc1e1e", "#1428e6"]
 
 
 def test_thin_single_contour_mask_is_emitted_as_a_round_stroke():
@@ -519,6 +698,7 @@ def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():
         [MaskLayer(occupied, (10, 20, 30), 1.0)],
         (32, 32),
         radius_fraction=0.15,
+        max_points=10,
     )
 
     assert points
@@ -567,6 +747,32 @@ def test_cubic_fit_reparameterises_nonuniform_curve_samples():
     assert np.linalg.norm(np.hstack(refined) - np.hstack((expected_a, expected_b))) < (
         np.linalg.norm(np.hstack(uniform) - np.hstack((expected_a, expected_b)))
     )
+
+
+def test_fixed_cubic_tracing_does_not_duplicate_each_curve_endpoint(monkeypatch):
+    loop = [
+        (0.0, 0.0),
+        (1.0, 0.0),
+        (2.0, 0.0),
+        (2.0, 1.0),
+        (2.0, 2.0),
+        (1.0, 2.0),
+        (0.0, 2.0),
+        (0.0, 1.0),
+    ]
+    samples = []
+    monkeypatch.setattr(samvg, "_corners", lambda *_args: [0, 2, 4, 6])
+
+    def fit(points):
+        samples.append(points.copy())
+        return points[0], points[-1]
+
+    monkeypatch.setattr(samvg, "_fit_cubic", fit)
+
+    samvg._cubic_loop(loop, segments=4)
+
+    assert [len(points) for points in samples] == [3, 3, 3, 3]
+    assert all(not np.array_equal(points[-1], points[-2]) for points in samples)
 
 
 def test_sam_input_cap_restores_binary_masks_to_the_original_canvas():

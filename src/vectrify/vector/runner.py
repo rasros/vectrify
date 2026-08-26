@@ -39,7 +39,12 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm.models import api_key_env
-from vectrify.refine.samvg import generate_svg
+from vectrify.refine.samvg import (
+    SAMVG_MAX_SIDE,
+    SAMVG_MODEL,
+    SAMVG_POINTS_PER_BATCH,
+    generate_svg,
+)
 from vectrify.score import ScorerType, choose_scorer
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import compare, prepare
@@ -112,7 +117,17 @@ class VectorSearchConfig:
     vision_model: str = DEFAULT_VISION_MODEL
     auto_crop: bool = True
     segment_count: int = 8
-    samvg_seed: bool = True
+    samvg_seed: bool = False
+    samvg_model: str = SAMVG_MODEL
+    samvg_max_side: int = SAMVG_MAX_SIDE
+    samvg_points_per_batch: int = SAMVG_POINTS_PER_BATCH
+    samvg_min_pixels: int = 32
+    samvg_min_impact: float = 3e-6
+    samvg_max_layers: int = 512
+    samvg_segments: int = 16
+    samvg_fill_holes: bool = True
+    samvg_hybrid_strokes: bool = True
+    samvg_ocr: bool = True
     dry_run: bool = False
 
 
@@ -316,7 +331,17 @@ def run_vector_search(
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
     auto_crop: bool = True,
     segment_count: int = 8,
-    samvg_seed: bool = True,
+    samvg_seed: bool = False,
+    samvg_model: str = SAMVG_MODEL,
+    samvg_max_side: int = SAMVG_MAX_SIDE,
+    samvg_points_per_batch: int = SAMVG_POINTS_PER_BATCH,
+    samvg_min_pixels: int = 32,
+    samvg_min_impact: float = 3e-6,
+    samvg_max_layers: int = 512,
+    samvg_segments: int = 16,
+    samvg_fill_holes: bool = True,
+    samvg_hybrid_strokes: bool = True,
+    samvg_ocr: bool = True,
     dry_run: bool = False,
     dry_run_parameters: Mapping[str, Any] | None = None,
     stats: "SearchStats | None" = None,
@@ -351,6 +376,16 @@ def run_vector_search(
         auto_crop=auto_crop,
         segment_count=segment_count,
         samvg_seed=samvg_seed,
+        samvg_model=samvg_model,
+        samvg_max_side=samvg_max_side,
+        samvg_points_per_batch=samvg_points_per_batch,
+        samvg_min_pixels=samvg_min_pixels,
+        samvg_min_impact=samvg_min_impact,
+        samvg_max_layers=samvg_max_layers,
+        samvg_segments=samvg_segments,
+        samvg_fill_holes=samvg_fill_holes,
+        samvg_hybrid_strokes=samvg_hybrid_strokes,
+        samvg_ocr=samvg_ocr,
         dry_run=dry_run,
     )
     resolution_llm = config.resolution_llm
@@ -377,6 +412,16 @@ def run_vector_search(
     auto_crop = config.auto_crop
     segment_count = config.segment_count
     samvg_seed = config.samvg_seed
+    samvg_model = config.samvg_model
+    samvg_max_side = config.samvg_max_side
+    samvg_points_per_batch = config.samvg_points_per_batch
+    samvg_min_pixels = config.samvg_min_pixels
+    samvg_min_impact = config.samvg_min_impact
+    samvg_max_layers = config.samvg_max_layers
+    samvg_segments = config.samvg_segments
+    samvg_fill_holes = config.samvg_fill_holes
+    samvg_hybrid_strokes = config.samvg_hybrid_strokes
+    samvg_ocr = config.samvg_ocr
     dry_run = config.dry_run
     epoch_seeds = resolve_seeds(seeds)
 
@@ -481,6 +526,16 @@ def run_vector_search(
                 content = format_plugin.extract_from_llm(
                     generate_svg(
                         original_img,
+                        min_pixels=samvg_min_pixels,
+                        min_impact=samvg_min_impact,
+                        max_layers=samvg_max_layers,
+                        segments=samvg_segments,
+                        fill_holes=samvg_fill_holes,
+                        hybrid_strokes=samvg_hybrid_strokes,
+                        ocr=samvg_ocr,
+                        max_side=samvg_max_side,
+                        model=samvg_model,
+                        points_per_batch=samvg_points_per_batch,
                         rasterize=lambda svg, width, height: format_plugin.rasterize(
                             svg, out_w=width, out_h=height
                         ),

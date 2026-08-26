@@ -28,6 +28,7 @@ from vectrify.refine.samvg import (
     _mse,
     _render_layers,
     _render_svg,
+    _sam_runtime,
     filter_by_impact,
     prompted_masks,
     residual_prompt_points,
@@ -43,13 +44,11 @@ def _path_count(svg: str) -> int:
     )
 
 
-def _l1(target: Image.Image, rendered: Image.Image) -> float:
-    return float(
-        np.abs(
-            np.asarray(target.convert("RGB"), dtype=np.float32) / 255.0
-            - np.asarray(rendered.convert("RGB"), dtype=np.float32) / 255.0
-        ).mean()
-    )
+def _result_name(target_path: Path) -> str:
+    """Give standard bench targets stable, non-colliding output directories."""
+    if target_path.name == "target.png":
+        return target_path.parent.name
+    return target_path.stem
 
 
 def _write_gallery(images: list[tuple[str, Image.Image]], destination: Path) -> None:
@@ -68,6 +67,7 @@ def _fit_if_improved(
     target: Image.Image,
     plugin: SvgPlugin,
     steps: int,
+    learn_alpha: bool,
 ) -> tuple[str, Image.Image, list[dict[str, int | float]], bool]:
     before = _render_svg(svg, target, plugin.rasterize)
     measurements: list[dict[str, int | float]] = []
@@ -77,6 +77,7 @@ def _fit_if_improved(
         rasterize=plugin.rasterize,
         steps=steps,
         measurements=measurements,
+        learn_alpha=learn_alpha,
     )
     after = _render_svg(candidate, target, plugin.rasterize)
     if _mse(target, after) <= _mse(target, before):
@@ -90,36 +91,101 @@ def run_target(
     *,
     steps: int,
     reference_svg: Path | None = None,
+    learn_alpha: bool = False,
+    curvature_threshold: float | None = None,
+    seed_only: bool = False,
 ) -> None:
     target = Image.open(target_path).convert("RGB")
     plugin = SvgPlugin()
-    destination = output / target_path.stem
+    destination = output / _result_name(target_path)
     destination.mkdir(parents=True, exist_ok=True)
     started = perf_counter()
-    layers = retrieve_layers(target)
+    runtime = _sam_runtime()
+    layers = retrieve_layers(target, _runtime=runtime)
     initial = _append_layers(
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{target.width}" '
         f'height="{target.height}" viewBox="0 0 {target.width} {target.height}"></svg>',
         layers,
         16,
         hybrid_strokes=False,
+        curvature_threshold=curvature_threshold,
     )
+    _render_svg(initial, target, plugin.rasterize).save(destination / "first-seed.png")
+    (destination / "first-seed.svg").write_text(initial)
+    if seed_only:
+        seed_render = _render_svg(initial, target, plugin.rasterize)
+        mask_canvas, _coverage = _render_layers((target.height, target.width), layers)
+        stages = [
+            ("target", target, None),
+            ("mask-canvas", Image.fromarray(mask_canvas), None),
+            ("first-seed", seed_render, initial),
+        ]
+        if reference_svg is not None:
+            reference = _render_svg(reference_svg.read_text(), target, plugin.rasterize)
+            stages.append(("reference-svg", reference, reference_svg.read_text()))
+        rows = [
+            {
+                "stage": name,
+                "mse": _mse(target, rendered),
+                "paths": _path_count(svg) if svg is not None else 0,
+            }
+            for name, rendered, svg in stages
+        ]
+        _write_gallery(
+            [(name, image) for name, image, _svg in stages], destination / "gallery.png"
+        )
+        with (destination / "stages.csv").open("w", newline="") as handle:
+            writer = csv.DictWriter(handle, fieldnames=["stage", "mse", "paths"])
+            writer.writeheader()
+            writer.writerows(rows)
+        (destination / "fit-groups.json").write_text("[]\n")
+        (destination / "summary.json").write_text(
+            json.dumps(
+                {
+                    "target": str(target_path),
+                    "seed_only": True,
+                    "initial_layers": len(layers),
+                    "wall_seconds": perf_counter() - started,
+                    "stages": rows,
+                },
+                indent=2,
+            )
+        )
+        return
     first, first_render, first_measurements, first_accepted = _fit_if_improved(
-        initial, target, plugin, steps
+        initial, target, plugin, steps, learn_alpha
     )
+    first_render.save(destination / "first-fit.png")
+    (destination / "first-fit.svg").write_text(first)
     points = residual_prompt_points(target, first_render)
-    _canvas, coverage = _render_layers((target.height, target.width), layers)
     added = filter_by_impact(
         target,
-        prompted_masks(target, points),
+        prompted_masks(target, points, _runtime=runtime),
         existing=layers,
         initial_canvas=np.asarray(first_render, dtype=np.uint8),
-        initial_coverage=coverage,
+        # The residual pass starts from the first fitted raster.  It is not an
+        # uncovered-mask pass, so all pixels must use their actual raster MSE.
+        initial_coverage=np.ones((target.height, target.width), dtype=bool),
     )[len(layers) :]
-    recovery = _append_layers(first, added, 16, hybrid_strokes=False)
-    final, final_render, final_measurements, final_accepted = _fit_if_improved(
-        recovery, target, plugin, steps
+    recovery = _append_layers(
+        first,
+        added,
+        16,
+        hybrid_strokes=False,
+        curvature_threshold=curvature_threshold,
     )
+    _render_svg(recovery, target, plugin.rasterize).save(
+        destination / "residual-recovery.png"
+    )
+    (destination / "residual-recovery.svg").write_text(recovery)
+    final, final_render, final_measurements, final_accepted = _fit_if_improved(
+        recovery, target, plugin, steps, learn_alpha
+    )
+    if _mse(target, final_render) > _mse(target, first_render):
+        # Phase-two fitting is accepted relative to the recovered document,
+        # but the benchmark's final result must retain the already accepted
+        # first fit when residual additions regress the exported Cairo raster.
+        final, final_render, final_accepted = first, first_render, False
     stages = [
         ("target", target, None),
         ("first-seed", _render_svg(initial, target, plugin.rasterize), initial),
@@ -142,7 +208,6 @@ def run_target(
         rows.append(
             {
                 "stage": name,
-                "l1": _l1(target, rendered),
                 "mse": _mse(target, rendered),
                 "paths": _path_count(svg) if svg is not None else 0,
             }
@@ -151,7 +216,7 @@ def run_target(
         [(name, image) for name, image, _svg in stages], destination / "gallery.png"
     )
     with (destination / "stages.csv").open("w", newline="") as handle:
-        writer = csv.DictWriter(handle, fieldnames=["stage", "l1", "mse", "paths"])
+        writer = csv.DictWriter(handle, fieldnames=["stage", "mse", "paths"])
         writer.writeheader()
         writer.writerows(rows)
     measurements = [
@@ -182,6 +247,11 @@ def main() -> None:
         type=Path,
         help="Reference SVG to Cairo-rasterize alongside a single target.",
     )
+    parser.add_argument(
+        "--curvature-threshold",
+        type=float,
+        help="Use the dissertation's variable-segment tracing variation.",
+    )
     parser.add_argument("--cat", action="store_true")
     parser.add_argument(
         "--all", action="store_true", help="Run cat, duck, and all bench targets."
@@ -190,6 +260,16 @@ def main() -> None:
         "--output", type=Path, default=ROOT / "bench/results/samvg-two-phase"
     )
     parser.add_argument("--steps", type=int, default=500)
+    parser.add_argument(
+        "--seed-only",
+        action="store_true",
+        help="Benchmark automatic masks and coverage recovery without fitting.",
+    )
+    parser.add_argument(
+        "--learn-alpha",
+        action="store_true",
+        help="Use the dissertation's SAMVG+alpha fitter variation.",
+    )
     args = parser.parse_args()
     targets = list(args.target)
     if args.cat or args.all:
@@ -214,6 +294,9 @@ def main() -> None:
             args.output,
             steps=args.steps,
             reference_svg=reference_svg,
+            learn_alpha=args.learn_alpha,
+            curvature_threshold=args.curvature_threshold,
+            seed_only=args.seed_only,
         )
 
 

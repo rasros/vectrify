@@ -39,11 +39,20 @@ SAMVG_MAX_SIDE = int(os.environ.get("VECTRIFY_SAMVG_MAX_SIDE", "1024"))
 # grid. 64 doubles the old 32 while leaving full-resolution-mask
 # headroom on a 16 GB GPU; users with larger cards can raise it by environment.
 SAMVG_POINTS_PER_BATCH = int(os.environ.get("VECTRIFY_SAMVG_POINTS_PER_BATCH", "64"))
-# SAMVG's own impact filter selects useful masks against the image.  Retaining
-# AMG's score gates here discarded the small facial candidates needed by the
-# photo seed before that image-aware test could evaluate them.
-SAMVG_PRED_IOU_THRESH = 0.0
-SAMVG_STABILITY_SCORE_THRESH = 0.0
+# SAMVG's image-aware impact filter is the retained-mask decision specified by
+# the dissertation.  Keep AMG's confidence gates configurable, but disable
+# them by default so a small, useful candidate reaches that later test instead
+# of being discarded by a checkpoint-confidence heuristic.
+SAMVG_PRED_IOU_THRESH = float(os.environ.get("VECTRIFY_SAMVG_PRED_IOU_THRESH", "0"))
+SAMVG_STABILITY_SCORE_THRESH = float(
+    os.environ.get("VECTRIFY_SAMVG_STABILITY_SCORE_THRESH", "0")
+)
+# The dissertation specifies a fixed circular residual kernel scaled to the
+# image, but not its fraction. Cat calibration selects this value by final
+# raster error and complexity; callers can reproduce alternate sweeps.
+SAMVG_RESIDUAL_RADIUS_FRACTION = float(
+    os.environ.get("VECTRIFY_SAMVG_RESIDUAL_RADIUS_FRACTION", "0.005")
+)
 # The SAMVG seed only needs OCR once and does it after SAM has released its
 # automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
 # detector: it can decide which visible labels deserve editable text and place
@@ -460,7 +469,7 @@ class _SamRuntime:
     embedding_size: tuple[int, int] | None = None
 
 
-def _sam_runtime() -> _SamRuntime:
+def _sam_runtime(*, model: str = SAMVG_MODEL) -> _SamRuntime:
     """Load SAM once, in half precision when CUDA is available."""
     try:
         import torch
@@ -469,13 +478,13 @@ def _sam_runtime() -> _SamRuntime:
         raise ImportError(
             "SAMVG requires the samvg extra. Install 'vectrify[samvg]'."
         ) from exc
-    options: dict[str, Any] = {"model": SAMVG_MODEL, "device": 0}
+    options: dict[str, Any] = {"model": model, "device": 0}
     if torch.cuda.is_available():
         options["dtype"] = torch.float16
     generator = pipeline("mask-generation", **options)
     log.info(
         "SAMVG automatic masks: %s on %s (%s).",
-        SAMVG_MODEL,
+        model,
         generator.device,
         "fp16" if torch.cuda.is_available() else "fp32",
     )
@@ -492,61 +501,122 @@ def _sam_autocast():
 
 
 def _automatic_forward(inputs: Any, runtime: _SamRuntime) -> dict[str, Any]:
-    """Decode on CUDA, then expand and filter masks on CPU.
+    """Decode and filter one AMG prompt batch in SAM's original order."""
+    import torch
 
-    The stock Transformers pipeline expands a prompt batch to the original
-    image size on CUDA. At 1024px that transient allocation is larger than the
-    decoder itself. Its filtering sequence is unchanged here; only the
-    post-decoder device changes.
-    """
     generator = runtime.generator
-    input_boxes = inputs.pop("input_boxes").detach().cpu().float()
+    input_boxes = inputs.pop("input_boxes").float()
     is_last = inputs.pop("is_last")
     original_sizes = inputs.pop("original_sizes").detach().cpu().tolist()
     reshaped_sizes = inputs.pop("reshaped_input_sizes", None)
     if reshaped_sizes is not None:
         reshaped_sizes = reshaped_sizes.detach().cpu().tolist()
-    with _sam_autocast():
+    # `.cpu()` alone preserves the decoder's autograd graph, retaining every
+    # prior prompt batch's CUDA activations. AMG is inference-only, so make
+    # that lifetime explicit before handing compact candidates to the host.
+    with torch.inference_mode(), _sam_autocast():
         model_outputs = generator.model(**inputs)
-    masks = generator.image_processor.post_process_masks(
-        model_outputs.pred_masks.detach().cpu(),
-        original_sizes,
-        mask_threshold=0,
-        reshaped_input_sizes=reshaped_sizes,
-        binarize=False,
-    )
-    filtered_masks, scores, boxes = generator.image_processor.filter_masks(
-        masks[0],
-        model_outputs.iou_scores.detach().cpu().float()[0],
-        original_sizes[0],
-        input_boxes[0],
-        SAMVG_PRED_IOU_THRESH,
-        SAMVG_STABILITY_SCORE_THRESH,
-        0,
-        1,
-    )
+        # Official AMG interpolates decoder logits to the crop canvas before
+        # its confidence, stability, and crop-edge tests.  Filtering at 256px
+        # is faster but changes which fine masks survive, so it cannot be used
+        # for the dissertation-faithful seed.
+        masks_at_size = generator.image_processor.post_process_masks(
+            model_outputs.pred_masks,
+            original_sizes,
+            reshaped_input_sizes=reshaped_sizes,
+            mask_threshold=0,
+            binarize=False,
+        )[0]
+        masks, scores, boxes = _filter_automatic_masks(
+            masks_at_size,
+            model_outputs.iou_scores[0],
+            original_sizes[0],
+            input_boxes[0],
+        )
     return {
-        "masks": filtered_masks,
+        "masks": masks,
         "is_last": is_last,
         "boxes": boxes,
-        "iou_scores": scores,
+        "scores": scores,
+        "original_size": original_sizes[0],
+        "reshaped_size": reshaped_sizes[0] if reshaped_sizes is not None else None,
+        "crop_box": input_boxes[0],
     }
 
 
-def _automatic_masks_for(
+def _filter_automatic_masks(
+    masks: Any,
+    iou_scores: Any,
+    original_size: list[int],
+    cropped_box_image: Any,
+) -> tuple[Any, Any, Any]:
+    """Apply SAM AMG's full-resolution confidence and crop-edge filtering."""
+    import torch
+    from transformers.models.sam.image_processing_sam import (
+        _batched_mask_to_box,
+        _compute_stability_score,
+        _is_box_near_crop_edge,
+        _pad_masks,
+    )
+
+    original_height, original_width = original_size
+    scores = iou_scores.reshape(-1)
+    masks = masks.reshape(-1, *masks.shape[-2:])
+    keep = torch.ones(len(masks), dtype=torch.bool, device=masks.device)
+    if SAMVG_PRED_IOU_THRESH > 0:
+        keep &= scores > SAMVG_PRED_IOU_THRESH
+    if SAMVG_STABILITY_SCORE_THRESH > 0:
+        keep &= _compute_stability_score(masks, 0, 1) > SAMVG_STABILITY_SCORE_THRESH
+    masks, scores = masks[keep] > 0, scores[keep]
+    boxes = _batched_mask_to_box(masks)
+    keep = ~_is_box_near_crop_edge(
+        boxes, cropped_box_image, [0, 0, original_width, original_height]
+    )
+    return (
+        _pad_masks(masks[keep], cropped_box_image, original_height, original_width),
+        scores[keep],
+        boxes[keep],
+    )
+
+
+def _nms_indices(boxes: Any, scores: Any) -> Any:
+    """Use SAM AMG's box-NMS configuration with dtype-safe scores."""
+    import torch
+    from torchvision.ops import batched_nms
+
+    return batched_nms(
+        boxes=boxes.float(),
+        scores=scores.float(),
+        idxs=torch.zeros(len(boxes), dtype=torch.long),
+        iou_threshold=0.7,
+    )
+
+
+def _finalize_automatic_masks(masks: Any, scores: Any, boxes: Any) -> list[np.ndarray]:
+    """Apply AMG's final image-global NMS and transfer binary masks."""
+    if not len(masks):
+        return []
+    keep = _nms_indices(boxes, scores)
+    selected_masks = masks[keep]
+    return [np.asarray(mask.cpu(), dtype=bool) for mask in selected_masks]
+
+
+def _automatic_mask_candidates_for(
     source: Image.Image,
     runtime: _SamRuntime,
     *,
     cache_embedding: bool,
     points_per_batch: int = SAMVG_POINTS_PER_BATCH,
-) -> list[np.ndarray]:
-    """Run one AMG image/crop without recomputing prompt-grid embeddings.
+) -> tuple[Any, Any, Any]:
+    """Return post-filter AMG candidates before its image-global crop NMS.
 
     Transformers' public mask-generation call already encodes an image once
     per 32x32 prompt grid. For the full image we use the same pipeline stages
     directly so the resulting embedding can be reused by coverage/residual
     prompts. Crops intentionally retain their own embeddings.
     """
+    import torch
+
     generator = runtime.generator
     arguments = {
         "points_per_batch": points_per_batch,
@@ -558,7 +628,22 @@ def _automatic_masks_for(
     # Keep a small compatibility path for mocked/older Transformers pipelines.
     if not hasattr(generator, "preprocess"):
         output = generator(source, **arguments)
-        return [np.asarray(mask, dtype=bool) for mask in output["masks"]]
+        masks = (
+            torch.from_numpy(
+                np.stack([np.asarray(mask, dtype=bool) for mask in output["masks"]])
+            )
+            if output["masks"]
+            else torch.empty((0, source.height, source.width), dtype=torch.bool)
+        )
+        boxes = torch.empty((len(masks), 4), dtype=torch.float32)
+        for index, mask in enumerate(masks):
+            ys, xs = torch.where(mask)
+            boxes[index] = torch.tensor(
+                (xs.min(), ys.min(), xs.max() + 1, ys.max() + 1), dtype=torch.float32
+            )
+        scores = torch.ones(len(masks))
+        keep = _nms_indices(boxes, scores) if len(masks) else []
+        return masks[keep], scores[keep], boxes[keep]
 
     outputs = []
     for inputs in generator.preprocess(
@@ -579,14 +664,34 @@ def _automatic_masks_for(
             runtime.image_embeddings = embedding
             runtime.embedding_size = source.size
         outputs.append(_automatic_forward(inputs, runtime))
-    output = generator.postprocess(outputs)
-    return [np.asarray(mask, dtype=bool) for mask in output["masks"]]
+        # Keep the GPU bounded to one decoder batch. NMS and score filtering
+        # have already retained only the decoder logits that need the
+        # full-resolution SAM post-processing.
+        outputs[-1]["masks"] = outputs[-1]["masks"].cpu()
+        outputs[-1]["scores"] = outputs[-1]["scores"].cpu()
+        outputs[-1]["boxes"] = outputs[-1]["boxes"].cpu()
+    masks = [output["masks"] for output in outputs if len(output["masks"])]
+    if not masks:
+        return (
+            torch.empty((0, source.height, source.width), dtype=torch.bool),
+            torch.empty(0),
+            torch.empty((0, 4)),
+        )
+    masks = torch.cat(masks)
+    scores = torch.cat([output["scores"] for output in outputs if len(output["masks"])])
+    boxes = torch.cat([output["boxes"] for output in outputs if len(output["masks"])])
+    # Meta's AMG first suppresses candidates within each crop by predicted
+    # quality.  Its second, cross-crop pass happens in ``automatic_masks``
+    # below and deliberately ranks the surviving masks by crop area instead.
+    keep = _nms_indices(boxes, scores)
+    return masks[keep], scores[keep], boxes[keep]
 
 
 def automatic_masks(
     image: Image.Image,
     *,
     max_side: int | None = SAMVG_MAX_SIDE,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[np.ndarray]:
     """Retrieve SAM AMG masks with the thesis grid, optionally size-capped."""
@@ -601,37 +706,54 @@ def automatic_masks(
     width, height = image.size
 
     def collect(points_per_batch: int) -> list[np.ndarray]:
-        collected = _automatic_masks_for(
+        import torch
+
+        masks, scores, boxes = _automatic_mask_candidates_for(
             image,
             runtime,
             cache_embedding=True,
             points_per_batch=points_per_batch,
         )
+        all_masks = [masks]
+        all_scores = [torch.full_like(scores, 1 / (width * height))]
+        all_boxes = [boxes]
         overlap = int((512 / 1500) * min(width, height))
         crop_width = math.ceil((overlap + width) / 2)
         crop_height = math.ceil((overlap + height) / 2)
-        for x, y in {
+        for x, y in (
             (0, 0),
-            (crop_width - overlap, 0),
             (0, crop_height - overlap),
+            (crop_width - overlap, 0),
             (crop_width - overlap, crop_height - overlap),
-        }:
+        ):
             right, bottom = min(x + crop_width, width), min(y + crop_height, height)
             crop_box = (x, y, right, bottom)
-            for crop_mask in _automatic_masks_for(
+            crop_masks, crop_scores, crop_boxes = _automatic_mask_candidates_for(
                 image.crop(crop_box),
                 runtime,
                 cache_embedding=False,
                 points_per_batch=points_per_batch,
-            ):
-                if _is_crop_edge_mask(crop_mask, crop_box, image.size):
+            )
+            for index, crop_mask in enumerate(crop_masks):
+                crop_mask_array = np.asarray(crop_mask, dtype=bool)
+                if _is_crop_edge_mask(crop_mask_array, crop_box, image.size):
                     continue
                 mask = np.zeros((height, width), dtype=bool)
-                mask[y:bottom, x:right] = crop_mask
-                collected.append(mask)
-        return collected
+                mask[y:bottom, x:right] = crop_mask_array
+                all_masks.append(torch.from_numpy(mask)[None])
+                crop_area = (right - x) * (bottom - y)
+                all_scores.append(
+                    torch.full_like(crop_scores[index : index + 1], 1 / crop_area)
+                )
+                box = crop_boxes[index].clone()
+                box[[0, 2]] += x
+                box[[1, 3]] += y
+                all_boxes.append(box[None])
+        return _finalize_automatic_masks(
+            torch.cat(all_masks), torch.cat(all_scores), torch.cat(all_boxes)
+        )
 
-    collected = collect(SAMVG_POINTS_PER_BATCH)
+    collected = collect(points_per_batch)
     return [_restore_mask(mask, original_size) for mask in collected]
 
 
@@ -652,25 +774,44 @@ def _components(
     for runs in _run_components(foreground):
         if sum(end - start for _y, start, end in runs) < min_pixels:
             continue
+        min_y = min(y for y, _start, _end in runs)
+        max_y = max(y for y, _start, _end in runs)
+        min_x = min(start for _y, start, _end in runs)
+        max_x = max(end for _y, _start, end in runs)
+        local = np.zeros((max_y - min_y + 1, max_x - min_x), dtype=bool)
+        for y, start, end in runs:
+            local[y - min_y, start - min_x : end - min_x] = True
         component = np.zeros((height, width), dtype=bool)
         for y, start, end in runs:
             component[y, start:end] = True
-        if fill_holes:
+        # A hole must contain at least one non-component pixel strictly inside
+        # this box. Most small SAM fragments are solid or only touch the box
+        # boundary, so avoid a connected-components pass when a hole is
+        # impossible.
+        has_interior_background = (
+            local.shape[0] > 2 and local.shape[1] > 2 and not local[1:-1, 1:-1].all()
+        )
+        if fill_holes and has_interior_background:
             # AMG's postprocessing removes *small* enclosed holes, rather
             # than turning meaningful cutouts such as an eye into a solid
             # region.  The same area cutoff as tiny components keeps those
             # two decisions consistent.
-            for hole in _run_components(~component):
+            # The exterior background necessarily reaches a component bounding
+            # box edge, while an enclosed hole cannot.  Checking this compact
+            # box is equivalent to checking the full mask, without scanning a
+            # 1024px canvas once for every small disconnected component.
+            local_height, local_width = local.shape
+            for hole in _run_components(~local):
                 area = sum(end - start for _y, start, end in hole)
                 if area > min_pixels:
                     continue
                 touches_border = any(
-                    y in {0, height - 1} or start == 0 or end == width
+                    y in {0, local_height - 1} or start == 0 or end == local_width
                     for y, start, end in hole
                 )
                 if not touches_border:
                     for y, start, end in hole:
-                        component[y, start:end] = True
+                        component[y + min_y, start + min_x : end + min_x] = True
         components.append(np.asarray(component, dtype=bool))
     return components
 
@@ -740,7 +881,7 @@ def filter_by_impact(
     initial_canvas: np.ndarray | None = None,
     initial_coverage: np.ndarray | None = None,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 128,
     fill_holes: bool = True,
 ) -> list[MaskLayer]:
@@ -765,19 +906,24 @@ def filter_by_impact(
     error_map = _impact_error_map(target, canvas, coverage)
     error_total = float(error_map.sum(dtype=np.float64))
     error = error_total / error_map.size
-    initial_count = len(accepted)
-    candidates = [
-        component
-        for mask in masks
-        if np.asarray(mask).shape == (height, width)
-        for component in _components(
-            np.asarray(mask, dtype=bool), min_pixels, fill_holes=fill_holes
-        )
-    ]
-    candidates.sort(key=lambda mask: int(mask.sum()), reverse=True)
-    for mask in candidates:
-        if int(mask.sum()) < min_pixels:
+    # SAMVG filters an AMG *mask* by its rendered impact, after AMG's component
+    # cleanup. Components are independent paths only in the subsequent tracing
+    # stage. Scoring every disconnected component here changes the paper's
+    # painter-order decision and promotes low-information rectangular fragments.
+    candidates = []
+    for raw_mask in masks:
+        if np.asarray(raw_mask).shape != (height, width):
             continue
+        components = _components(
+            np.asarray(raw_mask, dtype=bool), min_pixels, fill_holes=fill_holes
+        )
+        if not components:
+            continue
+        mask = np.logical_or.reduce(components)
+        candidates.append((mask, components))
+    candidates.sort(key=lambda candidate: int(candidate[0].sum()), reverse=True)
+    retained: list[tuple[list[np.ndarray], tuple[int, int, int], float]] = []
+    for mask, components in candidates:
         colour = cast(
             tuple[int, int, int],
             tuple(int(value) for value in np.rint(target[mask].mean(axis=0))),
@@ -793,7 +939,7 @@ def filter_by_impact(
         impact = error - next_error
         if impact < min_impact:
             continue
-        accepted.append(MaskLayer(mask, colour, impact))
+        retained.append((components, colour, impact))
         canvas[mask] = colour
         coverage |= mask
         error_map[mask] = next_error_values
@@ -801,8 +947,12 @@ def filter_by_impact(
         # Each SAMVG stage is allowed its own retained-mask budget.  Applying
         # this to the combined existing+new list silently limited recovery to
         # one path once the automatic stage had filled its budget.
-        if len(accepted) - initial_count >= max_layers:
+        if len(retained) >= max_layers:
             break
+    for components, colour, impact in retained:
+        accepted.extend(
+            MaskLayer(component, colour, impact) for component in components
+        )
     return accepted
 
 
@@ -811,7 +961,7 @@ def coverage_prompt_points(
     shape: tuple[int, int],
     *,
     radius_fraction: float = 0.06,
-    max_points: int = 16,
+    max_points: int | None = None,
 ) -> list[tuple[int, int]]:
     """Find mean-shift centres of large circles untouched by retained masks."""
     _canvas, coverage = _render_layers(shape, layers)
@@ -827,7 +977,44 @@ def coverage_prompt_points(
         ((float(distance[round(y), round(x)]), round(x), round(y)) for x, y in centres),
         reverse=True,
     )
-    return [(x, y) for _distance, x, y in ranked[:max_points]]
+    selected = ranked if max_points is None else ranked[:max_points]
+    return [(x, y) for _distance, x, y in selected]
+
+
+def _circular_component_centres(
+    values: np.ndarray,
+    radius: int,
+    *,
+    threshold: float,
+    max_points: int | None = None,
+) -> list[tuple[int, int]]:
+    """Return ranked centres of thresholded circular-convolution components."""
+    import torch
+    import torch.nn.functional as functional
+
+    if radius < 1:
+        raise ValueError("radius must be positive")
+    yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    kernel = (xx * xx + yy * yy <= radius * radius).astype(np.float32)
+    padded = np.pad(np.asarray(values, dtype=np.float32), radius, mode="symmetric")
+    smoothed = functional.conv2d(
+        torch.from_numpy(padded)[None, None],
+        torch.from_numpy((kernel / kernel.sum())[None, None]),
+    )[0, 0].numpy()
+    labels, count = _label(smoothed >= threshold)
+    ranked: list[tuple[float, int, int]] = []
+    for index in range(1, count + 1):
+        ys, xs = np.nonzero(labels == index)
+        if len(xs):
+            # The mean is the component centre prescribed by SAMVG.  Ranking
+            # by response is deterministic when callers cap prompt count.
+            ranked.append(
+                (float(smoothed[ys, xs].mean()), round(xs.mean()), round(ys.mean()))
+            )
+    selected = sorted(ranked, reverse=True)
+    if max_points is not None:
+        selected = selected[:max_points]
+    return [(x, y) for _score, x, y in selected]
 
 
 def prompted_masks(
@@ -835,6 +1022,7 @@ def prompted_masks(
     points: list[tuple[int, int]],
     *,
     max_side: int | None = SAMVG_MAX_SIDE,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[np.ndarray]:
     """Prompt SAM at centres and return all three masks per point.
@@ -859,32 +1047,36 @@ def prompted_masks(
     if runtime.processor is None:
         runtime.processor = SamProcessor(runtime.generator.image_processor)
     try:
-        input_points = [[[list(point)] for point in points]]
-        inputs = runtime.processor(
-            images=image, input_points=input_points, return_tensors="pt"
-        ).to(device)
-        if (
-            runtime.embedding_size == image.size
-            and runtime.image_embeddings is not None
-        ):
-            # The full-image automatic pass has already encoded these pixels.
-            # Retain only decoder inputs for the coverage/residual prompts.
-            inputs.pop("pixel_values")
-            inputs["image_embeddings"] = runtime.image_embeddings
-        with torch.inference_mode(), _sam_autocast():
-            output = runtime.generator.model(**inputs)
-        post = runtime.processor.image_processor.post_process_masks(
-            output.pred_masks.detach().cpu(),
-            inputs["original_sizes"].detach().cpu(),
-            inputs["reshaped_input_sizes"].detach().cpu(),
-        )[0]
-        return [
-            _restore_mask(
-                np.asarray(post[prompt, candidate], dtype=bool), original_size
+        output_masks = []
+        for start in range(0, len(points), points_per_batch):
+            batch = points[start : start + points_per_batch]
+            input_points = [[[list(point)] for point in batch]]
+            inputs = runtime.processor(
+                images=image, input_points=input_points, return_tensors="pt"
+            ).to(device)
+            if (
+                runtime.embedding_size == image.size
+                and runtime.image_embeddings is not None
+            ):
+                # The full-image automatic pass has already encoded these pixels.
+                # Retain only decoder inputs for the coverage/residual prompts.
+                inputs.pop("pixel_values")
+                inputs["image_embeddings"] = runtime.image_embeddings
+            with torch.inference_mode(), _sam_autocast():
+                output = runtime.generator.model(**inputs)
+            post = runtime.processor.image_processor.post_process_masks(
+                output.pred_masks.detach().cpu(),
+                inputs["original_sizes"].detach().cpu(),
+                inputs["reshaped_input_sizes"].detach().cpu(),
+            )[0]
+            output_masks.extend(
+                _restore_mask(
+                    np.asarray(post[prompt, candidate], dtype=bool), original_size
+                )
+                for prompt in range(post.shape[0])
+                for candidate in range(post.shape[1])
             )
-            for prompt in range(post.shape[0])
-            for candidate in range(post.shape[1])
-        ]
+        return output_masks
     finally:
         if own_runtime and torch.cuda.is_available():
             torch.cuda.empty_cache()
@@ -895,18 +1087,25 @@ def retrieve_layers(
     masks: list[np.ndarray] | None = None,
     *,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 512,
     fill_holes: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
+    model: str = SAMVG_MODEL,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[MaskLayer]:
     """Run SAMVG's automatic-mask, coverage-prompt, filter sequence."""
     image = image.convert("RGB")
     runtime = _runtime
     if masks is None:
-        runtime = runtime or _sam_runtime()
-        initial = automatic_masks(image, max_side=max_side, _runtime=runtime)
+        runtime = runtime or _sam_runtime(model=model)
+        initial = automatic_masks(
+            image,
+            max_side=max_side,
+            points_per_batch=points_per_batch,
+            _runtime=runtime,
+        )
     else:
         initial = masks
     layers = filter_by_impact(
@@ -917,9 +1116,14 @@ def retrieve_layers(
         max_layers=max_layers,
         fill_holes=fill_holes,
     )
-    layers = recolour_visible_layers(image, layers)
     points = coverage_prompt_points(layers, (image.height, image.width))
-    prompted = prompted_masks(image, points, max_side=max_side, _runtime=runtime)
+    prompted = prompted_masks(
+        image,
+        points,
+        max_side=max_side,
+        points_per_batch=points_per_batch,
+        _runtime=runtime,
+    )
     recovered = filter_by_impact(
         image,
         prompted,
@@ -929,7 +1133,6 @@ def retrieve_layers(
         max_layers=max_layers,
         fill_holes=fill_holes,
     )
-    recovered = recolour_visible_layers(image, recovered)
     log.info(
         "SAMVG first pass: %d automatic mask(s), %d retained; %d coverage "
         "prompt(s), %d prompted mask(s), %d total retained.",
@@ -939,7 +1142,12 @@ def retrieve_layers(
         len(prompted),
         len(recovered),
     )
-    return recovered
+    # Mask selection intentionally scores the initially painted colours: that
+    # is the paper's greedy impact procedure.  Once painter order is fixed,
+    # however, a lower layer should be coloured from only the pixels it still
+    # exposes.  This is the least-squares fill for the emitted seed and does
+    # not alter its accepted masks, ordering, or coverage prompts.
+    return recolour_visible_layers(image, recovered)
 
 
 def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
@@ -972,18 +1180,24 @@ def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
     return loops
 
 
-def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
-    """Global curvature maxima with the local exclusion SAMVG describes."""
+def _curvature_scores(loop: list[tuple[float, float]]) -> np.ndarray:
+    """Return SAMVG's scale-aware cosine curvature score for a contour."""
     points = np.asarray(loop, dtype=np.float32)
     size = len(points)
-    count = min(count, size)
     step = max(1, size // 12)
     before = points - np.roll(points, step, axis=0)
     after = np.roll(points, -step, axis=0) - points
     denom = np.linalg.norm(before, axis=1) * np.linalg.norm(after, axis=1)
-    score = np.divide(
+    return np.divide(
         (before * after).sum(axis=1), denom, out=np.ones(size), where=denom > 0
     )
+
+
+def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
+    """Global curvature maxima with the local exclusion SAMVG describes."""
+    size = len(loop)
+    count = min(count, size)
+    score = _curvature_scores(loop)
     blocked = np.zeros(size, dtype=bool)
     chosen: list[int] = []
     exclusion = max(1, size // (count * 2))
@@ -998,6 +1212,40 @@ def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
         )
         blocked[offsets] = True
     return sorted(chosen)
+
+
+def _variable_corners(
+    loop: list[tuple[float, float]], *, threshold: float, maximum: int
+) -> list[int]:
+    """Select local curvature extrema below SAMVG+var's threshold.
+
+    The dissertation's variable-segment variation replaces the fixed top-N
+    selection with a curvature threshold.  Its threshold is not published, so
+    callers must choose it explicitly.  ``maximum`` is only a safety bound for
+    pathological raster staircases, not a target complexity.
+    """
+    size = len(loop)
+    if size < 3:
+        return []
+    score = _curvature_scores(loop)
+    # SAMVG+var reverts the fixed variant's global-maxima-with-exclusion rule
+    # to the conventional local-extrema selector.  The curvature *score*
+    # itself uses k-neighbours (Eq. 3-4); expanding the extrema neighbourhood
+    # to that same k suppresses genuine nearby corners and is not part of the
+    # variable-segment procedure.  The asymmetric comparison retains one
+    # representative for a flat raster-corner plateau without coalescing
+    # separate extrema.
+    previous = np.roll(score, 1)
+    following = np.roll(score, -1)
+    local_minimum = (score < previous) & (score <= following)
+    eligible = np.flatnonzero(local_minimum & (score <= threshold))
+    if len(eligible) < 3:
+        return _corners(loop, min(3, size))
+    return (
+        sorted(int(index) for index in eligible[:maximum])
+        if len(eligible) >= 3
+        else _corners(loop, min(3, size))
+    )
 
 
 def _fit_cubic(
@@ -1072,11 +1320,23 @@ def _fit_cubic(
     return controls[0], controls[1]
 
 
-def _cubic_loop(loop: list[tuple[float, float]], segments: int) -> str | None:
+def _cubic_loop(
+    loop: list[tuple[float, float]],
+    segments: int,
+    *,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 2048,
+) -> str | None:
     size = len(loop)
     if size < 3:
         return None
-    corners = _corners(loop, segments)
+    corners = (
+        _corners(loop, segments)
+        if curvature_threshold is None
+        else _variable_corners(
+            loop, threshold=curvature_threshold, maximum=maximum_segments
+        )
+    )
     if len(corners) < 3:
         return None
     points = np.asarray(loop, dtype=np.float32)
@@ -1086,7 +1346,10 @@ def _cubic_loop(loop: list[tuple[float, float]], segments: int) -> str | None:
             np.arange(first, second + 1 if second >= first else second + size + 1)
             % size
         )
-        sample = np.vstack((points[indices], points[second]))
+        # ``indices`` already includes the endpoint.  Repeating it adds an
+        # artificial least-squares weight at every selected corner and bends
+        # each fitted cubic toward its end point rather than the contour data.
+        sample = points[indices]
         control_a, control_b = _fit_cubic(sample)
         end = points[second]
         parts.append(
@@ -1097,12 +1360,28 @@ def _cubic_loop(loop: list[tuple[float, float]], segments: int) -> str | None:
 
 
 def mask_path(
-    mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
+    mask: np.ndarray,
+    *,
+    segments: int = 8,
+    overlap_pixels: int = 0,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 2048,
 ) -> str | None:
-    """Fit every mask contour as a fixed-count cubic Bezier SVG path."""
+    """Fit every mask contour as fixed-count or thresholded cubic Beziers."""
     if overlap_pixels:
         mask = _binary_dilation(mask, overlap_pixels)
-    parts = [piece for loop in _loops(mask) if (piece := _cubic_loop(loop, segments))]
+    parts = [
+        piece
+        for loop in _loops(mask)
+        if (
+            piece := _cubic_loop(
+                loop,
+                segments,
+                curvature_threshold=curvature_threshold,
+                maximum_segments=maximum_segments,
+            )
+        )
+    ]
     return " ".join(parts) or None
 
 
@@ -1352,7 +1631,12 @@ def mask_strokes(
 
 
 def _layer_svg_attributes(
-    layer: MaskLayer, segments: int, *, hybrid_strokes: bool = True
+    layer: MaskLayer,
+    segments: int,
+    *,
+    hybrid_strokes: bool = True,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 2048,
 ) -> list[dict[str, str]]:
     """Trace one SAM mask, using optional strokes only outside the thesis mode."""
     colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
@@ -1373,7 +1657,13 @@ def _layer_svg_attributes(
             }
             for data, width in strokes
         ]
-    data = mask_path(layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels)
+    data = mask_path(
+        layer.mask,
+        segments=segments,
+        overlap_pixels=layer.overlap_pixels,
+        curvature_threshold=curvature_threshold,
+        maximum_segments=maximum_segments,
+    )
     if data is None:
         return []
     return [{"d": data, "fill": colour, "fill-rule": "evenodd"}]
@@ -1384,13 +1674,17 @@ def generate_svg(
     masks: list[np.ndarray] | None = None,
     *,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 512,
     segments: int = 16,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 2048,
     fill_holes: bool = True,
     hybrid_strokes: bool = True,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
+    model: str = SAMVG_MODEL,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     rasterize: Callable[[str, int, int], bytes] | None = None,
 ) -> str:
     """Generate SAMVG's traced, pre-optimisation SVG from a target image."""
@@ -1412,12 +1706,23 @@ def generate_svg(
             max_layers=max_layers,
             fill_holes=fill_holes,
             max_side=max_side,
+            model=model,
+            points_per_batch=points_per_batch,
         )
     )
+    # ``retrieve_layers`` has already done this for the normal SAM path.  Do
+    # it here too for caller-supplied masks, which otherwise would export
+    # broad lower fills coloured by pixels that later paths hide.
+    if masks is not None:
+        layers = recolour_visible_layers(image, layers)
     paths = []
     for layer in layers:
         for attributes in _layer_svg_attributes(
-            layer, segments, hybrid_strokes=hybrid_strokes
+            layer,
+            segments,
+            hybrid_strokes=hybrid_strokes,
+            curvature_threshold=curvature_threshold,
+            maximum_segments=maximum_segments,
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
@@ -1436,14 +1741,11 @@ def residual_prompt_points(
     target: Image.Image,
     rendered: Image.Image,
     *,
-    radius_fraction: float = 0.06,
+    radius_fraction: float = SAMVG_RESIDUAL_RADIUS_FRACTION,
     threshold: float = 0.784,
-    max_points: int = 16,
+    max_points: int | None = None,
 ) -> list[tuple[int, int]]:
     """Locate SAMVG's convolved, thresholded residual components."""
-    import torch
-    import torch.nn.functional as functional
-
     target_pixels = np.asarray(target.convert("RGB"), dtype=np.float32) / 255.0
     rendered_pixels = np.asarray(rendered.convert("RGB"), dtype=np.float32) / 255.0
     # SAMVG sums RGB-channel difference before applying its 0.784 threshold.
@@ -1451,24 +1753,9 @@ def residual_prompt_points(
     difference = np.abs(target_pixels - rendered_pixels).sum(axis=2)
     height, width = difference.shape
     radius = max(2, round(min(height, width) * radius_fraction))
-    yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
-    kernel = (xx * xx + yy * yy <= radius * radius).astype(np.float32)
-    # Reflected padding preserves the prior symmetric-boundary definition;
-    # FFT convolution keeps the full-resolution recovery pass practical.
-    padded = np.pad(difference, radius, mode="symmetric")
-    smoothed = functional.conv2d(
-        torch.from_numpy(padded)[None, None],
-        torch.from_numpy((kernel / kernel.sum())[None, None]),
-    )[0, 0].numpy()
-    labels, count = _label(smoothed >= threshold)
-    points: list[tuple[float, int, int]] = []
-    for index in range(1, count + 1):
-        ys, xs = np.nonzero(labels == index)
-        if len(xs):
-            points.append(
-                (float(smoothed[ys, xs].mean()), round(xs.mean()), round(ys.mean()))
-            )
-    return [(x, y) for _score, x, y in sorted(points, reverse=True)[:max_points]]
+    return _circular_component_centres(
+        difference, radius, threshold=threshold, max_points=max_points
+    )
 
 
 def _append_layers(
@@ -1477,12 +1764,18 @@ def _append_layers(
     segments: int,
     *,
     hybrid_strokes: bool = True,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 2048,
 ) -> str:
     """Add newly prompted paths to an already optimised SVG."""
     root = ET.fromstring(svg)
     for layer in layers:
         for attributes in _layer_svg_attributes(
-            layer, segments, hybrid_strokes=hybrid_strokes
+            layer,
+            segments,
+            hybrid_strokes=hybrid_strokes,
+            curvature_threshold=curvature_threshold,
+            maximum_segments=maximum_segments,
         ):
             ET.SubElement(
                 root,
@@ -1556,13 +1849,15 @@ def _accept_text_layers(
 
 
 def _accepted_fit(
-    svg: str, image: Image.Image, *, rasterize, steps: int
+    svg: str, image: Image.Image, *, rasterize, steps: int, learn_alpha: bool = False
 ) -> tuple[str, Image.Image]:
     """Keep a differentiable fit only when the actual SVG renderer improves."""
     from vectrify.refine.paths import fit_filled_svg_bounded
 
     before = _render_svg(svg, image, rasterize)
-    fitted = fit_filled_svg_bounded(svg, image, rasterize=rasterize, steps=steps)
+    fitted = fit_filled_svg_bounded(
+        svg, image, rasterize=rasterize, steps=steps, learn_alpha=learn_alpha
+    )
     after = _render_svg(fitted, image, rasterize)
     if _mse(image, after) <= _mse(image, before):
         return fitted, after
@@ -1576,16 +1871,21 @@ def vectorize_svg(
     rasterize,
     steps: int = 500,
     min_pixels: int = 32,
-    min_impact: float = 1e-5,
+    min_impact: float = 3e-6,
     max_layers: int = 512,
     segments: int = 16,
     max_side: int | None = SAMVG_MAX_SIDE,
+    learn_alpha: bool = False,
+    curvature_threshold: float | None = None,
+    maximum_segments: int = 2048,
 ) -> str:
     """Run SAMVG's two 500-step optimise-and-recover phases.
 
     ``rasterize`` is the format backend's renderer, used solely to form the
     residual map after the first pass. The actual differentiable fit is the
     built-in filled-path optimiser so SAMVG has no external renderer dependency.
+    ``learn_alpha`` and ``curvature_threshold`` select the dissertation's
+    SAMVG+alpha and SAMVG+var representation variations, respectively.
     """
     image = image.convert("RGB")
     runtime = _sam_runtime()
@@ -1605,18 +1905,27 @@ def vectorize_svg(
             layers,
             segments,
             hybrid_strokes=False,
+            curvature_threshold=curvature_threshold,
+            maximum_segments=maximum_segments,
         )
         first, first_render = _accepted_fit(
-            initial, image, rasterize=rasterize, steps=steps
+            initial,
+            image,
+            rasterize=rasterize,
+            steps=steps,
+            learn_alpha=learn_alpha,
         )
         points = residual_prompt_points(image, first_render)
-        _canvas, coverage = _render_layers((image.height, image.width), layers)
         added = filter_by_impact(
             image,
             prompted_masks(image, points, max_side=max_side, _runtime=runtime),
             existing=layers,
             initial_canvas=np.asarray(first_render, dtype=np.uint8),
-            initial_coverage=coverage,
+            # Residual recovery scores against the fitted raster, not a blank
+            # segmentation canvas.  Every pixel therefore has ordinary raster
+            # error; marking holes in the old masks uncovered would falsely
+            # reward any prompted mask placed there.
+            initial_coverage=np.ones((image.height, image.width), dtype=bool),
             min_pixels=min_pixels,
             min_impact=min_impact,
             max_layers=max_layers,
@@ -1626,12 +1935,27 @@ def vectorize_svg(
             len(points),
             len(added),
         )
-        return _accepted_fit(
-            _append_layers(first, added, segments, hybrid_strokes=False),
+        final, final_render = _accepted_fit(
+            _append_layers(
+                first,
+                added,
+                segments,
+                hybrid_strokes=False,
+                curvature_threshold=curvature_threshold,
+                maximum_segments=maximum_segments,
+            ),
             image,
             rasterize=rasterize,
             steps=steps,
-        )[0]
+            learn_alpha=learn_alpha,
+        )
+        # A locally accepted second fit can still be worse than the first fit
+        # if its residual additions were harmful.  The public two-phase result
+        # must never discard an already accepted Cairo-raster improvement.
+        if _mse(image, final_render) <= _mse(image, first_render):
+            return final
+        log.info("SAMVG residual phase rejected: it increased exported SVG MSE.")
+        return first
     finally:
         del runtime
         try:

@@ -16,6 +16,7 @@ from vectrify.refine.paths import (
     _large_path_tile_candidates,
     _pad_fused_cubics,
     _tiled_large_path_coverage,
+    _torch_compile_enabled,
     _xing_loss,
     fit_filled_svg,
     fit_opaque_fills_locally,
@@ -35,6 +36,11 @@ def _sixteen_cubic_circle(torch):
         ),
         1,
     )[None]
+
+
+def test_torch_compile_can_be_explicitly_disabled(monkeypatch):
+    monkeypatch.setenv("TORCH_COMPILE_DISABLE", "1")
+    assert not _torch_compile_enabled()
 
 
 @pytest.mark.parametrize("samples", [8, 16, 32])
@@ -259,6 +265,93 @@ def test_filled_path_fit_moves_fill_colour_toward_target():
     )
 
     assert _mse(fitted, target) < _mse(SVG, target)
+
+
+def test_filled_path_fit_can_learn_fill_opacity():
+    source = SVG.replace('#0000ff"', '#ff0000" fill-opacity="1"')
+    target = Image.new("RGB", (24, 24), "black")
+    target.paste("#400000", (4, 4, 16, 16))
+
+    fitted = fit_filled_svg(
+        source,
+        target,
+        steps=12,
+        point_learning_rate=0.0,
+        color_learning_rate=0.1,
+        learn_alpha=True,
+    )
+
+    root = ET.fromstring(fitted)
+    path = next(element for element in root.iter() if element.get("d"))
+    assert 0 < float(path.get("fill-opacity", "0")) < 1
+
+
+def test_sparse_fill_replay_matches_dense_replay_update():
+    source = SVG.replace(
+        "</svg>",
+        '<path d="M 8 8 L 20 8 L 20 20 L 8 20 Z" fill="#00ff00" /></svg>',
+    )
+    target = Image.new("RGB", (24, 24), "black")
+    target.paste("red", (4, 4, 16, 16))
+
+    dense = fit_filled_svg(
+        source,
+        target,
+        steps=1,
+        point_learning_rate=0.0,
+        color_learning_rate=0.1,
+    )
+    sparse = fit_filled_svg(
+        source,
+        target,
+        steps=1,
+        point_learning_rate=0.0,
+        color_learning_rate=0.1,
+        sparse_replay=True,
+    )
+
+    assert abs(_mse(dense, target) - _mse(sparse, target)) < 2
+
+
+def test_filled_path_fit_preserves_a_closed_contours_segment_count():
+    target = Image.new("RGB", (24, 24), "black")
+    target.paste("red", (4, 4, 16, 16))
+
+    fitted = fit_filled_svg(
+        SVG,
+        target,
+        steps=1,
+        point_learning_rate=0.5,
+        color_learning_rate=0.0,
+    )
+
+    root = ET.fromstring(fitted)
+    path = next(element for element in root.iter() if element.get("d"))
+    assert [len(contour) for contour in parse_filled_cubics(path.get("d", ""))] == [4]
+
+
+def test_filled_path_fit_preserves_each_compound_contours_closure():
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24">'
+        '<path d="M 2 2 L 22 2 L 22 22 L 2 22 Z '
+        'M 8 8 L 16 8 L 16 16 L 8 16 Z" fill="#ff0000" fill-rule="evenodd" />'
+        "</svg>"
+    )
+
+    fitted = fit_filled_svg(
+        svg,
+        Image.new("RGB", (24, 24), "black"),
+        steps=1,
+        point_learning_rate=0.5,
+        color_learning_rate=0.0,
+    )
+
+    root = ET.fromstring(fitted)
+    path = next(element for element in root.iter() if element.get("d"))
+    assert [len(contour) for contour in parse_filled_cubics(path.get("d", ""))] == [
+        4,
+        4,
+    ]
 
 
 def test_local_fill_fit_changes_only_one_bounded_group():
@@ -628,6 +721,19 @@ def test_filled_fit_uses_analytic_tiles_for_large_cuda_paths(monkeypatch):
         color_learning_rate=0.0,
         optimisation_long_side=64,
     )
+    assert "path" in fitted
+
+
+def test_filled_fit_initialises_a_variable_length_contour():
+    commands = " ".join("C 0 0 1 0 2 0" for _ in range(17))
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8">'
+        f'<path d="M 0 0 {commands} Z" fill="#4080c0" />'
+        "</svg>"
+    )
+
+    fitted = fit_filled_svg(svg, Image.new("RGB", (8, 8), "white"), steps=0)
+
     assert "path" in fitted
 
 
