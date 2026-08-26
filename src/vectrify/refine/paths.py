@@ -1558,21 +1558,6 @@ def fit_filled_svg(
         lr=color_learning_rate,
         fused=device == "cuda",
     )
-    # The dissertation averages Xing within each contour then sums contours.
-    # Keep that weighting while evaluating the 413 cat contours in one CUDA
-    # expression rather than launching one tiny graph for each.
-    xing_contour_weights = torch.cat(
-        [
-            torch.full(
-                (len(control),),
-                1 / len(control),
-                dtype=goal.dtype,
-                device=device,
-            )
-            for path in controls
-            for control in path
-        ]
-    )
 
     def close_contours() -> None:
         """Restore the shared joins of every traced closed Bezier contour.
@@ -2025,11 +2010,7 @@ def fit_filled_svg(
                 else _composite_opaque_fills(alpha_stack, color_storage, under)
             )
             loss = ((rendered - goal) ** 2).mean()
-            loss = (
-                loss
-                + xing_weight
-                * (_xing_penalties(all_controls) * xing_contour_weights).sum()
-            )
+            loss = loss + xing_weight * _xing_loss(all_controls)
             loss.backward()
             point_optimizer.step()
             colour_optimizer.step()
@@ -2170,10 +2151,7 @@ def fit_filled_svg(
                 if index not in simple_indices:
                     alpha = rasterise_multi(index, path)
                     sparse_layer_loss(index, alpha, 0, 0).backward()
-            (
-                xing_weight
-                * (_xing_penalties(all_controls) * xing_contour_weights).sum()
-            ).backward()
+            (xing_weight * _xing_loss(all_controls)).backward()
             point_optimizer.step()
             colour_optimizer.step()
             close_contours()
@@ -2308,9 +2286,7 @@ def fit_filled_svg(
                     index,
                     rasterise_multi(index, path),
                 ).backward()
-        (
-            xing_weight * (_xing_penalties(all_controls) * xing_contour_weights).sum()
-        ).backward()
+        (xing_weight * _xing_loss(all_controls)).backward()
         point_optimizer.step()
         colour_optimizer.step()
         close_contours()
