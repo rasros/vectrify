@@ -35,7 +35,7 @@ jobs:
         run: uv python install 3.13
 
       - name: Sync dependencies
-        run: uv sync --extra dev --extra graphviz --extra typst
+        run: uv sync --extra dev --extra graphviz --extra typst --extra samvg
 
       - name: Run tests
         run: uv run pytest -q

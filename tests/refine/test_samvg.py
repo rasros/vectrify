@@ -32,6 +32,51 @@ from vectrify.refine.samvg import (
     recolour_visible_layers,
     residual_prompt_points,
 )
+from vectrify.refine.samvg_runtime import device_name, pipeline_options
+
+
+def test_sam_runtime_uses_cpu_pipeline_without_cuda():
+    torch = SimpleNamespace(
+        float16="fp16", cuda=SimpleNamespace(is_available=lambda: False)
+    )
+
+    assert pipeline_options(torch, "sam") == {"model": "sam", "device": -1}
+    assert device_name(torch) == "cpu"
+
+
+def test_sam_runtime_uses_half_precision_cuda_pipeline():
+    torch = SimpleNamespace(
+        float16="fp16", cuda=SimpleNamespace(is_available=lambda: True)
+    )
+
+    assert pipeline_options(torch, "sam") == {
+        "model": "sam",
+        "device": 0,
+        "dtype": "fp16",
+    }
+    assert device_name(torch) == "cuda"
+
+
+def test_sam_runtime_loads_transformers_on_cpu(monkeypatch):
+    calls = []
+    generator = SimpleNamespace(device="cpu")
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(
+            float16="fp16", cuda=SimpleNamespace(is_available=lambda: False)
+        ),
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "transformers",
+        SimpleNamespace(
+            pipeline=lambda name, **kwargs: calls.append((name, kwargs)) or generator
+        ),
+    )
+
+    assert samvg._sam_runtime(model="example/sam").generator is generator
+    assert calls == [("mask-generation", {"model": "example/sam", "device": -1})]
 
 
 def test_detect_text_retains_high_confidence_editable_words(monkeypatch):
