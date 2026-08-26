@@ -132,7 +132,8 @@ it does not run the path optimiser. This keeps seed quality measurable without
 mixing in local refinement.
 
 For the dissertation-style two-phase measurement (initial fit, residual prompts,
-and recovery fit), build with the optional native CUDA renderer and run:
+and recovery fit), build a local wheel with the optional native CUDA renderer
+and run:
 
 ```sh
 VECTRIFY_BUILD_SAMVG_CUDA=1 uv build --wheel --no-build-isolation
@@ -143,3 +144,6 @@ uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
 `--all` also evaluates every benchmark target and the connect-the-dots duck.
 Each target directory contains the five stage rasters, SVGs, a gallery,
 pixel-error table, and per-bounded-group CUDA memory/timing data.
+
+PyPI releases are portable Python wheels and use the Torch renderer fallback.
+They do not currently bundle the optional CUDA extension.

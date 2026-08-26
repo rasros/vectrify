@@ -25,6 +25,9 @@ from typing import Any, cast
 import numpy as np
 from PIL import Image
 
+from vectrify.refine.samvg_runtime import device_name, pipeline_options
+from vectrify.refine.samvg_types import MaskLayer, TextLayer
+
 log = logging.getLogger(__name__)
 
 # SAMVG's quality depends directly on the granularity of its automatic masks.
@@ -64,29 +67,6 @@ SAMVG_OCR_MODEL = os.environ.get(
 # Permit that small mismatch (per affected channel), but never a large visual
 # regression just because the VLM claimed confidence.
 OCR_TEXT_RMSE_TOLERANCE = 0.02
-
-
-@dataclass(frozen=True)
-class MaskLayer:
-    """One painted segmentation mask, in document compositing order."""
-
-    mask: np.ndarray
-    colour: tuple[int, int, int]
-    impact: float
-    overlap_pixels: int = 0
-
-
-@dataclass(frozen=True)
-class TextLayer:
-    """A high-confidence OCR word represented as editable SVG text."""
-
-    text: str
-    x: float
-    y: float
-    width: float
-    height: float
-    colour: tuple[int, int, int]
-    angle: float = 0.0
 
 
 def _text_colour(pixels: np.ndarray) -> tuple[int, int, int]:
@@ -478,9 +458,7 @@ def _sam_runtime(*, model: str = SAMVG_MODEL) -> _SamRuntime:
         raise ImportError(
             "SAMVG requires the samvg extra. Install 'vectrify[samvg]'."
         ) from exc
-    options: dict[str, Any] = {"model": model, "device": 0}
-    if torch.cuda.is_available():
-        options["dtype"] = torch.float16
+    options = pipeline_options(torch, model)
     generator = pipeline("mask-generation", **options)
     log.info(
         "SAMVG automatic masks: %s on %s (%s).",
@@ -1042,7 +1020,7 @@ def prompted_masks(
         points = [(round(x * scale), round(y * scale)) for x, y in points]
     own_runtime = _runtime is None
     runtime = _runtime or _sam_runtime()
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    device = device_name(torch)
     log.info("SAMVG prompted masks: using %s.", device)
     if runtime.processor is None:
         runtime.processor = SamProcessor(runtime.generator.image_processor)
