@@ -61,8 +61,8 @@ vectrify photo.jpg -o sketch.svg --seeds 10 --epochs 4 \
   --max-wall-seconds 1800
 vectrify mascot.png -o mascot.svg --segment-count 12  # tiles/local elites (default: 8)
 
-# Skip the default segmentation-derived SVG seed (SVG only)
-vectrify artwork.png -o artwork.svg --no-samvg-seed
+# Add the optional segmentation-derived SVG seed (SVG only)
+vectrify artwork.png -o artwork.svg --samvg-seed
 
 # Choose a provider, model, or scorer explicitly
 vectrify input.png --provider anthropic --model MODEL_NAME
@@ -109,14 +109,13 @@ by default; add `--save-heatmap` for perceptual difference maps.
 
 ## SAMVG-inspired seed
 
-One native, segmentation-first SVG candidate is added to every SVG run without
-reducing the configured LLM seed count. It uses SAM ViT-H by default, retains
-masks only when they materially improve a flat-colour reconstruction of the
-target, and traces the retained masks into editable layered SVG paths. Set
+With `--samvg-seed`, Vectrify adds one native, segmentation-first SVG candidate
+without reducing the configured LLM seed count. It uses SAM ViT-H by default,
+retains masks only when they materially improve a flat-colour reconstruction of
+the target, and traces the retained masks into editable layered SVG paths. Set
 `VECTRIFY_SAMVG_MODEL=facebook/sam-vit-base` for the smaller checkpoint. It is
-inspired by SAMVG, not an installation of the unreleased research code. Use
-`--no-samvg-seed` to skip it; the feature is currently available for SVG output
-only.
+inspired by SAMVG, not an installation of the unreleased research code and is
+off by default.
 
 SAM inputs default to a 1024px maximum side, the model's native encoder size;
 the returned masks are restored to the target's original canvas before tracing.

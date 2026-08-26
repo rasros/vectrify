@@ -112,7 +112,7 @@ class VectorSearchConfig:
     vision_model: str = DEFAULT_VISION_MODEL
     auto_crop: bool = True
     segment_count: int = 8
-    samvg_seed: bool = True
+    samvg_seed: bool = False
     dry_run: bool = False
 
 
@@ -316,7 +316,7 @@ def run_vector_search(
     vision_model: str = DEFAULT_VISION_MODEL,  # for the front evaluator
     auto_crop: bool = True,
     segment_count: int = 8,
-    samvg_seed: bool = True,
+    samvg_seed: bool = False,
     dry_run: bool = False,
     dry_run_parameters: Mapping[str, Any] | None = None,
     stats: "SearchStats | None" = None,

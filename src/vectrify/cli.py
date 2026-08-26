@@ -199,11 +199,11 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
     g_search.add_argument(
         "--samvg-seed",
         action=argparse.BooleanOptionalAction,
-        default=True,
+        default=False,
         help="Add one SAMVG-inspired SVG seed made from automatic SAM masks, "
         "impact filtering, contour tracing, and Torch OCR. Requires "
         "vectrify[samvg] and "
-        "is available for SVG output only. Default: on",
+        "is available for SVG output only. Default: off",
     )
 
     g_epoch = parser.add_argument_group(
