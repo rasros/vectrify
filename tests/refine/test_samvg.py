@@ -606,6 +606,28 @@ def test_generate_svg_creates_editable_layered_paths_from_supplied_masks():
     assert paths[0].get("fill") == "#1482dc"
 
 
+def test_generate_svg_refits_each_visible_fill_colour_after_mask_selection():
+    pixels = np.full((12, 12, 3), (220, 30, 30), dtype=np.uint8)
+    pixels[4:8, 4:8] = (20, 40, 230)
+    image = Image.fromarray(pixels)
+    outer = np.ones((12, 12), dtype=bool)
+    inner = np.zeros((12, 12), dtype=bool)
+    inner[4:8, 4:8] = True
+
+    root = ET.fromstring(
+        generate_svg(
+            image,
+            [outer, inner],
+            min_pixels=1,
+            min_impact=0,
+            ocr=False,
+        )
+    )
+    paths = list(root.findall("{http://www.w3.org/2000/svg}path"))
+
+    assert [path.get("fill") for path in paths] == ["#dc1e1e", "#1428e6"]
+
+
 def test_thin_single_contour_mask_is_emitted_as_a_round_stroke():
     image = Image.new("RGB", (12, 32), "white")
     pixels = np.asarray(image).copy()

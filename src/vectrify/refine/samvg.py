@@ -1127,7 +1127,12 @@ def retrieve_layers(
         len(prompted),
         len(recovered),
     )
-    return recovered
+    # Mask selection intentionally scores the initially painted colours: that
+    # is the paper's greedy impact procedure.  Once painter order is fixed,
+    # however, a lower layer should be coloured from only the pixels it still
+    # exposes.  This is the least-squares fill for the emitted seed and does
+    # not alter its accepted masks, ordering, or coverage prompts.
+    return recolour_visible_layers(image, recovered)
 
 
 def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
@@ -1683,6 +1688,11 @@ def generate_svg(
             max_side=max_side,
         )
     )
+    # ``retrieve_layers`` has already done this for the normal SAM path.  Do
+    # it here too for caller-supplied masks, which otherwise would export
+    # broad lower fills coloured by pixels that later paths hide.
+    if masks is not None:
+        layers = recolour_visible_layers(image, layers)
     paths = []
     for layer in layers:
         for attributes in _layer_svg_attributes(
