@@ -86,6 +86,43 @@ def test_samvg_seed_is_disabled_by_default_and_can_be_enabled():
     assert parse_args(["img.png", "--samvg-seed"]).samvg_seed is True
 
 
+def test_samvg_seed_knobs_are_parsed_independently_of_the_opt_in_flag():
+    args = parse_args(
+        [
+            "img.png",
+            "--samvg-model",
+            "facebook/sam-vit-base",
+            "--samvg-max-side",
+            "768",
+            "--samvg-points-per-batch",
+            "96",
+            "--samvg-min-pixels",
+            "48",
+            "--samvg-min-impact",
+            "0.00002",
+            "--samvg-max-layers",
+            "128",
+            "--samvg-segments",
+            "12",
+            "--no-samvg-fill-holes",
+            "--no-samvg-hybrid-strokes",
+            "--no-samvg-ocr",
+        ]
+    )
+
+    assert args.samvg_seed is False
+    assert args.samvg_model == "facebook/sam-vit-base"
+    assert args.samvg_max_side == 768
+    assert args.samvg_points_per_batch == 96
+    assert args.samvg_min_pixels == 48
+    assert args.samvg_min_impact == 0.00002
+    assert args.samvg_max_layers == 128
+    assert args.samvg_segments == 12
+    assert args.samvg_fill_holes is False
+    assert args.samvg_hybrid_strokes is False
+    assert args.samvg_ocr is False
+
+
 # Defaults are pinned as literals so a change to any default is a visible,
 # deliberate edit here rather than silently tracking the constant.
 def test_defaults_pinned():

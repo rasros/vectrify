@@ -134,7 +134,7 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
     initial_layer = MaskLayer(base, (10, 20, 30), 1.0)
     added_layer = MaskLayer(added, (40, 50, 60), 1.0)
     calls = []
-    monkeypatch.setattr(samvg, "_sam_runtime", lambda: object())
+    monkeypatch.setattr(samvg, "_sam_runtime", lambda **_kwargs: object())
     monkeypatch.setattr(
         samvg, "retrieve_layers", lambda *_args, **_kwargs: [initial_layer]
     )
@@ -180,7 +180,7 @@ def test_vectorize_svg_rejects_a_residual_phase_that_regresses_first_fit(monkeyp
     added[10:14, 10:14] = True
     initial_layer = MaskLayer(base, (10, 20, 30), 1.0)
     added_layer = MaskLayer(added, (40, 50, 60), 1.0)
-    monkeypatch.setattr(samvg, "_sam_runtime", lambda: object())
+    monkeypatch.setattr(samvg, "_sam_runtime", lambda **_kwargs: object())
     monkeypatch.setattr(
         samvg, "retrieve_layers", lambda *_args, **_kwargs: [initial_layer]
     )

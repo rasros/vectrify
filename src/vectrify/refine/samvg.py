@@ -469,7 +469,7 @@ class _SamRuntime:
     embedding_size: tuple[int, int] | None = None
 
 
-def _sam_runtime() -> _SamRuntime:
+def _sam_runtime(*, model: str = SAMVG_MODEL) -> _SamRuntime:
     """Load SAM once, in half precision when CUDA is available."""
     try:
         import torch
@@ -478,13 +478,13 @@ def _sam_runtime() -> _SamRuntime:
         raise ImportError(
             "SAMVG requires the samvg extra. Install 'vectrify[samvg]'."
         ) from exc
-    options: dict[str, Any] = {"model": SAMVG_MODEL, "device": 0}
+    options: dict[str, Any] = {"model": model, "device": 0}
     if torch.cuda.is_available():
         options["dtype"] = torch.float16
     generator = pipeline("mask-generation", **options)
     log.info(
         "SAMVG automatic masks: %s on %s (%s).",
-        SAMVG_MODEL,
+        model,
         generator.device,
         "fp16" if torch.cuda.is_available() else "fp32",
     )
@@ -691,6 +691,7 @@ def automatic_masks(
     image: Image.Image,
     *,
     max_side: int | None = SAMVG_MAX_SIDE,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[np.ndarray]:
     """Retrieve SAM AMG masks with the thesis grid, optionally size-capped."""
@@ -752,7 +753,7 @@ def automatic_masks(
             torch.cat(all_masks), torch.cat(all_scores), torch.cat(all_boxes)
         )
 
-    collected = collect(SAMVG_POINTS_PER_BATCH)
+    collected = collect(points_per_batch)
     return [_restore_mask(mask, original_size) for mask in collected]
 
 
@@ -1021,6 +1022,7 @@ def prompted_masks(
     points: list[tuple[int, int]],
     *,
     max_side: int | None = SAMVG_MAX_SIDE,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[np.ndarray]:
     """Prompt SAM at centres and return all three masks per point.
@@ -1046,8 +1048,8 @@ def prompted_masks(
         runtime.processor = SamProcessor(runtime.generator.image_processor)
     try:
         output_masks = []
-        for start in range(0, len(points), SAMVG_POINTS_PER_BATCH):
-            batch = points[start : start + SAMVG_POINTS_PER_BATCH]
+        for start in range(0, len(points), points_per_batch):
+            batch = points[start : start + points_per_batch]
             input_points = [[[list(point)] for point in batch]]
             inputs = runtime.processor(
                 images=image, input_points=input_points, return_tensors="pt"
@@ -1089,14 +1091,21 @@ def retrieve_layers(
     max_layers: int = 512,
     fill_holes: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
+    model: str = SAMVG_MODEL,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[MaskLayer]:
     """Run SAMVG's automatic-mask, coverage-prompt, filter sequence."""
     image = image.convert("RGB")
     runtime = _runtime
     if masks is None:
-        runtime = runtime or _sam_runtime()
-        initial = automatic_masks(image, max_side=max_side, _runtime=runtime)
+        runtime = runtime or _sam_runtime(model=model)
+        initial = automatic_masks(
+            image,
+            max_side=max_side,
+            points_per_batch=points_per_batch,
+            _runtime=runtime,
+        )
     else:
         initial = masks
     layers = filter_by_impact(
@@ -1108,7 +1117,13 @@ def retrieve_layers(
         fill_holes=fill_holes,
     )
     points = coverage_prompt_points(layers, (image.height, image.width))
-    prompted = prompted_masks(image, points, max_side=max_side, _runtime=runtime)
+    prompted = prompted_masks(
+        image,
+        points,
+        max_side=max_side,
+        points_per_batch=points_per_batch,
+        _runtime=runtime,
+    )
     recovered = filter_by_impact(
         image,
         prompted,
@@ -1668,6 +1683,8 @@ def generate_svg(
     hybrid_strokes: bool = True,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
+    model: str = SAMVG_MODEL,
+    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     rasterize: Callable[[str, int, int], bytes] | None = None,
 ) -> str:
     """Generate SAMVG's traced, pre-optimisation SVG from a target image."""
@@ -1689,6 +1706,8 @@ def generate_svg(
             max_layers=max_layers,
             fill_holes=fill_holes,
             max_side=max_side,
+            model=model,
+            points_per_batch=points_per_batch,
         )
     )
     # ``retrieve_layers`` has already done this for the normal SAM path.  Do

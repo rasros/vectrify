@@ -4,6 +4,11 @@ from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
 from vectrify.formats import FORMAT_NAMES
+from vectrify.refine.samvg import (
+    SAMVG_MAX_SIDE,
+    SAMVG_MODEL,
+    SAMVG_POINTS_PER_BATCH,
+)
 from vectrify.score import ScorerType
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 
@@ -205,6 +210,82 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "impact filtering, contour tracing, and Torch OCR. Requires "
         "vectrify[samvg] and "
         "is available for SVG output only. Default: off",
+    )
+    g_samvg.add_argument(
+        "--samvg-model",
+        default=SAMVG_MODEL,
+        metavar="HF_REPO",
+        help="HuggingFace SAM checkpoint used for the seed. "
+        f"Default: {SAMVG_MODEL}",
+    )
+    g_samvg.add_argument(
+        "--samvg-max-side",
+        type=int,
+        default=SAMVG_MAX_SIDE,
+        metavar="PX",
+        help="Maximum long side passed to SAM before masks are restored to "
+        "the output canvas. "
+        f"Default: {SAMVG_MAX_SIDE}",
+    )
+    g_samvg.add_argument(
+        "--samvg-points-per-batch",
+        type=int,
+        default=SAMVG_POINTS_PER_BATCH,
+        metavar="N",
+        help="SAM decoder prompts per GPU batch; this does not change the "
+        "32x32 automatic prompt grid. "
+        f"Default: {SAMVG_POINTS_PER_BATCH}",
+    )
+    g_samvg.add_argument(
+        "--samvg-min-pixels",
+        type=int,
+        default=32,
+        metavar="N",
+        help="Discard connected mask components smaller than N pixels before "
+        "tracing. Default: 32",
+    )
+    g_samvg.add_argument(
+        "--samvg-min-impact",
+        type=float,
+        default=3e-6,
+        metavar="MSE",
+        help="Minimum whole-mask reconstruction improvement required for "
+        "retention. Default: 3e-6",
+    )
+    g_samvg.add_argument(
+        "--samvg-max-layers",
+        type=int,
+        default=512,
+        metavar="N",
+        help="Maximum retained SAM masks in each seed stage. Default: 512",
+    )
+    g_samvg.add_argument(
+        "--samvg-segments",
+        type=int,
+        default=16,
+        metavar="N",
+        help="Fixed cubic Bézier segments per traced contour. Default: 16",
+    )
+    g_samvg.add_argument(
+        "--samvg-fill-holes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Fill only sub-threshold enclosed mask holes before tracing. "
+        "Default: on",
+    )
+    g_samvg.add_argument(
+        "--samvg-hybrid-strokes",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Emit conservative centreline strokes for thin seed masks. "
+        "Default: on",
+    )
+    g_samvg.add_argument(
+        "--samvg-ocr",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Run optional OCR and retain pixel-verified editable text. "
+        "Default: on",
     )
 
     g_epoch = parser.add_argument_group(
@@ -485,6 +566,16 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         raise SystemExit("Error: --workers and --pool-size must be > 0")
     if ns.segment_count <= 0:
         raise SystemExit("Error: --segment-count must be > 0")
+    if (
+        ns.samvg_max_side <= 0
+        or ns.samvg_points_per_batch <= 0
+        or ns.samvg_min_pixels <= 0
+        or ns.samvg_max_layers <= 0
+        or ns.samvg_segments <= 0
+    ):
+        raise SystemExit("Error: SAMVG integer controls must be > 0")
+    if ns.samvg_min_impact < 0:
+        raise SystemExit("Error: --samvg-min-impact must be >= 0")
     if ns.resolution <= 0:
         raise SystemExit("Error: --resolution must be > 0")
     if ns.resolution_llm <= 0:
