@@ -1675,7 +1675,12 @@ def fit_filled_svg(
             samples=samples_for(tile_width, tile_height),
             subpixels=subpixels,
             fuse=False,
-            dynamic_fuse=len(items) >= 4,
+            # Sparse replay keeps this graph alive through the layer's
+            # backward pass.  Torch's dynamic compiler can specialise one
+            # large tile batch into an unbounded graph here; eager chunking
+            # has the same coverage/gradient while retaining the documented
+            # tile-local memory bound.
+            dynamic_fuse=False,
         )
         return [
             (index, alpha, left, top)
