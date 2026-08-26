@@ -749,6 +749,32 @@ def test_cubic_fit_reparameterises_nonuniform_curve_samples():
     )
 
 
+def test_fixed_cubic_tracing_does_not_duplicate_each_curve_endpoint(monkeypatch):
+    loop = [
+        (0.0, 0.0),
+        (1.0, 0.0),
+        (2.0, 0.0),
+        (2.0, 1.0),
+        (2.0, 2.0),
+        (1.0, 2.0),
+        (0.0, 2.0),
+        (0.0, 1.0),
+    ]
+    samples = []
+    monkeypatch.setattr(samvg, "_corners", lambda *_args: [0, 2, 4, 6])
+
+    def fit(points):
+        samples.append(points.copy())
+        return points[0], points[-1]
+
+    monkeypatch.setattr(samvg, "_fit_cubic", fit)
+
+    samvg._cubic_loop(loop, segments=4)
+
+    assert [len(points) for points in samples] == [3, 3, 3, 3]
+    assert all(not np.array_equal(points[-1], points[-2]) for points in samples)
+
+
 def test_sam_input_cap_restores_binary_masks_to_the_original_canvas():
     image = Image.new("RGB", (100, 50), "white")
 

@@ -1331,7 +1331,10 @@ def _cubic_loop(
             np.arange(first, second + 1 if second >= first else second + size + 1)
             % size
         )
-        sample = np.vstack((points[indices], points[second]))
+        # ``indices`` already includes the endpoint.  Repeating it adds an
+        # artificial least-squares weight at every selected corner and bends
+        # each fitted cubic toward its end point rather than the contour data.
+        sample = points[indices]
         control_a, control_b = _fit_cubic(sample)
         end = points[second]
         parts.append(
