@@ -215,8 +215,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "--samvg-model",
         default=SAMVG_MODEL,
         metavar="HF_REPO",
-        help="HuggingFace SAM checkpoint used for the seed. "
-        f"Default: {SAMVG_MODEL}",
+        help=f"HuggingFace SAM checkpoint used for the seed. Default: {SAMVG_MODEL}",
     )
     g_samvg.add_argument(
         "--samvg-max-side",
@@ -270,22 +269,19 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "--samvg-fill-holes",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Fill only sub-threshold enclosed mask holes before tracing. "
-        "Default: on",
+        help="Fill only sub-threshold enclosed mask holes before tracing. Default: on",
     )
     g_samvg.add_argument(
         "--samvg-hybrid-strokes",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Emit conservative centreline strokes for thin seed masks. "
-        "Default: on",
+        help="Emit conservative centreline strokes for thin seed masks. Default: on",
     )
     g_samvg.add_argument(
         "--samvg-ocr",
         action=argparse.BooleanOptionalAction,
         default=True,
-        help="Run optional OCR and retain pixel-verified editable text. "
-        "Default: on",
+        help="Run optional OCR and retain pixel-verified editable text. Default: on",
     )
 
     g_epoch = parser.add_argument_group(

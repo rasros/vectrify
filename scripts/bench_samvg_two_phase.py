@@ -114,9 +114,7 @@ def run_target(
     (destination / "first-seed.svg").write_text(initial)
     if seed_only:
         seed_render = _render_svg(initial, target, plugin.rasterize)
-        mask_canvas, _coverage = _render_layers(
-            (target.height, target.width), layers
-        )
+        mask_canvas, _coverage = _render_layers((target.height, target.width), layers)
         stages = [
             ("target", target, None),
             ("mask-canvas", Image.fromarray(mask_canvas), None),
