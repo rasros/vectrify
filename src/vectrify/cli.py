@@ -196,7 +196,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         metavar="N",
         help="Edge-aware Voronoi masks retained as local elites. Default: 8",
     )
-    g_search.add_argument(
+    g_samvg = parser.add_argument_group("SAMVG seed")
+    g_samvg.add_argument(
         "--samvg-seed",
         action=argparse.BooleanOptionalAction,
         default=False,
