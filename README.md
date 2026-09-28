@@ -13,6 +13,16 @@ additional geometric refinement.
 SVG is the only output format. The former `--format` option has been removed;
 omit it from existing commands, including commands that used `--format svg`.
 
+## Local SVG editor
+
+Run `uv run vectrify-ui` to open the local editor, or
+`uv run vectrify-ui drawing.svg --reference original.png` to start with a drawing.
+Select objects, edit paint and path nodes, pin endpoints, and use undo/redo.
+Save a project to preserve editing state or export ordinary SVG.
+See [the editor guide](docs/editor.md) for controls and current limitations.
+Selected-path GPU fitting and geometry simplification include reviewable previews.
+LLM/SAM seed generation and NSGA-II search remain available through the CLI.
+
 ## Install
 
 Python 3.10 or newer is required. Install the CLI with `pipx` or `uv`:

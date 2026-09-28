@@ -26,3 +26,7 @@
 
 # Run artifacts: a run writes its log and lineage next to the input image.
 duck*/
+
+# Editor source assets and local native extension builds
+!src/vectrify/ui/static/*.svg
+*.so

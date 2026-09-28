@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
+<rect id="sky" width="1200" height="800" fill="#e8ebe0"/>
+<circle id="sun" cx="903" cy="222" r="78" fill="#f1ba77"/>
+<path id="distant-ridge" d="M0 488 L138 325 L213 388 L395 166 L593 412 L703 291 L881 435 L1010 335 L1200 481 L1200 800 L0 800 Z" fill="#a6b8af"/>
+<path id="snowcap" d="M298 284 L395 166 L489 282 L438 264 L410 290 L379 236 L350 282 Z" fill="#f9f6ea"/>
+<path id="middle-ridge" d="M0 586 L175 422 L303 527 L559 321 L716 516 L853 405 L1034 565 L1200 451 L1200 800 L0 800 Z" fill="#61827a"/>
+<path id="river" d="M718 540 C631 584 537 615 620 661 C660 688 787 731 730 800 L988 800 C1043 726 714 654 744 608 C767 575 820 558 849 551 Z" fill="#d7dfd6"/>
+<path id="foreground" d="M0 639 C159 558 371 611 526 711 L585 800 L0 800 Z" fill="#314e48"/>
+<path id="pine-one" d="M148 386 L119 459 L135 454 L99 518 L120 512 L77 581 L135 575 L135 629 L158 629 L158 575 L216 581 L175 512 L196 518 L160 454 L176 459 Z" fill="#243d38"/>
+<path id="pine-two" d="M1055 454 L1024 520 L1039 516 L1004 574 L1042 570 L1042 616 L1060 616 L1060 570 L1099 574 L1071 516 L1084 520 Z" fill="#314e48"/>
+</svg>

@@ -1409,6 +1409,10 @@ def fit_filled_svg(
     learn_alpha: bool = False,
     sparse_replay: bool = False,
     max_point_displacement: float | None = None,
+    fit_context: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
+    project_controls: Any = None,
+    observe: Any = None,
+    coverage_transform: Any = None,
 ) -> str:
     """Optimise filled cubic SVG paths against an RGB target.
 
@@ -1433,6 +1437,11 @@ def fit_filled_svg(
     ``max_point_displacement`` optionally bounds every control's Euclidean
     displacement from its seed in working-raster pixels. This limits contour
     drift without restricting fill colours; ``None`` retains the unbounded fit.
+    ``fit_context`` supplies the editor's frozen affine compositing response
+    for one selected path (base, black-minus-base, white-minus-black).
+    ``project_controls`` enforces editor coordinate constraints after each Adam
+    update; ``observe`` reports/retains candidates and returns False to stop.
+    These optional hooks leave the automatic path-fit mutation unchanged.
     """
     import xml.etree.ElementTree as ET
 
@@ -1593,6 +1602,22 @@ def fit_filled_svg(
         fused=device == "cuda",
     )
 
+    # An editor-selected path needs the original painter-order response,
+    # including clipping and isolated group opacity, rather than a backdrop
+    # with the selected path implicitly painted on top of everything.
+    context_tensors = None
+    if fit_context is not None:
+        if len(entries) != 1 or not monolithic or scale != 1:
+            raise ValueError(
+                "Selected-path context requires one unscaled monolithic path"
+            )
+        if any(array.shape != (height, width, 3) for array in fit_context):
+            raise ValueError("Selected-path context must match the target raster")
+        context_tensors = tuple(
+            torch.tensor(array, dtype=torch.float32, device=device)
+            for array in fit_context
+        )
+
     def close_contours() -> None:
         """Restore the shared joins of every traced closed Bezier contour.
 
@@ -1614,6 +1639,8 @@ def fit_filled_svg(
                 for contour in path:
                     contour[1:, 0].copy_(contour[:-1, 3])
                     contour[-1, 3].copy_(contour[0, 0])
+            if project_controls is not None:
+                project_controls(controls)
 
     def tile_for(path: list[Any]) -> tuple[int, int, int, int]:
         """A fixed, antialiased raster tile covering a path's control hull."""
@@ -2012,7 +2039,11 @@ def fit_filled_svg(
         work_height,
         device,
     )
+    completed_steps = 0
     for _step in range(steps):
+        if observe is not None and not observe(_step, controls, color_storage):
+            break
+        completed_steps = _step + 1
         point_optimizer.zero_grad()
         colour_optimizer.zero_grad()
         simple_groups = initial_simple_groups
@@ -2043,18 +2074,29 @@ def fit_filled_svg(
                 if alphas[index] is None:
                     alphas[index] = rasterise_multi(index, path)
             alpha_stack = torch.stack([alpha for alpha in alphas if alpha is not None])
+            if coverage_transform is not None:
+                alpha_stack = coverage_transform(controls, alpha_stack)
             if alpha_values is not None:
                 alpha_stack = alpha_stack * alpha_values.clamp(0, 1)[:, None, None]
-            composite = (
-                _compiled_opaque_fill_composite()
-                if goal.is_cuda
-                else _composite_opaque_fills
-            )
-            rendered = (
-                composite(alpha_stack, color_storage)
-                if under is None
-                else _composite_opaque_fills(alpha_stack, color_storage, under)
-            )
+            if context_tensors is not None:
+                # Selected-path fitting supplies its own compositing response.
+                # Avoid compiling an unused full-document composite for every
+                # crop size (which can exhaust Torch's recompilation cache).
+                base, delta, transmission = context_tensors
+                rendered = base + alpha_stack[0, ..., None] * (
+                    delta + transmission * color_storage[0].clamp(0, 1)
+                )
+            else:
+                composite = (
+                    _compiled_opaque_fill_composite()
+                    if goal.is_cuda
+                    else _composite_opaque_fills
+                )
+                rendered = (
+                    composite(alpha_stack, color_storage)
+                    if under is None
+                    else _composite_opaque_fills(alpha_stack, color_storage, under)
+                )
             loss = ((rendered - goal) ** 2).mean()
             loss = loss + xing_weight * _xing_loss(all_controls)
             loss.backward()
@@ -2338,6 +2380,8 @@ def fit_filled_svg(
         close_contours()
         refresh_simple_tiles()
 
+    if observe is not None:
+        observe(completed_steps, controls, color_storage)
     coordinate_scale_cpu = coordinate_scale.cpu()
     for index, ((element, _contours, _colour, _fill_rule, _opacity), path) in enumerate(
         zip(entries, controls, strict=True)
