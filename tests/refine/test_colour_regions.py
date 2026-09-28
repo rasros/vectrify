@@ -17,8 +17,16 @@ spec = importlib.util.spec_from_file_location(
     "bench_colour_regions",
     Path(__file__).resolve().parents[2] / "scripts" / "bench_colour_regions.py",
 )
+assert spec is not None
+assert spec.loader is not None
 regions = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(regions)
+
+
+def render_png(svg: str) -> bytes:
+    png = cairosvg.svg2png(bytestring=svg.encode())
+    assert png is not None
+    return png
 
 
 @pytest.mark.parametrize("clean", [False, True])
@@ -155,9 +163,10 @@ def test_clean_outline_is_a_single_stroke_not_two_borders_of_the_ink():
         "{http://www.w3.org/2000/svg}g[@id='clean-outlines']"
     )
     assert metadata["outline_paths"] == 1
+    assert group is not None
     assert group.get("fill") == "none"
     assert group.get("stroke-width") == "2"
-    assert group[0].get("d").endswith("Z")
+    assert group[0].attrib["d"].endswith("Z")
 
 
 @pytest.mark.skipif(not torch.cuda.is_available(), reason="CUDA benchmark")
@@ -170,11 +179,12 @@ def test_outline_overlay_restores_a_thin_ring_without_filling_its_hole():
         '<rect width="32" height="32" fill="#c8c8c8"/></svg>'
     )
     actual, _ = regions.append_outlines(source, pixels, radius=3, colours=2)
-    png = cairosvg.svg2png(bytestring=actual.encode())
+    png = render_png(actual)
     rendered = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"))
 
     assert np.array_equal(rendered, pixels)
     group = ET.fromstring(actual).find("{http://www.w3.org/2000/svg}g")
+    assert group is not None
     assert group.get("id") == "preserved-outlines"
     assert all(path.get("stroke") is None for path in group)
 
@@ -187,7 +197,7 @@ def test_trace_retains_a_small_hole_when_simplification_would_collapse_it():
         '<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12">'
         f'<path d="{path}" fill="red" fill-rule="evenodd"/></svg>'
     )
-    png = cairosvg.svg2png(bytestring=svg.encode())
+    png = render_png(svg)
     alpha = np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))[:, :, 3]
     assert np.array_equal(alpha > 0, mask)
 
@@ -208,7 +218,7 @@ def test_gpu_colour_regions_preserve_two_colour_geometry_and_full_coverage():
     )
     root = ET.fromstring(svg)
     assert all(el.tag.split("}")[-1] in {"svg", "rect", "path"} for el in root.iter())
-    png = cairosvg.svg2png(bytestring=svg.encode())
+    png = render_png(svg)
     rgba = np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))
     assert np.array_equal(rgba[:, :, :3], pixels)
     assert np.all(rgba[:, :, 3] == 255)
@@ -257,9 +267,7 @@ def test_shared_mesh_preserves_holes_and_canvas_edges():
         f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">{paths}</svg>'
     )
     rendered = np.asarray(
-        Image.open(io.BytesIO(cairosvg.svg2png(bytestring=svg.encode()))).convert(
-            "RGBA"
-        )
+        Image.open(io.BytesIO(render_png(svg))).convert("RGBA")
     )
     assert np.all(rendered[:, :, 3] == 255)
     assert np.array_equal(rendered[:, :, 2] == 255, labels == 1)
@@ -447,7 +455,7 @@ def test_clean_method_reuses_region_geometry_and_preserves_holes(monkeypatch):
     definitions = root.findall(f"{namespace}defs/{namespace}path")
     assert len(definitions) == metadata["shared_region_definitions"] == 2
     for definition in definitions:
-        reference = "#" + definition.get("id")
+        reference = "#" + definition.attrib["id"]
         uses = [
             el
             for el in root.iter(namespace + "use")
@@ -455,7 +463,7 @@ def test_clean_method_reuses_region_geometry_and_preserves_holes(monkeypatch):
         ]
         assert len(uses) == 2  # One clip and one painted fill share the path.
     rendered = np.asarray(
-        Image.open(io.BytesIO(cairosvg.svg2png(bytestring=svg.encode()))).convert("RGB")
+        Image.open(io.BytesIO(render_png(svg))).convert("RGB")
     )
     assert np.array_equal(rendered[32, 32], [230, 230, 230])
     assert np.array_equal(rendered[16, 16], [190, 80, 60])
