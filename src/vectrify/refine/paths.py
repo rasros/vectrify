@@ -225,12 +225,15 @@ def _as_cubic(a, b):
     ]
 
 
-def to_path_d(segments) -> str:
+def to_path_d(segments, *, precision: int = 1) -> str:
     """Cubic segments back to path data, one C per segment."""
     head = segments[0][0]
-    parts = [f"M {head[0]:.1f} {head[1]:.1f}"]
+    parts = [f"M {head[0]:.{precision}f} {head[1]:.{precision}f}"]
     for segment in segments:
-        parts.append("C " + " ".join(f"{x:.1f} {y:.1f}" for x, y in segment[1:]))
+        parts.append(
+            "C "
+            + " ".join(f"{x:.{precision}f} {y:.{precision}f}" for x, y in segment[1:])
+        )
     return " ".join(parts)
 
 
@@ -1012,7 +1015,9 @@ def _tiled_large_path_coverage(
                         candidates, dtype=torch.long, device=packed_contours.device
                     )
                 )
-                packed = packed_contours.index_select(0, indices) - offset
+                packed = _pad_fused_cubics(
+                    packed_contours.index_select(0, indices) - offset
+                )
             packed_tiles.append(packed)
             offsets.append(offsets[-1] + len(candidates))
             if boundary_candidate_indices is None:
@@ -1044,18 +1049,29 @@ def _tiled_large_path_coverage(
         )
         if coverage is None:
             return None
-        for alpha, (_tile_number, tile) in zip(coverage, group, strict=True):
-            tile_left, tile_top, _tile_width, _tile_height, _candidates = tile
-            restored = torch.nn.functional.pad(
-                alpha,
-                (
-                    tile_left,
-                    width - tile_left - tile_width,
-                    tile_top,
-                    height - tile_top - tile_height,
-                ),
-            )
-            output = restored if output is None else output + restored
+        # Scatter the batched tiles into one canvas. Padding every small tile
+        # to a full image creates a full-canvas addition and backward node per
+        # tile, making the assembly cost grow with canvas area times tile count.
+        origins = torch.tensor(
+            [(tile[0], tile[1]) for _tile_number, tile in group],
+            dtype=torch.long,
+            device=coverage.device,
+        )
+        rows = (
+            origins[:, 1, None, None]
+            + torch.arange(tile_height, device=coverage.device)[None, :, None]
+        )
+        columns = (
+            origins[:, 0, None, None]
+            + torch.arange(tile_width, device=coverage.device)[None, None, :]
+        )
+        indices = (rows * width + columns).reshape(-1)
+        restored = (
+            coverage.new_zeros(height * width)
+            .scatter_add(0, indices, coverage.reshape(-1))
+            .reshape(height, width)
+        )
+        output = restored if output is None else output + restored
     if output is None:
         return torch.zeros(
             (height, width), dtype=contours[0].dtype, device=contours[0].device
@@ -1300,12 +1316,18 @@ def _xing_penalties(control: Any) -> Any:
     import torch
 
     start_handle = control[:, 1] - control[:, 0]
+    middle_edge = control[:, 2] - control[:, 1]
     end_handle = control[:, 3] - control[:, 2]
+    orientation = (
+        start_handle[:, 0] * middle_edge[:, 1] - start_handle[:, 1] * middle_edge[:, 0]
+    )
     cross = (
         start_handle[:, 0] * end_handle[:, 1] - start_handle[:, 1] * end_handle[:, 0]
     )
     sine = cross / (start_handle.norm(dim=-1) * end_handle.norm(dim=-1) + 1e-12)
-    return torch.where(cross < 0, torch.relu(-sine), torch.relu(sine))
+    # AB x BC chooses the turn direction; AB x CD measures the violation.
+    # Using AB x CD for both reduces this to abs(sine), penalizing valid bends.
+    return torch.where(orientation > 0, torch.relu(-sine), torch.relu(sine))
 
 
 def _xing_loss(control: Any) -> Any:
@@ -1386,6 +1408,7 @@ def fit_filled_svg(
     backdrop: Image.Image | None = None,
     learn_alpha: bool = False,
     sparse_replay: bool = False,
+    max_point_displacement: float | None = None,
 ) -> str:
     """Optimise filled cubic SVG paths against an RGB target.
 
@@ -1407,10 +1430,18 @@ def fit_filled_svg(
     ``sparse_replay`` retains the same painter-order MSE derivative while
     saving layer state only within each path's raster tile; it makes a full
     1024px SAMVG phase practical without a monolithic alpha stack.
+    ``max_point_displacement`` optionally bounds every control's Euclidean
+    displacement from its seed in working-raster pixels. This limits contour
+    drift without restricting fill colours; ``None`` retains the unbounded fit.
     """
     import xml.etree.ElementTree as ET
 
     import torch
+
+    if max_point_displacement is not None and (
+        not math.isfinite(max_point_displacement) or max_point_displacement < 0
+    ):
+        raise ValueError("max_point_displacement must be finite and nonnegative")
 
     root = ET.fromstring(svg)
 
@@ -1499,6 +1530,9 @@ def fit_filled_svg(
     control_storage = torch.nn.Parameter(
         torch.stack([pad_storage_control(control) for control in flat_controls])
     )
+    seed_controls = (
+        None if max_point_displacement is None else control_storage.detach().clone()
+    )
     controls = []
     path_storage_spans = []
     storage_offset = 0
@@ -1569,6 +1603,13 @@ def fit_filled_svg(
         SVG closing cubic on export, violating the fixed-segment invariant.
         """
         with torch.no_grad():
+            if seed_controls is not None:
+                assert max_point_displacement is not None
+                delta = control_storage - seed_controls
+                factor = (
+                    max_point_displacement / delta.norm(dim=-1).clamp_min(1e-12)
+                ).clamp_max(1)
+                control_storage.copy_(seed_controls + delta * factor[..., None])
             for path in controls:
                 for contour in path:
                     contour[1:, 0].copy_(contour[:-1, 3])
@@ -2303,7 +2344,11 @@ def fit_filled_svg(
     ):
         colour = color_storage[index]
         data = " ".join(
-            to_path_d((control.detach().cpu() / coordinate_scale_cpu).tolist()) + " Z"
+            to_path_d(
+                (control.detach().cpu() / coordinate_scale_cpu).tolist(),
+                precision=3 if max_point_displacement is not None else 1,
+            )
+            + " Z"
             for control in path
         )
         element.set("d", data)
