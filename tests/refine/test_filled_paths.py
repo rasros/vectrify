@@ -267,6 +267,43 @@ def test_filled_path_fit_moves_fill_colour_toward_target():
     assert _mse(fitted, target) < _mse(SVG, target)
 
 
+@pytest.mark.parametrize(
+    ("monolithic", "sparse_replay"), [(True, False), (False, False), (False, True)]
+)
+def test_filled_fit_bounds_geometry_drift_but_still_fits_colour(
+    monolithic, sparse_replay
+):
+    target = Image.new("RGB", (24, 24), "black")
+    target.paste("red", (6, 6, 20, 20))
+    fitted = fit_filled_svg(
+        SVG,
+        target,
+        steps=4,
+        point_learning_rate=2,
+        color_learning_rate=0.2,
+        optimisation_long_side=12,
+        max_point_displacement=0.25,
+        monolithic=monolithic,
+        sparse_replay=sparse_replay,
+    )
+    before = next(el for el in ET.fromstring(SVG).iter() if el.get("d"))
+    after = next(el for el in ET.fromstring(fitted).iter() if el.get("d"))
+    original = np.asarray(parse_filled_cubics(before.get("d")))
+    actual = np.asarray(parse_filled_cubics(after.get("d")))
+    movement = np.linalg.norm(actual - original, axis=-1)
+    # Half-resolution fitting: .25 working pixels = .5 source pixels.
+    assert 0 < movement.max() <= 0.501  # SVG decimal rounding tolerance
+    assert _mse(fitted, target) < _mse(SVG, target)
+    assert np.array_equal(actual[:, 1:, 0], actual[:, :-1, 3])
+    assert np.array_equal(actual[:, 0, 0], actual[:, -1, 3])
+
+
+@pytest.mark.parametrize("radius", [-1, float("nan"), float("inf")])
+def test_filled_fit_rejects_invalid_geometry_bound(radius):
+    with pytest.raises(ValueError, match="max_point_displacement"):
+        fit_filled_svg(SVG, Image.new("RGB", (24, 24)), max_point_displacement=radius)
+
+
 def test_filled_path_fit_can_learn_fill_opacity():
     source = SVG.replace('#0000ff"', '#ff0000" fill-opacity="1"')
     target = Image.new("RGB", (24, 24), "black")
@@ -536,7 +573,8 @@ def test_large_path_boundary_candidates_are_a_local_subset_of_ray_candidates():
     assert nearby == (0,)
 
 
-def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients():
+@pytest.mark.parametrize("size", [(64, 64), (61, 57)])
+def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients(size):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
         pytest.skip("CUDA is required")
@@ -558,15 +596,20 @@ def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients():
                 .clone()
             )
     controls = torch.stack(contours).requires_grad_()
+    width, height = size
     full = multi_coverage(
-        controls, [0, len(controls)], (0, 0, 64, 64), subpixels=2, fill_rule="evenodd"
+        controls,
+        [0, len(controls)],
+        (0, 0, width, height),
+        subpixels=2,
+        fill_rule="evenodd",
     )
     assert full is not None
-    tiles = _large_path_tile_candidates(list(controls), 64, 64)
+    tiles = _large_path_tile_candidates(list(controls), width, height)
     boundary_global = _large_path_tile_boundary_candidates(list(controls), tiles)
     tiled = _tiled_large_path_coverage(
         list(controls),
-        (0, 0, 64, 64),
+        (0, 0, width, height),
         tiles,
         fill_rule="evenodd",
         subpixels=2,
@@ -588,9 +631,13 @@ def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients():
     )
     assert tiled is not None
     assert torch.allclose(tiled, full[0], atol=1e-6)
-    tiled.sum().backward()
-    assert controls.grad is not None
-    assert controls.grad.abs().sum() > 0
+    weights = torch.linspace(0.1, 1.0, width * height, device="cuda").reshape(
+        height, width
+    )
+    expected_gradient = torch.autograd.grad((full[0] * weights).sum(), controls)[0]
+    actual_gradient = torch.autograd.grad((tiled * weights).sum(), controls)[0]
+    assert actual_gradient.abs().sum() > 0
+    assert torch.allclose(actual_gradient, expected_gradient, atol=1e-5, rtol=1e-5)
 
 
 def test_analytic_multi_coverage_reuses_topology_workspace_between_steps():
@@ -820,22 +867,39 @@ def test_tensorised_opaque_compositing_matches_layer_loop():
     assert torch.allclose(actual, expected)
 
 
-def test_xing_loss_is_normalized_and_penalizes_either_turn_direction():
+@pytest.mark.parametrize("reflection", [1.0, -1.0])
+def test_xing_loss_is_normalized_and_penalizes_reversed_turn(reflection):
     torch = pytest.importorskip("torch")
     controls = torch.tensor(
         [
-            [[0, 0], [10, 0], [0, 0], [0, 5]],
-            [[0, 0], [2, 0], [0, 0], [0, -7]],
+            [[0, 0], [10, 0], [10, 10], [10, 5]],
+            [[0, 0], [2, 0], [2, 2], [2, -5]],
             [[0, 0], [3, 0], [0, 0], [4, 0]],
         ],
         dtype=torch.float32,
     )
+    controls[:, :, 1] *= reflection
 
     loss = _xing_loss(controls)
 
     # The two perpendicular curves each contribute one despite different
     # handle lengths; the collinear curve contributes zero.
     assert torch.isclose(loss, torch.tensor(2 / 3))
+
+
+@pytest.mark.parametrize("reflection", [1.0, -1.0])
+def test_xing_loss_preserves_valid_bends_and_their_gradients(reflection):
+    torch = pytest.importorskip("torch")
+    # A smooth quarter turn has nonparallel handles but no reversed turn.
+    controls = torch.tensor([[[0, 0], [1, 0], [2, 1], [2, 2]]], dtype=torch.float32)
+    controls[:, :, 1] *= reflection
+    controls.requires_grad_()
+
+    loss = _xing_loss(controls)
+    loss.backward()
+
+    assert loss.item() == 0
+    assert torch.equal(controls.grad, torch.zeros_like(controls))
 
 
 def test_even_odd_uses_winding_parity_for_a_double_wound_contour():

@@ -124,3 +124,55 @@ way.
 
 `--no-adaptive-operators` pins the operator mix to the fixed weight table,
 which is how the adaptive policy was measured against it.
+
+## Experimental CUDA colour-region method
+
+`scripts/bench_colour_regions.py` is the no-LLM colour-region method used for
+outlined artwork experiments. It fits palettes on CUDA and constructs SVG
+regions and strokes directly, without evolutionary or local SVG optimization.
+It is separate from the SAMVG pipeline and the main `vectrify` CLI.
+
+```bash
+PYTHONPATH=src python scripts/bench_colour_regions.py input.png output.svg \
+  --colours 64 --min-pixels 32 --preserve-outlines --outline-style clean \
+  --outline-regions 3 --outline-width 1.2
+```
+
+Clean mode generates a shared region mesh, follows source ink, preserves sharp
+corners, and rejects unsupported duplicate outline branches. Texture polygons
+are simplified independently during generation. `--texture-tolerance` defaults
+to 5 source pixels; use 1.25 for the earlier texture detail level. This setting
+does not change region assignment, silhouette geometry, or ink strokes. Small
+texture islands and holes retain a compact fallback contour when the stronger
+simplification would collapse them.
+
+Each structural region is defined once in `<defs>` and referenced by both its
+fill and clip. This avoids storing the same geometry twice. The output remains
+an ordinary, editable SVG: no gzip, embedded raster image, or post-export file
+processing is needed. Metrics include texture tolerance, texture vertex count,
+and the number of shared region definitions.
+
+After generation finishes, a final geometry cleanup stage runs by default in
+both clean and ordinary colour-region modes. It removes duplicate and exactly
+collinear vertices, removes eligible empty or duplicate paths, and combines
+consecutive compatible opaque paths into compound paths. Matching strokes can
+share one path element while retaining their separate subpaths and endpoints;
+filled paths merge only when their bounds are disjoint. It preserves paint
+order, holes, sharp corners, shared references, and clip/group boundaries. This
+is conservative path merging, not a general Boolean union of overlapping fills.
+Coordinates are not rounded, and no additional optimization fit is run.
+
+Use `--no-geometry-cleanup` to disable that final stage for comparison. Its
+`geometry_cleanup` metrics report before/after path and vertex counts; other
+geometry counts describe the generation stage. The reusable implementation is
+`vectrify.formats.svg.cleanup.cleanup_svg_geometry`. It accepts the generated
+static SVG subset and leaves unsupported curves and styling alone. Combining
+opaque strokes can produce tiny antialiasing differences at shared pixels.
+
+In the 3840×2160 landscape check, the default reduced texture vertices from
+approximately 247,000 to 93,000 and the plain SVG from 3.17 MB to 1.34 MB. The
+texture simplification permits small pixel differences; it is intended to
+preserve appearance at the input resolution, not to be mathematically lossless.
+On the same simplified landscape, final cleanup reduced path elements from 256
+to 102, removed 680 redundant vertices, and took 0.36 seconds. Coverage remained
+100%; 0.0024% of pixels changed by more than 5/255 in any colour channel.
