@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Vectrify — SVG editor</title><link rel="icon" href="/favicon.svg"><link rel="stylesheet" href="/style.css"></head>
+<body>
+<header class="topbar">
+  <a class="brand" href="/" aria-label="Vectrify editor"><img src="/favicon.svg" alt="">vectrify<span class="badge">STUDIO</span></a>
+  <div class="document-title"><span class="document-dot"></span><span id="filename">Opening drawing…</span><span id="dirty" title="Unsaved changes"></span></div>
+  <nav aria-label="File actions"><button id="open-file">Open</button><button id="restore-saved" title="Recover a project saved in this browser">Restore saved</button><button id="save-project">Save project</button><button id="export-svg" class="primary">Export SVG <span>↗</span></button></nav>
+</header>
+<main class="workspace">
+  <aside class="toolrail" aria-label="Drawing tools">
+    <button class="tool active" data-tool="select" title="Select objects (V)" aria-label="Select objects"><svg viewBox="0 0 24 24"><path d="M5 3 18 13 11 14 8 21Z"/></svg></button>
+    <button class="tool" data-tool="nodes" title="Edit nodes (N)" aria-label="Edit nodes"><svg viewBox="0 0 24 24"><path d="M4 18C4 5 20 19 20 6"/><rect x="2" y="16" width="4" height="4"/><rect x="18" y="4" width="4" height="4"/></svg></button>
+    <div class="rail-divider"></div>
+    <button class="tool" data-tool="path" title="Draw path (P)" aria-label="Draw path"><svg viewBox="0 0 24 24"><path d="M4 19 9 5 20 15Z"/><circle cx="4" cy="19" r="2"/><circle cx="9" cy="5" r="2"/><circle cx="20" cy="15" r="2"/></svg></button>
+    <button class="tool" data-tool="hand" title="Pan canvas (H, or hold Space)" aria-label="Pan canvas"><svg viewBox="0 0 24 24"><path d="M8 13V5a1.5 1.5 0 0 1 3 0v6-8a1.5 1.5 0 0 1 3 0v8-6a1.5 1.5 0 0 1 3 0v7-3a1.5 1.5 0 0 1 3 0v6c0 5-4 7-7 7-4 0-5-3-8-7-1-2 1-3 3-1Z"/></svg></button>
+    <button class="tool rail-bottom" id="help" title="Keyboard shortcuts" aria-label="Keyboard shortcuts">?</button>
+  </aside>
+  <aside class="layers-panel">
+    <div class="panel-heading"><h2>Objects</h2><span id="object-count" class="count">0</span></div>
+    <div class="search-wrap"><input id="object-search" type="search" placeholder="Find an object…" aria-label="Find an object"></div>
+    <div id="objects" class="object-list" role="listbox" aria-label="Drawing objects" aria-multiselectable="true"></div>
+    <section class="reference-panel"><div class="panel-heading"><h2>Reference</h2><button id="add-reference" class="icon-button" aria-label="Add reference image" title="Add PNG, JPEG or WebP">+</button></div>
+      <div id="reference-empty" class="reference-empty"><span>▧</span><p>Keep the original in view.</p><button id="add-reference-empty">Add an image</button></div>
+      <div id="reference-controls" hidden><div class="reference-file"><span>▧</span><span id="reference-name"></span><button id="remove-reference" class="icon-button" aria-label="Remove reference">×</button></div><label class="toggle"><input id="reference-visible" type="checkbox" checked aria-keyshortcuts="O"> Show overlay <kbd>O</kbd></label><label class="range-label" for="reference-opacity">Opacity <output id="reference-percent">50%</output></label><input id="reference-opacity" type="range" min="0" max="100" value="50"></div>
+    </section>
+  </aside>
+  <section class="canvas-panel" aria-label="Drawing canvas">
+    <div class="canvas-toolbar"><div class="history"><button id="undo" title="Undo (Ctrl/⌘ Z)" aria-label="Undo">↶</button><button id="redo" title="Redo (Ctrl/⌘ Shift Z)" aria-label="Redo">↷</button><span class="toolbar-divider"></span><span id="tool-name">Select</span></div><span id="path-controls" hidden><button id="path-finish" title="Finish open path (Enter)">Finish</button><button id="path-close" title="Close the shape">Close shape</button><button id="path-cancel" title="Cancel drawing (Escape)">Cancel</button></span><span id="canvas-hint">Click an object · Shift to select more</span><button id="reference-toggle" aria-label="Toggle reference overlay" aria-pressed="false" aria-keyshortcuts="O" hidden><span class="reference-dot" aria-hidden="true"></span><span id="reference-status">Overlay hidden</span><kbd>O</kbd></button></div>
+    <div id="stage" tabindex="0" aria-label="SVG canvas"><div class="canvas-label" id="canvas-label">ARTBOARD</div><div id="artboard"><div id="drawing"></div><img id="reference-image" alt="Reference overlay" hidden><svg id="overlay" xmlns="http://www.w3.org/2000/svg" aria-label="Selection and node handles"></svg></div><div id="busy" hidden><span class="spinner"></span><span id="busy-label">Working…</span></div></div>
+    <footer class="canvas-footer"><span id="dimensions">—</span><span id="selection-status">Nothing selected</span><div class="zoom-controls"><button id="fit" title="Fit drawing (F)">Fit</button><button id="zoom-out" aria-label="Zoom out">−</button><span id="zoom-percent">100%</span><button id="zoom-in" aria-label="Zoom in">+</button></div></footer>
+  </section>
+  <aside class="inspector"><div class="panel-heading"><h2 id="inspector-title">Inspector</h2><span id="selection-kind" class="pill">Drawing</span></div>
+    <section id="object-name-section" class="inspector-section" hidden><label class="field-label" for="object-name">Object name</label><input id="object-name" maxlength="200" placeholder="Automatic name" title="Enter to rename · Escape to cancel · Clear to restore automatic name"></section>
+    <div id="empty-inspector" class="empty-inspector"><svg viewBox="0 0 64 64"><path d="M17 10 48 34 31 37 23 55Z"/></svg><h3>A little more control.</h3><p>Select an object to adjust its paint, move it, or refine its contour.</p><div class="shortcut"><kbd>V</kbd><span>Select objects</span></div><div class="shortcut"><kbd>N</kbd><span>Edit path nodes</span></div></div>
+    <div id="node-inspector" hidden>
+      <section class="inspector-section"><span class="eyebrow">PATH</span><div id="node-path-name" class="selected-name"></div><p id="node-path-stats" class="muted"></p><button id="node-detach" class="wide-button" hidden>Detach to editable path</button></section>
+      <section id="node-section" class="inspector-section"><div class="section-title"><h3>Selected point</h3><span id="node-count" class="count" title="Visible points / total points"></span></div><p id="node-hint" class="muted">Choose a point on the canvas.</p>
+        <div id="node-properties" hidden><p id="node-type" class="eyebrow"></p><div class="two-fields"><label>X<input id="node-x" type="number" step="0.1"></label><label>Y<input id="node-y" type="number" step="0.1"></label></div><button id="node-apply" class="wide-button">Apply coordinates</button><label class="toggle"><input id="node-pin" type="checkbox"> Pin endpoint</label><div class="button-row"><button id="node-split">Split edge</button><button id="node-delete">Delete point</button></div></div>
+      </section>
+      <section class="inspector-section"><h3>Editing nodes</h3><p class="muted">Click a point to inspect it. Drag points to reshape the contour, or drag blue handles to adjust a curve. Zoom in to reveal nearby points.</p><p class="muted">Pin an endpoint to keep it in place. Split edge adds a point on the edge leading into the selected point.</p><div class="shortcut"><kbd>Delete</kbd><span>Delete selected point</span></div><button id="node-select-tool" class="wide-button">Element properties (V)</button></section>
+    </div>
+    <div id="object-inspector" hidden>
+      <section class="inspector-section"><label class="eyebrow" for="selected-id">SELECTION</label><div id="selected-id" class="selected-name"></div><div class="button-row"><button id="backward" title="Move backward">↓ Back</button><button id="forward" title="Move forward">↑ Front</button></div></section>
+      <section id="object-relationships" class="inspector-section" hidden><h3>Role &amp; connections</h3><p id="relationship-description" class="muted"></p><div id="relationship-links"></div></section>
+      <section id="paint-section" class="inspector-section"><h3 id="paint-heading">Paint</h3><label class="field-label" for="fill-value">Fill</label><div class="paint-row"><input id="fill-color" type="color" aria-label="Fill colour"><input id="fill-value" placeholder="Inherited" aria-label="Fill value"><button id="fill-none" class="icon-button" title="No fill" aria-label="No fill">∅</button></div><p id="fill-source" class="paint-source"></p><label class="field-label" for="stroke-value">Stroke</label><div class="paint-row"><input id="stroke-color" type="color" aria-label="Stroke colour"><input id="stroke-value" placeholder="None" aria-label="Stroke value"><button id="stroke-none" class="icon-button" title="No stroke" aria-label="No stroke">∅</button></div><p id="stroke-source" class="paint-source"></p><div class="two-fields"><label>Width<input id="stroke-width" type="number" min="0" step="0.25" placeholder="1"></label><label>Opacity %<input id="opacity" type="number" min="0" max="100" step="1" placeholder="100"></label></div></section>
+      <section class="inspector-section"><h3>Move</h3><div class="two-fields"><label>X offset<input id="move-x" type="number" value="0" step="1"></label><label>Y offset<input id="move-y" type="number" value="0" step="1"></label></div><button id="move-apply" class="wide-button">Apply offset</button></section>
+
+      <section class="inspector-section"><h3>Shared boundaries</h3><p id="contact-hint" class="muted">Select two paths to match touching edges.</p><button id="share-boundaries" class="wide-button">Share boundary…</button><button id="unlink-boundaries" class="wide-button" hidden>Unlink boundaries</button></section>
+      <section id="hole-section" class="inspector-section" hidden><h3>Holes</h3><button id="inspect-holes" class="wide-button">Inspect holes</button><fieldset id="hole-controls" hidden><p class="muted">Click holes on the canvas or check them below.</p><div class="two-fields"><label>Maximum area (px²)<input id="hole-max-area" type="number" min="0" value="100" step="1"></label></div><div class="button-row"><button id="hole-small">Select by size</button><button id="hole-clear">Clear</button></div><label class="toggle"><input id="hole-all" type="checkbox"> Select all holes <span id="hole-total"></span></label><div id="hole-list" class="hole-list"></div><button id="hole-enclosed" class="wide-button">Find shapes inside chosen holes</button><div id="hole-enclosed-list"></div><button id="hole-fill" class="wide-button primary">Fill selected holes</button><button id="hole-close" class="wide-button">Done inspecting</button></fieldset></section>
+      <section class="inspector-section"><h3>Improve</h3><button id="smooth-shape" class="wide-button">Smooth / simplify…</button><button id="optimize-path" class="wide-button primary">Optimize path…</button><p id="optimize-hint" class="muted">Fit one selected path to the reference.</p></section>
+      <section class="inspector-section"><h3>Locks</h3><div class="lock-grid"><label><input type="checkbox" data-lock="geometry"> Geometry</label><label><input type="checkbox" data-lock="paint"> Paint</label><label><input type="checkbox" data-lock="transform"> Position</label><label><input type="checkbox" data-lock="structure"> Structure</label></div></section>
+      <section class="inspector-section"><h3>Structure</h3><div class="button-row"><button id="group">Group</button><button id="ungroup">Ungroup</button></div><button id="join_paths" class="wide-button" title="Choose colors and join at the frontmost selected position">Join outlines</button><button id="split_disconnected" class="wide-button" title="Separate disconnected contours while keeping holes together">Split disconnected parts</button><button id="detach" class="wide-button">Detach shared geometry</button><button id="delete" class="wide-button danger">Delete selection</button></section>
+    </div>
+  </aside>
+</main>
+<div id="toast" role="status" aria-live="polite" hidden><span id="toast-message"></span><button id="toast-close" aria-label="Dismiss message">×</button></div>
+<dialog id="recovery-dialog" aria-labelledby="recovery-title"><h2 id="recovery-title">Restore saved project</h2><p>Browser recovery copies include the drawing, reference image and selection. Choose a copy to open it in this tab.</p><div id="recovery-list"></div><button id="recovery-close">Cancel</button></dialog>
+<dialog id="contact-dialog" aria-labelledby="contact-title"><h2 id="contact-title">Share boundary</h2><p>Automatically match touching edges of the two selected paths. The frontmost contour stays in place; the other contour snaps to it. Regions keep their own colors.</p><label>Contact distance (SVG units)<input id="contact-distance" type="number" min="0.01" max="20" step="0.25" value="1"></label><p class="muted">Linked endpoints and handles move together, even when only one region is selected. Pins and locks still apply. Save a project to keep these links; SVG preserves the contours but not the editing links.</p><div id="contact-previews" class="simplify-previews" hidden><figure><figcaption>Before</figcaption><img id="contact-before" alt="Regions before boundary matching"></figure><figure><figcaption>After · shared edges highlighted</figcaption><img id="contact-after" alt="Matched edges highlighted in cyan"></figure></div><p id="contact-status" role="status"></p><p id="contact-error" hidden></p><div class="join-actions"><button id="contact-close">Cancel</button><button id="contact-preview">Preview</button><button id="contact-apply" class="primary" hidden>Apply shared boundary</button></div></dialog>
+<dialog id="simplify-dialog" aria-labelledby="simplify-title">
+  <h2 id="simplify-title">Smooth / simplify</h2>
+  <p id="simplify-summary"></p>
+  <p class="muted">Replace noisy segments with fewer lines and curves. Higher tolerance allows more smoothing.</p>
+  <fieldset id="simplify-settings"><div class="two-fields"><label>Contour tolerance (SVG units)<input id="simplify-tolerance" type="number" min="0.01" max="100" step="0.25" value="1"></label><label class="toggle"><input id="simplify-corners" type="checkbox" checked> Keep sharp corners</label></div><p class="muted">Pinned endpoints stay fixed; holes and separate parts are preserved. Paint and stacking stay unchanged. No reference image needed.</p></fieldset>
+  <p id="simplify-status" role="status" aria-live="polite"></p>
+  <div id="simplify-previews" hidden><div class="simplify-previews"><figure><figcaption>Before</figcaption><img id="simplify-before" alt="Shape before simplification"></figure><figure><figcaption>After</figcaption><img id="simplify-after" alt="Smoothed and simplified shape"></figure></div><p id="simplify-stats"></p></div>
+  <p id="simplify-error" role="alert" hidden></p>
+  <div class="join-actions"><button id="simplify-close">Cancel</button><button id="simplify-run">Preview</button><button id="simplify-apply" class="primary" hidden>Apply</button></div>
+</dialog>
+<dialog id="optimize-dialog" aria-labelledby="optimize-title">
+  <h2 id="optimize-title">Optimize path</h2>
+  <p id="optimize-summary"></p><p class="muted">Path-fit mutator · GPU gradient fitting against your reference.</p>
+  <fieldset id="optimize-settings"><legend>Allow changes to</legend>
+    <div class="button-row"><label class="toggle"><input id="optimize-nodes" type="checkbox" checked> Nodes</label><label class="toggle"><input id="optimize-handles" type="checkbox" checked> Handles</label><label class="toggle"><input id="optimize-color" type="checkbox" checked> Color</label></div>
+    <div class="two-fields"><label>GPU steps<input id="optimize-steps" type="number" min="1" max="1000" value="8"></label><label>Maximum movement (SVG units)<input id="optimize-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
+    <label class="field-label">Preview resolution<select id="optimize-resolution"><option value="384">384 px</option><option value="768" selected>768 px</option><option value="1536">1536 px</option><option value="2048">2048 px</option></select></label>
+    <p class="muted">Pinned endpoints stay fixed. Other objects, path topology, holes, and stacking stay fixed.</p>
+  </fieldset>
+  <div id="optimize-progress" hidden><progress id="optimize-meter" max="100" value="0"></progress><p id="optimize-status" role="status" aria-live="polite"></p></div>
+  <div id="optimize-previews" hidden><div class="fit-previews"><figure><figcaption>Reference</figcaption><img id="optimize-reference" alt="Reference crop"></figure><figure><figcaption>Before</figcaption><img id="optimize-before" alt="Path before fitting in its surrounding artwork"></figure><figure><figcaption>After</figcaption><img id="optimize-after" alt="Path-fit preview in its surrounding artwork"></figure></div><p id="optimize-metrics"></p></div>
+  <p id="optimize-error" role="alert" hidden></p>
+  <div class="join-actions"><button id="optimize-close">Cancel</button><button id="optimize-stop" hidden>Stop &amp; keep best</button><button id="optimize-run" class="primary">Run path fit</button><button id="optimize-apply" class="primary" hidden>Apply</button></div>
+</dialog>
+<dialog id="join-dialog" aria-labelledby="join-title">
+  <h2 id="join-title">Join paths</h2>
+  <p id="join-summary"></p>
+  <fieldset class="join-section"><legend>Colors</legend>
+    <p class="muted">Choose the fill and stroke colors for the joined shape. Width and overall opacity remain area-weighted.</p>
+    <div id="join-color-options"></div>
+  </fieldset>
+  <p class="muted">The result uses the frontmost selected position. You can undo the entire join.</p>
+  <p id="join-error" role="alert" hidden></p>
+  <div class="join-actions"><button id="join-cancel">Cancel</button><button id="join-confirm" class="primary">Join paths</button></div>
+</dialog>
+<dialog id="help-dialog"><h2>Make it yours.</h2><p>Small, precise edits. One undoable action at a time.</p><dl><dt>V / N / P / H</dt><dd>Select / nodes / draw path / pan</dd><dt>Drawing a path</dt><dd>Click for corners; drag for curved handles. Click the first point to close, or Enter to finish open. Backspace removes a point; Escape cancels.</dd><dt>Middle mouse drag</dt><dd>Pan with any tool</dd><dt>Space + drag</dt><dd>Pan the canvas</dd><dt>Scroll</dt><dd>Zoom around the pointer</dd><dt>Repeat a canvas click</dt><dd>Cycle overlapping shapes, front to back</dd><dt>Shift + click</dt><dd>Add or remove an object from selection</dd><dt>Ctrl / ⌘ + click</dt><dd>Add or remove an object in the object tree</dd><dt>Ctrl / ⌘ Z</dt><dd>Undo · add Shift to redo</dd><dt>Ctrl / ⌘ S</dt><dd>Save the editable project</dd><dt>F</dt><dd>Fit the drawing</dd><dt>O</dt><dd>Hide / show reference overlay</dd><dt>Delete</dt><dd>Delete selected point in Nodes; selected objects in Select</dd></dl><p class="muted">Open SVGs or Vectrify projects. Project files preserve IDs, pins, locks and the reference image. SVG export preserves the drawing.</p><button id="help-close" class="primary">Back to the drawing</button></dialog>
+<input id="svg-file" type="file" accept=".svg,.json,.vectrify" hidden><input id="reference-file" type="file" accept="image/png,image/jpeg,image/webp" hidden>
+<script type="module" src="/app.js"></script>
+</body></html>
