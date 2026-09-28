@@ -1,7 +1,7 @@
 [project]
 name = "vectrify"
 dynamic = ["version"]
-description = "Vectorizes raster images (PNG/JPG) using a mix of LLMs and NSGA-II multi-objective optimization. Outputs SVG and other vector formats."
+description = "Vectorizes raster images (PNG/JPG) using a mix of LLMs and NSGA-II multi-objective optimization. Outputs editable SVG."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -17,8 +17,6 @@ keywords = [
     "openai",
     "anthropic",
     "gemini",
-    "graphviz",
-    "typst",
     "nsga",
     "evolutionary",
 ]
@@ -65,14 +63,8 @@ samvg = [
     "torchvision>=0.28.0",
     "transformers>=4.49.0",
 ]
-graphviz = [
-    "graphviz>=0.21",
-]
-typst = [
-    "typst>=0.11.0",
-]
 all = [
-    "vectrify[vision,samvg,graphviz,typst]",
+    "vectrify[vision,samvg]",
 ]
 dev = [
     "pytest",

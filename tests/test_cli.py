@@ -7,6 +7,16 @@ def test_parse_args_basic():
     args = parse_args(["input.png", "--workers", "4"])
     assert args.image == "input.png"
     assert args.workers == 4
+    assert args.output == "output.svg"
+    assert not hasattr(args, "format")
+
+
+@pytest.mark.parametrize("name", ["svg", "graphviz", "typst"])
+def test_format_selection_is_no_longer_a_cli_option(name, capsys):
+    with pytest.raises(SystemExit) as exc:
+        parse_args(["input.png", "--format", name])
+    assert exc.value.code == 2
+    assert "unrecognized arguments: --format" in capsys.readouterr().err
 
 
 def test_max_wall_seconds_zero_becomes_none():

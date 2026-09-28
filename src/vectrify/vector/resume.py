@@ -21,7 +21,7 @@ from vectrify.search.diversity import simhash
 from vectrify.search.nsga import build_objectives, pareto_select
 
 if TYPE_CHECKING:
-    from vectrify.formats.base import FormatPlugin
+    from vectrify.formats.base import SvgBackend
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +80,7 @@ def prefilter_nodes(
 
 def resume_nodes(
     resumed_items: list[tuple[int, str]],
-    format_plugin: "FormatPlugin",
+    format_plugin: "SvgBackend",
     original_img: Image.Image,
     original_w: int,
     original_h: int,

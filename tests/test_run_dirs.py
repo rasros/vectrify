@@ -1,18 +1,16 @@
 from pathlib import Path
 
-from vectrify.formats.graphviz.plugin import GraphvizPlugin
 from vectrify.formats.svg.plugin import SvgPlugin
-from vectrify.formats.typst.plugin import TypstPlugin
 from vectrify.run_dirs import OUTPUT_EXTENSIONS, project_runs_dir, run_dirs_in
 
 
-def test_output_extensions_match_plugins():
-    plugin_exts = {
-        SvgPlugin.file_extension,
-        GraphvizPlugin.file_extension,
-        TypstPlugin.file_extension,
-    }
-    assert plugin_exts == OUTPUT_EXTENSIONS
+def test_output_extensions_match_svg():
+    assert {SvgPlugin.file_extension} == OUTPUT_EXTENSIONS
+
+
+def test_removed_output_formats_are_not_treated_as_svg_projects(tmp_path):
+    assert project_runs_dir(tmp_path / "drawing.dot") is None
+    assert project_runs_dir(tmp_path / "drawing.typ") is None
 
 
 def test_project_runs_dir_from_output_file(tmp_path):

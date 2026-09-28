@@ -29,7 +29,6 @@ def _make_storage(tmp_path):
     plugin = SvgPlugin()
     storage = FileStorageAdapter(
         output_path=str(tmp_path / "out.svg"),
-        file_extension=plugin.file_extension,
         resume=False,
     )
     return plugin, storage
@@ -112,7 +111,6 @@ def test_run_svg_search_end_to_end(tmp_path):
     plugin = SvgPlugin()
     storage = FileStorageAdapter(
         output_path=str(out_svg_path),
-        file_extension=plugin.file_extension,
         resume=False,
     )
 

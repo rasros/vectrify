@@ -5,7 +5,7 @@ import pytest
 from vectrify.main import (
     _fail,
     determine_provider_and_model,
-    format_extension_warning,
+    svg_extension_warning,
 )
 
 _KEYS = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GEMINI_API_KEY")
@@ -60,31 +60,17 @@ def test_explicit_model_is_preserved(monkeypatch):
     assert model == "custom-model"
 
 
-@pytest.mark.parametrize(
-    ("output", "fmt", "ext"),
-    [
-        ("out.svg", "svg", ".svg"),
-        ("out.dot", "graphviz", ".dot"),
-        ("OUT.SVG", "svg", ".svg"),  # extension check is case-insensitive
-    ],
-)
-def test_extension_match_no_warning(output, fmt, ext):
-    assert format_extension_warning(output, fmt, ext) is None
+@pytest.mark.parametrize("output", ["out.svg", "OUT.SVG"])
+def test_extension_match_no_warning(output):
+    assert svg_extension_warning(output) is None
 
 
-@pytest.mark.parametrize(
-    ("output", "fmt", "ext"),
-    [
-        ("out.svg", "graphviz", ".dot"),
-        ("out.dot", "svg", ".svg"),
-        ("out", "typst", ".typ"),  # no extension at all
-    ],
-)
-def test_extension_mismatch_warns(output, fmt, ext):
-    msg = format_extension_warning(output, fmt, ext)
+@pytest.mark.parametrize("output", ["out.png", "out.txt", "out"])
+def test_extension_mismatch_warns(output):
+    msg = svg_extension_warning(output)
     assert msg is not None
-    assert fmt in msg
-    assert ext in msg
+    assert "SVG (.svg)" in msg
+    assert output in msg
 
 
 def test_fail_without_debug_shows_hint_not_traceback(capsys):

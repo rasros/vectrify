@@ -130,7 +130,7 @@ def test_eviction_row_lands_in_the_evicted_column(tmp_path, dummy_node):
 
 def test_load_resume_nodes(tmp_path):
     adapter = FileStorageAdapter(
-        str(tmp_path / "resume_test.svg"), resume=True, file_extension=".svg"
+        str(tmp_path / "resume_test.svg"), resume=True
     )
     adapter.initialize()
 

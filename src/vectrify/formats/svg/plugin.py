@@ -143,7 +143,7 @@ class SvgPlugin:
         because every entry in that table is a pure markup transform -- it never
         sees the picture -- and the fit needs the reference and a render of the
         rest of the drawing. Keeping it out of the table leaves that contract
-        intact for the other two backends.
+        independent of raster fitting.
         """
         wants_fit = operator == PATH_FIT or (
             operator is None

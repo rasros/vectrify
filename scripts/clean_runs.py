@@ -170,7 +170,7 @@ def resolve_run_dirs(path: Path) -> list[tuple[Path, list[Path]]]:
     Return a list of (runs_dir, [run_dir, ...]) groups to clean.
 
     Accepts:
-      - an output file (.svg/.dot/.typ) → output/runs/
+      - an output file (.svg) → output/runs/
       - project_dir/            → project_dir/runs/
       - project_dir/runs/       → all run dirs inside
       - single run dir          → that dir only

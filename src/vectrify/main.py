@@ -6,7 +6,7 @@ from pathlib import Path
 
 from vectrify.cli import parse_args
 from vectrify.dashboard import Dashboard
-from vectrify.formats import get_plugin
+from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, api_key_env
 from vectrify.search.stats import SearchStats
 from vectrify.utils import setup_logger
@@ -64,16 +64,14 @@ def _fail(message: str, debug: bool) -> None:
     sys.exit(1)
 
 
-def format_extension_warning(
-    output_path: str, fmt: str, expected_ext: str
-) -> str | None:
-    """Return a warning if the output extension doesn't match --format, else None."""
+def svg_extension_warning(output_path: str) -> str | None:
+    """Warn when an SVG output uses a misleading filename extension."""
     actual = Path(output_path).suffix.lower()
-    if actual == expected_ext:
+    if actual == ".svg":
         return None
     return (
         f"Output path '{output_path}' has extension '{actual or '(none)'}' but "
-        f"--format {fmt} produces '{expected_ext}' files; writing it anyway."
+        "Vectrify produces SVG (.svg); writing SVG content anyway."
     )
 
 
@@ -89,9 +87,9 @@ def main():
         logger.debug(f"  {key}: {val}")
     logger.debug("==========================")
 
-    plugin = get_plugin(args.format)
+    plugin = SvgPlugin()
 
-    mismatch = format_extension_warning(args.output, args.format, plugin.file_extension)
+    mismatch = svg_extension_warning(args.output)
     if mismatch:
         logger.warning(mismatch)
 
@@ -103,7 +101,6 @@ def main():
 
     storage = FileStorageAdapter(
         output_path=args.output,
-        file_extension=plugin.file_extension,
         resume=args.resume,
         resume_top=args.resume_top,
         save_raster=args.save_raster,

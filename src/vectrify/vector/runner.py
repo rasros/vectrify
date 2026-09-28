@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vectrify.dashboard import Dashboard
-    from vectrify.formats.base import FormatPlugin
+    from vectrify.formats.base import SvgBackend
     from vectrify.search.stats import SearchStats
 
 from PIL import Image, UnidentifiedImageError
@@ -307,7 +307,7 @@ def run_vector_search(
     llm_provider: str,
     llm_model: str,
     reasoning: str,
-    format_plugin: "FormatPlugin",
+    format_plugin: "SvgBackend",
     resolution_llm: int = DEFAULT_RESOLUTION_LLM,
     score_resolution: int | None = None,
     edge_tolerance: float | None = None,
@@ -519,79 +519,70 @@ def run_vector_search(
     # in the main process so SAM is loaded once, not once per worker.
     resumed_seed_nodes = list(initial_nodes)
     if samvg_seed:
-        if getattr(format_plugin, "name", None) != "svg":
-            log.info("SAMVG-inspired seed skipped: it is available for SVG only.")
-        else:
-            try:
-                content = format_plugin.extract_from_llm(
-                    generate_svg(
-                        original_img,
-                        min_pixels=samvg_min_pixels,
-                        min_impact=samvg_min_impact,
-                        max_layers=samvg_max_layers,
-                        segments=samvg_segments,
-                        fill_holes=samvg_fill_holes,
-                        hybrid_strokes=samvg_hybrid_strokes,
-                        ocr=samvg_ocr,
-                        max_side=samvg_max_side,
-                        model=samvg_model,
-                        points_per_batch=samvg_points_per_batch,
-                        rasterize=lambda svg, width, height: format_plugin.rasterize(
-                            svg, out_w=width, out_h=height
+        try:
+            content = format_plugin.extract_from_llm(
+                generate_svg(
+                    original_img,
+                    min_pixels=samvg_min_pixels,
+                    min_impact=samvg_min_impact,
+                    max_layers=samvg_max_layers,
+                    segments=samvg_segments,
+                    fill_holes=samvg_fill_holes,
+                    hybrid_strokes=samvg_hybrid_strokes,
+                    ocr=samvg_ocr,
+                    max_side=samvg_max_side,
+                    model=samvg_model,
+                    points_per_batch=samvg_points_per_batch,
+                    rasterize=lambda svg, width, height: format_plugin.rasterize(
+                        svg, out_w=width, out_h=height
+                    ),
+                )
+            )
+            valid, error = format_plugin.validate(content)
+            if not valid:
+                raise ValueError(error or "generated SVG failed validation")
+            png = format_plugin.rasterize(content, out_w=original_w, out_h=original_h)
+            comparison = compare(pixel_ref, png)
+            metrics = {
+                EDGE: overlap_distance(
+                    comparison.reference_edges, comparison.candidate_edges
+                ),
+                COLOUR: float(comparison.colour.mean()),
+                SHAPE: comparison.shape,
+                DETAIL: detail_excess(reference_detail, png),
+            }
+            for segment in segments:
+                metrics[segment.metric_name] = segment_error(
+                    comparison, segment.mask, detail=segment.detail
+                )
+            node_id = max((node.id for node in initial_nodes), default=0) + 1
+            seed = SearchNode(
+                valid=True,
+                id=node_id,
+                parent_id=0,
+                metrics=metrics,
+                signature=simhash(content),
+                state=ChainState(
+                    VectorStatePayload(
+                        content=content,
+                        raster_data_url=None,
+                        raster_preview_data_url=make_preview_data_url(
+                            png, resolution_llm
                         ),
+                        origin="SAMVG-inspired seed",
                     )
-                )
-                valid, error = format_plugin.validate(content)
-                if not valid:
-                    raise ValueError(error or "generated SVG failed validation")
-                png = format_plugin.rasterize(
-                    content, out_w=original_w, out_h=original_h
-                )
-                comparison = compare(pixel_ref, png)
-                metrics = {
-                    EDGE: overlap_distance(
-                        comparison.reference_edges, comparison.candidate_edges
-                    ),
-                    COLOUR: float(comparison.colour.mean()),
-                    SHAPE: comparison.shape,
-                    DETAIL: detail_excess(reference_detail, png),
-                }
-                for segment in segments:
-                    metrics[segment.metric_name] = segment_error(
-                        comparison, segment.mask, detail=segment.detail
-                    )
-                node_id = max((node.id for node in initial_nodes), default=0) + 1
-                seed = SearchNode(
-                    valid=True,
-                    id=node_id,
-                    parent_id=0,
-                    metrics=metrics,
-                    signature=simhash(content),
-                    state=ChainState(
-                        VectorStatePayload(
-                            content=content,
-                            raster_data_url=None,
-                            raster_preview_data_url=make_preview_data_url(
-                                png, resolution_llm
-                            ),
-                            origin="SAMVG-inspired seed",
-                        )
-                    ),
-                )
-                storage.save_node(seed)
-                initial_nodes.append(seed)
-                initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
-                root = ET.fromstring(content)
-                layer_count = sum(
-                    element.tag.split("}")[-1] == "path" for element in root.iter()
-                )
-                log.info(
-                    "Added SAMVG-inspired seed with %d traced layer(s).", layer_count
-                )
-            except Exception as exc:
-                raise RuntimeError(
-                    f"SAMVG-inspired seed generation failed: {exc}"
-                ) from exc
+                ),
+            )
+            storage.save_node(seed)
+            initial_nodes.append(seed)
+            initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
+            root = ET.fromstring(content)
+            layer_count = sum(
+                element.tag.split("}")[-1] == "path" for element in root.iter()
+            )
+            log.info("Added SAMVG-inspired seed with %d traced layer(s).", layer_count)
+        except Exception as exc:
+            raise RuntimeError(f"SAMVG-inspired seed generation failed: {exc}") from exc
 
     # With the LLM disabled the search can only mutate existing candidates, so
     # without at least one it would dispatch nothing and idle until the wall
@@ -656,8 +647,6 @@ def run_vector_search(
     # bounded resource instead of multiplying its memory footprint by the CPU
     # worker count.
     gpu_gate = mp.get_context("spawn").Semaphore(1)
-    # Only the SVG plugin consumes this optional hook; other format plugins
-    # safely ignore the shared resource handle.
     format_plugin.gpu_gate = gpu_gate
 
     def _front_scorer() -> tuple[Any, Any]:
