@@ -22,7 +22,9 @@ def document(body):
 
 
 def render(svg):
-    return np.asarray(Image.open(io.BytesIO(cairosvg.svg2png(bytestring=svg.encode()))))
+    png = cairosvg.svg2png(bytestring=svg.encode())
+    assert png is not None
+    return np.asarray(Image.open(io.BytesIO(png)))
 
 
 def test_redundant_vertices_removed_without_changing_hole_or_sharp_tip():
@@ -47,7 +49,9 @@ def test_merge_matching_strokes_preserves_subpath_caps_and_reversals():
     cleaned, stats = cleanup_svg_geometry(svg)
     assert stats["paths_merged"] == 1
     assert stats["vertices_removed"] == 0
-    data = ET.fromstring(cleaned).find(".//" + NS + "path").get("d")
+    path = ET.fromstring(cleaned).find(".//" + NS + "path")
+    assert path is not None
+    data = path.attrib["d"]
     assert data.count("M") == 2
     assert data.endswith("Z")
     assert np.array_equal(render(svg), render(cleaned))

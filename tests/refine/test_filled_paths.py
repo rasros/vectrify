@@ -288,8 +288,8 @@ def test_filled_fit_bounds_geometry_drift_but_still_fits_colour(
     )
     before = next(el for el in ET.fromstring(SVG).iter() if el.get("d"))
     after = next(el for el in ET.fromstring(fitted).iter() if el.get("d"))
-    original = np.asarray(parse_filled_cubics(before.get("d")))
-    actual = np.asarray(parse_filled_cubics(after.get("d")))
+    original = np.asarray(parse_filled_cubics(before.attrib["d"]))
+    actual = np.asarray(parse_filled_cubics(after.attrib["d"]))
     movement = np.linalg.norm(actual - original, axis=-1)
     # Half-resolution fitting: .25 working pixels = .5 source pixels.
     assert 0 < movement.max() <= 0.501  # SVG decimal rounding tolerance
