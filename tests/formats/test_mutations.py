@@ -19,7 +19,7 @@ def test_pick_operator_returns_the_named_one():
 
 
 def test_pick_operator_falls_back_to_a_weighted_draw():
-    """A policy carried over from another format names operators this backend
+    """An older policy can name operators the current implementation
     does not have; losing the task would cost more than losing the choice."""
     random.seed(0)
     assert pick_operator(TABLE, "not-a-real-operator")[1] in {"upper", "lower"}

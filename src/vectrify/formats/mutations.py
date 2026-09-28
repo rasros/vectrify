@@ -1,6 +1,6 @@
-"""Operator tables shared by the format backends.
+"""Named SVG mutation operators and their selection weights.
 
-Every backend declares its mutations as (function, name, weight) triples. The
+Mutations are declared as (function, name, weight) triples. The
 name is the identifier the engine's policy selects by, so it has to be stable:
 it appears in tasks, in results, and in whatever the policy has learned about
 the run so far.

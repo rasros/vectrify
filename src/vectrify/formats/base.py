@@ -5,8 +5,6 @@ import re
 from collections.abc import Mapping
 from typing import Any, Protocol
 
-from vectrify.image_utils import png_resize_exact
-
 log = logging.getLogger(__name__)
 
 _SEARCH_REPLACE_RE = re.compile(
@@ -137,10 +135,12 @@ def apply_search_replace(parent: str, raw: str) -> str | None:
     return result
 
 
-class FormatPlugin(Protocol):
+class SvgBackend(Protocol):
+    """SVG operations consumed by the search runner and resume loader."""
+
     name: str
     file_extension: str
-    # Optional run-scoped resource shared by GPU-aware format plugins.
+    # Run-scoped resource shared by GPU-aware SVG operations.
     gpu_gate: Any
 
     def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
@@ -152,7 +152,7 @@ class FormatPlugin(Protocol):
         ...
 
     def extract_from_llm(self, raw: str) -> str:
-        """Parse the LLM's raw text response to extract format content (full file)."""
+        """Extract and normalize a complete SVG from an LLM response."""
         ...
 
     def apply_edit(self, parent: str, raw: str) -> str:
@@ -177,8 +177,8 @@ class FormatPlugin(Protocol):
         """Build the LLM generation/refinement prompt as content blocks.
 
         *canvas* is the raster size the candidate will be rendered and scored
-        at. Formats with their own coordinate space must pin it to this, so
-        every candidate in the pool shares one space: the genetic operators
+        at. SVG coordinates must be pinned to this, so every candidate in the
+        pool shares one space: the genetic operators
         graft elements between parents, and coordinates that meant different
         things in different spaces are silently misplaced by the graft.
         """
@@ -204,15 +204,14 @@ class FormatPlugin(Protocol):
         *operator* names one of ``mutation_weights``; None lets the backend
         pick for itself. *targets* weights which element to work on, by its
         position among the drawable elements. *reference_png* is available to
-        formats with image-aware operators.
+        image-aware SVG operators.
         """
         ...
 
     def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
         """How much error each element of *content* answers for.
 
-        Backends that cannot attribute error return an empty mapping, which
-        leaves mutation choosing its target uniformly.
+        An empty mapping leaves mutation choosing its target uniformly.
         """
         ...
 
@@ -229,8 +228,7 @@ class FormatPlugin(Protocol):
         """Elements that are in *content* and paint nothing, described for the
         model.
 
-        Backends that cannot resolve which element owns which pixel return an
-        empty list, and the prompt says nothing about it.
+        An empty list leaves the prompt without visibility guidance.
         """
         ...
 
@@ -246,73 +244,3 @@ class FormatPlugin(Protocol):
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
         """Crossover two contents. Return (new_content, origin)."""
         ...
-
-
-class BaseFormatPlugin:
-    """Shared plumbing for plugins whose renderer picks its own output size.
-
-    Subclasses supply ``_render_png`` and ``_compile``; rasterizing, validating,
-    and edit application are derived from those. ``extract_from_llm``, the
-    prompt builder, and the genetic operators stay format-specific.
-    """
-
-    name: str
-    file_extension: str
-    gpu_gate: Any = None
-
-    def _render_png(self, content: str) -> bytes:
-        """Render *content* to PNG bytes at the renderer's natural size."""
-        raise NotImplementedError
-
-    def _compile(self, content: str) -> None:
-        """Raise if *content* is not syntactically valid."""
-        raise NotImplementedError
-
-    def extract_from_llm(self, raw: str) -> str:
-        raise NotImplementedError
-
-    def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
-        return png_resize_exact(self._render_png(content), out_w, out_h)
-
-    def validate(self, content: str) -> tuple[bool, str | None]:
-        try:
-            self._compile(content)
-            return True, None
-        except Exception as e:
-            return False, str(e)
-
-    def apply_edit(self, parent: str, raw: str) -> str:
-        patched = apply_search_replace(parent, raw)
-        return patched if patched is not None else self.extract_from_llm(raw)
-
-    def apply_edits(self, parent: str, raw: str) -> list[str]:
-        candidates: list[str] = []
-        for section in split_alternatives(raw):
-            try:
-                candidates.append(self.apply_edit(parent, section))
-            except Exception as exc:  # one bad section must not fail the rest
-                log.debug(f"Dropping one alternative: {exc}")
-        if not candidates:
-            # Nothing applied, so raise the way a single edit would: the caller
-            # reports it and the seed retry asks for a replacement.
-            self.apply_edit(parent, raw)
-        return candidates
-
-    def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
-        """No attribution: mutation picks its target uniformly.
-
-        Resolving which element owns which pixel needs a renderer that can draw
-        one element at a time in a chosen colour, which these backends hand off
-        to an external tool.
-        """
-        _ = content, reference_png
-        return {}
-
-    def invisible_elements(self, content: str) -> list[str]:
-        """Nothing reported: the same renderer limit as `element_targets`."""
-        _ = content
-        return []
-
-    def operator_reward_scale(self) -> Mapping[str, float]:
-        """Every operator is a markup transform costing about the same."""
-        return {}

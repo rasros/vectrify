@@ -31,10 +31,11 @@ LINEAGE_COLUMNS = [
 
 
 class FileStorageAdapter:
+    file_extension = ".svg"
+
     def __init__(
         self,
         output_path: str,
-        file_extension: str = ".svg",
         resume: bool = False,
         resume_top: int | None = None,
         save_raster: bool = False,
@@ -42,7 +43,6 @@ class FileStorageAdapter:
         write_lineage: bool = True,
     ):
         self.output_path = Path(output_path)
-        self.file_extension = file_extension
         self.resume = resume
         self.resume_top = resume_top
         self.save_raster = save_raster

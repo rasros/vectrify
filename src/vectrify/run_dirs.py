@@ -5,10 +5,8 @@ Shared by scripts/plot_run.py and scripts/clean_runs.py.
 
 from pathlib import Path
 
-# Output extensions of the format plugins (SvgPlugin, GraphvizPlugin,
-# TypstPlugin). Kept as a plain set so the scripts don't have to import the
-# plugin stack; a test asserts it stays in sync with plugin.file_extension.
-OUTPUT_EXTENSIONS = {".svg", ".dot", ".typ"}
+# Keep path utilities independent of the SVG renderer.
+OUTPUT_EXTENSIONS = {".svg"}
 
 
 def project_runs_dir(path: Path) -> Path | None:

@@ -7,10 +7,11 @@
 vectrify turns a raster image into editable vector code. It asks an LLM for
 candidate drawings, compares their renders with the input image, and refines
 the strongest candidates over several search epochs using NSGA-II multi-
-objective evolutionary search. For SVG output, a path optimizer provides
+objective evolutionary search. A path optimizer provides
 additional geometric refinement.
 
-It currently writes SVG, Graphviz DOT, or Typst. SVG is the default.
+SVG is the only output format. The former `--format` option has been removed;
+omit it from existing commands, including commands that used `--format svg`.
 
 ## Install
 
@@ -21,17 +22,16 @@ pipx install "vectrify[vision]"  # recommended
 # or: uv tool install "vectrify[vision]"
 ```
 
-The vision extra enables the perceptual scorer. Use
-`pipx install "vectrify[all]"` to also install the Graphviz and Typst output
-backends.
+The vision extra enables the perceptual scorer. The `all` extra installs both
+vision and SAMVG support.
 
 A GPU is optional, but it speeds up both the SVG path optimizer and the
 perceptual scorer. A compatible PyTorch installation can use NVIDIA CUDA for
 both; the perceptual scorer can also use Apple MPS. Both components fall back
 to CPU, and the simple scorer does not require a GPU.
 
-Graphviz output also needs the Graphviz system package. SVG rendering needs
-Cairo. On Debian/Ubuntu, install both with `sudo apt install graphviz libcairo2`.
+SVG rendering needs Cairo. On Debian/Ubuntu, install it with
+`sudo apt install libcairo2`.
 
 Set one LLM provider key before running: OPENAI_API_KEY,
 ANTHROPIC_API_KEY, or GEMINI_API_KEY.
@@ -61,16 +61,12 @@ vectrify photo.jpg -o sketch.svg --seeds 10 --epochs 4 \
   --max-wall-seconds 1800
 vectrify mascot.png -o mascot.svg --segment-count 12  # tiles/local elites (default: 8)
 
-# Add the optional segmentation-derived SVG seed (SVG only)
+# Add the optional segmentation-derived SVG seed
 vectrify artwork.png -o artwork.svg --samvg-seed
 
 # Choose a provider, model, or scorer explicitly
 vectrify input.png --provider anthropic --model MODEL_NAME
 vectrify input.png --scorer simple
-
-# Write another vector format
-vectrify diagram.png -o diagram.dot --format graphviz
-vectrify page.png -o page.typ --format typst
 
 # Disable optional per-node artifacts
 vectrify input.png -o output.svg --no-save-raster --no-write-lineage

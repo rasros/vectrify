@@ -3,7 +3,6 @@ import os
 from importlib.metadata import PackageNotFoundError
 from importlib.metadata import version as _pkg_version
 
-from vectrify.formats import FORMAT_NAMES
 from vectrify.refine.samvg import (
     SAMVG_MAX_SIDE,
     SAMVG_MODEL,
@@ -42,11 +41,10 @@ DEFAULT_ADAPTIVE_OPERATORS = True
 DEFAULT_MAX_TOTAL_TASKS = None
 DEFAULT_SCORE_RESOLUTION = 256
 DEFAULT_EDGE_TOLERANCE = 2.0
-DEFAULT_FORMAT = "svg"
 DEFAULT_LOG_LEVEL = "INFO"
 
 DESCRIPTION = (
-    "Vectorize raster images into SVG, Graphviz, or Typst by combining vision "
+    "Vectorize raster images into SVG by combining vision "
     "LLMs with NSGA-II multi-objective evolutionary search. Each epoch opens "
     "with a batch of LLM candidates and then refines them with local search."
 )
@@ -63,9 +61,6 @@ Examples
 
   Steer the search with a custom goal:
       vectrify logo.png --goal "Use thick strokes only and avoid gradients"
-
-  Output a Graphviz DOT diagram instead of SVG:
-      vectrify diagram.png -o out.dot --format graphviz
 
   Resume an earlier run and keep only the 20 best nodes:
       vectrify input.png --resume --resume-top 20
@@ -102,15 +97,8 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "-o",
         default=DEFAULT_OUTPUT,
         metavar="PATH",
-        help="Output file path. Extension should match --format. "
+        help="Output SVG file path. Use the .svg extension. "
         f"Default: {DEFAULT_OUTPUT}",
-    )
-    parser.add_argument(
-        "--format",
-        type=str,
-        choices=list(FORMAT_NAMES),
-        default=DEFAULT_FORMAT,
-        help=f"Output vector format. Default: {DEFAULT_FORMAT}",
     )
     parser.add_argument(
         "--version",
@@ -208,8 +196,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         default=False,
         help="Add one SAMVG-inspired SVG seed made from automatic SAM masks, "
         "impact filtering, contour tracing, and Torch OCR. Requires "
-        "vectrify[samvg] and "
-        "is available for SVG output only. Default: off",
+        "vectrify[samvg]. Runs before evolutionary search. Default: off",
     )
     g_samvg.add_argument(
         "--samvg-model",
@@ -475,7 +462,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         metavar="PX",
         help="Working resolution for the whole run. The reference and every "
         "candidate are rendered at this long-side, and it fixes the coordinate "
-        "space candidates are written in (SVG viewBox, Typst page). Higher "
+        "space candidates are written in (SVG viewBox). Higher "
         "resolves finer geometry and costs proportionally more. Default: "
         f"{DEFAULT_RESOLUTION}",
     )
