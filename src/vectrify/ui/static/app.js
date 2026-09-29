@@ -413,7 +413,7 @@ $('node-detach').onclick=()=>action('detach');
 function localToOverlay(element) {
   const from = element?.getScreenCTM(), to = overlay.getScreenCTM();
   if (!from || !to) return null;
-  try { return to.inverse().multiply(from); } catch { return null; }
+  try { return DOMMatrix.fromMatrix(to.inverse().multiply(from)); } catch { return null; }
 }
 function selectionContour(source, seen = new Set(), inheritedPaint = null) {
   if (seen.has(source) || ['defs', 'clipPath'].includes(source.localName)) return null;
