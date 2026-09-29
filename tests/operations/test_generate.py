@@ -14,7 +14,6 @@ from vectrify.document import (
 )
 from vectrify.operations import Job, OperationRequest, Permissions, method
 from vectrify.operations.generate import (
-    artboard,
     generated_result,
     render_region,
     target_region,
@@ -145,7 +144,8 @@ def test_samvg_rejects_bad_settings_and_missing_permission():
 
 
 def test_artboard_defaults_without_a_viewbox():
-    assert artboard(import_svg('<svg width="30" height="40"/>')) == (0, 0, 30, 40)
+    assert import_svg('<svg width="30" height="40"/>').artboard() == (0, 0, 30, 40)
+    assert import_svg('<svg viewBox="1,2 3 4"/>').artboard() == (1, 2, 3, 4)
 
 
 def test_session_scope_drawing_generates_without_selecting_everything(monkeypatch):

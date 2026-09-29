@@ -157,18 +157,7 @@ class FitContext:
         self.document = document
         self.root = ET.fromstring(export_svg(document))
         self.path = next(e for e in self.root.iter() if e.get("id") == self.oid)
-        root = document.root
-        viewbox = root.get("viewBox")
-        vx, vy, vw, vh = (
-            [float(v) for v in viewbox.replace(",", " ").split()]
-            if viewbox
-            else [
-                0,
-                0,
-                float(root.get("width") or 1024),
-                float(root.get("height") or 768),
-            ]
-        )
+        vx, vy, vw, vh = document.artboard()
         matrix = IDENTITY
         for ancestor in document.ancestry(self.oid):
             matrix = multiply(matrix, transform(ancestor.get("transform")))

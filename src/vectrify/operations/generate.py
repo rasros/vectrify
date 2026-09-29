@@ -24,15 +24,6 @@ from vectrify.operations.contract import OperationRequest, OperationResult, Prop
 from vectrify.refine.selected import png_url
 
 
-def artboard(document: Document) -> tuple[float, float, float, float]:
-    root = document.root
-    viewbox = root.get("viewBox")
-    if viewbox:
-        x, y, w, h = (float(v) for v in viewbox.replace(",", " ").split())
-        return x, y, w, h
-    return 0, 0, float(root.get("width") or 1024), float(root.get("height") or 768)
-
-
 @dataclass(frozen=True)
 class Region:
     """A part of the artboard and the matching crop of the reference."""
@@ -59,7 +50,7 @@ def target_region(request: OperationRequest) -> Region:
         Image.new("RGBA", request.reference.size, "white"),
         request.reference.convert("RGBA"),
     ).convert("RGB")
-    vx, vy, vw, vh = artboard(request.snapshot.document)
+    vx, vy, vw, vh = request.snapshot.document.artboard()
     focus = request.snapshot.selection.focus
     if focus is None:
         return Region(vx, vy, vw, vh, reference)
