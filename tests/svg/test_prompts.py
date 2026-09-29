@@ -128,10 +128,10 @@ def test_gen_prompt_pins_the_viewbox_to_the_canvas():
     assert "0 0 W H" not in text
 
 
-def test_svg_prompt_states_the_division_of_labour_with_local_search():
+def test_svg_prompt_states_the_division_of_labour_with_refinement():
     blocks = build_svg_gen_prompt(_IMG_URL, 1, canvas=(512, 512))
     text = "\n".join(_text_blocks(blocks))
-    assert "local optimizer" in text
+    assert "refined afterwards" in text
     assert "Rough coordinates and approximate colors are fine" in text
 
 

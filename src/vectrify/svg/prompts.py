@@ -1,16 +1,16 @@
 import xml.etree.ElementTree as ET
 from typing import Any
 
-# What the local operators can and cannot reach, stated to the model so it
-# spends its one call on the other half. Mutation nudges numbers, shifts
-# colors and stroke widths, and moves elements; crossover grafts subtrees
-# between candidates. None of that invents a shape that was never proposed,
-# removes one that should not be there, or changes what an existing shape is.
+# What the editor's refinement can and cannot reach, stated to the model so it
+# spends its call on the other half. The search nudges numbers, shifts colors
+# and moves elements; path fitting and colour fitting tune what is there. None
+# of that invents a shape that was never drawn, removes one that should not be
+# there, or changes what an existing shape is.
 STRUCTURE_FIRST = """\
-Your output is a starting point: a local optimizer then spends thousands of \
-steps on it, moving and resizing parts and tuning their coordinates and \
-colors. What it cannot do is invent a shape you left out, remove a structure \
-you invented, or change what a shape fundamentally is.
+Your output is a starting point that can be refined afterwards: moving and \
+resizing parts and tuning their coordinates and colors. What refinement \
+cannot do is invent a shape you left out, remove a structure you invented, or \
+change what a shape fundamentally is.
 
 So spend your effort where only you can:
 - Every distinct part of the target is present, and nothing extra is.
@@ -24,7 +24,7 @@ thick stroke.
 - Counts are exact. Ten circles means ten, not "about ten".
 - The arrangement and proportions read correctly at a glance.
 
-Rough coordinates and approximate colors are fine — they get optimized away. \
+Rough coordinates and approximate colors are fine — they can be refined. \
 Do not spend effort deriving exact values."""
 
 
@@ -77,13 +77,13 @@ _DIFF_FORMAT_INSTRUCTIONS = diff_format_instructions(
 )
 
 # The attributes named here are the ones the operators mutate (_NUMERIC_ATTRS,
-# _COLOR_ATTRS and mutate_path in formats/svg/operations.py). Keep them in step.
+# _COLOR_ATTRS and mutate_path in svg/operations.py). Keep them in step.
 MUTABLE_SVG = """\
 Write the SVG this way:
 - A shape that is a circle, ellipse or rectangle is written as `<circle>`, \
 `<ellipse>` or `<rect>`; everything else is `<path d="...">`. A primitive \
-cannot be dented -- it only moves and resizes -- so it survives thousands of \
-optimizer steps that a hand-fitted path does not. The best eye any run has \
+cannot be dented -- it only moves and resizes -- so it survives refinement \
+that a hand-fitted path does not. The best eye any run has \
 produced was a white `<circle>` with a smaller black `<circle>` offset inside \
 it, where earlier runs fitted two paths and inverted the highlight.
 - Numbers in attributes: `x`, `y`, `cx`, `cy`, `r`, `rx`, `ry`, `width`, \
@@ -108,8 +108,7 @@ def build_svg_gen_prompt(
 
     *canvas* pins the viewBox. Left to itself the model copies whatever
     dimensions the prompt image happens to have, so changing the raster size
-    silently changes the coordinate space candidates are written in -- and
-    crossover grafts elements between parents without rescaling them.
+    would silently change the coordinate space its drawing is written in.
     """
     is_edit = svg_prev is not None
     if not is_edit:
@@ -145,11 +144,9 @@ def build_svg_gen_prompt(
         "- One group per part, however many strokes it takes: a wing drawn as"
         " a sweep and three feathers is one `wing`, not a `body_outline` and a"
         " `tail_feathers`.",
-        "- The numbered dots trace the outline. They are not a part, and the"
-        " lines inside them are what the subject is made of.",
         "- Wrap related elements in <g id='name'>: the groups are what later"
-        " edits and crossover graft between candidates, so they should follow"
-        " the target's own parts.",
+        " edits select and work on, so they should follow the target's own"
+        " parts.",
         "",
         STRUCTURE_FIRST,
         "",
@@ -164,19 +161,19 @@ def build_svg_gen_prompt(
         lines.append("Output ONLY the raw <svg>...</svg>. No markdown.")
     else:
         lines.append(
-            "The render below is already polished shape by shape, so nudging"
-            " its values gains nothing. Change what no amount of polishing"
-            " reaches: parts that are missing, extra, the wrong kind of thing,"
-            " or in the wrong place — reposition and resize whole parts where"
-            " the arrangement is off."
+            "The render of the current SVG is shown below the target. Make the"
+            " change the goal asks for. Where it leaves you a choice, prefer"
+            " what refinement cannot reach: parts that are missing, extra, the"
+            " wrong kind of thing, or in the wrong place. Leave small value"
+            " tweaks to refinement."
         )
 
     # Named because the model has no other way to know. On screen these are
     # simply absent, and in the markup they look like any other element -- so a
     # drawing can carry a nostril or an eye highlight through a whole run while
-    # painting neither. It is also the only operator that can fix one: making
-    # an occluded element show needs its draw order and its position changed
-    # together, and each mutation operator does one of those.
+    # painting neither. An edit is the natural fix: making an occluded element
+    # show needs its draw order and its position changed together, and each
+    # search mutation does only one of those.
     if is_edit and invisible:
         lines.append(
             "These elements are in the SVG and paint nothing — hidden behind"
