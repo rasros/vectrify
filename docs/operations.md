@@ -45,11 +45,13 @@ at once.
 
 Gradient fitting has one core, `refine.paths.fit_filled_svg`, which
 `improve/path-fit` wraps with exact compositing (clipping, group opacity and
-objects in front), pins and permissions, and SAMVG's recovery fit uses through
-`fit_filled_svg_bounded`.
+objects in front), pins and permissions. `fit_filled_svg_bounded` fits one
+spatial group at a time; `scripts/bench_samvg_two_phase.py` uses it for SAMVG's
+recovery fit.
 
 The editor exposes jobs through one endpoint, `POST /api/operation`, with the
-commands `start`, `status`, `stop`, `apply` and `discard`.
+commands `start`, `check` (validate a request without running it), `status`,
+`stop`, `apply` and `discard`.
 
 ## Built-in methods
 
@@ -74,31 +76,29 @@ The target container is the whole drawing (`scope: "drawing"` in the editor
 request) or one selected group. Element IDs in generated SVG are renamed, with
 their references, so repeated generations never collide.
 
-## Searching over the document
+## Replaying edited SVG
 
-Search methods mutate exported SVG, where every element keeps its object ID.
-`vectrify.operations.candidates.mutation_scope(request)` turns the selection
-(or the whole drawing's top-level objects) and the permissions into a
-`MutationScope`. Passed to the search workers as `WorkerContext.scope`, it
-limits every mutation to those elements and their descendants, runs only the
-operators whose edit kinds are allowed (colour and stroke changes need paint;
-numeric, move and path nudges need geometry; reordering needs structure and
-both siblings in scope).
+LLM edits and Clean up geometry change exported SVG, where every element keeps
+its object ID. `replay(tx, svg)` in `vectrify.operations.candidates` accepts
+such a candidate only by repeating its differences as transaction commands:
+deletions and insertions (structure), attribute edits, in-place node updates
+for an unchanged path structure, and sibling reorders. The transaction enforces
+selection, permissions, locks and pins, so a replayed edit is always one the
+user could have made by hand.
 
-`replay(tx, svg)` accepts a candidate only by repeating its differences as
-transaction commands: deletions and insertions (structure), attribute edits,
-in-place node updates for an unchanged path structure, and sibling reorders.
-Strict replay (the default, used by searches) raises `CandidateRejectedError`
-for a changed path structure or root; the transaction enforces selection,
-permissions, locks and pins, so a search can never make an edit the user could
-not have made by hand.
+Strict replay (the default) raises `CandidateRejectedError` for anything it
+cannot express, such as a changed root or element type. A changed path
+structure is rejected too, unless `contours=True` (used by cleanup) turns it
+into `Transaction.replace_geometry`.
 
 Lenient replay (`lenient=True`, used for LLM replies) instead leaves out every
 change outside the transaction's scope or permissions and counts it in
-`Replay.skipped`, and turns a changed path structure into
-`Transaction.replace_geometry` when geometry and structure are both allowed.
-Pass `baseline=` the original after the same normalization the candidate went
-through, so rounding introduced by that rewrite is never replayed.
+`Replay.skipped`, and replaces the contours of a path whose structure changed
+when geometry and structure are both allowed. Pass `baseline=` the original
+after the same normalization the candidate went through, so rounding
+introduced by that rewrite is never replayed. `mutation_scope(request)` turns
+the selection (or the whole drawing's top-level objects) and the permissions
+into the `MutationScope` the LLM prompt names as editable.
 
 ## Optimize nodes
 
@@ -119,9 +119,9 @@ when the score does not get worse. The result is applied with
 `Transaction.reshape_path`, which keeps surviving node IDs, refuses to move or
 remove pinned endpoints, and leaves linked boundary edges as they are.
 
-The editor's Optimize nodes dialog runs `improve/path-fit` instead when it can:
-the GPU fit, checked beforehand with `POST /api/operation` `{command: "check"}`,
-which validates a request without running it.
+The editor's Optimize nodes dialog runs `improve/path-fit` instead when Shape
+is the only move ticked, the GPU fit can run (it asks with `check` on opening)
+and the user has not picked the CPU search.
 
 ## LLM methods
 

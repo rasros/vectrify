@@ -20,7 +20,7 @@ FIT_STEPS_PER_PHASE = 500
 The dissertation leaves the SAM checkpoint, SAM confidence/stability gates,
 small-region and hole thresholds, impact threshold, circular-kernel radius,
 and optimiser hyperparameters as implementation choices.  Keep those as
-explicit parameters and benchmark them; do not infer a canonical value from a
+explicit parameters and measure them; do not infer a canonical value from a
 path-count target alone.
 
 ## Reported representation variations

@@ -1,4 +1,4 @@
-"""Snapshot-scoped rectangle selection over painted, clipped vector geometry.
+"""Where each object of a snapshot paints, over clipped vector geometry.
 
 Curves and round strokes are flattened with an explicit document-unit tolerance.
 The index is independent of rendering resolution and does not include occlusion

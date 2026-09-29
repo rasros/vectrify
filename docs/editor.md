@@ -3,13 +3,13 @@
 Start the editor with:
 
 ```sh
-uv run vectrify-ui
+uv run vectrify
 ```
 
 Or open a specific SVG and its reference image:
 
 ```sh
-uv run vectrify-ui drawing.svg --reference original.png --port 8765
+uv run vectrify drawing.svg --reference original.png --port 8765
 ```
 
 Open the printed localhost address in a browser. The server listens on loopback
@@ -53,14 +53,14 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   or **Cancel** discards the draft. Creation is one undoable edit and selects the
   new path for paint and node editing. Middle mouse panning works while drawing.
 - Group/ungroup, stacking order, delete and detach shared geometry.
-- **Join outlines** combines selected paths and groups, recursively including
+- **Join paths…** combines selected paths and groups, recursively including
   paths in nested groups and counting overlapping selections only once, even if other objects
   sit between them. The result always occupies the frontmost selected position;
   intervening objects stay in their existing order. Fill/stroke colours and
   numeric paint properties are averaged by clipped painted area (including
   strokes, excluding holes), so larger shapes contribute more. Colour alpha is
   included; fully unpainted selections fall back to equal weights. Clicking
-  Join opens an options dialog: keep the default area-weighted color mix or
+  Join paths opens an options dialog: keep the default area-weighted color mix or
   choose any participating path's fill/stroke colors (including inherited
   colors and fill/stroke alpha). Width and overall opacity stay area-weighted.
   Cancel leaves the document untouched; stacking remains fixed at frontmost.
@@ -74,7 +74,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   ancestry is split as needed so unselected objects retain their stacking,
   styling and clipping. Area weighting uses the original clipped painted areas.
   Filled regions and stroke-only outlines join separately. Cross-group joins
-  currently reject object-bounding-box clips, clipped stroke-only paths,
+  reject object-bounding-box clips, clipped stroke-only paths,
   non-uniformly scaled strokes, and group-opacity cases where splitting would
   change unselected artwork. Degenerate clip intersections use a winding-aware
   fallback; its curve tolerance is 0.01 SVG units (straight edges stay exact).
@@ -115,9 +115,8 @@ session; after a server restart, the tab restores that saved project. Edits made
 after the last save are not included in recovery. **Restore saved** also lets
 you choose a saved browser recovery copy from a new tab.
 
-## Current scope
+## Operations
 
-This is the first manual editor, brought forward from step 5 of the UI plan.
 **Optimize nodes…** reshapes the selected paths, or the paths inside selected
 groups. Tick what it may do: **Shape** moves points and curve handles, **Add
 detail** splits segments and moves the new point (only with a reference),
@@ -169,15 +168,15 @@ duplicate paths, and merges compatible neighbouring paths into compound paths,
 within the selection only. Paths referenced by instances or clips are kept.
 Coordinates are never rounded.
 
-
-Improve, Simplify and Share boundary run through the shared operation
+Generate, Improve, Simplify and Share boundary run through the shared operation
 contract in `vectrify.operations` (see `docs/operations.md`) via
 `POST /api/operation`.
 
 **Generate from reference…** (in the Reference panel) traces the reference into
 new shapes. The SAMVG method segments the image with SAM and traces each region
 into filled paths and thin strokes. Choose the model (ViT-H is best, ViT-B is
-faster), the maximum layers and curve segments. The result is placed over the
+faster), the maximum shapes and curves per outline, and whether to fill small
+holes and draw thin lines as strokes. The result is placed over the
 artboard exactly where the reference is shown, as one new group at the front of
 the whole drawing or of a selected group. With a group selected, only the
 reference around what it already paints is traced. Text is traced as shapes, since the editor
@@ -186,22 +185,27 @@ the change in reference error; Apply adds the group as one undoable edit.
 SAMVG needs the `samvg` extra and holds the GPU while it runs.
 
 The Colour regions method fits a palette on the GPU and traces each colour
-region, with an optional dark-outline layer ("Preserve dark linework") or clean
-mode ("Clean shared regions and ink"), which defines each region once and
-reuses it for fill and clip. Geometry cleanup merges compatible paths and drops
-redundant vertices afterwards. It needs CUDA and the `vision` extra.
+region. Dark outlines can be treated as ordinary regions, kept as separate
+linework, or kept as linework with the regions beneath cleaned up, which
+defines each region once and reuses it for fill and clip. **Merge and clean up
+geometry** merges compatible paths and drops redundant vertices afterwards. It
+needs CUDA and PyTorch (the `vision` or `samvg` extra).
 
-Node handles currently edit direct `path` elements. Local `use` instances can
+## Limits
+
+Node handles edit direct `path` elements. Local `use` instances can
 be selected, styled, moved and detached; editing a referenced source still
 requires selecting every affected consumer, as enforced by the backend. Groups
 with compositing or reference relationships that cannot be ungrouped without
-changing appearance return a clear error. Cutting a continuous path, welding endpoints and additional
-additional shape tools remain future manual-editing work.
+changing appearance return a clear error. There are no tools for cutting a
+continuous path or welding endpoints.
 
 Only the documented static SVG subset is accepted. Unsupported imports are
 reported instead of silently dropping content. The editor namespaces SVG IDs
-inside the page so artwork cannot collide with editor controls. The local HTTP
-adapter rejects external origins, unknown sessions and stale document revisions.
+inside the page so artwork cannot collide with editor controls. The local server
+rejects external origins, unknown sessions and stale document revisions.
+
+## Names and shared boundaries
 
 Select one object and edit **Object name** in the right panel (or press **F2**).
 Enter or leaving the field applies the name; Escape cancels. Clearing the field
@@ -216,8 +220,8 @@ Shared endpoints and curve handles propagate direct node edits to the linked
 region, subject to every region's pins and locks. **Unlink boundaries** removes
 these constraints without changing the geometry; undo restores them.
 
-The first version supports direct paths,
-without clipping or existing shared boundaries. It matches line-to-line and
+Both paths must be closed and unclipped, and neither may share geometry or
+already have linked boundaries. It matches line-to-line and
 cubic-to-cubic spans, rather than rebuilding mismatched contour types. Moving a
 linked region separately requires unlinking first. Project files retain the
 editing links; exported SVG retains the coincident contours but not the links.
