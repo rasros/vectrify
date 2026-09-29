@@ -148,6 +148,7 @@ class LlmGenerate:
             1,
             goal=settings["instruction"] or None,
             canvas=canvas,
+            source_name=request.source_name,
         )
         replies = _ask(
             client, config, prompt, context, settings["candidates"], "Drawing"
@@ -216,6 +217,7 @@ class LlmEdit:
             ),
             goal=goal,
             canvas=(round(region.width), round(region.height)),
+            source_name=request.source_name,
             invisible=invisible_descriptions(svg),
         )
         replies = _ask(client, config, prompt, context, settings["candidates"], "Edit")

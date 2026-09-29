@@ -121,7 +121,10 @@ recommendation. Stop ends the search and keeps the best pool so far.
 error. Generate pins the model's viewBox to the region's pixel size and
 rescales a reply that uses another. Improve requires an instruction, names the
 editable object IDs in the prompt, and replays leniently; the prompt is a
-request, the transaction is the enforcement.
+request, the transaction is the enforcement. Both offer
+`OperationRequest.source_name` as a hint about the subject; the editor fills it
+with the reference image's file name, else the drawing's, and skips its
+placeholder names.
 
 ## Writing a method
 
