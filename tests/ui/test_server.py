@@ -2,6 +2,7 @@
 
 import http.client
 import json
+from pathlib import Path
 from threading import Thread
 from typing import Any
 
@@ -12,7 +13,8 @@ from vectrify.ui.server import EditorServer
 
 @pytest.fixture
 def server():
-    server = EditorServer(("127.0.0.1", 0))
+    sample = (Path(__file__).with_name("sample.svg")).read_text()
+    server = EditorServer(("127.0.0.1", 0), sample)
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield server

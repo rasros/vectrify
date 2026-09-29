@@ -138,7 +138,7 @@ class Session:
     def source_name(self) -> str | None:
         """The reference's file name, else the drawing's, unless a placeholder."""
         names = [self.reference["name"] if self.reference else None, self.name]
-        generic = {"Reference", "Untitled.svg", "Mountain study.svg"}
+        generic = {"Reference", "Untitled.svg"}
         return next((n for n in names if n and n not in generic), None)
 
     def reference_image(self) -> Image.Image | None:

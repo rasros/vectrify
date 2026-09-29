@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import importlib
 import importlib.util
+import os
 import sys
 from pathlib import Path
 from typing import Any
@@ -50,6 +51,12 @@ class Api:
 
 
 def run(backend: Backend) -> None:
+    # On a Wayland session Qt's native backend reported a scale of 1 on a
+    # screen set to 150%, drawing the whole editor at two thirds of its size;
+    # through XWayland the page gets the desktop's scale. An explicit
+    # QT_QPA_PLATFORM still wins.
+    if sys.platform.startswith("linux") and os.environ.get("DISPLAY"):
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb")
     webview = importlib.import_module("webview")
     api = Api(backend)
     # The query tells the page to talk to the bridge rather than fetch().

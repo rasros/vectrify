@@ -22,6 +22,11 @@ from vectrify.llm import keys
 from vectrify.ui.session import MAX_SOURCE, Session
 
 STATIC = Path(__file__).with_name("static")
+# What the editor opens with when it is given no drawing: an empty artboard.
+BLANK = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" '
+    'viewBox="0 0 1200 800"/>'
+)
 
 
 class Backend:
@@ -30,10 +35,10 @@ class Backend:
     def __init__(
         self,
         initial: str | None = None,
-        name: str = "Mountain study.svg",
+        name: str = "Untitled.svg",
         reference: dict | None = None,
     ):
-        self.document = import_svg(initial or (STATIC / "sample.svg").read_text())
+        self.document = import_svg(initial or BLANK)
         self.name = name
         self.reference = reference
         self.sessions: dict[str, Session] = {}
@@ -107,7 +112,7 @@ class EditorServer(ThreadingHTTPServer):
         self,
         address: tuple[str, int],
         initial: str | None = None,
-        name: str = "Mountain study.svg",
+        name: str = "Untitled.svg",
         reference: dict | None = None,
         backend: Backend | None = None,
     ):
@@ -217,7 +222,7 @@ def main() -> None:
         )
     backend = Backend(
         args.svg.read_text() if args.svg else None,
-        args.svg.name if args.svg else "Mountain study.svg",
+        args.svg.name if args.svg else "Untitled.svg",
         reference,
     )
     if not args.serve:
