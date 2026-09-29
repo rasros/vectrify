@@ -157,3 +157,38 @@ def test_run_context_reports_progress():
     context.listen(lambda step, message: seen.append((step, message)))
     context.progress(2, "Half")
     assert (context.step, context.total, seen) == (2, 4, [(2, "Half")])
+
+
+def test_gpu_jobs_wait_for_the_shared_gate():
+    import time
+
+    from vectrify.operations import RESOURCES
+    from vectrify.refine.gpu import gpu_gate
+
+    class Gpu(Recolour):
+        background: ClassVar[bool] = True
+        resources: ClassVar[frozenset[str]] = frozenset({"gpu"})
+
+    assert RESOURCES["gpu"] is gpu_gate()
+    job = Job(Gpu(), request(editor(), paint=True))
+    gpu_gate().acquire()
+    try:
+        job.start()
+        time.sleep(0.5)
+        assert job.state()["status"] == "running"
+        assert "GPU" in job.state()["message"]
+        job.stop.set()
+        for _ in range(50):
+            if job.state()["status"] != "running":
+                break
+            time.sleep(0.05)
+        assert job.state()["status"] == "cancelled"
+    finally:
+        gpu_gate().release()
+    job = Job(Gpu(), request(editor(), paint=True))
+    job.start()
+    for _ in range(100):
+        if job.state()["status"] != "running":
+            break
+        time.sleep(0.02)
+    assert job.state()["status"] == "ready"

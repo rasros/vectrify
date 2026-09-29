@@ -38,7 +38,15 @@ image, through `Job.context_key`.
 thread with progress, `stop` (keep best result so far) and a status of
 `running`, `ready`, `failed`, `cancelled` or `applied`; other methods finish
 before `start()` returns. A method naming a resource such as `gpu` holds the
-shared lock in `RESOURCES` while it runs.
+shared gate in `RESOURCES` while it runs. The GPU gate is
+`vectrify.refine.gpu.gpu_gate()`, one spawn-context semaphore per process: the
+CLI's search, its front evaluator and its worker processes queue on the same
+object, so an editor job and a search never hold the device at once.
+
+Gradient fitting has one core, `refine.paths.fit_filled_svg`. The editor's
+`improve/path-fit` wraps it with exact compositing (clipping, group opacity and
+objects in front), pins and permissions; the CLI's random path-fit mutation
+wraps it with a cheaper backdrop render of the rest of the drawing.
 
 The editor exposes jobs through one endpoint, `POST /api/operation`, with the
 commands `start`, `status`, `stop`, `apply` and `discard`.
