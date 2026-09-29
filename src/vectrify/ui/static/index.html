@@ -98,7 +98,7 @@
     <p class="muted">Existing objects are not changed. Text in the reference is traced as shapes.</p>
   </fieldset>
   <div id="generate-progress" hidden><progress id="generate-meter" max="2" value="0"></progress><p id="generate-status" role="status" aria-live="polite"></p></div>
-  <div id="generate-previews" hidden><div class="fit-previews"><figure><figcaption>Reference</figcaption><img id="generate-reference" alt="Reference region"></figure><figure><figcaption>Before</figcaption><img id="generate-before" alt="Drawing before generating"></figure><figure><figcaption>After</figcaption><img id="generate-after" alt="Drawing with generated shapes"></figure></div><p id="generate-metrics"></p></div>
+  <div id="generate-previews" hidden><div id="generate-choices" class="button-row" role="radiogroup" aria-label="Result"></div><div class="fit-previews"><figure><figcaption>Reference</figcaption><img id="generate-reference" alt="Reference region"></figure><figure><figcaption>Before</figcaption><img id="generate-before" alt="Drawing before generating"></figure><figure><figcaption>After</figcaption><img id="generate-after" alt="Drawing with generated shapes"></figure></div><p id="generate-metrics"></p></div>
   <p id="generate-error" role="alert" hidden></p>
   <div class="join-actions"><button id="generate-close">Cancel</button><button id="generate-stop" hidden>Stop</button><button id="generate-run" class="primary">Generate</button><button id="generate-apply" class="primary" hidden>Apply</button></div>
 </dialog>
