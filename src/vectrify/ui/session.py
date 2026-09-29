@@ -66,38 +66,24 @@ class Session:
     def operation(self, payload: dict) -> dict:
         """Start, poll, stop, apply or discard one automated operation."""
         command = payload.get("command")
-        if command == "start":
+        if command in {"start", "check"}:
             self.check_revision(payload)
             chosen = method(str(payload.get("action")), str(payload.get("method")))
+            request = self._request(chosen, payload)
+            if command == "check":
+                # Whether the operation would accept this request, without
+                # running it: the dialog offers only what can run.
+                try:
+                    chosen.validate(request)
+                except DocumentError as exc:
+                    return {"ok": False, "error": str(exc)}
+                return {"ok": True}
             if chosen.background and any(
                 j.method.background and j.status == "running"
                 for j in self.jobs.values()
             ):
                 raise DocumentError("Another operation is already running")
-            bounds = payload.get("bounds", self.state(svg=False)["bounds"])
-            snapshot = self.editor.snapshot
-            if payload.get("scope") == "drawing":
-                snapshot = replace(snapshot, selection=Selection(whole_document=True))
-            elif payload.get("scope") not in {None, "selection"}:
-                raise DocumentError("Choose the selection or the whole drawing")
-            job = Job(
-                chosen,
-                OperationRequest(
-                    action=chosen.action,
-                    method=chosen.name,
-                    snapshot=snapshot,
-                    editor=self.editor,
-                    permissions=Permissions.parse(payload.get("permissions")),
-                    settings=payload.get("settings") or {},
-                    budget=Budget.parse(payload.get("budget")),
-                    reference=(
-                        self.reference_image() if chosen.needs_reference else None
-                    ),
-                    bounds=tuple(bounds) if isinstance(bounds, list) else bounds,
-                    source_name=self.source_name(),
-                ),
-                context_key=self._job_key(chosen),
-            )
+            job = Job(chosen, request, context_key=self._job_key(chosen))
             job.start()
             self.jobs = {k: v for k, v in self.jobs.items() if v.status == "running"}
             self.jobs[job.id] = job
@@ -123,6 +109,26 @@ class Session:
             del self.jobs[job.id]
             return self.state()
         raise DocumentError("Unknown operation command")
+
+    def _request(self, chosen: Method, payload: dict) -> OperationRequest:
+        bounds = payload.get("bounds", self.state(svg=False)["bounds"])
+        snapshot = self.editor.snapshot
+        if payload.get("scope") == "drawing":
+            snapshot = replace(snapshot, selection=Selection(whole_document=True))
+        elif payload.get("scope") not in {None, "selection"}:
+            raise DocumentError("Choose the selection or the whole drawing")
+        return OperationRequest(
+            action=chosen.action,
+            method=chosen.name,
+            snapshot=snapshot,
+            editor=self.editor,
+            permissions=Permissions.parse(payload.get("permissions")),
+            settings=payload.get("settings") or {},
+            budget=Budget.parse(payload.get("budget")),
+            reference=self.reference_image() if chosen.needs_reference else None,
+            bounds=tuple(bounds) if isinstance(bounds, list) else bounds,
+            source_name=self.source_name(),
+        )
 
     def _job_key(self, method: Method) -> tuple:
         """What a result depends on besides the revision the commit checks."""

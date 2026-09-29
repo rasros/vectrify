@@ -366,3 +366,28 @@ def test_miter_geometry_fit_preserves_sharp_join_and_improves_reference_match():
         editor.snapshot.document.element("a").attributes == doc.element("a").attributes
     )
     assert editor.undo().document == doc
+
+
+def test_check_reports_whether_an_operation_would_run_without_running_it():
+    session = Session(import_svg(SVG))
+
+    def check(method, **settings):
+        return session.operation(
+            {
+                "command": "check",
+                "action": "improve",
+                "method": method,
+                "epoch": session.epoch,
+                "revision": session.editor.snapshot.revision,
+                "permissions": {"geometry": True, "structure": True},
+                "settings": settings,
+            }
+        )
+
+    assert check("nodes", simplify=True) == {
+        "ok": False,
+        "error": "Select the paths to optimize",
+    }
+    session.editor.select(SELECTION)
+    assert check("nodes", simplify=True) == {"ok": True}
+    assert not session.jobs
