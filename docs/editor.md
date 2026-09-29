@@ -158,8 +158,19 @@ Linked boundaries must be detached explicitly before simplifying.
 
 Improve, Simplify and Share boundary run through the shared operation
 contract in `vectrify.operations` (see `docs/operations.md`) via
-`POST /api/operation`. Generate remains to be connected. Existing automatic
-CLI generation and mutation selection are unchanged.
+`POST /api/operation`. Existing automatic CLI generation and mutation
+selection are unchanged.
+
+**Generate from reference…** (in the Reference panel) traces the reference into
+new shapes. The SAMVG method segments the image with SAM and traces each region
+into filled paths and thin strokes. Choose the model (ViT-H is best, ViT-B is
+faster), the maximum layers and curve segments. The result is placed over the
+artboard exactly where the reference is shown, as one new group at the front of
+the whole drawing or of a selected group. With a focus region set, only that
+part of the reference is traced. Text is traced as shapes, since the editor
+does not support SVG text. Preview shows the reference, before and after, with
+the change in reference error; Apply adds the group as one undoable edit.
+SAMVG needs the `samvg` extra and holds the GPU while it runs.
 
 Node handles currently edit direct `path` elements. Local `use` instances can
 be selected, styled, moved and detached; editing a referenced source still

@@ -165,9 +165,7 @@ class Method(Protocol):
     def validate(self, request: OperationRequest, /) -> None:
         """Reject an impossible request quickly, before any job starts."""
 
-    def run(
-        self, request: OperationRequest, context: RunContext, /
-    ) -> OperationResult:
+    def run(self, request: OperationRequest, context: RunContext, /) -> OperationResult:
         """Do the work. Honour context.stop by returning the best result so far."""
         ...
 
