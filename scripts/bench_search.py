@@ -135,7 +135,6 @@ def run_case(case: Path, seed: int, args) -> dict:
             workers=args.workers,
             pool_size=args.pool_size,
             adaptive_operators=args.adaptive_operators,
-            epochs=args.epochs,
             epoch_eval_interval=args.eval_interval,
             max_total_tasks=args.tasks,
         ),
@@ -182,7 +181,6 @@ def cmd_run(args) -> None:
             "workers": args.workers,
             "resolution": args.resolution,
             "scorer": args.scorer,
-            "epochs": args.epochs,
             "seed_base": args.seed_base,
         },
         "runs": runs,
@@ -293,7 +291,6 @@ def main() -> None:
     run.add_argument(
         "--scorer", default="simple", choices=[e.value for e in ScorerType]
     )
-    run.add_argument("--epochs", type=int, default=1, metavar="N")
     run.add_argument("--seed-base", type=int, default=1000, dest="seed_base")
     run.add_argument(
         "--eval-interval",
@@ -301,7 +298,7 @@ def main() -> None:
         default=2000,
         dest="eval_interval",
         metavar="N",
-        help="Candidates between front evaluations within an epoch",
+        help="Candidates between front evaluations",
     )
     run.add_argument(
         "--adaptive-operators",

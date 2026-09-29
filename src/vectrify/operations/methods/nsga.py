@@ -107,7 +107,6 @@ class Nsga:
                 workers=settings["workers"],
                 pool_size=settings["pool_size"],
                 adaptive_operators=settings["adaptive_operators"],
-                epochs=1,
                 max_total_tasks=tasks,
                 max_wall_seconds=request.budget.seconds,
             ),

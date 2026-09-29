@@ -57,7 +57,7 @@ def test_search_runs_local_operators_and_returns_its_pool():
         reference,
         [seed],
         context,
-        SearchSettings(pool_size=4, max_total_tasks=30, epochs=1),
+        SearchSettings(pool_size=4, max_total_tasks=30),
         progress=seen.append,
     )
     assert outcome.tasks_completed >= 30
@@ -79,7 +79,7 @@ def test_stop_event_ends_the_search_early():
         reference,
         [seed],
         context,
-        SearchSettings(pool_size=4, max_total_tasks=10_000, epochs=1),
+        SearchSettings(pool_size=4, max_total_tasks=10_000),
         stop=stop,
         progress=progress,
     )

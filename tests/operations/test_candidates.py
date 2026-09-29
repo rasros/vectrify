@@ -142,7 +142,7 @@ def test_scoped_search_pool_replays_through_the_transaction():
         reference,
         [seed],
         context,
-        SearchSettings(pool_size=4, max_total_tasks=40, epochs=1),
+        SearchSettings(pool_size=4, max_total_tasks=40),
     )
     assert outcome.pool
     changed = 0

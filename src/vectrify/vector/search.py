@@ -46,13 +46,7 @@ class SearchSettings:
     tournament_size: int = 3
     crossover_distance: int = 12
     adaptive_operators: bool = True
-    epochs: int | None = None
-    epoch_patience: int | None = None
-    epoch_max_tasks: int | None = None
     epoch_eval_interval: int | None = None
-    epoch_eval_patience: int | None = None
-    epoch_improvement: float = 0.0
-    epoch_improvement_patience: int = 1
     max_total_tasks: int | None = None
     max_wall_seconds: float | None = None
 
@@ -215,7 +209,6 @@ def run_search(
         max_total_tasks=settings.max_total_tasks,
         rank_front=rank_front,
         make_state=to_state,
-        elite_metric_names=tuple(s.metric_name for s in reference.segments),
     )
     # Sized against the scorer thread's own work rather than the worker count:
     # it is one batch of candidates at a time, and oversubscribing here would
@@ -227,15 +220,9 @@ def run_search(
         return engine.run(
             initial_nodes,
             max_wall_seconds=settings.max_wall_seconds,
-            epoch_patience=settings.epoch_patience,
             active_pool_size=settings.pool_size,
             score_fn=pixel_scorer(reference, pool),
-            epochs=settings.epochs,
-            epoch_max_tasks=settings.epoch_max_tasks,
             epoch_eval_interval=settings.epoch_eval_interval,
-            epoch_eval_patience=settings.epoch_eval_patience,
-            epoch_improvement=settings.epoch_improvement,
-            epoch_improvement_patience=settings.epoch_improvement_patience,
             operator_policy=policy,
             stop=stop,
             progress=progress,
