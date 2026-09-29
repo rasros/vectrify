@@ -81,3 +81,61 @@ def test_linked_boundary_edges_must_come_through_unchanged():
             "fill",
             with_nodes(geometry, [m, curve, down, replace(left, values=(6.0, 42.0))]),
         )
+
+
+LINE = (
+    '<svg width="40" height="40">'
+    '<path id="p" d="M0 0 L10 0 L20 10" fill="none" stroke="black"/></svg>'
+)
+
+
+def middle(editor):
+    return editor.snapshot.document.geometry_for("p").subpaths[0].nodes
+
+
+def handles(editor, count):
+    nodes = middle(editor)
+    with editor.transaction("Handles") as tx:
+        tx.set_node_handles("p", nodes[1].id, count)
+    return middle(editor)
+
+
+def test_two_handles_make_a_smooth_point_and_none_make_a_corner_again():
+    editor = Editor(import_svg(LINE), selection=select("p"))
+    ids = [n.id for n in middle(editor)]
+    start, point, end = handles(editor, 2)
+    assert [n.id for n in (start, point, end)] == ids
+    assert (point.command, end.command) == ("C", "C")
+    incoming, outgoing = point.values[2:4], end.values[0:2]
+    # In line through the point, on opposite sides of it.
+    cross = (incoming[0] - 10) * (outgoing[1] - 0) - (incoming[1] - 0) * (
+        outgoing[0] - 10
+    )
+    assert abs(cross) < 1e-9
+    assert (incoming[0] - 10) * (outgoing[0] - 10) < 0
+    assert point.endpoint == (10.0, 0.0)
+    _, point, end = handles(editor, 0)
+    assert (point.command, end.command) == ("L", "L")
+    assert [n.id for n in middle(editor)] == ids
+
+
+def test_one_handle_curves_the_way_in_and_switches_sides_when_asked_again():
+    editor = Editor(import_svg(LINE), selection=select("p"))
+    _, point, end = handles(editor, 1)
+    assert (point.command, end.command) == ("C", "L")
+    _, point, end = handles(editor, 1)
+    assert (point.command, end.command) == ("L", "C")
+
+
+def test_handles_respect_permissions_and_ask_for_a_segment():
+    editor = Editor(import_svg(LINE), selection=select("p"))
+    tx = editor.transaction("Handles", allowed=frozenset({"paint"}))
+    with pytest.raises(EditRejectedError, match="not permitted"):
+        tx.set_node_handles("p", middle(editor)[1].id, 2)
+    lonely = Editor(
+        import_svg('<svg width="9" height="9"><path id="p" d="M1 1"/></svg>'),
+        selection=select("p"),
+    )
+    tx = lonely.transaction("Handles")
+    with pytest.raises(EditRejectedError, match="no segment"):
+        tx.set_node_handles("p", middle(lonely)[0].id, 2)

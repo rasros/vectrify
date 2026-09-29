@@ -418,7 +418,7 @@ class Session:
                 if cleanup:
                     tx.delete_objects(cleanup)
             return
-        if command in {"node", "split"}:
+        if command in {"node", "split", "node_handles"}:
             # The user explicitly linked these edges. Direct node edits include
             # linked peers, while their locks and pins remain authoritative.
             gids = {
@@ -465,6 +465,7 @@ class Session:
                 "delete": "Delete selection",
                 "reorder": "Change stacking",
                 "split": "Split edge",
+                "node_handles": "Change handles",
                 "delete_node": "Delete node",
                 "detach": "Detach geometry",
                 "split_disconnected": "Split disconnected parts",
@@ -531,6 +532,10 @@ class Session:
                 tx.reorder_object(oid, target)
             elif command == "split":
                 tx.split_edge(payload["object"], payload["node"])
+            elif command == "node_handles":
+                tx.set_node_handles(
+                    payload["object"], payload["node"], int(payload["count"])
+                )
             elif command == "delete_node":
                 tx.delete_node(payload["object"], payload["node"])
             elif command == "detach":
