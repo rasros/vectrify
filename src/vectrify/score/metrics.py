@@ -1,11 +1,8 @@
-"""The names every objective and lineage column is derived from.
+"""The names every objective is derived from.
 
 One place declares them, so adding a measure means adding it here rather than
-editing the node model, the objective vector, lineage.csv and the analysis
-scripts in turn.
+editing the node model and the objective vector in turn.
 """
-
-from collections.abc import Mapping
 
 EDGE = "edge"
 COLOUR = "colour"
@@ -29,24 +26,3 @@ SCORER_METRICS: tuple[str, ...] = (EDGE, COLOUR, SHAPE, DETAIL)
 # for the rest -- the best attainable value for a minimised objective, which
 # would let every unevaluated candidate dominate every evaluated one.
 FRONT_SCORE = "front_score"
-
-# Every column lineage.csv carries.
-METRIC_NAMES: tuple[str, ...] = (*SCORER_METRICS, FRONT_SCORE)
-
-
-def row_has_metrics(row: Mapping[str, str]) -> bool:
-    """Whether a lineage.csv row actually carries metric values.
-
-    Eviction rows are sparse: only ``id`` and ``evicted`` are set. Reading them
-    as metrics would overwrite the node's real values with zeros.
-    """
-    return any(row.get(name) for name in METRIC_NAMES)
-
-
-def read_metrics(row: Mapping[str, str]) -> dict[str, float]:
-    """Pull every registered metric out of a lineage.csv row.
-
-    Missing columns read as 0.0, so a row written before a metric existed stays
-    usable.
-    """
-    return {name: float(row.get(name) or 0.0) for name in METRIC_NAMES}

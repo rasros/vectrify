@@ -30,8 +30,6 @@ class Reference:
     # The target at render resolution; candidates are rasterized at this size.
     image: Image.Image
     png: bytes
-    # The smaller copy the pixel measures compare against.
-    scoring_image: Image.Image
     pixel: PixelReference
     segments: tuple[Segment, ...]
     # Compressed-size detail of the target at render resolution.
@@ -70,7 +68,6 @@ class Reference:
         return cls(
             image=image,
             png=png,
-            scoring_image=scoring,
             pixel=prepare(scoring, tolerance=edge_tolerance),
             segments=tuple(segments),
             detail=detail(png),
@@ -89,7 +86,5 @@ class Reference:
         }
         if segments:
             for segment in self.segments:
-                metrics[segment.metric_name] = segment_error(
-                    comparison, segment.mask, detail=segment.detail
-                )
+                metrics[segment.metric_name] = segment_error(comparison, segment.mask)
         return metrics

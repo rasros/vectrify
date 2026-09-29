@@ -7,7 +7,6 @@ from typing import Any
 
 from PIL import Image
 
-from vectrify.image_utils import pixel_diff_png
 from vectrify.score.utils import MAX_SCORE
 
 log = logging.getLogger(__name__)
@@ -54,21 +53,6 @@ class Scorer(ABC):
         far cheaper than a pass each.
         """
         return [self.score(reference, png) for png in candidate_pngs]
-
-    def diff_heatmap(
-        self,
-        reference: Any,
-        candidate_png: bytes,
-        long_side: int,
-    ) -> bytes | None:
-        """Pixel diff heatmap for the --save-heatmap sidecar.
-
-        Returns PNG bytes, or None if the reference lacks an ``image``.
-        """
-        ref_img = getattr(reference, "image", None)
-        if ref_img is None:
-            return None
-        return pixel_diff_png(ref_img, candidate_png, long_side)
 
 
 @dataclass(frozen=True)

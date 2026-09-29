@@ -26,7 +26,7 @@ class SearchNode(Generic[TState]):
     parent_id: int
     state: ChainState[TState]
     secondary_parent_id: int | None = None
-    # Registered metrics, keyed by name (see score.metrics.METRIC_NAMES).
+    # Registered metrics, keyed by name (see score.metrics).
     # A dict rather than named fields so adding a metric does not ripple through
     # every constructor call between the worker and the objective vector.
     metrics: dict[str, float] = dataclasses.field(default_factory=dict, repr=False)

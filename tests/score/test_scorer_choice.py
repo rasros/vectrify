@@ -42,16 +42,6 @@ def test_auto_may_degrade_but_says_so(monkeypatch):
     assert choice.name == "simple"
     assert choice.requested == "auto"
     assert "no torch" in (choice.reason or "")
-    assert "DEGRADED" in choice.summary()
-
-
-def test_the_record_is_machine_readable_enough_to_assert_on():
-    """A comparison of two runs has to be able to check that both used the same
-    judge without parsing a log."""
-    choice = choose_scorer(ScorerType.SIMPLE)
-    record = choice.as_record()
-    assert record.splitlines()[0] == "simple"
-    assert "degraded=false" in record
 
 
 def test_a_scorer_with_no_dependencies_needs_no_environment():

@@ -72,39 +72,6 @@ def test_lab_l1_different_images_nonzero():
     assert lab_l1(red, blue) > 0.0
 
 
-def test_simple_diff_heatmap_identical_images_are_black():
-    scorer = SimpleFallbackScorer()
-    ref_img = Image.new("RGB", (32, 32), color="green")
-    ref = scorer.prepare_reference(ref_img)
-
-    buf = io.BytesIO()
-    Image.new("RGB", (32, 32), color="green").save(buf, format="PNG")
-    result = scorer.diff_heatmap(ref, buf.getvalue(), long_side=32)
-
-    assert result is not None
-    img = Image.open(io.BytesIO(result)).convert("RGB")
-    assert all(p == (0, 0, 0) for p in img.get_flattened_data())
-
-
-def test_diff_heatmap_returns_none_when_reference_has_no_image():
-    scorer = SimpleFallbackScorer()
-    buf = io.BytesIO()
-    Image.new("RGB", (32, 32), color="red").save(buf, format="PNG")
-    result = scorer.diff_heatmap(object(), buf.getvalue(), long_side=32)
-    assert result is None
-
-
-def test_diff_heatmap_respects_long_side():
-    scorer = SimpleFallbackScorer()
-    ref = scorer.prepare_reference(Image.new("RGB", (128, 128), color="red"))
-    buf = io.BytesIO()
-    Image.new("RGB", (128, 128), color="blue").save(buf, format="PNG")
-    result = scorer.diff_heatmap(ref, buf.getvalue(), long_side=32)
-    assert result is not None
-    img = Image.open(io.BytesIO(result))
-    assert max(img.size) <= 32
-
-
 def test_erasing_fine_detail_no_longer_beats_drawing_it_slightly_wrong():
     """Colour distance is an average over pixels, so thin strokes are cheap to
     delete and expensive to get slightly wrong: on this figure colour alone
