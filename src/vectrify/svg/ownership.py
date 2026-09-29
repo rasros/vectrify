@@ -15,14 +15,12 @@ the canvas.
 """
 
 import copy
-import io
 import re
 import xml.etree.ElementTree as ET
 
 import numpy as np
-from PIL import Image
 
-from vectrify.image_utils import rasterize_svg_to_png_bytes
+from vectrify.image_utils import rasterize_svg_to_image
 
 # Small enough that the extra render stays cheap, large enough that the
 # thinnest elements the corpus draws still own a few pixels.
@@ -95,11 +93,11 @@ def owner_labels(root: ET.Element, size: int = MASK_SIZE) -> np.ndarray:
     ET.register_namespace("", "http://www.w3.org/2000/svg")
     source = ET.tostring(painted, encoding="unicode", method="xml")
     try:
-        png = rasterize_svg_to_png_bytes(source, out_w=size, out_h=size)
+        image = rasterize_svg_to_image(source, out_w=size, out_h=size)
     except Exception:
         return np.full((size, size), UNOWNED, dtype=np.int32)
 
-    pixels = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), dtype=np.int64)
+    pixels = np.asarray(image, dtype=np.int64)
     codes = (pixels[:, :, 0] << 16) | (pixels[:, :, 1] << 8) | pixels[:, :, 2]
 
     lookup: dict[int, int] = {}
@@ -269,10 +267,10 @@ def _render(root: ET.Element, size: int) -> np.ndarray | None:
     ET.register_namespace("", "http://www.w3.org/2000/svg")
     source = ET.tostring(root, encoding="unicode", method="xml")
     try:
-        png = rasterize_svg_to_png_bytes(source, out_w=size, out_h=size)
+        image = rasterize_svg_to_image(source, out_w=size, out_h=size)
     except Exception:
         return None
-    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), dtype=np.uint8)
+    return np.asarray(image, dtype=np.uint8)
 
 
 def invisible_elements(

@@ -17,14 +17,13 @@ Run both screens before changing the panel: a setup that wins here and loses
 there has traded gross accuracy for fine and needs saying out loud.
 """
 
-import io
 import random
 import re
 from pathlib import Path
 
 from PIL import Image
 
-from vectrify.image_utils import rasterize_svg
+from vectrify.image_utils import rasterize_svg, rasterize_svg_to_image
 
 _NUM = re.compile(r"-?(?:\d+\.\d+|\.\d+|\d+)")
 
@@ -113,7 +112,7 @@ def families(svg):
 
 
 def render(svg, size=700):
-    return Image.open(io.BytesIO(rasterize_svg(svg, size, size))).convert("RGB")
+    return rasterize_svg_to_image(svg, out_w=size, out_h=size)
 
 
 def main() -> None:

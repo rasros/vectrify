@@ -20,7 +20,7 @@ from PIL import Image
 
 from vectrify.document import Document, DocumentError, Element, export_svg, import_svg
 from vectrify.document.model import new_id
-from vectrify.image_utils import preview_urls
+from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import OperationRequest, OperationResult, Proposal
 
 
@@ -46,10 +46,7 @@ def target_region(request: OperationRequest) -> Region:
     """The focus rectangle if one is set, otherwise the whole artboard."""
     if request.reference is None:
         raise DocumentError("Add a reference image to generate from")
-    reference = Image.alpha_composite(
-        Image.new("RGBA", request.reference.size, "white"),
-        request.reference.convert("RGBA"),
-    ).convert("RGB")
+    reference = on_white(request.reference)
     vx, vy, vw, vh = request.snapshot.document.artboard()
     focus = request.snapshot.selection.focus
     if focus is None:
