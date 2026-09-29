@@ -397,18 +397,22 @@ def test_contact_preview_apply_single_path_edit_and_unlink():
     )
     send(session, "select", objects=["a", "b"])
     before = session.editor.snapshot.document
-    result = session.contact(
+    job = session.operation(
         {
-            "command": "preview",
+            "command": "start",
+            "action": "link",
+            "method": "boundaries",
             "epoch": session.epoch,
             "revision": session.editor.snapshot.revision,
-            "tolerance": 0.01,
+            "permissions": {"geometry": True, "structure": True},
+            "settings": {"tolerance": 0.01},
         }
     )
-    assert result["edges"] == 1
-    assert result["previews"]["after"].startswith("data:image/png;base64,")
+    assert job["status"] == "ready"
+    assert job["result"]["metrics"]["edges"] == 1
+    assert job["result"]["previews"]["after"].startswith("data:image/png;base64,")
     assert session.editor.snapshot.document == before
-    session.contact({"command": "apply", "preview": result["id"]})
+    session.operation({"command": "apply", "job": job["id"]})
     send(session, "select", objects=["b"])
     doc = session.editor.snapshot.document
     member = doc.boundaries[0].members[0]

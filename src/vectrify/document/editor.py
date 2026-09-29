@@ -113,10 +113,17 @@ class Editor:
         selection: Selection | None = None,
         allowed: frozenset[str] = frozenset(EditKind),
         expected_revision: int | None = None,
+        base: Snapshot | None = None,
     ) -> Transaction:
+        """Open an edit; with *base*, edit that earlier snapshot instead.
+
+        A transaction over an earlier snapshot can be built off the editor's
+        thread and commits only if no revision has happened since.
+        """
         if expected_revision is not None and expected_revision != self._revision:
             raise StaleRevisionError("Document revision has changed")
-        return Transaction(self, label, selection or self._selection, allowed)
+        base = base or self.snapshot
+        return Transaction(self, label, selection or base.selection, allowed, base)
 
     def _apply(
         self,
@@ -195,10 +202,15 @@ class Editor:
 
 class Transaction:
     def __init__(
-        self, editor: Editor, label: str, selection: Selection, allowed: frozenset[str]
+        self,
+        editor: Editor,
+        label: str,
+        selection: Selection,
+        allowed: frozenset[str],
+        base: Snapshot | None = None,
     ):
         self._editor = editor
-        self._base = editor.snapshot
+        self._base = base or editor.snapshot
         self._working = self._base.document
         self._selection = selection
         self._ids = self._working.selection_ids(selection)

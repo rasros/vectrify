@@ -20,7 +20,8 @@ import numpy as np
 from cairosvg.colors import color
 from PIL import Image
 
-from vectrify.document import Document, DocumentError, Editor, Selection, export_svg
+from vectrify.document import Document, DocumentError, Selection, export_svg
+from vectrify.document.editor import Transaction
 from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.join import path_style
 
@@ -63,15 +64,14 @@ class FitResult:
     def changed(self) -> bool:
         return bool(self.values or self.fill is not None)
 
-    def apply(self, editor: Editor, selection: Selection, revision: int) -> None:
-        with editor.transaction(
-            "Optimize path", selection=selection, expected_revision=revision
-        ) as tx:
+    def write(self, tx: Transaction) -> None:
+        """Record the fitted values in *tx*; committing it applies them."""
+        if self.values:
             tx.update_nodes(self.object_id, self.values)
-            if self.fill is not None:
-                tx.set_attributes(self.object_id, {"fill": self.fill})
-            if self.stroke is not None:
-                tx.set_attributes(self.object_id, {"stroke": self.stroke})
+        if self.fill is not None:
+            tx.set_attributes(self.object_id, {"fill": self.fill})
+        if self.stroke is not None:
+            tx.set_attributes(self.object_id, {"stroke": self.stroke})
 
 
 def validate_selection(document: Document, selection: Selection, options: FitOptions):

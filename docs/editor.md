@@ -156,9 +156,10 @@ not accepted. This operation requires geometry and structure permissions;
 shared assets require selecting all affected consumers or detaching first.
 Linked boundaries must be detached explicitly before simplifying.
 
-Generate remains to be connected. Existing automatic CLI generation
-and mutation selection are unchanged. The HTTP command adapter is an initial
-bridge to `vectrify.document`, not the final general operation/job contract.
+Improve, Simplify and Share boundary run through the shared operation
+contract in `vectrify.operations` (see `docs/operations.md`) via
+`POST /api/operation`. Generate remains to be connected. Existing automatic
+CLI generation and mutation selection are unchanged.
 
 Node handles currently edit direct `path` elements. Local `use` instances can
 be selected, styled, moved and detached; editing a referenced source still

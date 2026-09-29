@@ -29,9 +29,7 @@ from vectrify.document import (
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.model import new_id
 from vectrify.document.svg import parse_path
-from vectrify.ui.contact import ContactPreview
-from vectrify.ui.improve import PathFitJob
-from vectrify.ui.simplify import SimplifyPreview
+from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
 MAX_SOURCE = 128 * 1024 * 1024
 
@@ -57,56 +55,44 @@ class Session:
         self.lock = RLock()
         self._svg_revision = -1
         self._svg = ""
-        self.fit_job: PathFitJob | None = None
-        self.simplify_preview: SimplifyPreview | None = None
-        self.contact_preview: ContactPreview | None = None
+        self.jobs: dict[str, Job] = {}
 
-    def contact(self, payload: dict) -> dict:
-        if payload.get("command") == "preview":
-            self.contact_preview = None
-            self.contact_preview = ContactPreview(self, payload)
-            return self.contact_preview.result
-        preview = self.contact_preview
-        if preview is None or payload.get("preview") != preview.id:
-            raise DocumentError("This shared-boundary preview has expired")
-        if payload.get("command") == "apply":
-            result = preview.apply(self)
-            self.contact_preview = None
-            return result
-        if payload.get("command") == "discard":
-            self.contact_preview = None
-            return {"discarded": True}
-        raise DocumentError("Unknown shared-boundary command")
-
-    def simplify(self, payload: dict) -> dict:
-        command = payload.get("command")
-        if command == "preview":
-            self.simplify_preview = None
-            self.simplify_preview = SimplifyPreview(self, payload)
-            return self.simplify_preview.result
-        preview = self.simplify_preview
-        if preview is None or payload.get("preview") != preview.id:
-            raise DocumentError("This simplification preview has expired")
-        if command == "apply":
-            result = preview.apply(self)
-            self.simplify_preview = None
-            return result
-        if command == "discard":
-            self.simplify_preview = None
-            return {"discarded": True}
-        raise DocumentError("Unknown simplification command")
-
-    def improve(self, payload: dict) -> dict:
+    def operation(self, payload: dict) -> dict:
+        """Start, poll, stop, apply or discard one automated operation."""
         command = payload.get("command")
         if command == "start":
-            if self.fit_job and self.fit_job.state()["status"] == "running":
-                raise DocumentError("A path fit is already running")
-            self.fit_job = PathFitJob(self, payload)
-            self.fit_job.start()
-            return self.fit_job.state()
-        job = self.fit_job
-        if job is None or payload.get("job") != job.id:
-            raise DocumentError("This path-fit preview has expired")
+            self.check_revision(payload)
+            chosen = method(str(payload.get("action")), str(payload.get("method")))
+            if chosen.background and any(
+                j.method.background and j.status == "running"
+                for j in self.jobs.values()
+            ):
+                raise DocumentError("Another operation is already running")
+            bounds = payload.get("bounds", self.state(svg=False)["bounds"])
+            job = Job(
+                chosen,
+                OperationRequest(
+                    action=chosen.action,
+                    method=chosen.name,
+                    snapshot=self.editor.snapshot,
+                    editor=self.editor,
+                    permissions=Permissions.parse(payload.get("permissions")),
+                    settings=payload.get("settings") or {},
+                    budget=Budget.parse(payload.get("budget")),
+                    reference=(
+                        self.reference_image() if chosen.needs_reference else None
+                    ),
+                    bounds=tuple(bounds) if isinstance(bounds, list) else bounds,
+                ),
+            )
+            job.context_key = self._job_key(job)
+            job.start()
+            self.jobs = {k: v for k, v in self.jobs.items() if v.status == "running"}
+            self.jobs[job.id] = job
+            return job.state(preview=True)
+        job = self.jobs.get(str(payload.get("job")))
+        if job is None:
+            raise DocumentError("This operation preview has expired")
         if command == "status":
             return job.state(preview=bool(payload.get("preview")))
         if command == "stop":
@@ -114,11 +100,30 @@ class Session:
             return job.state()
         if command == "discard":
             job.stop.set()
-            self.fit_job = None
+            del self.jobs[job.id]
             return {"discarded": True}
         if command == "apply":
-            return job.apply(self)
-        raise DocumentError("Unknown path-fit command")
+            if job.context_key != self._job_key(job):
+                raise StaleRevisionError(
+                    "The drawing or reference changed. Run the operation again."
+                )
+            job.apply(payload.get("choice", 0))
+            del self.jobs[job.id]
+            return self.state()
+        raise DocumentError("Unknown operation command")
+
+    def _job_key(self, job: Job) -> tuple:
+        """What a result depends on besides the revision the commit checks."""
+        reference = self.reference["data_url"] if self.reference else None
+        return (self.epoch, reference if job.method.needs_reference else None)
+
+    def reference_image(self) -> Image.Image | None:
+        if not self.reference:
+            return None
+        data = base64.b64decode(self.reference["data_url"].split(",", 1)[1])
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            return image.copy()
 
     def state(self, *, svg: bool = True) -> dict:
         snapshot = self.editor.snapshot
@@ -257,10 +262,9 @@ class Session:
         else:
             document, selection = import_svg(source), Selection()
         editor = Editor(document, selection=selection)
-        if self.fit_job:
-            self.fit_job.stop.set()
-            self.fit_job = None
-        self.simplify_preview = None
+        for job in self.jobs.values():
+            job.stop.set()
+        self.jobs = {}
         self.editor, self.name, self.reference = editor, name, reference
         self.epoch = uuid4().hex
         self._svg_revision = -1
