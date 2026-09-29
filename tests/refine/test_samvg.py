@@ -1,4 +1,3 @@
-import io
 import sys
 import xml.etree.ElementTree as ET
 from contextlib import nullcontext
@@ -10,7 +9,6 @@ from PIL import Image
 import vectrify.refine.paths as paths
 import vectrify.refine.samvg as samvg
 from tests.helpers import rasterize
-from vectrify.refine.paths import fit_svg_primitives_locally
 from vectrify.refine.samvg import (
     MaskLayer,
     TextLayer,
@@ -711,21 +709,6 @@ def test_thin_branch_mask_emits_independent_width_aware_strokes():
 
     assert len(strokes) >= 3
     assert all(data.startswith("M ") and width >= 1 for data, width in strokes)
-
-
-def test_branched_stroke_seed_roundtrips_through_unified_local_fitter():
-    mask = np.zeros((48, 48), dtype=bool)
-    mask[6:42, 22:25] = True
-    mask[6:9, 10:37] = True
-    image = Image.new("RGB", (48, 48), "white")
-    svg = generate_svg(image, [mask], min_pixels=1, min_impact=0, ocr=False)
-    reference = rasterize(svg, 48, 48)
-
-    fitted = fit_svg_primitives_locally(svg, reference, rasterize=rasterize, steps=1)
-
-    assert fitted != svg
-    assert fitted.count("stroke-width=") >= 3
-    Image.open(io.BytesIO(rasterize(fitted, 48, 48))).verify()
 
 
 def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():

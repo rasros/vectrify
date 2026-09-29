@@ -189,8 +189,7 @@ Linked boundaries must be detached explicitly before simplifying.
 
 Improve, Simplify and Share boundary run through the shared operation
 contract in `vectrify.operations` (see `docs/operations.md`) via
-`POST /api/operation`. Existing automatic CLI generation and mutation
-selection are unchanged.
+`POST /api/operation`.
 
 **Generate from reference…** (in the Reference panel) traces the reference into
 new shapes. The SAMVG method segments the image with SAM and traces each region

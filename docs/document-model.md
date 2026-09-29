@@ -1,8 +1,8 @@
 # Document foundation
 
 `vectrify.document` is the first backend slice of the UI transition. It is
-independent of the CLI search loop, LLM clients, and Torch. Existing
-CLI generation and optimization still use their current interfaces.
+independent of the search engine, LLM clients, and Torch. Automated
+operations reach it through `vectrify.operations` (see `docs/operations.md`).
 
 ## Editing state
 

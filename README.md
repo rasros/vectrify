@@ -4,140 +4,70 @@
 [![Python](https://img.shields.io/pypi/pyversions/vectrify.svg)](https://pypi.org/project/vectrify/)
 [![License](https://img.shields.io/pypi/l/vectrify.svg)](https://github.com/rasros/vectrify/blob/main/LICENSE)
 
-vectrify turns a raster image into editable vector code. It asks an LLM for
-candidate drawings, compares their renders with the input image, and refines
-the strongest candidates over several search epochs using NSGA-II multi-
-objective evolutionary search. A path optimizer provides
-additional geometric refinement.
+vectrify is a local SVG editor for turning a raster image into editable vector
+artwork. Alongside manual tools it offers automated operations that work
+against a reference image: generate new shapes, improve existing ones, and
+simplify the result. Every operation previews its result and applies it as one
+undoable edit, limited to the objects and kinds of change you allow.
 
-SVG is the only output format. The former `--format` option has been removed;
-omit it from existing commands, including commands that used `--format svg`.
-
-## Local SVG editor
-
-Run `uv run vectrify-ui` to open the local editor, or
-`uv run vectrify-ui drawing.svg --reference original.png` to start with a drawing.
-Select objects, edit paint and path nodes, pin endpoints, and use undo/redo.
-Save a project to preserve editing state or export ordinary SVG.
-See [the editor guide](docs/editor.md) for controls and current limitations.
-Selected-path GPU fitting and geometry simplification include reviewable previews.
-LLM/SAM seed generation and NSGA-II search remain available through the CLI.
-
-## Install
-
-Python 3.10 or newer is required. Install the CLI with `pipx` or `uv`:
+## Start
 
 ```bash
-pipx install "vectrify[vision]"  # recommended
-# or: uv tool install "vectrify[vision]"
+uv tool install "vectrify[all]"     # or: pipx install "vectrify[all]"
+vectrify                            # open the editor
+vectrify drawing.svg --reference original.png --port 8765
 ```
 
-The vision extra enables the perceptual scorer. The `all` extra installs both
-vision and SAMVG support.
+Open the printed localhost address in a browser. The server listens on loopback
+only and needs no Node build step. From a source checkout, run
+`uv run vectrify`. See [the editor guide](docs/editor.md) for every control.
 
-A GPU is optional, but it speeds up both the SVG path optimizer and the
-perceptual scorer. A compatible PyTorch installation can use NVIDIA CUDA for
-both; the perceptual scorer can also use Apple MPS. Both components fall back
-to CPU, and the simple scorer does not require a GPU.
+## Operations
 
-SVG rendering needs Cairo. On Debian/Ubuntu, install it with
-`sudo apt install libcairo2`.
+| Action | Method | What it does |
+| --- | --- | --- |
+| Generate | SAMVG | Segments the reference with SAM and traces each region |
+| Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
+| Generate | LLM | Asks a multimodal model to draw the reference |
+| Improve | Optimize path | GPU gradient fitting of one path's nodes, handles and colour |
+| Improve | Search improvements | NSGA-II local search over the selection |
+| Improve | Edit with LLM | Sends the drawing and an instruction to a model |
+| Improve | Fit colours | Closed-form flat fill colours, geometry locked |
+| Simplify | Smooth / simplify | Refits contours with fewer lines and curves |
+| Simplify | Clean up geometry | Drops redundant vertices and merges compatible paths |
 
-Set one LLM provider key before running: OPENAI_API_KEY,
-ANTHROPIC_API_KEY, or GEMINI_API_KEY.
+Generated shapes are placed over the artboard exactly where the reference is
+shown. Improve and Simplify change only the selection, and locks, pins and
+permissions are enforced by the backend for every method, including LLM edits.
+[docs/operations.md](docs/operations.md) describes the operation contract for
+writing new methods.
 
-With `--provider auto` (the default), vectrify uses the first configured key
-in this order: OpenAI, Anthropic, Gemini. Select one explicitly when more than
-one key is set.
+## Requirements
 
-## Usage
+Python 3.10 or newer. SVG rendering needs Cairo; on Debian/Ubuntu install it
+with `sudo apt install libcairo2`.
 
-Convert an image to SVG with `vectrify input.png -o output.svg`.
+The `vision` extra enables the perceptual scorer and colour regions; the
+`samvg` extra enables SAM segmentation; `all` installs both. Optimize path and
+colour regions need an NVIDIA GPU with PyTorch CUDA; SAMVG and the search use
+it when available. Optimize path also needs the optional native CUDA extension
+(below).
 
-Supported input formats are PNG, JPEG, WEBP, and GIF. The default run uses up
-to 50 epochs, stops after two unimproved epochs, or ends at the one-hour wall
-clock limit. LLM calls are bounded by epochs x seed (50 and 5 by
-default, respectively).
+The LLM methods need one provider key: `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`
+or `GEMINI_API_KEY`. With the provider set to automatic, the first key set is
+used in that order.
 
-Here are some common options:
+## SAMVG
 
-```bash
-# Give the LLM extra direction
-vectrify logo.png -o logo.svg \
-  --goal "Use thick strokes and avoid gradients"
+SAMVG is inspired by the SAMVG paper, not an installation of the unreleased
+research code. It uses SAM ViT-H by default (ViT-B is faster), keeps masks only
+when they materially improve a flat-colour reconstruction, and traces them into
+layered SVG paths. SAM inputs default to a 1024px maximum side
+(`VECTRIFY_SAMVG_MAX_SIDE`) and decode 64 prompts per CUDA batch
+(`VECTRIFY_SAMVG_POINTS_PER_BATCH`). `VECTRIFY_SAMVG_MODEL` changes the
+default checkpoint.
 
-# Spend more or less on each epoch
-vectrify photo.jpg -o sketch.svg --seeds 10 --epochs 4 \
-  --max-wall-seconds 1800
-vectrify mascot.png -o mascot.svg --segment-count 12  # tiles/local elites (default: 8)
-
-# Add the optional segmentation-derived SVG seed
-vectrify artwork.png -o artwork.svg --samvg-seed
-
-# Choose a provider, model, or scorer explicitly
-vectrify input.png --provider anthropic --model MODEL_NAME
-vectrify input.png --scorer simple
-
-# Disable optional per-node artifacts
-vectrify input.png -o output.svg --no-save-raster --no-write-lineage
-```
-
-Run `vectrify --help` for every option, including resolution, worker count,
-epoch stopping criteria, and logging controls.
-
-## Resume a run
-
-By default, a new run starts from scratch. Continue from the latest run for the
-same output path with `vectrify input.png -o output.svg --resume`.
-
-Resume only the best N saved candidates with `--resume-top N`. To refine saved
-candidates without making new LLM calls, use `--seeds 0 --resume`.
-
-## Output files
-
-The selected result is written to the path passed with `-o`. Run artifacts are
-stored beside it:
-
-```text
-output.svg
-output/
-└── runs/
-    └── 2026-08-22_13-00-00/
-        ├── lineage.csv
-        └── nodes/
-            ├── 1.svg
-            ├── eval0.123456_2.svg
-            └── ...
-```
-
-Lineage is enabled by default. Rendered PNGs are saved alongside node files
-by default; add `--save-heatmap` for perceptual difference maps.
-
-## SAMVG-inspired seed
-
-With `--samvg-seed`, Vectrify adds one native, segmentation-first SVG candidate
-without reducing the configured LLM seed count. It uses SAM ViT-H by default,
-retains masks only when they materially improve a flat-colour reconstruction of
-the target, and traces the retained masks into editable layered SVG paths. Set
-`VECTRIFY_SAMVG_MODEL=facebook/sam-vit-base` for the smaller checkpoint. It is
-inspired by SAMVG, not an installation of the unreleased research code and is
-off by default.
-
-SAM inputs default to a 1024px maximum side, the model's native encoder size;
-the returned masks are restored to the target's original canvas before tracing.
-Set `VECTRIFY_SAMVG_MAX_SIDE` to choose another cap, or pass `max_side=None` to
-the Python API to opt out explicitly.
-
-Automatic SAM masks retain the dissertation's 32×32 prompt grid but decode 64
-prompts per CUDA batch in FP16 by default. Set `VECTRIFY_SAMVG_POINTS_PER_BATCH`
-for a larger-memory GPU; full-resolution mask filtering remains on CPU so the
-batch does not consume the renderer's CUDA memory.
-
-The default candidate is deliberately the segmentation-and-tracing seed only;
-it does not run the path optimiser. This keeps seed quality measurable without
-mixing in local refinement.
-
-For the dissertation-style two-phase measurement (initial fit, residual prompts,
+For the dissertation-style two-phase measurement (initial fit, residual prompts
 and recovery fit), build a local wheel with the optional native CUDA renderer
 and run:
 
@@ -148,8 +78,10 @@ uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
 ```
 
 `--all` also evaluates every benchmark target and the connect-the-dots duck.
-Each target directory contains the five stage rasters, SVGs, a gallery,
-pixel-error table, and per-bounded-group CUDA memory/timing data.
+PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 
-PyPI releases are portable Python wheels and use the Torch renderer fallback.
-They do not currently bundle the optional CUDA extension.
+## Benchmarks
+
+`scripts/bench_search.py` measures the NSGA-II search on the corpus in
+`bench/cases`; see [bench/README.md](bench/README.md).
+`scripts/bench_colour_regions.py` runs colour regions on one image.

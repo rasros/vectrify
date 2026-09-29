@@ -46,8 +46,6 @@ dependencies = [
     "scipy>=1.11.0",
     "shapely>=2.1,<3",
     "skia-pathops>=0.9,<1",
-    "rich>=14.3.3",
-    "tqdm>=4.67.3",
 ]
 
 [project.optional-dependencies]
@@ -83,7 +81,7 @@ Repository = "https://github.com/rasros/vectrify"
 Issues = "https://github.com/rasros/vectrify/issues"
 
 [project.scripts]
-vectrify = "vectrify.main:main"
+vectrify = "vectrify.ui.server:main"
 vectrify-ui = "vectrify.ui.server:main"
 
 [build-system]

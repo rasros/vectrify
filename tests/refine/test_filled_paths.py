@@ -1,5 +1,7 @@
 import io
+import math
 import xml.etree.ElementTree as ET
+from typing import Any
 
 import numpy as np
 import pytest
@@ -9,9 +11,9 @@ from vectrify.image_utils import rasterize_svg_to_png_bytes
 from vectrify.refine.paths import (
     _composite_opaque_fills,
     _fill_batched_windings,
-    _fill_coverage,
     _fill_coverages,
     _fill_path_coverage,
+    _fill_winding,
     _large_path_tile_boundary_candidates,
     _large_path_tile_candidates,
     _pad_fused_cubics,
@@ -22,6 +24,37 @@ from vectrify.refine.paths import (
     fit_opaque_fills_locally,
     parse_filled_cubics,
 )
+
+
+# The unbatched coverage, kept as the oracle the batched path must match.
+def _fill_coverage(
+    control: Any,
+    box: tuple[int, int, int, int],
+    samples: int = 32,
+    softness: float = 0.25,
+    subpixels: int = 4,
+) -> Any:
+    """Differentiable soft fill coverage for one closed cubic contour.
+
+    The path's winding angle is smooth with respect to its sampled curve
+    points. A sigmoid around pi turns it into antialiased inside coverage while
+    retaining gradients for every point coordinate. This is the filled-path
+    counterpart to :func:`coverage`, used by the SAMVG optimiser.
+    """
+    import torch
+
+    coverages = []
+    for y in range(subpixels):
+        for x in range(subpixels):
+            winding = _fill_winding(
+                control,
+                box,
+                samples=samples,
+                x_offset=(x + 0.5) / subpixels,
+                y_offset=(y + 0.5) / subpixels,
+            ).abs()
+            coverages.append(torch.sigmoid((winding - math.pi) / softness))
+    return torch.stack(coverages).mean(dim=0)
 
 
 def _sixteen_cubic_circle(torch):
