@@ -5,10 +5,6 @@ let geometry = null, geometryObject = null, activeNode = null, reference = null;
 let clickCycle = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
-let fitContext = null, fitPoll = null;
-let generateContext = null, generatePoll = null;
-let nsgaContext = null, nsgaPoll = null;
-let llmContext = null, llmPoll = null;
 let simplifyContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
@@ -1080,17 +1076,22 @@ start();
 // Automated operations share one job API: start, status, stop, apply, discard.
 const operation = (command, body) => request('/api/operation', {command, ...body});
 
+
 // Improve: explicit selected-path execution of the GPU path-fit method.
+const fitDialog = jobDialog('optimize', {
+  start: () => {
+    const nodes = $('optimize-nodes').checked, handles = $('optimize-handles').checked, color = $('optimize-color').checked;
+    return {action:'improve', method:'path-fit', permissions:{geometry:nodes || handles, paint:color},
+      settings:{nodes, handles, color, displacement:Number($('optimize-movement').value), resolution:Number($('optimize-resolution').value)},
+      budget:{steps:Number($('optimize-steps').value)}};
+  },
+  describe: ({changed, metrics}) => changed ? `Reference error ${errorChange(metrics)} · ${metrics.size.join(' × ')} px crop. Apply to keep this result as one undoable edit.` : 'No better fit found within these settings. The path is unchanged.',
+  applied: 'Path fit applied. Undo restores the original path.',
+  again: 'Run again',
+}).wire();
 $('optimize-path').onclick = async () => {
   await queue;
   const item = oneObject(); if (!item) return;
-  fitContext = {epoch: state.epoch, revision: state.revision, job: null};
-  $('optimize-summary').textContent = item.label;
-  $('optimize-error').hidden = true; $('optimize-previews').hidden = true;
-  $('optimize-progress').hidden = true; $('optimize-settings').disabled = false;
-  $('optimize-run').hidden = false; $('optimize-run').disabled = false;
-  $('optimize-apply').hidden = true; $('optimize-stop').hidden = true;
-  $('optimize-close').textContent = 'Cancel'; $('optimize-run').textContent = 'Run path fit';
   const locked = item.inherited_locks;
   for (const key of ['nodes', 'handles']) {
     $('optimize-'+key).disabled = locked.includes('geometry');
@@ -1098,69 +1099,8 @@ $('optimize-path').onclick = async () => {
   }
   $('optimize-color').disabled = locked.includes('paint') || locked.includes('fill');
   $('optimize-color').checked = !$('optimize-color').disabled;
-  $('optimize-dialog').showModal();
+  fitDialog.open(item.label);
 };
-function fitError(error) { $('optimize-error').textContent = error.message; $('optimize-error').hidden = false; }
-async function pollFit() {
-  const context = fitContext; if (!context?.job) return;
-  try {
-    const result = await operation('status', {job:context.job, preview:true});
-    if (context !== fitContext) return;
-    $('optimize-meter').max = result.steps; $('optimize-meter').value = result.step;
-    $('optimize-status').textContent = result.message;
-    if (result.status === 'running') { fitPoll = setTimeout(pollFit, 700); return; }
-    $('optimize-stop').hidden = true;
-    if (result.status === 'failed') throw new Error(result.error);
-    if (result.status !== 'ready') return;
-    $('optimize-previews').hidden = false;
-    const {changed, metrics, previews} = result.result;
-    for (const key of ['reference','before','after']) $('optimize-'+key).src = previews[key];
-    const before = metrics.before.error, after = metrics.after.error;
-    const improvement = before > 0 ? 100*(before-after)/before : 0;
-    $('optimize-metrics').textContent = changed ? `Reference error reduced ${improvement.toFixed(2)}% · ${metrics.size.join(' × ')} px crop. Apply to keep this result as one undoable edit.` : 'No better fit found within these settings. The path is unchanged.';
-    $('optimize-apply').hidden = !changed;
-    $('optimize-close').textContent = 'Discard';
-    $('optimize-settings').disabled = false;
-    $('optimize-run').disabled = false; $('optimize-run').textContent = 'Run again';
-  } catch (error) { if (context === fitContext) { fitError(error); $('optimize-stop').hidden = true; $('optimize-settings').disabled = false; $('optimize-run').disabled = false; } }
-}
-$('optimize-run').onclick = async () => {
-  const context = fitContext; if (!context) return;
-  $('optimize-error').hidden = true; $('optimize-run').disabled = true;
-  $('optimize-settings').disabled = true; $('optimize-apply').hidden = true;
-  $('optimize-previews').hidden = true;
-  try {
-    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
-    const nodes = $('optimize-nodes').checked, handles = $('optimize-handles').checked, color = $('optimize-color').checked;
-    const result = await operation('start', {action:'improve', method:'path-fit', epoch:context.epoch, revision:context.revision,
-      permissions:{geometry:nodes || handles, paint:color},
-      settings:{nodes, handles, color, displacement:Number($('optimize-movement').value), resolution:Number($('optimize-resolution').value)},
-      budget:{steps:Number($('optimize-steps').value)}});
-    if (context !== fitContext) { await operation('discard', {job:result.id}); return; }
-    context.job = result.id;
-    $('optimize-progress').hidden = false; $('optimize-stop').hidden = false;
-    $('optimize-status').textContent = result.message; $('optimize-close').textContent = 'Cancel & discard';
-    await pollFit();
-  } catch (error) { fitError(error); $('optimize-settings').disabled = false; $('optimize-run').disabled = false; }
-};
-$('optimize-stop').onclick = async () => {
-  try { await operation('stop',{job:fitContext.job}); $('optimize-stop').hidden=true; }
-  catch(error) { fitError(error); }
-};
-$('optimize-apply').onclick = async () => {
-  $('optimize-apply').disabled = true;
-  try {
-    const result = await operation('apply',{job:fitContext.job});
-    dirty = true; await applyState(result); $('optimize-dialog').close();
-    toast('Path fit applied. Undo restores the original path.');
-  } catch(error) { fitError(error); }
-  finally { $('optimize-apply').disabled = false; }
-};
-$('optimize-close').onclick = () => $('optimize-dialog').close();
-$('optimize-dialog').addEventListener('close',()=>{
-  clearTimeout(fitPoll); const job = fitContext?.job; fitContext = null;
-  if (job) operation('discard',{job}).catch(error=>toast(error.message,true));
-});
 
 function simplifyBounds() {
   const points = [];
@@ -1278,242 +1218,85 @@ const generateSettings = {
 function showGenerateMethod() {
   for (const panel of document.querySelectorAll('[data-generate]')) panel.hidden = panel.dataset.generate !== $('generate-method').value;
 }
-function generateError(error) { $('generate-error').textContent = error.message; $('generate-error').hidden = false; }
-function generateIdle() { $('generate-settings').disabled = false; $('generate-run').disabled = false; $('generate-stop').hidden = true; }
 $('generate-method').onchange = showGenerateMethod;
+const generateDialog = jobDialog('generate', {
+  start: () => {
+    const name = $('generate-method').value;
+    return {action:'generate', method:name, scope:$('generate-scope').value, permissions:{structure:true}, settings:generateSettings[name]()};
+  },
+  describe: ({changed, metrics}) => changed ? `${metrics.shapes.toLocaleString()} shapes · reference error ${errorChange(metrics)}. Apply adds them as one undoable edit.` : 'Nothing was generated. Try other settings.',
+  applied: 'Generated shapes added. Undo removes them.',
+  choiceLabel: (result, index) => `Drawing ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
+  again: 'Generate again',
+}).wire();
 $('generate-open').onclick = async () => {
   await queue;
-  generateContext = {epoch:state.epoch, revision:state.revision, job:null};
   const group = oneObject()?.tag === 'g';
   $('generate-scope').value = group ? 'selection' : 'drawing';
   $('generate-scope').options[1].disabled = !group;
-  for (const id of ['generate-error','generate-previews','generate-progress','generate-apply','generate-stop']) $(id).hidden = true;
-  $('generate-run').textContent = 'Generate'; $('generate-close').textContent = 'Cancel';
-  generateIdle(); showGenerateMethod();
-  $('generate-dialog').showModal();
+  showGenerateMethod(); generateDialog.open('');
 };
-async function pollGenerate() {
-  const context = generateContext; if (!context?.job) return;
-  try {
-    const job = await operation('status', {job:context.job, preview:true});
-    if (context !== generateContext) return;
-    $('generate-meter').max = job.steps || 1; $('generate-meter').value = job.step;
-    $('generate-status').textContent = job.message;
-    if (job.status === 'running') { generatePoll = setTimeout(pollGenerate, 700); return; }
-    generateIdle();
-    if (job.status === 'failed') throw new Error(job.error);
-    if (job.status !== 'ready') return;
-    const {changed, metrics, previews} = job.result;
-    for (const key of ['reference','before','after']) $('generate-'+key).src = previews[key];
-    $('generate-previews').hidden = false;
-    const before = metrics.before.error, after = metrics.after.error;
-    const improvement = before > 0 ? 100*(before-after)/before : 0;
-    const change = improvement >= 0 ? `reduced ${improvement.toFixed(1)}%` : `increased ${(-improvement).toFixed(1)}%`;
-    $('generate-metrics').textContent = changed ? `${metrics.shapes.toLocaleString()} shapes · reference error ${change}. Apply adds them as one undoable edit.` : 'Nothing was generated. Try other settings.';
-    $('generate-apply').hidden = !changed; $('generate-close').textContent = 'Discard'; $('generate-run').textContent = 'Generate again';
-  } catch (error) { if (context === generateContext) { generateError(error); generateIdle(); } }
-}
-$('generate-run').onclick = async () => {
-  const context = generateContext; if (!context) return;
-  for (const id of ['generate-error','generate-apply','generate-previews']) $(id).hidden = true;
-  $('generate-settings').disabled = true; $('generate-run').disabled = true;
-  try {
-    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
-    const name = $('generate-method').value;
-    const job = await operation('start', {action:'generate', method:name, epoch:context.epoch, revision:context.revision,
-      scope:$('generate-scope').value, permissions:{structure:true}, settings:generateSettings[name]()});
-    if (context !== generateContext) { await operation('discard', {job:job.id}); return; }
-    context.job = job.id;
-    $('generate-progress').hidden = false; $('generate-stop').hidden = false; $('generate-close').textContent = 'Cancel & discard';
-    await pollGenerate();
-  } catch (error) { generateError(error); generateIdle(); }
-};
-$('generate-stop').onclick = async () => {
-  try { await operation('stop', {job:generateContext.job}); $('generate-stop').hidden = true; } catch (error) { generateError(error); }
-};
-$('generate-apply').onclick = async () => {
-  $('generate-apply').disabled = true;
-  try {
-    const result = await operation('apply', {job:generateContext.job});
-    generateContext.job = null; dirty = true; await applyState(result); $('generate-dialog').close();
-    toast('Generated shapes added. Undo removes them.');
-  } catch (error) { generateError(error); }
-  finally { $('generate-apply').disabled = false; }
-};
-$('generate-close').onclick = () => $('generate-dialog').close();
-$('generate-dialog').addEventListener('close', () => {
-  clearTimeout(generatePoll); const job = generateContext?.job; generateContext = null;
-  if (job) operation('discard', {job}).catch(error => toast(error.message, true));
-});
 
-// Improve: NSGA-II search over the selection (or whole drawing).
-function nsgaError(error) { $('nsga-error').textContent = error.message; $('nsga-error').hidden = false; }
-function nsgaIdle() { $('nsga-settings').disabled = false; $('nsga-run').disabled = false; $('nsga-stop').hidden = true; }
-$('nsga-open').onclick = async () => {
-  await queue;
-  nsgaContext = {epoch:state.epoch, revision:state.revision, job:null, results:[], choice:0};
+// Improve dialogs that search or ask a model over the selection or drawing.
+function openOnScope(dialog, prefix) {
   const count = state.selection.objects.length;
-  $('nsga-scope').value = count ? 'selection' : 'drawing';
-  $('nsga-scope').options[0].disabled = !count;
-  $('nsga-summary').textContent = count ? (oneObject()?.label || `${count} selected objects`) : 'Whole drawing';
-  for (const id of ['nsga-error','nsga-previews','nsga-progress','nsga-apply','nsga-stop']) $(id).hidden = true;
-  $('nsga-run').textContent = 'Search'; $('nsga-close').textContent = 'Cancel';
-  nsgaIdle(); $('nsga-dialog').showModal();
-};
-function showNsgaChoice(index) {
-  const context = nsgaContext, result = context?.results[index]; if (!result) return;
-  context.choice = index;
-  for (const key of ['reference','before','after']) $('nsga-'+key).src = result.previews[key];
-  const before = result.metrics.before.error, after = result.metrics.after.error;
-  const improvement = before > 0 ? 100*(before-after)/before : 0;
-  $('nsga-metrics').textContent = result.changed ? `Reference error reduced ${improvement.toFixed(1)}% after ${result.metrics.tasks.toLocaleString()} candidates. Apply keeps this result as one undoable edit.` : 'No candidate beat the current drawing. Try more candidates or allow more kinds of change.';
-  $('nsga-apply').hidden = !result.changed;
+  $(prefix+'-scope').value = count ? 'selection' : 'drawing';
+  $(prefix+'-scope').options[0].disabled = !count;
+  dialog.open(count ? selectionSummary() : 'Whole drawing');
 }
-async function pollNsga() {
-  const context = nsgaContext; if (!context?.job) return;
-  try {
-    const job = await operation('status', {job:context.job, preview:true});
-    if (context !== nsgaContext) return;
-    $('nsga-meter').max = job.steps || 1; $('nsga-meter').value = job.step;
-    $('nsga-status').textContent = job.message;
-    if (job.status === 'running') { nsgaPoll = setTimeout(pollNsga, 700); return; }
-    nsgaIdle();
-    if (job.status === 'failed') throw new Error(job.error);
-    if (job.status !== 'ready') return;
-    context.results = [job.result, ...job.alternatives];
-    const choices = $('nsga-choices'); choices.replaceChildren();
-    context.results.forEach((result, index) => {
-      if (!result.changed && index) return;
-      const label = document.createElement('label'); label.className = 'toggle';
-      const input = document.createElement('input'); input.type = 'radio'; input.name = 'nsga-choice'; input.checked = index === 0;
-      input.onchange = () => showNsgaChoice(index);
-      label.append(input, ` ${index ? 'Alternative '+index : 'Recommended'} · error ${result.metrics.after.error.toFixed(5)}`);
-      choices.append(label);
-    });
-    $('nsga-previews').hidden = false; showNsgaChoice(0);
-    $('nsga-close').textContent = 'Discard'; $('nsga-run').textContent = 'Search again';
-  } catch (error) { if (context === nsgaContext) { nsgaError(error); nsgaIdle(); } }
-}
-$('nsga-run').onclick = async () => {
-  const context = nsgaContext; if (!context) return;
-  for (const id of ['nsga-error','nsga-apply','nsga-previews']) $(id).hidden = true;
-  $('nsga-settings').disabled = true; $('nsga-run').disabled = true;
-  try {
-    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
-    const job = await operation('start', {action:'improve', method:'nsga', epoch:context.epoch, revision:context.revision, scope:$('nsga-scope').value,
-      permissions:{geometry:$('nsga-geometry').checked, paint:$('nsga-paint').checked, structure:$('nsga-structure').checked},
-      settings:{workers:Number($('nsga-workers').value), pool_size:Number($('nsga-pool').value)}, budget:{steps:Number($('nsga-tasks').value)}});
-    if (context !== nsgaContext) { await operation('discard', {job:job.id}); return; }
-    context.job = job.id;
-    $('nsga-progress').hidden = false; $('nsga-stop').hidden = false; $('nsga-close').textContent = 'Cancel & discard';
-    await pollNsga();
-  } catch (error) { nsgaError(error); nsgaIdle(); }
-};
-$('nsga-stop').onclick = async () => {
-  try { await operation('stop', {job:nsgaContext.job}); $('nsga-stop').hidden = true; } catch (error) { nsgaError(error); }
-};
-$('nsga-apply').onclick = async () => {
-  $('nsga-apply').disabled = true;
-  try {
-    const result = await operation('apply', {job:nsgaContext.job, choice:nsgaContext.choice});
-    nsgaContext.job = null; dirty = true; await applyState(result); $('nsga-dialog').close();
-    toast('Search result applied. Undo restores the previous drawing.');
-  } catch (error) { nsgaError(error); }
-  finally { $('nsga-apply').disabled = false; }
-};
-$('nsga-close').onclick = () => $('nsga-dialog').close();
-$('nsga-dialog').addEventListener('close', () => {
-  clearTimeout(nsgaPoll); const job = nsgaContext?.job; nsgaContext = null;
-  if (job) operation('discard', {job}).catch(error => toast(error.message, true));
-});
+const nsgaDialog = jobDialog('nsga', {
+  start: () => ({action:'improve', method:'nsga', scope:$('nsga-scope').value,
+    permissions:{geometry:$('nsga-geometry').checked, paint:$('nsga-paint').checked, structure:$('nsga-structure').checked},
+    settings:{workers:Number($('nsga-workers').value), pool_size:Number($('nsga-pool').value)}, budget:{steps:Number($('nsga-tasks').value)}}),
+  describe: ({changed, metrics}) => changed ? `Reference error ${errorChange(metrics)} after ${metrics.tasks.toLocaleString()} candidates. Apply keeps this result as one undoable edit.` : 'No candidate beat the current drawing. Try more candidates or allow more kinds of change.',
+  applied: 'Search result applied. Undo restores the previous drawing.',
+  choiceLabel: (result, index) => `${index ? 'Alternative '+index : 'Recommended'} · error ${result.metrics.after.error.toFixed(5)}`,
+  again: 'Search again',
+}).wire();
+$('nsga-open').onclick = async () => { await queue; openOnScope(nsgaDialog, 'nsga'); };
+const llmDialog = jobDialog('llm', {
+  start: () => ({action:'improve', method:'llm', scope:$('llm-scope').value,
+    permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},
+    settings:{instruction:$('llm-instruction').value, provider:$('llm-provider').value, model:$('llm-model').value.trim(), reasoning:$('llm-reasoning').value, candidates:Number($('llm-candidates').value)}}),
+  describe: ({changed, metrics: {edits, skipped, ...metrics}}) => {
+    const left = skipped ? ` · ${skipped} change(s) outside the scope were left out` : '';
+    return changed ? `${edits} edit(s) · reference error ${errorChange(metrics)}${left}. Apply keeps it as one undoable edit.` : `The reply changed nothing that is allowed${left}.`;
+  },
+  applied: 'LLM edit applied. Undo restores the previous drawing.',
+  choiceLabel: (result, index) => `Reply ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
+  again: 'Ask again',
+}).wire();
+$('llm-open').onclick = async () => { await queue; openOnScope(llmDialog, 'llm'); };
 
-// Improve: edit with an LLM; the backend replays the reply within scope.
-function llmError(error) { $('llm-error').textContent = error.message; $('llm-error').hidden = false; }
-function llmIdle() { $('llm-settings').disabled = false; $('llm-run').disabled = false; $('llm-stop').hidden = true; }
-$('llm-open').onclick = async () => {
-  await queue;
-  llmContext = {epoch:state.epoch, revision:state.revision, job:null, results:[], choice:0};
-  const count = state.selection.objects.length;
-  $('llm-scope').value = count ? 'selection' : 'drawing';
-  $('llm-scope').options[0].disabled = !count;
-  $('llm-summary').textContent = count ? (oneObject()?.label || `${count} selected objects`) : 'Whole drawing';
-  for (const id of ['llm-error','llm-previews','llm-progress','llm-apply','llm-stop']) $(id).hidden = true;
-  $('llm-run').textContent = 'Ask the model'; $('llm-close').textContent = 'Cancel';
-  llmIdle(); $('llm-dialog').showModal();
-};
-function showLlmChoice(index) {
-  const context = llmContext, result = context?.results[index]; if (!result) return;
-  context.choice = index;
-  for (const key of ['reference','before','after']) $('llm-'+key).src = result.previews[key];
-  const {before, after, edits, skipped} = result.metrics;
-  const change = before.error > 0 ? 100*(before.error-after.error)/before.error : 0;
-  const trend = change >= 0 ? `reduced ${change.toFixed(1)}%` : `increased ${(-change).toFixed(1)}%`;
-  $('llm-metrics').textContent = result.changed ? `${edits} edit(s) · reference error ${trend}${skipped ? ` · ${skipped} change(s) outside the scope were left out` : ''}. Apply keeps it as one undoable edit.` : `The reply changed nothing that is allowed${skipped ? ` (${skipped} change(s) outside the scope were left out)` : ''}.`;
-  $('llm-apply').hidden = !result.changed;
-}
-async function pollLlm() {
-  const context = llmContext; if (!context?.job) return;
-  try {
-    const job = await operation('status', {job:context.job, preview:true});
-    if (context !== llmContext) return;
-    $('llm-meter').max = job.steps || 1; $('llm-meter').value = job.step;
-    $('llm-status').textContent = job.message;
-    if (job.status === 'running') { llmPoll = setTimeout(pollLlm, 1000); return; }
-    llmIdle();
-    if (job.status === 'failed') throw new Error(job.error);
-    if (job.status !== 'ready') return;
-    context.results = [job.result, ...job.alternatives];
-    const choices = $('llm-choices'); choices.replaceChildren();
-    if (context.results.length > 1) context.results.forEach((result, index) => {
-      const label = document.createElement('label'); label.className = 'toggle';
-      const input = document.createElement('input'); input.type = 'radio'; input.name = 'llm-choice'; input.checked = index === 0;
-      input.onchange = () => showLlmChoice(index);
-      label.append(input, ` Reply ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`);
-      choices.append(label);
-    });
-    $('llm-previews').hidden = false; showLlmChoice(0);
-    $('llm-close').textContent = 'Discard'; $('llm-run').textContent = 'Ask again';
-  } catch (error) { if (context === llmContext) { llmError(error); llmIdle(); } }
-}
-$('llm-run').onclick = async () => {
-  const context = llmContext; if (!context) return;
-  for (const id of ['llm-error','llm-apply','llm-previews']) $(id).hidden = true;
-  $('llm-settings').disabled = true; $('llm-run').disabled = true;
-  try {
-    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
-    const job = await operation('start', {action:'improve', method:'llm', epoch:context.epoch, revision:context.revision, scope:$('llm-scope').value,
-      permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},
-      settings:{instruction:$('llm-instruction').value, provider:$('llm-provider').value, model:$('llm-model').value.trim(), reasoning:$('llm-reasoning').value, candidates:Number($('llm-candidates').value)}});
-    if (context !== llmContext) { await operation('discard', {job:job.id}); return; }
-    context.job = job.id;
-    $('llm-progress').hidden = false; $('llm-stop').hidden = false; $('llm-close').textContent = 'Cancel & discard';
-    await pollLlm();
-  } catch (error) { llmError(error); llmIdle(); }
-};
-$('llm-stop').onclick = async () => {
-  try { await operation('stop', {job:llmContext.job}); $('llm-stop').hidden = true; } catch (error) { llmError(error); }
-};
-$('llm-apply').onclick = async () => {
-  $('llm-apply').disabled = true;
-  try {
-    const result = await operation('apply', {job:llmContext.job, choice:llmContext.choice});
-    llmContext.job = null; dirty = true; await applyState(result); $('llm-dialog').close();
-    toast('LLM edit applied. Undo restores the previous drawing.');
-  } catch (error) { llmError(error); }
-  finally { $('llm-apply').disabled = false; }
-};
-$('llm-close').onclick = () => $('llm-dialog').close();
-$('llm-dialog').addEventListener('close', () => {
-  clearTimeout(llmPoll); const job = llmContext?.job; llmContext = null;
-  if (job) operation('discard', {job}).catch(error => toast(error.message, true));
-});
-
-// A dialog around one operation job: start, poll, stop, preview, apply.
-function jobDialog(prefix, {start, describe, applied, idle = () => {}}) {
-  let context = null, poll = null;
+// A dialog around one operation job: start, poll, stop, preview, choose, apply.
+// Elements are found by id as `${prefix}-name`; missing optional ones are skipped.
+function jobDialog(prefix, {start, describe, applied, choiceLabel = null, again = null}) {
+  let context = null, poll = null, runLabel = '';
   const show = id => $(prefix+'-'+id);
   const fail = error => { show('error').textContent = error.message; show('error').hidden = false; };
-  const ready = () => { show('settings').disabled = false; show('run').disabled = false; show('stop').hidden = true; idle(); };
+  const ready = () => { show('settings').disabled = false; show('run').disabled = false; show('stop').hidden = true; };
+  function choose(index) {
+    const result = context?.results[index]; if (!result) return;
+    context.choice = index;
+    for (const [key, url] of Object.entries(result.previews)) { const img = show(key); if (img) img.src = url; }
+    show('metrics').textContent = describe(result);
+    show('apply').hidden = !result.changed;
+  }
+  function showChoices() {
+    const box = show('choices'); if (!box) return;
+    box.replaceChildren();
+    const results = context.results;
+    if (!choiceLabel || results.length < 2) return;
+    results.forEach((result, index) => {
+      if (index && !result.changed) return;
+      const label = document.createElement('label'); label.className = 'toggle';
+      const input = document.createElement('input');
+      input.type = 'radio'; input.name = prefix+'-choice'; input.checked = index === 0;
+      input.onchange = () => choose(index);
+      label.append(input, ' '+choiceLabel(result, index));
+      box.append(label);
+    });
+  }
   async function refresh() {
     const current = context; if (!current?.job) return;
     try {
@@ -1524,17 +1307,18 @@ function jobDialog(prefix, {start, describe, applied, idle = () => {}}) {
       ready();
       if (job.status === 'failed') throw new Error(job.error);
       if (job.status !== 'ready') return;
-      for (const [key, url] of Object.entries(job.result.previews)) { const img = show(key); if (img) img.src = url; }
-      show('previews').hidden = false; show('metrics').textContent = describe(job.result);
-      show('apply').hidden = !job.result.changed; show('close').textContent = 'Discard';
+      current.results = [job.result, ...(job.alternatives || [])];
+      showChoices(); choose(0);
+      show('previews').hidden = false; show('close').textContent = 'Discard';
+      if (again) show('run').textContent = again;
     } catch (error) { if (current === context) { fail(error); ready(); } }
   }
   return {
     open(summary) {
-      context = {epoch:state.epoch, revision:state.revision, job:null};
-      show('summary').textContent = summary;
+      context = {epoch:state.epoch, revision:state.revision, job:null, results:[], choice:0};
+      if (show('summary')) show('summary').textContent = summary;
       for (const id of ['error','previews','progress','apply','stop']) show(id).hidden = true;
-      show('close').textContent = 'Cancel'; ready();
+      show('run').textContent = runLabel; show('close').textContent = 'Cancel'; ready();
       show('dialog').showModal();
     },
     async run() {
@@ -1551,11 +1335,12 @@ function jobDialog(prefix, {start, describe, applied, idle = () => {}}) {
       } catch (error) { fail(error); ready(); }
     },
     wire() {
+      runLabel = show('run').textContent;
       show('run').onclick = () => this.run();
       show('stop').onclick = async () => { try { await operation('stop', {job:context.job}); show('stop').hidden = true; } catch (error) { fail(error); } };
       show('apply').onclick = async () => {
         show('apply').disabled = true;
-        try { const result = await operation('apply', {job:context.job}); context.job = null; dirty = true; await applyState(result); show('dialog').close(); toast(applied); }
+        try { const result = await operation('apply', {job:context.job, choice:context.choice}); context.job = null; dirty = true; await applyState(result); show('dialog').close(); toast(applied); }
         catch (error) { fail(error); } finally { show('apply').disabled = false; }
       };
       show('close').onclick = () => show('dialog').close();
