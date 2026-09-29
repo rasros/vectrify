@@ -69,12 +69,23 @@ class Session:
             ):
                 raise DocumentError("Another operation is already running")
             bounds = payload.get("bounds", self.state(svg=False)["bounds"])
+            snapshot = self.editor.snapshot
+            if payload.get("scope") == "drawing":
+                # An explicit whole-drawing request; the focus region still applies.
+                snapshot = replace(
+                    snapshot,
+                    selection=Selection(
+                        whole_document=True, focus=snapshot.selection.focus
+                    ),
+                )
+            elif payload.get("scope") not in {None, "selection"}:
+                raise DocumentError("Choose the selection or the whole drawing")
             job = Job(
                 chosen,
                 OperationRequest(
                     action=chosen.action,
                     method=chosen.name,
-                    snapshot=self.editor.snapshot,
+                    snapshot=snapshot,
                     editor=self.editor,
                     permissions=Permissions.parse(payload.get("permissions")),
                     settings=payload.get("settings") or {},

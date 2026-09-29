@@ -1,0 +1,188 @@
+"""Generate methods insert reference-space SVG into the document as one edit."""
+
+import time
+
+import pytest
+from PIL import Image
+
+from vectrify.document import (
+    DocumentError,
+    Editor,
+    Rect,
+    Selection,
+    import_svg,
+)
+from vectrify.operations import Job, OperationRequest, Permissions, method
+from vectrify.operations.generate import (
+    artboard,
+    generated_result,
+    render_region,
+    target_region,
+)
+
+DOC = (
+    '<svg width="200" height="100" viewBox="10 20 200 100">'
+    '<rect id="bg" x="10" y="20" width="200" height="100" fill="#ffffff"/>'
+    '<g id="layer"/></svg>'
+)
+
+
+def reference():
+    # 400x200 px over a 200x100 artboard: two pixels per document unit.
+    image = Image.new("RGB", (400, 200), "white")
+    image.paste((200, 0, 0), (100, 50, 300, 150))
+    return image
+
+
+def request(editor, selection, **extra):
+    snapshot = editor.snapshot
+    return OperationRequest(
+        action="generate",
+        method=extra.pop("method", "samvg"),
+        snapshot=type(snapshot)(snapshot.revision, snapshot.document, selection),
+        editor=editor,
+        permissions=Permissions(structure=True),
+        reference=reference(),
+        **extra,
+    )
+
+
+SQUARE = (
+    '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
+    '<path d="M100 50H300V150H100Z" fill="#c80000"/></svg>'
+)
+
+
+def test_generated_svg_maps_reference_pixels_onto_the_artboard():
+    original = import_svg(DOC)
+    editor = Editor(original)
+    req = request(editor, Selection.all())
+    region = target_region(req)
+    assert (region.x, region.y, region.width, region.height) == (10, 20, 200, 100)
+    result = generated_result(req, SQUARE, region, label="Generate", name="Trace")
+    proposal = result.recommended
+    assert proposal.changed
+    assert proposal.metrics["after"]["error"] < proposal.metrics["before"]["error"]
+    assert proposal.metrics["after"]["error"] < 1e-3
+    assert proposal.metrics["shapes"] == 1
+    assert set(proposal.previews) == {"reference", "before", "after"}
+    proposal.transaction.commit()
+    assert editor.undo_labels == ("Generate",)
+    group = editor.snapshot.document.root.children[-1]
+    assert (group.tag, group.name) == ("g", "Trace")
+    assert group.get("transform") == "matrix(0.5 0 0 0.5 10.0 20.0)"
+    editor.undo()
+    assert editor.snapshot.document == original
+
+
+def test_focus_region_crops_the_reference_and_places_the_result_there():
+    editor = Editor(import_svg(DOC))
+    focus = Rect(60, 45, 100, 50)
+    req = request(editor, Selection(whole_document=True, focus=focus))
+    region = target_region(req)
+    assert (region.x, region.y, region.width, region.height) == (60, 45, 100, 50)
+    assert region.image.size == (200, 100)
+    assert region.image.getpixel((0, 0)) == (200, 0, 0)
+    rendered = render_region(req.snapshot.document, region)
+    assert rendered.size == region.image.size
+
+
+def test_generation_goes_into_a_selected_group_or_needs_the_whole_drawing():
+    editor = Editor(import_svg(DOC))
+    req = request(editor, Selection(object_ids=frozenset({"layer"})))
+    result = generated_result(
+        req, SQUARE, target_region(req), label="Generate", name="Trace"
+    )
+    result.recommended.transaction.commit()
+    layer = editor.snapshot.document.element("layer")
+    assert [c.tag for c in layer.children] == ["g"]
+    with pytest.raises(DocumentError, match="whole drawing or one group"):
+        method("generate", "samvg").validate(
+            request(editor, Selection(object_ids=frozenset({"bg"})))
+        )
+
+
+def test_samvg_job_inserts_the_trace_with_text_disabled(monkeypatch):
+    seen = {}
+
+    def fake(image, **kwargs):
+        seen.update(kwargs, size=image.size)
+        return SQUARE
+
+    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", fake)
+    editor = Editor(import_svg(DOC))
+    job = Job(
+        method("generate", "samvg"),
+        request(editor, Selection.all(), settings={"max_layers": 8}),
+    )
+    job.run()
+    state = job.state(preview=True)
+    assert state["status"] == "ready", state
+    assert seen["ocr"] is False
+    assert seen["max_layers"] == 8
+    assert seen["size"] == (400, 200)
+    job.apply()
+    assert editor.undo_labels == ("Generate with SAMVG",)
+
+
+def test_samvg_rejects_bad_settings_and_missing_permission():
+    editor = Editor(import_svg(DOC))
+    samvg = method("generate", "samvg")
+    with pytest.raises(DocumentError, match="Unknown SAMVG setting"):
+        samvg.validate(request(editor, Selection.all(), settings={"ocr": True}))
+    with pytest.raises(DocumentError, match="whole number"):
+        samvg.validate(request(editor, Selection.all(), settings={"segments": 2.5}))
+    with pytest.raises(DocumentError, match="structure"):
+        samvg.validate(
+            OperationRequest(
+                action="generate",
+                method="samvg",
+                snapshot=editor.snapshot,
+                editor=editor,
+                reference=reference(),
+            )
+        )
+
+
+def test_artboard_defaults_without_a_viewbox():
+    assert artboard(import_svg('<svg width="30" height="40"/>')) == (0, 0, 30, 40)
+
+
+def test_session_scope_drawing_generates_without_selecting_everything(monkeypatch):
+    import base64
+    import io
+
+    from vectrify.ui.session import Session
+
+    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", lambda *_a, **_k: SQUARE)
+    stream = io.BytesIO()
+    reference().save(stream, format="PNG")
+    session = Session(
+        import_svg(DOC),
+        reference={
+            "name": "ref.png",
+            "opacity": 0.5,
+            "data_url": "data:image/png;base64,"
+            + base64.b64encode(stream.getvalue()).decode(),
+        },
+    )
+    payload = {
+        "command": "start",
+        "action": "generate",
+        "method": "samvg",
+        "epoch": session.epoch,
+        "revision": 0,
+        "permissions": {"structure": True},
+    }
+    with pytest.raises(DocumentError, match="whole drawing or one group"):
+        session.operation(payload)
+    job = session.operation(dict(payload, scope="drawing"))
+    for _ in range(500):
+        state = session.operation({"command": "status", "job": job["id"]})
+        if state["status"] != "running":
+            break
+        time.sleep(0.01)
+    assert state["status"] == "ready", state
+    session.operation({"command": "apply", "job": job["id"]})
+    assert session.editor.snapshot.selection == Selection()
+    assert session.editor.undo_labels == ("Generate with SAMVG",)

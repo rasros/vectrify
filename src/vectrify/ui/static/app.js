@@ -6,6 +6,7 @@ let clickCycle = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
 let fitContext = null, fitPoll = null;
+let generateContext = null, generatePoll = null;
 let simplifyContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
@@ -1255,3 +1256,78 @@ $('contact-apply').onclick=async()=>{
 $('contact-close').onclick=()=>$('contact-dialog').close();
 $('contact-dialog').addEventListener('cancel',event=>{if($('contact-close').disabled)event.preventDefault();});
 $('contact-dialog').addEventListener('close',()=>{const preview=contactContext?.preview;contactContext=null;if(preview)operation('discard',{job:preview}).catch(error=>toast(error.message,true));});
+
+// Generate: new shapes from the reference, placed as one group.
+const generateSettings = {
+  samvg: () => ({max_layers:Number($('samvg-max-layers').value), segments:Number($('samvg-segments').value), model:$('samvg-model').value,
+    fill_holes:$('samvg-fill-holes').checked, hybrid_strokes:$('samvg-hybrid-strokes').checked}),
+};
+function showGenerateMethod() {
+  for (const panel of document.querySelectorAll('[data-generate]')) panel.hidden = panel.dataset.generate !== $('generate-method').value;
+}
+function generateError(error) { $('generate-error').textContent = error.message; $('generate-error').hidden = false; }
+function generateIdle() { $('generate-settings').disabled = false; $('generate-run').disabled = false; $('generate-stop').hidden = true; }
+$('generate-method').onchange = showGenerateMethod;
+$('generate-open').onclick = async () => {
+  await queue;
+  generateContext = {epoch:state.epoch, revision:state.revision, job:null};
+  const group = oneObject()?.tag === 'g';
+  $('generate-scope').value = group ? 'selection' : 'drawing';
+  $('generate-scope').options[1].disabled = !group;
+  for (const id of ['generate-error','generate-previews','generate-progress','generate-apply','generate-stop']) $(id).hidden = true;
+  $('generate-run').textContent = 'Generate'; $('generate-close').textContent = 'Cancel';
+  generateIdle(); showGenerateMethod();
+  $('generate-dialog').showModal();
+};
+async function pollGenerate() {
+  const context = generateContext; if (!context?.job) return;
+  try {
+    const job = await operation('status', {job:context.job, preview:true});
+    if (context !== generateContext) return;
+    $('generate-meter').max = job.steps || 1; $('generate-meter').value = job.step;
+    $('generate-status').textContent = job.message;
+    if (job.status === 'running') { generatePoll = setTimeout(pollGenerate, 700); return; }
+    generateIdle();
+    if (job.status === 'failed') throw new Error(job.error);
+    if (job.status !== 'ready') return;
+    const {changed, metrics, previews} = job.result;
+    for (const key of ['reference','before','after']) $('generate-'+key).src = previews[key];
+    $('generate-previews').hidden = false;
+    const before = metrics.before.error, after = metrics.after.error;
+    const improvement = before > 0 ? 100*(before-after)/before : 0;
+    $('generate-metrics').textContent = changed ? `${metrics.shapes.toLocaleString()} shapes · reference error reduced ${improvement.toFixed(1)}%. Apply adds them as one undoable edit.` : 'Nothing was generated. Try other settings.';
+    $('generate-apply').hidden = !changed; $('generate-close').textContent = 'Discard'; $('generate-run').textContent = 'Generate again';
+  } catch (error) { if (context === generateContext) { generateError(error); generateIdle(); } }
+}
+$('generate-run').onclick = async () => {
+  const context = generateContext; if (!context) return;
+  for (const id of ['generate-error','generate-apply','generate-previews']) $(id).hidden = true;
+  $('generate-settings').disabled = true; $('generate-run').disabled = true;
+  try {
+    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
+    const name = $('generate-method').value;
+    const job = await operation('start', {action:'generate', method:name, epoch:context.epoch, revision:context.revision,
+      scope:$('generate-scope').value, permissions:{structure:true}, settings:generateSettings[name]()});
+    if (context !== generateContext) { await operation('discard', {job:job.id}); return; }
+    context.job = job.id;
+    $('generate-progress').hidden = false; $('generate-stop').hidden = false; $('generate-close').textContent = 'Cancel & discard';
+    await pollGenerate();
+  } catch (error) { generateError(error); generateIdle(); }
+};
+$('generate-stop').onclick = async () => {
+  try { await operation('stop', {job:generateContext.job}); $('generate-stop').hidden = true; } catch (error) { generateError(error); }
+};
+$('generate-apply').onclick = async () => {
+  $('generate-apply').disabled = true;
+  try {
+    const result = await operation('apply', {job:generateContext.job});
+    generateContext.job = null; dirty = true; await applyState(result); $('generate-dialog').close();
+    toast('Generated shapes added. Undo removes them.');
+  } catch (error) { generateError(error); }
+  finally { $('generate-apply').disabled = false; }
+};
+$('generate-close').onclick = () => $('generate-dialog').close();
+$('generate-dialog').addEventListener('close', () => {
+  clearTimeout(generatePoll); const job = generateContext?.job; generateContext = null;
+  if (job) operation('discard', {job}).catch(error => toast(error.message, true));
+});

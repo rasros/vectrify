@@ -22,7 +22,7 @@
     <div id="objects" class="object-list" role="listbox" aria-label="Drawing objects" aria-multiselectable="true"></div>
     <section class="reference-panel"><div class="panel-heading"><h2>Reference</h2><button id="add-reference" class="icon-button" aria-label="Add reference image" title="Add PNG, JPEG or WebP">+</button></div>
       <div id="reference-empty" class="reference-empty"><span>▧</span><p>Keep the original in view.</p><button id="add-reference-empty">Add an image</button></div>
-      <div id="reference-controls" hidden><div class="reference-file"><span>▧</span><span id="reference-name"></span><button id="remove-reference" class="icon-button" aria-label="Remove reference">×</button></div><label class="toggle"><input id="reference-visible" type="checkbox" checked aria-keyshortcuts="O"> Show overlay <kbd>O</kbd></label><label class="range-label" for="reference-opacity">Opacity <output id="reference-percent">50%</output></label><input id="reference-opacity" type="range" min="0" max="100" value="50"></div>
+      <div id="reference-controls" hidden><div class="reference-file"><span>▧</span><span id="reference-name"></span><button id="remove-reference" class="icon-button" aria-label="Remove reference">×</button></div><label class="toggle"><input id="reference-visible" type="checkbox" checked aria-keyshortcuts="O"> Show overlay <kbd>O</kbd></label><label class="range-label" for="reference-opacity">Opacity <output id="reference-percent">50%</output></label><input id="reference-opacity" type="range" min="0" max="100" value="50"><button id="generate-open" class="wide-button primary">Generate from reference…</button></div>
     </section>
   </aside>
   <section class="canvas-panel" aria-label="Drawing canvas">
@@ -80,6 +80,21 @@
   <div id="optimize-previews" hidden><div class="fit-previews"><figure><figcaption>Reference</figcaption><img id="optimize-reference" alt="Reference crop"></figure><figure><figcaption>Before</figcaption><img id="optimize-before" alt="Path before fitting in its surrounding artwork"></figure><figure><figcaption>After</figcaption><img id="optimize-after" alt="Path-fit preview in its surrounding artwork"></figure></div><p id="optimize-metrics"></p></div>
   <p id="optimize-error" role="alert" hidden></p>
   <div class="join-actions"><button id="optimize-close">Cancel</button><button id="optimize-stop" hidden>Stop &amp; keep best</button><button id="optimize-run" class="primary">Run path fit</button><button id="optimize-apply" class="primary" hidden>Apply</button></div>
+</dialog>
+<dialog id="generate-dialog" aria-labelledby="generate-title">
+  <h2 id="generate-title">Generate from reference</h2>
+  <p class="muted">Traces the reference into new shapes, added as one group at the front.</p>
+  <fieldset id="generate-settings"><legend>Settings</legend>
+    <div class="two-fields"><label class="field-label">Method<select id="generate-method"><option value="samvg" selected>SAMVG · segment and trace</option></select></label><label class="field-label">Add to<select id="generate-scope"><option value="drawing" selected>Whole drawing</option><option value="selection">Selected group</option></select></label></div>
+    <div data-generate="samvg"><div class="two-fields"><label>Maximum layers<input id="samvg-max-layers" type="number" min="1" max="4096" value="512"></label><label>Curve segments<input id="samvg-segments" type="number" min="4" max="256" value="16"></label></div>
+      <label class="field-label">Model<select id="samvg-model"><option value="facebook/sam-vit-huge" selected>SAM ViT-H · best</option><option value="facebook/sam-vit-base">SAM ViT-B · faster</option></select></label>
+      <div class="button-row"><label class="toggle"><input id="samvg-fill-holes" type="checkbox" checked> Fill small holes</label><label class="toggle"><input id="samvg-hybrid-strokes" type="checkbox" checked> Thin strokes</label></div></div>
+    <p class="muted">Existing objects are not changed. Text in the reference is traced as shapes.</p>
+  </fieldset>
+  <div id="generate-progress" hidden><progress id="generate-meter" max="2" value="0"></progress><p id="generate-status" role="status" aria-live="polite"></p></div>
+  <div id="generate-previews" hidden><div class="fit-previews"><figure><figcaption>Reference</figcaption><img id="generate-reference" alt="Reference region"></figure><figure><figcaption>Before</figcaption><img id="generate-before" alt="Drawing before generating"></figure><figure><figcaption>After</figcaption><img id="generate-after" alt="Drawing with generated shapes"></figure></div><p id="generate-metrics"></p></div>
+  <p id="generate-error" role="alert" hidden></p>
+  <div class="join-actions"><button id="generate-close">Cancel</button><button id="generate-stop" hidden>Stop</button><button id="generate-run" class="primary">Generate</button><button id="generate-apply" class="primary" hidden>Apply</button></div>
 </dialog>
 <dialog id="join-dialog" aria-labelledby="join-title">
   <h2 id="join-title">Join paths</h2>

@@ -43,6 +43,22 @@ shared lock in `RESOURCES` while it runs.
 The editor exposes jobs through one endpoint, `POST /api/operation`, with the
 commands `start`, `status`, `stop`, `apply` and `discard`.
 
+## Built-in methods
+
+| Action | Method | What it does |
+| --- | --- | --- |
+| generate | `samvg` | Traces SAM segments of the reference into a new group |
+| improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
+| simplify | `curves` | Refits selected contours with fewer lines and cubics |
+| link | `boundaries` | Matches touching edges into shared boundaries |
+
+Generate methods use `vectrify.operations.generate`: `target_region` crops the
+reference to the focus rectangle (or takes the whole artboard), and
+`generated_result` inserts reference-pixel SVG as one group with the transform
+that places it over the artboard, measuring reference error before and after.
+The target container is the whole drawing (`scope: "drawing"` in the editor
+request) or one selected group.
+
 ## Writing a method
 
 Implement the `Method` protocol (`action`, `name`, `background`,
