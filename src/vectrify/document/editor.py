@@ -31,6 +31,29 @@ from vectrify.document.svg import GEOMETRY, PAINT, validate_attributes
 from vectrify.document.topology import edge, propagate_node, split_edges
 
 
+def _on_chord(
+    h: tuple[float, ...], a: tuple[float, float], b: tuple[float, float]
+) -> bool:
+    """Whether handle *h* lies on the straight line from *a* to *b*, so that a
+    curve with its other handle retracted is just that line."""
+    ax, ay = b[0] - a[0], b[1] - a[1]
+    hx, hy = h[0] - a[0], h[1] - a[1]
+    length = math.hypot(ax, ay)
+    if length == 0:
+        return math.hypot(hx, hy) < 1e-9
+    along = (hx * ax + hy * ay) / length
+    return abs(hx * ay - hy * ax) / length < 1e-6 * max(1.0, length) and (
+        -1e-9 <= along <= length + 1e-9
+    )
+
+
+def _toward(
+    a: tuple[float, float], b: tuple[float, float], share: float
+) -> tuple[float, float]:
+    """The point *share* of the way from *a* to *b*."""
+    return a[0] + (b[0] - a[0]) * share, a[1] + (b[1] - a[1]) * share
+
+
 class EditRejectedError(DocumentError):
     """An edit violates scope, locks, or node constraints."""
 
@@ -690,6 +713,125 @@ class Transaction:
                     if n.id not in retained
                 }
             )
+
+    def set_node_handles(self, object_id: str, node_id: str, count: int) -> None:
+        """Give a point no handles (a corner), one, or two (a smooth point).
+
+        A point's incoming handle is the last control point of its own
+        segment and its outgoing handle the first of the next one; a straight
+        segment becomes a curve to hold one, and a curve whose handles are
+        both retracted becomes straight again. Two handles are set along the
+        line from the previous point to the next, a third of each segment
+        long. One handle keeps the curve coming in and straightens the way out;
+        asking again for one moves it to the other side.
+        """
+        if count not in {0, 1, 2}:
+            raise EditRejectedError("A point has no handles, one or two")
+        geometry = self._working.geometry_for(object_id)
+        found = next(
+            (
+                (index, subpath, position)
+                for index, subpath in enumerate(geometry.subpaths)
+                for position, node in enumerate(subpath.nodes)
+                if node.id == node_id
+            ),
+            None,
+        )
+        if found is None:
+            raise DocumentError(f"Unknown path node: {node_id}")
+        index, subpath, position = found
+        nodes = list(subpath.nodes)
+        point = nodes[position].endpoint
+        # The closing line and a moveto hold no handles.
+        incoming = position if position > 0 else None
+        outgoing = position + 1 if position + 1 < len(nodes) else None
+
+        def at(node_index: int) -> tuple[float, float]:
+            return nodes[node_index].endpoint
+
+        def handle_in() -> tuple[float, float] | None:
+            if incoming is None or nodes[incoming].command != "C":
+                return None
+            h = nodes[incoming].values[2:4]
+            return None if h == point else (h[0], h[1])
+
+        def handle_out() -> tuple[float, float] | None:
+            if outgoing is None or nodes[outgoing].command != "C":
+                return None
+            h = nodes[outgoing].values[0:2]
+            return None if h == point else (h[0], h[1])
+
+        def set_in(h: tuple[float, float] | None) -> None:
+            if incoming is None:
+                return
+            node, start = nodes[incoming], at(incoming - 1)
+            if h is None:
+                if node.command == "C":
+                    c1 = node.values[0:2]
+                    nodes[incoming] = (
+                        replace(node, command="L", values=point)
+                        if _on_chord(c1, start, point)
+                        else replace(node, values=(*c1, *point, *point))
+                    )
+                return
+            c1 = (
+                node.values[0:2]
+                if node.command == "C"
+                else _toward(start, point, 1 / 3)
+            )
+            nodes[incoming] = replace(node, command="C", values=(*c1, *h, *point))
+
+        def set_out(h: tuple[float, float] | None) -> None:
+            if outgoing is None:
+                return
+            node, end = nodes[outgoing], at(outgoing)
+            if h is None:
+                if node.command == "C":
+                    c2 = node.values[2:4]
+                    nodes[outgoing] = (
+                        replace(node, command="L", values=end)
+                        if _on_chord(c2, point, end)
+                        else replace(node, values=(*point, *c2, *end))
+                    )
+                return
+            c2 = node.values[2:4] if node.command == "C" else _toward(end, point, 1 / 3)
+            nodes[outgoing] = replace(node, command="C", values=(*h, *c2, *end))
+
+        # Smooth handle positions: along the neighbours' chord, a third of each
+        # segment long, or toward the only neighbour at an open end.
+        before = at(incoming - 1) if incoming is not None else None
+        after = at(outgoing) if outgoing is not None else None
+        ends = [p for p in (before, after) if p is not None]
+        if not ends:
+            raise EditRejectedError("This point has no segment to hold a handle")
+        tail, head = (before or point), (after or point)
+        dx, dy = head[0] - tail[0], head[1] - tail[1]
+        norm = math.hypot(dx, dy) or 1.0
+        ux, uy = dx / norm, dy / norm
+
+        def smooth(neighbour: tuple[float, float] | None, sign: float):
+            if neighbour is None:
+                return None
+            length = math.dist(point, neighbour) / 3
+            return (point[0] + sign * ux * length, point[1] + sign * uy * length)
+
+        if count == 0:
+            set_in(None)
+            set_out(None)
+        elif count == 2:
+            set_in(handle_in() or smooth(before, -1))
+            set_out(handle_out() or smooth(after, 1))
+        else:
+            only_in = handle_in() is not None and handle_out() is None
+            if (only_in and outgoing is not None) or incoming is None:
+                set_in(None)
+                set_out(handle_out() or smooth(after, 1))
+            else:
+                set_out(None)
+                set_in(handle_in() or smooth(before, -1))
+        subpaths = list(geometry.subpaths)
+        subpaths[index] = replace(subpath, nodes=tuple(nodes))
+        self.reshape_path(object_id, replace(geometry, subpaths=tuple(subpaths)))
 
     def reshape_path(self, object_id: str, geometry: Geometry) -> None:
         """Give a path new contours while its surviving nodes keep their identity.

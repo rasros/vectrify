@@ -762,6 +762,7 @@ $('move-apply').onclick=async()=>{await action('move',{dx:Number($('move-x').val
 $('node-apply').onclick=()=>{const node=nodeById(activeNode);if(node)action('node',{object:geometryObject,node:activeNode,values:[...node.values.slice(0,-2),Number($('node-x').value),Number($('node-y').value)]});};
 $('node-pin').onchange=event=>action('pin',{object:geometryObject,node:activeNode,pinned:event.target.checked});
 $('node-split').onclick=()=>action('split',{object:geometryObject,node:activeNode});
+for(const count of [0,1,2]) $(`node-handles-${count}`).onclick=()=>action('node_handles',{object:geometryObject,node:activeNode,count},'Changing handles…');
 function joinSelectionKey() { return JSON.stringify([state.epoch,state.revision,state.selection.objects]); }
 function joinCandidates() {
   const selected = new Set(state.selection.objects), candidates = [];

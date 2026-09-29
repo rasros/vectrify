@@ -51,6 +51,9 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   stacking and other element controls return with **Element properties (V)**.
   Delete/Backspace in Nodes affects only the selected point. Select one path,
   then click a point; drag blue handles for curves. Zoom in to reveal dense nodes.
+  **No handles**, **One handle** and **Two handles** turn the selected point
+  into a corner, a point curved on one side (click again to switch sides), or
+  a smooth point with its handles in line.
 - **Draw path (P)**: click to add corners, drag to set mirrored Bézier handles.
   Click the first point or **Close shape** for a filled shape, or press Enter /
   **Finish** for an open stroked path. Backspace removes the last point; Escape
