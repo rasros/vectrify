@@ -9,7 +9,7 @@ let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
 const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', hand: 'Pan'};
-const hints = {select: 'Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or handles · Pin endpoints to preserve tips', path: 'Click for corners · Drag for curves · First point closes · Enter finishes', hand: 'Drag to explore the drawing'};
+const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -209,7 +209,7 @@ function renderObjects() {
       label.append(detail); row.title += ` · ${context.role}`;
     }
     row.append(swatch, label);
-    if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; row.append(mark); }
+    if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; mark.title = `Locked: ${item.inherited_locks.map(lock => lock === 'transform' ? 'position' : lock).join(', ')}`; row.append(mark); }
     row.onclick = event => selectObject(item.id, event.shiftKey || event.ctrlKey || event.metaKey, true);
     fragment.append(row);
   }
@@ -258,6 +258,13 @@ function renderRelationships(item) {
   }
   for (const consumer of consumers) link(objectContext(consumer).inClip ? 'Used for clipping by' : consumer.tag === 'use' ? 'Drawn by' : 'Clips', consumer);
 }
+// Disable a button with the reason as its tooltip, or enable it with its own.
+function enable(id, reason) {
+  const button = $(id);
+  button.dataset.title ??= button.title;
+  button.disabled = !!reason;
+  button.title = reason || button.dataset.title;
+}
 function renderInspector() {
   const selected = state.selection.objects, item = oneObject();
   $('object-name-section').hidden = !item;
@@ -273,19 +280,21 @@ function renderInspector() {
   $('selected-id').textContent = item?.label || `${selected.length} objects`;
   $('selection-status').textContent = selected.length ? `${selected.length} selected` : 'Nothing selected';
   renderNodeInspector();
-  $('share-boundaries').disabled = selected.length !== 2 || !selected.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
+  const paths = selected.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
+  const noReference = !state.reference && 'Add a reference image first (Reference, left panel)';
+  enable('share-boundaries', selected.length !== 2 ? 'Select exactly two paths' : !paths && 'Both objects must be visible paths');
   const shared = selected.reduce((sum,id)=>sum+(object(id)?.shared_edges || 0),0);
-  $('contact-hint').textContent = shared ? 'Linked nodes move both regions. Unlink before moving a region separately.' : 'Select two paths to match touching edges.';
+  $('contact-hint').textContent = shared ? 'Linked nodes move both regions. Unlink before moving a region separately.' : 'Shift-click two paths to snap their touching edges together.';
   $('unlink-boundaries').hidden = !shared;
+  $('empty-reference-hint').hidden = !!state.reference;
   if (editingNodes) return;
   renderRelationships(item);
-  $('smooth-shape').disabled = !selected.length || !selected.every(id => ['path','use','g'].includes(object(id)?.tag));
-  $('optimize-path').disabled = !item || item.tag !== 'path' || item.resource || !state.reference;
-  $('nsga-open').disabled = !state.reference;
-  $('llm-open').disabled = !state.reference;
-  $('colours-open').disabled = !state.reference || !selected.length;
-  $('cleanup-open').disabled = !selected.length;
-  $('optimize-hint').textContent = !state.reference ? 'Add a reference image to fit against.' : item?.tag === 'use' ? 'Detach shared geometry to optimize this instance.' : !item || item.tag !== 'path' || item.resource ? 'Select one visible path.' : 'Run the path-fit mutator on this path.';
+  enable('smooth-shape', !selected.every(id => ['path','use','g'].includes(object(id)?.tag)) && 'Only paths, instances and groups can be simplified');
+  enable('optimize-path', noReference || (item?.tag === 'use' ? 'Detach this instance to an editable path first' : (!item || item.tag !== 'path' || item.resource) && 'Select one visible path'));
+  enable('nsga-open', noReference);
+  enable('llm-open', noReference);
+  enable('colours-open', noReference);
+  $('optimize-hint').textContent = state.reference ? 'Compare with the reference image. Each tool shows a preview before anything changes.' :'These tools compare the drawing with a reference image. Add one under Reference on the left to use them.';
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
     const value = paintValue(kind, kind === 'fill' ? 'black' : 'none');
@@ -304,14 +313,17 @@ function renderInspector() {
   const strokeWidth = paintValue('stroke-width', '1');
   $('stroke-width').value = strokeWidth ? parseFloat(strokeWidth) : '';
   const opacity = paintValue('opacity', '1'); $('opacity').value = opacity === '' ? '' : Math.round(Number(opacity) * 100);
-  document.querySelectorAll('[data-lock]').forEach(input => { input.disabled = !item; input.checked = item?.locks.includes(input.dataset.lock) || false; });
-  $('group').disabled = selected.length < 2; $('ungroup').disabled = !selected.length || !selected.every(id => object(id)?.tag === 'g');
-  $('backward').disabled = !item; $('forward').disabled = !item;
-  $('join_paths').disabled = joinCandidates().length < 2;
-  $('split_disconnected').disabled = !selected.length || !selected.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
-  $('detach').disabled = !item || !['path', 'use'].includes(item.tag);
+  document.querySelectorAll('[data-lock]').forEach(input => {
+    input.disabled = !item; input.checked = item?.locks.includes(input.dataset.lock) || false;
+    input.parentElement.title = item ? '' : 'Select one object to change its locks';
+  });
+  enable('group', selected.length < 2 && 'Select two or more objects to group');
+  enable('ungroup', !selected.every(id => object(id)?.tag === 'g') && 'Select one or more groups');
+  for (const id of ['backward', 'forward']) enable(id, !item && 'Select one object to restack');
+  enable('join_paths', joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them');
+  enable('split_disconnected', item?.tag === 'use' ? 'Detach this instance to an editable path first' : !paths && 'Only visible paths can be split');
+  enable('detach', (!item || !['path', 'use'].includes(item.tag)) && 'Select one path or instance');
   $('detach').textContent = item?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry';
-  $('split_disconnected').title = item?.tag === 'use' ? 'Detach to an editable path first' : 'Separate disconnected contours while keeping holes together';
   $('hole-section').hidden = !item || item.tag !== 'path' || item.resource;
   renderHoles();
 }
@@ -1041,6 +1053,7 @@ window.addEventListener('keydown',event=>{
   if(event.ctrlKey||event.metaKey||event.altKey)return;
   const tools={v:'select',n:'nodes',p:'path',h:'hand'};const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();if(!event.repeat)toggleReference();return;}
+  if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(tools[key])setTool(tools[key]);if(key==='f')fit();
   if((event.key==='Delete'||event.key==='Backspace')&&!pending&&state?.selection.objects.length){
     event.preventDefault();
@@ -1086,18 +1099,16 @@ const fitDialog = jobDialog('optimize', {
   },
   describe: ({changed, metrics}) => changed ? `Reference error ${errorChange(metrics)} · ${metrics.size.join(' × ')} px crop. Apply to keep this result as one undoable edit.` : 'No better fit found within these settings. The path is unchanged.',
   applied: 'Path fit applied. Undo restores the original path.',
-  again: 'Run again',
 }).wire();
 $('optimize-path').onclick = async () => {
   await queue;
   const item = oneObject(); if (!item) return;
   const locked = item.inherited_locks;
-  for (const key of ['nodes', 'handles']) {
-    $('optimize-'+key).disabled = locked.includes('geometry');
-    $('optimize-'+key).checked = !locked.includes('geometry');
+  for (const [key, lock] of [['nodes', 'geometry'], ['handles', 'geometry'], ['color', 'paint']]) {
+    const input = $('optimize-'+key), isLocked = locked.includes(lock);
+    input.disabled = isLocked; input.checked = !isLocked;
+    input.parentElement.title = isLocked ? `This path's ${lock} is locked` : '';
   }
-  $('optimize-color').disabled = locked.includes('paint') || locked.includes('fill');
-  $('optimize-color').checked = !$('optimize-color').disabled;
   fitDialog.open(item.label);
 };
 
@@ -1164,7 +1175,6 @@ const generateDialog = jobDialog('generate', {
   describe: ({changed, metrics}) => changed ? `${metrics.shapes.toLocaleString()} shapes · reference error ${errorChange(metrics)}. Apply adds them as one undoable edit.` : 'Nothing was generated. Try other settings.',
   applied: 'Generated shapes added. Undo removes them.',
   choiceLabel: (result, index) => `Drawing ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
-  again: 'Generate again',
 }).wire();
 $('generate-open').onclick = async () => {
   await queue;
@@ -1188,7 +1198,6 @@ const nsgaDialog = jobDialog('nsga', {
   describe: ({changed, metrics}) => changed ? `Reference error ${errorChange(metrics)} after ${metrics.tasks.toLocaleString()} candidates. Apply keeps this result as one undoable edit.` : 'No candidate beat the current drawing. Try more candidates or allow more kinds of change.',
   applied: 'Search result applied. Undo restores the previous drawing.',
   choiceLabel: (result, index) => `${index ? 'Alternative '+index : 'Recommended'} · error ${result.metrics.after.error.toFixed(5)}`,
-  again: 'Search again',
 }).wire();
 $('nsga-open').onclick = async () => { await queue; openOnScope(nsgaDialog, 'nsga'); };
 const llmDialog = jobDialog('llm', {
@@ -1201,17 +1210,18 @@ const llmDialog = jobDialog('llm', {
   },
   applied: 'LLM edit applied. Undo restores the previous drawing.',
   choiceLabel: (result, index) => `Reply ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
-  again: 'Ask again',
 }).wire();
 $('llm-open').onclick = async () => { await queue; openOnScope(llmDialog, 'llm'); };
 
 // A dialog around one operation job: start, poll, stop, preview, choose, apply.
 // Elements are found by id as `${prefix}-name`; missing optional ones are skipped.
-function jobDialog(prefix, {start, describe, applied, choiceLabel = null, again = null}) {
+function jobDialog(prefix, {start, describe, applied, choiceLabel = null}) {
   let context = null, poll = null, runLabel = '';
   const show = id => $(prefix+'-'+id);
   const fail = error => { show('error').textContent = error.message; show('error').hidden = false; };
   const ready = () => { show('settings').disabled = false; show('run').disabled = false; show('stop').hidden = true; };
+  // A run that failed leaves nothing to discard; show only the error.
+  const failedRun = error => { show('progress').hidden = true; show('close').textContent = 'Cancel'; fail(error); ready(); };
   function choose(index) {
     const result = context?.results[index]; if (!result) return;
     context.choice = index;
@@ -1246,9 +1256,10 @@ function jobDialog(prefix, {start, describe, applied, choiceLabel = null, again 
       if (job.status !== 'ready') return;
       current.results = [job.result, ...(job.alternatives || [])];
       showChoices(); choose(0);
-      show('previews').hidden = false; show('close').textContent = 'Discard';
-      if (again) show('run').textContent = again;
-    } catch (error) { if (current === context) { fail(error); ready(); } }
+      show('previews').hidden = false;
+      show('close').textContent = current.results.some(result => result.changed) ? 'Discard' : 'Close';
+      show('run').textContent = `${runLabel} again`;
+    } catch (error) { if (current === context) failedRun(error); }
   }
   return {
     open(summary) {
@@ -1262,6 +1273,8 @@ function jobDialog(prefix, {start, describe, applied, choiceLabel = null, again 
       const current = context; if (!current) return;
       for (const id of ['error','apply','previews']) show(id).hidden = true;
       show('settings').disabled = true; show('run').disabled = true;
+      // Quick methods finish inside the start request; say so while it runs.
+      show('progress').hidden = false; show('meter').removeAttribute('value'); show('status').textContent = 'Working…';
       try {
         if (current.job) { await operation('discard', {job:current.job}); current.job = null; }
         const job = await operation('start', {epoch:current.epoch, revision:current.revision, ...start()});
@@ -1269,7 +1282,7 @@ function jobDialog(prefix, {start, describe, applied, choiceLabel = null, again 
         current.job = job.id; show('progress').hidden = false; show('stop').hidden = job.status !== 'running';
         show('close').textContent = 'Cancel & discard';
         await refresh();
-      } catch (error) { fail(error); ready(); }
+      } catch (error) { failedRun(error); }
     },
     wire() {
       runLabel = show('run').textContent;
