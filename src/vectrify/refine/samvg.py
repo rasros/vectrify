@@ -18,7 +18,7 @@ import xml.etree.ElementTree as ET
 from collections import defaultdict
 from collections.abc import Callable
 from contextlib import nullcontext
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, cast
 
 import numpy as np
@@ -1368,6 +1368,58 @@ def thinner_than(mask: np.ndarray, width: int) -> bool:
     return not (~_binary_dilation(~np.asarray(mask, dtype=bool), radius)).any()
 
 
+def arrange_layers(
+    layers: list[MaskLayer],
+    *,
+    min_width: int = 0,
+    drop_hidden: bool = False,
+    flatten: bool = False,
+    min_pixels: int = 1,
+) -> list[MaskLayer]:
+    """Settle which layers are traced, and how much of each.
+
+    Too-thin layers go first, since removing one can uncover what is beneath.
+    A layer the ones above it hide completely paints nothing and is dropped.
+    Flattening cuts every layer down to its visible part, so no two traced
+    regions overlap; a remnant smaller than *min_pixels* is dropped.
+    """
+    if min_width:
+        layers = [layer for layer in layers if not thinner_than(layer.mask, min_width)]
+    if not (drop_hidden or flatten) or not layers:
+        return layers
+    above = np.zeros(layers[0].mask.shape, dtype=bool)
+    kept: list[MaskLayer] = []
+    for layer in reversed(layers):
+        visible = layer.mask & ~above
+        above |= layer.mask
+        if not visible.any():
+            continue
+        if flatten:
+            if visible.sum() < min_pixels:
+                continue
+            layer = replace(layer, mask=visible)
+        kept.append(layer)
+    return kept[::-1]
+
+
+def backdrop_colour(
+    image: Image.Image, layers: list[MaskLayer]
+) -> tuple[int, int, int]:
+    """The colour of what no layer claims, for a rectangle beneath them all.
+
+    SAM leaves drawn outlines to neither neighbour, so the unclaimed pixels are
+    mostly outline, and filling beneath in their colour makes the gaps read as
+    the outlines they were.
+    """
+    pixels = np.asarray(image.convert("RGB"))
+    unclaimed = ~np.any([layer.mask for layer in layers], axis=0) if layers else None
+    chosen = pixels[unclaimed] if unclaimed is not None and unclaimed.any() else None
+    if chosen is None:
+        chosen = pixels.reshape(-1, 3)
+    red, green, blue = (int(v) for v in np.median(chosen, axis=0))
+    return red, green, blue
+
+
 def _layer_svg_attributes(
     layer: MaskLayer,
     segments: int,
@@ -1404,6 +1456,9 @@ def generate_svg(
     maximum_segments: int = 2048,
     fill_holes: bool = True,
     min_width: int = 0,
+    drop_hidden: bool = False,
+    flatten: bool = False,
+    backdrop: bool = False,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
     model: str = SAMVG_MODEL,
@@ -1438,18 +1493,30 @@ def generate_svg(
     # broad lower fills coloured by pixels that later paths hide.
     if masks is not None:
         layers = recolour_visible_layers(image, layers)
+    layers = arrange_layers(
+        layers,
+        min_width=min_width,
+        drop_hidden=drop_hidden,
+        flatten=flatten,
+        min_pixels=min_pixels,
+    )
+    width, height = image.size
     paths = []
+    if backdrop:
+        red, green, blue = backdrop_colour(image, layers)
+        paths.append(
+            f'<rect width="{width}" height="{height}" '
+            f'fill="#{red:02x}{green:02x}{blue:02x}" />'
+        )
     for layer in layers:
         for attributes in _layer_svg_attributes(
             layer,
             segments,
-            min_width=min_width,
             curvature_threshold=curvature_threshold,
             maximum_segments=maximum_segments,
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
-    width, height = image.size
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}">' + "".join(paths) + "</svg>"

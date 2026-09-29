@@ -17,7 +17,9 @@ from vectrify.refine.samvg import (
     _is_crop_edge_mask,
     _label,
     _text_svg_attributes,
+    arrange_layers,
     automatic_masks,
+    backdrop_colour,
     coverage_prompt_points,
     detect_text,
     filter_by_impact,
@@ -723,3 +725,43 @@ def test_generate_svg_defaults_to_sam_native_input_size(monkeypatch):
     generate_svg(Image.new("RGB", (80, 40)), ocr=False)
 
     assert seen == {"max_side": samvg.SAMVG_MAX_SIDE}
+
+
+def _layer(mask, colour=(0, 0, 0)):
+    return MaskLayer(mask, colour, 1.0)
+
+
+def test_hidden_layers_are_dropped_and_flattening_removes_overlap():
+    below = np.zeros((10, 10), dtype=bool)
+    below[2:6, 2:6] = True
+    hidden = np.zeros((10, 10), dtype=bool)
+    hidden[3:5, 3:5] = True
+    top = np.zeros((10, 10), dtype=bool)
+    top[3:7, 3:7] = True
+    beside = np.zeros((10, 10), dtype=bool)
+    beside[0:10, 7:10] = True
+    layers = [_layer(below), _layer(hidden), _layer(beside), _layer(top)]
+
+    kept = arrange_layers(layers, drop_hidden=True)
+    assert [id(layer.mask) for layer in kept] == [id(below), id(beside), id(top)]
+
+    flat = arrange_layers(layers, flatten=True)
+    assert np.all(np.sum([layer.mask for layer in flat], axis=0) <= 1)
+    assert np.any(flat[0].mask)
+    assert not np.any(flat[0].mask & top)
+
+
+def test_the_backdrop_takes_the_colour_of_what_no_layer_claims():
+    pixels = np.full((8, 8, 3), 200, dtype=np.uint8)
+    pixels[:, 4] = (30, 40, 50)
+    image = Image.fromarray(pixels)
+    left = np.zeros((8, 8), dtype=bool)
+    left[:, :4] = True
+    right = np.zeros((8, 8), dtype=bool)
+    right[:, 5:] = True
+    assert backdrop_colour(image, [_layer(left), _layer(right)]) == (30, 40, 50)
+
+    svg = generate_svg(image, [left, right], min_pixels=1, min_impact=0, backdrop=True)
+    first = next(iter(ET.fromstring(svg)))
+    assert first.tag.endswith("rect")
+    assert first.get("fill") == "#1e2832"

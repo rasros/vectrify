@@ -32,6 +32,8 @@ SETTINGS = {
     # Regions narrower than this everywhere, in reference pixels, are left
     # out: SAM returns outlines and hairlines as regions of their own.
     "min_width": Setting(int, 3, minimum=0, maximum=64, label="minimum width"),
+    # Cut every region down to its visible part, so none overlap.
+    "flatten": Setting(bool, False),
     "max_side": Setting(int, SAMVG_MAX_SIDE, minimum=64, maximum=4096),
     "model": Setting(
         str,
@@ -68,6 +70,10 @@ class Samvg:
             # Text layers need the unsupported <text> element in the editor.
             ocr=False,
             rasterize=rasterize_svg,
+            # Regions hidden by those above paint nothing, and SAM leaves drawn
+            # outlines to neither neighbour: drop the one, fill beneath the other.
+            drop_hidden=True,
+            backdrop=True,
             **settings,
         )
         context.progress(1, "Placing traced shapes…")
