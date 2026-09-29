@@ -64,8 +64,16 @@ class Comparison:
         return clamp01(weight * structure + (1.0 - weight) * float(self.colour.mean()))
 
 
-def compare(reference: Reference, candidate_png: bytes) -> Comparison:
-    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+def compare(
+    reference: Reference, candidate_png: bytes | np.ndarray | Image.Image
+) -> Comparison:
+    """Measure a candidate given as PNG bytes, an RGB array or an image."""
+    if isinstance(candidate_png, bytes):
+        candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+    elif isinstance(candidate_png, np.ndarray):
+        candidate = Image.fromarray(candidate_png, "RGB")
+    else:
+        candidate = candidate_png.convert("RGB")
     if candidate.size != reference.image.size:
         candidate = candidate.resize(
             reference.image.size, resample=Image.Resampling.BILINEAR

@@ -142,9 +142,10 @@ Two engines do the work. The **GPU fit** is the default where it can run: one
 filled path, a reference, and PyTorch CUDA with the Vectrify CUDA extension. It
 moves points and handles by gradient descent, with a step budget and a maximum
 movement in local SVG units, and supports only Shape. The **CPU search** runs
-everywhere else and for every option: workers try one change at a time and a
-change is kept when the score does not get worse (a split has to improve it by
-1%). The dialog explains why the GPU fit is unavailable when it is. Pinned
+everywhere else and for every option: a beam search: the workers try changes to
+the best few versions together, and each round merges the changes that
+improved different points, so the whole shape moves at once (a split has to
+improve the fit by 1%). The dialog explains why the GPU fit is unavailable when it is. Pinned
 endpoints and linked boundary edges stay fixed, and surviving points keep their
 identity. The job runs in the background with progress, Stop & keep best, and
 reference/before/after previews; Apply is one undoable edit.
