@@ -77,11 +77,9 @@ uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
 .venv/bin/python scripts/bench_samvg_two_phase.py --cat
 ```
 
-`--all` also evaluates every benchmark target and the connect-the-dots duck.
+`--all` also evaluates the connect-the-dots duck.
 PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 
 ## Benchmarks
 
-`scripts/bench_search.py` measures the local search on the corpus in
-`bench/cases`; see [bench/README.md](bench/README.md).
 `scripts/bench_colour_regions.py` runs colour regions on one image.

@@ -18,12 +18,6 @@
 .codex/
 .coverage
 
-# The benchmark corpus is source, not run output
-!bench/cases/**
-# So is the synthetic distortion set: drawings damaged by a known amount, in a
-# known order, so a scorer can be checked without another scorer to judge it.
-!bench/distortions/**
-
 # Run artifacts: a run writes its log and lineage next to the input image.
 duck*/
 

@@ -273,7 +273,6 @@ def main() -> None:
     if args.cat or args.all:
         targets.append(Path("/tmp/SAMVG_thesis/cat1024.jpg"))
     if args.all:
-        targets.extend(sorted((ROOT / "bench/cases").glob("*/target.png")))
         targets.append(ROOT / "connect-the-dots-little-duck.png")
     if not targets:
         parser.error("give --target, --cat, or --all")
