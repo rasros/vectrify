@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import logging
 import os
+import random
 import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -199,7 +200,14 @@ def run_search(
     stop: threading.Event | None = None,
     progress: Callable[[SearchProgress], None] | None = None,
 ) -> SearchOutcome:
-    """Run workers over *initial_nodes* and return the best candidate and pool."""
+    """Run workers over *initial_nodes* and return the best candidate and pool.
+
+    With ``worker_context.random_seed`` set, the main process is seeded too:
+    parent selection and operator sampling happen here, not in the workers,
+    so seeding only the workers left a one-worker run unrepeatable.
+    """
+    if worker_context.random_seed is not None:
+        random.seed(worker_context.random_seed)
     policy = policy or operator_policy(
         worker_context.scope, settings.adaptive_operators
     )
