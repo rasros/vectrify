@@ -9,6 +9,7 @@ run targeted edits concurrently without sharing module state.
 import random
 import xml.etree.ElementTree as ET
 from collections.abc import Mapping
+from dataclasses import dataclass
 
 from vectrify.formats.svg.ownership import drawable_elements
 
@@ -26,17 +27,82 @@ def _element_of(item):
     return item
 
 
+# Attributes that count as paint rather than geometry when a scope limits kinds.
+PAINT_ATTRIBUTES = frozenset(
+    {
+        "fill",
+        "stroke",
+        "opacity",
+        "fill-opacity",
+        "stroke-opacity",
+        "stroke-width",
+        "stroke-linecap",
+        "stroke-linejoin",
+        "stroke-miterlimit",
+        "fill-rule",
+        "style",
+    }
+)
+
+
+@dataclass(frozen=True)
+class MutationScope:
+    """What an editor operation lets a search touch.
+
+    ``object_ids`` names editable elements by their ``id``; their descendants
+    are editable too. ``kinds`` are the permitted edit kinds: ``geometry``,
+    ``paint``, ``structure`` and ``transform``. Everything else stays fixed.
+    """
+
+    object_ids: frozenset[str]
+    kinds: frozenset[str]
+
+
 class MutationContext:
     """Selection weights resolved for one parsed SVG document."""
 
-    def __init__(self, root: ET.Element, targets: Mapping[int, float] | None = None):
+    def __init__(
+        self,
+        root: ET.Element,
+        targets: Mapping[int, float] | None = None,
+        scope: MutationScope | None = None,
+    ):
         by_index = targets or {}
         self._weights = {
             id(element): by_index.get(index, 0.0)
             for index, (_chain, element) in enumerate(drawable_elements(root))
         }
+        self.scope = scope
+        self._editable: set[int] | None = None
+        if scope is not None:
+            editable: set[int] = set()
+
+            def walk(element: ET.Element, inside: bool) -> None:
+                inside = inside or element.get("id") in scope.object_ids
+                if inside:
+                    editable.add(id(element))
+                for child in element:
+                    walk(child, inside)
+
+            walk(root, False)
+            self._editable = editable
+
+    def editable(self, element: ET.Element) -> bool:
+        return self._editable is None or id(element) in self._editable
+
+    def allows(self, kind: str) -> bool:
+        return self.scope is None or kind in self.scope.kinds
+
+    def allows_attribute(self, name: str) -> bool:
+        if self.scope is None:
+            return True
+        if name == "transform":
+            return self.allows("transform")
+        return self.allows("paint" if name in PAINT_ATTRIBUTES else "geometry")
 
     def pick(self, candidates: list):
+        if self._editable is not None:
+            candidates = [c for c in candidates if self.editable(_element_of(c))]
         if not candidates:
             raise NoChangeError
         if not self._weights:

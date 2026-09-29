@@ -16,7 +16,7 @@ from vectrify.formats.svg.ownership import (
     owner_labels,
 )
 from vectrify.formats.svg.pathdata import PATH_TOKEN_RE
-from vectrify.formats.svg.selection import MutationContext, NoChangeError
+from vectrify.formats.svg.selection import MutationContext, MutationScope, NoChangeError
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -95,14 +95,18 @@ def svg_transform(
     """
 
     @functools.wraps(fn)
-    def wrapper(svg: str, targets: Mapping[int, float] | None = None) -> str:
+    def wrapper(
+        svg: str,
+        targets: Mapping[int, float] | None = None,
+        scope: MutationScope | None = None,
+    ) -> str:
         try:
             root = ET.fromstring(svg)
         except ET.ParseError:
             return svg
 
         try:
-            fn(root, MutationContext(root, targets))
+            fn(root, MutationContext(root, targets, scope))
         except NoChangeError:
             return svg
         ET.register_namespace("", SVG_NS)
@@ -334,6 +338,8 @@ def mutate_numeric(root: ET.Element, context: MutationContext) -> None:
         for attr, val in elem.attrib.items():
             bare_attr = attr.split("}")[-1]
             if bare_attr not in _NUMERIC_ATTRS:
+                continue
+            if not context.allows_attribute(bare_attr):
                 continue
             m = _NUM_RE.match(val.strip())
             if m:
@@ -718,21 +724,37 @@ def mutate_remove_node(root: ET.Element, context: MutationContext) -> None:
 
 
 @svg_transform
-def mutate_reorder(root: ET.Element, _context: MutationContext) -> None:
+def mutate_reorder(root: ET.Element, context: MutationContext) -> None:
     """Swap two adjacent sibling elements to change z-order."""
-    candidates = [el for el in root.iter() if len(list(el)) >= 2]
-    if not candidates:
+    # Both siblings must be editable: swapping moves each of them.
+    pairs = [
+        (parent, i)
+        for parent in root.iter()
+        for i, (a, b) in enumerate(zip(parent, list(parent)[1:], strict=False))
+        if context.editable(a) and context.editable(b)
+    ]
+    if not pairs:
         raise NoChangeError
 
-    parent = random.choice(candidates)
+    parent, i = random.choice(pairs)
     children = list(parent)
-    i = random.randrange(len(children) - 1)
     children[i], children[i + 1] = children[i + 1], children[i]
     for child in list(parent):
         parent.remove(child)
     for child in children:
         parent.append(child)
 
+
+# The edit kinds each operator needs, checked against a MutationScope.
+OPERATOR_KINDS: dict[str, frozenset[str]] = {
+    "Mutation: color tweak": frozenset({"paint"}),
+    "Mutation: numeric tweak": frozenset({"geometry"}),
+    "Mutation: moved element": frozenset({"geometry"}),
+    "Mutation: path nudge": frozenset({"geometry"}),
+    "Mutation: stroke change": frozenset({"paint"}),
+    "Mutation: reordered elements": frozenset({"structure"}),
+    "Mutation: dropped style property": frozenset({"paint"}),
+}
 
 # Default weights, used when no policy names an operator.
 MUTATIONS: MutationTable = (
@@ -746,21 +768,41 @@ MUTATIONS: MutationTable = (
 )
 
 
+def scoped_mutations(scope: MutationScope | None) -> MutationTable:
+    """The operators whose edit kinds the scope permits."""
+    if scope is None:
+        return MUTATIONS
+    return tuple(m for m in MUTATIONS if OPERATOR_KINDS[m[1]] <= scope.kinds)
+
+
 def apply_mutation(
     parent_svg: str,
     operator: str | None = None,
     targets: dict[int, float] | None = None,
+    scope: MutationScope | None = None,
 ) -> tuple[str, str]:
     """Apply *operator* to *parent_svg*, or a weighted-random one if None.
 
     *targets* weights elements by the error they answer for, keyed by their
-    index among the drawable elements in document order.
+    index among the drawable elements in document order. With a *scope*, only
+    its elements change and only permitted operators run; an operator the scope
+    forbids leaves the parent unchanged, which the worker reports as no change.
     """
-    fn, name = pick_operator(MUTATIONS, operator)
+    table = scoped_mutations(scope)
+    if not table or (
+        operator is not None
+        and operator in OPERATOR_KINDS
+        and all(name != operator for _fn, name, _w in table)
+    ):
+        return parent_svg, operator or MUTATIONS[0][1]
+    fn, name = pick_operator(table, operator)
 
     def run() -> str:
-        targeted_fn = cast(Callable[[str, Mapping[int, float] | None], str], fn)
-        return targeted_fn(parent_svg, targets)
+        targeted_fn = cast(
+            Callable[[str, Mapping[int, float] | None, MutationScope | None], str],
+            fn,
+        )
+        return targeted_fn(parent_svg, targets, scope)
 
     return with_retries(run, fallback=parent_svg), name
 
