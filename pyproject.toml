@@ -62,8 +62,14 @@ samvg = [
     "torchvision>=0.28.0",
     "transformers>=4.49.0",
 ]
+# A native window instead of a browser tab. Linux uses pywebview's Qt backend,
+# which installs from PyPI without system packages.
+desktop = [
+    "pywebview>=5; sys_platform != 'linux'",
+    "pywebview[qt]>=5; sys_platform == 'linux'",
+]
 all = [
-    "vectrify[vision,samvg]",
+    "vectrify[vision,samvg,desktop]",
 ]
 dev = [
     "pytest",

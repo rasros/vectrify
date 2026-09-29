@@ -23,7 +23,20 @@ function setBusy(label, delta) {
   if (label) $('busy-label').textContent = label;
   document.body.setAttribute('aria-busy', String(pending > 0));
 }
+// In the desktop window (vectrify[desktop]) the page calls Python through
+// pywebview's bridge instead of the local server; the bridge appears a moment
+// after the page loads.
+const desktop = new URLSearchParams(location.search).has('desktop');
+const bridge = desktop ? new Promise(resolve => {
+  if (window.pywebview?.api) resolve(window.pywebview.api);
+  else window.addEventListener('pywebviewready', () => resolve(window.pywebview.api), {once: true});
+}) : null;
 async function request(path, data = {}) {
+  if (bridge) {
+    const {status, body} = await (await bridge).request(path, data, session || '');
+    if (status >= 400) throw new Error(body.error || `Request failed (${status})`);
+    return body;
+  }
   const response = await fetch(path, {method: 'POST', headers: {'Content-Type': 'application/json', 'X-Vectrify-Session': session || ''}, body: JSON.stringify(data)});
   const result = await response.json();
   if (!response.ok) throw new Error(result.error || `Request failed (${response.status})`);
@@ -1022,8 +1035,14 @@ async function download(project) {
   await queue; setBusy(project?'Saving project…':'Exporting SVG…',1);
   try {
     const result=await request('/api/export',{project,epoch:state.epoch,revision:state.revision});
-    const blob=new Blob([result.content],{type:project?'application/json':'image/svg+xml'}),url=URL.createObjectURL(blob);
-    const link=document.createElement('a');link.href=url;link.download=state.name.replace(/\.(svg|json|vectrify)$/i,'')+(project?'.vectrify':'.svg');link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    const filename=state.name.replace(/\.(svg|json|vectrify)$/i,'')+(project?'.vectrify':'.svg');
+    if(bridge){
+      // A native save dialog; cancelling it saves nothing.
+      if(!await (await bridge).save(filename,result.content))return;
+    }else{
+      const blob=new Blob([result.content],{type:project?'application/json':'image/svg+xml'}),url=URL.createObjectURL(blob);
+      const link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }
     if(project){
       await recoveryStore('readwrite',session,{source:result.content,name:state.name,savedAt:Date.now()});
       dirty=false;$('dirty').textContent='';
