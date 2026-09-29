@@ -289,9 +289,7 @@ function renderInspector() {
   $('empty-reference-hint').hidden = !!state.reference;
   if (editingNodes) return;
   renderRelationships(item);
-  enable('smooth-shape', !selected.every(id => ['path','use','g'].includes(object(id)?.tag)) && 'Only paths, instances and groups can be simplified');
-  enable('optimize-path', noReference || (item?.tag === 'use' ? 'Detach this instance to an editable path first' : (!item || item.tag !== 'path' || item.resource) && 'Select one visible path'));
-  enable('search-open', noReference);
+  enable('nodes-open', !selected.some(id => ['path','g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them');
   enable('llm-open', noReference);
   enable('colours-open', noReference);
   $('optimize-hint').textContent = state.reference ? 'Compare with the reference image. Each tool shows a preview before anything changes.' :'These tools compare the drawing with a reference image. Add one under Reference on the left to use them.';
@@ -1129,27 +1127,62 @@ start();
 const operation = (command, body) => request('/api/operation', {command, ...body});
 
 
-// Improve: explicit selected-path execution of the GPU path-fit method.
-const fitDialog = jobDialog('optimize', {
+// Improve: Optimize nodes, on the GPU path fit where it can run, else the CPU search.
+const NODE_MOVES = ['shape', 'detail', 'simplify', 'strokes', 'position'];
+let gpuNote = '', enginePicked = null;
+const nodeMoves = () => Object.fromEntries(NODE_MOVES.map(move => [move, $('nodes-'+move).checked]));
+const gpuChosen = () => $('nodes-engine-gpu').checked && !$('nodes-engine-gpu').disabled;
+function syncNodeEngine() {
+  const moves = nodeMoves();
+  const cpuOnly = NODE_MOVES.filter(move => move !== 'shape' && moves[move]).map(move => $('nodes-'+move).parentElement.textContent.trim());
+  const gpu = $('nodes-engine-gpu');
+  gpu.disabled = Boolean(gpuNote) || cpuOnly.length > 0;
+  // The GPU fit is the default wherever it can run, unless CPU was picked.
+  if (gpu.disabled) $('nodes-engine-cpu').checked = true;
+  else if (enginePicked !== 'cpu') gpu.checked = true;
+  $('nodes-engine-note').textContent = gpuNote ? `GPU fit unavailable: ${gpuNote}.`
+    : cpuOnly.length ? `${cpuOnly.join(', ')} need${cpuOnly.length === 1 ? 's' : ''} the CPU search.` : 'The GPU fit is faster; the CPU search also handles strokes, open and grouped paths.';
+  for (const block of document.querySelectorAll('#nodes-settings [data-engine]')) block.hidden = block.dataset.engine !== (gpuChosen() ? 'gpu' : 'cpu');
+  $('nodes-tolerance-row').hidden = !moves.simplify;
+  $('nodes-apply').hidden = true; $('nodes-previews').hidden = true;
+}
+const nodesDialog = jobDialog('nodes', {
   start: () => {
-    const nodes = $('optimize-nodes').checked, handles = $('optimize-handles').checked, color = $('optimize-color').checked;
-    return {action:'improve', method:'path-fit', permissions:{geometry:nodes || handles, paint:color},
-      settings:{nodes, handles, color, displacement:Number($('optimize-movement').value), resolution:Number($('optimize-resolution').value)},
-      budget:{steps:Number($('optimize-steps').value)}};
+    if (gpuChosen()) return {action:'improve', method:'path-fit', permissions:{geometry:true},
+      settings:{nodes:true, handles:true, color:false, displacement:Number($('nodes-movement').value)}, budget:{steps:Number($('nodes-steps').value)}};
+    const moves = nodeMoves();
+    return {action:'improve', method:'nodes', scope:'selection',
+      permissions:{geometry:true, structure:moves.detail || moves.simplify, paint:moves.strokes},
+      settings:{...moves, tolerance:Number($('nodes-tolerance').value), workers:Number($('nodes-workers').value)},
+      budget:{steps:Number($('nodes-tasks').value)}};
   },
-  describe: ({changed, metrics}) => changed ? `Reference error ${errorChange(metrics)} · ${metrics.size.join(' × ')} px crop. Apply to keep this result as one undoable edit.` : 'No better fit found within these settings. The path is unchanged.',
-  applied: 'Path fit applied. Undo restores the original path.',
+  describe: ({changed, metrics}) => {
+    if (!changed) return 'Nothing improved the paths within these settings. They are unchanged.';
+    if (metrics.size) return `Reference error ${errorChange(metrics)} · ${metrics.size.join(' × ')} px crop. Apply keeps this result as one undoable edit.`;
+    const points = `${metrics.before.nodes.toLocaleString()} → ${metrics.after.nodes.toLocaleString()} points`;
+    const fit = metrics.reference ? `difference from the reference ${errorChange(metrics, 'difference')}` : 'the look is kept within the tolerance';
+    return `${points} · ${fit} after ${metrics.tasks.toLocaleString()} tries. Apply keeps this result as one undoable edit.`;
+  },
+  applied: 'Paths optimized. Undo restores them.',
 }).wire();
-$('optimize-path').onclick = async () => {
+for (const move of NODE_MOVES) $('nodes-'+move).addEventListener('change', syncNodeEngine);
+for (const id of ['nodes-engine-gpu', 'nodes-engine-cpu']) $(id).addEventListener('change', event => { enginePicked = event.target.value; syncNodeEngine(); });
+for (const id of ['nodes-tolerance', 'nodes-tasks', 'nodes-workers', 'nodes-steps', 'nodes-movement']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+$('nodes-open').onclick = async () => {
   await queue;
-  const item = oneObject(); if (!item) return;
-  const locked = item.inherited_locks;
-  for (const [key, lock] of [['nodes', 'geometry'], ['handles', 'geometry'], ['color', 'paint']]) {
-    const input = $('optimize-'+key), isLocked = locked.includes(lock);
-    input.disabled = isLocked; input.checked = !isLocked;
-    input.parentElement.title = isLocked ? `This path's ${lock} is locked` : '';
-  }
-  fitDialog.open(item.label);
+  const reference = Boolean(state.reference);
+  $('nodes-detail').disabled = !reference;
+  $('nodes-detail').parentElement.title = reference ? 'Split segments and move the new point, where the reference needs more detail' : 'Adding detail needs a reference image';
+  if (!reference) { $('nodes-detail').checked = false; $('nodes-simplify').checked = true; }
+  $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
+  try {
+    const check = await operation('check', {epoch:state.epoch, revision:state.revision, action:'improve', method:'path-fit',
+      permissions:{geometry:true}, settings:{nodes:true, handles:true, color:false}});
+    gpuNote = check.ok ? '' : check.error.replace(/\.$/, '').replace(/^./, c => c.toLowerCase());
+  } catch (error) { gpuNote = error.message; }
+  enginePicked = null;
+  syncNodeEngine();
+  nodesDialog.open(selectionSummary());
 };
 
 function simplifyBounds() {
@@ -1165,15 +1198,6 @@ function simplifyBounds() {
   const padding=Math.max(8,Math.max(right-left,bottom-top)*.06);
   return [left-padding,top-padding,Math.max(1,right-left)+2*padding,Math.max(1,bottom-top)+2*padding];
 }
-const simplifyDialog = jobDialog('simplify', {
-  start: () => ({action:'simplify', method:'curves', bounds:simplifyBounds(), permissions:{geometry:true, structure:true},
-    settings:{tolerance:Number($('simplify-tolerance').value), corners:$('simplify-corners').checked}}),
-  describe: ({changed, metrics:{before, after}}) => changed
-    ? `${before.nodes.toLocaleString()} → ${after.nodes.toLocaleString()} nodes · ${before.coordinates.toLocaleString()} → ${after.coordinates.toLocaleString()} coordinates · ${(100*(1-after.bytes/Math.max(1,before.bytes))).toFixed(1)}% less path data. Apply keeps this result as one undoable edit.`
-    : 'No safe reduction at this tolerance. Try a higher tolerance or turn off Keep sharp corners.',
-  applied: 'Shape simplified. Undo restores the original geometry.',
-}).wire();
-$('smooth-shape').onclick = async () => { await queue; simplifyDialog.open(selectionSummary()); };
 const contactDialog = jobDialog('contact', {
   start: () => ({action:'link', method:'boundaries', bounds:simplifyBounds(), permissions:{geometry:true, structure:true},
     settings:{tolerance:Number($('contact-distance').value)}}),
@@ -1185,7 +1209,7 @@ const contactDialog = jobDialog('contact', {
 $('share-boundaries').onclick = async () => { await queue; contactDialog.open(); };
 $('unlink-boundaries').onclick=()=>action('unlink_boundaries');
 // Changing a setting invalidates the preview shown for the old one.
-for (const [prefix, ids] of [['simplify', ['simplify-tolerance', 'simplify-corners']], ['contact', ['contact-distance']]]) {
+for (const [prefix, ids] of [['contact', ['contact-distance']]]) {
   for (const id of ids) $(id).addEventListener('input', () => {
     $(prefix+'-apply').hidden = true; $(prefix+'-previews').hidden = true;
   });
@@ -1231,15 +1255,6 @@ function openOnScope(dialog, prefix) {
   $(prefix+'-scope').options[0].disabled = !count;
   dialog.open(count ? selectionSummary() : 'Whole drawing');
 }
-const searchDialog = jobDialog('search', {
-  start: () => ({action:'improve', method:'search', scope:'selection',
-    permissions:{geometry:$('search-geometry').checked, paint:$('search-paint').checked, structure:$('search-structure').checked},
-    settings:{workers:Number($('search-workers').value)}, budget:{steps:Number($('search-tasks').value)}}),
-  describe: ({changed, metrics}) => changed ? `Difference from the reference ${errorChange(metrics, 'difference')} after ${metrics.tasks.toLocaleString()} variants. Apply keeps this result as one undoable edit.` : 'No variant beat the current drawing. Try more variants or allow more kinds of change.',
-  applied: 'Search result applied. Undo restores the previous drawing.',
-  choiceLabel: (result, index) => `${index ? 'Alternative '+index : 'Recommended'} · difference ${result.metrics.after.difference.toFixed(4)}`,
-}).wire();
-$('search-open').onclick = async () => { await queue; searchDialog.open(selectionSummary()); };
 const llmDialog = jobDialog('llm', {
   start: () => ({action:'improve', method:'llm', scope:$('llm-scope').value,
     permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},

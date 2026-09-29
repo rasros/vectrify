@@ -34,6 +34,8 @@ from vectrify.vector.worker import (
     mutate,
 )
 
+# How much a split must improve the score by, as a share of it, to be kept.
+SPLIT_GAIN = 0.01
 # Starting weights for the moves the policy chooses between.
 MOVE_WEIGHTS = {"shape": 0.6, "detail": 0.2, "position": 0.1, "strokes": 0.1}
 
@@ -165,9 +167,14 @@ def run_search(
                 if parent is not current:
                     continue
                 child = Candidate(mutant.state, score(mutant.png))
-                keep = (
-                    child.score <= ceiling if removal else child.score <= current.score
-                )
+                if removal:
+                    keep = child.score <= ceiling
+                elif mutant.move == "detail":
+                    # A point has to pay for itself: a split that barely helps
+                    # adds a point every later move must work around.
+                    keep = child.score <= current.score * (1 - SPLIT_GAIN)
+                else:
+                    keep = child.score <= current.score
                 if not removal:
                     policy.update(
                         mutant.move,
