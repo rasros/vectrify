@@ -22,6 +22,7 @@ def render(svg, size=100):
     png = cairosvg.svg2png(
         bytestring=svg.encode(), output_width=size, output_height=size
     )
+    assert png is not None
     return Image.open(io.BytesIO(png)).convert("RGB")
 
 
@@ -59,6 +60,7 @@ def test_colour_fit_recovers_the_fill_through_opacity_and_occlusion():
     assert state["result"]["metrics"]["after"]["error"] < 1e-4
     job.apply()
     fill = ed.snapshot.document.element("a").get("fill")
+    assert fill is not None
     r, g, b = (int(fill[i : i + 2], 16) for i in (1, 3, 5))
     assert abs(r - 0xC8) <= 2
     assert abs(g - 0x32) <= 2
