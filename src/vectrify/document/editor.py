@@ -692,6 +692,46 @@ class Transaction:
                 }
             )
 
+    def reshape_path(self, object_id: str, geometry: Geometry) -> None:
+        """Give a path new contours while its surviving nodes keep their identity.
+
+        Nodes whose ID the new geometry repeats are the same nodes, moved or
+        not; IDs it lacks are removed and new IDs are inserted. Pinned
+        endpoints must survive where they are, and linked boundary edges must
+        come through unchanged. Only moving nodes needs geometry permission;
+        adding or removing them needs structure too.
+        """
+        with self._change():
+            self._whole_objects()
+            original = self._working.geometry_for(object_id)
+            updated = replace(geometry, id=original.id)
+            old = {n.id: n for s in original.subpaths for n in s.nodes}
+            new = {n.id: n for s in updated.subpaths for n in s.nodes}
+            affected = self._working.geometry_users(original.id)
+            self._authorize(affected, EditKind.GEOMETRY)
+            if old.keys() != new.keys():
+                self._authorize(affected, EditKind.STRUCTURE)
+            for node_id, node in old.items():
+                kept = new.get(node_id)
+                if node.pinned and (kept is None or kept.endpoint != node.endpoint):
+                    raise EditRejectedError("Endpoint is pinned")
+            candidate = self._working.replace_geometry(updated)
+            for boundary in self._working.boundaries:
+                for member in boundary.members:
+                    if member.geometry_id != original.id:
+                        continue
+                    before = edge(self._working, member)
+                    try:
+                        after = edge(candidate, member)
+                    except DocumentError:
+                        after = None
+                    if after is None or after.points != before.points:
+                        raise EditRejectedError(
+                            "Linked boundary edges must stay as they are"
+                        )
+            self._working = candidate
+            self._record_remap({n: set() for n in old.keys() - new.keys()})
+
     def simplify_shapes(self, options: SimplifyOptions) -> None:
         """Reduce selected path assets, enforcing scope, topology locks and pins."""
         with self._change():
