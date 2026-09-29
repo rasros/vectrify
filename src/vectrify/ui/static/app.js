@@ -1156,7 +1156,7 @@ const operation = (command, body) => request('/api/operation', {command, ...body
 
 
 // Improve: Optimize nodes, on the GPU path fit where it can run, else the CPU search.
-const NODE_MOVES = ['shape', 'detail', 'simplify', 'strokes', 'position'];
+const NODE_MOVES = ['shape', 'detail', 'simplify', 'strokes', 'position', 'snap'];
 let gpuNote = '', enginePicked = null;
 const nodeMoves = () => Object.fromEntries(NODE_MOVES.map(move => [move, $('nodes-'+move).checked]));
 const gpuChosen = () => $('nodes-engine-gpu').checked && !$('nodes-engine-gpu').disabled;
@@ -1189,7 +1189,8 @@ const nodesDialog = jobDialog('nodes', {
     if (metrics.size) return `Reference error ${errorChange(metrics)} · ${metrics.size.join(' × ')} px crop. Apply keeps this result as one undoable edit.`;
     const points = `${metrics.before.nodes.toLocaleString()} → ${metrics.after.nodes.toLocaleString()} points`;
     const fit = metrics.reference ? `difference from the reference ${errorChange(metrics, 'difference')}` : 'the look is kept within the tolerance';
-    return `${points} · ${fit} after ${metrics.tasks.toLocaleString()} tries. Apply keeps this result as one undoable edit.`;
+    const after = metrics.tasks ? `after ${metrics.snapped ? 'snapping and ' : ''}${metrics.tasks.toLocaleString()} tries` : 'after snapping';
+    return `${points} · ${fit} ${after}. Apply keeps this result as one undoable edit.`;
   },
   applied: 'Paths optimized. Undo restores them.',
 }).wire();
@@ -1201,7 +1202,9 @@ $('nodes-open').onclick = async () => {
   const reference = Boolean(state.reference);
   $('nodes-detail').disabled = !reference;
   $('nodes-detail').parentElement.title = reference ? 'Split segments and move the new point, where the reference needs more detail' : 'Adding detail needs a reference image';
-  if (!reference) { $('nodes-detail').checked = false; $('nodes-simplify').checked = true; }
+  $('nodes-snap').disabled = !reference;
+  $('nodes-snap').parentElement.title = reference ? "Move the points onto the reference's edges before searching; with Add detail it may also split segments" : 'Snapping needs a reference image';
+  if (!reference) { $('nodes-detail').checked = false; $('nodes-snap').checked = false; $('nodes-simplify').checked = true; }
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
   try {
     const check = await operation('check', {epoch:state.epoch, revision:state.revision, action:'improve', method:'path-fit',

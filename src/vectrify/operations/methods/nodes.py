@@ -3,9 +3,11 @@
 The general tool for reshaping paths, and the fallback where the GPU path fit
 cannot go (several paths, strokes, open contours, no GPU). Each checkbox adds
 a kind of move: nudging points and handles, splitting segments, removing
-points, moving whole paths, scaling strokes. It is scored on the selection's
-surroundings against the reference, or, without one, against the paths as
-they were, so on its own Simplify removes points while keeping the look.
+points, moving whole paths, scaling strokes. Snap first puts the points on the
+reference's edges directly, as the search's start or on its own. It is scored
+on the selection's surroundings against the reference, or, without one,
+against the paths as they were, so on its own Simplify removes points while
+keeping the look.
 Colour is left to Fit colours.
 """
 
@@ -37,7 +39,7 @@ from vectrify.operations.settings import Setting, read_settings
 
 DEFAULT_TASKS = 600
 LABEL = "Optimize nodes"
-MOVES = ("shape", "detail", "simplify", "strokes", "position")
+MOVES = ("shape", "detail", "simplify", "strokes", "position", "snap")
 
 SETTINGS = {
     "shape": Setting(bool, True),
@@ -45,6 +47,8 @@ SETTINGS = {
     "simplify": Setting(bool, False),
     "strokes": Setting(bool, False),
     "position": Setting(bool, False),
+    # Move the points onto the reference's edges before any search.
+    "snap": Setting(bool, False),
     # How much of the fit simplifying may give up, as a percentage of what the
     # selected paths contribute: the difference between the region without
     # them and with them as they started.
@@ -78,7 +82,7 @@ def selected_paths(request: OperationRequest) -> list[str]:
 
 def needed_permissions(settings) -> set[str]:
     kinds = set()
-    if settings["shape"] or settings["position"]:
+    if settings["shape"] or settings["position"] or settings["snap"]:
         kinds.add("geometry")
     if settings["detail"] or settings["simplify"]:
         kinds |= {"geometry", "structure"}
@@ -102,6 +106,8 @@ class OptimizeNodes:
         if request.reference is None:
             if settings["detail"]:
                 raise DocumentError("Add a reference image to add detail")
+            if settings["snap"]:
+                raise DocumentError("Add a reference image to snap to")
             if not settings["simplify"]:
                 raise DocumentError(
                     "Add a reference image to fit against, or choose Simplify"
@@ -140,7 +146,8 @@ class OptimizeNodes:
                 != "none"
             },
         )
-        worker = WorkerContext(svg, size, frozen(document, start))
+        fixed = frozen(document, start)
+        worker = WorkerContext(svg, size, fixed)
         # Scored at the crop's own size: the stock scorer shrinks everything
         # to 256 px first, which on a small region blurs away the edges a
         # point is being moved onto.
@@ -170,26 +177,40 @@ class OptimizeNodes:
             for move in ("shape", "detail", "position", "strokes")
             if settings[move]
         )
-        outcome = run_search(
-            start,
-            score,
-            worker,
-            SearchSettings(
-                moves=moves,
-                simplify=settings["simplify"],
-                tolerance=tolerance,
-                workers=settings["workers"],
-                max_total_tasks=tasks,
-                max_wall_seconds=request.budget.seconds,
-            ),
-            stop=context.stop,
-            progress=lambda p: context.progress(
-                p.tasks_completed,
-                f"Optimizing · {p.tasks_completed:,}/{tasks:,} tries"
-                f" · {p.nodes:,} points",
-            ),
-        )
-        best = outcome.best.state
+        begin, begin_score = start, initial
+        if settings["snap"] and request.reference is not None:
+            from vectrify.refine.snap import snap
+
+            context.progress(0, "Snapping to the reference…", total=tasks)
+            snapped = snap(document, start, region, fixed, detail=settings["detail"])
+            snapped_score = score(Renderer(worker)(snapped))
+            # Snapping is kept only where it helps the fit.
+            if snapped_score < initial:
+                begin, begin_score = snapped, snapped_score
+        tasks_completed = accepted = 0
+        best, best_score = begin, begin_score
+        if moves or settings["simplify"]:
+            outcome = run_search(
+                begin,
+                score,
+                worker,
+                SearchSettings(
+                    moves=moves,
+                    simplify=settings["simplify"],
+                    tolerance=tolerance,
+                    workers=settings["workers"],
+                    max_total_tasks=tasks,
+                    max_wall_seconds=request.budget.seconds,
+                ),
+                stop=context.stop,
+                progress=lambda p: context.progress(
+                    p.tasks_completed,
+                    f"Optimizing · {p.tasks_completed:,}/{tasks:,} tries"
+                    f" · {p.nodes:,} points",
+                ),
+            )
+            best, best_score = outcome.best.state, outcome.best.score
+            tasks_completed, accepted = outcome.tasks_completed, outcome.accepted
         tx = request.transaction(LABEL)
         for oid, geometry in best.geometries.items():
             if geometry != start.geometries[oid]:
@@ -205,15 +226,16 @@ class OptimizeNodes:
                 changed,
                 metrics={
                     "before": {
-                        "difference": outcome.start.score,
+                        "difference": initial,
                         "nodes": start.nodes(),
                     },
                     "after": {
-                        "difference": outcome.best.score,
+                        "difference": best_score,
                         "nodes": best.nodes(),
                     },
-                    "tasks": outcome.tasks_completed,
-                    "accepted": outcome.accepted,
+                    "tasks": tasks_completed,
+                    "accepted": accepted,
+                    "snapped": begin is not start,
                     "reference": request.reference is not None,
                 },
                 previews=preview_urls(
