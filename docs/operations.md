@@ -61,6 +61,24 @@ The target container is the whole drawing (`scope: "drawing"` in the editor
 request) or one selected group. Element IDs in generated SVG are renamed, with
 their references, so repeated generations never collide.
 
+## Searching over the document
+
+Search methods mutate exported SVG, where every element keeps its object ID.
+`vectrify.operations.candidates.mutation_scope(request)` turns the selection
+(or the whole drawing's top-level objects) and the permissions into a
+`MutationScope`. Set on the SVG plugin, it limits every mutation to those
+elements and their descendants, runs only the operators whose edit kinds are
+allowed (colour and stroke changes need paint; numeric, move and path nudges
+need geometry; reordering needs structure and both siblings in scope), and
+disables crossover and random path fitting.
+
+`replay(tx, svg)` accepts a candidate only by repeating its differences as
+transaction commands: attribute edits, in-place node updates for an unchanged
+path structure, and sibling reorders. Anything else (added or removed objects,
+changed path structure, root changes) raises `CandidateRejectedError`, and the
+transaction still enforces selection, permissions, locks and pins, so a search
+can never produce an edit the user could not have made by hand.
+
 ## Writing a method
 
 Implement the `Method` protocol (`action`, `name`, `background`,

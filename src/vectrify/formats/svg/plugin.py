@@ -16,6 +16,7 @@ from vectrify.formats.svg.operations import (
     MUTATIONS,
     apply_crossover,
     apply_mutation,
+    scoped_mutations,
 )
 from vectrify.formats.svg.ownership import describe_invisible, invisible_elements
 from vectrify.formats.svg.prompts import (
@@ -23,6 +24,7 @@ from vectrify.formats.svg.prompts import (
     extract_svg_fragment,
     is_valid_svg,
 )
+from vectrify.formats.svg.selection import MutationScope
 from vectrify.formats.svg.targets import element_targets
 from vectrify.image_utils import rasterize_svg_to_png_bytes
 from vectrify.refine.paths import (
@@ -45,6 +47,9 @@ class SvgPlugin:
     gpu_bound_mutation = True
     gpu_mutation_operator = PATH_FIT
     gpu_gate: Any = None
+    # Set by an editor operation: limits every mutation to these elements and
+    # edit kinds. Workers receive it with the plugin.
+    scope: MutationScope | None = None
     # A fit costs about 0.5s on a GPU where an ordinary mutation costs about a
     # millisecond, so it opens on a small share of the draws and the policy
     # moves it from there on what it actually returns.
@@ -121,6 +126,8 @@ class SvgPlugin:
         )
 
     def mutation_weights(self) -> Mapping[str, float]:
+        if self.scope is not None:
+            return dict(operator_weights(scoped_mutations(self.scope)))
         weights = dict(operator_weights(MUTATIONS))
         if fit_available():
             weights[PATH_FIT] = self.PATH_FIT_WEIGHT
@@ -145,6 +152,12 @@ class SvgPlugin:
         rest of the drawing. Keeping it out of the table leaves that contract
         independent of raster fitting.
         """
+        if self.scope is not None:
+            # A scoped search runs only the markup operators the scope allows:
+            # gradient fitting is its own explicit editor method.
+            if operator == PATH_FIT:
+                return content, PATH_FIT
+            return apply_mutation(content, operator, targets, self.scope)
         wants_fit = operator == PATH_FIT or (
             operator is None
             and reference_png is not None
@@ -205,4 +218,8 @@ class SvgPlugin:
         return describe_invisible(root, invisible_elements(root))
 
     def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
+        if self.scope is not None:
+            # Grafting matched elements between parents can move content across
+            # the scope boundary, so a scoped search does not recombine.
+            return content_a, "Local crossover"
         return apply_crossover(content_a, content_b)
