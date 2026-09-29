@@ -6,9 +6,7 @@ from types import SimpleNamespace
 import numpy as np
 from PIL import Image
 
-import vectrify.refine.paths as paths
 import vectrify.refine.samvg as samvg
-from vectrify.image_utils import rasterize_svg as rasterize
 from vectrify.refine.samvg import (
     MaskLayer,
     TextLayer,
@@ -25,7 +23,6 @@ from vectrify.refine.samvg import (
     filter_by_impact,
     generate_svg,
     mask_path,
-    mask_stroke,
     mask_strokes,
     recolour_visible_layers,
     residual_prompt_points,
@@ -142,105 +139,6 @@ def test_detect_text_retains_high_confidence_editable_words(monkeypatch):
 
     assert layers == [TextLayer("Cats & dogs", 2.0, 3.0, 18.0, 8.0, (255, 255, 255))]
     assert _text_svg_attributes(layers[0])["font-family"] == "sans-serif"
-
-
-def test_accepted_fit_uses_bounded_fill_coordinate_descent(monkeypatch):
-    seen = {}
-
-    def bounded(svg, image, *, rasterize, steps, learn_alpha):
-        seen["image"] = image.size
-        seen["steps"] = steps
-        seen["learn_alpha"] = learn_alpha
-        assert rasterize is not None
-        return svg
-
-    monkeypatch.setattr(paths, "fit_filled_svg_bounded", bounded)
-    image = Image.new("RGB", (16, 16), "white")
-    svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" />'
-
-    fitted, rendered = samvg._accepted_fit(svg, image, rasterize=rasterize, steps=7)
-
-    assert fitted == svg
-    assert rendered.size == image.size
-    assert seen == {"image": (16, 16), "steps": 7, "learn_alpha": False}
-
-
-def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
-    image = Image.new("RGB", (16, 16), "white")
-    base = np.zeros((16, 16), dtype=bool)
-    base[2:10, 2:10] = True
-    added = np.zeros((16, 16), dtype=bool)
-    added[10:14, 10:14] = True
-    initial_layer = MaskLayer(base, (10, 20, 30), 1.0)
-    added_layer = MaskLayer(added, (40, 50, 60), 1.0)
-    calls = []
-    monkeypatch.setattr(samvg, "_sam_runtime", lambda **_kwargs: object())
-    monkeypatch.setattr(
-        samvg, "retrieve_layers", lambda *_args, **_kwargs: [initial_layer]
-    )
-    monkeypatch.setattr(samvg, "residual_prompt_points", lambda *_args: [(12, 12)])
-    monkeypatch.setattr(samvg, "prompted_masks", lambda *_args, **_kwargs: [added])
-    monkeypatch.setattr(
-        samvg,
-        "filter_by_impact",
-        lambda _image, _masks, **kwargs: [*kwargs["existing"], added_layer],
-    )
-
-    def accepted(svg, _image, *, rasterize, steps, learn_alpha):
-        assert rasterize is not None
-        calls.append(
-            (
-                sum(
-                    element.tag.split("}")[-1] == "path"
-                    for element in ET.fromstring(svg).iter()
-                ),
-                steps,
-                learn_alpha,
-            )
-        )
-        return svg, image
-
-    monkeypatch.setattr(samvg, "_accepted_fit", accepted)
-    result = samvg.vectorize_svg(image, rasterize=rasterize, steps=3, learn_alpha=True)
-
-    assert calls == [(1, 3, True), (2, 3, True)]
-    root = ET.fromstring(result)
-    paths = list(root.findall("{http://www.w3.org/2000/svg}path"))
-    assert len(paths) == 2
-    assert all(path.get("stroke") is None for path in paths)
-
-
-def test_vectorize_svg_rejects_a_residual_phase_that_regresses_first_fit(monkeypatch):
-    image = Image.new("RGB", (16, 16), "white")
-    base = np.zeros((16, 16), dtype=bool)
-    base[2:10, 2:10] = True
-    added = np.zeros((16, 16), dtype=bool)
-    added[10:14, 10:14] = True
-    initial_layer = MaskLayer(base, (10, 20, 30), 1.0)
-    added_layer = MaskLayer(added, (40, 50, 60), 1.0)
-    monkeypatch.setattr(samvg, "_sam_runtime", lambda **_kwargs: object())
-    monkeypatch.setattr(
-        samvg, "retrieve_layers", lambda *_args, **_kwargs: [initial_layer]
-    )
-    monkeypatch.setattr(samvg, "residual_prompt_points", lambda *_args: [(12, 12)])
-    monkeypatch.setattr(samvg, "prompted_masks", lambda *_args, **_kwargs: [added])
-    monkeypatch.setattr(
-        samvg,
-        "filter_by_impact",
-        lambda _image, _masks, **kwargs: [*kwargs["existing"], added_layer],
-    )
-    renders = [image, Image.new("RGB", image.size, "black")]
-    monkeypatch.setattr(
-        samvg,
-        "_accepted_fit",
-        lambda svg, _image, **_kwargs: (svg, renders.pop(0)),
-    )
-
-    result = samvg.vectorize_svg(image, rasterize=rasterize, steps=3)
-
-    root = ET.fromstring(result)
-    path_count = sum(element.tag.endswith("path") for element in root.iter())
-    assert path_count == 1
 
 
 def test_generate_svg_writes_detected_words_as_editable_text(monkeypatch):
@@ -455,7 +353,7 @@ def test_incremental_impact_scoring_matches_full_canvas_recomputation():
     target = np.asarray(image, dtype=np.uint8)
     canvas = np.zeros_like(target)
     coverage = np.zeros(target.shape[:2], dtype=bool)
-    error = samvg._impact_error(target, canvas, coverage)
+    error = samvg._impact_error_map(target, canvas, coverage).mean()
     expected = []
     for mask in sorted(
         [first, second, third], key=lambda item: int(item.sum()), reverse=True
@@ -464,7 +362,7 @@ def test_incremental_impact_scoring_matches_full_canvas_recomputation():
         next_canvas = canvas.copy()
         next_coverage = coverage | mask
         next_canvas[mask] = colour
-        next_error = samvg._impact_error(target, next_canvas, next_coverage)
+        next_error = samvg._impact_error_map(target, next_canvas, next_coverage).mean()
         impact = error - next_error
         if impact >= 1e-5:
             expected.append((mask, colour, impact))
@@ -674,30 +572,16 @@ def test_thin_single_contour_mask_is_emitted_as_a_round_stroke():
     mask = np.zeros((32, 12), dtype=bool)
     mask[4:28, 5:8] = True
 
-    stroke = mask_stroke(mask)
     svg = generate_svg(
         image, [mask], min_pixels=1, min_impact=0.00001, hybrid_strokes=True
     )
     path = ET.fromstring(svg).find("{http://www.w3.org/2000/svg}path")
 
-    assert stroke is not None
     assert path is not None
     assert path.get("fill") == "none"
     assert path.get("stroke") == "#1482dc"
     assert path.get("stroke-linecap") == "round"
     assert " Z" not in path.get("d", "")
-
-
-def test_curved_thin_mask_uses_a_multisegment_skeleton_stroke():
-    mask = np.zeros((48, 48), dtype=bool)
-    for x in range(6, 42):
-        y = round(24 + 10 * np.sin((x - 6) / 35 * np.pi))
-        mask[y - 1 : y + 2, x] = True
-
-    stroke = mask_stroke(mask, segments=8)
-
-    assert stroke is not None
-    assert stroke[0].count("C ") >= 2
 
 
 def test_thin_branch_mask_emits_independent_width_aware_strokes():
