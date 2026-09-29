@@ -2,15 +2,15 @@ import xml.etree.ElementTree as ET
 from typing import Any
 
 # What the editor's refinement can and cannot reach, stated to the model so it
-# spends its call on the other half. The search nudges numbers, shifts colors
-# and moves elements; path fitting and colour fitting tune what is there. None
-# of that invents a shape that was never drawn, removes one that should not be
-# there, or changes what an existing shape is.
+# spends its call on the other half. Optimize nodes moves, adds and removes a
+# path's points and moves whole paths; Fit colours sets flat fills. None of that
+# invents a shape that was never drawn, removes one that should not be there,
+# or changes what an existing shape is.
 STRUCTURE_FIRST = """\
-Your output is a starting point that can be refined afterwards: moving and \
-resizing parts and tuning their coordinates and colors. What refinement \
-cannot do is invent a shape you left out, remove a structure you invented, or \
-change what a shape fundamentally is.
+Your output is a starting point that can be refined afterwards: path points \
+are moved, added and removed, whole paths are moved, and flat fill colours are \
+fitted. What refinement cannot do is invent a shape you left out, remove a \
+structure you invented, or change what a shape fundamentally is.
 
 So spend your effort where only you can:
 - Every distinct part of the target is present, and nothing extra is.
@@ -24,8 +24,8 @@ thick stroke.
 - Counts are exact. Ten circles means ten, not "about ten".
 - The arrangement and proportions read correctly at a glance.
 
-Rough coordinates and approximate colors are fine — they can be refined. \
-Do not spend effort deriving exact values."""
+Rough path coordinates and approximate colors are fine — they can be refined. \
+Do not spend effort deriving exact values for them."""
 
 
 def diff_format_instructions(
@@ -76,20 +76,19 @@ _DIFF_FORMAT_INSTRUCTIONS = diff_format_instructions(
     "SVG", unit="fragment", subject="SVG"
 )
 
-# Written for what refinement reaches afterwards: Optimize nodes moves path
-# points and Fit colours sets flat fills.
+# Written for what refinement reaches afterwards: Optimize nodes reshapes paths
+# point by point and leaves primitives alone; Fit colours sets flat fills.
 MUTABLE_SVG = """\
 Write the SVG this way:
-- A shape that is a circle, ellipse or rectangle is written as `<circle>`, \
-`<ellipse>` or `<rect>`; everything else is `<path d="...">`. A primitive \
-cannot be dented -- it only moves and resizes -- so it survives refinement \
-that a hand-fitted path does not. The best eye any run has \
-produced was a white `<circle>` with a smaller black `<circle>` offset inside \
-it, where earlier runs fitted two paths and inverted the highlight.
-- Numbers in attributes: `x`, `y`, `cx`, `cy`, `r`, `rx`, `ry`, `width`, \
-`height`, `x1`, `y1`, `x2`, `y2`, `font-size`, `stroke-width`, `opacity`.
+- A shape that is exactly a circle, ellipse or rectangle is written as \
+`<circle>`, `<ellipse>` or `<rect>`, placed and sized with care: refinement \
+reshapes paths only, so a primitive stays as you write it. The best eye any \
+run has produced was a white `<circle>` with a smaller black `<circle>` offset \
+inside it, where earlier runs fitted two paths and inverted the highlight.
+- Everything else is `<path d="...">`, whose points refinement moves, adds \
+and removes.
 - Coordinates written out directly, already in the viewBox above.
-- Colors in `fill` and `stroke` as hex; gradient stops in `stop-color`.
+- Colors in `fill` and `stroke` as flat hex values; refinement fits flat fills.
 - Each shape its own element, with its own attributes.
 - Many small explicit elements rather than one clever construction."""
 

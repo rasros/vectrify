@@ -130,7 +130,7 @@ def test_svg_prompt_states_the_division_of_labour_with_refinement():
     blocks = build_svg_gen_prompt(_IMG_URL, 1, canvas=(512, 512))
     text = "\n".join(_text_blocks(blocks))
     assert "refined afterwards" in text
-    assert "Rough coordinates and approximate colors are fine" in text
+    assert "Rough path coordinates and approximate colors are fine" in text
 
 
 def test_svg_edit_asks_for_structural_change_not_tuning():
@@ -161,14 +161,14 @@ def test_svg_edit_never_mentions_the_removed_difference_map():
     assert "diff map" not in text
 
 
-def test_prompt_asks_for_geometry_and_colors_in_mutable_places():
-    """<polygon points> renders identically to a path and is mutable by nothing,
-    so a candidate built from it looks fine and never improves again."""
+def test_prompt_asks_for_what_refinement_can_reach():
+    """Optimize nodes reshapes paths only and Fit colours sets flat fills, so the
+    model is told which shapes refinement will touch and which stay as drawn."""
     blocks = build_svg_gen_prompt(_IMG_URL, 1, canvas=(384, 384))
     text = "\n".join(_text_blocks(blocks))
     assert "`<path d=" in text
-    assert "`stroke-width`" in text
-    assert "stop-color" in text
+    assert "a primitive stays as you write it" in text
+    assert "flat hex values" in text
 
 
 def test_edit_prompt_also_carries_the_mutable_markup_rules():
