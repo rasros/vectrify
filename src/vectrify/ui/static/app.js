@@ -1070,7 +1070,10 @@ async function start(){
 }
 start();
 
-// Explicit selected-path execution of the existing GPU path-fit mutation.
+// Automated operations share one job API: start, status, stop, apply, discard.
+const operation = (command, body) => request('/api/operation', {command, ...body});
+
+// Improve: explicit selected-path execution of the GPU path-fit method.
 $('optimize-path').onclick = async () => {
   await queue;
   const item = oneObject(); if (!item) return;
@@ -1094,7 +1097,7 @@ function fitError(error) { $('optimize-error').textContent = error.message; $('o
 async function pollFit() {
   const context = fitContext; if (!context?.job) return;
   try {
-    const result = await request('/api/improve', {command:'status', job:context.job, preview:true});
+    const result = await operation('status', {job:context.job, preview:true});
     if (context !== fitContext) return;
     $('optimize-meter').max = result.steps; $('optimize-meter').value = result.step;
     $('optimize-status').textContent = result.message;
@@ -1103,10 +1106,12 @@ async function pollFit() {
     if (result.status === 'failed') throw new Error(result.error);
     if (result.status !== 'ready') return;
     $('optimize-previews').hidden = false;
-    for (const key of ['reference','before','after']) $('optimize-'+key).src = result.previews[key];
-    const improvement = result.before > 0 ? 100*(result.before-result.after)/result.before : 0;
-    $('optimize-metrics').textContent = result.changed ? `Reference error reduced ${improvement.toFixed(2)}% · ${result.size.join(' × ')} px crop. Apply to keep this result as one undoable edit.` : 'No better fit found within these settings. The path is unchanged.';
-    $('optimize-apply').hidden = !result.changed;
+    const {changed, metrics, previews} = result.result;
+    for (const key of ['reference','before','after']) $('optimize-'+key).src = previews[key];
+    const before = metrics.before.error, after = metrics.after.error;
+    const improvement = before > 0 ? 100*(before-after)/before : 0;
+    $('optimize-metrics').textContent = changed ? `Reference error reduced ${improvement.toFixed(2)}% · ${metrics.size.join(' × ')} px crop. Apply to keep this result as one undoable edit.` : 'No better fit found within these settings. The path is unchanged.';
+    $('optimize-apply').hidden = !changed;
     $('optimize-close').textContent = 'Discard';
     $('optimize-settings').disabled = false;
     $('optimize-run').disabled = false; $('optimize-run').textContent = 'Run again';
@@ -1118,12 +1123,13 @@ $('optimize-run').onclick = async () => {
   $('optimize-settings').disabled = true; $('optimize-apply').hidden = true;
   $('optimize-previews').hidden = true;
   try {
-    if (context.job) { await request('/api/improve', {command:'discard', job:context.job}); context.job = null; }
-    const result = await request('/api/improve', {command:'start', epoch:context.epoch, revision:context.revision, options:{
-      nodes:$('optimize-nodes').checked, handles:$('optimize-handles').checked, color:$('optimize-color').checked,
-      steps:Number($('optimize-steps').value), displacement:Number($('optimize-movement').value), resolution:Number($('optimize-resolution').value)
-    }});
-    if (context !== fitContext) { await request('/api/improve', {command:'discard', job:result.id}); return; }
+    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
+    const nodes = $('optimize-nodes').checked, handles = $('optimize-handles').checked, color = $('optimize-color').checked;
+    const result = await operation('start', {action:'improve', method:'path-fit', epoch:context.epoch, revision:context.revision,
+      permissions:{geometry:nodes || handles, paint:color},
+      settings:{nodes, handles, color, displacement:Number($('optimize-movement').value), resolution:Number($('optimize-resolution').value)},
+      budget:{steps:Number($('optimize-steps').value)}});
+    if (context !== fitContext) { await operation('discard', {job:result.id}); return; }
     context.job = result.id;
     $('optimize-progress').hidden = false; $('optimize-stop').hidden = false;
     $('optimize-status').textContent = result.message; $('optimize-close').textContent = 'Cancel & discard';
@@ -1131,13 +1137,13 @@ $('optimize-run').onclick = async () => {
   } catch (error) { fitError(error); $('optimize-settings').disabled = false; $('optimize-run').disabled = false; }
 };
 $('optimize-stop').onclick = async () => {
-  try { await request('/api/improve',{command:'stop',job:fitContext.job}); $('optimize-stop').hidden=true; }
+  try { await operation('stop',{job:fitContext.job}); $('optimize-stop').hidden=true; }
   catch(error) { fitError(error); }
 };
 $('optimize-apply').onclick = async () => {
   $('optimize-apply').disabled = true;
   try {
-    const result = await request('/api/improve',{command:'apply',job:fitContext.job});
+    const result = await operation('apply',{job:fitContext.job});
     dirty = true; await applyState(result); $('optimize-dialog').close();
     toast('Path fit applied. Undo restores the original path.');
   } catch(error) { fitError(error); }
@@ -1146,7 +1152,7 @@ $('optimize-apply').onclick = async () => {
 $('optimize-close').onclick = () => $('optimize-dialog').close();
 $('optimize-dialog').addEventListener('close',()=>{
   clearTimeout(fitPoll); const job = fitContext?.job; fitContext = null;
-  if (job) request('/api/improve',{command:'discard',job}).catch(error=>toast(error.message,true));
+  if (job) operation('discard',{job}).catch(error=>toast(error.message,true));
 });
 
 function simplifyBounds() {
@@ -1183,14 +1189,16 @@ $('simplify-run').onclick = async () => {
   $('simplify-status').textContent = 'Simplifying contours and rendering preview…';
   setBusy('Simplifying contours…',1);
   try {
-    const result = await request('/api/simplify',{command:'preview',epoch:context.epoch,revision:context.revision,bounds:context.bounds,options:{tolerance:Number($('simplify-tolerance').value),corners:$('simplify-corners').checked}});
-    if (context !== simplifyContext) { await request('/api/simplify',{command:'discard',preview:result.id}); return; }
-    context.preview = result.id;
-    for (const key of ['before','after']) $('simplify-'+key).src = result.previews[key];
+    const job = await operation('start',{action:'simplify',method:'curves',epoch:context.epoch,revision:context.revision,bounds:context.bounds,
+      permissions:{geometry:true,structure:true},settings:{tolerance:Number($('simplify-tolerance').value),corners:$('simplify-corners').checked}});
+    if (context !== simplifyContext) { await operation('discard',{job:job.id}); return; }
+    context.preview = job.id;
+    const {changed, metrics:{before, after}, previews} = job.result;
+    for (const key of ['before','after']) $('simplify-'+key).src = previews[key];
     $('simplify-previews').hidden = false;
-    $('simplify-stats').textContent = `${result.before.nodes.toLocaleString()} → ${result.after.nodes.toLocaleString()} nodes · ${result.before.coordinates.toLocaleString()} → ${result.after.coordinates.toLocaleString()} coordinates · ${(100*(1-result.after.bytes/Math.max(1,result.before.bytes))).toFixed(1)}% less path data`;
-    $('simplify-status').textContent = result.changed ? 'Preview ready. Apply keeps this result as one undoable edit.' : 'No safe reduction at this tolerance. Try a higher tolerance or turn off Keep sharp corners.';
-    $('simplify-apply').hidden = !result.changed;
+    $('simplify-stats').textContent = `${before.nodes.toLocaleString()} → ${after.nodes.toLocaleString()} nodes · ${before.coordinates.toLocaleString()} → ${after.coordinates.toLocaleString()} coordinates · ${(100*(1-after.bytes/Math.max(1,before.bytes))).toFixed(1)}% less path data`;
+    $('simplify-status').textContent = changed ? 'Preview ready. Apply keeps this result as one undoable edit.' : 'No safe reduction at this tolerance. Try a higher tolerance or turn off Keep sharp corners.';
+    $('simplify-apply').hidden = !changed;
   } catch(error) { if (context === simplifyContext) { $('simplify-error').textContent=error.message; $('simplify-error').hidden=false; $('simplify-status').textContent=''; } }
   finally { setBusy('',-1); if(context === simplifyContext) { $('simplify-settings').disabled=false; $('simplify-run').disabled=false; } }
 };
@@ -1198,7 +1206,7 @@ $('simplify-apply').onclick = async () => {
   const context = simplifyContext; if (!context?.preview) return;
   $('simplify-apply').disabled = true; $('simplify-close').disabled = true;
   try {
-    const result=await request('/api/simplify',{command:'apply',preview:context.preview});
+    const result=await operation('apply',{job:context.preview});
     context.preview=null; dirty=true; await applyState(result); $('simplify-dialog').close(); toast('Shape simplified. Undo restores the original geometry.');
   } catch(error) { $('simplify-error').textContent=error.message; $('simplify-error').hidden=false; }
   finally { $('simplify-apply').disabled=false; $('simplify-close').disabled=false; }
@@ -1207,7 +1215,7 @@ $('simplify-close').onclick = () => $('simplify-dialog').close();
 $('simplify-dialog').addEventListener('cancel',event=>{if($('simplify-close').disabled)event.preventDefault();});
 $('simplify-dialog').addEventListener('close',()=>{
   const preview=simplifyContext?.preview; simplifyContext=null;
-  if(preview) request('/api/simplify',{command:'discard',preview}).catch(error=>toast(error.message,true));
+  if(preview) operation('discard',{job:preview}).catch(error=>toast(error.message,true));
 });
 
 let contactContext = null;
@@ -1225,11 +1233,13 @@ $('contact-preview').onclick=async()=>{
   $('contact-status').textContent='Matching nearby contours…';
   for(const id of ['contact-preview','contact-distance','contact-close'])$(id).disabled=true;
   try{
-    const result=await request('/api/contact',{command:'preview',epoch:context.epoch,revision:context.revision,bounds:context.bounds,tolerance:Number($('contact-distance').value)});
-    context.preview=result.id;
-    $('contact-before').src=result.previews.before;$('contact-after').src=result.previews.after;
-    $('contact-previews').hidden=false;$('contact-apply').hidden=false;
-    $('contact-status').textContent=`${result.edges} shared edge spans. Apply links their nodes and curve handles as one undoable edit.`;
+    const job=await operation('start',{action:'link',method:'boundaries',epoch:context.epoch,revision:context.revision,bounds:context.bounds,
+      permissions:{geometry:true,structure:true},settings:{tolerance:Number($('contact-distance').value)}});
+    context.preview=job.id;
+    const {changed,metrics,previews}=job.result;
+    $('contact-before').src=previews.before;$('contact-after').src=previews.after;
+    $('contact-previews').hidden=false;$('contact-apply').hidden=!changed;
+    $('contact-status').textContent=`${metrics.edges} shared edge spans. Apply links their nodes and curve handles as one undoable edit.`;
   }catch(error){$('contact-error').textContent=error.message;$('contact-error').hidden=false;$('contact-status').textContent='';}
   finally{for(const id of ['contact-preview','contact-distance','contact-close'])$(id).disabled=false;}
 };
@@ -1237,11 +1247,11 @@ $('contact-apply').onclick=async()=>{
   if(!contactContext?.preview)return;
   $('contact-apply').disabled=true;$('contact-close').disabled=true;
   try{
-    const result=await request('/api/contact',{command:'apply',preview:contactContext.preview});
+    const result=await operation('apply',{job:contactContext.preview});
     contactContext.preview=null;dirty=true;await applyState(result);$('contact-dialog').close();toast('Shared boundaries linked. Editing a shared node moves both regions.');
   }catch(error){$('contact-error').textContent=error.message;$('contact-error').hidden=false;}
   finally{$('contact-apply').disabled=false;$('contact-close').disabled=false;}
 };
 $('contact-close').onclick=()=>$('contact-dialog').close();
 $('contact-dialog').addEventListener('cancel',event=>{if($('contact-close').disabled)event.preventDefault();});
-$('contact-dialog').addEventListener('close',()=>{const preview=contactContext?.preview;contactContext=null;if(preview)request('/api/contact',{command:'discard',preview}).catch(error=>toast(error.message,true));});
+$('contact-dialog').addEventListener('close',()=>{const preview=contactContext?.preview;contactContext=null;if(preview)operation('discard',{job:preview}).catch(error=>toast(error.message,true));});

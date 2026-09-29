@@ -126,12 +126,8 @@ class Handler(BaseHTTPRequestHandler):
             with session.lock:
                 if self.path == "/api/action":
                     result = session.action(data)
-                elif self.path == "/api/contact":
-                    result = session.contact(data)
-                elif self.path == "/api/simplify":
-                    result = session.simplify(data)
-                elif self.path == "/api/improve":
-                    result = session.improve(data)
+                elif self.path == "/api/operation":
+                    result = session.operation(data)
                 elif self.path == "/api/holes":
                     result = session.holes(data)
                 elif self.path == "/api/nodes":

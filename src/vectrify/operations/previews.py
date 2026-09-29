@@ -1,66 +1,18 @@
-"""Reviewable simplification proposals; applying commits the captured transaction."""
+"""Before/after previews of a document region."""
 
 from __future__ import annotations
 
 import base64
 import math
 import xml.etree.ElementTree as ET
-from uuid import uuid4
 
 import cairosvg
 
-from vectrify.document import DocumentError, StaleRevisionError, export_svg
-from vectrify.document.simplify import SimplifyOptions
-
-
-class SimplifyPreview:
-    def __init__(self, session, payload: dict):
-        session.check_revision(payload)
-        self.epoch = session.epoch
-        self.id = uuid4().hex
-        self.transaction = session.editor.transaction("Smooth / simplify shapes")
-        before = session.editor.snapshot.document
-        self.transaction.simplify_shapes(SimplifyOptions(**payload.get("options", {})))
-        after = self.transaction.preview
-        geometries = {g.id for g in before.geometries if g != after.geometry(g.id)}
-        selected = before.selection_ids(session.editor.snapshot.selection)
-        all_geometries = {
-            before.geometry_for(oid).id
-            for oid in selected
-            if before.element(oid).tag in {"path", "use"}
-        }
-
-        def stats(document):
-            assets = [document.geometry(gid) for gid in all_geometries]
-            return {
-                "nodes": sum(len(s.nodes) for g in assets for s in g.subpaths),
-                "coordinates": sum(
-                    len(n.values) for g in assets for s in g.subpaths for n in s.nodes
-                ),
-                "bytes": sum(len(g.path_data().encode()) for g in assets),
-            }
-
-        self.result: dict = {
-            "id": self.id,
-            "changed": bool(geometries),
-            "before": stats(before),
-            "after": stats(after),
-        }
-        self.result["previews"] = render_previews(
-            before, after, payload.get("bounds", session.state(svg=False)["bounds"])
-        )
-
-    def apply(self, session):
-        if session.epoch != self.epoch:
-            raise StaleRevisionError(
-                "The drawing changed. Preview simplification again."
-            )
-        self.transaction.commit()
-        return session.state()
+from vectrify.document import DocumentError, export_svg
 
 
 def render_previews(before, after, bounds, *, highlight=False):
-    if not isinstance(bounds, list) or len(bounds) != 4:
+    if not isinstance(bounds, list | tuple) or len(bounds) != 4:
         raise DocumentError("Expected preview bounds")
     x, y, width, height = (float(v) for v in bounds)
     if (

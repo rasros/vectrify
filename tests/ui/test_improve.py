@@ -2,6 +2,7 @@
 
 import base64
 import io
+import time
 from dataclasses import replace
 from threading import Event
 
@@ -122,43 +123,108 @@ def test_bulk_node_proposal_preserves_pins_and_undo():
     )
 
 
-def test_job_apply_is_single_undoable_edit_and_rejects_stale_reference():
-    from vectrify.ui.improve import PathFitJob
+def start_fit(session, **settings):
+    return session.operation(
+        {
+            "command": "start",
+            "action": "improve",
+            "method": "path-fit",
+            "epoch": session.epoch,
+            "revision": session.editor.snapshot.revision,
+            "permissions": {"paint": True},
+            "settings": {"nodes": False, "handles": False, "color": True, **settings},
+        }
+    )
 
+
+def wait(session, job):
+    for _ in range(500):
+        state = session.operation({"command": "status", "job": job["id"]})
+        if state["status"] != "running":
+            return state
+        time.sleep(0.01)
+    pytest.fail("Operation did not finish")
+
+
+def test_job_apply_is_single_undoable_edit_and_rejects_stale_reference(monkeypatch):
+    result = FitResult("a", {}, "#bb0000", 0.2, 0.1, {}, 8, (64, 64))
+    monkeypatch.setattr(
+        "vectrify.operations.methods.path_fit.fit_selected_path",
+        lambda *_a, **_kw: result,
+    )
     session = Session(import_svg(SVG), reference=reference(target()))
     session.editor.select(SELECTION)
-    payload = {
-        "epoch": session.epoch,
-        "revision": 0,
-        "options": {"nodes": False, "handles": False, "color": True},
-    }
-    job = PathFitJob(session, payload)
-    result = FitResult("a", {}, "#bb0000", 0.2, 0.1, {}, 8, (64, 64))
-    job.result, job.status = result, "ready"
+    job = start_fit(session)
+    state = wait(session, job)
+    assert state["status"] == "ready", state
+    assert state["result"]["metrics"]["after"] == {"error": 0.1}
     before = session.editor.snapshot.document
-    job.apply(session)
+    session.operation({"command": "apply", "job": job["id"]})
     assert session.editor.undo_labels == ("Optimize path",)
+    assert session.editor.snapshot.document.element("a").get("fill") == "#bb0000"
     session.editor.undo()
     assert session.editor.snapshot.document == before
-    with pytest.raises(StaleRevisionError):
-        job.apply(session)
-    fresh = PathFitJob(
-        session, dict(payload, revision=session.editor.snapshot.revision)
-    )
-    fresh.result, fresh.status = result, "ready"
+    with pytest.raises(DocumentError, match="expired"):
+        session.operation({"command": "apply", "job": job["id"]})
+    fresh = start_fit(session)
+    assert wait(session, fresh)["status"] == "ready"
     session.reference = reference(Image.new("RGB", (64, 64), "white"))
     with pytest.raises(StaleRevisionError, match="reference"):
-        fresh.apply(session)
+        session.operation({"command": "apply", "job": fresh["id"]})
+
+
+def test_job_result_is_stale_after_an_edit(monkeypatch):
+    result = FitResult("a", {}, "#bb0000", 0.2, 0.1, {}, 8, (64, 64))
+    monkeypatch.setattr(
+        "vectrify.operations.methods.path_fit.fit_selected_path",
+        lambda *_a, **_kw: result,
+    )
+    session = Session(import_svg(SVG), reference=reference(target()))
+    session.editor.select(SELECTION)
+    job = start_fit(session)
+    wait(session, job)
+    with session.editor.transaction("Paint") as tx:
+        tx.set_attributes("a", {"fill": "#00ff00"})
+    with pytest.raises(StaleRevisionError):
+        session.operation({"command": "apply", "job": job["id"]})
+    assert session.editor.snapshot.document.element("a").get("fill") == "#00ff00"
+
+
+def test_fit_permissions_are_checked_before_the_job_starts():
+    session = Session(import_svg(SVG), reference=reference(target()))
+    session.editor.select(SELECTION)
+    with pytest.raises(DocumentError, match="paint"):
+        session.operation(
+            {
+                "command": "start",
+                "action": "improve",
+                "method": "path-fit",
+                "epoch": session.epoch,
+                "revision": 0,
+                "settings": {"nodes": False, "handles": False, "color": True},
+            }
+        )
+    assert session.jobs == {}
 
 
 def test_job_cancel_does_not_change_document(monkeypatch):
-    from vectrify.ui.improve import PathFitJob
+    from vectrify.operations import Job, OperationRequest, Permissions, method
 
     session = Session(import_svg(SVG), reference=reference(target()))
     session.editor.select(SELECTION)
-    job = PathFitJob(session, {"epoch": session.epoch, "revision": 0})
+    job = Job(
+        method("improve", "path-fit"),
+        OperationRequest(
+            action="improve",
+            method="path-fit",
+            snapshot=session.editor.snapshot,
+            editor=session.editor,
+            permissions=Permissions(geometry=True, paint=True),
+            reference=target(),
+        ),
+    )
     monkeypatch.setattr(
-        "vectrify.ui.improve.fit_selected_path",
+        "vectrify.operations.methods.path_fit.fit_selected_path",
         lambda *_a, **_kw: pytest.fail("Cancelled job should not fit"),
     )
     job.stop.set()
@@ -187,7 +253,8 @@ def test_existing_fitter_improves_selected_fill_with_geometry_locked():
     assert result.after < result.before * 0.7
     assert not result.values
     editor = Editor(doc, selection=SELECTION)
-    result.apply(editor, SELECTION, 0)
+    with editor.transaction("Optimize path", selection=SELECTION) as tx:
+        result.write(tx)
     assert editor.snapshot.document.geometries == doc.geometries
     assert editor.snapshot.document.element("front") == doc.element("front")
     editor.undo()
@@ -214,7 +281,8 @@ def test_gpu_fit_preserves_pins_holes_node_filter_and_displacement():
         old = geometry.node(node_id).values
         assert np.linalg.norm(np.array(values) - old) <= 1.00001
     editor = Editor(doc, selection=selection)
-    result.apply(editor, selection, 0)
+    with editor.transaction("Optimize path", selection=selection) as tx:
+        result.write(tx)
     assert len(editor.snapshot.document.geometry_for("a").subpaths) == 2
     assert result.after <= result.before
 
@@ -259,7 +327,8 @@ def test_outlined_region_fits_fill_and_stroke_together(join):
     assert result.fill == result.stroke
     assert not result.values
     editor = Editor(doc, selection=SELECTION)
-    result.apply(editor, SELECTION, 0)
+    with editor.transaction("Optimize path", selection=SELECTION) as tx:
+        result.write(tx)
     fitted = editor.snapshot.document.element("a")
     assert fitted.get("fill") == fitted.get("stroke") == result.fill
 
@@ -291,7 +360,8 @@ def test_miter_geometry_fit_preserves_sharp_join_and_improves_reference_match():
     assert result.values
     assert result.after < result.before
     editor = Editor(doc, selection=SELECTION)
-    result.apply(editor, SELECTION, 0)
+    with editor.transaction("Optimize path", selection=SELECTION) as tx:
+        result.write(tx)
     assert (
         editor.snapshot.document.element("a").attributes == doc.element("a").attributes
     )

@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 
+from tests.document.test_simplify import circle
 from vectrify.ui.server import EditorServer
 
 
@@ -146,3 +147,48 @@ def test_hole_inspection_fill_and_cleanup_follow_session_revision(server):
     assert call(server, "/api/holes", request, headers)[0] == 409
     action("undo")
     assert {obj["id"] for obj in state["objects"]} >= {"p", "inside"}
+
+
+def test_operation_endpoint_previews_applies_and_rejects_unknown(server):
+    _, state = call(server, "/api/session", {})
+    headers = {"X-Vectrify-Session": state["session"]}
+    source = f'<svg width="100" height="100"><path id="a" d="{circle()}"/></svg>'
+    _, state = call(
+        server,
+        "/api/action",
+        {"command": "open", "source": source, "epoch": state["epoch"], "revision": 0},
+        headers,
+    )
+    _, state = call(
+        server,
+        "/api/action",
+        {
+            "command": "select",
+            "epoch": state["epoch"],
+            "revision": state["revision"],
+            "objects": ["a"],
+        },
+        headers,
+    )
+    start = {
+        "command": "start",
+        "epoch": state["epoch"],
+        "revision": state["revision"],
+        "action": "simplify",
+        "method": "curves",
+        "permissions": {"geometry": True, "structure": True},
+        "settings": {"tolerance": 1},
+    }
+    status, job = call(server, "/api/operation", start, headers)
+    assert status == 200, job
+    assert job["status"] == "ready"
+    assert set(job["result"]["previews"]) == {"before", "after"}
+    status, _ = call(server, "/api/operation", dict(start, method="nope"), headers)
+    assert status == 400
+    command = {"command": "apply", "job": job["id"]}
+    assert job["result"]["changed"]
+    status, applied = call(server, "/api/operation", command, headers)
+    assert status == 200
+    assert applied["revision"] == state["revision"] + 1
+    status, _ = call(server, "/api/operation", command, headers)
+    assert status == 400
