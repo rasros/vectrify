@@ -844,13 +844,6 @@ def _impact_error_map(
     return error
 
 
-def _impact_error(
-    target: np.ndarray, canvas: np.ndarray, coverage: np.ndarray
-) -> float:
-    """Return the scalar blank-canvas reconstruction error."""
-    return float(_impact_error_map(target, canvas, coverage).mean())
-
-
 def filter_by_impact(
     image: Image.Image,
     masks: list[np.ndarray],
@@ -1536,41 +1529,6 @@ def _trace_sections(trace: np.ndarray, segments: int) -> list[np.ndarray]:
     return [trace[first : last + 1] for first, last in itertools.pairwise(boundaries)]
 
 
-def mask_stroke(
-    mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
-) -> tuple[str, float] | None:
-    """Return a conservative centreline stroke for one thin mask component.
-
-    SAMVG itself uses closed filled shapes.  This optional hybrid extension is
-    deliberately strict: a component must be long, narrow, and have no holes
-    before it can be represented by a stroke.  Other masks preserve SAMVG's
-    original filled-path treatment.
-    """
-    if overlap_pixels:
-        mask = _binary_dilation(mask, overlap_pixels)
-    _ys, xs = np.nonzero(mask)
-    if len(xs) < 8:
-        return None
-    # A hole is topology that a single centreline cannot preserve.
-    if len(_loops(mask)) != 1:
-        return None
-
-    traces = _skeleton_traces(mask)
-    if len(traces) != 1:
-        return None
-    trace = traces[0]
-    length = float(np.linalg.norm(np.diff(trace, axis=0), axis=1).sum())
-    # Arc length, rather than a bounding-box axis, preserves strongly curved
-    # thin components whose width and height are similar.
-    estimated_width = len(xs) / max(length, 1.0)
-    if length < 12 or estimated_width > min(8.0, length * 0.3):
-        return None
-    distance = _mask_distance(mask)
-    widths = [2 * (distance[int(y), int(x)] - 0.5) for x, y in trace]
-    data = _trace_path_data(trace, segments)
-    return data, max(1.0, float(np.median(widths)))
-
-
 def mask_strokes(
     mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
 ) -> list[tuple[str, float]]:
@@ -1824,122 +1782,3 @@ def _accept_text_layers(
         len(layers),
     )
     return accepted
-
-
-def _accepted_fit(
-    svg: str, image: Image.Image, *, rasterize, steps: int, learn_alpha: bool = False
-) -> tuple[str, Image.Image]:
-    """Keep a differentiable fit only when the actual SVG renderer improves."""
-    from vectrify.refine.paths import fit_filled_svg_bounded
-
-    before = _render_svg(svg, image, rasterize)
-    fitted = fit_filled_svg_bounded(
-        svg, image, rasterize=rasterize, steps=steps, learn_alpha=learn_alpha
-    )
-    after = _render_svg(fitted, image, rasterize)
-    if _mse(image, after) <= _mse(image, before):
-        return fitted, after
-    log.info("SAMVG fit rejected: the exported SVG MSE increased.")
-    return svg, before
-
-
-def vectorize_svg(
-    image: Image.Image,
-    *,
-    rasterize,
-    steps: int = 500,
-    min_pixels: int = 32,
-    min_impact: float = 3e-6,
-    max_layers: int = 512,
-    segments: int = 16,
-    max_side: int | None = SAMVG_MAX_SIDE,
-    learn_alpha: bool = False,
-    curvature_threshold: float | None = None,
-    maximum_segments: int = 2048,
-) -> str:
-    """Run SAMVG's two 500-step optimise-and-recover phases.
-
-    ``rasterize`` is the format backend's renderer, used solely to form the
-    residual map after the first pass. The actual differentiable fit is the
-    built-in filled-path optimiser so SAMVG has no external renderer dependency.
-    ``learn_alpha`` and ``curvature_threshold`` select the dissertation's
-    SAMVG+alpha and SAMVG+var representation variations, respectively.
-    """
-    image = image.convert("RGB")
-    runtime = _sam_runtime()
-    try:
-        layers = retrieve_layers(
-            image,
-            min_pixels=min_pixels,
-            min_impact=min_impact,
-            max_layers=max_layers,
-            max_side=max_side,
-            _runtime=runtime,
-        )
-        initial = _append_layers(
-            f'<svg xmlns="http://www.w3.org/2000/svg" width="{image.width}" '
-            f'height="{image.height}" '
-            f'viewBox="0 0 {image.width} {image.height}"></svg>',
-            layers,
-            segments,
-            hybrid_strokes=False,
-            curvature_threshold=curvature_threshold,
-            maximum_segments=maximum_segments,
-        )
-        first, first_render = _accepted_fit(
-            initial,
-            image,
-            rasterize=rasterize,
-            steps=steps,
-            learn_alpha=learn_alpha,
-        )
-        points = residual_prompt_points(image, first_render)
-        added = filter_by_impact(
-            image,
-            prompted_masks(image, points, max_side=max_side, _runtime=runtime),
-            existing=layers,
-            initial_canvas=np.asarray(first_render, dtype=np.uint8),
-            # Residual recovery scores against the fitted raster, not a blank
-            # segmentation canvas.  Every pixel therefore has ordinary raster
-            # error; marking holes in the old masks uncovered would falsely
-            # reward any prompted mask placed there.
-            initial_coverage=np.ones((image.height, image.width), dtype=bool),
-            min_pixels=min_pixels,
-            min_impact=min_impact,
-            max_layers=max_layers,
-        )[len(layers) :]
-        log.info(
-            "SAMVG residual pass: %d prompt(s), %d accepted added path(s).",
-            len(points),
-            len(added),
-        )
-        final, final_render = _accepted_fit(
-            _append_layers(
-                first,
-                added,
-                segments,
-                hybrid_strokes=False,
-                curvature_threshold=curvature_threshold,
-                maximum_segments=maximum_segments,
-            ),
-            image,
-            rasterize=rasterize,
-            steps=steps,
-            learn_alpha=learn_alpha,
-        )
-        # A locally accepted second fit can still be worse than the first fit
-        # if its residual additions were harmful.  The public two-phase result
-        # must never discard an already accepted Cairo-raster improvement.
-        if _mse(image, final_render) <= _mse(image, first_render):
-            return final
-        log.info("SAMVG residual phase rejected: it increased exported SVG MSE.")
-        return first
-    finally:
-        del runtime
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-        except ImportError:  # pragma: no cover - installation-specific
-            pass
