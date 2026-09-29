@@ -291,7 +291,7 @@ function renderInspector() {
   renderRelationships(item);
   enable('smooth-shape', !selected.every(id => ['path','use','g'].includes(object(id)?.tag)) && 'Only paths, instances and groups can be simplified');
   enable('optimize-path', noReference || (item?.tag === 'use' ? 'Detach this instance to an editable path first' : (!item || item.tag !== 'path' || item.resource) && 'Select one visible path'));
-  enable('nsga-open', noReference);
+  enable('search-open', noReference);
   enable('llm-open', noReference);
   enable('colours-open', noReference);
   $('optimize-hint').textContent = state.reference ? 'Compare with the reference image. Each tool shows a preview before anything changes.' :'These tools compare the drawing with a reference image. Add one under Reference on the left to use them.';
@@ -1231,15 +1231,15 @@ function openOnScope(dialog, prefix) {
   $(prefix+'-scope').options[0].disabled = !count;
   dialog.open(count ? selectionSummary() : 'Whole drawing');
 }
-const nsgaDialog = jobDialog('nsga', {
-  start: () => ({action:'improve', method:'nsga', scope:$('nsga-scope').value,
-    permissions:{geometry:$('nsga-geometry').checked, paint:$('nsga-paint').checked, structure:$('nsga-structure').checked},
-    settings:{workers:Number($('nsga-workers').value), pool_size:Number($('nsga-pool').value)}, budget:{steps:Number($('nsga-tasks').value)}}),
-  describe: ({changed, metrics}) => changed ? `Reference error ${errorChange(metrics)} after ${metrics.tasks.toLocaleString()} candidates. Apply keeps this result as one undoable edit.` : 'No candidate beat the current drawing. Try more candidates or allow more kinds of change.',
+const searchDialog = jobDialog('search', {
+  start: () => ({action:'improve', method:'search', scope:$('search-scope').value,
+    permissions:{geometry:$('search-geometry').checked, paint:$('search-paint').checked, structure:$('search-structure').checked},
+    settings:{workers:Number($('search-workers').value)}, budget:{steps:Number($('search-tasks').value)}}),
+  describe: ({changed, metrics}) => changed ? `Difference from the reference ${errorChange(metrics, 'difference')} after ${metrics.tasks.toLocaleString()} variants. Apply keeps this result as one undoable edit.` : 'No variant beat the current drawing. Try more variants or allow more kinds of change.',
   applied: 'Search result applied. Undo restores the previous drawing.',
-  choiceLabel: (result, index) => `${index ? 'Alternative '+index : 'Recommended'} · error ${result.metrics.after.error.toFixed(5)}`,
+  choiceLabel: (result, index) => `${index ? 'Alternative '+index : 'Recommended'} · difference ${result.metrics.after.difference.toFixed(4)}`,
 }).wire();
-$('nsga-open').onclick = async () => { await queue; openOnScope(nsgaDialog, 'nsga'); };
+$('search-open').onclick = async () => { await queue; openOnScope(searchDialog, 'search'); };
 const llmDialog = jobDialog('llm', {
   start: () => ({action:'improve', method:'llm', scope:$('llm-scope').value,
     permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},
@@ -1342,8 +1342,8 @@ function jobDialog(prefix, {start, describe, applied, choiceLabel = null}) {
     },
   };
 }
-function errorChange(metrics) {
-  const before = metrics.before.error, after = metrics.after.error;
+function errorChange(metrics, key = 'error') {
+  const before = metrics.before[key], after = metrics.after[key];
   const change = before > 0 ? 100*(before-after)/before : 0;
   return change >= 0 ? `reduced ${change.toFixed(1)}%` : `increased ${(-change).toFixed(1)}%`;
 }

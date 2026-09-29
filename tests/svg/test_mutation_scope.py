@@ -8,7 +8,6 @@ import pytest
 from vectrify.svg.operations import (
     MUTATIONS,
     OPERATOR_KINDS,
-    apply_crossover,
     apply_mutation,
     mutation_weights,
     scoped_mutations,
@@ -95,10 +94,8 @@ def test_reorder_needs_both_siblings_in_scope():
     assert order(svg, "left") == ["b", "a"]
 
 
-def test_scope_turns_crossover_off_and_limits_policy_weights():
+def test_scope_limits_policy_weights():
     scope = MutationScope(frozenset({"a"}), frozenset({"geometry", "paint"}))
-    other = SVG.replace("#aa0000", "#010101")
-    assert apply_crossover(SVG, other, scope)[0] == SVG
     assert set(mutation_weights(scope)) == {
         name for name, kinds in OPERATOR_KINDS.items() if kinds <= {"geometry", "paint"}
     }

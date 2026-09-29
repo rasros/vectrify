@@ -28,9 +28,6 @@ MASK_SIZE = 128
 
 UNOWNED = -1
 
-# How close in size two elements must be to be candidates for the same feature.
-SIZE_RATIO_LIMIT = 0.5
-
 _STYLE_PAINT_RE = re.compile(r"(fill|stroke|opacity)\s*:[^;]*;?")
 
 _XMLNS_RE = re.compile(r'\s+xmlns(:\w+)?="[^"]*"')
@@ -111,46 +108,6 @@ def owner_labels(root: ET.Element, size: int = MASK_SIZE) -> np.ndarray:
     return labels
 
 
-def overlaps(
-    labels_a: np.ndarray, labels_b: np.ndarray, count_a: int, count_b: int
-) -> np.ndarray:
-    """Intersection-over-union of every element of A with every element of B.
-
-    Counted in one pass over the pixels rather than per pair: at 59 elements
-    against 46 that is 2714 comparisons of the whole canvas, which is far too
-    slow to run on every crossover.
-    """
-    if count_a == 0 or count_b == 0:
-        return np.zeros((count_a, count_b))
-
-    both = (labels_a != UNOWNED) & (labels_b != UNOWNED)
-    pairs = labels_a[both].astype(np.int64) * count_b + labels_b[both].astype(np.int64)
-    intersection = np.bincount(pairs, minlength=count_a * count_b).reshape(
-        count_a, count_b
-    )
-
-    area_a = np.bincount(
-        labels_a[labels_a != UNOWNED].ravel(), minlength=count_a
-    ).astype(np.float64)
-    area_b = np.bincount(
-        labels_b[labels_b != UNOWNED].ravel(), minlength=count_b
-    ).astype(np.float64)
-
-    union = area_a[:, None] + area_b[None, :] - intersection
-    iou = np.divide(intersection, union, out=np.zeros_like(union), where=union > 0)
-
-    # Two elements of very different size are not the same feature however much
-    # they overlap: a leaf blade sits inside a background rect at an IoU of
-    # 0.43, and swapping the blade for the rect paints over the whole drawing.
-    # Sizes alone cannot say it either -- this rules that pair out while still
-    # matching one feature drawn larger in one lineage than the other, which is
-    # the difference the seeds are built on.
-    larger = np.maximum(area_a[:, None], area_b[None, :])
-    smaller = np.minimum(area_a[:, None], area_b[None, :])
-    similar = np.divide(smaller, larger, out=np.zeros_like(larger), where=larger > 0)
-    return np.where(similar >= SIZE_RATIO_LIMIT, iou, 0.0)
-
-
 def element_error(
     root: ET.Element,
     reference: np.ndarray,
@@ -178,66 +135,6 @@ def element_error(
     flat = labels[owned].ravel()
     totals = np.bincount(flat, weights=difference[owned].ravel(), minlength=count)
     return [float(value) for value in totals]
-
-
-# An element owning more than this share of the canvas is scenery rather than a
-# part: a background rect touches everything, and linking through it would make
-# the whole drawing one part.
-BACKDROP_SHARE = 0.25
-
-
-def adjacent_parts(labels: np.ndarray, count: int, reach: int = 2) -> list[list[int]]:
-    """Elements grouped by whether the regions they own run into each other.
-
-    Crossover needs a unit of inheritance. Deciding each matched element on its
-    own coin is uniform crossover, which breaks up exactly the groups that were
-    worth keeping: one drawing's wing arrived as two elements, a sweep and the
-    feathers at its tip, and flipping them separately grafts half a wing from
-    each parent. A part is the unit that should travel together.
-
-    Adjacency of owned pixels answers it without any new geometry or any new
-    render -- the labels are already computed to match elements across parents.
-    Elements that own most of the canvas are left out of the linking, since a
-    backdrop touches everything.
-    """
-    if count == 0:
-        return []
-
-    areas = np.bincount(labels[labels != UNOWNED].ravel(), minlength=count)
-    scenery = {
-        index for index in range(count) if areas[index] > BACKDROP_SHARE * labels.size
-    }
-
-    parent = list(range(count))
-
-    def find(index: int) -> int:
-        while parent[index] != index:
-            parent[index] = parent[parent[index]]
-            index = parent[index]
-        return index
-
-    for step in range(1, reach + 1):
-        for dy, dx in ((0, step), (step, 0), (step, step), (step, -step)):
-            here = labels[
-                max(0, -dy) : labels.shape[0] - max(0, dy),
-                max(0, -dx) : labels.shape[1] - max(0, dx),
-            ]
-            there = labels[
-                max(0, dy) : labels.shape[0] - max(0, -dy),
-                max(0, dx) : labels.shape[1] - max(0, -dx),
-            ]
-            touching = (here != there) & (here != UNOWNED) & (there != UNOWNED)
-            for left, right in set(
-                zip(here[touching].ravel(), there[touching].ravel(), strict=True)
-            ):
-                if left in scenery or right in scenery:
-                    continue
-                parent[find(int(left))] = find(int(right))
-
-    groups: dict[int, list[int]] = {}
-    for index in range(count):
-        groups.setdefault(find(index), []).append(index)
-    return list(groups.values())
 
 
 # The size the check renders at when confirming a nominee. The model is shown

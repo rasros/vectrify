@@ -1,7 +1,7 @@
 [project]
 name = "vectrify"
 dynamic = ["version"]
-description = "Vectorizes raster images (PNG/JPG) using a mix of LLMs and NSGA-II multi-objective optimization. Outputs editable SVG."
+description = "Vectorizes raster images (PNG/JPG) in a local SVG editor, with LLM, segmentation and local-search tools. Outputs editable SVG."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -17,8 +17,7 @@ keywords = [
     "openai",
     "anthropic",
     "gemini",
-    "nsga",
-    "evolutionary",
+    "hill-climbing",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",

@@ -1,40 +1,36 @@
-"""The NSGA-II vector search as a callable.
+"""Hill climbing over a drawing, as a callable.
 
-``run_search`` takes a prepared Reference, starting candidates and a worker
-context, runs the multiprocess engine until a budget, a stop event or
-convergence ends it, and returns the best candidate and the final pool.
+``run_search`` starts from the best of the drawings it is given, has worker
+processes mutate the current drawing, scores every child in this process, and
+lets a child replace the current drawing when it scores no worse. It returns
+the best few distinct drawings it saw, the current one first.
+
+One score decides everything: which child replaces its parent, which operator
+earned credit and which drawings come back. There is no pool and no front, so
+nothing downstream has to re-rank what the search already ranked.
 """
 
 from __future__ import annotations
 
-import logging
-import os
+import bisect
+import multiprocessing as mp
 import random
 import threading
-from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+import time
+from collections.abc import Callable, Sequence
+from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
 from dataclasses import dataclass
-from typing import Any
 
 from vectrify.image_utils import rasterize_svg_to_png_bytes
-from vectrify.score.metrics import FRONT_SCORE
-from vectrify.search import (
-    ChainState,
-    MultiprocessSearchEngine,
-    NsgaStrategy,
-    Result,
-    SearchNode,
-)
-from vectrify.search.diversity import simhash
-from vectrify.search.engine import SearchOutcome, SearchProgress
-from vectrify.search.operators import Exp3Policy, FixedWeightPolicy, OperatorPolicy
 from vectrify.svg.operations import mutation_weights
 from vectrify.svg.selection import MutationScope
-from vectrify.vector.payloads import VectorStatePayload
-from vectrify.vector.reference import Reference
-from vectrify.vector.worker import WorkerContext, worker_loop
-
-log = logging.getLogger(__name__)
+from vectrify.vector.operators import (
+    Exp3Policy,
+    FixedWeightPolicy,
+    GradedReward,
+    OperatorPolicy,
+)
+from vectrify.vector.worker import Mutant, WorkerContext, init_worker, mutate
 
 
 @dataclass(frozen=True)
@@ -42,134 +38,39 @@ class SearchSettings:
     """What bounds and shapes one search."""
 
     workers: int = 1
-    pool_size: int = 20
-    tournament_size: int = 3
-    crossover_distance: int = 12
     adaptive_operators: bool = True
-    epoch_eval_interval: int | None = None
     max_total_tasks: int | None = None
     max_wall_seconds: float | None = None
+    # How many of the best distinct drawings come back.
+    keep: int = 4
+    # Set it and a one-worker run repeats exactly. Above one worker the order
+    # results arrive in varies, and so does which child each task mutates.
+    random_seed: int | None = None
 
 
-def to_state(result: Result) -> ChainState[VectorStatePayload]:
-    """Pool state for a scored result: its drawing, not its render."""
-    return ChainState(VectorStatePayload(result.payload.content, result.payload.origin))
+@dataclass(frozen=True)
+class Candidate:
+    content: str
+    score: float
 
 
-def seed_node(
-    reference: Reference,
-    content: str,
-    png: bytes,
-    *,
-    node_id: int,
-    origin: str,
-) -> SearchNode:
-    """A measured starting candidate, e.g. an imported or generated drawing."""
-    return SearchNode(
-        valid=True,
-        id=node_id,
-        parent_id=0,
-        metrics=reference.measure(png),
-        signature=simhash(content),
-        state=ChainState(VectorStatePayload(content=content, origin=origin)),
-    )
+@dataclass(frozen=True)
+class SearchProgress:
+    tasks_completed: int
+    best: float
+    elapsed: float
 
 
-def evaluate_front(
-    nodes: list[SearchNode],
-    *,
-    front_scorer: Callable[[], tuple[Any, Any]],
-    out_w: int,
-    out_h: int,
-) -> list[SearchNode]:
-    """Order *nodes* by the evaluator, best first, scoring only what is new.
-
-    *front_scorer* is called for (scorer, reference) and only when there is
-    something to score, so a call the cache answers in full never builds a
-    model.
-
-    Re-rasterises: a node keeps its drawing, not its render.
-    """
-    renders: list[tuple[bytes, SearchNode]] = []
-    for node in nodes:
-        # Already judged, and the judgement travels: the panel's score is a
-        # calibrated distance to the target, so it means the same thing in
-        # every call. Re-rasterising and re-embedding a node the evaluator has
-        # already seen would buy an identical number at full price -- and a run
-        # asks about the same pool members repeatedly.
-        if FRONT_SCORE in node.metrics:
-            continue
-        content = getattr(node.state.payload, "content", None)
-        if not content:
-            continue
-        try:
-            renders.append(
-                (rasterize_svg_to_png_bytes(content, out_w=out_w, out_h=out_h), node)
-            )
-        except Exception as exc:
-            log.debug(f"Front evaluation skipped node {node.id}: {exc}")
-
-    if renders:
-        scorer, ref = front_scorer()
-        pngs = [png for png, _ in renders]
-        try:
-            values = scorer.rank(ref, pngs)
-        except AttributeError:
-            values = [scorer.score(ref, png) for png in pngs]
-        except Exception as exc:
-            log.warning(f"Front evaluation failed, keeping rank order: {exc}")
-            return nodes
-
-        for value, (_png, node) in zip(values, renders, strict=True):
-            node.metrics[FRONT_SCORE] = value
-
-    # Every node the panel has ever scored, freshly measured or recalled.
-    scored = [
-        (node.metrics[FRONT_SCORE], node)
-        for node in nodes
-        if FRONT_SCORE in node.metrics
-    ]
-    if not scored:
-        return nodes
-    scored.sort(key=lambda pair: pair[0])
-    log.info(
-        f"Front evaluated: {len(scored)} candidate(s) "
-        f"({len(renders)} newly scored), "
-        f"best {scored[0][0]:.6f}, worst {scored[-1][0]:.6f}"
-    )
-    return [node for _value, node in scored]
-
-
-def pixel_scorer(
-    reference: Reference, pool: ThreadPoolExecutor
-) -> Callable[[list], None]:
-    """Measure each result's render against the reference, in parallel."""
-
-    def measure(res) -> None:
-        png = res.payload.raster_png
-        if not png:
-            return
-        try:
-            res.metrics.update(reference.measure(png))
-            # Measured, so valid. `score` carries no magnitude any more: the
-            # measures are ranked by dominance and the only score in the run is
-            # the evaluator's, recorded as FRONT_SCORE on the nodes it sees.
-            res.measured = True
-        except Exception as exc:
-            log.debug(f"Pixel objectives skipped: {exc}")
-
-    def score(results) -> None:
-        # One scorer thread runs this, in a decode-resize-convolve pass per
-        # candidate that is where a run's throughput was going: profiled,
-        # workers sat idle above four of them while this serialised. The work
-        # is numpy and Pillow, both of which drop the GIL, so threads overlap.
-        if len(results) > 1:
-            list(pool.map(measure, results))
-        else:
-            for res in results:
-                measure(res)
-
-    return score
+@dataclass(frozen=True)
+class SearchOutcome:
+    # The seed the climb started from: the best-scoring one.
+    start: Candidate
+    best: Candidate
+    # The best distinct drawings seen, best first; best is the first of them.
+    ranked: list[Candidate]
+    tasks_completed: int
+    # Children that replaced the drawing they were mutated from.
+    accepted: int
 
 
 def operator_policy(scope: MutationScope | None, adaptive: bool) -> OperatorPolicy:
@@ -177,53 +78,122 @@ def operator_policy(scope: MutationScope | None, adaptive: bool) -> OperatorPoli
     return Exp3Policy(weights) if adaptive else FixedWeightPolicy(weights)
 
 
+class _Best:
+    """The *size* lowest-scoring distinct drawings seen so far."""
+
+    def __init__(self, size: int):
+        self.size = max(1, size)
+        self.items: list[Candidate] = []
+        self._seen: set[str] = set()
+
+    def add(self, candidate: Candidate) -> None:
+        if candidate.content in self._seen:
+            return
+        if len(self.items) >= self.size and candidate.score >= self.items[-1].score:
+            return
+        self._seen.add(candidate.content)
+        bisect.insort(self.items, candidate, key=lambda c: c.score)
+        if len(self.items) > self.size:
+            self._seen.discard(self.items.pop().content)
+
+
 def run_search(
-    reference: Reference,
-    initial_nodes: list[SearchNode],
-    worker_context: WorkerContext,
+    seeds: Sequence[str],
+    score: Callable[[bytes], float],
+    context: WorkerContext,
     settings: SearchSettings,
     *,
-    rank_front: Callable[[list[SearchNode]], list[SearchNode]] | None = None,
     policy: OperatorPolicy | None = None,
     stop: threading.Event | None = None,
     progress: Callable[[SearchProgress], None] | None = None,
 ) -> SearchOutcome:
-    """Run workers over *initial_nodes* and return the best candidate and pool.
+    """Climb from the best of *seeds*; *score* maps a render to lower-is-better."""
+    if not seeds:
+        raise ValueError("run_search needs at least one starting drawing")
+    if settings.random_seed is not None:
+        # The operator policy draws from the module generator.
+        random.seed(settings.random_seed)
+    task_seeds = random.Random(settings.random_seed)
+    policy = policy or operator_policy(context.scope, settings.adaptive_operators)
+    reward = GradedReward()
 
-    With ``worker_context.random_seed`` set, the main process is seeded too:
-    parent selection and operator sampling happen here, not in the workers,
-    so seeding only the workers left a one-worker run unrepeatable.
-    """
-    if worker_context.random_seed is not None:
-        random.seed(worker_context.random_seed)
-    policy = policy or operator_policy(
-        worker_context.scope, settings.adaptive_operators
-    )
-    engine = MultiprocessSearchEngine(
-        workers=settings.workers,
-        strategy=NsgaStrategy[VectorStatePayload](
-            pool_size=settings.pool_size,
-            tournament_size=settings.tournament_size,
-            crossover_distance_threshold=settings.crossover_distance,
-        ),
-        max_total_tasks=settings.max_total_tasks,
-        rank_front=rank_front,
-        make_state=to_state,
-    )
-    # Sized against the scorer thread's own work rather than the worker count:
-    # it is one batch of candidates at a time, and oversubscribing here would
-    # only take cores from the workers producing them.
-    with ThreadPoolExecutor(
-        max_workers=min(8, os.cpu_count() or 4), thread_name_prefix="pixel"
-    ) as pool:
-        engine.start_workers(worker_loop, worker_context)
-        return engine.run(
-            initial_nodes,
-            max_wall_seconds=settings.max_wall_seconds,
-            active_pool_size=settings.pool_size,
-            score_fn=pixel_scorer(reference, pool),
-            epoch_eval_interval=settings.epoch_eval_interval,
-            operator_policy=policy,
-            stop=stop,
-            progress=progress,
+    best = _Best(settings.keep)
+    for content in seeds:
+        png = rasterize_svg_to_png_bytes(
+            content, out_w=context.original_w, out_h=context.original_h
         )
+        best.add(Candidate(content, score(png)))
+    current = start = best.items[0]
+
+    budget = settings.max_total_tasks
+    started = time.monotonic()
+    dispatched = completed = accepted = 0
+
+    def out_of_time() -> bool:
+        return (
+            settings.max_wall_seconds is not None
+            and time.monotonic() - started >= settings.max_wall_seconds
+        )
+
+    workers = max(1, settings.workers)
+    pool = ProcessPoolExecutor(
+        max_workers=workers,
+        mp_context=mp.get_context("spawn"),
+        initializer=init_worker,
+        initargs=(context,),
+    )
+    # Each task remembers the score of the drawing it mutates: by the time it
+    # comes back the current drawing may have moved on, and the operator
+    # earns what it improved on its own parent.
+    pending: dict[Future[Mutant], float] = {}
+    try:
+        while True:
+            halted = (stop is not None and stop.is_set()) or out_of_time()
+            while (
+                not halted
+                and len(pending) < workers * 2
+                and (budget is None or dispatched < budget)
+            ):
+                future = pool.submit(
+                    mutate, current.content, policy.select(), task_seeds.getrandbits(32)
+                )
+                pending[future] = current.score
+                dispatched += 1
+            if halted or not pending:
+                break
+            finished, _ = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
+            for future in finished:
+                parent_score = pending.pop(future)
+                completed += 1
+                mutant = future.result()
+                if mutant.content is None or mutant.png is None:
+                    policy.update(mutant.operator, 0.0)
+                    continue
+                child = Candidate(mutant.content, score(mutant.png))
+                best.add(child)
+                if child.score <= current.score:
+                    current = child
+                    accepted += 1
+                    policy.update(
+                        mutant.operator,
+                        reward({"score": parent_score}, {"score": child.score}),
+                    )
+                else:
+                    policy.update(mutant.operator, 0.0)
+            if progress is not None and finished:
+                progress(
+                    SearchProgress(completed, current.score, time.monotonic() - started)
+                )
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+
+    # Accepting ties keeps current at the lowest score seen, but a tie may have
+    # displaced an equal drawing from the head of the list.
+    ranked = [current] + [c for c in best.items if c.content != current.content]
+    return SearchOutcome(
+        start=start,
+        best=current,
+        ranked=ranked[: best.size],
+        tasks_completed=completed,
+        accepted=accepted,
+    )

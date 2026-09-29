@@ -106,49 +106,40 @@ def test_unchanged_candidate_makes_no_edits():
     assert tx.preview == ed.snapshot.document
 
 
-def test_scoped_search_pool_replays_through_the_transaction():
-    from vectrify.image_utils import rasterize_svg as rasterize
+def test_scoped_search_results_replay_through_the_transaction():
+    from vectrify.image_utils import png_bytes
     from vectrify.operations import OperationRequest, Permissions
     from vectrify.operations.candidates import mutation_scope
-    from vectrify.vector.reference import Reference
-    from vectrify.vector.search import SearchSettings, run_search, seed_node
+    from vectrify.score.simple import SimpleFallbackScorer
+    from vectrify.vector.search import SearchSettings, run_search
     from vectrify.vector.worker import WorkerContext
 
     ed = Editor(import_svg(SVG), selection=Selection(object_ids=frozenset({"a"})))
     request = OperationRequest(
         action="improve",
-        method="nsga",
+        method="search",
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(paint=True),
     )
-    source = export_svg(ed.snapshot.document)
-    png = rasterize(source, 40, 40)
-    reference = Reference.build(
-        Image.new("RGB", (40, 40), "white"),
-        score_resolution=40,
-        segment_count=1,
-    )
-    context = WorkerContext(
-        scope=mutation_scope(request),
-        original_png_bytes=reference.png,
-        original_w=40,
-        original_h=40,
-        log_level="ERROR",
-        random_seed=3,
-    )
-    seed = seed_node(reference, source, png, node_id=1, origin="drawing")
+    target = Image.new("RGB", (40, 40), "white")
+    scorer = SimpleFallbackScorer()
+    reference = scorer.prepare_reference(target)
     outcome = run_search(
-        reference,
-        [seed],
-        context,
-        SearchSettings(pool_size=4, max_total_tasks=40),
+        [export_svg(ed.snapshot.document)],
+        lambda png: scorer.score(reference, png),
+        WorkerContext(
+            scope=mutation_scope(request),
+            original_png_bytes=png_bytes(target),
+            original_w=40,
+            original_h=40,
+        ),
+        SearchSettings(max_total_tasks=40, keep=6, random_seed=3),
     )
-    assert outcome.pool
     changed = 0
-    for node in outcome.pool:
+    for candidate in outcome.ranked:
         tx = request.transaction("Improve")
-        changed += replay(tx, node.state.payload.content).edits > 0
+        changed += replay(tx, candidate.content).edits > 0
         for other in ("b", "c"):
             assert tx.preview.element(other) == ed.snapshot.document.element(other)
     assert changed

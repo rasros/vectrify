@@ -1,4 +1,3 @@
-import copy
 import functools
 import random
 import re
@@ -6,13 +5,8 @@ import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping
 from typing import cast
 
-import numpy as np
-
 from vectrify.svg.ownership import (
-    adjacent_parts,
     drawable_elements,
-    overlaps,
-    owner_labels,
 )
 from vectrify.svg.pathdata import PATH_TOKEN_RE
 from vectrify.svg.selection import MutationContext, MutationScope, NoChangeError
@@ -160,158 +154,6 @@ def with_retries(
         except Exception:
             pass
     return fallback
-
-
-# How much two elements must overlap to count as the same thing. Below this
-# they are separate features that happen to sit near each other, or one is a
-# piece of the other: half a blade covers 0.5 of the whole blade, and swapping
-# the whole for the half is how a picture loses content. It also carries the
-# safety the old whole-document correspondence gate used to provide, at a
-# fraction of its cost -- that gate demanded 80% of both parents find partners,
-# which no seed pair in the corpus managed on four of six cases, so crossover
-# never ran there at all.
-_MATCH_OVERLAP = 0.7
-
-
-def _rebuild(root: ET.Element, units: list[tuple[tuple, ET.Element]]) -> str:
-    """Reassemble elements into A's structure, recreating each group once."""
-    new_root = ET.Element(root.tag, dict(root.attrib))
-    wrappers: dict[tuple, ET.Element] = {(): new_root}
-
-    for chain, element in units:
-        parent = new_root
-        path: tuple = ()
-        for step in chain:
-            path = (*path, step)
-            if path not in wrappers:
-                wrappers[path] = ET.SubElement(parent, step[0], dict(step[1]))
-            parent = wrappers[path]
-        parent.append(copy.deepcopy(element))
-
-    ET.register_namespace("", SVG_NS)
-    return ET.tostring(new_root, encoding="unicode", method="xml")
-
-
-def _text_label(element: ET.Element) -> str:
-    """The string a <text> draws, or empty for anything else."""
-    if _local_tag(element) != "text":
-        return ""
-    return " ".join("".join(element.itertext()).split())
-
-
-def _match_by_label(
-    units_a: list[tuple[tuple, ET.Element]],
-    units_b: list[tuple[tuple, ET.Element]],
-    taken_a: set[int],
-    taken_b: set[int],
-    matched: dict[int, int],
-) -> None:
-    """Pair leftover text by what it says.
-
-    Overlap can only pair elements that already sit on top of each other, which
-    is the one thing two seeds disagreeing about placement do not do. A numeral
-    is the same feature in both drawings however far apart they put it, and it
-    says so itself. Same-label duplicates are paired in document order, which
-    is arbitrary but keeps the count right and never pairs one twice.
-    """
-    leftovers: dict[str, list[int]] = {}
-    for j, (_chain, element) in enumerate(units_b):
-        if j in taken_b:
-            continue
-        label = _text_label(element)
-        if label:
-            leftovers.setdefault(label, []).append(j)
-
-    for i, (_chain, element) in enumerate(units_a):
-        if i in taken_a:
-            continue
-        pool = leftovers.get(_text_label(element))
-        if not pool:
-            continue
-        j = pool.pop(0)
-        taken_a.add(i)
-        taken_b.add(j)
-        matched[i] = j
-
-
-def crossover(svg_a: str, svg_b: str) -> str:
-    """Swap elements that draw the same thing between two parents.
-
-    Recombination needs to know which element of A corresponds to which element
-    of B, and every cheap answer is wrong here. Document order assumes the
-    parents list their elements in the same sequence, which independent
-    drawings do not -- splicing by index left children holding a fraction of
-    the elements they started with. Element type assumes they encode things
-    the same way, but a dot is a <circle> in one lineage and a <path> in
-    another. Canvas region assumes a geometry that has to be guessed, and
-    guessing it wrongly empties whole drawings.
-
-    What the parents do share is the picture, so elements are matched on the
-    pixels they own in the finished render -- occlusion included, so a ring
-    matches a ring by its visible annulus. A matched pair contributes exactly
-    one element and an unmatched one is carried through untouched, which makes
-    losing content impossible: the child has as many elements as A had.
-
-    Pixels cannot pair what does not overlap, and a seed that puts a numeral in
-    the wrong place is exactly the case worth recombining. Text carries its own
-    identity, so a leftover <text> is paired with a leftover <text> of the same
-    string wherever either sits.
-    """
-    try:
-        root_a = ET.fromstring(svg_a)
-        root_b = ET.fromstring(svg_b)
-    except ET.ParseError:
-        return svg_a
-
-    units_a = drawable_elements(root_a)
-    units_b = drawable_elements(root_b)
-    if not units_a or not units_b:
-        return svg_a
-
-    labels_a = owner_labels(root_a)
-    labels_b = owner_labels(root_b)
-    scores = overlaps(labels_a, labels_b, len(units_a), len(units_b))
-
-    # Best pairs first, each element used once: an optimal assignment costs
-    # more than it buys when most pairs are either obvious or unrelated.
-    order = np.argsort(scores, axis=None)[::-1]
-    taken_a: set[int] = set()
-    taken_b: set[int] = set()
-    matched: dict[int, int] = {}
-    for flat in order:
-        i, j = divmod(int(flat), len(units_b))
-        if scores[i, j] < _MATCH_OVERLAP:
-            break
-        if i in taken_a or j in taken_b:
-            continue
-        taken_a.add(i)
-        taken_b.add(j)
-        matched[i] = j
-
-    _match_by_label(units_a, units_b, taken_a, taken_b, matched)
-
-    # One decision per part, not per element. Deciding each match on its own
-    # coin is uniform crossover, which breaks up the groups worth keeping: a
-    # wing drawn as a sweep and the feathers at its tip would take the sweep
-    # from one parent and the feathers from the other, which is not a wing
-    # either parent has. Parts come from the adjacency of the regions the
-    # elements own, which the labels above already answer.
-    swapped: dict[int, int] = {}
-    for part in adjacent_parts(labels_a, len(units_a)):
-        if random.random() < 0.5:
-            continue
-        for i in part:
-            if i in matched:
-                swapped[i] = matched[i]
-
-    if not swapped:
-        return svg_a
-
-    kept = [
-        (chain, units_b[swapped[i]][1] if i in swapped else element)
-        for i, (chain, element) in enumerate(units_a)
-    ]
-    return _rebuild(root_a, kept)
 
 
 @svg_transform
@@ -709,8 +551,7 @@ def mutate_translate(root: ET.Element, context: MutationContext) -> None:
     over the first: it accumulates -- one real run stacked 23 of them on its
     background rect and walked the canvas off its own viewBox -- and it leaves
     the coordinates saying one thing while the drawing does another, so every
-    later mutation and every crossover reads a position that is not where the
-    element appears.
+    later mutation reads a position that is not where the element appears.
     """
     units = movable_elements(root)
     if not units:
@@ -839,16 +680,3 @@ def apply_mutation(
 def mutation_weights(scope: MutationScope | None = None) -> Mapping[str, float]:
     """Starting operator weights for a policy, limited to what *scope* allows."""
     return operator_weights(scoped_mutations(scope))
-
-
-def apply_crossover(
-    svg_a: str, svg_b: str, scope: MutationScope | None = None
-) -> tuple[str, str]:
-    if scope is not None:
-        # Grafting matched elements between parents can move content across
-        # the scope boundary, so a scoped search does not recombine.
-        return svg_a, "Local crossover"
-    return (
-        with_retries(lambda: crossover(svg_a, svg_b), fallback=svg_a),
-        "Local crossover",
-    )

@@ -1,4 +1,4 @@
-"""NSGA-II Improve searches only the selection and proposes ordinary edits."""
+"""Search improvements climbs over the selection and proposes ordinary edits."""
 
 import threading
 
@@ -26,11 +26,11 @@ def reference():
 def request(editor, *, steps=120, **permissions):
     return OperationRequest(
         action="improve",
-        method="nsga",
+        method="search",
         snapshot=editor.snapshot,
         editor=editor,
         permissions=Permissions(**permissions),
-        settings={"workers": 1, "pool_size": 4, "resolution": 64},
+        settings={"workers": 1, "resolution": 64},
         budget=Budget(steps=steps),
         reference=reference(),
     )
@@ -41,40 +41,41 @@ def editor(*ids):
 
 
 def test_validation_needs_a_reference_scope_and_permission():
-    nsga = method("improve", "nsga")
+    search = method("improve", "search")
     with pytest.raises(DocumentError, match="Select objects"):
-        nsga.validate(request(editor(), paint=True))
+        search.validate(request(editor(), paint=True))
     with pytest.raises(DocumentError, match="at least one"):
-        nsga.validate(request(editor("a")))
+        search.validate(request(editor("a")))
     with pytest.raises(DocumentError, match="Allow geometry"):
-        nsga.validate(request(editor("a"), transform=True))
+        search.validate(request(editor("a"), transform=True))
     ed = editor("a")
     bad = OperationRequest(
         "improve",
-        "nsga",
+        "search",
         ed.snapshot,
         ed,
         Permissions(paint=True),
         settings={"llm": True},
         reference=reference(),
     )
-    with pytest.raises(DocumentError, match="Unknown NSGA-II setting"):
-        nsga.validate(bad)
+    with pytest.raises(DocumentError, match="Unknown search setting"):
+        search.validate(bad)
 
 
 def test_search_improves_only_the_selected_object():
     ed = editor("a")
     original = ed.snapshot.document
-    job = Job(method("improve", "nsga"), request(ed, geometry=True, paint=True))
+    job = Job(method("improve", "search"), request(ed, geometry=True, paint=True))
     job.run()
     state = job.state(preview=True)
     assert state["status"] == "ready", state
     result = state["result"]
     assert result["changed"]
-    assert result["metrics"]["after"]["error"] < result["metrics"]["before"]["error"]
+    after, before = result["metrics"]["after"], result["metrics"]["before"]
+    assert after["difference"] < before["difference"]
     assert set(result["previews"]) == {"reference", "before", "after"}
     job.apply()
-    assert ed.undo_labels == ("Improve with NSGA-II",)
+    assert ed.undo_labels == ("Search improvements",)
     document = ed.snapshot.document
     assert document.element("a") != original.element("a")
     assert document.element("b") == original.element("b")
@@ -83,8 +84,8 @@ def test_search_improves_only_the_selected_object():
 
 def test_stop_keeps_the_best_result_so_far():
     ed = editor("a")
-    job = Job(method("improve", "nsga"), request(ed, steps=100_000, paint=True))
-    timer = threading.Timer(8, job.stop.set)
+    job = Job(method("improve", "search"), request(ed, steps=100_000, paint=True))
+    timer = threading.Timer(3, job.stop.set)
     timer.start()
     try:
         job.run()

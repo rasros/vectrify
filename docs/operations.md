@@ -59,7 +59,7 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | generate | `llm` | Asks an LLM to draw the reference region as SVG |
 | improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
-| improve | `nsga` | NSGA-II local search over the selected objects, ranked by reference error |
+| improve | `search` | Hill climbing over the selected objects, scored against the reference |
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |
 | simplify | `curves` | Refits selected contours with fewer lines and cubics |
@@ -83,7 +83,7 @@ Search methods mutate exported SVG, where every element keeps its object ID.
 limits every mutation to those elements and their descendants, runs only the
 operators whose edit kinds are allowed (colour and stroke changes need paint;
 numeric, move and path nudges need geometry; reordering needs structure and
-both siblings in scope), and disables crossover.
+both siblings in scope).
 
 `replay(tx, svg)` accepts a candidate only by repeating its differences as
 transaction commands: deletions and insertions (structure), attribute edits,
@@ -100,17 +100,19 @@ change outside the transaction's scope or permissions and counts it in
 Pass `baseline=` the original after the same normalization the candidate went
 through, so rounding introduced by that rewrite is never replayed.
 
-## NSGA-II Improve
+## Search Improve
 
-`improve/nsga` exports the drawing with its viewBox on the target region
+`improve/search` exports the drawing with its viewBox on the target region
 (focus or artboard), stretched to the reference crop at the chosen resolution,
-and runs `vector.search.run_search` from it with that scope, no LLM seeds
-and one epoch. The budget's `steps` is the number of candidates. The final pool
-is ranked by one explicit policy, pixel mean squared error against the
-reference region, and the best candidates (up to `alternatives` beyond the
-recommendation) are replayed as transactions. A candidate that fails replay is
-skipped. If none beats the current drawing, the unchanged drawing is the
-recommendation. Stop ends the search and keeps the best pool so far.
+and runs `vector.search.run_search` from it with that scope. Workers mutate the
+current drawing; a child replaces it when it scores no worse. The score is the
+simple scorer's structure-and-colour blend (`score.simple`), which also ranks
+the results and is reported as `difference`. The budget's `steps` is the
+number of variants tried. The best drawing is replayed as a transaction and
+proposed alone: the runners-up are earlier steps of the same climb, and stand
+in only if it fails replay. If nothing beats the current drawing, the unchanged
+drawing is the recommendation. Stop ends the search and keeps the best drawing
+so far.
 
 ## LLM methods
 

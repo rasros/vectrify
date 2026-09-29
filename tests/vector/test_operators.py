@@ -1,4 +1,4 @@
-from vectrify.search.operators import (
+from vectrify.vector.operators import (
     DEFAULT_GAMMA,
     Exp3Policy,
     FixedWeightPolicy,

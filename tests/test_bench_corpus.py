@@ -39,8 +39,7 @@ def test_every_seed_renders(case):
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
 def test_seeds_are_distinct_lineages(case):
-    """Identical seeds give crossover nothing to recombine, which is the whole
-    reason the corpus ships more than one."""
+    """Identical seeds would make the climb's choice of starting seed moot."""
     renders = {rasterize(s.read_text(encoding="utf-8"), 384, 384) for s in _seeds(case)}
     assert len(renders) == len(_seeds(case))
 

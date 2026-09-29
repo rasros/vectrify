@@ -1,9 +1,8 @@
 """Benchmark the local (non-LLM) search over the bench/cases corpus.
 
-Every run is LLM-free: each case's seeds open the pool and the in-process
-NSGA-II search runs from them, so only mutation, crossover and Pareto
-selection do any work. Two invocations with the same --reps are paired case for
-case, which is what makes a change to the search measurable.
+Every run is LLM-free: the search climbs from the best of each case's seeds,
+so only mutation does any work. Two invocations with the same --reps are
+paired case for case, which is what makes a change to the search measurable.
 
     uv run python scripts/bench_search.py run --out before.json
     # ... change the search ...
@@ -25,7 +24,6 @@ from vectrify.score import ScorerType
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_CASES = REPO / "bench" / "cases"
-DEFAULT_POOL_SIZE = 100
 
 
 def case_seeds(case: Path) -> list[Path]:
@@ -79,80 +77,43 @@ def vision_score(target_png: Path, content: str, resolution: int) -> float:
 
 
 def run_case(case: Path, seed: int, args) -> dict:
-    """One search over a case's seed pool; the evaluator judges start and end."""
+    """One climb from a case's seeds; the vision panel judges start and end."""
+    from vectrify.image_utils import png_bytes
     from vectrify.score import choose_scorer
-    from vectrify.vector.reference import Reference
-    from vectrify.vector.search import (
-        SearchSettings,
-        evaluate_front,
-        run_search,
-        seed_node,
-    )
+    from vectrify.vector.search import SearchSettings, run_search
     from vectrify.vector.worker import WorkerContext
 
     target = resize_long_side(
         Image.open(case / "target.png").convert("RGB"), args.resolution
     )
     width, height = target.size
-    reference = Reference.build(target)
-    seeds = [
-        seed_node(
-            reference,
-            content,
-            rasterize_svg(content, width, height),
-            node_id=index,
-            origin=f"Seed {index}",
-        )
-        for index, content in enumerate(
-            (s.read_text(encoding="utf-8") for s in case_seeds(case)), start=1
-        )
-    ]
-    choice = choose_scorer(ScorerType(args.scorer))
-
-    def rank_front(nodes):
-        return evaluate_front(
-            nodes,
-            front_scorer=lambda: (
-                choice.scorer,
-                choice.scorer.prepare_reference(target),
-            ),
-            out_w=width,
-            out_h=height,
-        )
-
-    context = WorkerContext(
-        original_png_bytes=reference.png,
-        original_w=width,
-        original_h=height,
-        log_level="ERROR",
-        random_seed=seed,
-    )
+    seeds = [s.read_text(encoding="utf-8") for s in case_seeds(case)]
+    scorer = choose_scorer(ScorerType(args.scorer)).scorer
+    reference = scorer.prepare_reference(target)
     outcome = run_search(
-        reference,
         seeds,
-        context,
+        lambda png: scorer.score(reference, png),
+        WorkerContext(
+            original_png_bytes=png_bytes(target),
+            original_w=width,
+            original_h=height,
+        ),
         SearchSettings(
             workers=args.workers,
-            pool_size=args.pool_size,
             adaptive_operators=args.adaptive_operators,
-            epoch_eval_interval=args.eval_interval,
             max_total_tasks=args.tasks,
+            random_seed=seed,
         ),
-        rank_front=rank_front,
     )
-    if outcome.best is None:
-        raise SystemExit(f"{case.name} seed={seed} produced no candidate")
     start = min(
-        vision_score(case / "target.png", n.state.payload.content, args.resolution)
-        for n in seeds
+        vision_score(case / "target.png", content, args.resolution) for content in seeds
     )
-    final = vision_score(
-        case / "target.png", outcome.best.state.payload.content, args.resolution
-    )
+    final = vision_score(case / "target.png", outcome.best.content, args.resolution)
     return {
         "case": case.name,
         "seed": seed,
         "tasks": outcome.tasks_completed,
+        "accepted": outcome.accepted,
         "start": start,
         "vision": final,
         "gain": (start - final) / start if start > 0 else 0.0,
@@ -177,7 +138,6 @@ def cmd_run(args) -> None:
         "config": {
             "tasks": args.tasks,
             "reps": args.reps,
-            "eval_interval": args.eval_interval,
             "workers": args.workers,
             "resolution": args.resolution,
             "scorer": args.scorer,
@@ -274,32 +234,12 @@ def main() -> None:
     run.add_argument("--reps", type=int, default=3, metavar="N")
     run.add_argument("--workers", type=int, default=1, metavar="N")
     run.add_argument("--resolution", type=int, default=384, metavar="PX")
-    run.add_argument(
-        "--pool-size",
-        type=int,
-        default=DEFAULT_POOL_SIZE,
-        dest="pool_size",
-        metavar="N",
-    )
-    # Selects the evaluator that ranks a converged front, not the round's
-    # scorer: the round is always pixel L1.
-    #
-    # The reported `vision` column is the evaluator panel's mean distance
-    # across its members, which is not on the same scale as the single-model
-    # number older result files carry: compare within a set of runs, not across
-    # the change.
+    # The score the climb follows. The `vision` column is always the
+    # evaluator panel's mean distance, whichever score was climbed.
     run.add_argument(
         "--scorer", default="simple", choices=[e.value for e in ScorerType]
     )
     run.add_argument("--seed-base", type=int, default=1000, dest="seed_base")
-    run.add_argument(
-        "--eval-interval",
-        type=int,
-        default=2000,
-        dest="eval_interval",
-        metavar="N",
-        help="Candidates between front evaluations",
-    )
     run.add_argument(
         "--adaptive-operators",
         dest="adaptive_operators",

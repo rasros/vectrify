@@ -11,8 +11,6 @@ from collections import deque
 from collections.abc import Mapping
 from typing import Protocol
 
-from vectrify.score.metrics import SCORER_METRICS
-
 
 class OperatorPolicy(Protocol):
     def select(self) -> str | None:
@@ -23,8 +21,8 @@ class OperatorPolicy(Protocol):
         """Report what an operator's child earned, in [0, 1].
 
         *operator* is what the worker actually applied, which may be None or a
-        name this policy does not know: crossover falls back to mutation, and
-        a backend may not have the operator the task named. Ignore those.
+        name this policy does not know: a backend may not have the operator
+        the task named. Ignore those.
         """
         ...
 
@@ -222,7 +220,7 @@ class GradedReward:
 
     def __init__(
         self,
-        names: tuple[str, ...] = SCORER_METRICS,
+        names: tuple[str, ...] = ("score",),
         memory: float = _SCALE_MEMORY,
         saturation: float = _SATURATION,
     ):
