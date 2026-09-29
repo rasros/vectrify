@@ -15,8 +15,10 @@ import multiprocessing as mp
 import random
 import threading
 import time
+from collections import deque
 from collections.abc import Callable
-from concurrent.futures import FIRST_COMPLETED, Future, ProcessPoolExecutor, wait
+from concurrent.futures import Future, ProcessPoolExecutor
+from concurrent.futures import TimeoutError as NotYet
 from dataclasses import dataclass
 
 from vectrify.vector.nodes import Paths
@@ -55,7 +57,7 @@ class SearchSettings:
     adaptive_operators: bool = True
     max_total_tasks: int | None = None
     max_wall_seconds: float | None = None
-    # Set it and a one-worker run repeats exactly.
+    # Set it and a run repeats exactly, with any number of workers.
     random_seed: int | None = None
 
 
@@ -138,7 +140,12 @@ def run_search(
     # Each task remembers the paths it was made from. A child of paths that
     # have since been replaced is dropped rather than scored: accepting it
     # would quietly undo whatever replaced them.
-    pending: dict[Future[Mutant], Candidate] = {}
+    #
+    # Results are taken strictly in the order the tasks went out, and each one
+    # frees the slot for the next task. Taking whichever finished first made
+    # the paths a new task starts from depend on timing, so a seeded run did
+    # not repeat.
+    pending: deque[tuple[Future[Mutant], Candidate]] = deque()
     try:
         while True:
             halted = (stop is not None and stop.is_set()) or out_of_time()
@@ -150,42 +157,42 @@ def run_search(
                 future = pool.submit(
                     mutate, current.state, next_move(), draws.getrandbits(32)
                 )
-                pending[future] = current
+                pending.append((future, current))
                 dispatched += 1
             if halted or not pending:
                 break
-            finished, _ = wait(pending, timeout=0.25, return_when=FIRST_COMPLETED)
-            for future in finished:
-                parent = pending.pop(future)
-                completed += 1
-                mutant = future.result()
-                removal = mutant.move == "simplify"
-                if mutant.state is None or mutant.png is None:
+            future, parent = pending[0]
+            try:
+                mutant = future.result(timeout=0.25)
+            except NotYet:
+                continue
+            pending.popleft()
+            completed += 1
+            removal = mutant.move == "simplify"
+            if mutant.state is not None and mutant.png is not None:
+                if parent is current:
+                    child = Candidate(mutant.state, score(mutant.png))
+                    if removal:
+                        keep = child.score <= ceiling
+                    elif mutant.move == "detail":
+                        # A point has to pay for itself: a split that barely
+                        # helps adds a point every later move must work around.
+                        keep = child.score <= current.score * (1 - SPLIT_GAIN)
+                    else:
+                        keep = child.score <= current.score
                     if not removal:
-                        policy.update(mutant.move, 0.0)
-                    continue
-                if parent is not current:
-                    continue
-                child = Candidate(mutant.state, score(mutant.png))
-                if removal:
-                    keep = child.score <= ceiling
-                elif mutant.move == "detail":
-                    # A point has to pay for itself: a split that barely helps
-                    # adds a point every later move must work around.
-                    keep = child.score <= current.score * (1 - SPLIT_GAIN)
-                else:
-                    keep = child.score <= current.score
-                if not removal:
-                    policy.update(
-                        mutant.move,
-                        reward({"score": parent.score}, {"score": child.score})
-                        if keep
-                        else 0.0,
-                    )
-                if keep:
-                    current = child
-                    accepted += 1
-            if progress is not None and finished:
+                        policy.update(
+                            mutant.move,
+                            reward({"score": parent.score}, {"score": child.score})
+                            if keep
+                            else 0.0,
+                        )
+                    if keep:
+                        current = child
+                        accepted += 1
+            elif not removal:
+                policy.update(mutant.move, 0.0)
+            if progress is not None:
                 progress(
                     SearchProgress(
                         completed,

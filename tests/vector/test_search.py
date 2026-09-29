@@ -2,6 +2,7 @@
 
 import threading
 
+import pytest
 from PIL import Image, ImageDraw
 
 from vectrify.document import import_svg
@@ -64,10 +65,15 @@ def test_simplify_removes_points_within_the_tolerance_of_the_start():
     assert outcome.best.score <= outcome.start.score + tolerance
 
 
-def test_one_worker_with_a_seed_repeats_exactly():
+@pytest.mark.parametrize("workers", [1, 2])
+def test_a_seeded_run_repeats_exactly(workers):
     paths, score, context = setup()
     settings = SearchSettings(
-        moves=("shape", "detail"), simplify=True, max_total_tasks=30, random_seed=5
+        moves=("shape", "detail"),
+        simplify=True,
+        max_total_tasks=30,
+        random_seed=5,
+        workers=workers,
     )
     first = run_search(paths, score, context, settings)
     second = run_search(paths, score, context, settings)
