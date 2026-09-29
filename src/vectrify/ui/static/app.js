@@ -930,10 +930,17 @@ for (const command of ['group','ungroup','delete','detach']) $(command).onclick=
 $('backward').onclick=()=>action('reorder',{step:-1});$('forward').onclick=()=>action('reorder',{step:1});
 const KEY_PROVIDERS=['openai','anthropic','gemini','local'];
 const keyRemovals=new Set();
-function showKeys({api_keys, local}){
+const HOSTED=['openai','anthropic','gemini'];
+function showKeys({api_keys, local, models, defaults}){
   keyRemovals.clear();
   $('local-url').value=local.base_url;
   $('local-model').value=local.model;
+  for(const name of HOSTED){
+    $(`model-${name}`).value=models[name].model;
+    $(`model-${name}`).placeholder=defaults.models[name];
+    $(`reasoning-${name}`).value=models[name].reasoning;
+    $(`reasoning-${name}`).options[0].textContent=`Default (${defaults.reasoning})`;
+  }
   for(const name of KEY_PROVIDERS){
     const tail=api_keys[name];
     $(`key-${name}`).value='';
@@ -961,8 +968,9 @@ $('settings-save').onclick=async()=>{
   for(const name of keyRemovals) api_keys[name]='';
   for(const name of KEY_PROVIDERS){const key=$(`key-${name}`).value.trim(); if(key) api_keys[name]=key;}
   const local={base_url:$('local-url').value.trim(), model:$('local-model').value.trim()};
+  const models=Object.fromEntries(HOSTED.map(name=>[name,{model:$(`model-${name}`).value.trim(), reasoning:$(`reasoning-${name}`).value}]));
   try{
-    showKeys(await request('/api/settings',{api_keys, local}));
+    showKeys(await request('/api/settings',{api_keys, local, models}));
     $('settings-dialog').close();
     toast('Settings saved');
   }catch(error){$('settings-error').textContent=error.message;$('settings-error').hidden=false;}
@@ -1219,7 +1227,7 @@ for (const [prefix, ids] of [['contact', ['contact-distance']]]) {
 const generateSettings = {
   samvg: () => ({max_layers:Number($('samvg-max-layers').value), segments:Number($('samvg-segments').value), model:$('samvg-model').value,
     fill_holes:$('samvg-fill-holes').checked, hybrid_strokes:$('samvg-hybrid-strokes').checked}),
-  llm: () => ({provider:$('gen-llm-provider').value, model:$('gen-llm-model').value.trim(), reasoning:$('gen-llm-reasoning').value,
+  llm: () => ({provider:$('gen-llm-provider').value,
     candidates:Number($('gen-llm-candidates').value), instruction:$('gen-llm-instruction').value}),
   'colour-regions': () => {
     const outlines = $('regions-outlines').value;
@@ -1258,7 +1266,7 @@ function openOnScope(dialog, prefix) {
 const llmDialog = jobDialog('llm', {
   start: () => ({action:'improve', method:'llm', scope:$('llm-scope').value,
     permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},
-    settings:{instruction:$('llm-instruction').value, provider:$('llm-provider').value, model:$('llm-model').value.trim(), reasoning:$('llm-reasoning').value, candidates:Number($('llm-candidates').value)}}),
+    settings:{instruction:$('llm-instruction').value, provider:$('llm-provider').value, candidates:Number($('llm-candidates').value)}}),
   describe: ({changed, metrics: {edits, skipped, ...metrics}}) => {
     const left = skipped ? ` · ${skipped} change(s) outside the scope were left out` : '';
     return changed ? `${edits} edit(s) · reference error ${errorChange(metrics)}${left}. Apply keeps it as one undoable edit.` : `The reply changed nothing that is allowed${left}.`;

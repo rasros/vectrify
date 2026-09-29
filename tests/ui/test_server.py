@@ -201,10 +201,16 @@ def test_api_keys_are_saved_owner_only_and_never_sent_back(server, settings_file
     headers = {"X-Vectrify-Session": state["session"]}
     status, result = call(server, "/api/settings", {}, headers)
     assert status == 200
-    assert result == {
-        "api_keys": {"openai": None, "anthropic": None, "gemini": None, "local": None},
-        "local": {"base_url": "", "model": ""},
-    }
+    assert result["api_keys"] == dict.fromkeys(
+        ("openai", "anthropic", "gemini", "local")
+    )
+    assert result["local"] == {"base_url": "", "model": ""}
+    assert result["models"]["openai"] == {"model": "", "reasoning": ""}
+    assert result["defaults"]["reasoning"] == "medium"
+    models = {"openai": {"model": "gpt-5.5", "reasoning": "low"}}
+    status, result = call(server, "/api/settings", {"models": models}, headers)
+    assert status == 200
+    assert result["models"]["openai"] == {"model": "gpt-5.5", "reasoning": "low"}
     status, result = call(
         server,
         "/api/settings",

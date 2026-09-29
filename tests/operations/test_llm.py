@@ -236,9 +236,24 @@ def test_a_local_server_needs_a_model_and_sends_no_reasoning(monkeypatch):
     seen = []
     monkeypatch.setattr("vectrify.llm.get_provider", seen.append)
     keys.save(local={"base_url": "http://localhost:11434/v1"})
-    settings = {"provider": "local", "model": "", "reasoning": "high"}
     with pytest.raises(DocumentError, match="model"):
-        _client(settings)
-    _, config = _client({**settings, "model": "qwen2.5vl"})
+        _client({"provider": "local"})
+    keys.save(local={"model": "qwen2.5vl"})
+    _, config = _client({"provider": "local"})
     assert seen[-1].base_url == "http://localhost:11434/v1"
     assert (config.model, config.reasoning) == ("qwen2.5vl", None)
+
+
+def test_the_model_and_reasoning_come_from_settings(monkeypatch):
+    from vectrify.llm import keys
+    from vectrify.operations.methods.llm import _client
+
+    monkeypatch.setattr("vectrify.llm.get_provider", lambda _connection: None)
+    keys.save({"anthropic": "key"})
+    _, config = _client({"provider": "anthropic"})
+    assert (config.model, config.reasoning) == ("claude-sonnet-5", "medium")
+    keys.save(models={"anthropic": {"model": "claude-opus-5-5", "reasoning": "high"}})
+    _, config = _client({"provider": "anthropic"})
+    assert (config.model, config.reasoning) == ("claude-opus-5-5", "high")
+    with pytest.raises(ValueError, match="Reasoning"):
+        keys.save(models={"anthropic": {"reasoning": "extreme"}})

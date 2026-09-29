@@ -127,11 +127,12 @@ which validates a request without running it.
 
 `generate/llm` and `improve/llm` pick the provider from `settings.provider`
 (`auto` takes the first provider set up in Settings, in the order OpenAI,
-Anthropic, Gemini, then `local`; see `vectrify.llm.keys`), `model` (empty for
-the provider default, or the local server's saved model) and `reasoning`. The
-`local` provider sends the OpenAI chat request to the saved server URL, and
-leaves out `reasoning`, which most local servers reject. `candidates` asks for several replies, each ranked by reference
-error. Generate pins the model's viewBox to the region's pixel size and
+Anthropic, Gemini, then `local`; see `vectrify.llm.keys`). The model and
+reasoning effort are each provider's choice in Settings, falling back to the
+provider default and `medium`. The `local` provider sends the OpenAI chat
+request to the saved server URL with its saved model, and leaves out the
+reasoning effort, which most local servers reject. `candidates` asks for
+several replies, each ranked by reference error. Generate pins the model's viewBox to the region's pixel size and
 rescales a reply that uses another. Improve requires an instruction, names the
 editable object IDs in the prompt, and replays leniently; the prompt is a
 request, the transaction is the enforcement. Both offer
