@@ -4,7 +4,7 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
-from tests.helpers import rasterize
+from vectrify.image_utils import rasterize_svg as rasterize
 from vectrify.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
 from vectrify.svg.prompts import is_valid_svg
 

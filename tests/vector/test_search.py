@@ -4,7 +4,7 @@ import threading
 
 from PIL import Image
 
-from tests.helpers import rasterize
+from vectrify.image_utils import rasterize_svg as rasterize
 from vectrify.vector.reference import Reference
 from vectrify.vector.search import SearchSettings, run_search, seed_node
 from vectrify.vector.worker import WorkerContext

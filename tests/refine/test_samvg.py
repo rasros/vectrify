@@ -8,7 +8,7 @@ from PIL import Image
 
 import vectrify.refine.paths as paths
 import vectrify.refine.samvg as samvg
-from tests.helpers import rasterize
+from vectrify.image_utils import rasterize_svg as rasterize
 from vectrify.refine.samvg import (
     MaskLayer,
     TextLayer,

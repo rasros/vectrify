@@ -107,7 +107,7 @@ def test_unchanged_candidate_makes_no_edits():
 
 
 def test_scoped_search_pool_replays_through_the_transaction():
-    from tests.helpers import rasterize
+    from vectrify.image_utils import rasterize_svg as rasterize
     from vectrify.operations import OperationRequest, Permissions
     from vectrify.operations.candidates import mutation_scope
     from vectrify.vector.reference import Reference

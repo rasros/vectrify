@@ -7,7 +7,11 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vectrify.image_utils import rasterize_svg_to_png_bytes
+from vectrify.image_utils import (
+    rasterize_svg,
+    rasterize_svg_to_image,
+    rasterize_svg_to_png_bytes,
+)
 from vectrify.refine.paths import (
     _composite_opaque_fills,
     _fill_batched_windings,
@@ -178,15 +182,11 @@ def test_native_even_odd_coverage_stays_cairo_validated():
     drawn = f'{head}<path d="{DONUT_PATH}" fill="#000" fill-rule="evenodd" /></svg>'
     real = (
         np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(blank, out_w=size, out_h=size))
-            ).convert("L"),
+            rasterize_svg_to_image(blank, out_w=size, out_h=size).convert("L"),
             dtype=np.float32,
         )
         - np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(drawn, out_w=size, out_h=size))
-            ).convert("L"),
+            rasterize_svg_to_image(drawn, out_w=size, out_h=size).convert("L"),
             dtype=np.float32,
         )
     ) / 255.0
@@ -218,15 +218,11 @@ def test_native_analytic_cubic_coverage_stays_cairo_validated():
     drawn = f'{head}<path d="{path}" fill="#000" /></svg>'
     real = (
         np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(blank, out_w=size, out_h=size))
-            ).convert("L"),
+            rasterize_svg_to_image(blank, out_w=size, out_h=size).convert("L"),
             dtype=np.float32,
         )
         - np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(drawn, out_w=size, out_h=size))
-            ).convert("L"),
+            rasterize_svg_to_image(drawn, out_w=size, out_h=size).convert("L"),
             dtype=np.float32,
         )
     ) / 255.0
@@ -271,9 +267,7 @@ SVG = (
 
 
 def _mse(svg: str, target: Image.Image) -> float:
-    rendered = Image.open(
-        io.BytesIO(rasterize_svg_to_png_bytes(svg, out_w=24, out_h=24))
-    ).convert("RGB")
+    rendered = rasterize_svg_to_image(svg, out_w=24, out_h=24)
     return float(
         (
             (
@@ -447,9 +441,7 @@ def test_local_fill_fit_changes_only_one_bounded_group():
         reference.getvalue(),
         steps=1,
         maximum_paths=4,
-        rasterize=lambda markup, width, height: rasterize_svg_to_png_bytes(
-            markup, out_w=width, out_h=height
-        ),
+        rasterize=rasterize_svg,
     )
 
     before = [
@@ -522,9 +514,7 @@ def test_filled_fit_can_optimise_an_even_odd_path_without_losing_its_hole():
         "</svg>"
     )
     target_svg = source.replace("#0000ff", "#ff0000")
-    target = Image.open(
-        io.BytesIO(rasterize_svg_to_png_bytes(target_svg, out_w=96, out_h=96))
-    ).convert("RGB")
+    target = rasterize_svg_to_image(target_svg, out_w=96, out_h=96)
 
     fitted = fit_filled_svg(
         source,
@@ -534,9 +524,7 @@ def test_filled_fit_can_optimise_an_even_odd_path_without_losing_its_hole():
         color_learning_rate=0.5,
         optimisation_long_side=96,
     )
-    rendered = Image.open(
-        io.BytesIO(rasterize_svg_to_png_bytes(fitted, out_w=96, out_h=96))
-    ).convert("RGB")
+    rendered = rasterize_svg_to_image(fitted, out_w=96, out_h=96)
 
     def error(candidate: Image.Image) -> float:
         difference = np.asarray(candidate, dtype=np.float32) - np.asarray(
@@ -544,11 +532,7 @@ def test_filled_fit_can_optimise_an_even_odd_path_without_losing_its_hole():
         )
         return float((difference**2).mean())
 
-    assert error(rendered) < error(
-        Image.open(
-            io.BytesIO(rasterize_svg_to_png_bytes(source, out_w=96, out_h=96))
-        ).convert("RGB")
-    )
+    assert error(rendered) < error(rasterize_svg_to_image(source, out_w=96, out_h=96))
     assert fitted.count("M ") == 2
 
 
@@ -749,15 +733,11 @@ def test_tiled_analytic_large_compound_path_matches_cairo(fill_rule):
     drawn = f'{head}<path d="{path}" fill="#000" fill-rule="{fill_rule}" /></svg>'
     cairo = (
         np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(blank, out_w=size, out_h=size))
-            ).convert("L"),
+            rasterize_svg_to_image(blank, out_w=size, out_h=size).convert("L"),
             dtype=np.float32,
         )
         - np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(drawn, out_w=size, out_h=size))
-            ).convert("L"),
+            rasterize_svg_to_image(drawn, out_w=size, out_h=size).convert("L"),
             dtype=np.float32,
         )
     ) / 255.0
@@ -956,15 +936,11 @@ def test_even_odd_uses_winding_parity_for_a_double_wound_contour():
     drawn = f'{head}<path d="{double_loop}" fill="#000" fill-rule="evenodd" /></svg>'
     real = (
         np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(blank, out_w=96, out_h=96))
-            ).convert("L"),
+            rasterize_svg_to_image(blank, out_w=96, out_h=96).convert("L"),
             dtype=np.float32,
         )
         - np.asarray(
-            Image.open(
-                io.BytesIO(rasterize_svg_to_png_bytes(drawn, out_w=96, out_h=96))
-            ).convert("L"),
+            rasterize_svg_to_image(drawn, out_w=96, out_h=96).convert("L"),
             dtype=np.float32,
         )
     ) / 255.0

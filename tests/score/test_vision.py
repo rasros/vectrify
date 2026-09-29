@@ -4,6 +4,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import make_png
 from vectrify.score.vision import VisionScorer
 
 
@@ -64,25 +65,18 @@ def scorer():
     return s
 
 
-def _png(color: str, size: int = 32) -> bytes:
-    img = Image.new("RGB", (size, size), color=color)
-    buf = io.BytesIO()
-    img.save(buf, format="PNG")
-    return buf.getvalue()
-
-
 def test_identical_image_scores_zero(scorer):
     ref_img = Image.new("RGB", (32, 32), color="red")
     ref = scorer.prepare_reference(ref_img)
-    score = scorer.score(ref, _png("red"))
+    score = scorer.score(ref, make_png("red"))
     assert score == pytest.approx(0.0, abs=0.05)
 
 
 def test_different_image_scores_higher(scorer):
     ref_img = Image.new("RGB", (32, 32), color="red")
     ref = scorer.prepare_reference(ref_img)
-    score_same = scorer.score(ref, _png("red"))
-    score_diff = scorer.score(ref, _png("blue"))
+    score_same = scorer.score(ref, make_png("red"))
+    score_diff = scorer.score(ref, make_png("blue"))
     assert score_diff > score_same
 
 
@@ -90,14 +84,14 @@ def test_score_is_in_unit_range(scorer):
     ref_img = Image.new("RGB", (32, 32), color="green")
     ref = scorer.prepare_reference(ref_img)
     for color in ("green", "red", "blue", "white", "black"):
-        score = scorer.score(ref, _png(color))
+        score = scorer.score(ref, make_png(color))
         assert 0.0 <= score <= 1.0, f"Score out of range for {color}: {score}"
 
 
 def test_score_handles_size_mismatch(scorer):
     ref_img = Image.new("RGB", (64, 64), color="red")
     ref = scorer.prepare_reference(ref_img)
-    score = scorer.score(ref, _png("red", size=16))
+    score = scorer.score(ref, make_png("red", size=16))
     assert 0.0 <= score <= 1.0
 
 
@@ -105,15 +99,15 @@ def test_load_is_idempotent(scorer):
     ref_img = Image.new("RGB", (32, 32), color="white")
     ref1 = scorer.prepare_reference(ref_img)
     ref2 = scorer.prepare_reference(ref_img)
-    s1 = scorer.score(ref1, _png("white"))
-    s2 = scorer.score(ref2, _png("white"))
+    s1 = scorer.score(ref1, make_png("white"))
+    s2 = scorer.score(ref2, make_png("white"))
     assert s1 == pytest.approx(s2, abs=1e-6)
 
 
-def test_diff_heatmap_returns_valid_png(scorer):
+def test_diff_heatmap_returns_validmake_png(scorer):
     ref_img = Image.new("RGB", (32, 32), color="red")
     ref = scorer.prepare_reference(ref_img)
-    png = scorer.diff_heatmap(ref, _png("blue"), long_side=64)
+    png = scorer.diff_heatmap(ref, make_png("blue"), long_side=64)
     assert png is not None
     img = Image.open(io.BytesIO(png))
     assert img.mode == "RGB"
@@ -124,7 +118,7 @@ def test_diff_heatmap_returns_valid_png(scorer):
 def test_diff_heatmap_identical_images_are_dark(scorer):
     ref_img = Image.new("RGB", (32, 32), color="green")
     ref = scorer.prepare_reference(ref_img)
-    png = scorer.diff_heatmap(ref, _png("green"), long_side=64)
+    png = scorer.diff_heatmap(ref, make_png("green"), long_side=64)
     assert png is not None
     arr = np.array(Image.open(io.BytesIO(png)))
     assert arr.mean() < 30.0
@@ -133,8 +127,8 @@ def test_diff_heatmap_identical_images_are_dark(scorer):
 def test_diff_heatmap_different_images_are_brighter(scorer):
     ref_img = Image.new("RGB", (32, 32), color="red")
     ref = scorer.prepare_reference(ref_img)
-    same_png = scorer.diff_heatmap(ref, _png("red"), long_side=64)
-    diff_png = scorer.diff_heatmap(ref, _png("blue"), long_side=64)
+    same_png = scorer.diff_heatmap(ref, make_png("red"), long_side=64)
+    diff_png = scorer.diff_heatmap(ref, make_png("blue"), long_side=64)
     assert same_png is not None
     assert diff_png is not None
     mean_same = np.array(Image.open(io.BytesIO(same_png))).mean()
@@ -145,7 +139,7 @@ def test_diff_heatmap_different_images_are_brighter(scorer):
 def test_diff_heatmap_respects_long_side(scorer):
     ref_img = Image.new("RGB", (32, 32), color="red")
     ref = scorer.prepare_reference(ref_img)
-    png = scorer.diff_heatmap(ref, _png("blue"), long_side=32)
+    png = scorer.diff_heatmap(ref, make_png("blue"), long_side=32)
     assert png is not None
     img = Image.open(io.BytesIO(png))
     assert max(img.size) == 32
