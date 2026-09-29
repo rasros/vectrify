@@ -1,8 +1,8 @@
 from vectrify.llm.base import LLMConfig, LLMProvider
 
 
-def get_provider(provider_name: str, api_key: str | None = None) -> LLMProvider:
-    provider_name = provider_name.lower()
+def get_provider(provider_name: str, api_key: str) -> LLMProvider:
+    """A client for *provider_name*; models.resolve_provider finds the key."""
     if provider_name == "openai":
         from vectrify.llm.openai import OpenAIProvider
 

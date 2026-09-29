@@ -3,19 +3,12 @@ from typing import Any, cast
 import anthropic
 from anthropic.types import Message
 
-from vectrify.llm.base import (
-    LLMConfig,
-    LLMProvider,
-    reasoning_budget,
-    resolve_api_key,
-    split_data_url,
-)
+from vectrify.llm.base import LLMConfig, LLMProvider, reasoning_budget, split_data_url
 
 
 class AnthropicProvider(LLMProvider):
-    def __init__(self, api_key: str | None = None):
-        self.api_key = resolve_api_key("anthropic", api_key)
-        self._client = anthropic.Anthropic(api_key=self.api_key)
+    def __init__(self, api_key: str):
+        self._client = anthropic.Anthropic(api_key=api_key)
 
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
         messages_content = []
@@ -38,21 +31,16 @@ class AnthropicProvider(LLMProvider):
         kwargs: dict[str, Any] = {
             "model": config.model,
             "max_tokens": 8192,
-            "temperature": config.temperature or 1.0,
+            # The API requires temperature 1 when extended thinking is enabled.
+            "temperature": 1.0,
             "messages": [{"role": "user", "content": messages_content}],
         }
 
         if config.reasoning:
             budget = reasoning_budget(config.reasoning)
             kwargs["thinking"] = {"type": "enabled", "budget_tokens": budget}
-            # max_tokens must exceed the thinking budget, and the API requires
-            # temperature 1 when extended thinking is enabled.
+            # max_tokens must exceed the thinking budget.
             kwargs["max_tokens"] = budget + 8192
-            kwargs["temperature"] = 1.0
-
-        # Add system prompt dynamically to satisfy the type checker
-        if config.response_schema:
-            kwargs["system"] = "You must respond with valid JSON."
 
         # Same overload-narrowing problem as the OpenAI provider: the arguments
         # are built as a dict, so the checker cannot tell this is the
