@@ -14,11 +14,13 @@ from vectrify.operations.contract import (
     OperationResult,
     RunContext,
 )
+from vectrify.refine.gpu import gpu_gate
 
 log = logging.getLogger(__name__)
 
-# One lock per shared device. A method naming a resource holds it while it runs.
-RESOURCES: dict[str, Lock] = {"gpu": Lock()}
+# One gate per shared device. A method naming a resource holds it while it
+# runs; the GPU gate is the same one searches hand to their worker processes.
+RESOURCES: dict[str, Any] = {"gpu": gpu_gate()}
 
 
 class Job:
@@ -60,10 +62,10 @@ class Job:
         with self._lock:
             self.message = message
 
-    def _acquire(self) -> list[Lock] | None:
+    def _acquire(self) -> list[Any] | None:
         if self.stop.is_set():
             return None
-        held: list[Lock] = []
+        held: list[Any] = []
         for name in sorted(self.method.resources):
             resource = RESOURCES[name]
             while not resource.acquire(timeout=0.2):

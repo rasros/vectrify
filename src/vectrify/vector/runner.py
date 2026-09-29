@@ -2,7 +2,6 @@ import contextlib
 import dataclasses
 import io
 import logging
-import multiprocessing as mp
 import os
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping
@@ -37,6 +36,7 @@ from vectrify.image_utils import (
     resize_long_side,
 )
 from vectrify.llm.models import api_key_env
+from vectrify.refine.gpu import gpu_gate
 from vectrify.refine.samvg import (
     SAMVG_MAX_SIDE,
     SAMVG_MODEL,
@@ -593,8 +593,8 @@ def run_vector_search(
     # evaluator runs in the main process. One shared gate makes the device a
     # bounded resource instead of multiplying its memory footprint by the CPU
     # worker count.
-    gpu_gate = mp.get_context("spawn").Semaphore(1)
-    format_plugin.gpu_gate = gpu_gate
+    gate = gpu_gate()
+    format_plugin.gpu_gate = gate
 
     def _front_scorer() -> tuple[Any, Any]:
         if not _front:
@@ -604,7 +604,7 @@ def run_vector_search(
         return _front[0], _front[1]
 
     def rank_front(nodes: list[SearchNode]) -> list[SearchNode]:
-        gpu_gate.acquire()
+        gate.acquire()
         try:
             return evaluate_front(
                 nodes,
@@ -614,7 +614,7 @@ def run_vector_search(
                 out_h=original_h,
             )
         finally:
-            gpu_gate.release()
+            gate.release()
 
     # What the LLM sees, deliberately not the raster: vision billing tiles at
     # 512px, so a 700px prompt image costs 3x a 512px one for detail the model
