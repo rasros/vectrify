@@ -7,8 +7,8 @@ from vectrify.llm.base import LLMConfig, LLMProvider
 
 
 class OpenAIProvider(LLMProvider):
-    def __init__(self, api_key: str):
-        self._client = OpenAI(api_key=api_key)
+    def __init__(self, api_key: str, base_url: str | None = None):
+        self._client = OpenAI(api_key=api_key, base_url=base_url)
 
     def generate(self, content_blocks: list[dict[str, Any]], config: LLMConfig) -> str:
         openai_content = []

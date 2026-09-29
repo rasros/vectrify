@@ -1,8 +1,9 @@
-"""API keys entered in the editor's settings, kept in the user's config dir.
+"""LLM settings entered in the editor, kept in the user's config dir.
 
 The file is readable by its owner only. Keys leave this module in one direction:
 to the provider client. What the editor shows is whether a key is set and its
-last four characters.
+last four characters. The local server's URL and model are not secret and are
+shown as saved.
 """
 
 from __future__ import annotations
@@ -10,6 +11,7 @@ from __future__ import annotations
 import json
 import os
 from pathlib import Path
+from urllib.parse import urlparse
 
 from vectrify.llm.models import PROVIDERS
 
@@ -24,6 +26,17 @@ def _read() -> dict:
     return data if isinstance(data, dict) else {}
 
 
+def _write(data: dict) -> None:
+    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    # Created owner-only, rather than chmod-ed after the key is on disk.
+    temp = CONFIG_PATH.with_suffix(".tmp")
+    temp.unlink(missing_ok=True)
+    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as file:
+        json.dump(data, file, indent=2)
+    temp.replace(CONFIG_PATH)
+
+
 def load() -> dict[str, str]:
     """The stored key for each provider that has one."""
     keys = _read().get("api_keys")
@@ -36,10 +49,27 @@ def load() -> dict[str, str]:
     }
 
 
-def save(changes: dict[str, str | None]) -> None:
-    """Set each named provider's key; an empty value or None removes it."""
+def load_local() -> dict[str, str]:
+    """The local server's URL and default model, empty when unset."""
+    local = _read().get("local")
+    local = local if isinstance(local, dict) else {}
+    return {
+        field: value if isinstance(value := local.get(field), str) else ""
+        for field in ("base_url", "model")
+    }
+
+
+def save(
+    api_keys: dict[str, str | None] | None = None,
+    local: dict[str, str | None] | None = None,
+) -> None:
+    """Set each named provider's key, and the local server's URL and model.
+
+    An empty value or None removes that entry.
+    """
+    data = _read()
     keys = load()
-    for name, key in changes.items():
+    for name, key in (api_keys or {}).items():
         if name not in PROVIDERS:
             raise ValueError(f"Unknown LLM provider: {name}")
         key = (key or "").strip()
@@ -47,19 +77,28 @@ def save(changes: dict[str, str | None]) -> None:
             keys[name] = key
         else:
             keys.pop(name, None)
-    data = _read()
     data["api_keys"] = keys
-    CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
-    # Created owner-only, rather than chmod-ed after the key is on disk.
-    temp = CONFIG_PATH.with_suffix(".tmp")
-    temp.unlink(missing_ok=True)
-    fd = os.open(temp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w") as file:
-        json.dump(data, file, indent=2)
-    temp.replace(CONFIG_PATH)
+    if local is not None:
+        saved = load_local()
+        for field, value in local.items():
+            if field not in saved:
+                raise ValueError(f"Unknown local server setting: {field}")
+            saved[field] = (value or "").strip()
+        url = urlparse(saved["base_url"])
+        if saved["base_url"] and (
+            url.scheme not in {"http", "https"} or not url.netloc
+        ):
+            raise ValueError("The local server URL must start with http:// or https://")
+        data["local"] = saved
+    _write(data)
 
 
-def summary() -> dict[str, str | None]:
-    """Per provider, the key's last four characters, or None when unset."""
+def summary() -> dict:
+    """What the editor may show: key tails, and the local server as saved."""
     keys = load()
-    return {name: keys[name][-4:] if name in keys else None for name in PROVIDERS}
+    return {
+        "api_keys": {
+            name: keys[name][-4:] if name in keys else None for name in PROVIDERS
+        },
+        "local": load_local(),
+    }

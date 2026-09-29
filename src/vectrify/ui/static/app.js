@@ -930,12 +930,14 @@ $('node-delete').onclick=()=>action('delete_node',{object:geometryObject,node:ac
 document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});
 for (const command of ['group','ungroup','delete','detach']) $(command).onclick=()=>action(command);
 $('backward').onclick=()=>action('reorder',{step:-1});$('forward').onclick=()=>action('reorder',{step:1});
-const KEY_PROVIDERS=['openai','anthropic','gemini'];
+const KEY_PROVIDERS=['openai','anthropic','gemini','local'];
 const keyRemovals=new Set();
-function showKeys(summary){
+function showKeys({api_keys, local}){
   keyRemovals.clear();
+  $('local-url').value=local.base_url;
+  $('local-model').value=local.model;
   for(const name of KEY_PROVIDERS){
-    const tail=summary[name];
+    const tail=api_keys[name];
     $(`key-${name}`).value='';
     $(`key-${name}`).placeholder=tail?`Saved (…${tail}) · type to replace`:'Not set';
     $(`key-${name}-remove`).hidden=!tail;
@@ -943,7 +945,7 @@ function showKeys(summary){
 }
 async function openSettings(){
   try{
-    showKeys((await request('/api/settings')).api_keys);
+    showKeys(await request('/api/settings'));
     $('settings-error').hidden=true;
     $('settings-dialog').showModal();
   }catch(error){toast(error.message,true);}
@@ -960,8 +962,9 @@ $('settings-save').onclick=async()=>{
   const api_keys={};
   for(const name of keyRemovals) api_keys[name]='';
   for(const name of KEY_PROVIDERS){const key=$(`key-${name}`).value.trim(); if(key) api_keys[name]=key;}
+  const local={base_url:$('local-url').value.trim(), model:$('local-model').value.trim()};
   try{
-    showKeys((await request('/api/settings',{api_keys})).api_keys);
+    showKeys(await request('/api/settings',{api_keys, local}));
     $('settings-dialog').close();
     toast('Settings saved');
   }catch(error){$('settings-error').textContent=error.message;$('settings-error').hidden=false;}
