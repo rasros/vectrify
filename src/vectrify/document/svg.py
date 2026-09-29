@@ -1,7 +1,6 @@
 """SVG adapter for the editor's explicit, static subset.
 
-Unsupported input is reported, never silently stripped. This adapter is
-separate from the existing CLI importer and does not change its behavior.
+Unsupported input is reported, never silently stripped.
 """
 
 from __future__ import annotations

@@ -1,8 +1,8 @@
-# Document foundation
+# Document model
 
-`vectrify.document` is the first backend slice of the UI transition. It is
-independent of the search engine, LLM clients, and Torch. Automated
-operations reach it through `vectrify.operations` (see `docs/operations.md`).
+`vectrify.document` is the editor's document model. It is independent of the
+search, LLM clients and Torch. Automated operations reach it through
+`vectrify.operations` (see `docs/operations.md`).
 
 ## Editing state
 
@@ -63,7 +63,7 @@ A transaction cannot commit after any document edit, lock/pin change, undo, or
 redo. Revisions increase monotonically even when undo restores identical
 content. Changing UI selection does not change the document revision or
 retarget an existing transaction. A new edit after undo discards the redo
-branch. Undo/redo currently applies within one editor session.
+branch. Undo/redo applies within one editor session.
 
 Operations cannot unlock objects: `Editor.set_locks` and `Editor.pin_node` are
 separate explicit user commands with their own undo history. Properties,
@@ -112,11 +112,13 @@ coordinates or IDs. Remaining members stay linked when at least two remain.
 Detaching a whole geometry asset also drops its boundary membership if the old
 asset no longer has any consumers.
 
-Boundary coordinates are **local geometry coordinates**, just like shared path
-assets. Separate object transforms can place the same contour at different
-locations. World-space matching across differently transformed objects and
-automatic adjacency detection are not implemented; future generation adapters
-must explicitly establish links in a common local coordinate frame.
+Boundary members are compared in a common frame: each `EdgeRef` carries a
+`matrix` that maps its local geometry coordinates into it, so paths under
+different transforms can share a boundary. `link_boundary` itself never finds
+or snaps edges; `Transaction.share_boundaries(tolerance)` (the `link/boundaries`
+method, in `vectrify.document.contact`) finds the touching spans of two
+selected paths, subdivides them, snaps the rear contour to the front one and
+links them.
 
 ## Node topology and selection remapping
 
@@ -157,7 +159,7 @@ geometry edits. They participate in the same preview/apply/abort transaction.
   content and dangling references. It does not silently delete other consumers.
 - `reorder_object(object_id, index)` moves one selected object to a final sibling
   index; zero is the back. Other siblings retain their relative ordering. This
-  can change occlusion, which a future pixel-preservation constraint must assess.
+  can change occlusion.
 - `group_objects(object_ids)` wraps consecutive selected siblings in a neutral
   group, preserving IDs, paint order and appearance. Nonconsecutive objects
   require an explicit reorder first.
@@ -188,21 +190,16 @@ the supplied document-unit tolerance; changing zoom does not change scope unless
 the caller deliberately changes that tolerance. Boolean geometry uses Shapely 2.
 An index always describes the snapshot it was built from.
 
-The 4K landscape has over 117,000 nodes: index construction currently takes
-several seconds, while cached queries take milliseconds. Index creation is
-synchronous in this backend slice; background construction and incremental
-updates remain performance work for the UI/job layer.
-
 ## Import, export, and project files
 
-The adapter currently accepts SVG roots, groups, definitions, clipping, paths,
+The importer accepts SVG roots, groups, definitions, clipping, paths,
 rectangles, circles, ellipses, lines, polygons, polylines, and local instances.
 Paths normalize relative coordinates, horizontal/vertical lines, and quadratic
 and shorthand Beziers to absolute M/L/C/Z without coordinate rounding.
 Polygons and polylines become paths. Compound paths retain holes and closure.
 
 Solid paint, opacity, stroke width/caps/joins, affine transforms, and local
-clipping are supported. Lengths currently use unitless document coordinates.
+clipping are supported. Lengths are unitless document coordinates.
 Arcs, text, gradients, filters, patterns, arbitrary CSS, nested viewports,
 external references, and other unsupported input produce import errors listing
 the unsupported features. Content is never silently removed. XML declarations
@@ -215,14 +212,3 @@ versioned project snapshot retaining those identities, constraints, and current
 selection. Version 2 adds explicit boundary links and still reads version 1
 projects. Plain SVG export retains the appearance but not boundary metadata.
 Project loading validates references and the supported subset.
-
-## Remaining work in step 2
-
-- Path splitting/joining with object-selection remapping. Object structural
-  commands and node subdivision/deletion are implemented.
-- Generation/import adapters that establish adjacency explicitly; transformed
-  world-space boundary matching is not yet supported.
-
-The operation request/result contract, asynchronous job lifecycle, and UI remain
-steps 3–6. The first UI milestone is still path refinement with pinned tips,
-followed by colour fitting with geometry locked.

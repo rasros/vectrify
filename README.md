@@ -45,9 +45,9 @@ writing new methods.
 Python 3.10 or newer. SVG rendering needs Cairo; on Debian/Ubuntu install it
 with `sudo apt install libcairo2`.
 
-The `vision` extra enables the perceptual scorer and colour regions; the
-`samvg` extra enables SAM segmentation; `all` installs both. Colour regions and the
-GPU engine of Optimize nodes need an NVIDIA GPU with PyTorch CUDA; SAMVG uses it
+The `vision` and `samvg` extras install PyTorch and transformers, which SAMVG,
+colour regions and the GPU engine of Optimize nodes need; `all` installs both.
+Colour regions and the GPU engine need an NVIDIA GPU with CUDA; SAMVG uses it
 when available. The GPU engine also needs the optional native CUDA extension
 (below); without it Optimize nodes uses its CPU search.
 
@@ -68,19 +68,24 @@ layered SVG paths. SAM inputs default to a 1024px maximum side
 (`VECTRIFY_SAMVG_POINTS_PER_BATCH`). `VECTRIFY_SAMVG_MODEL` changes the
 default checkpoint.
 
-For the dissertation-style two-phase measurement (initial fit, residual prompts
-and recovery fit), build a local wheel with the optional native CUDA renderer
-and run:
+The native CUDA extension is built only on request. Build a local wheel with
+it, then run the two-phase measurement (initial fit, residual prompts and
+recovery fit) on an image:
 
 ```sh
 VECTRIFY_BUILD_SAMVG_CUDA=1 uv build --wheel --no-build-isolation
 uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
-.venv/bin/python scripts/bench_samvg_two_phase.py --cat
+.venv/bin/python scripts/bench_samvg_two_phase.py --target image.png
 ```
 
-`--all` also evaluates the connect-the-dots duck.
 PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 
-## Benchmarks
+## Scripts
 
-`scripts/bench_colour_regions.py` runs colour regions on one image.
+`scripts/` holds standalone tools run from a checkout:
+`bench_colour_regions.py` runs colour regions on one image,
+`bench_samvg_renderer.py` and `check_cuda_renderer.py` time the filled-path
+fit, `bench_samvg_two_phase.py` runs SAMVG's two phases, `subtle_screen.py`
+checks that the scorers in `vectrify.score` order graded path damage
+correctly, and
+`analyze_profile.py` summarises a py-spy profile.
