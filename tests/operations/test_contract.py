@@ -146,7 +146,7 @@ def test_built_in_methods_are_registered():
     names = {(m.action, m.name) for m in available()}
     assert {
         ("improve", "path-fit"),
-        ("simplify", "curves"),
+        ("improve", "nodes"),
         ("link", "boundaries"),
     } <= names
 

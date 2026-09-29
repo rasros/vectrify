@@ -7,7 +7,6 @@ from typing import Any
 
 import pytest
 
-from tests.document.test_simplify import circle
 from vectrify.ui.server import EditorServer
 
 
@@ -152,7 +151,11 @@ def test_hole_inspection_fill_and_cleanup_follow_session_revision(server):
 def test_operation_endpoint_previews_applies_and_rejects_unknown(server):
     _, state = call(server, "/api/session", {})
     headers = {"X-Vectrify-Session": state["session"]}
-    source = f'<svg width="100" height="100"><path id="a" d="{circle()}"/></svg>'
+    # The middle point of the top edge is redundant; Clean up removes it.
+    source = (
+        '<svg width="100" height="100">'
+        '<path id="a" d="M10 10 L20 10 L30 10 L30 30 L10 30 Z"/></svg>'
+    )
     _, state = call(
         server,
         "/api/action",
@@ -175,9 +178,8 @@ def test_operation_endpoint_previews_applies_and_rejects_unknown(server):
         "epoch": state["epoch"],
         "revision": state["revision"],
         "action": "simplify",
-        "method": "curves",
+        "method": "cleanup",
         "permissions": {"geometry": True, "structure": True},
-        "settings": {"tolerance": 1},
     }
     status, job = call(server, "/api/operation", start, headers)
     assert status == 200, job

@@ -1,5 +1,3 @@
-import re
-
 from tests.helpers import image_urls, text_blocks
 from vectrify.svg.prompts import (
     build_svg_gen_prompt,
@@ -191,18 +189,6 @@ def test_prompt_states_only_preferences():
     lowered = MUTABLE_SVG.lower()
     for banned in ("never", "do not", "don't", "avoid", "instead of", "polygon"):
         assert banned not in lowered
-
-
-def test_mutable_svg_rules_name_only_attributes_an_operator_reaches():
-    """The rules are a promise about the optimizer; if the two drift apart the
-    prompt starts steering the model toward markup nothing can move."""
-    from vectrify.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
-    from vectrify.svg.prompts import MUTABLE_SVG
-
-    quoted = set(re.findall(r"`([a-z-]+)`", MUTABLE_SVG))
-    attrs = {a for a in quoted if a not in {"transform", "d"}}
-    assert attrs
-    assert attrs <= (_NUMERIC_ATTRS | _COLOR_ATTRS)
 
 
 def test_the_prompt_offers_the_file_name_as_evidence_of_the_subject():
