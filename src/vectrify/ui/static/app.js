@@ -5,7 +5,6 @@ let geometry = null, geometryObject = null, activeNode = null, reference = null;
 let clickCycle = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
-let simplifyContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
@@ -1115,93 +1114,31 @@ function simplifyBounds() {
   const padding=Math.max(8,Math.max(right-left,bottom-top)*.06);
   return [left-padding,top-padding,Math.max(1,right-left)+2*padding,Math.max(1,bottom-top)+2*padding];
 }
-$('smooth-shape').onclick = async () => {
-  await queue;
-  simplifyContext = {epoch:state.epoch,revision:state.revision,bounds:simplifyBounds(),preview:null};
-  $('simplify-summary').textContent = oneObject()?.label || `${state.selection.objects.length} selected objects`;
-  $('simplify-previews').hidden = true; $('simplify-error').hidden = true; $('simplify-apply').hidden = true;
-  $('simplify-status').textContent = ''; $('simplify-settings').disabled = false; $('simplify-run').disabled = false;
-  $('simplify-dialog').showModal();
-};
-function clearSimplifyPreview() {
-  $('simplify-apply').hidden = true; $('simplify-previews').hidden = true;
-  $('simplify-status').textContent = 'Preview again to see these settings.';
-}
-$('simplify-tolerance').oninput = clearSimplifyPreview;
-$('simplify-corners').onchange = clearSimplifyPreview;
-$('simplify-run').onclick = async () => {
-  const context = simplifyContext; if (!context) return;
-  context.preview = null; $('simplify-error').hidden = true; $('simplify-apply').hidden = true; $('simplify-previews').hidden = true;
-  $('simplify-settings').disabled = true; $('simplify-run').disabled = true;
-  $('simplify-status').textContent = 'Simplifying contours and rendering preview…';
-  setBusy('Simplifying contours…',1);
-  try {
-    const job = await operation('start',{action:'simplify',method:'curves',epoch:context.epoch,revision:context.revision,bounds:context.bounds,
-      permissions:{geometry:true,structure:true},settings:{tolerance:Number($('simplify-tolerance').value),corners:$('simplify-corners').checked}});
-    if (context !== simplifyContext) { await operation('discard',{job:job.id}); return; }
-    context.preview = job.id;
-    const {changed, metrics:{before, after}, previews} = job.result;
-    for (const key of ['before','after']) $('simplify-'+key).src = previews[key];
-    $('simplify-previews').hidden = false;
-    $('simplify-stats').textContent = `${before.nodes.toLocaleString()} → ${after.nodes.toLocaleString()} nodes · ${before.coordinates.toLocaleString()} → ${after.coordinates.toLocaleString()} coordinates · ${(100*(1-after.bytes/Math.max(1,before.bytes))).toFixed(1)}% less path data`;
-    $('simplify-status').textContent = changed ? 'Preview ready. Apply keeps this result as one undoable edit.' : 'No safe reduction at this tolerance. Try a higher tolerance or turn off Keep sharp corners.';
-    $('simplify-apply').hidden = !changed;
-  } catch(error) { if (context === simplifyContext) { $('simplify-error').textContent=error.message; $('simplify-error').hidden=false; $('simplify-status').textContent=''; } }
-  finally { setBusy('',-1); if(context === simplifyContext) { $('simplify-settings').disabled=false; $('simplify-run').disabled=false; } }
-};
-$('simplify-apply').onclick = async () => {
-  const context = simplifyContext; if (!context?.preview) return;
-  $('simplify-apply').disabled = true; $('simplify-close').disabled = true;
-  try {
-    const result=await operation('apply',{job:context.preview});
-    context.preview=null; dirty=true; await applyState(result); $('simplify-dialog').close(); toast('Shape simplified. Undo restores the original geometry.');
-  } catch(error) { $('simplify-error').textContent=error.message; $('simplify-error').hidden=false; }
-  finally { $('simplify-apply').disabled=false; $('simplify-close').disabled=false; }
-};
-$('simplify-close').onclick = () => $('simplify-dialog').close();
-$('simplify-dialog').addEventListener('cancel',event=>{if($('simplify-close').disabled)event.preventDefault();});
-$('simplify-dialog').addEventListener('close',()=>{
-  const preview=simplifyContext?.preview; simplifyContext=null;
-  if(preview) operation('discard',{job:preview}).catch(error=>toast(error.message,true));
-});
-
-let contactContext = null;
-$('share-boundaries').onclick = async () => {
-  await queue;
-  contactContext={epoch:state.epoch,revision:state.revision,bounds:simplifyBounds(),preview:null};
-  $('contact-previews').hidden=true;$('contact-apply').hidden=true;$('contact-error').hidden=true;$('contact-status').textContent='';
-  $('contact-dialog').showModal();
-};
+const simplifyDialog = jobDialog('simplify', {
+  start: () => ({action:'simplify', method:'curves', bounds:simplifyBounds(), permissions:{geometry:true, structure:true},
+    settings:{tolerance:Number($('simplify-tolerance').value), corners:$('simplify-corners').checked}}),
+  describe: ({changed, metrics:{before, after}}) => changed
+    ? `${before.nodes.toLocaleString()} → ${after.nodes.toLocaleString()} nodes · ${before.coordinates.toLocaleString()} → ${after.coordinates.toLocaleString()} coordinates · ${(100*(1-after.bytes/Math.max(1,before.bytes))).toFixed(1)}% less path data. Apply keeps this result as one undoable edit.`
+    : 'No safe reduction at this tolerance. Try a higher tolerance or turn off Keep sharp corners.',
+  applied: 'Shape simplified. Undo restores the original geometry.',
+}).wire();
+$('smooth-shape').onclick = async () => { await queue; simplifyDialog.open(selectionSummary()); };
+const contactDialog = jobDialog('contact', {
+  start: () => ({action:'link', method:'boundaries', bounds:simplifyBounds(), permissions:{geometry:true, structure:true},
+    settings:{tolerance:Number($('contact-distance').value)}}),
+  describe: ({changed, metrics}) => changed
+    ? `${metrics.edges} shared edge spans. Apply links their nodes and curve handles as one undoable edit.`
+    : 'No touching edges within this distance. Try a larger contact distance.',
+  applied: 'Shared boundaries linked. Editing a shared node moves both regions.',
+}).wire();
+$('share-boundaries').onclick = async () => { await queue; contactDialog.open(); };
 $('unlink-boundaries').onclick=()=>action('unlink_boundaries');
-$('contact-distance').oninput=()=>{$('contact-apply').hidden=true;$('contact-previews').hidden=true;$('contact-status').textContent='Preview again to use this distance.';};
-$('contact-preview').onclick=async()=>{
-  const context=contactContext;if(!context)return;
-  $('contact-apply').hidden=true;$('contact-error').hidden=true;
-  $('contact-status').textContent='Matching nearby contours…';
-  for(const id of ['contact-preview','contact-distance','contact-close'])$(id).disabled=true;
-  try{
-    const job=await operation('start',{action:'link',method:'boundaries',epoch:context.epoch,revision:context.revision,bounds:context.bounds,
-      permissions:{geometry:true,structure:true},settings:{tolerance:Number($('contact-distance').value)}});
-    context.preview=job.id;
-    const {changed,metrics,previews}=job.result;
-    $('contact-before').src=previews.before;$('contact-after').src=previews.after;
-    $('contact-previews').hidden=false;$('contact-apply').hidden=!changed;
-    $('contact-status').textContent=`${metrics.edges} shared edge spans. Apply links their nodes and curve handles as one undoable edit.`;
-  }catch(error){$('contact-error').textContent=error.message;$('contact-error').hidden=false;$('contact-status').textContent='';}
-  finally{for(const id of ['contact-preview','contact-distance','contact-close'])$(id).disabled=false;}
-};
-$('contact-apply').onclick=async()=>{
-  if(!contactContext?.preview)return;
-  $('contact-apply').disabled=true;$('contact-close').disabled=true;
-  try{
-    const result=await operation('apply',{job:contactContext.preview});
-    contactContext.preview=null;dirty=true;await applyState(result);$('contact-dialog').close();toast('Shared boundaries linked. Editing a shared node moves both regions.');
-  }catch(error){$('contact-error').textContent=error.message;$('contact-error').hidden=false;}
-  finally{$('contact-apply').disabled=false;$('contact-close').disabled=false;}
-};
-$('contact-close').onclick=()=>$('contact-dialog').close();
-$('contact-dialog').addEventListener('cancel',event=>{if($('contact-close').disabled)event.preventDefault();});
-$('contact-dialog').addEventListener('close',()=>{const preview=contactContext?.preview;contactContext=null;if(preview)operation('discard',{job:preview}).catch(error=>toast(error.message,true));});
+// Changing a setting invalidates the preview shown for the old one.
+for (const [prefix, ids] of [['simplify', ['simplify-tolerance', 'simplify-corners']], ['contact', ['contact-distance']]]) {
+  for (const id of ids) $(id).addEventListener('input', () => {
+    $(prefix+'-apply').hidden = true; $(prefix+'-previews').hidden = true;
+  });
+}
 
 // Generate: new shapes from the reference, placed as one group.
 const generateSettings = {
@@ -1316,7 +1253,7 @@ function jobDialog(prefix, {start, describe, applied, choiceLabel = null, again 
   return {
     open(summary) {
       context = {epoch:state.epoch, revision:state.revision, job:null, results:[], choice:0};
-      if (show('summary')) show('summary').textContent = summary;
+      if (show('summary') && summary !== undefined) show('summary').textContent = summary;
       for (const id of ['error','previews','progress','apply','stop']) show(id).hidden = true;
       show('run').textContent = runLabel; show('close').textContent = 'Cancel'; ready();
       show('dialog').showModal();

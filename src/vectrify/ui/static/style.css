@@ -71,13 +71,6 @@
 .fit-previews img { width:100%; height:240px; object-fit:contain; background:#fff; border:1px solid #45534c; }
 #optimize-error, #generate-error, #nsga-error, #llm-error { color:#ffb3a3; }
 
-#simplify-dialog { width:min(1000px,calc(100vw - 64px)); max-width:1000px; max-height:90vh; overflow:auto; }
-#simplify-settings { border:1px solid #45534c; padding:14px; margin:16px 0; }
-.simplify-previews { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; }
-.simplify-previews figure { margin:0; min-width:0; }
-.simplify-previews figcaption { margin-bottom:8px; font-weight:600; }
-.simplify-previews img { width:100%; height:260px; object-fit:contain; background:white; border:1px solid #45534c; }
-#simplify-error { color:#ffb3a3; }
 
 #simplify-settings .toggle { display:flex; align-items:center; justify-content:flex-start; gap:10px; margin:0; }
 #simplify-settings .toggle input { width:auto; flex:none; margin:0; }
@@ -87,8 +80,6 @@
 
 #object-name { width: 100%; margin-top: 6px; }
 
-#contact-dialog { width: min(1000px, calc(100vw - 64px)); max-width:1000px; max-height:90vh; overflow:auto; }
-#contact-error { color: #ffb3a3; }
 
 #nsga-choices, #llm-choices, #generate-choices { margin-bottom:12px; flex-wrap:wrap; }
 #llm-settings textarea, #generate-settings textarea { display:block; width:100%; margin-top:8px; }
