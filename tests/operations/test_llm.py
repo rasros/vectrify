@@ -193,3 +193,35 @@ def test_edit_keeps_full_precision_where_the_model_changed_nothing(fake):
     job.apply()
     assert ed.snapshot.document.geometry_for("p") == before
     assert ed.snapshot.document.element("p").get("fill") == "#c80000"
+
+
+def test_the_file_name_is_offered_as_a_subject_hint(fake):
+    client = fake(
+        "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 200'>"
+        "<rect width='10' height='10'/></svg>"
+    )
+    ed = Editor(import_svg(DOC))
+    snapshot = ed.snapshot
+    req = OperationRequest(
+        action="generate",
+        method="llm",
+        snapshot=type(snapshot)(snapshot.revision, snapshot.document, Selection.all()),
+        editor=ed,
+        permissions=Permissions(structure=True),
+        settings={"provider": "openai", "resolution": 128},
+        reference=reference(),
+        source_name="little-duck.png",
+    )
+    run(req)
+    assert "`little-duck.png`" in client.prompts[0][0][0]["text"]
+
+
+def test_the_session_prefers_the_reference_name_and_skips_placeholders():
+    from vectrify.ui.session import Session
+
+    session = Session(import_svg(DOC), name="Untitled.svg")
+    assert session.source_name() is None
+    session.name = "logo.svg"
+    assert session.source_name() == "logo.svg"
+    session.reference = {"name": "duck.png", "data_url": "", "opacity": 0.5}
+    assert session.source_name() == "duck.png"
