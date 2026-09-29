@@ -14,13 +14,16 @@ undoable edit, limited to the objects and kinds of change you allow.
 
 ```bash
 uv tool install "vectrify[all]"     # or: pipx install "vectrify[all]"
-vectrify                            # open the editor
-vectrify drawing.svg --reference original.png --port 8765
+vectrify                            # open the editor in its own window
+vectrify drawing.svg --reference original.png
+vectrify --serve --port 8765        # or serve it to a browser
 ```
 
-Open the printed localhost address in a browser. The server listens on loopback
-only and needs no Node build step. From a source checkout, run
-`uv run vectrify`. See [the editor guide](docs/editor.md) for every control.
+The `desktop` extra (included in `all`) opens the editor in a native window.
+Without it, or with `--serve`, vectrify serves the editor on loopback and
+prints the address to open in a browser. Neither needs a Node build step. From
+a source checkout, run `uv run vectrify`. See [the editor guide](docs/editor.md)
+for every control.
 
 ## Operations
 
