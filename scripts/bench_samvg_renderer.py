@@ -42,9 +42,7 @@ def main() -> None:
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     started = perf_counter()
-    fit_filled_svg(
-        svg, target, steps=args.steps, optimisation_long_side=args.long_side
-    )
+    fit_filled_svg(svg, target, steps=args.steps, optimisation_long_side=args.long_side)
     if torch.cuda.is_available():
         torch.cuda.synchronize()
     print(f"{(perf_counter() - started) / args.steps:.6f} seconds/step")

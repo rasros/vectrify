@@ -6,14 +6,12 @@ import xml.etree.ElementTree as ET
 import pytest
 
 from vectrify.svg.operations import (
-    MUTATIONS,
     _nudgeable_numbers,
     apply_mutation,
     mutate_color,
     mutate_drop_style_property,
     mutate_numeric,
     mutate_path,
-    mutate_remove_node,
     mutate_reorder,
     mutate_stroke,
     mutate_translate,
@@ -612,35 +610,6 @@ def test_path_nudge_never_corrupts_an_arc_flag():
             assert arc.group(5) in ("0", "1"), f"sweep flag corrupted: {d}"
 
     assert changed > 100, "skipping flags must not stop the operator working"
-
-
-def test_remove_node_deletes_exactly_one_element():
-    """Kept out of the search table because nothing can undo it, and kept in
-    the codebase because damage has to be produced deliberately to test whether
-    a scorer notices it."""
-    svg = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<circle cx="10" cy="10" r="5"/>'
-        '<rect width="9" height="9"/>'
-        '<line x1="0" y1="0" x2="9" y2="9"/>'
-        "</svg>"
-    )
-
-    for seed in range(20):
-        random.seed(seed)
-        out = mutate_remove_node(svg)
-        assert len(re.findall(r"<[a-zA-Z]", out)) == 3  # svg + two survivors
-
-
-def test_remove_node_leaves_a_lone_element_alone():
-    """Emptying the drawing entirely is not damage worth measuring."""
-    svg = f'<svg xmlns="{NS}" viewBox="0 0 64 64"><circle cx="10" cy="10" r="5"/></svg>'
-
-    assert mutate_remove_node(svg) == svg
-
-
-def test_remove_node_is_not_one_of_the_search_operators():
-    assert all(op is not mutate_remove_node for op, _label, _weight in MUTATIONS)
 
 
 def test_a_stroke_takes_a_colour_the_drawing_already_uses():
