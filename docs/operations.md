@@ -2,7 +2,7 @@
 
 `vectrify.operations` is the contract every automated action implements. An
 action (Generate, Improve, Simplify, Link) is carried out by a named method,
-for example `improve/path-fit` or `simplify/curves`. The editor and scripts
+for example `improve/nodes` or `simplify/cleanup`. The editor and scripts
 call methods the same way.
 
 ## Request
@@ -59,10 +59,9 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | generate | `llm` | Asks an LLM to draw the reference region as SVG |
 | improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
-| improve | `search` | Hill climbing over the selected objects, scored against the reference |
+| improve | `nodes` | CPU search over the selected paths' points: move, split, remove, shift, stroke |
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |
-| simplify | `curves` | Refits selected contours with fewer lines and cubics |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
 | link | `boundaries` | Matches touching edges into shared boundaries |
 
@@ -101,19 +100,28 @@ change outside the transaction's scope or permissions and counts it in
 Pass `baseline=` the original after the same normalization the candidate went
 through, so rounding introduced by that rewrite is never replayed.
 
-## Search Improve
+## Optimize nodes
 
-`improve/search` needs a selection. It exports the drawing with its viewBox
-on the target region (the selection's painted bounds plus a margin), stretched to the reference crop at the chosen resolution,
-and runs `vector.search.run_search` from it with that scope. Workers mutate the
-current drawing; a child replaces it when it scores no worse. The score is the
-simple scorer's structure-and-colour blend (`score.simple`), which also ranks
-the results and is reported as `difference`. The budget's `steps` is the
-number of variants tried. The best drawing is replayed as a transaction and
-proposed alone: the runners-up are earlier steps of the same climb, and stand
-in only if it fails replay. If nothing beats the current drawing, the unchanged
-drawing is the recommendation. Stop ends the search and keeps the best drawing
-so far.
+`improve/nodes` needs selected paths (or groups containing them) whose geometry
+no other object shares. Its settings are the moves to try (`shape`, `detail`,
+`simplify`, `strokes`, `position`), a `tolerance` in percent for Simplify, and
+`workers` and `resolution`; the budget's `steps` is the number of tries.
+`detail` needs a reference; without one, `simplify` is required and the target
+is the drawing's own render of the region (`generate.drawing_region`).
+
+The state the search changes is each path's `Geometry` and stroke width
+(`vector.nodes.Paths`); the moves are in `vector.nodes`, and workers render a
+state by rewriting only those paths' `d` and `stroke-width` in the region SVG.
+Every change is scored by the simple scorer in the main process. A removal is
+kept while the score stays within the tolerance of the start (the budget is
+shared by the run); a split must improve the score by 1%; any other move is kept
+when the score does not get worse. The result is applied with
+`Transaction.reshape_path`, which keeps surviving node IDs, refuses to move or
+remove pinned endpoints, and leaves linked boundary edges as they are.
+
+The editor's Optimize nodes dialog runs `improve/path-fit` instead when it can:
+the GPU fit, checked beforehand with `POST /api/operation` `{command: "check"}`,
+which validates a request without running it.
 
 ## LLM methods
 

@@ -27,7 +27,6 @@ from vectrify.document.model import (
     new_id,
     references,
 )
-from vectrify.document.simplify import SimplifyOptions, simplify_geometry
 from vectrify.document.svg import GEOMETRY, PAINT, validate_attributes
 from vectrify.document.topology import edge, propagate_node, split_edges
 
@@ -731,60 +730,6 @@ class Transaction:
                         )
             self._working = candidate
             self._record_remap({n: set() for n in old.keys() - new.keys()})
-
-    def simplify_shapes(self, options: SimplifyOptions) -> None:
-        """Reduce selected path assets, enforcing scope, topology locks and pins."""
-        with self._change():
-            self._whole_objects()
-            document = self._working
-            targets = [document.element(oid) for oid in self._ids]
-            if not targets or any(e.tag not in {"g", "path", "use"} for e in targets):
-                raise EditRejectedError(
-                    "Select paths, path instances or groups containing only paths"
-                )
-            geometries = {
-                document.geometry_for(e.id).id
-                for e in targets
-                if e.tag in {"path", "use"}
-            }
-            if not geometries:
-                raise EditRejectedError("The selection contains no path geometry")
-            for gid in sorted(geometries):
-                original = document.geometry(gid)
-                affected = document.geometry_users(gid)
-                self._authorize(affected, EditKind.STRUCTURE)
-                self._authorize(affected, EditKind.GEOMETRY)
-                if any(
-                    m.geometry_id == gid for b in document.boundaries for m in b.members
-                ):
-                    raise EditRejectedError(
-                        "Detach linked boundaries before simplifying their geometry"
-                    )
-                filled = False
-                for element in targets:
-                    if (
-                        element.tag not in {"path", "use"}
-                        or document.geometry_for(element.id).id != gid
-                    ):
-                        continue
-                    paint = path_style(document, element)
-                    if element.tag == "use":
-                        source = document.element((element.get("href") or "")[1:])
-                        paint["fill"] = source.get("fill") or paint["fill"]
-                    filled |= paint["fill"] != "none"
-                updated = simplify_geometry(original, options, filled=filled)
-                if updated == original:
-                    continue
-                self._working = self._working.replace_geometry(updated)
-                retained = {n.id for sub in updated.subpaths for n in sub.nodes}
-                self._record_remap(
-                    {
-                        n.id: set()
-                        for sub in original.subpaths
-                        for n in sub.nodes
-                        if n.id not in retained
-                    }
-                )
 
     def split_disconnected(self, object_id: str) -> tuple[str, ...]:
         """Partition a compound path into independently editable exact geometries.

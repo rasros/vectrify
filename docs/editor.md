@@ -118,76 +118,32 @@ you choose a saved browser recovery copy from a new tab.
 ## Current scope
 
 This is the first manual editor, brought forward from step 5 of the UI plan.
-Improve now exposes **Optimize path**: select a path, open the popup, and run the
-existing `Mutation: path fit` filled-path GPU optimizer. Choose whether nodes,
-handles and color may change, the step budget (8 by default), maximum movement
-in local SVG units, and the working crop resolution. Pinned endpoints, node
-selection and property locks are enforced. Lines, holes and node identities are
-preserved. Matching fill/stroke colors are fitted together on closed paths with
-round or miter joins; stroke width and join style stay fixed. Miter joins
-respect the inherited miter limit, falling back to bevels at over-limit corners.
-Temporary GPU stroke outlines preserve joins across processing chunks; the
-original SVG curves remain editable, and candidates still pass the actual SVG
-rendering check. Separate-color outlines, open stroked
-paths, shared geometry and object-bounds clips are not supported by this first
-adapter. Detach an instance before fitting it independently.
+**Optimize nodes…** reshapes the selected paths, or the paths inside selected
+groups. Tick what it may do: **Shape** moves points and curve handles, **Add
+detail** splits segments and moves the new point (only with a reference),
+**Simplify** removes points while the fit stays within the tolerance,
+**Strokes** scales stroke widths and **Position** moves whole paths. Colour is
+left to Fit colours. It is scored on the selection's surroundings, never the
+whole image: against the reference, or without one against the paths as they
+were, so Simplify on its own removes points while keeping their look.
 
-The operation runs on a snapshot in a background job, with progress,
-Stop & keep best, and reference/before/after previews. Apply is one undoable edit;
-Discard leaves the drawing untouched. Results cannot overwrite changes to the
-drawing or reference. Reference error is RGB MSE measured with Cairo in the
-shown crop at the chosen resolution; an unchanged candidate is retained if no
-checked candidate improves it. This is a resolution-specific comparison, not a
-full-resolution quality guarantee. Surrounding artwork, clipping, group opacity
-and objects in front are included in the frozen compositing context. Fitting
-requires PyTorch CUDA and the optional native Vectrify CUDA extension.
+The tolerance is a budget for the whole run, as a percentage of what the
+selected paths contribute to the fit (the difference between the region
+without them and with them as they started). Removals are kept while the
+result stays within it, and nudges that improve the fit earn room for more.
 
-**Search improvements…** tries small random changes to the selected objects,
-one at a time, and keeps each one that brings them closer to the reference.
-It compares only the selection's surroundings, never the whole image. Choose what may change (shape and position, paint, stacking order),
-the number of variants and workers. Only the chosen objects are mutated;
-locks, pins and unselected objects stay fixed because every result is replayed
-as an ordinary edit. Compare the previews and Apply the result as one undoable
-edit. Stop keeps the best drawing found so far. No LLM call or GPU fitting is involved.
+Two engines do the work. The **GPU fit** is the default where it can run: one
+filled path, a reference, and PyTorch CUDA with the Vectrify CUDA extension. It
+moves points and handles by gradient descent, with a step budget and a maximum
+movement in local SVG units, and supports only Shape. The **CPU search** runs
+everywhere else and for every option: workers try one change at a time and a
+change is kept when the score does not get worse (a split has to improve it by
+1%). The dialog explains why the GPU fit is unavailable when it is. Pinned
+endpoints and linked boundary edges stay fixed, and surviving points keep their
+identity. The job runs in the background with progress, Stop & keep best, and
+reference/before/after previews; Apply is one undoable edit.
 
-**Edit with LLM…** sends the drawing, a render of it, the reference and your
-instruction to a multimodal model. Choose which objects and kinds of change are
-allowed (shape and position, paint, adding/removing/restacking). The reply is
-replayed as ordinary edits: anything outside the chosen objects or permissions
-is left out and reported, and locks and pins are enforced. With several
-replies, pick one by preview and reference error. The Generate dialog's LLM
-method draws the reference from scratch instead. Both need an API key or a local
-server, set up under **Settings** in the top bar. A local server is any
-OpenAI-compatible endpoint, such as `http://localhost:11434/v1` for Ollama,
-with a model that accepts images. The editor shows only the last four
-characters of a saved key.
-
-**Fit colours…** solves the flat fill colour of every selected object that
-best matches the reference, with geometry locked. Each object is rendered with
-its fill black and white, which measures its exact coverage (including
-antialiasing, opacity, clipping and objects in front), so the best colour has
-a closed form; outlines painted in the fill colour follow it. Objects are
-fitted back to front; more passes help where fitted objects overlap. No GPU is
-needed.
-
-**Clean up geometry…** removes duplicate and collinear vertices and empty or
-duplicate paths, and merges compatible neighbouring paths into compound paths,
-within the selection only. Paths referenced by instances or clips are kept.
 Coordinates are never rounded.
-
-**Smooth / simplify…** reduces selected paths, path instances or groups of paths
-without a reference image. It fits shorter runs of lines/cubic curves to the
-current contour, using an adjustable approximation tolerance in local SVG
-units. Keep sharp corners is enabled by default; pinned endpoints always remain
-exact. Preview shows the drawing before and after, node/coordinate counts and
-serialized path-data reduction. Changing settings requires a new preview.
-Apply is a single undoable transaction; cancelled or stale previews never edit
-the drawing. Paint, stacking, contour identities, hole containment and contact
-relationships remain intact. Explicit self-touching junctions are held in place; ambiguous edge crossings
-are kept unchanged. Fits that increase coordinate count, node count or path-data size are
-not accepted. This operation requires geometry and structure permissions;
-shared assets require selecting all affected consumers or detaching first.
-Linked boundaries must be detached explicitly before simplifying.
 
 Improve, Simplify and Share boundary run through the shared operation
 contract in `vectrify.operations` (see `docs/operations.md`) via

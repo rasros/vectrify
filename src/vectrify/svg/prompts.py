@@ -76,8 +76,8 @@ _DIFF_FORMAT_INSTRUCTIONS = diff_format_instructions(
     "SVG", unit="fragment", subject="SVG"
 )
 
-# The attributes named here are the ones the operators mutate (_NUMERIC_ATTRS,
-# _COLOR_ATTRS and mutate_path in svg/operations.py). Keep them in step.
+# Written for what refinement reaches afterwards: Optimize nodes moves path
+# points and Fit colours sets flat fills.
 MUTABLE_SVG = """\
 Write the SVG this way:
 - A shape that is a circle, ellipse or rectangle is written as `<circle>`, \

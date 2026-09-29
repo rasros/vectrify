@@ -29,11 +29,9 @@ only and needs no Node build step. From a source checkout, run
 | Generate | SAMVG | Segments the reference with SAM and traces each region |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
 | Generate | LLM | Asks a multimodal model to draw the reference |
-| Improve | Optimize path | GPU gradient fitting of one path's nodes, handles and colour |
-| Improve | Search improvements | Hill climbing over the selection |
+| Improve | Optimize nodes | Moves, adds or removes the selected paths' points to follow the reference; simplifies without one |
 | Improve | Edit with LLM | Sends the drawing and an instruction to a model |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
-| Simplify | Smooth / simplify | Refits contours with fewer lines and curves |
 | Simplify | Clean up geometry | Drops redundant vertices and merges compatible paths |
 
 Generated shapes are placed over the artboard exactly where the reference is
@@ -48,10 +46,10 @@ Python 3.10 or newer. SVG rendering needs Cairo; on Debian/Ubuntu install it
 with `sudo apt install libcairo2`.
 
 The `vision` extra enables the perceptual scorer and colour regions; the
-`samvg` extra enables SAM segmentation; `all` installs both. Optimize path and
-colour regions need an NVIDIA GPU with PyTorch CUDA; SAMVG and the search use
-it when available. Optimize path also needs the optional native CUDA extension
-(below).
+`samvg` extra enables SAM segmentation; `all` installs both. Colour regions and the
+GPU engine of Optimize nodes need an NVIDIA GPU with PyTorch CUDA; SAMVG uses it
+when available. The GPU engine also needs the optional native CUDA extension
+(below); without it Optimize nodes uses its CPU search.
 
 The LLM methods need an OpenAI, Anthropic or Gemini API key, or a local
 server with an OpenAI-compatible API (Ollama, LM Studio, llama.cpp, vLLM) and a
