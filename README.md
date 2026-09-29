@@ -30,7 +30,7 @@ only and needs no Node build step. From a source checkout, run
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
 | Generate | LLM | Asks a multimodal model to draw the reference |
 | Improve | Optimize path | GPU gradient fitting of one path's nodes, handles and colour |
-| Improve | Search improvements | NSGA-II local search over the selection |
+| Improve | Search improvements | Hill climbing over the selection |
 | Improve | Edit with LLM | Sends the drawing and an instruction to a model |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
 | Simplify | Smooth / simplify | Refits contours with fewer lines and curves |
@@ -82,6 +82,6 @@ PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 
 ## Benchmarks
 
-`scripts/bench_search.py` measures the NSGA-II search on the corpus in
+`scripts/bench_search.py` measures the local search on the corpus in
 `bench/cases`; see [bench/README.md](bench/README.md).
 `scripts/bench_colour_regions.py` runs colour regions on one image.

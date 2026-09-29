@@ -8,9 +8,7 @@ import pytest
 from vectrify.svg.operations import (
     MUTATIONS,
     _nudgeable_numbers,
-    apply_crossover,
     apply_mutation,
-    crossover,
     mutate_color,
     mutate_drop_style_property,
     mutate_numeric,
@@ -35,41 +33,6 @@ SVG_ONE = (
     f'<svg xmlns="{NS}"><rect width="100" height="50" rx="4"'
     f' font-size="12" opacity="0.8"/></svg>'
 )
-
-
-def test_crossover_returns_valid_svg():
-    result = crossover(SVG_A, SVG_B)
-    root = ET.fromstring(result)
-    assert root.tag.endswith("svg")
-
-
-def test_crossover_children_only_from_parents():
-    result = crossover(SVG_A, SVG_B)
-    root = ET.fromstring(result)
-    tags = {c.tag.split("}")[-1] for c in root}
-    assert tags <= {"circle", "rect", "ellipse", "line"}
-
-
-def test_crossover_of_unequal_parents_keeps_the_first_parent_intact():
-    """This used to assert the child could shrink to a fifth of its parent,
-    which was the bug rather than the contract: elements the shorter parent
-    lacked at a given index were simply dropped."""
-    long_a = f'<svg xmlns="{NS}"><rect/><circle/><ellipse/><line/><path/></svg>'
-    result = crossover(long_a, SVG_B)
-    assert len(list(ET.fromstring(result))) == 5
-
-
-def test_crossover_degenerate_single_element():
-    single_a = f'<svg xmlns="{NS}"><rect/></svg>'
-    single_b = f'<svg xmlns="{NS}"><circle/></svg>'
-    result = crossover(single_a, single_b)
-    root = ET.fromstring(result)
-    assert len(list(root)) == 1
-
-
-def test_crossover_invalid_svg_returns_a():
-    result = crossover("not xml", SVG_B)
-    assert result == "not xml"
 
 
 def test_mutate_numeric_changes_an_attribute():
@@ -170,15 +133,6 @@ def test_with_retries_exhausts_all_attempts():
 
     with_retries(always_bad, fallback=SVG_ONE, max_retries=4)
     assert len(calls) == 4
-
-
-def test_apply_crossover():
-    svg_a = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="red"/></svg>'
-    svg_b = f'<svg xmlns="{NS}"><rect width="10" height="10" fill="blue"/></svg>'
-
-    res, summary = apply_crossover(svg_a, svg_b)
-    assert "<svg" in res
-    assert "crossover" in summary.lower()
 
 
 def test_apply_mutation():
@@ -490,62 +444,6 @@ def test_mutate_reorder_invalid_svg_unchanged():
     assert mutate_reorder("not xml") == "not xml"
 
 
-def test_crossover_keeps_every_element_of_the_first_parent():
-    """Regression: splicing by document order dropped whatever the shorter
-    parent lacked at each index -- 23 circles and 16 numerals out of a
-    63-element seed. Matching elements to each other makes loss impossible: a
-    matched pair contributes one element, an unmatched one is carried."""
-    from pathlib import Path
-
-    seeds = sorted(Path("bench/cases/connect-dots/seeds").glob("*.svg"))
-    a, b = seeds[0].read_text(), seeds[3].read_text()
-
-    for _ in range(8):
-        child = crossover(a, b)
-        assert len(re.findall(r"<[a-zA-Z]", child)) == len(re.findall(r"<[a-zA-Z]", a))
-
-
-def test_crossover_will_not_swap_an_element_for_a_piece_of_itself():
-    """One drawing splits a blade into two paths where the other uses one.
-    Half a blade covers half of the whole blade, which is enough overlap to
-    look like a match, and taking the whole in exchange for the half is how a
-    drawing loses content."""
-    one_piece = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<rect x="8" y="8" width="48" height="48" fill="#336699"/>'
-        "</svg>"
-    )
-    two_pieces = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<rect x="8" y="8" width="24" height="48" fill="#336699"/>'
-        '<rect x="32" y="8" width="24" height="48" fill="#336699"/>'
-        "</svg>"
-    )
-
-    for seed in range(20):
-        random.seed(seed)
-        assert 'width="24"' not in crossover(one_piece, two_pieces)
-
-
-def test_crossover_swaps_matching_elements_between_parents():
-    red = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<circle cx="32" cy="32" r="16" fill="#ff0000"/>'
-        "</svg>"
-    )
-    blue = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<circle cx="32" cy="32" r="16" fill="#0000ff"/>'
-        "</svg>"
-    )
-
-    assert any("#0000ff" in crossover(red, blue) for _ in range(20))
-
-
 def test_a_small_integer_attribute_can_still_grow():
     """A proportional nudge rounded back to an integer cannot move a value of
     1: every factor in the range maps it to 1 again. A rounded corner that
@@ -714,79 +612,6 @@ def test_path_nudge_never_corrupts_an_arc_flag():
             assert arc.group(5) in ("0", "1"), f"sweep flag corrupted: {d}"
 
     assert changed > 100, "skipping flags must not stop the operator working"
-
-
-def test_crossover_pairs_text_by_what_it_says():
-    """Overlap can only pair elements already sitting on top of each other,
-    which is precisely what two seeds disagreeing about placement do not do. A
-    numeral is the same feature in both drawings however far apart they are."""
-    left = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<text x="4" y="12" font-size="8" fill="#ff0000">7</text>'
-        "</svg>"
-    )
-    right = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<text x="52" y="60" font-size="8" fill="#0000ff">7</text>'
-        "</svg>"
-    )
-
-    swapped = 0
-    for seed in range(20):
-        random.seed(seed)
-        child = crossover(left, right)
-        assert len(re.findall(r"<[a-zA-Z]", child)) == len(
-            re.findall(r"<[a-zA-Z]", left)
-        )
-        swapped += "#0000ff" in child
-
-    assert swapped, "the far-away numeral was never paired with its twin"
-
-
-def test_crossover_does_not_pair_text_that_says_something_else():
-    """Matching by label must mean the label, or it degenerates into pairing
-    any text with any other and the drawing loses its numbering."""
-    left = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<text x="4" y="12" font-size="8" fill="#ff0000">7</text>'
-        "</svg>"
-    )
-    right = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<text x="52" y="60" font-size="8" fill="#0000ff">3</text>'
-        "</svg>"
-    )
-
-    for seed in range(20):
-        random.seed(seed)
-        assert "#0000ff" not in crossover(left, right)
-
-
-def test_crossover_pairs_each_duplicate_label_only_once():
-    """Two elements drawing the same string must not both take the same
-    partner, which would leave one unpaired and the count wrong."""
-    left = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<text x="4" y="12" font-size="8">1</text>'
-        '<text x="4" y="30" font-size="8">1</text>'
-        "</svg>"
-    )
-    right = (
-        f'<svg xmlns="{NS}" viewBox="0 0 64 64">'
-        '<rect x="0" y="0" width="64" height="64" fill="#ffffff"/>'
-        '<text x="50" y="12" font-size="8">1</text>'
-        "</svg>"
-    )
-
-    for seed in range(20):
-        random.seed(seed)
-        child = crossover(left, right)
-        assert len(re.findall(r"<text", child)) == 2
 
 
 def test_remove_node_deletes_exactly_one_element():

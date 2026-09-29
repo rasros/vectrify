@@ -6,7 +6,7 @@ from PIL import Image
 
 from tests.helpers import TEST_MODEL as _MODEL
 from vectrify.image_utils import rasterize_svg_to_png_bytes
-from vectrify.svg.operations import apply_crossover, apply_mutation
+from vectrify.svg.operations import apply_mutation
 from vectrify.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
@@ -119,13 +119,6 @@ def test_the_render_preview_is_only_sent_with_a_parent():
 
 def test_mutate_returns_valid_svg_and_a_summary():
     content, summary = apply_mutation(SVG)
-    assert is_valid_svg(content)[0]
-    assert summary.strip()
-
-
-def test_crossover_returns_valid_svg_and_a_summary():
-    other = f'<svg xmlns="{NS}" viewBox="0 0 32 32"><circle r="8"/></svg>'
-    content, summary = apply_crossover(SVG, other)
     assert is_valid_svg(content)[0]
     assert summary.strip()
 

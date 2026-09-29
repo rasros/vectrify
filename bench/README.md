@@ -1,8 +1,8 @@
 # Local-search benchmark
 
 A fixed corpus and harness for measuring changes to the **non-LLM** search:
-mutation, crossover, operator selection and Pareto survival. No LLM call is
-made and no API key is needed.
+mutation, operator selection and acceptance. No LLM call is made and no API
+key is needed.
 
 ## Running it
 
@@ -18,17 +18,14 @@ bootstrap 95% CI. Lower is better; a CI entirely below zero is an improvement.
 
 ## How a case runs
 
-Each case is a `target.png` and five seeds in `seeds/`. The harness measures
-every seed against the target and runs `vector.search.run_search` in-process
-from all of them, with no LLM seeds, so only local operators touch the pool.
-The front evaluator (`--scorer`) picks the run's result, as it does for
-Improve.
+Each case is a `target.png` and five seeds in `seeds/`. The harness runs
+`vector.search.run_search` in-process: it scores every seed with `--scorer`
+(the simple scorer by default, as Improve uses) and climbs from the best one.
 
-Five, not one, because crossover grafts subtrees *between* candidates: a pool
-descended from a single ancestor gives it nothing to recombine, which is not
-the regime a real epoch runs in. Measured on this corpus crossover is worth
--0.00087 on final error, 95% CI [-0.00149, -0.00019]; measured against a single
-seed it looked worthless.
+The seeds come from the NSGA-II search this replaced, which recombined them
+with crossover; on this corpus crossover had measured -0.00087 on final pixel
+error, 95% CI [-0.00149, -0.00019]. The editor never used it -- a scoped search
+had crossover off -- so the hill climber does without.
 
 `--workers 1` with a given `--seed-base` repeats exactly: the seed covers the
 workers and the main process, where parents and operators are chosen. Above
@@ -87,14 +84,14 @@ the seeds may be written:
 
 `font-family` is *not* mutable, so seeds keep the target's family and get the
 size wrong instead. If you add a case, check its perturbations against
-`_NUMERIC_ATTRS` and `_COLOR_ATTRS` in `formats/svg/operations.py` — an
+`_NUMERIC_ATTRS` and `_COLOR_ATTRS` in `svg/operations.py` — an
 unreachable gap silently caps the whole case.
 
 ## Caveats
 
-`vision` is scored on the candidate the front evaluator picked, so a change can
-improve the pool without the pick following. `--scorer` selects that evaluator;
-`--eval-interval` sets how often it looks at the pool within an epoch.
+`vision` is scored on the drawing the climb ended on, which `--scorer` chose.
+When the two disagree, a climb can improve its own score while `vision` gets
+worse.
 
 `--no-adaptive-operators` pins the operator mix to the fixed weight table,
 which is how the adaptive policy was measured against it.
