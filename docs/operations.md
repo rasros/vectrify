@@ -48,6 +48,7 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | Action | Method | What it does |
 | --- | --- | --- |
 | generate | `samvg` | Traces SAM segments of the reference into a new group |
+| generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
 | simplify | `curves` | Refits selected contours with fewer lines and cubics |
 | link | `boundaries` | Matches touching edges into shared boundaries |
@@ -57,7 +58,8 @@ reference to the focus rectangle (or takes the whole artboard), and
 `generated_result` inserts reference-pixel SVG as one group with the transform
 that places it over the artboard, measuring reference error before and after.
 The target container is the whole drawing (`scope: "drawing"` in the editor
-request) or one selected group.
+request) or one selected group. Element IDs in generated SVG are renamed, with
+their references, so repeated generations never collide.
 
 ## Writing a method
 

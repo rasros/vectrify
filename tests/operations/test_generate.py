@@ -186,3 +186,61 @@ def test_session_scope_drawing_generates_without_selecting_everything(monkeypatc
     session.operation({"command": "apply", "job": job["id"]})
     assert session.editor.snapshot.selection == Selection()
     assert session.editor.undo_labels == ("Generate with SAMVG",)
+
+
+def test_fresh_ids_rename_definitions_and_every_reference():
+    from vectrify.operations.generate import fresh_ids
+
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" '
+        'xmlns:xlink="http://www.w3.org/1999/xlink">'
+        '<defs><path id="r" d="M0 0H4V4Z"/><clipPath id="c"><use href="#r"/>'
+        '</clipPath></defs><use xlink:href="#r" clip-path="url(#c)" fill="red"/>'
+        "</svg>"
+    )
+    renamed = fresh_ids(svg)
+    assert 'id="r"' not in renamed
+    assert "#c)" not in renamed
+    document = import_svg(renamed)
+    ids = {e.id for e in document.elements()}
+    uses = [e for e in document.elements() if e.tag == "use"]
+    assert all((u.get("href") or "")[1:] in ids for u in uses)
+    clipped = next(u for u in uses if u.get("clip-path"))
+    assert (clipped.get("clip-path") or "")[5:-1] in ids
+
+
+def test_colour_regions_job_inserts_generated_regions(monkeypatch):
+    torch = pytest.importorskip("torch")
+    seen = {}
+
+    def fake(image, **kwargs):
+        seen.update(kwargs, size=image.size)
+        return SQUARE, {"seconds": 0.1, "palette_colours": 2}
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr("vectrify.refine.colour_regions.vectorize", fake)
+    editor = Editor(import_svg(DOC))
+    job = Job(
+        method("generate", "colour-regions"),
+        request(
+            editor,
+            Selection.all(),
+            method="colour-regions",
+            settings={"colours": 8, "outline_style": "clean"},
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["metrics"]["colours"] == 2
+    assert (seen["colours"], seen["outline_style"], seen["size"]) == (
+        8,
+        "clean",
+        (400, 200),
+    )
+    job.apply()
+    assert editor.undo_labels == ("Generate colour regions",)
+    with pytest.raises(DocumentError, match="Choose a supported outline style"):
+        method("generate", "colour-regions").validate(
+            request(editor, Selection.all(), settings={"outline_style": "wavy"})
+        )

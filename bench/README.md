@@ -108,12 +108,13 @@ way.
 `--no-adaptive-operators` pins the operator mix to the fixed weight table,
 which is how the adaptive policy was measured against it.
 
-## Experimental CUDA colour-region method
+## CUDA colour-region method
 
-`scripts/bench_colour_regions.py` is the no-LLM colour-region method used for
-outlined artwork experiments. It fits palettes on CUDA and constructs SVG
-regions and strokes directly, without evolutionary or local SVG optimization.
-It is separate from the SAMVG pipeline and the main `vectrify` CLI.
+`vectrify.refine.colour_regions` is the no-LLM colour-region method used for
+outlined artwork. It fits palettes on CUDA and constructs SVG regions and
+strokes directly, without evolutionary or local SVG optimization. The editor
+exposes it as the `generate/colour-regions` operation;
+`scripts/bench_colour_regions.py` runs it on one image and writes metrics.
 
 ```bash
 PYTHONPATH=src python scripts/bench_colour_regions.py input.png output.svg \

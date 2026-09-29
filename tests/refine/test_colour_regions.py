@@ -1,9 +1,7 @@
-"""Representation checks for the experimental CUDA colour-region benchmark."""
+"""Representation checks for the CUDA colour-region vectorizer."""
 
-import importlib.util
 import io
 import itertools
-from pathlib import Path
 from xml.etree import ElementTree as ET
 
 import cairosvg
@@ -13,14 +11,7 @@ from PIL import Image
 
 torch = pytest.importorskip("torch")
 pytest.importorskip("scipy")
-spec = importlib.util.spec_from_file_location(
-    "bench_colour_regions",
-    Path(__file__).resolve().parents[2] / "scripts" / "bench_colour_regions.py",
-)
-assert spec is not None
-assert spec.loader is not None
-regions = importlib.util.module_from_spec(spec)
-spec.loader.exec_module(regions)
+regions = pytest.importorskip("vectrify.refine.colour_regions")
 
 
 def render_png(svg: str) -> bytes:
