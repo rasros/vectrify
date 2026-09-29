@@ -18,6 +18,7 @@ import numpy as np
 
 from vectrify.document import Document, DocumentError
 from vectrify.document.join import path_style
+from vectrify.image_utils import preview_urls
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -27,7 +28,6 @@ from vectrify.operations.contract import (
 )
 from vectrify.operations.generate import Region, error, render_region, target_region
 from vectrify.operations.settings import Setting, read_settings
-from vectrify.refine.selected import png_url
 
 DRAWABLE = {"path", "rect", "circle", "ellipse", "use"}
 SETTINGS = {
@@ -143,11 +143,7 @@ class ColourFit:
                     "objects": len(fitted),
                     "considered": len(ids),
                 },
-                previews={
-                    "reference": png_url(full.image),
-                    "before": png_url(before_image),
-                    "after": png_url(after_image),
-                },
+                previews=preview_urls(full.image, before_image, after_image),
             ),
             message=None if fitted else "The colours already fit the reference",
         )

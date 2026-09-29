@@ -10,15 +10,12 @@ counted. Each reply becomes a proposal ranked by reference error.
 
 from __future__ import annotations
 
-import io
 import logging
 import xml.etree.ElementTree as ET
 from typing import ClassVar
 
-from PIL import Image
-
 from vectrify.document import DocumentError, UnsupportedSvgError
-from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
+from vectrify.image_utils import png_url, preview_urls, resize_long_side
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, resolve_provider
 from vectrify.operations.candidates import (
     mutation_scope,
@@ -41,7 +38,6 @@ from vectrify.operations.generate import (
     target_region,
 )
 from vectrify.operations.settings import Setting, read_settings
-from vectrify.refine.selected import png_url
 from vectrify.svg.ownership import invisible_descriptions
 from vectrify.svg.replies import apply_edits, extract_svg
 
@@ -70,12 +66,6 @@ def _client(settings):
     return get_provider(provider, key), LLMConfig(
         model=model, reasoning=settings["reasoning"]
     )
-
-
-def _png_data_url(image: Image.Image) -> str:
-    stream = io.BytesIO()
-    image.save(stream, format="PNG")
-    return png_bytes_to_data_url(stream.getvalue())
 
 
 def to_canvas(svg: str, size: tuple[int, int]) -> str:
@@ -144,7 +134,7 @@ class LlmGenerate:
         region = target_region(request)
         canvas = region.image.size
         prompt = build_svg_gen_prompt(
-            _png_data_url(resize_long_side(region.image, settings["resolution"])),
+            png_url(resize_long_side(region.image, settings["resolution"])),
             1,
             goal=settings["instruction"] or None,
             canvas=canvas,
@@ -209,10 +199,10 @@ class LlmEdit:
             + ". Keep every other element exactly as it is, with its id."
         )
         prompt = build_svg_gen_prompt(
-            _png_data_url(resize_long_side(region.image, settings["resolution"])),
+            png_url(resize_long_side(region.image, settings["resolution"])),
             1,
             svg_prev=svg,
-            rasterized_svg_data_url=_png_data_url(
+            rasterized_svg_data_url=png_url(
                 resize_long_side(before_image, settings["resolution"])
             ),
             goal=goal,
@@ -253,11 +243,7 @@ class LlmEdit:
                             "edits": outcome.edits,
                             "skipped": outcome.skipped,
                         },
-                        previews={
-                            "reference": png_url(region.image),
-                            "before": png_url(before_image),
-                            "after": png_url(after_image),
-                        },
+                        previews=preview_urls(region.image, before_image, after_image),
                     )
                 )
         if not proposals:

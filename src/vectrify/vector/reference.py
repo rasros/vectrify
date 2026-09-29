@@ -8,13 +8,12 @@ masks), so it happens once per run and is shared by every caller that scores.
 
 from __future__ import annotations
 
-import io
 import logging
 from dataclasses import dataclass
 
 from PIL import Image
 
-from vectrify.image_utils import resize_long_side
+from vectrify.image_utils import png_bytes, resize_long_side
 from vectrify.score.base import DEFAULT_CONFIG
 from vectrify.score.compare import Reference as PixelReference
 from vectrify.score.compare import compare, prepare
@@ -56,9 +55,7 @@ class Reference:
         segment_count: int = 8,
     ) -> Reference:
         image = image.convert("RGB")
-        buffer = io.BytesIO()
-        image.save(buffer, format="PNG")
-        png = buffer.getvalue()
+        png = png_bytes(image)
         scoring = resize_long_side(
             image, score_resolution or DEFAULT_CONFIG.target_long_side
         )

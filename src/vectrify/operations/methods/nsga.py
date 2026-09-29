@@ -18,6 +18,7 @@ from PIL import Image
 
 from vectrify.document import DocumentError
 from vectrify.image_utils import (
+    preview_urls,
     rasterize_svg_to_png_bytes,
     resize_long_side,
 )
@@ -36,7 +37,6 @@ from vectrify.operations.contract import (
 )
 from vectrify.operations.generate import error, render_region, target_region
 from vectrify.operations.settings import Setting, read_settings
-from vectrify.refine.selected import png_url
 
 DEFAULT_TASKS = 600
 LABEL = "Improve with NSGA-II"
@@ -179,11 +179,11 @@ class Nsga:
             )
         previous = render_region(request.snapshot.document, region)
         for proposal in proposals:
-            proposal.previews = {
-                "reference": png_url(region.image),
-                "before": png_url(previous),
-                "after": png_url(render_region(proposal.transaction.preview, region)),
-            }
+            proposal.previews = preview_urls(
+                region.image,
+                previous,
+                render_region(proposal.transaction.preview, region),
+            )
         return OperationResult(
             proposals[0],
             proposals[1:],

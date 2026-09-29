@@ -23,6 +23,8 @@ from typing import Any
 import numpy as np
 from PIL import Image
 
+from vectrify.image_utils import png_bytes
+
 log = logging.getLogger(__name__)
 
 # Absolute commands only: normalize_svg has already run, and a relative command
@@ -2276,8 +2278,7 @@ def fit_filled_svg_bounded(
     groups = fill_groups(svg, maximum_paths=maximum_paths)
     if not groups:
         raise UnsupportedPathError("no opaque filled cubic paths to optimise")
-    encoded = io.BytesIO()
-    target.convert("RGB").save(encoded, format="PNG")
+    encoded = png_bytes(target.convert("RGB"))
     fitted = svg
     for index, group in enumerate(groups):
         peak_before = 0
@@ -2292,7 +2293,7 @@ def fit_filled_svg_bounded(
         started = perf_counter()
         fitted = fit_opaque_fills_locally(
             fitted,
-            encoded.getvalue(),
+            encoded,
             steps=steps,
             rasterize=rasterize,
             maximum_paths=maximum_paths,
