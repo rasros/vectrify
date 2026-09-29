@@ -5,7 +5,6 @@ import threading
 from PIL import Image
 
 from tests.helpers import rasterize
-from vectrify.image_utils import png_bytes_to_data_url
 from vectrify.search.storage import MemoryStorage
 from vectrify.vector.reference import Reference
 from vectrify.vector.search import SearchSettings, run_search, seed_node
@@ -29,19 +28,10 @@ def target():
 def setup():
     reference = Reference.build(target(), score_resolution=48, segment_count=2)
     context = WorkerContext(
-        image_data_url=png_bytes_to_data_url(reference.png),
         original_png_bytes=reference.png,
         original_w=reference.width,
         original_h=reference.height,
-        resolution_llm=48,
         log_level="ERROR",
-        log_file=None,
-        goal=None,
-        source_name=None,
-        llm_provider="openai",
-        llm_model="",
-        reasoning="none",
-        api_key=None,
         random_seed=7,
     )
     seed = seed_node(
@@ -50,7 +40,6 @@ def setup():
         rasterize(SEED, 48, 48),
         node_id=1,
         origin="test seed",
-        resolution_llm=48,
     )
     return reference, context, seed
 

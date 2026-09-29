@@ -1,11 +1,10 @@
-import logging
 import time
 
 import pytest
 
 from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search import ChainState, Result, SearchNode
-from vectrify.search.engine import MultiprocessSearchEngine, _spread_parents
+from vectrify.search.engine import MultiprocessSearchEngine
 
 
 def _rank_of(node) -> float:
@@ -177,19 +176,20 @@ def test_engine_epoch_patience_triggers_transition():
                 valid=True,
                 measured=True,
                 payload="p",
-                llm_type="llm-generate",
             )
         )
 
     initial_node = SearchNode(
         valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
+    epochs_seen: set[int] = set()
     engine.run(
         initial_nodes=[initial_node],
         max_wall_seconds=None,
         epoch_patience=3,
+        progress=lambda state: epochs_seen.add(state.epoch),
     )
-    assert strat.epoch_parents_calls >= 1
+    assert max(epochs_seen) >= 1
     assert store.save_called
 
 
@@ -356,218 +356,6 @@ def test_engine_score_fn_none_with_unscored_result_raises():
         )
 
 
-def test_engine_aborts_when_every_epoch0_seed_fails():
-    """Epoch 0 has nothing to fall back to, so a failed batch must say why.
-
-    Regression: the run used to idle until --max-wall-seconds and exit 0 with
-    no output, hiding whatever the LLM returned (often a 401).
-    """
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=50
-    )
-    # Two failures, not one: a failed seed edit now buys a replacement, so the
-    # batch is only over once the retry budget is spent too. An auth error will
-    # fail every attempt, which is why the budget is bounded -- the abort still
-    # arrives, one retry later.
-    for task_id in (1, 2):
-        engine.unscored_q.put(
-            Result(
-                task_id=task_id,
-                parent_id=1,
-                valid=False,
-                measured=True,
-                payload=None,
-                invalid_msg="AuthenticationError(401)",
-                llm_type="llm-generate",
-            )
-        )
-    initial = SearchNode(
-        valid=False,
-        id=1,
-        parent_id=0,
-        state=ChainState(payload=None),
-    )
-
-    with pytest.raises(RuntimeError, match="seed task"):
-        engine.run(
-            initial_nodes=[initial],
-            max_wall_seconds=None,
-            epoch_seeds=1,
-            active_pool_size=1,
-        )
-
-
-def _seed_result(task_id: int) -> Result:
-    return Result(
-        task_id=task_id,
-        parent_id=1,
-        valid=True,
-        measured=True,
-        payload="p",
-        llm_type="llm-generate",
-    )
-
-
-def test_seed_batch_does_not_consult_the_parent_selector():
-
-    class TrackingStrategy(FakeStrategy):
-        def __init__(self):
-            self.select_calls = 0
-
-        def select_parent(self, nodes):
-            self.select_calls += 1
-            return nodes[0].id, None
-
-    strat = TrackingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
-    )
-    for i in range(1, 3):
-        engine.unscored_q.put(_seed_result(i))
-
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=2)
-
-    assert strat.select_calls == 0
-
-
-def test_seed_phase_cannot_go_stale():
-
-    class TrackingStrategy(FakeStrategy):
-        def __init__(self):
-            self.epoch_parents_calls = 0
-
-        def epoch_parents(self, pool, max_parents):
-            self.epoch_parents_calls += 1
-            return pool[:max_parents]
-
-    strat = TrackingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=3
-    )
-    for i in range(1, 4):
-        engine.unscored_q.put(_seed_result(i))
-
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    engine.run(
-        initial_nodes=[initial],
-        max_wall_seconds=None,
-        epoch_seeds=3,
-        epoch_patience=1,
-    )
-
-    assert strat.epoch_parents_calls == 0
-
-
-def test_epoch_zero_keeps_resumed_nodes_alongside_seed_children():
-
-    class TrackingStrategy(FakeStrategy):
-        def __init__(self):
-            self.pools_seen = []
-
-        def select_parent(self, nodes):
-            self.pools_seen.append({n.id for n in nodes})
-            return nodes[0].id, None
-
-    strat = TrackingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
-    )
-    engine.unscored_q.put(_seed_result(1))
-    engine.unscored_q.put(
-        Result(task_id=2, parent_id=2, valid=True, measured=True, payload="p")
-    )
-
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    engine.run(initial_nodes=[initial], max_wall_seconds=None, epoch_seeds=1)
-
-    # The local task that follows the batch sees the seed child (id 2) and the
-    # carried-in node (id 1).
-    assert strat.pools_seen == [{1, 2}]
-
-
-def test_local_results_that_outlive_their_epoch_do_not_count_as_seeds(caplog):
-    """An epoch can transition with local tasks still in flight.
-
-    Those results land during the next seed phase. Counted toward the batch
-    they end it before its LLM children arrive, leaving the epoch refining
-    leftovers of the pool it just discarded.
-    """
-    engine = MultiprocessSearchEngine(
-        workers=4, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=6
-    )
-
-    # Epoch 0: seed (task 1), then four local tasks (2-5). Patience of 1 ends
-    # the epoch on the first local result, leaving 3, 4 and 5 in flight; they
-    # arrive after epoch 1 has already opened its batch (task 6).
-    engine.unscored_q.put(_seed_result(1))
-    engine.unscored_q.put(
-        Result(task_id=2, parent_id=1, valid=True, measured=True, payload="p")
-    )
-    for tid in (3, 4):
-        engine.unscored_q.put(
-            Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
-        )
-    engine.unscored_q.put(_seed_result(6))
-    engine.unscored_q.put(
-        Result(task_id=5, parent_id=1, valid=True, measured=True, payload="p")
-    )
-
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    with caplog.at_level(logging.INFO, logger="vectrify.search.engine"):
-        engine.run(
-            initial_nodes=[initial],
-            max_wall_seconds=None,
-            epoch_seeds=1,
-            epoch_patience=1,
-            active_pool_size=2,
-            epochs=5,
-        )
-
-    refines = [m for m in caplog.messages if "refining" in m]
-    # Epoch 1 was seeded once, so it has exactly one candidate to refine. The
-    # three stale locals must not have been mistaken for seed children.
-    assert refines[-1].startswith("Epoch 1: refining 1 candidate")
-
-
-def test_seed_children_open_lineages_and_local_children_inherit():
-    """Crossover pairs only across lineages, so the engine has to assign them:
-    every LLM seed is an independent attempt, its descendants are not."""
-
-    class TrackingStrategy(FakeStrategy):
-        def __init__(self):
-            self.roots = []
-
-        def select_parent(self, nodes):
-            self.roots.append({n.id: n.root_id for n in nodes})
-            return nodes[0].id, None
-
-    strat = TrackingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=4
-    )
-    engine.unscored_q.put(_seed_result(1))
-    engine.unscored_q.put(_seed_result(2))
-    for tid in (3, 4):
-        engine.unscored_q.put(
-            Result(task_id=tid, parent_id=2, valid=True, measured=True, payload="p")
-        )
-
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    engine.run(
-        initial_nodes=[initial],
-        max_wall_seconds=None,
-        epoch_seeds=2,
-        generation_size=1,
-    )
-
-    seen = strat.roots[-1]
-    # The two seed children carry different lineages, and the local child that
-    # followed carries its parent's rather than a new one.
-    assert len(set(seen.values())) >= 2
-    assert len(seen) > len(set(seen.values()))
-
-
 def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
     """The round optimises pixel L1 because it is ~300x cheaper than the real
     objective. If the evaluator's verdict did not decide seed order, the epoch
@@ -594,8 +382,7 @@ def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
         max_total_tasks=4,
         rank_front=rank_front,
     )
-    engine.unscored_q.put(_seed_result(1))
-    for tid in (2, 3, 4):
+    for tid in (1, 2, 3, 4):
         engine.unscored_q.put(
             Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
@@ -604,7 +391,6 @@ def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
-        epoch_seeds=1,
         epoch_patience=1,
         active_pool_size=2,
         epochs=5,
@@ -638,109 +424,16 @@ class _DriftingStrategy(FakeStrategy):
         return pool[:max_parents]
 
 
-def test_a_new_epoch_can_be_seeded_from_the_llm_seed_local_search_replaced():
-    """Local refinement is not monotone: a lineage can end an epoch worse than
-    the seed it started from. If only the evolved pool reached the next front,
-    the model would be handed the damaged drawing and build on it."""
-    strat = _DriftingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
-    )
-    engine.unscored_q.put(_seed_result(1))
-    # Worse than the seed it descends from, and the pool holds one node.
-    engine.unscored_q.put(
-        Result(task_id=2, parent_id=2, valid=True, measured=True, payload="p")
-    )
-
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    engine.run(
-        initial_nodes=[initial],
-        max_wall_seconds=None,
-        epoch_seeds=1,
-        epoch_patience=1,
-        active_pool_size=1,
-        generation_size=1,
-        epochs=2,
-    )
-
-    # Node 2 is the seed child, node 3 the local child that displaced it.
-    assert strat.epoch_pools == [{2, 3}]
-
-
-def test_remembered_seeds_stay_within_their_share_of_the_front():
-    """Every epoch adds seeds, so without a bound the front would drift towards
-    being all history and none of the pool the search actually built."""
-    strat = _DriftingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=7
-    )
-    # Epoch 0: two seeds far better than anything that follows, then a local
-    # child, which fills the pool and ends the epoch.
-    for task_id in (1, 2):
-        engine.unscored_q.put(_seed_result(task_id))
-    engine.unscored_q.put(
-        Result(task_id=3, parent_id=2, valid=True, measured=True, payload="p")
-    )
-    # Epoch 1 replaces the pool with its own two seeds and refines them.
-    for task_id in (4, 5):
-        engine.unscored_q.put(_seed_result(task_id))
-    for task_id in (6, 7):
-        engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=5, valid=True, measured=True, payload="p")
-        )
-
-    initial = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    engine.run(
-        initial_nodes=[initial],
-        max_wall_seconds=None,
-        epoch_seeds=2,
-        epoch_patience=1,
-        active_pool_size=4,
-        generation_size=1,
-        epochs=3,
-    )
-
-    # Epoch 2 opens on a pool of epoch 1's nodes. Both epoch-0 seeds (2 and 3)
-    # outscore all of them, and a pool of four admits one remembered seed, so
-    # only the better of the two is carried in.
-    assert strat.epoch_pools[-1] - {5, 6, 7, 8} == {2}
-
-
-def test_a_resumed_run_treats_no_restored_node_as_an_llm_seed():
-    """Storage restores drawings and ids, not who wrote them. Guessing that a
-    restored node was a seed would protect a locally degraded candidate for the
-    rest of the run, which is the failure the archive exists to prevent."""
-    strat = _DriftingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
-    )
-    for task_id in (1, 2):
-        engine.unscored_q.put(
-            Result(task_id=task_id, parent_id=1, valid=True, measured=True, payload="p")
-        )
-
-    resumed = SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
-    engine.run(
-        initial_nodes=[resumed],
-        max_wall_seconds=None,
-        epoch_seeds=1,
-        initial_seeds=0,
-        epoch_patience=1,
-        active_pool_size=1,
-        generation_size=1,
-        epochs=2,
-    )
-
-    # The restored node is gone from the pool and does not come back, even
-    # though it scored better than what replaced it.
-    assert strat.epoch_pools == [{2}]
-
-
 def test_a_run_without_llm_seeds_offers_the_epoch_only_the_evolved_pool():
-    """The bench runs with --seeds 0 and must see exactly what it saw before."""
+    """The epoch's field is the evolved pool, with nothing carried in beside it."""
     strat = _DriftingStrategy()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+        workers=1,
+        strategy=strat,
+        storage=FakeStorage(),
+        max_total_tasks=2,
+        # The field is only built for an evaluator to rank.
+        rank_front=lambda nodes: nodes,
     )
     for task_id in (1, 2):
         engine.unscored_q.put(
@@ -751,14 +444,14 @@ def test_a_run_without_llm_seeds_offers_the_epoch_only_the_evolved_pool():
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
-        epoch_seeds=0,
         epoch_patience=1,
         active_pool_size=1,
         generation_size=1,
         epochs=2,
     )
 
-    assert strat.epoch_pools == [{2}]
+    assert strat.epoch_pools
+    assert all(pool == {2} for pool in strat.epoch_pools)
 
 
 def test_a_failing_evaluator_does_not_stop_the_run():
@@ -771,8 +464,7 @@ def test_a_failing_evaluator_does_not_stop_the_run():
         max_total_tasks=3,
         rank_front=_explode,
     )
-    engine.unscored_q.put(_seed_result(1))
-    for tid in (2, 3):
+    for tid in (1, 2, 3):
         engine.unscored_q.put(
             Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
@@ -780,7 +472,6 @@ def test_a_failing_evaluator_does_not_stop_the_run():
     engine.run(
         initial_nodes=[initial],
         max_wall_seconds=None,
-        epoch_seeds=1,
         epoch_patience=1,
         active_pool_size=2,
         epochs=4,
@@ -821,8 +512,8 @@ def test_children_join_the_pool_only_when_the_generation_closes():
 
 
 def test_epoch_transition_closes_the_open_generation():
-    """The next batch edits this pool's front, so children that arrived since
-    the last generation have to land before the front is read."""
+    """The evaluator judges this pool at the boundary, so children that arrived
+    since the last generation have to land before the front is read."""
 
     class TrackingStrategy(FakeStrategy):
         def __init__(self):
@@ -834,7 +525,11 @@ def test_epoch_transition_closes_the_open_generation():
 
     strat = TrackingStrategy()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=2
+        workers=1,
+        strategy=strat,
+        storage=FakeStorage(),
+        max_total_tasks=2,
+        rank_front=lambda nodes: nodes,
     )
     for tid in (1, 2):
         engine.unscored_q.put(
@@ -1365,44 +1060,6 @@ def _measured(node_id: int, edge: float) -> SearchNode:
     )
 
 
-def test_llm_parents_are_not_five_near_copies_of_the_best():
-    """An epoch has one LLM call per parent, so two must not go to the same
-    drawing. Ranks 1-3 here are a hair apart; 4 and 5 are genuinely different.
-    """
-    ranked = [
-        _measured(1, 0.100),
-        _measured(2, 0.1001),
-        _measured(3, 0.1002),
-        _measured(4, 0.400),
-        _measured(5, 0.900),
-    ]
-    picked = _spread_parents(ranked, 3)
-    assert [n.id for n in picked] == [1, 4, 5]
-
-
-def test_the_top_pick_is_always_kept():
-    ranked = [_measured(i, 0.1 + i * 0.0001) for i in range(1, 9)]
-    picked = _spread_parents(ranked, 3)
-    assert picked[0].id == 1
-    assert len(picked) == 3
-
-
-def test_asking_for_everything_returns_everything_in_rank_order():
-    ranked = [_measured(1, 0.1), _measured(2, 0.2)]
-    assert [n.id for n in _spread_parents(ranked, 5)] == [1, 2]
-
-
-def test_unmeasured_candidates_do_not_break_selection():
-    ranked = [
-        SearchNode(
-            id=1, state=ChainState(payload=None), parent_id=0, metrics={}, valid=True
-        ),
-        _measured(2, 0.2),
-        _measured(3, 0.9),
-    ]
-    assert len(_spread_parents(ranked, 2)) == 2
-
-
 def _epoch_run(rank_front, *, tasks, improvement=0.0, patience=1, epochs=50):
     """Drive several epoch transitions with a controllable evaluator."""
 
@@ -1510,204 +1167,3 @@ def test_the_improvement_test_can_be_switched_off():
     # Patience 0 leaves --epochs and the wall as the only limits, so a run that
     # never improves still spends its whole budget.
     assert _epoch_run(rank_front, tasks=40, patience=0, epochs=50) >= 5
-
-
-def test_a_failed_seed_edit_is_replaced_rather_than_lost(caplog):
-    """An epoch is the only thing that puts new structure into the pool, so a
-    batch that comes back short must not simply run short. Measured on one run,
-    5 of 15 edits failed and the epochs opened with 5, then 3, then 2
-    candidates; the last went stale in 14 seconds."""
-
-    engine = MultiprocessSearchEngine(
-        workers=2, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
-    )
-    engine.unscored_q.put(
-        Result(
-            task_id=1,
-            parent_id=1,
-            valid=False,
-            measured=True,
-            payload=None,
-            invalid_msg="none of the search/replace blocks matched",
-            llm_type="llm-generate",
-        )
-    )
-    engine.unscored_q.put(
-        Result(
-            task_id=2,
-            parent_id=1,
-            valid=True,
-            measured=True,
-            payload="p",
-            metrics={"edge": 0.4},
-            llm_type="llm-generate",
-        )
-    )
-
-    with caplog.at_level(logging.INFO):
-        engine.run(
-            initial_nodes=[
-                SearchNode(
-                    valid=True,
-                    id=1,
-                    parent_id=0,
-                    state=ChainState(payload=None),
-                    metrics={"edge": 0.5},
-                )
-            ],
-            max_wall_seconds=None,
-            epoch_seeds=2,
-            initial_seeds=2,
-            active_pool_size=2,
-            generation_size=1,
-            epoch_patience=1,
-        )
-
-    assert "asking for a replacement" in caplog.text
-
-
-def test_seed_retries_are_bounded():
-    """A model that cannot produce a usable edit for this drawing at all would
-    otherwise retry until the wall."""
-
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=20
-    )
-    for tid in range(1, 21):
-        engine.unscored_q.put(
-            Result(
-                task_id=tid,
-                parent_id=1,
-                valid=False,
-                measured=True,
-                payload=None,
-                invalid_msg="no usable output",
-                llm_type="llm-generate",
-            )
-        )
-
-    engine.run(
-        initial_nodes=[
-            SearchNode(
-                valid=True,
-                id=1,
-                parent_id=0,
-                state=ChainState(payload=None),
-                metrics={"edge": 0.5},
-            )
-        ],
-        max_wall_seconds=None,
-        epoch_seeds=2,
-        initial_seeds=2,
-        active_pool_size=2,
-        generation_size=1,
-        epoch_patience=1,
-        epochs=1,
-    )
-
-    llm_tasks = 0
-    while not engine.task_q.empty():
-        llm_tasks += 1 if engine.task_q.get().force_llm else 0
-    # Two asked for plus at most two replacements.
-    assert llm_tasks <= 4
-
-
-def test_a_derived_candidate_completes_no_task_and_frees_no_slot():
-    """A second candidate out of one reply was never dispatched. Counted as a
-    task it would end the run early on --max-total-tasks; counted as a batch
-    delivery it would close the seed phase before the calls came back."""
-
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
-    )
-    for derived in (False, True):
-        engine.unscored_q.put(
-            Result(
-                task_id=1,
-                parent_id=1,
-                valid=True,
-                measured=True,
-                payload="p",
-                metrics={"edge": 0.4},
-                llm_type="llm-generate",
-                derived=derived,
-            )
-        )
-    engine.unscored_q.put(
-        Result(
-            task_id=2,
-            parent_id=1,
-            valid=True,
-            measured=True,
-            payload="p",
-            metrics={"edge": 0.3},
-            llm_type="llm-generate",
-        )
-    )
-    store = FakeStorage()
-    engine.storage = store
-    engine.run(
-        initial_nodes=[
-            SearchNode(
-                valid=True,
-                id=1,
-                parent_id=0,
-                state=ChainState(payload=None),
-                metrics={"edge": 0.5},
-            )
-        ],
-        max_wall_seconds=None,
-        epoch_seeds=2,
-        initial_seeds=2,
-        active_pool_size=4,
-        generation_size=1,
-        epoch_patience=1,
-    )
-    # Two dispatched tasks satisfy a batch of two; the derived candidate rides
-    # along without being one of them.
-    assert store.save_called
-
-
-def test_a_derived_seed_candidate_is_not_dropped_as_stale(caplog):
-    """It belongs to the open batch even though it is not one of its
-    deliveries. Treating it as an outlived local result would throw away a
-    candidate that was already paid for."""
-
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=1
-    )
-    # Extras first, the dispatched one last, which is the order the worker
-    # emits them in: delivering the asked-for call is what closes the batch.
-    for derived in (True, True, False):
-        engine.unscored_q.put(
-            Result(
-                task_id=1,
-                parent_id=1,
-                valid=True,
-                measured=True,
-                payload="p",
-                metrics={"edge": 0.4},
-                llm_type="llm-generate",
-                derived=derived,
-            )
-        )
-    with caplog.at_level(logging.INFO):
-        engine.run(
-            initial_nodes=[
-                SearchNode(
-                    valid=True,
-                    id=1,
-                    parent_id=0,
-                    state=ChainState(payload=None),
-                    metrics={"edge": 0.5},
-                )
-            ],
-            max_wall_seconds=None,
-            epoch_seeds=1,
-            initial_seeds=1,
-            active_pool_size=4,
-            generation_size=1,
-            epoch_patience=1,
-        )
-    # One call asked for, three candidates accepted out of it, none dropped.
-    assert caplog.text.count("[LLM-GENERATE ACCEPTED]") == 3

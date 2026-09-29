@@ -108,7 +108,6 @@ def test_unchanged_candidate_makes_no_edits():
 
 def test_scoped_search_pool_replays_through_the_transaction():
     from tests.helpers import rasterize
-    from vectrify.image_utils import png_bytes_to_data_url
     from vectrify.operations import OperationRequest, Permissions
     from vectrify.operations.candidates import mutation_scope
     from vectrify.vector.reference import Reference
@@ -132,24 +131,13 @@ def test_scoped_search_pool_replays_through_the_transaction():
     )
     context = WorkerContext(
         scope=mutation_scope(request),
-        image_data_url=png_bytes_to_data_url(reference.png),
         original_png_bytes=reference.png,
         original_w=40,
         original_h=40,
-        resolution_llm=40,
         log_level="ERROR",
-        log_file=None,
-        goal=None,
-        source_name=None,
-        llm_provider="openai",
-        llm_model="",
-        reasoning="none",
-        api_key=None,
         random_seed=3,
     )
-    seed = seed_node(
-        reference, source, png, node_id=1, origin="drawing", resolution_llm=40
-    )
+    seed = seed_node(reference, source, png, node_id=1, origin="drawing")
     outcome = run_search(
         reference,
         [seed],

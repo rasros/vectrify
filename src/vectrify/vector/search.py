@@ -1,9 +1,8 @@
-"""The NSGA-II vector search as a callable, independent of the CLI's wiring.
+"""The NSGA-II vector search as a callable.
 
 ``run_search`` takes a prepared Reference, starting candidates and a worker
 context, runs the multiprocess engine until a budget, a stop event or
-convergence ends it, and returns the best candidate and the final pool. Output
-directories, logging setup, dashboards and resume handling stay with callers.
+convergence ends it, and returns the best candidate and the final pool.
 """
 
 from __future__ import annotations
@@ -18,13 +17,14 @@ from typing import Any
 
 from vectrify.formats.svg.operations import mutation_weights
 from vectrify.formats.svg.selection import MutationScope
-from vectrify.image_utils import make_preview_data_url, rasterize_svg_to_png_bytes
+from vectrify.image_utils import rasterize_svg_to_png_bytes
 from vectrify.score.metrics import FRONT_SCORE
 from vectrify.score.utils import MAX_SCORE
 from vectrify.search import (
     ChainState,
     MultiprocessSearchEngine,
     NsgaStrategy,
+    Result,
     SearchNode,
     StorageAdapter,
 )
@@ -34,7 +34,6 @@ from vectrify.search.operators import Exp3Policy, FixedWeightPolicy, OperatorPol
 from vectrify.search.storage import MemoryStorage
 from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.reference import Reference
-from vectrify.vector.state import VectorStateBuilder
 from vectrify.vector.worker import WorkerContext, worker_loop
 
 log = logging.getLogger(__name__)
@@ -42,15 +41,13 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SearchSettings:
-    """What bounds and shapes one search; the CLI flags map onto these."""
+    """What bounds and shapes one search."""
 
     workers: int = 1
     pool_size: int = 20
     tournament_size: int = 3
     crossover_distance: int = 12
     adaptive_operators: bool = True
-    epoch_seeds: int = 0
-    initial_seeds: int | None = None
     epochs: int | None = None
     epoch_patience: int | None = None
     epoch_max_tasks: int | None = None
@@ -60,9 +57,11 @@ class SearchSettings:
     epoch_improvement_patience: int = 1
     max_total_tasks: int | None = None
     max_wall_seconds: float | None = None
-    resolution_llm: int = 512
-    write_lineage: bool = False
-    save_raster: bool = False
+
+
+def to_state(result: Result) -> ChainState[VectorStatePayload]:
+    """Pool state for a scored result: its drawing, not its render."""
+    return ChainState(VectorStatePayload(result.payload.content, result.payload.origin))
 
 
 def seed_node(
@@ -72,7 +71,6 @@ def seed_node(
     *,
     node_id: int,
     origin: str,
-    resolution_llm: int,
 ) -> SearchNode:
     """A measured starting candidate, e.g. an imported or generated drawing."""
     return SearchNode(
@@ -81,14 +79,7 @@ def seed_node(
         parent_id=0,
         metrics=reference.measure(png),
         signature=simhash(content),
-        state=ChainState(
-            VectorStatePayload(
-                content=content,
-                raster_data_url=None,
-                raster_preview_data_url=make_preview_data_url(png, resolution_llm),
-                origin=origin,
-            )
-        ),
+        state=ChainState(VectorStatePayload(content=content, origin=origin)),
     )
 
 
@@ -225,11 +216,7 @@ def run_search(
         storage=storage or MemoryStorage(),
         max_total_tasks=settings.max_total_tasks,
         rank_front=rank_front,
-        make_state=VectorStateBuilder(
-            resolution_llm=settings.resolution_llm,
-            write_lineage=settings.write_lineage,
-            save_raster=settings.save_raster,
-        ),
+        make_state=to_state,
         elite_metric_names=tuple(s.metric_name for s in reference.segments),
     )
     # Sized against the scorer thread's own work rather than the worker count:
@@ -245,8 +232,6 @@ def run_search(
             epoch_patience=settings.epoch_patience,
             active_pool_size=settings.pool_size,
             score_fn=pixel_scorer(reference, pool),
-            epoch_seeds=settings.epoch_seeds,
-            initial_seeds=settings.initial_seeds,
             epochs=settings.epochs,
             epoch_max_tasks=settings.epoch_max_tasks,
             epoch_eval_interval=settings.epoch_eval_interval,

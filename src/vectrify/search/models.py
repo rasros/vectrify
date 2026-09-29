@@ -54,7 +54,6 @@ class Task(Generic[TState]):
     parent_state: ChainState[TState]
     secondary_parent_id: int | None = None
     secondary_parent_state: ChainState[TState] | None = None
-    force_llm: bool = False
     # The mutation operator to apply. The engine picks it so one policy sees
     # every outcome; None lets the backend choose for itself.
     operator: str | None = None
@@ -74,12 +73,6 @@ class Result(Generic[TResultPayload]):
     secondary_parent_id: int | None = None
     metrics: dict[str, float] = dataclasses.field(default_factory=dict)
     signature: int | None = None
-    llm_type: str | None = None
     # Echoed back from the task: results arrive out of order and some never
     # arrive at all, so carrying it beats a pending-task map in the engine.
     operator: str | None = None
-    # A second or third candidate out of one LLM reply, sharing the task id of
-    # the first. It is a candidate like any other and becomes a node, but it
-    # was never dispatched, so it must not be counted as a task completed, a
-    # slot freed, or a seed of the batch delivered.
-    derived: bool = False

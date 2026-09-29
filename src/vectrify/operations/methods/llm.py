@@ -18,6 +18,7 @@ from typing import ClassVar
 from PIL import Image
 
 from vectrify.document import DocumentError, UnsupportedSvgError
+from vectrify.formats.svg.ownership import invisible_descriptions
 from vectrify.formats.svg.replies import apply_edits, extract_svg
 from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, resolve_provider
@@ -211,6 +212,7 @@ class LlmEdit:
             ),
             goal=goal,
             canvas=(round(region.width), round(region.height)),
+            invisible=invisible_descriptions(svg),
         )
         replies = _ask(client, config, prompt, context, settings["candidates"], "Edit")
         target = region.image.convert("RGB")

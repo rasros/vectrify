@@ -45,8 +45,6 @@ def _node(node_id: int, content: str = "<svg/>") -> SearchNode:
         state=ChainState(
             payload=VectorStatePayload(
                 content=content,
-                raster_data_url=None,
-                raster_preview_data_url=None,
                 origin=None,
             ),
         ),
