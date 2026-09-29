@@ -226,6 +226,16 @@ class Transaction:
         return self._working
 
     @property
+    def allowed(self) -> frozenset[str]:
+        """The edit kinds and attributes this transaction may change."""
+        return self._allowed
+
+    @property
+    def scope(self) -> frozenset[str]:
+        """Object IDs this transaction may edit (the selection and descendants)."""
+        return frozenset(self._ids)
+
+    @property
     def preview_selection(self) -> Selection:
         return self._remap_selection(self._selection)
 
@@ -673,6 +683,41 @@ class Transaction:
                 }
             )
             return geometry.id
+
+    def replace_geometry(self, object_id: str, geometry: Geometry) -> None:
+        """Give a path new contours, which may change its node structure.
+
+        Needs geometry and structure permission for every user of the asset.
+        Pinned endpoints and linked boundaries must be released first, since
+        new contours cannot keep them. The asset keeps its ID; its nodes do not.
+        """
+        with self._change():
+            self._whole_objects()
+            original = self._working.geometry_for(object_id)
+            affected = self._working.geometry_users(original.id)
+            self._authorize(affected, EditKind.STRUCTURE)
+            self._authorize(affected, EditKind.GEOMETRY)
+            if any(n.pinned for s in original.subpaths for n in s.nodes):
+                raise EditRejectedError("Unpin endpoints before replacing a contour")
+            if any(
+                m.geometry_id == original.id
+                for b in self._working.boundaries
+                for m in b.members
+            ):
+                raise EditRejectedError(
+                    "Detach linked boundaries before replacing a contour"
+                )
+            updated = replace(geometry, id=original.id)
+            self._working = self._working.replace_geometry(updated)
+            retained = {n.id for sub in updated.subpaths for n in sub.nodes}
+            self._record_remap(
+                {
+                    n.id: set()
+                    for sub in original.subpaths
+                    for n in sub.nodes
+                    if n.id not in retained
+                }
+            )
 
     def simplify_shapes(self, options: SimplifyOptions) -> None:
         """Reduce selected path assets, enforcing scope, topology locks and pins."""

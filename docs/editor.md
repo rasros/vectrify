@@ -151,6 +151,15 @@ are ranked by pixel error against the reference: pick the recommendation or an
 alternative, compare previews, and Apply it as one undoable edit. Stop keeps
 the best candidates found so far. No LLM call or GPU fitting is involved.
 
+**Edit with LLM…** sends the drawing, a render of it, the reference and your
+instruction to a multimodal model. Choose which objects and kinds of change are
+allowed (shape and position, paint, adding/removing/restacking). The reply is
+replayed as ordinary edits: anything outside the chosen objects or permissions
+is left out and reported, and locks and pins are enforced. With several
+replies, pick one by preview and reference error. The Generate dialog's LLM
+method draws the reference from scratch instead. Both need an API key in the
+environment (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`).
+
 **Smooth / simplify…** reduces selected paths, path instances or groups of paths
 without a reference image. It fits shorter runs of lines/cubic curves to the
 current contour, using an adjustable approximation tolerance in local SVG

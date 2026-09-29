@@ -57,8 +57,10 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | --- | --- | --- |
 | generate | `samvg` | Traces SAM segments of the reference into a new group |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
+| generate | `llm` | Asks an LLM to draw the reference region as SVG |
 | improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
 | improve | `nsga` | NSGA-II local search over the selected objects, ranked by reference error |
+| improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | simplify | `curves` | Refits selected contours with fewer lines and cubics |
 | link | `boundaries` | Matches touching edges into shared boundaries |
 
@@ -82,11 +84,19 @@ need geometry; reordering needs structure and both siblings in scope), and
 disables crossover and random path fitting.
 
 `replay(tx, svg)` accepts a candidate only by repeating its differences as
-transaction commands: attribute edits, in-place node updates for an unchanged
-path structure, and sibling reorders. Anything else (added or removed objects,
-changed path structure, root changes) raises `CandidateRejectedError`, and the
-transaction still enforces selection, permissions, locks and pins, so a search
-can never produce an edit the user could not have made by hand.
+transaction commands: deletions and insertions (structure), attribute edits,
+in-place node updates for an unchanged path structure, and sibling reorders.
+Strict replay (the default, used by searches) raises `CandidateRejectedError`
+for a changed path structure or root; the transaction enforces selection,
+permissions, locks and pins, so a search can never make an edit the user could
+not have made by hand.
+
+Lenient replay (`lenient=True`, used for LLM replies) instead leaves out every
+change outside the transaction's scope or permissions and counts it in
+`Replay.skipped`, and turns a changed path structure into
+`Transaction.replace_geometry` when geometry and structure are both allowed.
+Pass `baseline=` the original after the same normalization the candidate went
+through, so rounding introduced by that rewrite is never replayed.
 
 ## NSGA-II Improve
 
@@ -99,6 +109,17 @@ reference region, and the best candidates (up to `alternatives` beyond the
 recommendation) are replayed as transactions. A candidate that fails replay is
 skipped. If none beats the current drawing, the unchanged drawing is the
 recommendation. Stop ends the search and keeps the best pool so far.
+
+## LLM methods
+
+`generate/llm` and `improve/llm` pick the provider from `settings.provider`
+(`auto` takes the first of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
+`GEMINI_API_KEY` that is set), `model` (empty for the provider default) and
+`reasoning`. `candidates` asks for several replies, each ranked by reference
+error. Generate pins the model's viewBox to the region's pixel size and
+rescales a reply that uses another. Improve requires an instruction, names the
+editable object IDs in the prompt, and replays leniently; the prompt is a
+request, the transaction is the enforcement.
 
 ## Writing a method
 
