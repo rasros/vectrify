@@ -24,3 +24,10 @@ duck*/
 # Editor source assets and local native extension builds
 !src/vectrify/ui/static/*.svg
 *.so
+
+# Projects and references saved into a checkout while trying the editor
+/*.vectrify
+/*.png
+/*.jpg
+/*.jpeg
+/*.webp
