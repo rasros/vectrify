@@ -29,6 +29,27 @@ def png_bytes_to_data_url(png_bytes: bytes) -> str:
     return f"data:image/png;base64,{b64}"
 
 
+def png_bytes(image: Image.Image) -> bytes:
+    stream = io.BytesIO()
+    image.save(stream, format="PNG")
+    return stream.getvalue()
+
+
+def png_url(image: Image.Image) -> str:
+    return png_bytes_to_data_url(png_bytes(image))
+
+
+def preview_urls(
+    reference: Image.Image, before: Image.Image, after: Image.Image
+) -> dict[str, str]:
+    """A proposal's previews: the reference and the region before and after."""
+    return {
+        "reference": png_url(reference),
+        "before": png_url(before),
+        "after": png_url(after),
+    }
+
+
 def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> bytes:
     """
     Rasterizes SVG to PNG and composites it over a white background
@@ -49,10 +70,7 @@ def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> byte
 
     bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
     combined = Image.alpha_composite(bg, img).convert("RGB")
-
-    out = io.BytesIO()
-    combined.save(out, format="PNG")
-    return out.getvalue()
+    return png_bytes(combined)
 
 
 def rasterize_svg(svg_text: str, width: int, height: int) -> bytes:
@@ -68,7 +86,4 @@ def pixel_diff_png(ref_img: Image.Image, cand_png: bytes, long_side: int) -> byt
     diff = ImageChops.difference(ref_img, cand)
     lut = [min(255, i * DIFF_BRIGHTNESS_BOOST) for i in range(256)]
     diff = diff.point(lut * len(diff.getbands()))
-    diff = resize_long_side(diff, long_side)
-    buf = io.BytesIO()
-    diff.save(buf, format="PNG")
-    return buf.getvalue()
+    return png_bytes(resize_long_side(diff, long_side))

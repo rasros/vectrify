@@ -7,7 +7,6 @@ Cairo again, so renderer approximation cannot turn a worse fit into a result.
 
 from __future__ import annotations
 
-import base64
 import io
 import math
 import xml.etree.ElementTree as ET
@@ -24,6 +23,7 @@ from vectrify.document import Document, DocumentError, Selection, export_svg
 from vectrify.document.editor import Transaction
 from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.join import path_style
+from vectrify.image_utils import preview_urls
 
 
 @dataclass(frozen=True)
@@ -133,12 +133,6 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
         ):
             raise DocumentError("Fitting object-bounds clipping is not supported yet")
     return oid, geometry, style
-
-
-def png_url(image: Image.Image) -> str:
-    stream = io.BytesIO()
-    image.save(stream, format="PNG")
-    return "data:image/png;base64," + base64.b64encode(stream.getvalue()).decode()
 
 
 class FitContext:
@@ -521,11 +515,7 @@ def fit_selected_path(
         best_fill,
         before,
         best,
-        {
-            "reference": png_url(context.target),
-            "before": png_url(context.before_image),
-            "after": png_url(best_image),
-        },
+        preview_urls(context.target, context.before_image, best_image),
         completed,
         context.size,
         stroke=best_fill if context.style["stroke"] != "none" else None,

@@ -20,8 +20,8 @@ from PIL import Image
 
 from vectrify.document import Document, DocumentError, Element, export_svg, import_svg
 from vectrify.document.model import new_id
+from vectrify.image_utils import preview_urls
 from vectrify.operations.contract import OperationRequest, OperationResult, Proposal
-from vectrify.refine.selected import png_url
 
 
 @dataclass(frozen=True)
@@ -181,11 +181,7 @@ def generated_result(
                 "shapes": shapes,
                 **(metrics or {}),
             },
-            previews={
-                "reference": png_url(region.image),
-                "before": png_url(before),
-                "after": png_url(after),
-            },
+            previews=preview_urls(region.image, before, after),
         ),
         message=None if group else "Nothing was generated for this region",
     )
