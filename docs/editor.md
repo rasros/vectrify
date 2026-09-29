@@ -143,7 +143,31 @@ endpoints and linked boundary edges stay fixed, and surviving points keep their
 identity. The job runs in the background with progress, Stop & keep best, and
 reference/before/after previews; Apply is one undoable edit.
 
+**Edit with LLM…** sends the drawing, a render of it, the reference and your
+instruction to a multimodal model. Choose which objects and kinds of change are
+allowed (shape and position, paint, adding/removing/restacking). The reply is
+replayed as ordinary edits: anything outside the chosen objects or permissions
+is left out and reported, and locks and pins are enforced. With several
+replies, pick one by preview and reference error. The Generate dialog's LLM
+method draws the reference from scratch instead. Both need an API key or a local
+server, set up under **Settings** in the top bar. A local server is any
+OpenAI-compatible endpoint, such as `http://localhost:11434/v1` for Ollama,
+with a model that accepts images. The editor shows only the last four
+characters of a saved key.
+
+**Fit colours…** solves the flat fill colour of every selected object that
+best matches the reference, with geometry locked. Each object is rendered with
+its fill black and white, which measures its exact coverage (including
+antialiasing, opacity, clipping and objects in front), so the best colour has
+a closed form; outlines painted in the fill colour follow it. Objects are
+fitted back to front; more passes help where fitted objects overlap. No GPU is
+needed.
+
+**Clean up geometry…** removes duplicate and collinear vertices and empty or
+duplicate paths, and merges compatible neighbouring paths into compound paths,
+within the selection only. Paths referenced by instances or clips are kept.
 Coordinates are never rounded.
+
 
 Improve, Simplify and Share boundary run through the shared operation
 contract in `vectrify.operations` (see `docs/operations.md`) via
