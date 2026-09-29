@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from typing import ClassVar
 
-from vectrify.document import DocumentError
 from vectrify.image_utils import rasterize_svg
 from vectrify.operations.contract import (
     OperationRequest,
@@ -12,7 +11,11 @@ from vectrify.operations.contract import (
     RunContext,
     register,
 )
-from vectrify.operations.generate import container, generated_result, target_region
+from vectrify.operations.generate import (
+    generated_result,
+    target_region,
+    validate_generate,
+)
 from vectrify.operations.settings import Setting, read_settings
 from vectrify.refine.samvg import (
     SAMVG_MAX_SIDE,
@@ -50,10 +53,7 @@ class Samvg:
 
     def validate(self, request: OperationRequest) -> None:
         read_settings(request.settings, SETTINGS, "SAMVG")
-        if not request.permissions.structure:
-            raise DocumentError("Allow structure changes to add generated shapes")
-        container(request)
-        target_region(request)
+        validate_generate(request)
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
         from vectrify.refine.samvg import generate_svg

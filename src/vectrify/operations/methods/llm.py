@@ -31,11 +31,11 @@ from vectrify.operations.contract import (
     register,
 )
 from vectrify.operations.generate import (
-    container,
     error,
     generated_result,
     render_region,
     target_region,
+    validate_generate,
 )
 from vectrify.operations.settings import Setting, read_settings
 from vectrify.svg.ownership import invisible_descriptions
@@ -121,10 +121,7 @@ class LlmGenerate:
 
     def validate(self, request: OperationRequest) -> None:
         read_settings(request.settings, GENERATE, "LLM")
-        if not request.permissions.structure:
-            raise DocumentError("Allow structure changes to add generated shapes")
-        container(request)
-        target_region(request)
+        validate_generate(request)
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
         from vectrify.svg.prompts import build_svg_gen_prompt
