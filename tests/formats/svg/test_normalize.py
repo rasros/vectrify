@@ -13,14 +13,14 @@ import numpy as np
 import pytest
 from PIL import Image
 
+from tests.helpers import rasterize
 from vectrify.formats.svg.normalize import absolutize_path, normalize_svg
-from vectrify.formats.svg.plugin import SvgPlugin
 
 NS = "http://www.w3.org/2000/svg"
 
 
 def _render(svg: str) -> np.ndarray:
-    png = SvgPlugin().rasterize(svg, 200, 200)
+    png = rasterize(svg, 200, 200)
     return np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=float)
 
 

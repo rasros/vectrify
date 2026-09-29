@@ -1,11 +1,12 @@
 import io
 from unittest.mock import MagicMock
 
+import pytest
 from PIL import Image
 
-from vectrify.formats.models import VectorStatePayload
 from vectrify.score.compare import prepare
 from vectrify.search import ChainState, SearchNode
+from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.reference import Reference as VectorReference
 from vectrify.vector.resume import (
     PreppedNode,
@@ -125,10 +126,13 @@ def test_filter_drops_unmeasured_nodes():
     assert all(n.valid for n in result)
 
 
-def _make_mock_plugin(png: bytes | None = None) -> MagicMock:
-    plugin = MagicMock()
-    plugin.rasterize.return_value = png or _make_png()
-    return plugin
+@pytest.fixture(autouse=True)
+def fake_rasterize(monkeypatch):
+    """Resume renders every item; a flat PNG stands in for Cairo."""
+    png = _make_png()
+    monkeypatch.setattr(
+        "vectrify.vector.resume.rasterize_svg_to_png_bytes", lambda *_a, **_k: png
+    )
 
 
 def _make_reference() -> VectorReference:
@@ -152,7 +156,6 @@ def _make_mock_storage() -> MagicMock:
 
 
 def test_resume_nodes_returns_one_node_per_item():
-    plugin = _make_mock_plugin()
     ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32), color="blue")
@@ -160,7 +163,6 @@ def test_resume_nodes_returns_one_node_per_item():
     items = [(1, "<svg id='1'/>"), (2, "<svg id='2'/>")]
     result = resume_nodes(
         resumed_items=items,
-        format_plugin=plugin,
         original_img=ref_img,
         original_w=32,
         original_h=32,
@@ -176,7 +178,6 @@ def test_resume_nodes_returns_one_node_per_item():
 
 
 def test_resume_nodes_assigns_sequential_ids():
-    plugin = _make_mock_plugin()
     ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
@@ -184,7 +185,6 @@ def test_resume_nodes_assigns_sequential_ids():
     items = [(10, "<svg id='A'/>"), (20, "<svg id='B'/>"), (30, "<svg id='C'/>")]
     result = resume_nodes(
         resumed_items=items,
-        format_plugin=plugin,
         original_img=ref_img,
         original_w=32,
         original_h=32,
@@ -200,7 +200,6 @@ def test_resume_nodes_assigns_sequential_ids():
 
 
 def test_resume_nodes_deduplicates_identical_content():
-    plugin = _make_mock_plugin()
     ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
@@ -209,7 +208,6 @@ def test_resume_nodes_deduplicates_identical_content():
     items = [(1, same), (2, same)]  # same content → same simhash
     result = resume_nodes(
         resumed_items=items,
-        format_plugin=plugin,
         original_img=ref_img,
         original_w=32,
         original_h=32,
@@ -224,7 +222,6 @@ def test_resume_nodes_deduplicates_identical_content():
 
 
 def test_resume_nodes_stores_origin_with_old_id():
-    plugin = _make_mock_plugin()
     ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
@@ -232,7 +229,6 @@ def test_resume_nodes_stores_origin_with_old_id():
     items = [(99, "<svg id='x'/>")]
     result = resume_nodes(
         resumed_items=items,
-        format_plugin=plugin,
         original_img=ref_img,
         original_w=32,
         original_h=32,
@@ -262,7 +258,6 @@ def test_resume_nodes_skips_failed_scoring(monkeypatch):
 
     monkeypatch.setattr(reference_module, "compare", flaky)
 
-    plugin = _make_mock_plugin()
     ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
@@ -270,7 +265,6 @@ def test_resume_nodes_skips_failed_scoring(monkeypatch):
     items = [(1, "<svg id='fail'/>"), (2, "<svg id='ok'/>")]
     result = resume_nodes(
         resumed_items=items,
-        format_plugin=plugin,
         original_img=ref_img,
         original_w=32,
         original_h=32,
@@ -299,7 +293,6 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
         return real_prefilter(prepped, original_img, max_keep)
 
     monkeypatch.setattr(resume_module, "prefilter_nodes", spy_prefilter)
-    plugin = _make_mock_plugin()
     ref = _make_reference()
     storage = _make_mock_storage()
     ref_img = Image.new("RGB", (32, 32))
@@ -307,7 +300,6 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
     items = [(i, f"<svg id='{i}'/>") for i in range(1, n_items + 1)]
     result = resume_nodes(
         resumed_items=items,
-        format_plugin=plugin,
         original_img=ref_img,
         original_w=32,
         original_h=32,

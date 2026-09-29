@@ -1,9 +1,14 @@
+"""Turn an LLM reply into SVG: a whole drawing, or edits to an existing one.
+
+A reply either carries a complete ``<svg>`` fragment or search/replace blocks
+against the parent, possibly several alternatives separated by a marker. Every
+result is normalized into the form local search can edit.
+"""
+
 from __future__ import annotations
 
 import logging
 import re
-from collections.abc import Mapping
-from typing import Any, Protocol
 
 log = logging.getLogger(__name__)
 
@@ -135,112 +140,52 @@ def apply_search_replace(parent: str, raw: str) -> str | None:
     return result
 
 
-class SvgBackend(Protocol):
-    """SVG operations consumed by the search runner and resume loader."""
+def _require_svg(fragment: str, raw: str) -> str:
+    if "<svg" not in fragment.lower():
+        raise NoUsableOutputError(
+            f"no <svg> in the reply and no diff blocks: {describe_unusable(raw)}"
+        )
+    return fragment
 
-    name: str
-    file_extension: str
-    # Run-scoped resource shared by GPU-aware SVG operations.
-    gpu_gate: Any
 
-    def rasterize(self, content: str, out_w: int, out_h: int) -> bytes:
-        """Render content to PNG bytes at given dimensions."""
-        ...
+def extract_svg(raw: str) -> str:
+    """The complete drawing in *raw*, normalized."""
+    from vectrify.formats.svg.normalize import normalize_svg
+    from vectrify.formats.svg.prompts import extract_svg_fragment
 
-    def validate(self, content: str) -> tuple[bool, str | None]:
-        """Return (is_valid, error_message_or_None)."""
-        ...
+    # Normalised on the way in, so local search meets one form of markup
+    # rather than whichever the model reached for. Which forms it reaches
+    # for is a property of the model: one model's seeds carried 147
+    # elements in relative path commands, which describe an offset from
+    # wherever the pen already is and so cannot be moved at all.
+    return normalize_svg(_require_svg(extract_svg_fragment(raw), raw))
 
-    def extract_from_llm(self, raw: str) -> str:
-        """Extract and normalize a complete SVG from an LLM response."""
-        ...
 
-    def apply_edit(self, parent: str, raw: str) -> str:
-        """Apply an LLM edit response to *parent*.
+def apply_edit(parent: str, raw: str) -> str:
+    """*parent* with the reply's search/replace blocks, or the reply's drawing."""
+    from vectrify.formats.svg.normalize import normalize_svg
+    from vectrify.formats.svg.prompts import extract_svg_fragment
 
-        Expects search/replace diff blocks in *raw*; falls back to
-        ``extract_from_llm`` if none are found.
-        """
-        ...
+    patched = apply_search_replace(parent, raw)
+    if patched is None:
+        patched = _require_svg(extract_svg_fragment(raw), raw)
+    return normalize_svg(patched)
 
-    def build_generate_prompt(
-        self,
-        image_data_url: str,
-        node_index: int,
-        content_prev: str | None,
-        raster_preview_url: str | None,
-        goal: str | None,
-        canvas: tuple[int, int],
-        source_name: str | None = None,
-        invisible: list[str] | None = None,
-    ) -> list[dict]:
-        """Build the LLM generation/refinement prompt as content blocks.
 
-        *canvas* is the raster size the candidate will be rendered and scored
-        at. SVG coordinates must be pinned to this, so every candidate in the
-        pool shares one space: the genetic operators
-        graft elements between parents, and coordinates that meant different
-        things in different spaces are silently misplaced by the graft.
-        """
-        ...
+def apply_edits(parent: str, raw: str) -> list[str]:
+    """Every attempt the reply offers, each a candidate of its own.
 
-    def mutation_weights(self) -> Mapping[str, float]:
-        """This backend's mutation operators and their default weights.
-
-        The names are what a policy selects by and what results are attributed
-        to, so they must be stable across a run.
-        """
-        ...
-
-    def mutate(
-        self,
-        content: str,
-        operator: str | None = None,
-        targets: dict[int, float] | None = None,
-        reference_png: bytes | None = None,
-    ) -> tuple[str, str]:
-        """Mutate existing content. Return (new_content, origin).
-
-        *operator* names one of ``mutation_weights``; None lets the backend
-        pick for itself. *targets* weights which element to work on, by its
-        position among the drawable elements. *reference_png* is available to
-        image-aware SVG operators.
-        """
-        ...
-
-    def element_targets(self, content: str, reference_png: bytes) -> dict[int, float]:
-        """How much error each element of *content* answers for.
-
-        An empty mapping leaves mutation choosing its target uniformly.
-        """
-        ...
-
-    def apply_edits(self, parent: str, raw: str) -> list[str]:
-        """Every candidate a reply offers, applied to *parent*.
-
-        One entry for an ordinary reply. A section that cannot be applied is
-        dropped rather than failing the others -- a reply offering three
-        attempts should not be discarded because one of them misquoted.
-        """
-        ...
-
-    def invisible_elements(self, content: str) -> list[str]:
-        """Elements that are in *content* and paint nothing, described for the
-        model.
-
-        An empty list leaves the prompt without visibility guidance.
-        """
-        ...
-
-    def operator_reward_scale(self) -> Mapping[str, float]:
-        """What an operator's reward counts for, where a draw of it is not the
-        same size as a draw of the others.
-
-        Empty when every operator costs about the same, which leaves the policy
-        comparing them per draw.
-        """
-        ...
-
-    def crossover(self, content_a: str, content_b: str) -> tuple[str, str]:
-        """Crossover two contents. Return (new_content, origin)."""
-        ...
+    A section that will not apply is dropped rather than failing the rest:
+    a reply offering three attempts should not be discarded because one of
+    them misquoted the markup. If none apply, the single-edit path runs
+    again so the caller sees the same error it always did.
+    """
+    candidates: list[str] = []
+    for section in split_alternatives(raw):
+        try:
+            candidates.append(apply_edit(parent, section))
+        except Exception as exc:
+            log.debug(f"Dropping one alternative: {exc}")
+    if not candidates:
+        return [apply_edit(parent, raw)]
+    return candidates

@@ -467,9 +467,8 @@ def main() -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
     from bench.seeds import SEEDS
-    from vectrify.formats.svg.plugin import SvgPlugin
+    from vectrify.formats.svg.prompts import is_valid_svg
 
-    plugin = SvgPlugin()
     root = Path(__file__).parent / "cases"
     for name, (target, _legacy_seed) in CASES.items():
         case_dir = root / name
@@ -480,13 +479,14 @@ def main() -> None:
 
         variants = SEEDS[name]
         for index, svg in enumerate(variants, start=1):
-            ok, err = plugin.validate(svg)
+            ok, err = is_valid_svg(svg)
             if not ok:
                 raise SystemExit(f"{name}/seeds/{index}.svg is invalid: {err}")
             (seeds_dir / f"{index}.svg").write_text(svg, encoding="utf-8")
 
         target().save(case_dir / "target.png")
         print(f"{name}: wrote target.png and {len(variants)} seeds")
+
 
 if __name__ == "__main__":
     main()

@@ -1,6 +1,6 @@
 import random
 
-from vectrify.formats.mutations import operator_weights, pick_operator
+from vectrify.formats.svg.operations import operator_weights, pick_operator
 
 TABLE = (
     (str.upper, "upper", 1.0),

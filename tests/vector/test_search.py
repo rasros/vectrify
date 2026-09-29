@@ -4,7 +4,7 @@ import threading
 
 from PIL import Image
 
-from vectrify.formats.svg.plugin import SvgPlugin
+from tests.helpers import rasterize
 from vectrify.image_utils import png_bytes_to_data_url
 from vectrify.search.storage import MemoryStorage
 from vectrify.vector.reference import Reference
@@ -27,10 +27,8 @@ def target():
 
 
 def setup():
-    plugin = SvgPlugin()
     reference = Reference.build(target(), score_resolution=48, segment_count=2)
     context = WorkerContext(
-        format_plugin=plugin,
         image_data_url=png_bytes_to_data_url(reference.png),
         original_png_bytes=reference.png,
         original_w=reference.width,
@@ -49,7 +47,7 @@ def setup():
     seed = seed_node(
         reference,
         SEED,
-        plugin.rasterize(SEED, out_w=48, out_h=48),
+        rasterize(SEED, 48, 48),
         node_id=1,
         origin="test seed",
         resolution_llm=48,

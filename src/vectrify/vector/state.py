@@ -1,8 +1,8 @@
 import dataclasses
 
-from vectrify.formats.models import VectorResultPayload, VectorStatePayload
 from vectrify.image_utils import make_preview_data_url, png_bytes_to_data_url
 from vectrify.search import ChainState, Result
+from vectrify.vector.payloads import VectorResultPayload, VectorStatePayload
 
 
 @dataclasses.dataclass

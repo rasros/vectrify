@@ -5,7 +5,6 @@ from PIL import Image
 
 from tests.helpers import TEST_MODEL
 from vectrify import cli
-from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.score import ScorerType
 from vectrify.vector.runner import run_vector_search
 from vectrify.vector.storage import FileStorageAdapter
@@ -26,15 +25,13 @@ def test_runner_defaults_match_cli_defaults():
 
 
 def _make_storage(tmp_path):
-    plugin = SvgPlugin()
-    storage = FileStorageAdapter(
+    return FileStorageAdapter(
         output_path=str(tmp_path / "out.svg"),
         resume=False,
     )
-    return plugin, storage
 
 
-def _run(image_path, plugin, storage):
+def _run(image_path, storage):
     run_vector_search(
         image_path=image_path,
         storage=storage,
@@ -47,32 +44,31 @@ def _run(image_path, plugin, storage):
         reasoning="none",
         llm_provider="openai",
         llm_model=TEST_MODEL,
-        format_plugin=plugin,
         write_lineage=False,
         epochs=None,
     )
 
 
 def test_missing_image_raises_before_creating_output_dirs(tmp_path):
-    plugin, storage = _make_storage(tmp_path)
+    storage = _make_storage(tmp_path)
     with pytest.raises(FileNotFoundError):
-        _run(str(tmp_path / "does-not-exist.png"), plugin, storage)
+        _run(str(tmp_path / "does-not-exist.png"), storage)
     assert not storage.project_dir.exists()
 
 
 def test_corrupt_image_raises_value_error_before_creating_output_dirs(tmp_path):
     bad = tmp_path / "bad.png"
     bad.write_text("this is not an image", encoding="utf-8")
-    plugin, storage = _make_storage(tmp_path)
+    storage = _make_storage(tmp_path)
     with pytest.raises(ValueError, match="could not be read as an image"):
-        _run(str(bad), plugin, storage)
+        _run(str(bad), storage)
     assert not storage.project_dir.exists()
 
 
 def test_dry_run_writes_preflight_artifacts_without_starting_search(tmp_path):
     image_path = tmp_path / "input.png"
     Image.new("RGB", (32, 32), "blue").save(image_path)
-    plugin, storage = _make_storage(tmp_path)
+    storage = _make_storage(tmp_path)
 
     run_vector_search(
         image_path=str(image_path),
@@ -86,7 +82,6 @@ def test_dry_run_writes_preflight_artifacts_without_starting_search(tmp_path):
         reasoning="none",
         llm_provider="openai",
         llm_model="",
-        format_plugin=plugin,
         dry_run=True,
         dry_run_parameters={"segment_count": 8, "dry_run": True},
     )
@@ -108,7 +103,6 @@ def test_run_svg_search_end_to_end(tmp_path):
     img.save(img_path)
 
     out_svg_path = tmp_path / "output.svg"
-    plugin = SvgPlugin()
     storage = FileStorageAdapter(
         output_path=str(out_svg_path),
         resume=False,
@@ -126,7 +120,6 @@ def test_run_svg_search_end_to_end(tmp_path):
         reasoning="none",
         llm_provider="openai",
         llm_model=TEST_MODEL,
-        format_plugin=plugin,
         write_lineage=False,
         epochs=None,
     )

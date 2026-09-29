@@ -6,7 +6,6 @@ from pathlib import Path
 
 from vectrify.cli import parse_args
 from vectrify.dashboard import Dashboard
-from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, api_key_env
 from vectrify.search.stats import SearchStats
 from vectrify.utils import setup_logger
@@ -87,8 +86,6 @@ def main():
         logger.debug(f"  {key}: {val}")
     logger.debug("==========================")
 
-    plugin = SvgPlugin()
-
     mismatch = svg_extension_warning(args.output)
     if mismatch:
         logger.warning(mismatch)
@@ -129,7 +126,6 @@ def main():
             llm_provider=provider,
             llm_model=model,
             reasoning=args.reasoning,
-            format_plugin=plugin,
             write_lineage=args.write_lineage,
             save_raster=args.save_raster,
             save_segments=args.save_segments,

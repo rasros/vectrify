@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from vectrify.formats.models import VectorStatePayload
 from vectrify.search import ChainState, SearchNode
+from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.storage import LINEAGE_COLUMNS, FileStorageAdapter
 
 SCRIPTS = Path(__file__).resolve().parents[2] / "scripts"

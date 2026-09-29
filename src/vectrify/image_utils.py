@@ -122,6 +122,11 @@ def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> byte
     return out.getvalue()
 
 
+def rasterize_svg(svg_text: str, width: int, height: int) -> bytes:
+    """Positional form, for APIs that take a (svg, width, height) rasterizer."""
+    return rasterize_svg_to_png_bytes(svg_text, out_w=width, out_h=height)
+
+
 def make_preview_data_url(full_png: bytes, resolution_llm: int) -> str:
     preview_png = downscale_png_bytes(full_png, resolution_llm)
     return png_bytes_to_data_url(preview_png)

@@ -21,7 +21,7 @@ from time import perf_counter
 import numpy as np
 from PIL import Image, ImageDraw
 
-from vectrify.formats.svg.plugin import SvgPlugin
+from vectrify.image_utils import rasterize_svg
 from vectrify.refine.paths import fit_filled_svg_bounded
 from vectrify.refine.samvg import (
     _append_layers,
@@ -65,21 +65,20 @@ def _write_gallery(images: list[tuple[str, Image.Image]], destination: Path) -> 
 def _fit_if_improved(
     svg: str,
     target: Image.Image,
-    plugin: SvgPlugin,
     steps: int,
     learn_alpha: bool,
 ) -> tuple[str, Image.Image, list[dict[str, int | float]], bool]:
-    before = _render_svg(svg, target, plugin.rasterize)
+    before = _render_svg(svg, target, rasterize_svg)
     measurements: list[dict[str, int | float]] = []
     candidate = fit_filled_svg_bounded(
         svg,
         target,
-        rasterize=plugin.rasterize,
+        rasterize=rasterize_svg,
         steps=steps,
         measurements=measurements,
         learn_alpha=learn_alpha,
     )
-    after = _render_svg(candidate, target, plugin.rasterize)
+    after = _render_svg(candidate, target, rasterize_svg)
     if _mse(target, after) <= _mse(target, before):
         return candidate, after, measurements, True
     return svg, before, measurements, False
@@ -96,7 +95,6 @@ def run_target(
     seed_only: bool = False,
 ) -> None:
     target = Image.open(target_path).convert("RGB")
-    plugin = SvgPlugin()
     destination = output / _result_name(target_path)
     destination.mkdir(parents=True, exist_ok=True)
     started = perf_counter()
@@ -110,10 +108,10 @@ def run_target(
         hybrid_strokes=False,
         curvature_threshold=curvature_threshold,
     )
-    _render_svg(initial, target, plugin.rasterize).save(destination / "first-seed.png")
+    _render_svg(initial, target, rasterize_svg).save(destination / "first-seed.png")
     (destination / "first-seed.svg").write_text(initial)
     if seed_only:
-        seed_render = _render_svg(initial, target, plugin.rasterize)
+        seed_render = _render_svg(initial, target, rasterize_svg)
         mask_canvas, _coverage = _render_layers((target.height, target.width), layers)
         stages = [
             ("target", target, None),
@@ -121,7 +119,7 @@ def run_target(
             ("first-seed", seed_render, initial),
         ]
         if reference_svg is not None:
-            reference = _render_svg(reference_svg.read_text(), target, plugin.rasterize)
+            reference = _render_svg(reference_svg.read_text(), target, rasterize_svg)
             stages.append(("reference-svg", reference, reference_svg.read_text()))
         rows = [
             {
@@ -153,7 +151,7 @@ def run_target(
         )
         return
     first, first_render, first_measurements, first_accepted = _fit_if_improved(
-        initial, target, plugin, steps, learn_alpha
+        initial, target, steps, learn_alpha
     )
     first_render.save(destination / "first-fit.png")
     (destination / "first-fit.svg").write_text(first)
@@ -174,12 +172,12 @@ def run_target(
         hybrid_strokes=False,
         curvature_threshold=curvature_threshold,
     )
-    _render_svg(recovery, target, plugin.rasterize).save(
+    _render_svg(recovery, target, rasterize_svg).save(
         destination / "residual-recovery.png"
     )
     (destination / "residual-recovery.svg").write_text(recovery)
     final, final_render, final_measurements, final_accepted = _fit_if_improved(
-        recovery, target, plugin, steps, learn_alpha
+        recovery, target, steps, learn_alpha
     )
     if _mse(target, final_render) > _mse(target, first_render):
         # Phase-two fitting is accepted relative to the recovered document,
@@ -188,17 +186,17 @@ def run_target(
         final, final_render, final_accepted = first, first_render, False
     stages = [
         ("target", target, None),
-        ("first-seed", _render_svg(initial, target, plugin.rasterize), initial),
+        ("first-seed", _render_svg(initial, target, rasterize_svg), initial),
         ("first-fit", first_render, first),
         (
             "residual-recovery",
-            _render_svg(recovery, target, plugin.rasterize),
+            _render_svg(recovery, target, rasterize_svg),
             recovery,
         ),
         ("final-fit", final_render, final),
     ]
     if reference_svg is not None:
-        reference = _render_svg(reference_svg.read_text(), target, plugin.rasterize)
+        reference = _render_svg(reference_svg.read_text(), target, rasterize_svg)
         stages.append(("reference-svg", reference, reference_svg.read_text()))
     rows = []
     for name, rendered, svg in stages:

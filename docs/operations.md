@@ -79,11 +79,11 @@ their references, so repeated generations never collide.
 Search methods mutate exported SVG, where every element keeps its object ID.
 `vectrify.operations.candidates.mutation_scope(request)` turns the selection
 (or the whole drawing's top-level objects) and the permissions into a
-`MutationScope`. Set on the SVG plugin, it limits every mutation to those
-elements and their descendants, runs only the operators whose edit kinds are
-allowed (colour and stroke changes need paint; numeric, move and path nudges
-need geometry; reordering needs structure and both siblings in scope), and
-disables crossover and random path fitting.
+`MutationScope`. Passed to the search workers as `WorkerContext.scope`, it
+limits every mutation to those elements and their descendants, runs only the
+operators whose edit kinds are allowed (colour and stroke changes need paint;
+numeric, move and path nudges need geometry; reordering needs structure and
+both siblings in scope), and disables crossover.
 
 `replay(tx, svg)` accepts a candidate only by repeating its differences as
 transaction commands: deletions and insertions (structure), attribute edits,
@@ -104,7 +104,7 @@ through, so rounding introduced by that rewrite is never replayed.
 
 `improve/nsga` exports the drawing with its viewBox on the target region
 (focus or artboard), stretched to the reference crop at the chosen resolution,
-and runs `vector.search.run_search` from it with a scoped plugin, no LLM seeds
+and runs `vector.search.run_search` from it with that scope, no LLM seeds
 and one epoch. The budget's `steps` is the number of candidates. The final pool
 is ranked by one explicit policy, pixel mean squared error against the
 reference region, and the best candidates (up to `alternatives` beyond the

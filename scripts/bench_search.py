@@ -22,7 +22,7 @@ import tempfile
 from pathlib import Path
 
 from vectrify.cli import DEFAULT_POOL_SIZE
-from vectrify.formats.svg.plugin import SvgPlugin
+from vectrify.image_utils import rasterize_svg
 from vectrify.score import ScorerType
 
 REPO = Path(__file__).resolve().parent.parent
@@ -127,9 +127,7 @@ def vision_score(target_png: Path, artifact: Path, resolution: int) -> float:
         _VISION["size"] = target.size
 
     width, height = _VISION["size"]
-    png = SvgPlugin().rasterize(
-        artifact.read_text(encoding="utf-8"), out_w=width, out_h=height
-    )
+    png = rasterize_svg(artifact.read_text(encoding="utf-8"), width, height)
     return scorer.score(_VISION["reference"], png)
 
 

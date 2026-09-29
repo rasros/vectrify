@@ -18,7 +18,11 @@ from typing import ClassVar
 from PIL import Image
 
 from vectrify.document import DocumentError, export_svg
-from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
+from vectrify.image_utils import (
+    png_bytes_to_data_url,
+    rasterize_svg_to_png_bytes,
+    resize_long_side,
+)
 from vectrify.operations.candidates import mutation_scope, replay
 from vectrify.operations.contract import (
     OperationRequest,
@@ -82,8 +86,6 @@ class Nsga:
         target_region(request)
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        from vectrify.formats.svg.plugin import SvgPlugin
-        from vectrify.refine.gpu import gpu_gate
         from vectrify.vector.reference import Reference
         from vectrify.vector.search import SearchSettings, run_search, seed_node
         from vectrify.vector.worker import WorkerContext
@@ -96,16 +98,14 @@ class Nsga:
         context.progress(0, "Preparing the reference and workers…", total=tasks)
         svg, root_attributes = search_svg(request, region, size)
         reference = Reference.build(target, score_resolution=max(size), segment_count=4)
-        plugin = SvgPlugin()
-        plugin.scope = mutation_scope(request)
-        plugin.gpu_gate = gpu_gate()
+        scope = mutation_scope(request)
 
         def render(content: str) -> Image.Image:
-            png = plugin.rasterize(content, out_w=size[0], out_h=size[1])
+            png = rasterize_svg_to_png_bytes(content, out_w=size[0], out_h=size[1])
             with Image.open(io.BytesIO(png)) as image:
                 return image.convert("RGB")
 
-        seed_png = plugin.rasterize(svg, out_w=size[0], out_h=size[1])
+        seed_png = rasterize_svg_to_png_bytes(svg, out_w=size[0], out_h=size[1])
         seed = seed_node(
             reference,
             svg,
@@ -115,7 +115,7 @@ class Nsga:
             resolution_llm=max(size),
         )
         worker_context = WorkerContext(
-            format_plugin=plugin,
+            scope=scope,
             image_data_url=png_bytes_to_data_url(reference.png),
             original_png_bytes=reference.png,
             original_w=size[0],
