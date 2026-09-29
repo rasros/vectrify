@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from tests.helpers import rasterize
+from vectrify.image_utils import rasterize_svg as rasterize
 from vectrify.refine.paths import (
     _SUPPORTED,
     _TOKEN,

@@ -2,6 +2,7 @@ import io
 
 from PIL import Image
 
+from vectrify.image_utils import png_bytes
 from vectrify.score.simple import SimpleFallbackScorer
 
 
@@ -104,12 +105,6 @@ def test_diff_heatmap_respects_long_side():
     assert max(img.size) <= 32
 
 
-def _png(image: Image.Image) -> bytes:
-    buffer = io.BytesIO()
-    image.save(buffer, format="PNG")
-    return buffer.getvalue()
-
-
 def test_erasing_fine_detail_no_longer_beats_drawing_it_slightly_wrong():
     """Colour distance is an average over pixels, so thin strokes are cheap to
     delete and expensive to get slightly wrong: on this figure colour alone
@@ -133,4 +128,6 @@ def test_erasing_fine_detail_no_longer_beats_drawing_it_slightly_wrong():
 
     scorer = SimpleFallbackScorer()
     ref = scorer.prepare_reference(reference)
-    assert scorer.score(ref, _png(one_pixel_off)) < scorer.score(ref, _png(erased))
+    assert scorer.score(ref, png_bytes(one_pixel_off)) < scorer.score(
+        ref, png_bytes(erased)
+    )
