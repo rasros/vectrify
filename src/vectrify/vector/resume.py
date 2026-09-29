@@ -1,16 +1,12 @@
 import concurrent.futures
 import dataclasses
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import make_preview_data_url
-from vectrify.score.compare import compare
-from vectrify.score.complexity import detail_excess
-from vectrify.score.edges import overlap_distance
-from vectrify.score.metrics import COLOUR, DETAIL, EDGE, SHAPE
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     ChainState,
@@ -22,6 +18,7 @@ from vectrify.search.nsga import build_objectives, pareto_select
 
 if TYPE_CHECKING:
     from vectrify.formats.base import SvgBackend
+    from vectrify.vector.reference import Reference
 
 log = logging.getLogger(__name__)
 
@@ -87,8 +84,7 @@ def resume_nodes(
     resolution_llm: int,
     pool_size: int,
     workers: int,
-    scoring_ref: Any,
-    reference_detail: float,
+    reference: "Reference",
     storage: StorageAdapter,
 ) -> list[SearchNode]:
     """Deduplicate, rasterize, pre-filter, and re-score a set of resumed nodes.
@@ -147,14 +143,8 @@ def resume_nodes(
             # they are measured the same way. Leaving the metrics absent would
             # read as 0.0 -- best possible for a minimised objective -- and let
             # every import dominate the candidates actually being measured.
-            comparison = compare(scoring_ref, item.png)
             metrics = dict(item.metrics)
-            metrics[EDGE] = overlap_distance(
-                comparison.reference_edges, comparison.candidate_edges
-            )
-            metrics[COLOUR] = float(comparison.colour.mean())
-            metrics[SHAPE] = comparison.shape
-            metrics[DETAIL] = detail_excess(reference_detail, item.png)
+            metrics.update(reference.measure(item.png, segments=False))
             node = SearchNode(
                 valid=True,
                 id=current_new_id,
