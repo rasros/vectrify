@@ -105,7 +105,6 @@ def run_target(
         f'height="{target.height}" viewBox="0 0 {target.width} {target.height}"></svg>',
         layers,
         16,
-        hybrid_strokes=False,
         curvature_threshold=curvature_threshold,
     )
     _render_svg(initial, target, rasterize_svg).save(destination / "first-seed.png")
@@ -169,7 +168,6 @@ def run_target(
         first,
         added,
         16,
-        hybrid_strokes=False,
         curvature_threshold=curvature_threshold,
     )
     _render_svg(recovery, target, rasterize_svg).save(

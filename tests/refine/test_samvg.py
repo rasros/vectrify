@@ -23,9 +23,9 @@ from vectrify.refine.samvg import (
     filter_by_impact,
     generate_svg,
     mask_path,
-    mask_strokes,
     recolour_visible_layers,
     residual_prompt_points,
+    thinner_than,
 )
 from vectrify.refine.samvg_runtime import device_name, pipeline_options
 
@@ -564,35 +564,35 @@ def test_generate_svg_refits_each_visible_fill_colour_after_mask_selection():
     assert [path.get("fill") for path in paths] == ["#dc1e1e", "#1428e6"]
 
 
-def test_thin_single_contour_mask_is_emitted_as_a_round_stroke():
-    image = Image.new("RGB", (12, 32), "white")
+def test_regions_thinner_than_the_minimum_width_are_left_out():
+    image = Image.new("RGB", (32, 32), "white")
     pixels = np.asarray(image).copy()
-    pixels[4:28, 5:8] = (20, 130, 220)
+    pixels[4:28, 5:7] = (20, 130, 220)
+    pixels[4:28, 14:26] = (200, 30, 30)
     image = Image.fromarray(pixels)
-    mask = np.zeros((32, 12), dtype=bool)
-    mask[4:28, 5:8] = True
+    line = np.zeros((32, 32), dtype=bool)
+    line[4:28, 5:7] = True
+    block = np.zeros((32, 32), dtype=bool)
+    block[4:28, 14:26] = True
 
-    svg = generate_svg(
-        image, [mask], min_pixels=1, min_impact=0.00001, hybrid_strokes=True
-    )
-    path = ET.fromstring(svg).find("{http://www.w3.org/2000/svg}path")
+    def fills(**options):
+        svg = generate_svg(image, [line, block], min_pixels=1, min_impact=0, **options)
+        return sorted(
+            p.get("fill", "")
+            for p in ET.fromstring(svg).iter("{http://www.w3.org/2000/svg}path")
+        )
 
-    assert path is not None
-    assert path.get("fill") == "none"
-    assert path.get("stroke") == "#1482dc"
-    assert path.get("stroke-linecap") == "round"
-    assert " Z" not in path.get("d", "")
+    assert fills(min_width=0) == ["#1482dc", "#c81e1e"]
+    assert fills(min_width=3) == ["#c81e1e"]
 
 
-def test_thin_branch_mask_emits_independent_width_aware_strokes():
-    mask = np.zeros((48, 48), dtype=bool)
-    mask[6:42, 22:25] = True
-    mask[6:9, 10:37] = True
-
-    strokes = mask_strokes(mask, segments=8)
-
-    assert len(strokes) >= 3
-    assert all(data.startswith("M ") and width >= 1 for data, width in strokes)
+def test_thinner_than_measures_the_widest_part():
+    mask = np.zeros((20, 20), dtype=bool)
+    mask[2:18, 4:6] = True
+    assert thinner_than(mask, 3)
+    mask[8:13, 8:13] = True
+    assert not thinner_than(mask, 5)
+    assert not thinner_than(mask, 0)
 
 
 def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():

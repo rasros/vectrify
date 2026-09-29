@@ -39,7 +39,6 @@ def test_fixed_seed_image_exports_two_editable_coloured_paths(two_band_target):
         min_pixels=1,
         min_impact=0,
         segments=4,
-        hybrid_strokes=False,
         ocr=False,
     )
 

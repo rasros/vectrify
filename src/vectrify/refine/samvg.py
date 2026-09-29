@@ -9,7 +9,6 @@ fixed-count cubic Bezier path.
 from __future__ import annotations
 
 import io
-import itertools
 import json
 import logging
 import math
@@ -1356,243 +1355,31 @@ def mask_path(
     return " ".join(parts) or None
 
 
-_SKELETON_NEIGHBOURS = (
-    (-1, -1),
-    (-1, 0),
-    (-1, 1),
-    (0, -1),
-    (0, 1),
-    (1, -1),
-    (1, 0),
-    (1, 1),
-)
+def thinner_than(mask: np.ndarray, width: int) -> bool:
+    """Whether *mask* is narrower than *width* pixels everywhere.
 
-
-def _thin_mask(mask: np.ndarray) -> np.ndarray:
-    """Zhang--Suen thinning without adding a SciPy/skimage dependency."""
-    thin = np.pad(mask.astype(np.uint8), 1).copy()
-    changed = True
-    while changed:
-        changed = False
-        for phase in range(2):
-            remove: list[tuple[int, int]] = []
-            for y, x in zip(*np.nonzero(thin), strict=True):
-                if y in {0, thin.shape[0] - 1} or x in {0, thin.shape[1] - 1}:
-                    continue
-                ring = [
-                    thin[y - 1, x],
-                    thin[y - 1, x + 1],
-                    thin[y, x + 1],
-                    thin[y + 1, x + 1],
-                    thin[y + 1, x],
-                    thin[y + 1, x - 1],
-                    thin[y, x - 1],
-                    thin[y - 1, x - 1],
-                ]
-                count = sum(ring)
-                transitions = sum(
-                    left == 0 and right == 1
-                    for left, right in zip(ring, [*ring[1:], ring[0]], strict=True)
-                )
-                if not (2 <= count <= 6 and transitions == 1):
-                    continue
-                north, east, south, west = ring[0], ring[2], ring[4], ring[6]
-                blocked = (
-                    (north and east and south) or (east and south and west)
-                    if phase == 0
-                    else (north and east and west) or (north and south and west)
-                )
-                if not blocked:
-                    remove.append((y, x))
-            if remove:
-                changed = True
-                for y, x in remove:
-                    thin[y, x] = 0
-    return thin[1:-1, 1:-1].astype(bool)
-
-
-def _skeleton_traces(mask: np.ndarray) -> list[np.ndarray]:
-    """Split a thinned medial-axis graph into its endpoint/junction traces."""
-    points = {tuple(point) for point in np.argwhere(_thin_mask(mask))}
-    if len(points) < 2:
-        return []
-
-    def adjacent(point: tuple[int, int]) -> list[tuple[int, int]]:
-        y, x = point
-        output = []
-        for dy, dx in _SKELETON_NEIGHBOURS:
-            candidate = y + dy, x + dx
-            if candidate not in points:
-                continue
-            # A diagonal across an orthogonal staircase is not another graph
-            # edge. Keeping it creates artificial triangles and turns every
-            # curved pixel line into a forest of tiny branches.
-            if dy and dx and ((y + dy, x) in points or (y, x + dx) in points):
-                continue
-            output.append(candidate)
-        return output
-
-    nodes = {point for point in points if len(adjacent(point)) != 2}
-    # Closed loops are better represented by SAMVG's filled path: an open
-    # stroke would introduce caps and a stroke-only loop has no stable start.
-    if not nodes:
-        return []
-    traversed: set[tuple[tuple[int, int], tuple[int, int]]] = set()
-
-    def edge_key(
-        first: tuple[int, int], second: tuple[int, int]
-    ) -> tuple[tuple[int, int], tuple[int, int]]:
-        return (first, second) if first <= second else (second, first)
-
-    traces: list[np.ndarray] = []
-    for node in nodes:
-        for neighbour in adjacent(node):
-            edge = edge_key(node, neighbour)
-            if edge in traversed:
-                continue
-            trace, previous, current = [node], node, neighbour
-            traversed.add(edge)
-            while current not in nodes:
-                trace.append(current)
-                choices = [point for point in adjacent(current) if point != previous]
-                if len(choices) != 1:
-                    trace = []
-                    break
-                previous, current = current, choices[0]
-                traversed.add(edge_key(previous, current))
-            if trace:
-                trace.append(current)
-                if len(trace) >= 2:
-                    traces.append(
-                        np.asarray([(x, y) for y, x in trace], dtype=np.float64)
-                    )
-    return traces
-
-
-def _trace_path_data(trace: np.ndarray, segments: int) -> str:
-    """Fit multiple cubic sections to a skeleton rather than one global PCA line."""
-    count = max(1, min(segments, math.ceil((len(trace) - 1) / 8)))
-    boundaries = np.linspace(0, len(trace) - 1, count + 1, dtype=int)
-    output = [f"M {trace[0, 0]:.2f} {trace[0, 1]:.2f}"]
-    for first, last in itertools.pairwise(boundaries):
-        sample = trace[first : last + 1]
-        if len(sample) == 2:
-            output.append(f"L {sample[-1, 0]:.2f} {sample[-1, 1]:.2f}")
-        else:
-            control_a, control_b = _fit_cubic(sample)
-            end = sample[-1]
-            output.append(
-                f"C {control_a[0]:.2f} {control_a[1]:.2f} "
-                f"{control_b[0]:.2f} {control_b[1]:.2f} {end[0]:.2f} {end[1]:.2f}"
-            )
-    return " ".join(output)
-
-
-def _mask_distance(mask: np.ndarray) -> np.ndarray:
-    """Two-pass chamfer distance to the background in mask-pixel units."""
-    distance = np.where(mask, np.inf, 0.0).astype(np.float64)
-    diagonal = math.sqrt(2.0)
-    for y in range(distance.shape[0]):
-        for x in range(distance.shape[1]):
-            if not mask[y, x]:
-                continue
-            candidates = []
-            if y:
-                candidates.append(distance[y - 1, x] + 1)
-                if x:
-                    candidates.append(distance[y - 1, x - 1] + diagonal)
-                if x + 1 < distance.shape[1]:
-                    candidates.append(distance[y - 1, x + 1] + diagonal)
-            if x:
-                candidates.append(distance[y, x - 1] + 1)
-            distance[y, x] = min(candidates, default=distance[y, x])
-    for y in range(distance.shape[0] - 1, -1, -1):
-        for x in range(distance.shape[1] - 1, -1, -1):
-            if not mask[y, x]:
-                continue
-            candidates = [distance[y, x]]
-            if y + 1 < distance.shape[0]:
-                candidates.append(distance[y + 1, x] + 1)
-                if x:
-                    candidates.append(distance[y + 1, x - 1] + diagonal)
-                if x + 1 < distance.shape[1]:
-                    candidates.append(distance[y + 1, x + 1] + diagonal)
-            if x + 1 < distance.shape[1]:
-                candidates.append(distance[y, x + 1] + 1)
-            distance[y, x] = min(candidates)
-    return distance
-
-
-def _trace_sections(trace: np.ndarray, segments: int) -> list[np.ndarray]:
-    count = max(1, min(segments, math.ceil((len(trace) - 1) / 8)))
-    boundaries = np.linspace(0, len(trace) - 1, count + 1, dtype=int)
-    return [trace[first : last + 1] for first, last in itertools.pairwise(boundaries)]
-
-
-def mask_strokes(
-    mask: np.ndarray, *, segments: int = 8, overlap_pixels: int = 0
-) -> list[tuple[str, float]]:
-    """Trace a thin component into independently editable constant-width paths.
-
-    A branch becomes one path per medial-axis edge. Each long edge is divided
-    into cubic sections and each section gets its local median width, giving an
-    SVG approximation of a variable-width centreline without nonstandard SVG
-    extensions. Round caps and joins make the adjacent sections continuous.
+    Eroding by half the width empties a region that nowhere reaches that
+    thickness: a traced outline or hairline, where a region of any real size
+    keeps a core.
     """
-    if overlap_pixels:
-        mask = _binary_dilation(mask, overlap_pixels)
-    _ys, xs = np.nonzero(mask)
-    if len(xs) < 8:
-        return []
-    if len(_loops(mask)) != 1:
-        return []
-    traces = _skeleton_traces(mask)
-    length = sum(
-        float(np.linalg.norm(np.diff(trace, axis=0), axis=1).sum()) for trace in traces
-    )
-    estimated_width = len(xs) / max(length, 1.0)
-    if length < 12 or estimated_width > min(8.0, length * 0.3):
-        return []
-    distance = _mask_distance(mask)
-    output: list[tuple[str, float]] = []
-    for trace in traces:
-        for section in _trace_sections(trace, segments):
-            if len(section) < 2:
-                continue
-            widths = [2 * (distance[int(y), int(x)] - 0.5) for x, y in section]
-            output.append(
-                (_trace_path_data(section, 1), max(1.0, float(np.median(widths))))
-            )
-    return output
+    radius = (width - 1) // 2
+    if radius <= 0:
+        return False
+    return not (~_binary_dilation(~np.asarray(mask, dtype=bool), radius)).any()
 
 
 def _layer_svg_attributes(
     layer: MaskLayer,
     segments: int,
     *,
-    hybrid_strokes: bool = True,
+    min_width: int = 0,
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
 ) -> list[dict[str, str]]:
-    """Trace one SAM mask, using optional strokes only outside the thesis mode."""
+    """Trace one SAM mask as a filled path, or nothing when it is too thin."""
     colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
-    strokes = (
-        mask_strokes(layer.mask, segments=segments, overlap_pixels=layer.overlap_pixels)
-        if hybrid_strokes
-        else []
-    )
-    if strokes:
-        return [
-            {
-                "d": data,
-                "fill": "none",
-                "stroke": colour,
-                "stroke-width": f"{width:.2f}",
-                "stroke-linecap": "round",
-                "stroke-linejoin": "round",
-            }
-            for data, width in strokes
-        ]
+    if min_width and thinner_than(layer.mask, min_width):
+        return []
     data = mask_path(
         layer.mask,
         segments=segments,
@@ -1616,7 +1403,7 @@ def generate_svg(
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
     fill_holes: bool = True,
-    hybrid_strokes: bool = True,
+    min_width: int = 0,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
     model: str = SAMVG_MODEL,
@@ -1656,7 +1443,7 @@ def generate_svg(
         for attributes in _layer_svg_attributes(
             layer,
             segments,
-            hybrid_strokes=hybrid_strokes,
+            min_width=min_width,
             curvature_threshold=curvature_threshold,
             maximum_segments=maximum_segments,
         ):
@@ -1699,7 +1486,7 @@ def _append_layers(
     layers: list[MaskLayer],
     segments: int,
     *,
-    hybrid_strokes: bool = True,
+    min_width: int = 0,
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
 ) -> str:
@@ -1709,7 +1496,7 @@ def _append_layers(
         for attributes in _layer_svg_attributes(
             layer,
             segments,
-            hybrid_strokes=hybrid_strokes,
+            min_width=min_width,
             curvature_threshold=curvature_threshold,
             maximum_segments=maximum_segments,
         ):
