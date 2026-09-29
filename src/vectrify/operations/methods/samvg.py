@@ -29,7 +29,9 @@ SETTINGS = {
     "max_layers": Setting(int, 512, minimum=1, maximum=4096, label="maximum layers"),
     "segments": Setting(int, 16, minimum=4, maximum=256, label="curve segments"),
     "fill_holes": Setting(bool, True),
-    "hybrid_strokes": Setting(bool, True, label="thin strokes"),
+    # Regions narrower than this everywhere, in reference pixels, are left
+    # out: SAM returns outlines and hairlines as regions of their own.
+    "min_width": Setting(int, 3, minimum=0, maximum=64, label="minimum width"),
     "max_side": Setting(int, SAMVG_MAX_SIDE, minimum=64, maximum=4096),
     "model": Setting(
         str,
