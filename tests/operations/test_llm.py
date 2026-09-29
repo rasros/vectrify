@@ -40,7 +40,9 @@ class Fake:
 
 @pytest.fixture
 def fake(monkeypatch):
-    monkeypatch.setenv("OPENAI_API_KEY", "test")
+    from vectrify.llm import keys
+
+    keys.save({"openai": "test"})
     holder = {}
 
     def install(*replies):

@@ -192,3 +192,33 @@ def test_operation_endpoint_previews_applies_and_rejects_unknown(server):
     assert applied["revision"] == state["revision"] + 1
     status, _ = call(server, "/api/operation", command, headers)
     assert status == 400
+
+
+def test_api_keys_are_saved_owner_only_and_never_sent_back(server, settings_file):
+    _, state = call(server, "/api/session", {})
+    headers = {"X-Vectrify-Session": state["session"]}
+    status, result = call(server, "/api/settings", {}, headers)
+    assert status == 200
+    assert result == {"api_keys": {"openai": None, "anthropic": None, "gemini": None}}
+    status, result = call(
+        server,
+        "/api/settings",
+        {"api_keys": {"anthropic": " sk-secret-1234 "}},
+        headers,
+    )
+    assert status == 200
+    assert result["api_keys"]["anthropic"] == "1234"
+    assert "secret" not in json.dumps(result)
+    assert settings_file.stat().st_mode & 0o777 == 0o600
+    status, result = call(
+        server, "/api/settings", {"api_keys": {"anthropic": ""}}, headers
+    )
+    assert result["api_keys"]["anthropic"] is None
+    assert call(server, "/api/settings", {"api_keys": {"nope": "x"}}, headers)[0] == 400
+
+
+def test_a_missing_key_points_to_settings():
+    from vectrify.llm.models import resolve_provider
+
+    with pytest.raises(ValueError, match="Settings"):
+        resolve_provider("auto")

@@ -930,6 +930,43 @@ $('node-delete').onclick=()=>action('delete_node',{object:geometryObject,node:ac
 document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});
 for (const command of ['group','ungroup','delete','detach']) $(command).onclick=()=>action(command);
 $('backward').onclick=()=>action('reorder',{step:-1});$('forward').onclick=()=>action('reorder',{step:1});
+const KEY_PROVIDERS=['openai','anthropic','gemini'];
+const keyRemovals=new Set();
+function showKeys(summary){
+  keyRemovals.clear();
+  for(const name of KEY_PROVIDERS){
+    const tail=summary[name];
+    $(`key-${name}`).value='';
+    $(`key-${name}`).placeholder=tail?`Saved (…${tail}) · type to replace`:'Not set';
+    $(`key-${name}-remove`).hidden=!tail;
+  }
+}
+async function openSettings(){
+  try{
+    showKeys((await request('/api/settings')).api_keys);
+    $('settings-error').hidden=true;
+    $('settings-dialog').showModal();
+  }catch(error){toast(error.message,true);}
+}
+$('settings-open').onclick=openSettings;
+document.querySelectorAll('[data-open-settings]').forEach(button=>button.onclick=openSettings);
+for(const name of KEY_PROVIDERS) $(`key-${name}-remove`).onclick=()=>{
+  keyRemovals.add(name);
+  $(`key-${name}`).value='';
+  $(`key-${name}`).placeholder='Removed when you save';
+  $(`key-${name}-remove`).hidden=true;
+};
+$('settings-save').onclick=async()=>{
+  const api_keys={};
+  for(const name of keyRemovals) api_keys[name]='';
+  for(const name of KEY_PROVIDERS){const key=$(`key-${name}`).value.trim(); if(key) api_keys[name]=key;}
+  try{
+    showKeys((await request('/api/settings',{api_keys})).api_keys);
+    $('settings-dialog').close();
+    toast('Settings saved');
+  }catch(error){$('settings-error').textContent=error.message;$('settings-error').hidden=false;}
+};
+$('settings-close').onclick=()=>$('settings-dialog').close();
 $('help').onclick=()=>$('help-dialog').showModal();$('help-close').onclick=()=>$('help-dialog').close();
 // Keep a local copy of saved projects so a backend restart can restore this tab.
 function recoveryStore(mode, key, value) {

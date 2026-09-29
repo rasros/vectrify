@@ -9,28 +9,21 @@ DEFAULT_MODELS: dict[str, str] = {
 }
 
 
-def api_key_env(provider: str) -> str:
-    """Environment variable holding the API key for *provider*."""
-    return f"{provider.upper()}_API_KEY"
-
-
 def resolve_provider(provider: str = "auto") -> tuple[str, str]:
     """The provider to use and its API key: named, or the first with a key set.
 
-    Raises ValueError naming the missing environment variable.
+    Keys come from the editor's settings. Raises ValueError saying what to add.
     """
-    import os
+    from vectrify.llm import keys
 
+    stored = keys.load()
     if provider == "auto":
         for name in PROVIDERS:
-            key = os.getenv(api_key_env(name))
-            if key:
-                return name, key
-        names = ", ".join(api_key_env(name) for name in PROVIDERS)
-        raise ValueError(f"No LLM API key is set; export one of {names}")
+            if name in stored:
+                return name, stored[name]
+        raise ValueError("No LLM API key is set; add one in Settings")
     if provider not in PROVIDERS:
         raise ValueError(f"Unknown LLM provider: {provider}")
-    key = os.getenv(api_key_env(provider))
-    if not key:
-        raise ValueError(f"Set {api_key_env(provider)} to use {provider}")
-    return provider, key
+    if provider not in stored:
+        raise ValueError(f"Add a {provider} API key in Settings to use {provider}")
+    return provider, stored[provider]
