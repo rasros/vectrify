@@ -2,8 +2,8 @@
 
 The file is readable by its owner only. Keys leave this module in one direction:
 to the provider client. What the editor shows is whether a key is set and its
-last four characters. The local server's URL and model are not secret and are
-shown as saved.
+last four characters. The models, reasoning efforts and the local server's URL
+are not secret and are shown as saved.
 """
 
 from __future__ import annotations
@@ -13,7 +13,12 @@ import os
 from pathlib import Path
 from urllib.parse import urlparse
 
-from vectrify.llm.models import PROVIDERS
+from vectrify.llm.models import (
+    DEFAULT_MODELS,
+    DEFAULT_REASONING,
+    PROVIDERS,
+    REASONING,
+)
 
 CONFIG_PATH = Path.home() / ".config" / "vectrify" / "settings.json"
 
@@ -59,13 +64,30 @@ def load_local() -> dict[str, str]:
     }
 
 
+def load_models() -> dict[str, dict[str, str]]:
+    """Each hosted provider's model and reasoning effort, empty when unset."""
+    saved = _read().get("models")
+    saved = saved if isinstance(saved, dict) else {}
+    models = {}
+    for name in DEFAULT_MODELS:
+        entry = saved.get(name)
+        entry = entry if isinstance(entry, dict) else {}
+        model = entry.get("model")
+        reasoning = entry.get("reasoning")
+        models[name] = {
+            "model": model if isinstance(model, str) else "",
+            "reasoning": reasoning if reasoning in REASONING else "",
+        }
+    return models
+
+
 def save(
     api_keys: dict[str, str | None] | None = None,
     local: dict[str, str | None] | None = None,
+    models: dict[str, dict[str, str | None]] | None = None,
 ) -> None:
-    """Set each named provider's key, and the local server's URL and model.
-
-    An empty value or None removes that entry.
+    """Set keys, the local server's URL and model, and each provider's model
+    and reasoning effort. An empty value or None removes that entry.
     """
     data = _read()
     keys = load()
@@ -90,6 +112,19 @@ def save(
         ):
             raise ValueError("The local server URL must start with http:// or https://")
         data["local"] = saved
+    if models is not None:
+        chosen = load_models()
+        for name, entry in models.items():
+            if name not in chosen:
+                raise ValueError(f"Unknown LLM provider: {name}")
+            for field, value in entry.items():
+                if field not in chosen[name]:
+                    raise ValueError(f"Unknown model setting: {field}")
+                value = (value or "").strip()
+                if field == "reasoning" and value and value not in REASONING:
+                    raise ValueError(f"Reasoning effort must be one of {REASONING}")
+                chosen[name][field] = value
+        data["models"] = chosen
     _write(data)
 
 
@@ -101,4 +136,7 @@ def summary() -> dict:
             name: keys[name][-4:] if name in keys else None for name in PROVIDERS
         },
         "local": load_local(),
+        "models": load_models(),
+        # What an unset model or effort falls back to, for the editor to show.
+        "defaults": {"models": DEFAULT_MODELS, "reasoning": DEFAULT_REASONING},
     }

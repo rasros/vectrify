@@ -46,8 +46,6 @@ SVG_NS = "http://www.w3.org/2000/svg"
 
 COMMON = {
     "provider": Setting(str, "auto", choices=("auto", *PROVIDERS)),
-    "model": Setting(str, "", label="model"),
-    "reasoning": Setting(str, "medium", choices=("low", "medium", "high")),
     "candidates": Setting(int, 1, minimum=1, maximum=4),
     "resolution": Setting(int, 512, minimum=128, maximum=2048, label="resolution"),
 }
@@ -62,12 +60,11 @@ def _client(settings):
         connection = resolve_provider(settings["provider"])
     except ValueError as exc:
         raise DocumentError(str(exc)) from exc
-    model = settings["model"] or connection.model
-    if not model:
-        raise DocumentError("Name the local server's model here or in Settings")
-    # Local servers mostly reject OpenAI's reasoning_effort parameter.
-    reasoning = None if connection.provider == "local" else settings["reasoning"]
-    return get_provider(connection), LLMConfig(model=model, reasoning=reasoning)
+    if not connection.model:
+        raise DocumentError("Name the local server's model in Settings")
+    return get_provider(connection), LLMConfig(
+        model=connection.model, reasoning=connection.reasoning
+    )
 
 
 def to_canvas(svg: str, size: tuple[int, int]) -> str:

@@ -8,6 +8,9 @@ from dataclasses import dataclass
 # llama.cpp, vLLM) at the URL saved in Settings.
 PROVIDERS: tuple[str, ...] = ("openai", "anthropic", "gemini", "local")
 
+REASONING: tuple[str, ...] = ("low", "medium", "high")
+DEFAULT_REASONING = "medium"
+
 DEFAULT_MODELS: dict[str, str] = {
     "openai": "gpt-5.4",
     "anthropic": "claude-sonnet-5",
@@ -22,8 +25,9 @@ class Connection:
     provider: str
     api_key: str
     base_url: str | None = None
-    # Used when the request names no model.
     model: str | None = None
+    # None for a local server: most reject OpenAI's reasoning_effort.
+    reasoning: str | None = None
 
 
 def _connection(provider: str) -> Connection | None:
@@ -42,7 +46,13 @@ def _connection(provider: str) -> Connection | None:
         )
     if provider not in stored:
         return None
-    return Connection(provider, stored[provider], model=DEFAULT_MODELS[provider])
+    chosen = keys.load_models()[provider]
+    return Connection(
+        provider,
+        stored[provider],
+        model=chosen["model"] or DEFAULT_MODELS[provider],
+        reasoning=chosen["reasoning"] or DEFAULT_REASONING,
+    )
 
 
 def resolve_provider(provider: str = "auto") -> Connection:

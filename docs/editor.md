@@ -152,7 +152,8 @@ replies, pick one by preview and reference error. The Generate dialog's LLM
 method draws the reference from scratch instead. Both need an API key or a local
 server, set up under **Settings** in the top bar. A local server is any
 OpenAI-compatible endpoint, such as `http://localhost:11434/v1` for Ollama,
-with a model that accepts images. The editor shows only the last four
+with a model that accepts images. Settings also holds each provider's
+model and reasoning effort. The editor shows only the last four
 characters of a saved key.
 
 **Fit colours…** solves the flat fill colour of every selected object that

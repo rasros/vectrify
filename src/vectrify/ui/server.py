@@ -135,8 +135,10 @@ class Handler(BaseHTTPRequestHandler):
                     session.check_revision(data)
                     result = session.nodes(data["object"])
                 elif self.path == "/api/settings":
-                    if "api_keys" in data or "local" in data:
-                        keys.save(data.get("api_keys"), data.get("local"))
+                    if {"api_keys", "local", "models"} & data.keys():
+                        keys.save(
+                            data.get("api_keys"), data.get("local"), data.get("models")
+                        )
                     result = keys.summary()
                 elif self.path == "/api/reference":
                     result = {"reference": session.reference}
