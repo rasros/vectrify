@@ -6,7 +6,6 @@ import multiprocessing as mp
 import os
 import xml.etree.ElementTree as ET
 from collections.abc import Callable, Mapping
-from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -34,7 +33,6 @@ from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import (
     crop_single_color_background,
     downscale_png_bytes,
-    make_preview_data_url,
     png_bytes_to_data_url,
     resize_long_side,
 )
@@ -46,41 +44,30 @@ from vectrify.refine.samvg import (
     generate_svg,
 )
 from vectrify.score import ScorerType, choose_scorer
-from vectrify.score.base import DEFAULT_CONFIG
-from vectrify.score.compare import compare, prepare
-from vectrify.score.complexity import detail, detail_excess
-from vectrify.score.edges import overlap_distance
 from vectrify.score.metrics import (
-    COLOUR,
-    DETAIL,
-    EDGE,
     FRONT_SCORE,
-    SHAPE,
-)
-from vectrify.score.segments import (
-    Segment,
-    segment_error,
-    segment_target,
 )
 from vectrify.score.segments import (
     save_segments as save_segment_map,
 )
-from vectrify.score.utils import MAX_SCORE
 from vectrify.score.vision import DEFAULT_VISION_MODEL
 from vectrify.search import (
     ChainState,
-    MultiprocessSearchEngine,
-    NsgaStrategy,
     SearchNode,
     StorageAdapter,
 )
 from vectrify.search.collector import StatCollector
-from vectrify.search.diversity import simhash
-from vectrify.search.operators import Exp3Policy, FixedWeightPolicy
+from vectrify.search.operators import Exp3Policy
 from vectrify.utils import setup_logger, start_log_listener
+from vectrify.vector.reference import Reference
 from vectrify.vector.resume import filter_to_pool_size, resume_nodes
-from vectrify.vector.state import VectorStateBuilder
-from vectrify.vector.worker import WorkerContext, worker_loop
+from vectrify.vector.search import (
+    SearchSettings,
+    operator_policy,
+    run_search,
+    seed_node,
+)
+from vectrify.vector.worker import WorkerContext
 
 log = logging.getLogger("main")
 
@@ -447,20 +434,23 @@ def run_vector_search(
 
     api_key = os.getenv(api_key_env(llm_provider))
 
-    scoring_img = resize_long_side(
-        original_img, score_resolution or DEFAULT_CONFIG.target_long_side
+    reference = Reference.build(
+        original_img,
+        score_resolution=score_resolution,
+        edge_tolerance=edge_tolerance,
+        segment_count=segment_count,
     )
-    pixel_ref = prepare(scoring_img, tolerance=edge_tolerance)
-    segments: list[Segment] = segment_target(scoring_img, max_regions=segment_count)
     if save_segments:
-        save_segment_map(segments, storage.current_run_dir, scoring_img)
-    if not segments:
-        raise ValueError("target segmentation returned no regions")
-    log.info("Target attention: %d edge-aware Voronoi mask(s).", len(segments))
+        save_segment_map(
+            list(reference.segments), storage.current_run_dir, reference.scoring_image
+        )
+    log.info(
+        "Target attention: %d edge-aware Voronoi mask(s).", len(reference.segments)
+    )
     if dry_run:
         report = preflight_report(
             image_size=(original_w, original_h),
-            segment_count=len(segments),
+            segment_count=len(reference.segments),
             scorer_type=scorer_type,
             parameters=dry_run_parameters,
         )
@@ -469,24 +459,6 @@ def run_vector_search(
         log_listener.stop()
         return
 
-    # A small encoder rather than a pixel measure: where selection decides, one
-    # mutation from the parent, it is right about its accepted mutations far
-    # more often, and that ratio is what the search compounds. The configured
-    # --scorer still selects the evaluator that ranks a converged front.
-    # Sized against the scorer thread's own work rather than the worker count:
-    # it is one batch of candidates at a time, and oversubscribing here would
-    # only take cores from the workers producing them.
-    pixel_pool = ThreadPoolExecutor(
-        max_workers=min(8, (os.cpu_count() or 4)), thread_name_prefix="pixel"
-    )
-    # The target's own detail, measured once, at the size candidates are
-    # rasterized at -- original_png_bytes, not the smaller image the pixel
-    # comparison resizes to. Compressed size grows with pixel count, so reading
-    # the reference at scoring resolution and candidates at render resolution
-    # charges every candidate for the difference between the two: measured on
-    # the duck, the same image reads 7,607 at 256 and 41,602 at 700, and every
-    # candidate in a run came out 58-142% "busier" than a target it matched.
-    reference_detail = detail(original_png_bytes)
     log.info(
         "Measures: edge overlap, colour distance, shape moments and a detail "
         "budget, traded off by dominance, no model. "
@@ -507,8 +479,7 @@ def run_vector_search(
             resolution_llm=resolution_llm,
             pool_size=pool_size,
             workers=workers,
-            scoring_ref=pixel_ref,
-            reference_detail=reference_detail,
+            reference=reference,
             storage=storage,
         )
         initial_nodes = filter_to_pool_size(initial_nodes, pool_size)
@@ -541,37 +512,13 @@ def run_vector_search(
             valid, error = format_plugin.validate(content)
             if not valid:
                 raise ValueError(error or "generated SVG failed validation")
-            png = format_plugin.rasterize(content, out_w=original_w, out_h=original_h)
-            comparison = compare(pixel_ref, png)
-            metrics = {
-                EDGE: overlap_distance(
-                    comparison.reference_edges, comparison.candidate_edges
-                ),
-                COLOUR: float(comparison.colour.mean()),
-                SHAPE: comparison.shape,
-                DETAIL: detail_excess(reference_detail, png),
-            }
-            for segment in segments:
-                metrics[segment.metric_name] = segment_error(
-                    comparison, segment.mask, detail=segment.detail
-                )
-            node_id = max((node.id for node in initial_nodes), default=0) + 1
-            seed = SearchNode(
-                valid=True,
-                id=node_id,
-                parent_id=0,
-                metrics=metrics,
-                signature=simhash(content),
-                state=ChainState(
-                    VectorStatePayload(
-                        content=content,
-                        raster_data_url=None,
-                        raster_preview_data_url=make_preview_data_url(
-                            png, resolution_llm
-                        ),
-                        origin="SAMVG-inspired seed",
-                    )
-                ),
+            seed = seed_node(
+                reference,
+                content,
+                format_plugin.rasterize(content, out_w=original_w, out_h=original_h),
+                node_id=max((node.id for node in initial_nodes), default=0) + 1,
+                origin="SAMVG-inspired seed",
+                resolution_llm=resolution_llm,
             )
             storage.save_node(seed)
             initial_nodes.append(seed)
@@ -669,24 +616,6 @@ def run_vector_search(
         finally:
             gpu_gate.release()
 
-    engine = MultiprocessSearchEngine(
-        workers=workers,
-        strategy=NsgaStrategy[VectorStatePayload](
-            pool_size=pool_size,
-            tournament_size=tournament_size,
-            crossover_distance_threshold=crossover_distance,
-        ),
-        storage=storage,
-        max_total_tasks=max_total_tasks,
-        rank_front=rank_front,
-        make_state=VectorStateBuilder(
-            resolution_llm=resolution_llm,
-            write_lineage=write_lineage,
-            save_raster=save_raster,
-        ),
-        elite_metric_names=tuple(segment.metric_name for segment in segments),
-    )
-
     # What the LLM sees, deliberately not the raster: vision billing tiles at
     # 512px, so a 700px prompt image costs 3x a 512px one for detail the model
     # does not need — scoring reads the full-resolution raster, not this.
@@ -710,50 +639,6 @@ def run_vector_search(
         log_queue=log_queue,
     )
 
-    def _pixel_objectives(res) -> None:
-        png = res.payload.raster_png
-        if not png:
-            return
-        try:
-            comparison = compare(pixel_ref, png)
-            res.metrics[EDGE] = overlap_distance(
-                comparison.reference_edges, comparison.candidate_edges
-            )
-            res.metrics[COLOUR] = float(comparison.colour.mean())
-            res.metrics[SHAPE] = comparison.shape
-            res.metrics[DETAIL] = detail_excess(reference_detail, png)
-            for segment in segments:
-                res.metrics[segment.metric_name] = segment_error(
-                    comparison, segment.mask, detail=segment.detail
-                )
-            # Measured, so valid. `score` carries no magnitude any more: the
-            # measures are ranked by dominance and the only score in the run is
-            # the evaluator's, recorded as FRONT_SCORE on the nodes it sees.
-            res.measured = True
-        except Exception as exc:
-            log.debug(f"Pixel objectives skipped: {exc}")
-
-    def score_fn(results):
-        # Two measures of different kinds, chromatic and structural, and no
-        # model: against damage of a known severity the pair orders candidates
-        # better than any embedding configuration tried, at no forward pass.
-        #
-        # Spread across threads because they run on the one scorer thread, in a
-        # decode-resize-convolve pass per candidate that is where a run's
-        # throughput was going: profiled, workers sat idle above four of them
-        # while this serialised. The work is numpy and Pillow, both of which
-        # drop the GIL, so threads genuinely overlap here.
-        if len(results) > 1:
-            list(pixel_pool.map(_pixel_objectives, results))
-        else:
-            for res in results:
-                _pixel_objectives(res)
-
-        for res in results:
-            if not res.measured:
-                # Nothing rendered, so nothing can be measured.
-                res.score = MAX_SCORE
-
     if dashboard is not None:
         logging.getLogger().addHandler(dashboard.log_handler)
 
@@ -763,30 +648,35 @@ def run_vector_search(
             dashboard.__enter__()
             dashboard_entered = True
 
-        weights = format_plugin.mutation_weights()
-        operator_policy = (
-            Exp3Policy(weights, reward_scale=format_plugin.operator_reward_scale())
-            if adaptive_operators
-            else FixedWeightPolicy(weights)
-        )
-
-        engine.start_workers(worker_loop, worker_ctx)
-
-        engine.run(
+        policy = operator_policy(format_plugin, adaptive_operators)
+        run_search(
+            reference,
             initial_nodes,
-            max_wall_seconds=max_wall_seconds,
-            epoch_patience=epoch_patience,
-            active_pool_size=pool_size,
-            score_fn=score_fn,
-            epoch_seeds=epoch_seeds,
-            initial_seeds=first_batch,
-            epochs=epochs,
-            epoch_max_tasks=epoch_max_tasks,
-            epoch_eval_interval=epoch_eval_interval,
-            epoch_eval_patience=epoch_eval_patience,
-            epoch_improvement=epoch_improvement,
-            epoch_improvement_patience=epoch_improvement_patience,
-            operator_policy=operator_policy,
+            worker_ctx,
+            SearchSettings(
+                workers=workers,
+                pool_size=pool_size,
+                tournament_size=tournament_size,
+                crossover_distance=crossover_distance,
+                adaptive_operators=adaptive_operators,
+                epoch_seeds=epoch_seeds,
+                initial_seeds=first_batch,
+                epochs=epochs,
+                epoch_patience=epoch_patience,
+                epoch_max_tasks=epoch_max_tasks,
+                epoch_eval_interval=epoch_eval_interval,
+                epoch_eval_patience=epoch_eval_patience,
+                epoch_improvement=epoch_improvement,
+                epoch_improvement_patience=epoch_improvement_patience,
+                max_total_tasks=max_total_tasks,
+                max_wall_seconds=max_wall_seconds,
+                resolution_llm=resolution_llm,
+                write_lineage=write_lineage,
+                save_raster=save_raster,
+            ),
+            storage=storage,
+            rank_front=rank_front,
+            policy=policy,
             collector=collector,
         )
 
@@ -794,8 +684,8 @@ def run_vector_search(
         # above the number it invalidates.
         log.info(f"Run scored with: {choice.summary()}")
 
-        if isinstance(operator_policy, Exp3Policy):
-            probs = operator_policy.probabilities()
+        if isinstance(policy, Exp3Policy):
+            probs = policy.probabilities()
             log.info(
                 "Final operator mix: "
                 + ", ".join(

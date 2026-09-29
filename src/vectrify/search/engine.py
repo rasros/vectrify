@@ -188,6 +188,25 @@ class _ScoringRelay:
                 return
 
 
+@dataclass(frozen=True)
+class SearchProgress:
+    """A snapshot of a running search, reported after every result."""
+
+    tasks_completed: int
+    epoch: int
+    pool_size: int
+    elapsed: float
+
+
+@dataclass
+class SearchOutcome(Generic[TState]):
+    """How a search ended: the evaluator's pick and every valid pool member."""
+
+    best: SearchNode[TState] | None
+    pool: list[SearchNode[TState]]
+    tasks_completed: int
+
+
 class MultiprocessSearchEngine(Generic[TState]):
     """Alternating LLM-seed / local-refine epochs.
 
@@ -260,7 +279,9 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_improvement_patience: int = 1,
         operator_policy: OperatorPolicy | None = None,
         collector: StatCollector | None = None,
-    ) -> None:
+        stop: threading.Event | None = None,
+        progress: Callable[[SearchProgress], None] | None = None,
+    ) -> SearchOutcome[TState]:
         start_time = time.monotonic()
 
         if collector is not None:
@@ -992,6 +1013,9 @@ class MultiprocessSearchEngine(Generic[TState]):
 
         try:
             while True:
+                if stop is not None and stop.is_set():
+                    log.info("Stopped on request.")
+                    break
                 if (
                     max_wall_seconds
                     and (time.monotonic() - start_time) >= max_wall_seconds
@@ -1096,6 +1120,16 @@ class MultiprocessSearchEngine(Generic[TState]):
                 else:
                     _check_epoch_end()
 
+                if progress is not None:
+                    progress(
+                        SearchProgress(
+                            tasks_completed=tasks_completed,
+                            epoch=epoch,
+                            pool_size=len(run_state.active_pool),
+                            elapsed=time.monotonic() - start_time,
+                        )
+                    )
+
         finally:
             # Record the partial generation the run stopped in the middle of,
             # so lineage.csv covers every candidate that was paid for.
@@ -1114,6 +1148,11 @@ class MultiprocessSearchEngine(Generic[TState]):
             if collector is not None:
                 collector.on_shutdown()
             self._shutdown()
+        return SearchOutcome(
+            best=best_node,
+            pool=[n for n in run_state.active_pool if n.valid],
+            tasks_completed=tasks_completed,
+        )
 
     def _shutdown(self) -> None:
         log.info("Shutting down workers...")

@@ -4,8 +4,9 @@ from unittest.mock import MagicMock
 from PIL import Image
 
 from vectrify.formats.models import VectorStatePayload
-from vectrify.score.compare import Reference, prepare
+from vectrify.score.compare import prepare
 from vectrify.search import ChainState, SearchNode
+from vectrify.vector.reference import Reference as VectorReference
 from vectrify.vector.resume import (
     PreppedNode,
     filter_to_pool_size,
@@ -130,10 +131,18 @@ def _make_mock_plugin(png: bytes | None = None) -> MagicMock:
     return plugin
 
 
-def _make_reference() -> Reference:
+def _make_reference() -> VectorReference:
     """A real reference: resume reduces one comparison into the score and the
     region metrics, so there is nothing left to mock usefully."""
-    return prepare(Image.new("RGB", (16, 16), color="blue"))
+    image = Image.new("RGB", (16, 16), color="blue")
+    return VectorReference(
+        image=image,
+        png=b"",
+        scoring_image=image,
+        pixel=prepare(image),
+        segments=(),
+        detail=1000.0,
+    )
 
 
 def _make_mock_storage() -> MagicMock:
@@ -158,8 +167,7 @@ def test_resume_nodes_returns_one_node_per_item():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scoring_ref=ref,
-        reference_detail=1000.0,
+        reference=ref,
         storage=storage,
     )
 
@@ -183,8 +191,7 @@ def test_resume_nodes_assigns_sequential_ids():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scoring_ref=ref,
-        reference_detail=1000.0,
+        reference=ref,
         storage=storage,
     )
 
@@ -209,8 +216,7 @@ def test_resume_nodes_deduplicates_identical_content():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scoring_ref=ref,
-        reference_detail=1000.0,
+        reference=ref,
         storage=storage,
     )
 
@@ -233,8 +239,7 @@ def test_resume_nodes_stores_origin_with_old_id():
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scoring_ref=ref,
-        reference_detail=1000.0,
+        reference=ref,
         storage=storage,
     )
 
@@ -244,9 +249,9 @@ def test_resume_nodes_stores_origin_with_old_id():
 def test_resume_nodes_skips_failed_scoring(monkeypatch):
     """A resumed node that cannot be scored is dropped, not carried in with a
     missing score that would read as best-possible on every objective."""
-    import vectrify.vector.resume as resume_module
+    import vectrify.vector.reference as reference_module
 
-    real_compare = resume_module.compare
+    real_compare = reference_module.compare
     calls = {"n": 0}
 
     def flaky(reference, png):
@@ -255,7 +260,7 @@ def test_resume_nodes_skips_failed_scoring(monkeypatch):
             raise ValueError("bad")
         return real_compare(reference, png)
 
-    monkeypatch.setattr(resume_module, "compare", flaky)
+    monkeypatch.setattr(reference_module, "compare", flaky)
 
     plugin = _make_mock_plugin()
     ref = _make_reference()
@@ -272,8 +277,7 @@ def test_resume_nodes_skips_failed_scoring(monkeypatch):
         resolution_llm=16,
         pool_size=10,
         workers=1,
-        scoring_ref=ref,
-        reference_detail=1000.0,
+        reference=ref,
         storage=storage,
     )
 
@@ -310,8 +314,7 @@ def test_resume_nodes_triggers_prefilter_when_many_items(monkeypatch):
         resolution_llm=16,
         pool_size=pool_size,
         workers=2,
-        scoring_ref=ref,
-        reference_detail=1000.0,
+        reference=ref,
         storage=storage,
     )
 
