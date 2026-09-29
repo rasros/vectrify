@@ -7,6 +7,7 @@ let pathDraft = [], pathHover = null;
 let joinContext = null;
 let fitContext = null, fitPoll = null;
 let generateContext = null, generatePoll = null;
+let nsgaContext = null, nsgaPoll = null;
 let simplifyContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
@@ -284,6 +285,7 @@ function renderInspector() {
   renderRelationships(item);
   $('smooth-shape').disabled = !selected.length || !selected.every(id => ['path','use','g'].includes(object(id)?.tag));
   $('optimize-path').disabled = !item || item.tag !== 'path' || item.resource || !state.reference;
+  $('nsga-open').disabled = !state.reference;
   $('optimize-hint').textContent = !state.reference ? 'Add a reference image to fit against.' : item?.tag === 'use' ? 'Detach shared geometry to optimize this instance.' : !item || item.tag !== 'path' || item.resource ? 'Select one visible path.' : 'Run the path-fit mutator on this path.';
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
@@ -1335,5 +1337,86 @@ $('generate-apply').onclick = async () => {
 $('generate-close').onclick = () => $('generate-dialog').close();
 $('generate-dialog').addEventListener('close', () => {
   clearTimeout(generatePoll); const job = generateContext?.job; generateContext = null;
+  if (job) operation('discard', {job}).catch(error => toast(error.message, true));
+});
+
+// Improve: NSGA-II search over the selection (or whole drawing).
+function nsgaError(error) { $('nsga-error').textContent = error.message; $('nsga-error').hidden = false; }
+function nsgaIdle() { $('nsga-settings').disabled = false; $('nsga-run').disabled = false; $('nsga-stop').hidden = true; }
+$('nsga-open').onclick = async () => {
+  await queue;
+  nsgaContext = {epoch:state.epoch, revision:state.revision, job:null, results:[], choice:0};
+  const count = state.selection.objects.length;
+  $('nsga-scope').value = count ? 'selection' : 'drawing';
+  $('nsga-scope').options[0].disabled = !count;
+  $('nsga-summary').textContent = count ? (oneObject()?.label || `${count} selected objects`) : 'Whole drawing';
+  for (const id of ['nsga-error','nsga-previews','nsga-progress','nsga-apply','nsga-stop']) $(id).hidden = true;
+  $('nsga-run').textContent = 'Search'; $('nsga-close').textContent = 'Cancel';
+  nsgaIdle(); $('nsga-dialog').showModal();
+};
+function showNsgaChoice(index) {
+  const context = nsgaContext, result = context?.results[index]; if (!result) return;
+  context.choice = index;
+  for (const key of ['reference','before','after']) $('nsga-'+key).src = result.previews[key];
+  const before = result.metrics.before.error, after = result.metrics.after.error;
+  const improvement = before > 0 ? 100*(before-after)/before : 0;
+  $('nsga-metrics').textContent = result.changed ? `Reference error reduced ${improvement.toFixed(1)}% after ${result.metrics.tasks.toLocaleString()} candidates. Apply keeps this result as one undoable edit.` : 'No candidate beat the current drawing. Try more candidates or allow more kinds of change.';
+  $('nsga-apply').hidden = !result.changed;
+}
+async function pollNsga() {
+  const context = nsgaContext; if (!context?.job) return;
+  try {
+    const job = await operation('status', {job:context.job, preview:true});
+    if (context !== nsgaContext) return;
+    $('nsga-meter').max = job.steps || 1; $('nsga-meter').value = job.step;
+    $('nsga-status').textContent = job.message;
+    if (job.status === 'running') { nsgaPoll = setTimeout(pollNsga, 700); return; }
+    nsgaIdle();
+    if (job.status === 'failed') throw new Error(job.error);
+    if (job.status !== 'ready') return;
+    context.results = [job.result, ...job.alternatives];
+    const choices = $('nsga-choices'); choices.replaceChildren();
+    context.results.forEach((result, index) => {
+      if (!result.changed && index) return;
+      const label = document.createElement('label'); label.className = 'toggle';
+      const input = document.createElement('input'); input.type = 'radio'; input.name = 'nsga-choice'; input.checked = index === 0;
+      input.onchange = () => showNsgaChoice(index);
+      label.append(input, ` ${index ? 'Alternative '+index : 'Recommended'} · error ${result.metrics.after.error.toFixed(5)}`);
+      choices.append(label);
+    });
+    $('nsga-previews').hidden = false; showNsgaChoice(0);
+    $('nsga-close').textContent = 'Discard'; $('nsga-run').textContent = 'Search again';
+  } catch (error) { if (context === nsgaContext) { nsgaError(error); nsgaIdle(); } }
+}
+$('nsga-run').onclick = async () => {
+  const context = nsgaContext; if (!context) return;
+  for (const id of ['nsga-error','nsga-apply','nsga-previews']) $(id).hidden = true;
+  $('nsga-settings').disabled = true; $('nsga-run').disabled = true;
+  try {
+    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
+    const job = await operation('start', {action:'improve', method:'nsga', epoch:context.epoch, revision:context.revision, scope:$('nsga-scope').value,
+      permissions:{geometry:$('nsga-geometry').checked, paint:$('nsga-paint').checked, structure:$('nsga-structure').checked},
+      settings:{workers:Number($('nsga-workers').value), pool_size:Number($('nsga-pool').value)}, budget:{steps:Number($('nsga-tasks').value)}});
+    if (context !== nsgaContext) { await operation('discard', {job:job.id}); return; }
+    context.job = job.id;
+    $('nsga-progress').hidden = false; $('nsga-stop').hidden = false; $('nsga-close').textContent = 'Cancel & discard';
+    await pollNsga();
+  } catch (error) { nsgaError(error); nsgaIdle(); }
+};
+$('nsga-stop').onclick = async () => {
+  try { await operation('stop', {job:nsgaContext.job}); $('nsga-stop').hidden = true; } catch (error) { nsgaError(error); }
+};
+$('nsga-apply').onclick = async () => {
+  $('nsga-apply').disabled = true;
+  try {
+    const result = await operation('apply', {job:nsgaContext.job, choice:nsgaContext.choice});
+    nsgaContext.job = null; dirty = true; await applyState(result); $('nsga-dialog').close();
+    toast('Search result applied. Undo restores the previous drawing.');
+  } catch (error) { nsgaError(error); }
+  finally { $('nsga-apply').disabled = false; }
+};
+$('nsga-close').onclick = () => $('nsga-dialog').close();
+$('nsga-dialog').addEventListener('close', () => {
+  clearTimeout(nsgaPoll); const job = nsgaContext?.job; nsgaContext = null;
   if (job) operation('discard', {job}).catch(error => toast(error.message, true));
 });

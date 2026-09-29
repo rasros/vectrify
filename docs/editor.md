@@ -142,6 +142,15 @@ full-resolution quality guarantee. Surrounding artwork, clipping, group opacity
 and objects in front are included in the frozen compositing context. Fitting
 requires PyTorch CUDA and the optional native Vectrify CUDA extension.
 
+**Search improvements…** runs NSGA-II local search against the reference on
+the selection or the whole drawing. Choose what may change (shape and
+position, paint, stacking order), the number of candidates, workers and pool
+size. Only the chosen objects are mutated; locks, pins and unselected objects
+stay fixed because every result is replayed as an ordinary edit. The results
+are ranked by pixel error against the reference: pick the recommendation or an
+alternative, compare previews, and Apply it as one undoable edit. Stop keeps
+the best candidates found so far. No LLM call or GPU fitting is involved.
+
 **Smooth / simplify…** reduces selected paths, path instances or groups of paths
 without a reference image. It fits shorter runs of lines/cubic curves to the
 current contour, using an adjustable approximation tolerance in local SVG

@@ -58,6 +58,7 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | generate | `samvg` | Traces SAM segments of the reference into a new group |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
+| improve | `nsga` | NSGA-II local search over the selected objects, ranked by reference error |
 | simplify | `curves` | Refits selected contours with fewer lines and cubics |
 | link | `boundaries` | Matches touching edges into shared boundaries |
 
@@ -86,6 +87,18 @@ path structure, and sibling reorders. Anything else (added or removed objects,
 changed path structure, root changes) raises `CandidateRejectedError`, and the
 transaction still enforces selection, permissions, locks and pins, so a search
 can never produce an edit the user could not have made by hand.
+
+## NSGA-II Improve
+
+`improve/nsga` exports the drawing with its viewBox on the target region
+(focus or artboard), stretched to the reference crop at the chosen resolution,
+and runs `vector.search.run_search` from it with a scoped plugin, no LLM seeds
+and one epoch. The budget's `steps` is the number of candidates. The final pool
+is ranked by one explicit policy, pixel mean squared error against the
+reference region, and the best candidates (up to `alternatives` beyond the
+recommendation) are replayed as transactions. A candidate that fails replay is
+skipped. If none beats the current drawing, the unchanged drawing is the
+recommendation. Stop ends the search and keeps the best pool so far.
 
 ## Writing a method
 
