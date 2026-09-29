@@ -37,6 +37,14 @@ SVG = """<svg width="64" height="64">
 SELECTION = Selection(object_ids=frozenset({"a"}))
 
 
+@pytest.fixture(autouse=True)
+def gpu_ready(monkeypatch):
+    """These tests stub the fit itself, so they need no GPU to pass the check."""
+    monkeypatch.setattr(
+        "vectrify.operations.methods.path_fit.gpu_problem", lambda: None
+    )
+
+
 def target(svg=SVG):
     data = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
     assert data is not None
