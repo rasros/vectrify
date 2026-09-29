@@ -67,7 +67,8 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | link | `boundaries` | Matches touching edges into shared boundaries |
 
 Generate methods use `vectrify.operations.generate`: `target_region` crops the
-reference to the focus rectangle (or takes the whole artboard), and
+reference to the selected objects' painted bounds plus a 10% margin (or takes
+the whole artboard for the whole drawing or a group that paints nothing), and
 `generated_result` inserts reference-pixel SVG as one group with the transform
 that places it over the artboard, measuring reference error before and after.
 The target container is the whole drawing (`scope: "drawing"` in the editor
@@ -102,8 +103,8 @@ through, so rounding introduced by that rewrite is never replayed.
 
 ## Search Improve
 
-`improve/search` exports the drawing with its viewBox on the target region
-(focus or artboard), stretched to the reference crop at the chosen resolution,
+`improve/search` needs a selection. It exports the drawing with its viewBox
+on the target region (the selection's painted bounds plus a margin), stretched to the reference crop at the chosen resolution,
 and runs `vector.search.run_search` from it with that scope. Workers mutate the
 current drawing; a child replaces it when it scores no worse. The score is the
 simple scorer's structure-and-colour blend (`score.simple`), which also ranks

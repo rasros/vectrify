@@ -148,27 +148,10 @@ class Element:
 
 
 @dataclass(frozen=True)
-class Rect:
-    """A focus region in document coordinates, not a set of editable objects."""
-
-    x: float
-    y: float
-    width: float
-    height: float
-
-    def __post_init__(self) -> None:
-        if not all(math.isfinite(v) for v in (self.x, self.y, self.width, self.height)):
-            raise DocumentError("Focus bounds must be finite")
-        if self.width <= 0 or self.height <= 0:
-            raise DocumentError("Focus region must have positive dimensions")
-
-
-@dataclass(frozen=True)
 class Selection:
     object_ids: frozenset[str] = frozenset()
     node_ids: frozenset[str] = frozenset()
     whole_document: bool = False
-    focus: Rect | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "object_ids", frozenset(self.object_ids))

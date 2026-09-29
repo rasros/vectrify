@@ -113,10 +113,9 @@
 </dialog>
 <dialog id="search-dialog" aria-labelledby="search-title">
   <h2 id="search-title">Search improvements</h2>
-  <p id="search-summary"></p><p class="muted">Tries many small random changes to the chosen objects, one at a time, and keeps each change that brings the drawing closer to the reference. Runs on the CPU; no API key needed.</p>
+  <p id="search-summary"></p><p class="muted">Tries many small random changes to the selected objects, one at a time, and keeps each change that brings them closer to the reference around them. Runs on the CPU; no API key needed.</p>
   <fieldset id="search-settings"><legend>Allow changes to</legend>
     <div class="button-row"><label class="toggle"><input id="search-geometry" type="checkbox" checked> Shape &amp; position</label><label class="toggle"><input id="search-paint" type="checkbox" checked> Paint</label><label class="toggle"><input id="search-structure" type="checkbox"> Stacking order</label></div>
-    <label class="field-label">Objects<select id="search-scope"><option value="selection" selected>Selection</option><option value="drawing">Whole drawing</option></select></label>
     <div class="two-fields"><label title="Total number of variants to try. More finds better results but takes longer.">Variants to try<input id="search-tasks" type="number" min="10" max="100000" step="50" value="600"></label><label title="How many CPU processes try variants at the same time">Parallel workers<input id="search-workers" type="number" min="1" max="64" value="2"></label></div>
     <p class="muted">Locks, pins and unselected objects stay fixed. Every result is checked as an ordinary edit.</p>
   </fieldset>

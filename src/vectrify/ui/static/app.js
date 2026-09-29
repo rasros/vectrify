@@ -1232,14 +1232,14 @@ function openOnScope(dialog, prefix) {
   dialog.open(count ? selectionSummary() : 'Whole drawing');
 }
 const searchDialog = jobDialog('search', {
-  start: () => ({action:'improve', method:'search', scope:$('search-scope').value,
+  start: () => ({action:'improve', method:'search', scope:'selection',
     permissions:{geometry:$('search-geometry').checked, paint:$('search-paint').checked, structure:$('search-structure').checked},
     settings:{workers:Number($('search-workers').value)}, budget:{steps:Number($('search-tasks').value)}}),
   describe: ({changed, metrics}) => changed ? `Difference from the reference ${errorChange(metrics, 'difference')} after ${metrics.tasks.toLocaleString()} variants. Apply keeps this result as one undoable edit.` : 'No variant beat the current drawing. Try more variants or allow more kinds of change.',
   applied: 'Search result applied. Undo restores the previous drawing.',
   choiceLabel: (result, index) => `${index ? 'Alternative '+index : 'Recommended'} · difference ${result.metrics.after.difference.toFixed(4)}`,
 }).wire();
-$('search-open').onclick = async () => { await queue; openOnScope(searchDialog, 'search'); };
+$('search-open').onclick = async () => { await queue; searchDialog.open(selectionSummary()); };
 const llmDialog = jobDialog('llm', {
   start: () => ({action:'improve', method:'llm', scope:$('llm-scope').value,
     permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},

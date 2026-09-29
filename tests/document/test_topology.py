@@ -12,7 +12,6 @@ from vectrify.document import (
     EdgeRef,
     Editor,
     EditRejectedError,
-    Rect,
     Selection,
     StaleRevisionError,
     export_svg,
@@ -302,13 +301,13 @@ def test_splitting_checks_all_consumers_structure_permission_and_node_filter():
 def test_delete_selected_node_clears_filter_safely_and_undo_restores_selection():
     doc = import_svg(SVG)
     node = ref(doc, "a", 1).node_id
-    selection = select("a", nodes=[node], focus=Rect(0, 0, 32, 32))
+    selection = select("a", nodes=[node])
     editor = Editor(doc, selection=selection)
     with editor.transaction("Delete corner") as tx:
         tx.delete_node("a", node)
-        assert tx.preview_selection == Selection(focus=selection.focus)
+        assert tx.preview_selection == Selection()
         assert tx.node_remapping == ((node, ()),)
-    assert editor.snapshot.selection == Selection(focus=selection.focus)
+    assert editor.snapshot.selection == Selection()
     assert editor.undo().selection == selection
     assert editor.snapshot.document == doc
     assert not editor.redo().selection.object_ids

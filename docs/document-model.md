@@ -17,12 +17,10 @@ includes groups, references, and clipping, so modifying a definition cannot
 silently change an unselected or locked consumer. The affected objects can be
 queried with `Document.geometry_users`.
 
-`Selection` carries explicit object IDs, optional node IDs, and an optional
-`Rect` focus region in document coordinates. Selecting a group includes its
-children. An empty selection permits no changes. `Selection.all()` is the
-explicit whole-document choice. Node IDs must belong to selected objects.
-Focus is metadata for the subsequent operation layer; it does not select
-objects or implement a pixel mask by itself.
+`Selection` carries explicit object IDs and optional node IDs. Selecting a
+group includes its children. An empty selection permits no changes.
+`Selection.all()` is the explicit whole-document choice. Node IDs must belong
+to selected objects.
 
 Locks can cover `geometry`, `paint`, `transform`, or `structure`, or individual
 attributes such as `fill` and `stroke-width`. Ancestor locks apply to children,
@@ -174,29 +172,21 @@ at commit. Grouping leaves existing child selections intact; ungrouping a
 selected group selects its surviving children. Undo restores the previous
 objects and selection. Object commands cannot bypass a node-only scope.
 
-## Rectangle selection
+## Painted areas
 
-`HitIndex(document, tolerance=0.1)` builds a spatial index for an immutable
-snapshot. `query(Rect(...), mode="intersect" | "contain", candidates=None)`
-returns a `Selection`. The default candidates are drawable leaves, including
-`use` instances; definitions are not selected. Pass an explicit candidate set
-for selection at a chosen group/layer level. An empty candidate set stays empty.
+`HitIndex(document, tolerance=0.1)` computes where each object of an immutable
+snapshot paints. `area(object_id)` is that shape (None if it paints nothing),
+a group's being the union of its children's; `bounds(object_ids)` is the box
+around several, which operations use to crop the reference to the selection.
+Join and hole inspection use the same areas.
 
-Queries test painted geometry, including holes, strokes, transforms, nested
-clips, and `objectBoundingBox` clipping. Transparent objects are excluded.
-Occlusion by other objects does not exclude candidates. Off-canvas objects
-remain selectable. Coordinates are root SVG user-space/viewBox coordinates,
+Areas follow painted geometry, including holes, strokes, transforms, nested
+clips, and `objectBoundingBox` clipping. Transparent objects paint nothing.
+Occlusion by other objects is ignored. Coordinates are root SVG user-space/viewBox coordinates,
 not viewport or screen pixels. Curves and round geometry are approximated with
 the supplied document-unit tolerance; changing zoom does not change scope unless
-the caller deliberately changes that tolerance. Boolean geometry uses Shapely 2,
-now included in the project's dependencies.
-
-`Editor.select_rectangle(...)` caches the index for its current document,
-rebuilds after edits/undo/redo, and replaces object selection while preserving
-the separate focus region. Selection alone does not increment document revision
-or create an undo entry. A standalone index always queries its original snapshot.
-For additive/subtractive selection, combine its returned IDs with the existing
-object IDs explicitly before calling `Editor.select`.
+the caller deliberately changes that tolerance. Boolean geometry uses Shapely 2.
+An index always describes the snapshot it was built from.
 
 The 4K landscape has over 117,000 nodes: index construction currently takes
 several seconds, while cached queries take milliseconds. Index creation is

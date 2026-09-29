@@ -53,6 +53,11 @@ class Search:
         read_settings(request.settings, SETTINGS, "search")
         if request.reference is None:
             raise DocumentError("Add a reference image to improve against")
+        # Scored on the selection's surroundings: over the whole image a small
+        # edit barely moves the score, so there is no whole-drawing search.
+        selection = request.snapshot.selection
+        if selection.whole_document or not selection.object_ids:
+            raise DocumentError("Select the objects to improve")
         scope = mutation_scope(request)
         if not scope.kinds & {"geometry", "paint", "structure"}:
             raise DocumentError("Allow geometry, paint or stacking changes")

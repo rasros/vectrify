@@ -8,7 +8,6 @@ from PIL import Image
 from vectrify.document import (
     DocumentError,
     Editor,
-    Rect,
     Selection,
     import_svg,
 )
@@ -74,16 +73,25 @@ def test_generated_svg_maps_reference_pixels_onto_the_artboard():
     assert editor.snapshot.document == original
 
 
-def test_focus_region_crops_the_reference_and_places_the_result_there():
-    editor = Editor(import_svg(DOC))
-    focus = Rect(60, 45, 100, 50)
-    req = request(editor, Selection(whole_document=True, focus=focus))
+def test_the_region_is_the_selection_with_a_margin_or_else_the_artboard():
+    doc = DOC.replace(
+        '<g id="layer"/>',
+        '<rect id="spot" x="60" y="45" width="100" height="50"/><g id="layer"/>',
+    )
+    editor = Editor(import_svg(doc))
+    req = request(editor, Selection(object_ids=frozenset({"spot"})))
     region = target_region(req)
-    assert (region.x, region.y, region.width, region.height) == (60, 45, 100, 50)
-    assert region.image.size == (200, 100)
-    assert region.image.getpixel((0, 0)) == (200, 0, 0)
-    rendered = render_region(req.snapshot.document, region)
-    assert rendered.size == region.image.size
+    # 10% of the longer side on every edge.
+    assert (region.x, region.y, region.width, region.height) == (50, 35, 120, 70)
+    assert region.image.size == (240, 140)
+    assert region.image.getpixel((0, 0)) == (255, 255, 255)
+    assert render_region(req.snapshot.document, region).size == region.image.size
+    for selection in (
+        Selection(whole_document=True),
+        Selection(object_ids=frozenset({"layer"})),
+    ):
+        region = target_region(request(editor, selection))
+        assert (region.x, region.y, region.width, region.height) == (10, 20, 200, 100)
 
 
 def test_generation_goes_into_a_selected_group_or_needs_the_whole_drawing():

@@ -5,10 +5,8 @@ from __future__ import annotations
 import math
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
-from typing import Literal
 
 from vectrify.document.components import disconnected_parts
-from vectrify.document.hit_test import HitIndex
 from vectrify.document.holes import find_holes
 from vectrify.document.join import (
     bake_group_path,
@@ -24,7 +22,6 @@ from vectrify.document.model import (
     EditKind,
     Element,
     Geometry,
-    Rect,
     Selection,
     SharedBoundary,
     new_id,
@@ -67,7 +64,6 @@ class Editor:
         self._document = document
         self._selection = selection
         self._revision = 0
-        self._hit_index: HitIndex | None = None
         self._undo: list[HistoryEntry] = []
         self._redo: list[HistoryEntry] = []
 
@@ -86,25 +82,6 @@ class Editor:
     def select(self, selection: Selection) -> None:
         self._document.selection_ids(selection)
         self._selection = selection
-
-    def select_rectangle(
-        self,
-        rectangle: Rect,
-        *,
-        mode: Literal["intersect", "contain"] = "intersect",
-        candidates: frozenset[str] | None = None,
-        tolerance: float = 0.1,
-    ) -> Selection:
-        """Replace object selection, keeping focus separate and caching the index."""
-        if (
-            self._hit_index is None
-            or self._hit_index.document is not self._document
-            or self._hit_index.tolerance != tolerance
-        ):
-            self._hit_index = HitIndex(self._document, tolerance=tolerance)
-        selection = self._hit_index.query(rectangle, mode=mode, candidates=candidates)
-        self.select(replace(selection, focus=self._selection.focus))
-        return self._selection
 
     def transaction(
         self,
@@ -289,11 +266,7 @@ class Transaction:
             candidates.update(self._node_remap.get(old, ()))
         selected = frozenset(candidates & available)
         # Losing the final selected node must never broaden the scope to an object.
-        return (
-            replace(selection, node_ids=selected)
-            if selected
-            else Selection(focus=selection.focus)
-        )
+        return replace(selection, node_ids=selected) if selected else Selection()
 
     @contextmanager
     def _change(self):

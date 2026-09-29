@@ -179,10 +179,11 @@ def test_object_bounding_box_clip_keeps_original_combined_bounds():
     editor = Editor(doc, selection=select("p"))
     with editor.transaction("Split") as tx:
         assert len(tx.split_disconnected("p")) == 2
-    from vectrify.document import HitIndex, Rect
+    from tests.document.test_hit_test import hits
+    from vectrify.document import HitIndex
 
     before, after = HitIndex(doc), HitIndex(editor.snapshot.document)
-    assert before.query(Rect(2, 2, 2, 2)).object_ids
-    assert after.query(Rect(2, 2, 2, 2)).object_ids
-    assert not before.query(Rect(65, 5, 5, 5)).object_ids
-    assert not after.query(Rect(65, 5, 5, 5)).object_ids
+    assert hits(before, 2, 2, 2, 2)
+    assert hits(after, 2, 2, 2, 2)
+    assert not hits(before, 65, 5, 5, 5)
+    assert not hits(after, 65, 5, 5, 5)

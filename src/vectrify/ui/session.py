@@ -18,7 +18,6 @@ from vectrify.document import (
     DocumentError,
     Editor,
     Element,
-    Rect,
     Selection,
     StaleRevisionError,
     export_svg,
@@ -78,13 +77,7 @@ class Session:
             bounds = payload.get("bounds", self.state(svg=False)["bounds"])
             snapshot = self.editor.snapshot
             if payload.get("scope") == "drawing":
-                # An explicit whole-drawing request; the focus region still applies.
-                snapshot = replace(
-                    snapshot,
-                    selection=Selection(
-                        whole_document=True, focus=snapshot.selection.focus
-                    ),
-                )
+                snapshot = replace(snapshot, selection=Selection(whole_document=True))
             elif payload.get("scope") not in {None, "selection"}:
                 raise DocumentError("Choose the selection or the whole drawing")
             job = Job(
@@ -337,24 +330,8 @@ class Session:
                 Selection(
                     object_ids=frozenset(payload.get("objects", [])),
                     node_ids=frozenset(payload.get("nodes", [])),
-                    focus=self.editor.snapshot.selection.focus,
                 )
             )
-        elif command == "rectangle":
-            rectangle = Rect(*(number(v) for v in payload["rectangle"]))
-            mode = payload.get("mode", "contain")
-            if mode not in {"intersect", "contain"}:
-                raise DocumentError("Choose intersection or containment selection")
-            previous = self.editor.snapshot.selection
-            selected = self.editor.select_rectangle(
-                rectangle, mode=mode, tolerance=0.25
-            )
-            if payload.get("add"):
-                self.editor.select(
-                    replace(
-                        selected, object_ids=selected.object_ids | previous.object_ids
-                    )
-                )
         elif command in {"undo", "redo"}:
             getattr(self.editor, command)()
         elif command == "rename":

@@ -11,7 +11,6 @@ from vectrify.document import (
     Editor,
     EditRejectedError,
     Element,
-    Rect,
     Selection,
     export_svg,
     import_svg,
@@ -104,13 +103,13 @@ def test_group_and_ungroup_keep_rendering_ids_and_paint_order():
     grouped = editor.snapshot.document
     assert np.array_equal(render(OBJECTS), render(export_svg(grouped)))
     assert grouped.element("a") == before.element("a")
-    editor.select(select(group, focus=Rect(0, 0, 20, 20)))
+    editor.select(select(group))
     selection = editor.snapshot.selection
     with editor.transaction("Ungroup") as tx:
         assert tx.ungroup_object(group) == ("a", "b")
         assert tx.preview_selection.object_ids == {"a", "b"}
     assert editor.snapshot.document == before
-    assert editor.snapshot.selection == select("a", "b", focus=selection.focus)
+    assert editor.snapshot.selection == select("a", "b")
     assert editor.undo().selection == selection
     assert editor.redo().selection.object_ids == {"a", "b"}
 

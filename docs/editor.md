@@ -142,9 +142,9 @@ full-resolution quality guarantee. Surrounding artwork, clipping, group opacity
 and objects in front are included in the frozen compositing context. Fitting
 requires PyTorch CUDA and the optional native Vectrify CUDA extension.
 
-**Search improvements…** tries small random changes to the selection or the
-whole drawing, one at a time, and keeps each one that brings it closer to the
-reference. Choose what may change (shape and position, paint, stacking order),
+**Search improvements…** tries small random changes to the selected objects,
+one at a time, and keeps each one that brings them closer to the reference.
+It compares only the selection's surroundings, never the whole image. Choose what may change (shape and position, paint, stacking order),
 the number of variants and workers. Only the chosen objects are mutated;
 locks, pins and unselected objects stay fixed because every result is replayed
 as an ordinary edit. Compare the previews and Apply the result as one undoable
@@ -198,8 +198,8 @@ new shapes. The SAMVG method segments the image with SAM and traces each region
 into filled paths and thin strokes. Choose the model (ViT-H is best, ViT-B is
 faster), the maximum layers and curve segments. The result is placed over the
 artboard exactly where the reference is shown, as one new group at the front of
-the whole drawing or of a selected group. With a focus region set, only that
-part of the reference is traced. Text is traced as shapes, since the editor
+the whole drawing or of a selected group. With a group selected, only the
+reference around what it already paints is traced. Text is traced as shapes, since the editor
 does not support SVG text. Preview shows the reference, before and after, with
 the change in reference error; Apply adds the group as one undoable edit.
 SAMVG needs the `samvg` extra and holds the GPU while it runs.

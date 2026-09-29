@@ -164,15 +164,8 @@ def test_multiselection_drag_uses_each_parent_coordinate_frame_and_skips_childre
     )
 
 
-def test_rectangle_selection_and_empty_paint_scope():
+def test_paint_needs_a_selection():
     session = Session(import_svg(SVG))
-    assert send(session, "rectangle", rectangle=[29, 0, 22, 21])["selection"][
-        "objects"
-    ] == ["b"]
-    assert (
-        send(session, "rectangle", rectangle=[90, 90, 2, 2])["selection"]["objects"]
-        == []
-    )
     with pytest.raises(DocumentError, match="Select"):
         send(session, "paint", changes={"fill": "green"})
 
@@ -238,26 +231,6 @@ def test_join_nonadjacent_regions_averages_by_area_at_frontmost_position():
     assert [e.id for e in doc.root.children] == ["middle", oid]
     assert doc.element(oid).get("fill") == "#4000bf"
     assert send(session, "undo")["selection"]["objects"] == ["a", "b"]
-
-
-def test_rectangle_defaults_to_containing_all_parts_of_a_compound_path():
-    session = Session(
-        import_svg(
-            '<svg width="100" height="100"><g id="g">'
-            '<path id="islands" d="M10 10H20V20H10Z M70 70H80V80H70Z"/>'
-            '<rect id="small" x="12" y="12" width="2" height="2"/>'
-            "</g></svg>"
-        )
-    )
-    assert send(session, "rectangle", rectangle=[9, 9, 12, 12])["selection"][
-        "objects"
-    ] == ["small"]
-    assert send(session, "rectangle", rectangle=[9, 9, 72, 72])["selection"][
-        "objects"
-    ] == ["islands", "small"]
-    assert send(session, "rectangle", rectangle=[9, 9, 12, 12], mode="intersect")[
-        "selection"
-    ]["objects"] == ["islands", "small"]
 
 
 def test_join_options_choose_source_and_validate_before_applying():
