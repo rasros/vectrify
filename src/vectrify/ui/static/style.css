@@ -60,28 +60,25 @@
 #relationship-links { display: flex; flex-direction: column; gap: 6px; }
 #relationship-links button { text-align: left; font-size: 10px; padding: 7px; overflow-wrap: anywhere; }
 
-#optimize-dialog, #generate-dialog, #search-dialog, #llm-dialog { width:min(1080px,calc(100vw - 64px)); max-width:1080px; max-height:90vh; overflow:auto; }
-#optimize-settings, #generate-settings, #search-settings, #llm-settings { border:1px solid var(--border); padding:16px; margin:18px 0; }
-#optimize-settings .button-row, #generate-settings .button-row, #search-settings .button-row, #llm-settings .button-row { gap:24px; margin-bottom:14px; }
-#optimize-settings select, #generate-settings select, #search-settings select, #llm-settings select { display:block; margin-top:8px; padding:8px; }
-#optimize-progress progress, #generate-progress progress, #search-progress progress, #llm-progress progress { width:100%; }
+#generate-dialog, #llm-dialog { width:min(1080px,calc(100vw - 64px)); max-width:1080px; max-height:90vh; overflow:auto; }
+#generate-settings, #llm-settings { border:1px solid var(--border); padding:16px; margin:18px 0; }
+#generate-settings .button-row, #llm-settings .button-row { gap:24px; margin-bottom:14px; }
+#generate-settings select, #llm-settings select { display:block; margin-top:8px; padding:8px; }
+#generate-progress progress, #llm-progress progress { width:100%; }
 .fit-previews { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; }
 .fit-previews figure { margin:0; min-width:0; }
 .fit-previews figcaption { margin-bottom:8px; font-weight:600; }
 .fit-previews img { width:100%; height:240px; object-fit:contain; background:#fff; border:1px solid #45534c; }
-#optimize-error, #generate-error, #search-error, #llm-error { color:#ffb3a3; }
+#generate-error, #llm-error { color:#ffb3a3; }
 
 
-#simplify-settings .toggle { display:flex; align-items:center; justify-content:flex-start; gap:10px; margin:0; }
-#simplify-settings .toggle input { width:auto; flex:none; margin:0; }
-#simplify-dialog .join-actions { position:sticky; bottom:-30px; background:#1d2e23; padding:12px 0; margin-top:0; }
 
 #path-controls{display:flex;gap:5px;flex-shrink:0}#path-controls button{font-size:10px;padding:5px 7px}
 
 #object-name { width: 100%; margin-top: 6px; }
 
 
-#search-choices, #llm-choices, #generate-choices { margin-bottom:12px; flex-wrap:wrap; }
+#llm-choices, #generate-choices { margin-bottom:12px; flex-wrap:wrap; }
 #llm-settings textarea, #generate-settings textarea { display:block; width:100%; margin-top:8px; }
 .job-dialog { width:min(1080px,calc(100vw - 64px)); max-width:1080px; max-height:90vh; overflow:auto; }
 .job-settings { border:1px solid var(--border); padding:16px; margin:18px 0; }
@@ -94,3 +91,6 @@
 .link-button { background:none; border:0; padding:0; color:var(--accent); text-decoration:underline; font-size:inherit; }
 .link-button:hover { background:none; color:#c1e3c9; }
 #local-url, #local-model { display:block; width:100%; }
+#nodes-settings .button-row { flex-wrap:wrap; }
+.engine-row { display:flex; align-items:center; gap:14px; margin-top:12px; }
+.engine-row .field-label { margin:0; }
