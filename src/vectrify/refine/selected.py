@@ -294,7 +294,12 @@ def fit_selected_path(
     progress: Callable[[int, str], None] | None = None,
 ) -> FitResult:
     """Expose the path-fit mutator's filled-path optimizer for an explicit selection."""
-    import torch
+    try:
+        import torch
+    except ImportError:
+        raise DocumentError(
+            "GPU fitting needs PyTorch with CUDA and the Vectrify CUDA extension"
+        ) from None
 
     from vectrify.refine.cuda_renderer import available
     from vectrify.refine.paths import fit_filled_svg, to_path_d
