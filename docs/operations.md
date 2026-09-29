@@ -115,8 +115,8 @@ recommendation. Stop ends the search and keeps the best pool so far.
 ## LLM methods
 
 `generate/llm` and `improve/llm` pick the provider from `settings.provider`
-(`auto` takes the first of `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`,
-`GEMINI_API_KEY` that is set), `model` (empty for the provider default) and
+(`auto` takes the first key saved in Settings, in the order OpenAI,
+Anthropic, Gemini; see `vectrify.llm.keys`), `model` (empty for the provider default) and
 `reasoning`. `candidates` asks for several replies, each ranked by reference
 error. Generate pins the model's viewBox to the region's pixel size and
 rescales a reply that uses another. Improve requires an instruction, names the

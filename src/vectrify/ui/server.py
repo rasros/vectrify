@@ -13,6 +13,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
+from vectrify.llm import keys
 from vectrify.ui.session import MAX_SOURCE, Session
 
 STATIC = Path(__file__).with_name("static")
@@ -133,6 +134,10 @@ class Handler(BaseHTTPRequestHandler):
                 elif self.path == "/api/nodes":
                     session.check_revision(data)
                     result = session.nodes(data["object"])
+                elif self.path == "/api/settings":
+                    if "api_keys" in data:
+                        keys.save(data["api_keys"])
+                    result = {"api_keys": keys.summary()}
                 elif self.path == "/api/reference":
                     result = {"reference": session.reference}
                 elif self.path == "/api/export":
