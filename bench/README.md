@@ -30,10 +30,9 @@ the regime a real epoch runs in. Measured on this corpus crossover is worth
 -0.00087 on final error, 95% CI [-0.00149, -0.00019]; measured against a single
 seed it looked worthless.
 
-Runs are not exactly reproducible, even at `--workers 1`: `--seed-base` seeds
-the workers, but selection in the main process is not seeded. Two runs of the
-same code differ by about as much as small changes to the search, so repeat a
-comparison (`--reps`) and read small differences as noise.
+`--workers 1` with a given `--seed-base` repeats exactly: the seed covers the
+workers and the main process, where parents and operators are chosen. Above
+one worker the task interleaving varies and it does not.
 
 ## Metrics
 
