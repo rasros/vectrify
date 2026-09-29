@@ -6,39 +6,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
 
-from bench_search import _bootstrap_ci, discover_cases, plant_seed, read_curve
-
-
-def _write_lineage(run: Path, scores: list[str]) -> None:
-    """The evaluator's verdicts, as stats.csv records them.
-
-    Not lineage.csv: a lineage row is written when a candidate is admitted,
-    which is before the evaluator has seen anything, so its front_score column
-    is present and empty for every node.
-    """
-    run.mkdir(parents=True)
-    rows = ["elapsed,best_score"]
-    rows += [f"{i},{s}" for i, s in enumerate(scores, start=1)]
-    (run / "stats.csv").write_text("\n".join(rows) + "\n")
-
-
-def test_curve_is_the_running_best(tmp_path):
-    _write_lineage(tmp_path / "runs" / "2024-01-01_00-00-00", ["0.5", "0.7", "0.3"])
-    assert read_curve(tmp_path) == [0.5, 0.5, 0.3]
-
-
-def test_curve_skips_rows_without_a_score(tmp_path):
-    """Most rows carry no evaluator score -- it exists only on the nodes it was
-    shown -- and inf marks a candidate that never rendered. Counting either as a
-    data point corrupts the AUC."""
-    _write_lineage(tmp_path / "runs" / "2024-01-01_00-00-00", ["0.5", "", "inf", "0.4"])
-    assert read_curve(tmp_path) == [0.5, 0.4]
-
-
-def test_curve_reads_the_newest_run(tmp_path):
-    _write_lineage(tmp_path / "runs" / "1970-01-01_00-00-00", ["9.0"])
-    _write_lineage(tmp_path / "runs" / "2024-01-01_00-00-00", ["0.2"])
-    assert read_curve(tmp_path) == [0.2]
+from bench_search import _bootstrap_ci, discover_cases
 
 
 def _make_case(root: Path, name: str, seeds: int = 2, target: bool = True) -> Path:
@@ -49,17 +17,6 @@ def _make_case(root: Path, name: str, seeds: int = 2, target: bool = True) -> Pa
     for i in range(seeds):
         (case / "seeds" / f"{i + 1}.svg").write_text(f"<svg id='{i}'/>")
     return case
-
-
-def test_plant_seed_plants_every_seed(tmp_path):
-    """The pool must start as several lineages; planting one would leave
-    crossover recombining a candidate with itself."""
-    case = _make_case(tmp_path, "case", seeds=3)
-    output = plant_seed(tmp_path / "work", case)
-    planted = list((tmp_path / "work" / "out" / "runs").glob("*/nodes/*.svg"))
-    assert len(planted) == 3
-    assert {p.read_text() for p in planted} == {f"<svg id='{i}'/>" for i in range(3)}
-    assert output.suffix == ".svg"
 
 
 def test_discover_cases_requires_a_target_and_seeds(tmp_path):

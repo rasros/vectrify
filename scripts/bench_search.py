@@ -1,7 +1,7 @@
 """Benchmark the local (non-LLM) search over the bench/cases corpus.
 
-Every run is LLM-free: each case's seed.svg is planted as a previous run and the
-search resumes from it with --seeds 0, so only mutation, crossover and Pareto
+Every run is LLM-free: each case's seeds open the pool and the in-process
+NSGA-II search runs from them, so only mutation, crossover and Pareto
 selection do any work. Two invocations with the same --reps are paired case for
 case, which is what makes a change to the search measurable.
 
@@ -12,22 +12,20 @@ case, which is what makes a change to the search measurable.
 """
 
 import argparse
-import csv
 import json
 import random
 import statistics
-import subprocess
 import sys
-import tempfile
 from pathlib import Path
 
-from vectrify.cli import DEFAULT_POOL_SIZE
-from vectrify.image_utils import rasterize_svg
+from PIL import Image
+
+from vectrify.image_utils import rasterize_svg, resize_long_side
 from vectrify.score import ScorerType
 
 REPO = Path(__file__).resolve().parent.parent
 DEFAULT_CASES = REPO / "bench" / "cases"
-SEED_RUN = "1970-01-01_00-00-00"
+DEFAULT_POOL_SIZE = 100
 
 
 def case_seeds(case: Path) -> list[Path]:
@@ -43,61 +41,10 @@ def discover_cases(cases_dir: Path) -> list[Path]:
     return found
 
 
-def plant_seed(work: Path, case: Path) -> Path:
-    """Lay out a fake previous run so --resume picks every seed up.
-
-    All of them, not one: a pool descended from a single ancestor gives
-    crossover nothing to recombine, which is not the regime a real epoch runs
-    in -- an epoch opens with several independent LLM candidates.
-    """
-    project = work / "out"
-    nodes = project / "runs" / SEED_RUN / "nodes"
-    nodes.mkdir(parents=True)
-    for index, seed in enumerate(case_seeds(case), start=1):
-        (nodes / f"1.000000_{index}.svg").write_text(seed.read_text(encoding="utf-8"))
-    return work / "out.svg"
-
-
-def read_curve(project: Path) -> list[float]:
-    """Running-best evaluator score, oldest run last.
-
-    The evaluator's verdict is the only score a run records, and it is read from
-    stats.csv rather than lineage.csv: a lineage row is written when a candidate
-    is admitted, which is before the evaluator has seen anything, so the column
-    is there but empty for every node.
-
-    It used to read a blended per-candidate proxy, which measured what local
-    search optimises rather than whether the drawing got better -- and those
-    came apart badly enough that one run improved the proxy 64% while the
-    evaluator scored the result no better at all.
-    """
-    runs = sorted(p for p in (project / "runs").iterdir() if p.name != SEED_RUN)
-    stats = runs[-1] / "stats.csv"
-    if not stats.is_file():
-        return []
-    scores: list[float] = []
-    with stats.open(encoding="utf-8", newline="") as f:
-        for row in csv.DictReader(f):
-            raw = row.get("best_score") or ""
-            try:
-                value = float(raw)
-            except ValueError:
-                continue  # no evaluator verdict yet at this point in the run
-            if value == float("inf"):
-                continue
-            scores.append(value)
-
-    best, curve = float("inf"), []
-    for value in scores:
-        best = min(best, value)
-        curve.append(best)
-    return curve
-
-
 _VISION: dict[str, object] = {}
 
 
-def vision_score(target_png: Path, artifact: Path, resolution: int) -> float:
+def vision_score(target_png: Path, content: str, resolution: int) -> float:
     """Score the run's final artifact the way a real run's evaluator would.
 
     The pixel curve measures what the round optimises, which makes two searches
@@ -127,73 +74,99 @@ def vision_score(target_png: Path, artifact: Path, resolution: int) -> float:
         _VISION["size"] = target.size
 
     width, height = _VISION["size"]
-    png = rasterize_svg(artifact.read_text(encoding="utf-8"), width, height)
+    png = rasterize_svg(content, width, height)
     return scorer.score(_VISION["reference"], png)
 
 
 def run_case(case: Path, seed: int, args) -> dict:
-    with tempfile.TemporaryDirectory() as tmp:
-        work = Path(tmp)
-        output = plant_seed(work, case)
-        cmd = [
-            "vectrify",
-            str(case / "target.png"),
-            "-o",
-            str(output),
-            "--seeds",
-            "0",
-            "--resume",
-            "--random-seed",
-            str(seed),
-            "--workers",
-            str(args.workers),
-            "--max-total-tasks",
-            str(args.tasks),
-            "--resolution",
-            str(args.resolution),
-            "--scorer",
-            args.scorer,
-            "--epochs",
-            str(args.epochs),
-            "--epoch-patience",
-            "0",
-            "--max-wall-seconds",
-            "0",
-            "--no-dashboard",
-            "--no-save-raster",
-            "--log-level",
-            "ERROR",
-            "--pool-size",
-            str(args.pool_size),
-        ]
-        if not args.adaptive_operators:
-            cmd.append("--no-adaptive-operators")
-        # Arbitrary flags, so an A/B of one setting runs both arms from the same
-        # commit. Two arms in separate worktrees is how a comparison silently
-        # ends up measuring the environment instead of the change.
-        cmd.extend(args.extra)
-        done = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO)
-        if done.returncode != 0:
-            raise SystemExit(
-                f"{case.name} seed={seed} failed ({done.returncode}):\n"
-                f"{done.stderr[-2000:]}"
-            )
-        curve = read_curve(work / "out")
-        vision = vision_score(case / "target.png", output, args.resolution)
+    """One search over a case's seed pool; the evaluator judges start and end."""
+    from vectrify.image_utils import png_bytes_to_data_url
+    from vectrify.score import choose_scorer
+    from vectrify.vector.reference import Reference
+    from vectrify.vector.search import (
+        SearchSettings,
+        evaluate_front,
+        run_search,
+        seed_node,
+    )
+    from vectrify.vector.worker import WorkerContext
 
-    if not curve:
-        raise SystemExit(f"{case.name} seed={seed} produced no scored nodes")
-    start, final = curve[0], curve[-1]
+    target = resize_long_side(
+        Image.open(case / "target.png").convert("RGB"), args.resolution
+    )
+    width, height = target.size
+    reference = Reference.build(target)
+    seeds = [
+        seed_node(
+            reference,
+            content,
+            rasterize_svg(content, width, height),
+            node_id=index,
+            origin=f"Seed {index}",
+            resolution_llm=512,
+        )
+        for index, content in enumerate(
+            (s.read_text(encoding="utf-8") for s in case_seeds(case)), start=1
+        )
+    ]
+    choice = choose_scorer(ScorerType(args.scorer))
+
+    def rank_front(nodes):
+        return evaluate_front(
+            nodes,
+            front_scorer=lambda: (
+                choice.scorer,
+                choice.scorer.prepare_reference(target),
+            ),
+            out_w=width,
+            out_h=height,
+        )
+
+    context = WorkerContext(
+        image_data_url=png_bytes_to_data_url(reference.png),
+        original_png_bytes=reference.png,
+        original_w=width,
+        original_h=height,
+        resolution_llm=512,
+        log_level="ERROR",
+        log_file=None,
+        goal=None,
+        source_name=None,
+        llm_provider="openai",
+        llm_model="",
+        reasoning="none",
+        api_key=None,
+        random_seed=seed,
+    )
+    outcome = run_search(
+        reference,
+        seeds,
+        context,
+        SearchSettings(
+            workers=args.workers,
+            pool_size=args.pool_size,
+            adaptive_operators=args.adaptive_operators,
+            epochs=args.epochs,
+            epoch_eval_interval=args.eval_interval,
+            max_total_tasks=args.tasks,
+        ),
+        rank_front=rank_front,
+    )
+    if outcome.best is None:
+        raise SystemExit(f"{case.name} seed={seed} produced no candidate")
+    start = min(
+        vision_score(case / "target.png", n.state.payload.content, args.resolution)
+        for n in seeds
+    )
+    final = vision_score(
+        case / "target.png", outcome.best.state.payload.content, args.resolution
+    )
     return {
         "case": case.name,
         "seed": seed,
-        "nodes": len(curve),
+        "tasks": outcome.tasks_completed,
         "start": start,
-        "final": final,
-        "vision": vision,
-        # Mean of the running best: rewards reaching a score early, not just
-        # ending there, so a faster search scores better at equal final value.
-        "auc": statistics.fmean(curve),
+        "vision": final,
         "gain": (start - final) / start if start > 0 else 0.0,
     }
 
@@ -207,9 +180,8 @@ def cmd_run(args) -> None:
             runs.append(result)
             print(
                 f"{result['case']:<14} seed={result['seed']:<3} "
-                f"nodes={result['nodes']:<4} {result['start']:.6f} -> "
-                f"{result['final']:.6f}  auc={result['auc']:.6f}  "
-                f"vision={result['vision']:.6f}",
+                f"tasks={result['tasks']:<6} {result['start']:.6f} -> "
+                f"{result['vision']:.6f}  gain={result['gain']:.1%}",
                 flush=True,
             )
 
@@ -217,7 +189,7 @@ def cmd_run(args) -> None:
         "config": {
             "tasks": args.tasks,
             "reps": args.reps,
-            "extra": " ".join(args.extra),
+            "eval_interval": args.eval_interval,
             "workers": args.workers,
             "resolution": args.resolution,
             "scorer": args.scorer,
@@ -232,21 +204,19 @@ def cmd_run(args) -> None:
 
 
 def _summarise(runs: list[dict]) -> None:
-    print(f"\n{'case':<14} {'vision':>10} {'final':>10} {'auc':>10} {'gain':>8}")
+    print(f"\n{'case':<14} {'start':>10} {'vision':>10} {'gain':>8}")
     by_case: dict[str, list[dict]] = {}
     for r in runs:
         by_case.setdefault(r["case"], []).append(r)
     for case, rows in by_case.items():
         print(
-            f"{case:<14} {statistics.fmean(r['vision'] for r in rows):>10.6f} "
-            f"{statistics.fmean(r['final'] for r in rows):>10.6f} "
-            f"{statistics.fmean(r['auc'] for r in rows):>10.6f} "
+            f"{case:<14} {statistics.fmean(r['start'] for r in rows):>10.6f} "
+            f"{statistics.fmean(r['vision'] for r in rows):>10.6f} "
             f"{statistics.fmean(r['gain'] for r in rows):>7.1%}"
         )
     print(
-        f"{'OVERALL':<14} {statistics.fmean(r['vision'] for r in runs):>10.6f} "
-        f"{statistics.fmean(r['final'] for r in runs):>10.6f} "
-        f"{statistics.fmean(r['auc'] for r in runs):>10.6f} "
+        f"{'OVERALL':<14} {statistics.fmean(r['start'] for r in runs):>10.6f} "
+        f"{statistics.fmean(r['vision'] for r in runs):>10.6f} "
         f"{statistics.fmean(r['gain'] for r in runs):>7.1%}"
     )
 
@@ -281,7 +251,7 @@ def cmd_compare(args) -> None:
 
     print(f"{len(pairs)} paired runs\n")
     print(f"{'metric':<8} {'before':>10} {'after':>10} {'delta':>11}  95% CI")
-    for metric in ("vision", "final", "auc"):
+    for metric in ("vision",):
         deltas = [a[metric] - b[metric] for b, a in pairs]
         lo, hi = _bootstrap_ci(deltas)
         mean = statistics.fmean(deltas)
@@ -293,16 +263,14 @@ def cmd_compare(args) -> None:
         )
 
     print("\nlower is better; a CI entirely below 0 is an improvement")
-    print(f"\n{'case':<14} {'vision delta':>13} {'final delta':>13} {'auc delta':>12}")
+    print(f"\n{'case':<14} {'vision delta':>13}")
     by_case: dict[str, list[tuple[dict, dict]]] = {}
     for b, a in pairs:
         by_case.setdefault(a["case"], []).append((b, a))
     for case, rows in by_case.items():
         print(
             f"{case:<14} "
-            f"{statistics.fmean(a['vision'] - b['vision'] for b, a in rows):>+13.6f} "
-            f"{statistics.fmean(a['final'] - b['final'] for b, a in rows):>+13.6f} "
-            f"{statistics.fmean(a['auc'] - b['auc'] for b, a in rows):>+12.6f}"
+            f"{statistics.fmean(a['vision'] - b['vision'] for b, a in rows):>+13.6f}"
         )
 
 
@@ -327,9 +295,7 @@ def main() -> None:
         metavar="N",
     )
     # Selects the evaluator that ranks a converged front, not the round's
-    # scorer: the round is always pixel L1. At --epochs 1 the run ends before
-    # any front is handed over, so the default avoids loading torch for a model
-    # that never runs.
+    # scorer: the round is always pixel L1.
     #
     # The reported `vision` column is the evaluator panel's mean distance
     # across its members, which is not on the same scale as the single-model
@@ -341,12 +307,12 @@ def main() -> None:
     run.add_argument("--epochs", type=int, default=1, metavar="N")
     run.add_argument("--seed-base", type=int, default=1000, dest="seed_base")
     run.add_argument(
-        "--extra",
-        nargs=argparse.REMAINDER,
-        default=[],
-        metavar="ARG",
-        help="Remaining arguments are passed to every vectrify invocation, so "
-        "one setting can be A/B'd from a single commit. Must come last.",
+        "--eval-interval",
+        type=int,
+        default=2000,
+        dest="eval_interval",
+        metavar="N",
+        help="Candidates between front evaluations within an epoch",
     )
     run.add_argument(
         "--adaptive-operators",

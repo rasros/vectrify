@@ -14,10 +14,12 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+from typing import Any
 
 from vectrify.formats.svg.operations import mutation_weights
 from vectrify.formats.svg.selection import MutationScope
-from vectrify.image_utils import make_preview_data_url
+from vectrify.image_utils import make_preview_data_url, rasterize_svg_to_png_bytes
+from vectrify.score.metrics import FRONT_SCORE
 from vectrify.score.utils import MAX_SCORE
 from vectrify.search import (
     ChainState,
@@ -26,7 +28,6 @@ from vectrify.search import (
     SearchNode,
     StorageAdapter,
 )
-from vectrify.search.collector import StatCollector
 from vectrify.search.diversity import simhash
 from vectrify.search.engine import SearchOutcome, SearchProgress
 from vectrify.search.operators import Exp3Policy, FixedWeightPolicy, OperatorPolicy
@@ -91,6 +92,72 @@ def seed_node(
     )
 
 
+def evaluate_front(
+    nodes: list[SearchNode],
+    *,
+    front_scorer: Callable[[], tuple[Any, Any]],
+    out_w: int,
+    out_h: int,
+) -> list[SearchNode]:
+    """Order *nodes* by the evaluator, best first, scoring only what is new.
+
+    *front_scorer* is called for (scorer, reference) and only when there is
+    something to score, so a call the cache answers in full never builds a
+    model.
+
+    Re-rasterises rather than reading a node's stored render, which is only
+    kept when --write-lineage or --save-raster is on.
+    """
+    renders: list[tuple[bytes, SearchNode]] = []
+    for node in nodes:
+        # Already judged, and the judgement travels: the panel's score is a
+        # calibrated distance to the target, so it means the same thing in
+        # every call. Re-rasterising and re-embedding a node the evaluator has
+        # already seen would buy an identical number at full price -- and a run
+        # asks about the same pool members repeatedly.
+        if FRONT_SCORE in node.metrics:
+            continue
+        content = getattr(node.state.payload, "content", None)
+        if not content:
+            continue
+        try:
+            renders.append(
+                (rasterize_svg_to_png_bytes(content, out_w=out_w, out_h=out_h), node)
+            )
+        except Exception as exc:
+            log.debug(f"Front evaluation skipped node {node.id}: {exc}")
+
+    if renders:
+        scorer, ref = front_scorer()
+        pngs = [png for png, _ in renders]
+        try:
+            values = scorer.rank(ref, pngs)
+        except AttributeError:
+            values = [scorer.score(ref, png) for png in pngs]
+        except Exception as exc:
+            log.warning(f"Front evaluation failed, keeping rank order: {exc}")
+            return nodes
+
+        for value, (_png, node) in zip(values, renders, strict=True):
+            node.metrics[FRONT_SCORE] = value
+
+    # Every node the panel has ever scored, freshly measured or recalled.
+    scored = [
+        (node.metrics[FRONT_SCORE], node)
+        for node in nodes
+        if FRONT_SCORE in node.metrics
+    ]
+    if not scored:
+        return nodes
+    scored.sort(key=lambda pair: pair[0])
+    log.info(
+        f"Front evaluated: {len(scored)} candidate(s) "
+        f"({len(renders)} newly scored), "
+        f"best {scored[0][0]:.6f}, worst {scored[-1][0]:.6f}"
+    )
+    return [node for _value, node in scored]
+
+
 def pixel_scorer(
     reference: Reference, pool: ThreadPoolExecutor
 ) -> Callable[[list], None]:
@@ -141,7 +208,6 @@ def run_search(
     storage: StorageAdapter | None = None,
     rank_front: Callable[[list[SearchNode]], list[SearchNode]] | None = None,
     policy: OperatorPolicy | None = None,
-    collector: StatCollector | None = None,
     stop: threading.Event | None = None,
     progress: Callable[[SearchProgress], None] | None = None,
 ) -> SearchOutcome:
@@ -188,7 +254,6 @@ def run_search(
             epoch_improvement=settings.epoch_improvement,
             epoch_improvement_patience=settings.epoch_improvement_patience,
             operator_policy=policy,
-            collector=collector,
             stop=stop,
             progress=progress,
         )

@@ -10,8 +10,6 @@ from typing import Any, Generic, TypeVar
 
 from vectrify.score.metrics import FRONT_SCORE, SCORER_METRICS
 from vectrify.search.base import SearchStrategy, StorageAdapter
-from vectrify.search.collector import StatCollector
-from vectrify.search.diversity import pool_diversity
 from vectrify.search.models import (
     ChainState,
     Result,
@@ -278,17 +276,10 @@ class MultiprocessSearchEngine(Generic[TState]):
         epoch_improvement: float = 0.0,
         epoch_improvement_patience: int = 1,
         operator_policy: OperatorPolicy | None = None,
-        collector: StatCollector | None = None,
         stop: threading.Event | None = None,
         progress: Callable[[SearchProgress], None] | None = None,
     ) -> SearchOutcome[TState]:
         start_time = time.monotonic()
-
-        if collector is not None:
-            collector.on_run_start(
-                start_time=start_time,
-                epoch_patience=epoch_patience or 0,
-            )
 
         scorer_thread = threading.Thread(
             target=_ScoringRelay(self.unscored_q, self.result_q, score_fn).run,
@@ -396,8 +387,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 f"Epoch 0: seeding with {seeds_target} LLM call(s) "
                 f"over {len(seed_parents)} parent(s)."
             )
-        if collector is not None:
-            collector.on_phase(phase, seeds_target)
 
         def _begin_seed_phase() -> None:
             """Open an epoch with a batch of LLM edits of the current front."""
@@ -463,10 +452,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                         best_panel = value
                         best_node = top
                         log.info(f"Best so far: node={top.id} evaluator={value:.6f}")
-                        if collector is not None:
-                            collector.on_evaluator_best(
-                                value, elapsed=time.monotonic() - start_time
-                            )
                 except Exception as exc:
                     log.warning(f"Front evaluation failed, keeping rank order: {exc}")
             elite_slots = min(len(region_champions), max(1, epoch_seeds // 2))
@@ -501,8 +486,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 f"Epoch {epoch}: seeding with {seeds_target} LLM call(s) "
                 f"over {len(seed_parents)} parent(s)."
             )
-            if collector is not None:
-                collector.on_phase(phase, seeds_target)
 
         def _finish_seed_phase() -> None:
             """Install the LLM children as the epoch's pool and start refining."""
@@ -545,8 +528,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             log.info(
                 f"Epoch {epoch}: refining {len(active_pool)} candidate(s) locally."
             )
-            if collector is not None:
-                collector.on_phase(phase, seeds_target)
 
         def _dispatch_tasks():
             nonlocal in_flight, next_task_id, seeds_dispatched
@@ -599,10 +580,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             except queue.Empty:
                 if not any(p.is_alive() for p in self.procs):
                     raise RuntimeError("All worker processes have exited.") from None
-                if collector is not None and hasattr(self, "_llm_in_flight"):
-                    collector.on_idle(
-                        llm_in_flight=self._llm_in_flight.value,
-                    )
                 return True, None
 
         def _make_node(res: Result, *, new_lineage: bool = False) -> SearchNode[TState]:
@@ -642,13 +619,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         def _note_accepted(new_node: SearchNode[TState], res: Result) -> None:
             """Record an accepted candidate. Nothing here decides it is best:
             that is the evaluator's call and it happens at epoch boundaries."""
-            if collector is not None:
-                collector.on_accepted(
-                    new_node,
-                    is_new_best=False,
-                    elapsed=time.monotonic() - start_time,
-                    llm_type=res.llm_type,
-                )
             if res.llm_type:
                 log.info(f"[{res.llm_type.upper()} ACCEPTED] node={new_node.id}")
             else:
@@ -721,8 +691,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             top_tier = self.strategy.top_tier_ids(combined)
             if new_ids & top_tier:
                 epoch_no_improve = 0
-                if collector is not None:
-                    collector.on_no_improve_reset()
 
             for child in pending_children:
                 if operator_policy is not None:
@@ -752,8 +720,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if child is best_node:
                     self.storage.save_node(child, tasks_completed)
                 log.debug(f"[REJECTED] node={child.id} (dominated by the pool)")
-                if collector is not None:
-                    collector.on_pool_rejected(is_llm=False)
 
             for node in active_pool:
                 if node.id not in kept:
@@ -793,8 +759,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             if _is_no_op(res):
                 if operator_policy is not None and res.operator is not None:
                     operator_policy.update(res.operator, 0.0)
-                if collector is not None:
-                    collector.on_unchanged(res)
                 log.debug(
                     f"Task {res.task_id} measured identically to its parent "
                     f"({res.operator})"
@@ -828,8 +792,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             log.info(f"Epoch {epoch} → {epoch + 1}: {reason}")
             epoch += 1
-            if collector is not None:
-                collector.on_epoch_transition(epoch)
             if epochs is not None and epoch >= epochs:
                 # The run loop is about to stop; a batch opened here would be
                 # paid for and discarded.
@@ -878,11 +840,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             last_eval_at = tasks_completed
             checks_without_gain += 1
-            if collector is not None:
-                collector.on_evaluator_check(
-                    checks_without_gain=checks_without_gain,
-                    patience=epoch_eval_patience or 0,
-                )
             field = self.strategy.epoch_parents(active_pool, FRONT_EVAL_CAP)
             if not field or self.rank_front is None:
                 return
@@ -901,10 +858,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 checks_without_gain = 0
                 best_node = top
                 log.info(f"Evaluator: node={top.id} score={value:.6f}")
-                if collector is not None:
-                    collector.on_evaluator_best(
-                        value, elapsed=time.monotonic() - start_time
-                    )
 
         def _check_epoch_end():
             nonlocal pool_refilling
@@ -917,14 +870,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             staleness = (
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
-            # Still reported, but not a stopping criterion: the opening ratio
-            # is too dependent on the moment at which an epoch starts.
-            pool_div = pool_diversity(active_pool)
-
-            if collector is not None:
-                collector.on_pool_state(diversity=pool_div)
-                collector.on_epoch_progress(tasks_completed - epoch_started_at)
-
             # A ceiling on how long one epoch may run. Staleness measures pool
             # progress; this caps time without evaluator feedback. Cheap
             # measures can improve without the drawing getting better, so ask
@@ -1075,18 +1020,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                     # only local tasks count.
                     epoch_no_improve += 1
 
-                llm_in_flight = (
-                    self._llm_in_flight.value if hasattr(self, "_llm_in_flight") else 0
-                )
-                if collector is not None:
-                    collector.on_result(
-                        res,
-                        tasks_completed=tasks_completed,
-                        epoch_no_improve=epoch_no_improve,
-                        seeds_completed=seeds_completed,
-                        llm_in_flight=llm_in_flight,
-                    )
-
                 if stale:
                     log.debug(
                         f"Task {res.task_id} outlived epoch {epoch - 1}; dropped."
@@ -1107,8 +1040,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                         )
                     else:
                         log.debug(f"Task {res.task_id} rejected: {res.invalid_msg}")
-                    if collector is not None:
-                        collector.on_invalid(res)
                 elif in_batch and phase == SEED_PHASE:
                     _process_seed_result(res)
                 else:
@@ -1145,8 +1076,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                     self.storage.save_best(best_node)
                 except Exception as e:
                     log.error(f"Failed to write the best candidate: {e!r}")
-            if collector is not None:
-                collector.on_shutdown()
             self._shutdown()
         return SearchOutcome(
             best=best_node,

@@ -1097,9 +1097,7 @@ def test_the_epoch_budget_ends_an_epoch_that_has_not_gone_stale():
     """Staleness measures whether the pool has stopped producing; the budget
     measures how long the proxy has run without the evaluator seeing anything.
     Here nothing goes stale, and the epoch ends anyway."""
-    from unittest.mock import MagicMock
-
-    collector = MagicMock()
+    epochs_seen: set[int] = set()
     engine = MultiprocessSearchEngine(
         workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=6
     )
@@ -1117,10 +1115,10 @@ def test_the_epoch_budget_ends_an_epoch_that_has_not_gone_stale():
         # Far beyond the run, so staleness cannot be what ends the epoch.
         epoch_patience=10_000,
         epoch_max_tasks=2,
-        collector=collector,
+        progress=lambda state: epochs_seen.add(state.epoch),
     )
 
-    collector.on_epoch_transition.assert_called()
+    assert max(epochs_seen) >= 1
 
 
 def test_the_evaluator_is_asked_during_an_epoch_not_only_at_its_boundary():
@@ -1166,14 +1164,13 @@ def test_the_epoch_ends_when_the_evaluator_stops_seeing_improvement():
     not depend on the acceptance rate, the pool size or the check interval. The
     evaluator here always reports the same verdict, so nothing ever improves on
     it and the epoch has to end on that."""
-    from unittest.mock import MagicMock
 
     def rank(nodes):
         for node in nodes:
             node.metrics[FRONT_SCORE] = 0.5
         return nodes
 
-    collector = MagicMock()
+    epochs_seen: set[int] = set()
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=FakeStrategy(),
@@ -1198,10 +1195,10 @@ def test_the_epoch_ends_when_the_evaluator_stops_seeing_improvement():
         epoch_patience=10_000,
         epoch_eval_interval=1,
         epoch_eval_patience=2,
-        collector=collector,
+        progress=lambda state: epochs_seen.add(state.epoch),
     )
 
-    collector.on_epoch_transition.assert_called()
+    assert max(epochs_seen) >= 1
 
 
 def test_evaluator_patience_counts_checks_not_generations():

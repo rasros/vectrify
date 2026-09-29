@@ -9,13 +9,96 @@ Nothing else in the suite would notice that.
 """
 
 import io
+import itertools
 
 import numpy as np
 import pytest
 from PIL import Image
 
 from tests.helpers import rasterize
-from vectrify.refine.paths import coverage, parse_cubics, to_knots
+from vectrify.refine.paths import (
+    _SUPPORTED,
+    _TOKEN,
+    UnsupportedPathError,
+    _as_cubic,
+    coverage,
+)
+
+
+# Stroke-path parsing the removed stroke fitter used; kept to feed the live soft
+# rasterizer the same cubic chains it has always been checked against.
+def parse_cubics(d: str) -> list[list[tuple[float, float]]]:
+    """Path data as a list of cubic segments, four control points each.
+
+    Lines become cubics with their controls spaced along them, so the fit has
+    one uniform representation to move and a straight edge can bend if the
+    target curves.
+    """
+    groups: list[tuple[str, list[float]]] = []
+    numbers: list[float] = []
+    for token in _TOKEN.finditer(d):
+        if token.group(1):
+            command = token.group(1).upper()
+            if command not in _SUPPORTED:
+                raise UnsupportedPathError(
+                    f"unsupported path command {token.group(1)!r}"
+                )
+            numbers = []
+            groups.append((command, numbers))
+        elif groups:
+            numbers.append(float(token.group(2)))
+
+    segments: list[list[tuple[float, float]]] = []
+    current: tuple[float, float] | None = None
+    start: tuple[float, float] | None = None
+    for command, args in groups:
+        if command == "M":
+            for index in range(0, len(args) - 1, 2):
+                point = (args[index], args[index + 1])
+                if index == 0 or current is None:
+                    current = start = point
+                else:
+                    segments.append(_as_cubic(current, point))
+                    current = point
+        elif command == "L":
+            for index in range(0, len(args) - 1, 2):
+                if current is None:
+                    raise UnsupportedPathError("a lineto before any moveto")
+                point = (args[index], args[index + 1])
+                segments.append(_as_cubic(current, point))
+                current = point
+        elif command == "C":
+            for index in range(0, len(args) - 5, 6):
+                if current is None:
+                    raise UnsupportedPathError("a curve before any moveto")
+                point = (args[index + 4], args[index + 5])
+                segments.append(
+                    [
+                        current,
+                        (args[index], args[index + 1]),
+                        (args[index + 2], args[index + 3]),
+                        point,
+                    ]
+                )
+                current = point
+        elif current is not None and start is not None and current != start:
+            segments.append(_as_cubic(current, start))
+            current = start
+    if not segments:
+        raise UnsupportedPathError("path has no drawable segment")
+    return segments
+
+
+def to_knots(segments) -> list[tuple[float, float]]:
+    """Flatten segments into one 3n+1 chain so joins share parameters."""
+    for before, after in itertools.pairwise(segments):
+        if before[3] != after[0]:
+            raise UnsupportedPathError("path is not one connected chain")
+    points = [segments[0][0]]
+    for segment in segments:
+        points.extend(segment[1:])
+    return points
+
 
 torch = pytest.importorskip("torch", reason="the fit needs the vision extra")
 
@@ -92,50 +175,3 @@ _WING = (
     '<path d="M 470 440 C 480 425 470 415 455 410" />'
     '<path d="M 470 440 C 485 435 490 420 480 408" /></g></svg>'
 )
-
-
-def test_paths_are_clustered_by_contact_not_by_what_they_are_called():
-    """A wing arrived as `body_outline` plus `tail_feathers` -- the body outline
-    is the dots and there is no tail -- so fitting either alone moves half a
-    wing. Contact is the reliable signal; the label is not.
-    """
-    import xml.etree.ElementTree as ET
-
-    from vectrify.refine.paths import fittable_clusters
-
-    clusters = fittable_clusters(ET.fromstring(_WING))
-    assert len(clusters) == 1, "the wing was split by its labels"
-    paths, widths = clusters[0]
-    assert len(paths) == 3
-    assert widths == [3.5, 3.5, 3.5]
-
-
-def test_far_apart_strokes_are_not_one_part():
-    import xml.etree.ElementTree as ET
-
-    from vectrify.refine.paths import fittable_clusters
-
-    apart = (
-        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
-        '<g fill="none" stroke="#111111" stroke-width="3">'
-        '<path d="M 50 50 C 60 60 70 70 80 80" />'
-        '<path d="M 600 600 C 610 610 620 620 630 630" /></g></svg>'
-    )
-    assert len(fittable_clusters(ET.fromstring(apart))) == 2
-
-
-def test_a_pinned_vertex_does_not_move():
-    """Fitting part of a cluster must not tear the junction it shares with the
-    rest: the fitted side would walk away while its neighbour stayed put.
-    """
-    from vectrify.refine.paths import fit_group, parse_cubics, to_knots
-
-    head = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
-    target = Image.open(io.BytesIO(rasterize(f"{head}</svg>", SIZE, SIZE))).convert("L")
-    path_d = "M 300 300 C 340 280 400 280 440 300"
-    knots = to_knots(parse_cubics(path_d))
-    fitted, _widths, _colours, _first, _last = fit_group(
-        [path_d], [3.5], target, target, steps=6, pinned={0}
-    )
-    moved = to_knots(parse_cubics(fitted[0]))
-    assert moved[0] == pytest.approx(knots[0], abs=0.05), "the pinned end moved"

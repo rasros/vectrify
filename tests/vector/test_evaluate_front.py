@@ -11,14 +11,14 @@ import pytest
 from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search import ChainState, SearchNode
 from vectrify.vector.payloads import VectorStatePayload
-from vectrify.vector.runner import evaluate_front
+from vectrify.vector.search import evaluate_front
 
 
 @pytest.fixture(autouse=True)
 def fake_rasterize(monkeypatch):
     """Stand a render in with the content itself, so no Cairo run is needed."""
     monkeypatch.setattr(
-        "vectrify.vector.runner.rasterize_svg_to_png_bytes",
+        "vectrify.vector.search.rasterize_svg_to_png_bytes",
         lambda content, **_size: content.encode(),
     )
 

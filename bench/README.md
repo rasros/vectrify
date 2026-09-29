@@ -18,10 +18,11 @@ bootstrap 95% CI. Lower is better; a CI entirely below zero is an improvement.
 
 ## How a case runs
 
-Each case is a `target.png` and five seeds in `seeds/`. The harness plants all
-of them as a previous run in a temp dir and invokes `vectrify --seeds 0
---resume`, so the pool starts from those candidates and only local operators
-touch it.
+Each case is a `target.png` and five seeds in `seeds/`. The harness measures
+every seed against the target and runs `vector.search.run_search` in-process
+from all of them, with no LLM seeds, so only local operators touch the pool.
+The front evaluator (`--scorer`) picks the run's result, as it does for
+Improve.
 
 Five, not one, because crossover grafts subtrees *between* candidates: a pool
 descended from a single ancestor gives it nothing to recombine, which is not
@@ -29,27 +30,23 @@ the regime a real epoch runs in. Measured on this corpus crossover is worth
 -0.00087 on final error, 95% CI [-0.00149, -0.00019]; measured against a single
 seed it looked worthless.
 
-`--workers 1 --random-seed N` makes a run reproducible. Above one worker the
-task interleaving varies and it is not, which is why the default is one worker
-and several seeds rather than one seed and many workers.
+Runs are not exactly reproducible, even at `--workers 1`: `--seed-base` seeds
+the workers, but selection in the main process is not seeded. Two runs of the
+same code differ by about as much as small changes to the search, so repeat a
+comparison (`--reps`) and read small differences as noise.
 
 ## Metrics
 
 | Metric   | Meaning |
 |----------|---------|
-| `vision` | the vision model's distance to the target, on the artifact the run wrote |
-| `final`  | best pixel score at the end of the budget |
-| `auc`    | mean of the running best over the run — rewards getting there sooner |
-| `gain`   | fraction of the seed's pixel error removed |
+| `start`  | the vision panel's distance to the target for the best seed |
+| `vision` | the same distance for the candidate the run picked |
+| `gain`   | fraction of the best seed's distance removed |
 
-`vision` is the one that decides whether a change is worth keeping. The other
-three measure pixel L1, which is what the round optimises: fair for comparing
-two searches, but a search can lower it without the result looking any better.
-
-Among the pixel metrics `auc` is the informative one for operator changes: two
-searches can end at the same score with very different convergence, and a
-change that only helps at the very end of a long budget usually will not
-survive a shorter one.
+`vision` is the one that decides whether a change is worth keeping, and
+`compare` pairs runs on it. Earlier result files also carried pixel `final` and
+`auc` curves read from the CLI's `stats.csv`; the CLI is gone, so those are no
+longer recorded and old files cannot be compared with new ones.
 
 ## The corpus
 
@@ -96,14 +93,9 @@ unreachable gap silently caps the whole case.
 
 ## Caveats
 
-`vision` is scored on whatever the run wrote as its artifact, and the run picks
-that by pixel score — so a change can improve the pool without the pick
-following.
-
-`--scorer` selects the evaluator that ranks a converged front during a run, and
-at `--epochs 1` the run ends before any front is handed over, so it changes
-nothing here. The `vision` metric is scored by the harness afterwards either
-way.
+`vision` is scored on the candidate the front evaluator picked, so a change can
+improve the pool without the pick following. `--scorer` selects that evaluator;
+`--eval-interval` sets how often it looks at the pool within an epoch.
 
 `--no-adaptive-operators` pins the operator mix to the fixed weight table,
 which is how the adaptive policy was measured against it.
