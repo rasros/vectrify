@@ -15,14 +15,16 @@ only asked to stay in scope, skips those changes and counts them instead.
 
 from __future__ import annotations
 
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
-from vectrify.document import Document, DocumentError, EditKind, import_svg
+from vectrify.document import Document, DocumentError, EditKind, export_svg, import_svg
 from vectrify.document.editor import Transaction
 from vectrify.document.model import Element, Geometry
 from vectrify.document.svg import PAINT
-from vectrify.formats.svg.selection import MutationScope
 from vectrify.operations.contract import OperationRequest
+from vectrify.operations.generate import Region
+from vectrify.svg.selection import MutationScope
 
 
 class CandidateRejectedError(DocumentError):
@@ -277,3 +279,30 @@ def mutation_scope(request: OperationRequest) -> MutationScope:
     if not kinds:
         raise DocumentError("Allow at least one kind of change")
     return MutationScope(ids, kinds)
+
+
+def region_svg(
+    request: OperationRequest, region: Region, size: tuple[int, int]
+) -> tuple[str, dict[str, str]]:
+    """The drawing as a search or model sees it: viewBox on the region, stretched.
+
+    Returns the SVG and the root's own attributes, for restore_root.
+    """
+    source = export_svg(request.snapshot.document)
+    root = ET.fromstring(source)
+    original = dict(root.attrib)
+    root.set("viewBox", f"{region.x!r} {region.y!r} {region.width!r} {region.height!r}")
+    root.set("width", str(size[0]))
+    root.set("height", str(size[1]))
+    root.set("preserveAspectRatio", "none")
+    ET.register_namespace("", "http://www.w3.org/2000/svg")
+    return ET.tostring(root, encoding="unicode"), original
+
+
+def restore_root(svg: str, attributes: dict[str, str]) -> str:
+    """Put the document's own root attributes back before replaying a result."""
+    root = ET.fromstring(svg)
+    root.attrib.clear()
+    root.attrib.update(attributes)
+    ET.register_namespace("", "http://www.w3.org/2000/svg")
+    return ET.tostring(root, encoding="unicode")

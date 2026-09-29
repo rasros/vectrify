@@ -18,11 +18,14 @@ from typing import ClassVar
 from PIL import Image
 
 from vectrify.document import DocumentError, UnsupportedSvgError
-from vectrify.formats.svg.ownership import invisible_descriptions
-from vectrify.formats.svg.replies import apply_edits, extract_svg
 from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, resolve_provider
-from vectrify.operations.candidates import mutation_scope, replay
+from vectrify.operations.candidates import (
+    mutation_scope,
+    region_svg,
+    replay,
+    restore_root,
+)
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -37,9 +40,10 @@ from vectrify.operations.generate import (
     render_region,
     target_region,
 )
-from vectrify.operations.methods.nsga import restore_root, search_svg
 from vectrify.operations.settings import Setting, read_settings
 from vectrify.refine.selected import png_url
+from vectrify.svg.ownership import invisible_descriptions
+from vectrify.svg.replies import apply_edits, extract_svg
 
 log = logging.getLogger(__name__)
 SVG_NS = "http://www.w3.org/2000/svg"
@@ -133,7 +137,7 @@ class LlmGenerate:
         target_region(request)
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        from vectrify.formats.svg.prompts import build_svg_gen_prompt
+        from vectrify.svg.prompts import build_svg_gen_prompt
 
         settings = read_settings(request.settings, GENERATE, "LLM")
         client, config = _client(settings)
@@ -185,15 +189,15 @@ class LlmEdit:
         target_region(request)
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        from vectrify.formats.svg.normalize import normalize_svg
-        from vectrify.formats.svg.prompts import build_svg_gen_prompt
+        from vectrify.svg.normalize import normalize_svg
+        from vectrify.svg.prompts import build_svg_gen_prompt
 
         settings = read_settings(request.settings, EDIT, "LLM")
         client, config = _client(settings)
         region = target_region(request)
         scope = mutation_scope(request)
         size = region.image.size
-        svg, root_attributes = search_svg(request, region, size)
+        svg, root_attributes = region_svg(request, region, size)
         before_image = render_region(request.snapshot.document, region)
         whole = request.snapshot.selection.whole_document
         goal = settings["instruction"].strip() + (

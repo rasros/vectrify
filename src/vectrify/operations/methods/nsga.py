@@ -12,17 +12,21 @@ from __future__ import annotations
 
 import io
 import os
-import xml.etree.ElementTree as ET
 from typing import ClassVar
 
 from PIL import Image
 
-from vectrify.document import DocumentError, export_svg
+from vectrify.document import DocumentError
 from vectrify.image_utils import (
     rasterize_svg_to_png_bytes,
     resize_long_side,
 )
-from vectrify.operations.candidates import mutation_scope, replay
+from vectrify.operations.candidates import (
+    mutation_scope,
+    region_svg,
+    replay,
+    restore_root,
+)
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -30,7 +34,7 @@ from vectrify.operations.contract import (
     RunContext,
     register,
 )
-from vectrify.operations.generate import Region, error, render_region, target_region
+from vectrify.operations.generate import error, render_region, target_region
 from vectrify.operations.settings import Setting, read_settings
 from vectrify.refine.selected import png_url
 
@@ -44,28 +48,6 @@ SETTINGS = {
     "adaptive_operators": Setting(bool, True),
     "alternatives": Setting(int, 3, minimum=0, maximum=8),
 }
-
-
-def search_svg(request: OperationRequest, region: Region, size: tuple[int, int]):
-    """The drawing as the search sees it: viewBox on the region, stretched."""
-    source = export_svg(request.snapshot.document)
-    root = ET.fromstring(source)
-    original = dict(root.attrib)
-    root.set("viewBox", f"{region.x!r} {region.y!r} {region.width!r} {region.height!r}")
-    root.set("width", str(size[0]))
-    root.set("height", str(size[1]))
-    root.set("preserveAspectRatio", "none")
-    ET.register_namespace("", "http://www.w3.org/2000/svg")
-    return ET.tostring(root, encoding="unicode"), original
-
-
-def restore_root(svg: str, attributes: dict[str, str]) -> str:
-    """Put the document's own root attributes back before replaying a result."""
-    root = ET.fromstring(svg)
-    root.attrib.clear()
-    root.attrib.update(attributes)
-    ET.register_namespace("", "http://www.w3.org/2000/svg")
-    return ET.tostring(root, encoding="unicode")
 
 
 class Nsga:
@@ -95,7 +77,7 @@ class Nsga:
         target = resize_long_side(region.image, settings["resolution"])
         size = target.size
         context.progress(0, "Preparing the reference and workers…", total=tasks)
-        svg, root_attributes = search_svg(request, region, size)
+        svg, root_attributes = region_svg(request, region, size)
         reference = Reference.build(target, score_resolution=max(size), segment_count=4)
         scope = mutation_scope(request)
 

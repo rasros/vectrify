@@ -14,7 +14,7 @@ import pytest
 from PIL import Image
 
 from tests.helpers import rasterize
-from vectrify.formats.svg.normalize import absolutize_path, normalize_svg
+from vectrify.svg.normalize import absolutize_path, normalize_svg
 
 NS = "http://www.w3.org/2000/svg"
 

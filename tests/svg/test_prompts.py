@@ -1,7 +1,7 @@
 import re
 
 from tests.helpers import image_urls, text_blocks
-from vectrify.formats.svg.prompts import (
+from vectrify.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
@@ -186,7 +186,7 @@ def test_edit_prompt_also_carries_the_mutable_markup_rules():
 
 def test_prompt_states_only_preferences():
     """Naming what to avoid teaches the model the forbidden markup exists."""
-    from vectrify.formats.svg.prompts import MUTABLE_SVG
+    from vectrify.svg.prompts import MUTABLE_SVG
 
     lowered = MUTABLE_SVG.lower()
     for banned in ("never", "do not", "don't", "avoid", "instead of", "polygon"):
@@ -196,8 +196,8 @@ def test_prompt_states_only_preferences():
 def test_mutable_svg_rules_name_only_attributes_an_operator_reaches():
     """The rules are a promise about the optimizer; if the two drift apart the
     prompt starts steering the model toward markup nothing can move."""
-    from vectrify.formats.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
-    from vectrify.formats.svg.prompts import MUTABLE_SVG
+    from vectrify.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
+    from vectrify.svg.prompts import MUTABLE_SVG
 
     quoted = set(re.findall(r"`([a-z-]+)`", MUTABLE_SVG))
     attrs = {a for a in quoted if a not in {"transform", "d"}}
@@ -237,7 +237,7 @@ def test_the_prompt_asks_what_the_picture_is_before_how_to_draw_it():
 
 
 def test_the_edit_prompt_names_elements_that_paint_nothing():
-    from vectrify.formats.svg.prompts import build_svg_gen_prompt
+    from vectrify.svg.prompts import build_svg_gen_prompt
 
     blocks = build_svg_gen_prompt(
         "data:image/png;base64,AA",
@@ -251,7 +251,7 @@ def test_the_edit_prompt_names_elements_that_paint_nothing():
 
 
 def test_the_prompt_says_nothing_when_everything_paints():
-    from vectrify.formats.svg.prompts import build_svg_gen_prompt
+    from vectrify.svg.prompts import build_svg_gen_prompt
 
     blocks = build_svg_gen_prompt(
         "data:image/png;base64,AA", 1, svg_prev="<svg/>", invisible=[]
@@ -261,7 +261,7 @@ def test_the_prompt_says_nothing_when_everything_paints():
 
 def test_a_first_draft_prompt_never_carries_the_report():
     """There is no parent to inspect, so the section cannot apply."""
-    from vectrify.formats.svg.prompts import build_svg_gen_prompt
+    from vectrify.svg.prompts import build_svg_gen_prompt
 
     blocks = build_svg_gen_prompt(
         "data:image/png;base64,AA", 1, invisible=["<circle/> inside <g id='x'>"]

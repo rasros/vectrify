@@ -6,15 +6,15 @@ import random
 import signal
 from typing import Any, Protocol
 
-from vectrify.formats.svg.operations import apply_crossover, apply_mutation
-from vectrify.formats.svg.prompts import is_valid_svg
-from vectrify.formats.svg.selection import MutationScope
-from vectrify.formats.svg.targets import element_targets
 from vectrify.image_utils import (
     rasterize_svg_to_png_bytes,
 )
 from vectrify.search import Result
 from vectrify.search.diversity import simhash
+from vectrify.svg.operations import apply_crossover, apply_mutation
+from vectrify.svg.prompts import is_valid_svg
+from vectrify.svg.selection import MutationScope
+from vectrify.svg.targets import element_targets
 from vectrify.utils import setup_worker_logger
 from vectrify.vector.payloads import VectorResultPayload
 
