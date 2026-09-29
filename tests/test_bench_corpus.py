@@ -5,8 +5,8 @@ from xml.etree import ElementTree as ET
 import pytest
 
 from tests.helpers import rasterize
-from vectrify.formats.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
-from vectrify.formats.svg.prompts import is_valid_svg
+from vectrify.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
+from vectrify.svg.prompts import is_valid_svg
 
 BENCH = Path(__file__).resolve().parent.parent / "bench"
 CASES = sorted(

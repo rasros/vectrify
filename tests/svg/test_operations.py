@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from vectrify.formats.svg.operations import (
+from vectrify.svg.operations import (
     MUTATIONS,
     _nudgeable_numbers,
     apply_crossover,

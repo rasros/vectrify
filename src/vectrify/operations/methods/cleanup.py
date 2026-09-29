@@ -1,6 +1,6 @@
 """Simplify: remove redundant vertices and merge compatible paths.
 
-Wraps ``formats.svg.cleanup.cleanup_svg_geometry`` for the selection. Objects
+Wraps ``svg.cleanup.cleanup_svg_geometry`` for the selection. Objects
 outside the selection are swapped for inert placeholders while it runs, so they
 are neither simplified nor merged, and a placeholder between two selected
 paths keeps them from merging across it. The result is replayed as ordinary
@@ -13,7 +13,6 @@ import xml.etree.ElementTree as ET
 from typing import ClassVar
 
 from vectrify.document import DocumentError, export_svg
-from vectrify.formats.svg.cleanup import cleanup_svg_geometry
 from vectrify.operations.candidates import replay
 from vectrify.operations.contract import (
     OperationRequest,
@@ -23,6 +22,7 @@ from vectrify.operations.contract import (
     register,
 )
 from vectrify.operations.previews import render_previews
+from vectrify.svg.cleanup import cleanup_svg_geometry
 
 SVG_NS = "http://www.w3.org/2000/svg"
 

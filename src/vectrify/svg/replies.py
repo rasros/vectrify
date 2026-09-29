@@ -150,8 +150,8 @@ def _require_svg(fragment: str, raw: str) -> str:
 
 def extract_svg(raw: str) -> str:
     """The complete drawing in *raw*, normalized."""
-    from vectrify.formats.svg.normalize import normalize_svg
-    from vectrify.formats.svg.prompts import extract_svg_fragment
+    from vectrify.svg.normalize import normalize_svg
+    from vectrify.svg.prompts import extract_svg_fragment
 
     # Normalised on the way in, so local search meets one form of markup
     # rather than whichever the model reached for. Which forms it reaches
@@ -163,8 +163,8 @@ def extract_svg(raw: str) -> str:
 
 def apply_edit(parent: str, raw: str) -> str:
     """*parent* with the reply's search/replace blocks, or the reply's drawing."""
-    from vectrify.formats.svg.normalize import normalize_svg
-    from vectrify.formats.svg.prompts import extract_svg_fragment
+    from vectrify.svg.normalize import normalize_svg
+    from vectrify.svg.prompts import extract_svg_fragment
 
     patched = apply_search_replace(parent, raw)
     if patched is None:

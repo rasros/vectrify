@@ -5,14 +5,14 @@ import pytest
 from PIL import Image
 
 from tests.helpers import TEST_MODEL as _MODEL
-from vectrify.formats.svg.operations import apply_crossover, apply_mutation
-from vectrify.formats.svg.prompts import (
+from vectrify.image_utils import rasterize_svg_to_png_bytes
+from vectrify.svg.operations import apply_crossover, apply_mutation
+from vectrify.svg.prompts import (
     build_svg_gen_prompt,
     extract_svg_fragment,
     is_valid_svg,
 )
-from vectrify.formats.svg.replies import NoUsableOutputError, apply_edit, extract_svg
-from vectrify.image_utils import rasterize_svg_to_png_bytes
+from vectrify.svg.replies import NoUsableOutputError, apply_edit, extract_svg
 
 NS = "http://www.w3.org/2000/svg"
 SVG = f'<svg xmlns="{NS}" viewBox="0 0 32 32"><rect width="32" height="32"/></svg>'

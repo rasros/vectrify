@@ -467,7 +467,7 @@ def main() -> None:
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
     from bench.seeds import SEEDS
-    from vectrify.formats.svg.prompts import is_valid_svg
+    from vectrify.svg.prompts import is_valid_svg
 
     root = Path(__file__).parent / "cases"
     for name, (target, _legacy_seed) in CASES.items():

@@ -63,8 +63,8 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
 
-from vectrify.formats.svg import operations as ops
 from vectrify.image_utils import rasterize_svg
+from vectrify.svg import operations as ops
 
 REPO = Path(__file__).resolve().parent.parent
 CASES = REPO / "bench" / "cases"

@@ -4,10 +4,10 @@ from collections import Counter
 
 from PIL import Image, ImageDraw
 
-from vectrify.formats.svg.operations import apply_mutation
-from vectrify.formats.svg.ownership import drawable_elements
-from vectrify.formats.svg.prompts import is_valid_svg
-from vectrify.formats.svg.targets import element_targets
+from vectrify.svg.operations import apply_mutation
+from vectrify.svg.ownership import drawable_elements
+from vectrify.svg.prompts import is_valid_svg
+from vectrify.svg.targets import element_targets
 
 NS = "http://www.w3.org/2000/svg"
 
@@ -88,7 +88,7 @@ def test_an_element_too_small_to_own_a_pixel_is_still_reachable():
     mutation can never pick it again. On one real drawing that locked out 28 of
     63 elements, including a nostril that stayed 14px from where it belonged for
     all 11,834 nodes of a run."""
-    from vectrify.formats.svg.targets import element_targets
+    from vectrify.svg.targets import element_targets
 
     content = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" '
@@ -106,7 +106,7 @@ def test_an_element_too_small_to_own_a_pixel_is_still_reachable():
 
 
 def test_the_weights_still_sum_to_one():
-    from vectrify.formats.svg.targets import element_targets
+    from vectrify.svg.targets import element_targets
 
     content = (
         '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" '

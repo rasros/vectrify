@@ -12,8 +12,8 @@ import xml.etree.ElementTree as ET
 import numpy as np
 from PIL import Image
 
-from vectrify.formats.svg.ownership import MASK_SIZE, element_error
 from vectrify.image_utils import rasterize_svg_to_png_bytes
+from vectrify.svg.ownership import MASK_SIZE, element_error
 
 # Share of the weight spread evenly over every element, whatever its error, so
 # a part the measures cannot see is not locked out for the whole run.

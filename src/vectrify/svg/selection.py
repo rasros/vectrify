@@ -11,7 +11,7 @@ import xml.etree.ElementTree as ET
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from vectrify.formats.svg.ownership import drawable_elements
+from vectrify.svg.ownership import drawable_elements
 
 # Share of the selection mass spread evenly over every candidate.
 TARGET_FLOOR = 0.25

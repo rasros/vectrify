@@ -35,8 +35,8 @@ from scipy.ndimage import (
     distance_transform_edt as _distance_transform_edt,
 )
 
-from vectrify.formats.svg.cleanup import cleanup_svg_geometry
 from vectrify.refine.samvg import _loops
+from vectrify.svg.cleanup import cleanup_svg_geometry
 
 log = logging.getLogger(__name__)
 

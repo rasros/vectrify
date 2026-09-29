@@ -141,7 +141,7 @@ Coordinates are not rounded, and no additional optimization fit is run.
 Use `--no-geometry-cleanup` to disable that final stage for comparison. Its
 `geometry_cleanup` metrics report before/after path and vertex counts; other
 geometry counts describe the generation stage. The reusable implementation is
-`vectrify.formats.svg.cleanup.cleanup_svg_geometry`. It accepts the generated
+`vectrify.svg.cleanup.cleanup_svg_geometry`. It accepts the generated
 static SVG subset and leaves unsupported curves and styling alone. Combining
 opaque strokes can produce tiny antialiasing differences at shared pixels.
 

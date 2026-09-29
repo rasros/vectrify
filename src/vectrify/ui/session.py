@@ -29,7 +29,14 @@ from vectrify.document import (
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.model import new_id
 from vectrify.document.svg import parse_path
-from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
+from vectrify.operations import (
+    Budget,
+    Job,
+    Method,
+    OperationRequest,
+    Permissions,
+    method,
+)
 
 MAX_SOURCE = 128 * 1024 * 1024
 
@@ -95,8 +102,8 @@ class Session:
                     ),
                     bounds=tuple(bounds) if isinstance(bounds, list) else bounds,
                 ),
+                context_key=self._job_key(chosen),
             )
-            job.context_key = self._job_key(job)
             job.start()
             self.jobs = {k: v for k, v in self.jobs.items() if v.status == "running"}
             self.jobs[job.id] = job
@@ -114,7 +121,7 @@ class Session:
             del self.jobs[job.id]
             return {"discarded": True}
         if command == "apply":
-            if job.context_key != self._job_key(job):
+            if job.context_key != self._job_key(job.method):
                 raise StaleRevisionError(
                     "The drawing or reference changed. Run the operation again."
                 )
@@ -123,10 +130,10 @@ class Session:
             return self.state()
         raise DocumentError("Unknown operation command")
 
-    def _job_key(self, job: Job) -> tuple:
+    def _job_key(self, method: Method) -> tuple:
         """What a result depends on besides the revision the commit checks."""
         reference = self.reference["data_url"] if self.reference else None
-        return (self.epoch, reference if job.method.needs_reference else None)
+        return (self.epoch, reference if method.needs_reference else None)
 
     def reference_image(self) -> Image.Image | None:
         if not self.reference:

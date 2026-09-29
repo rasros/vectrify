@@ -5,7 +5,7 @@ import xml.etree.ElementTree as ET
 
 import pytest
 
-from vectrify.formats.svg.operations import (
+from vectrify.svg.operations import (
     MUTATIONS,
     OPERATOR_KINDS,
     apply_crossover,
@@ -13,7 +13,7 @@ from vectrify.formats.svg.operations import (
     mutation_weights,
     scoped_mutations,
 )
-from vectrify.formats.svg.selection import MutationScope
+from vectrify.svg.selection import MutationScope
 
 SVG = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100">'

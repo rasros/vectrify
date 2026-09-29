@@ -15,8 +15,6 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from typing import Any
 
-from vectrify.formats.svg.operations import mutation_weights
-from vectrify.formats.svg.selection import MutationScope
 from vectrify.image_utils import rasterize_svg_to_png_bytes
 from vectrify.score.metrics import FRONT_SCORE
 from vectrify.score.utils import MAX_SCORE
@@ -30,6 +28,8 @@ from vectrify.search import (
 from vectrify.search.diversity import simhash
 from vectrify.search.engine import SearchOutcome, SearchProgress
 from vectrify.search.operators import Exp3Policy, FixedWeightPolicy, OperatorPolicy
+from vectrify.svg.operations import mutation_weights
+from vectrify.svg.selection import MutationScope
 from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.reference import Reference
 from vectrify.vector.worker import WorkerContext, worker_loop

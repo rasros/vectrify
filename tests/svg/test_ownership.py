@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
 
-from vectrify.formats.svg.ownership import (
+from vectrify.svg.ownership import (
     UNOWNED,
     adjacent_parts,
     drawable_elements,
@@ -159,7 +159,7 @@ def test_an_element_hidden_behind_a_later_fill_is_reported():
     nothing -- so it drifts anywhere, including off the eye entirely."""
     import xml.etree.ElementTree as ET
 
-    from vectrify.formats.svg.ownership import invisible_elements
+    from vectrify.svg.ownership import invisible_elements
 
     root = ET.fromstring(
         _wrap(
@@ -175,7 +175,7 @@ def test_an_element_on_background_of_its_own_colour_is_reported():
     colour, so a white shape on white background reads as fully visible."""
     import xml.etree.ElementTree as ET
 
-    from vectrify.formats.svg.ownership import invisible_elements
+    from vectrify.svg.ownership import invisible_elements
 
     root = ET.fromstring(
         _wrap(
@@ -194,7 +194,7 @@ def test_a_small_but_visible_element_is_not_reported():
     on, which is why the test is exact invisibility and nothing looser."""
     import xml.etree.ElementTree as ET
 
-    from vectrify.formats.svg.ownership import invisible_elements
+    from vectrify.svg.ownership import invisible_elements
 
     root = ET.fromstring(
         _wrap(
@@ -208,7 +208,7 @@ def test_a_small_but_visible_element_is_not_reported():
 def test_nothing_is_reported_when_every_element_paints():
     import xml.etree.ElementTree as ET
 
-    from vectrify.formats.svg.ownership import invisible_elements
+    from vectrify.svg.ownership import invisible_elements
 
     root = ET.fromstring(
         _wrap(
@@ -226,7 +226,7 @@ def test_the_description_quotes_text_that_is_really_in_the_file():
     with."""
     import xml.etree.ElementTree as ET
 
-    from vectrify.formats.svg.ownership import describe_invisible, invisible_elements
+    from vectrify.svg.ownership import describe_invisible, invisible_elements
 
     source = _wrap(
         '<g id="eye"><ellipse cx="20" cy="20" rx="9" ry="7" fill="#ffffff" />'

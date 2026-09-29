@@ -8,7 +8,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vectrify.formats.svg.cleanup import cleanup_svg_geometry
+from vectrify.svg.cleanup import cleanup_svg_geometry
 
 NS = "{http://www.w3.org/2000/svg}"
 

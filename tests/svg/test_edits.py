@@ -9,7 +9,7 @@ def test_apply_search_replace_raises_when_no_block_matches():
     That byte-identical child then entered the pool carrying its parent's
     signature, dragging measured diversity toward zero.
     """
-    from vectrify.formats.svg.replies import NoEditAppliedError, apply_search_replace
+    from vectrify.svg.replies import NoEditAppliedError, apply_search_replace
 
     parent = '<svg><rect fill="red"/></svg>'
     raw = (
@@ -24,13 +24,13 @@ def test_apply_search_replace_raises_when_no_block_matches():
 
 
 def test_apply_search_replace_returns_none_when_there_are_no_blocks():
-    from vectrify.formats.svg.replies import apply_search_replace
+    from vectrify.svg.replies import apply_search_replace
 
     assert apply_search_replace("<svg/>", "here is some prose") is None
 
 
 def test_apply_search_replace_applies_a_matching_block():
-    from vectrify.formats.svg.replies import apply_search_replace
+    from vectrify.svg.replies import apply_search_replace
 
     parent = '<svg><rect fill="red"/></svg>'
     raw = (
@@ -46,7 +46,7 @@ def test_apply_search_replace_applies_a_matching_block():
 def test_apply_search_replace_allows_partial_application(caplog):
     import logging
 
-    from vectrify.formats.svg.replies import apply_search_replace
+    from vectrify.svg.replies import apply_search_replace
 
     parent = '<svg><rect fill="red"/></svg>'
     raw = (
@@ -72,7 +72,7 @@ def test_a_block_that_differs_only_in_whitespace_still_applies():
     """Measured on one run, 3 of 5 failed seed edits were blocks whose SEARCH
     text differed from the parent only in whitespace -- the edit was right and
     the transcription was not, and the whole paid call was discarded."""
-    from vectrify.formats.svg.replies import apply_search_replace
+    from vectrify.svg.replies import apply_search_replace
 
     parent = '<svg>\n  <circle cx="1" cy="2" r="3" fill="#000" />\n</svg>'
     raw = (
@@ -90,7 +90,7 @@ def test_a_block_that_differs_only_in_whitespace_still_applies():
 def test_loose_matching_does_not_negotiate_anything_but_whitespace():
     """A block naming an element that is not there must still fail, or a paid
     call silently patches the wrong part of the drawing."""
-    from vectrify.formats.svg.replies import NoEditAppliedError, apply_search_replace
+    from vectrify.svg.replies import NoEditAppliedError, apply_search_replace
 
     parent = '<svg>\n  <circle cx="1" cy="2" r="3" />\n</svg>'
     raw = (
@@ -106,7 +106,7 @@ def test_loose_matching_does_not_negotiate_anything_but_whitespace():
 
 def test_a_block_indented_differently_from_the_parent_applies():
     """A block copied out of the markup carries the surrounding indentation."""
-    from vectrify.formats.svg.replies import apply_search_replace
+    from vectrify.svg.replies import apply_search_replace
 
     parent = '<svg>\n    <rect width="4" height="5" />\n</svg>'
     raw = (
@@ -131,7 +131,7 @@ def test_a_reply_offering_several_attempts_becomes_several_candidates():
     """An epoch's batch size and its LLM spend are the same number today: one
     call, one candidate. Most of a call is the prompt, so a second attempt in
     the same reply is nearly free."""
-    from vectrify.formats.svg.replies import apply_edits
+    from vectrify.svg.replies import apply_edits
 
     parent = _CIRCLE_SVG
     raw = (
@@ -148,7 +148,7 @@ def test_a_reply_offering_several_attempts_becomes_several_candidates():
 
 
 def test_one_unusable_attempt_does_not_discard_the_others():
-    from vectrify.formats.svg.replies import apply_edits
+    from vectrify.svg.replies import apply_edits
 
     parent = _CIRCLE_SVG
     raw = (
@@ -165,7 +165,7 @@ def test_one_unusable_attempt_does_not_discard_the_others():
 
 def test_a_reply_where_nothing_applies_still_raises():
     """So the caller reports it and the seed retry asks for a replacement."""
-    from vectrify.formats.svg.replies import NoEditAppliedError, apply_edits
+    from vectrify.svg.replies import NoEditAppliedError, apply_edits
 
     parent = _CIRCLE_SVG
     raw = (
@@ -179,7 +179,7 @@ def test_a_reply_where_nothing_applies_still_raises():
 
 
 def test_an_ordinary_reply_is_one_candidate():
-    from vectrify.formats.svg.replies import apply_edits
+    from vectrify.svg.replies import apply_edits
 
     parent = _CIRCLE_SVG
     raw = (

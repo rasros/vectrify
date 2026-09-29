@@ -8,14 +8,14 @@ from typing import cast
 
 import numpy as np
 
-from vectrify.formats.svg.ownership import (
+from vectrify.svg.ownership import (
     adjacent_parts,
     drawable_elements,
     overlaps,
     owner_labels,
 )
-from vectrify.formats.svg.pathdata import PATH_TOKEN_RE
-from vectrify.formats.svg.selection import MutationContext, MutationScope, NoChangeError
+from vectrify.svg.pathdata import PATH_TOKEN_RE
+from vectrify.svg.selection import MutationContext, MutationScope, NoChangeError
 
 # Operators are (function, name, weight); the name is what the engine's policy
 # selects by, so it has to be stable across tasks, results and learned state.

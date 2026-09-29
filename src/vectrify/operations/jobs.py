@@ -26,7 +26,9 @@ RESOURCES: dict[str, Any] = {"gpu": gpu_gate()}
 class Job:
     """One run of a method: running, then ready/failed/cancelled, then applied."""
 
-    def __init__(self, method: Method, request: OperationRequest):
+    def __init__(
+        self, method: Method, request: OperationRequest, context_key: Any = None
+    ):
         method.validate(request)
         self.method = method
         self.request = request
@@ -42,8 +44,9 @@ class Job:
         )
         self.result: OperationResult | None = None
         self.error: str | None = None
-        # Set by the caller: anything besides the revision a result depends on.
-        self.context_key: Any = None
+        # Anything besides the revision a result depends on, e.g. the reference
+        # image; the caller compares it again before applying.
+        self.context_key = context_key
 
     @property
     def stop(self):
