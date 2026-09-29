@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
 from vectrify.score.metrics import FRONT_SCORE
-from vectrify.search.base import SearchStrategy, StorageAdapter
+from vectrify.search.base import SearchStrategy
 from vectrify.search.models import (
     ChainState,
     Result,
@@ -55,7 +55,6 @@ class _RunState(Generic[TState]):
         nodes: list[SearchNode[TState]],
         *,
         pool_size: int,
-        storage_max_node_id: int,
     ) -> "_RunState[TState]":
         return cls(
             node_states={node.id: node.state for node in nodes},
@@ -63,10 +62,7 @@ class _RunState(Generic[TState]):
             node_roots={node.id: node.root_id or node.id for node in nodes},
             node_origins={node.id: node.origin_id or node.id for node in nodes},
             active_pool=list(nodes)[:pool_size],
-            next_node_id=max(
-                storage_max_node_id,
-                max((node.id for node in nodes), default=0),
-            ),
+            next_node_id=max((node.id for node in nodes), default=0),
         )
 
 
@@ -156,7 +152,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         self,
         workers: int,
         strategy: SearchStrategy[TState],
-        storage: StorageAdapter[TState],
         max_total_tasks: int | None = None,
         make_state: Callable[[Result], ChainState[TState]] = keep_payload,
         rank_front: Callable[[list[SearchNode[TState]]], list[SearchNode[TState]]]
@@ -165,7 +160,6 @@ class MultiprocessSearchEngine(Generic[TState]):
     ):
         self.workers = workers
         self.strategy = strategy
-        self.storage = storage
         self.max_total_tasks = max_total_tasks
         self.make_state = make_state
         # Orders a converged front by the run's real objective.
@@ -223,7 +217,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         run_state = _RunState.from_initial_nodes(
             initial_nodes,
             pool_size=active_pool_size,
-            storage_max_node_id=self.storage.max_node_id,
         )
         node_states = run_state.node_states
         # Each node's measures, kept so a child can be compared with the parent
@@ -443,24 +436,13 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if child.id in kept:
                     node_states[child.id] = child.state
                     node_metrics[child.id] = dict(child.metrics)
-                    # Only best-tier candidates need their content persisted;
-                    # lineage is recorded for every candidate.
-                    self.storage.save_node(
-                        child, tasks_completed, keep_content=child.id in top_tier
-                    )
                     continue
-                # A child can be the run's best and still lose its generation on
-                # another objective. Save it anyway: save_best is about to write
-                # it out, and lineage.csv should not omit the winner.
-                if child is best_node:
-                    self.storage.save_node(child, tasks_completed)
                 log.debug(f"[REJECTED] node={child.id} (dominated by the pool)")
 
             for node in active_pool:
                 if node.id not in kept:
                     node_states.pop(node.id, None)
                     node_metrics.pop(node.id, None)
-                    self.storage.record_eviction(node.id, tasks_completed)
 
             # Keep arrival order rather than the selector's rank order: the
             # pool is an unordered set to every reader, and reshuffling it each
@@ -741,20 +723,12 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
 
         finally:
-            # Record the partial generation the run stopped in the middle of,
-            # so lineage.csv covers every candidate that was paid for.
+            # Merge the partial generation the run stopped in the middle of, so
+            # every candidate that was paid for can be the final pick.
             with contextlib.suppress(Exception):
                 _close_generation()
             with contextlib.suppress(Exception):
                 best_node = _final_artifact()
-            if best_node is not None:
-                # Still swallowed so a save failure cannot mask an in-flight
-                # exception during shutdown, but never silently: this is the
-                # run's single most important artifact.
-                try:
-                    self.storage.save_best(best_node)
-                except Exception as e:
-                    log.error(f"Failed to write the best candidate: {e!r}")
             self._shutdown()
         return SearchOutcome(
             best=best_node,

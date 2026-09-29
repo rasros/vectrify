@@ -26,12 +26,10 @@ from vectrify.search import (
     NsgaStrategy,
     Result,
     SearchNode,
-    StorageAdapter,
 )
 from vectrify.search.diversity import simhash
 from vectrify.search.engine import SearchOutcome, SearchProgress
 from vectrify.search.operators import Exp3Policy, FixedWeightPolicy, OperatorPolicy
-from vectrify.search.storage import MemoryStorage
 from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.reference import Reference
 from vectrify.vector.worker import WorkerContext, worker_loop
@@ -196,7 +194,6 @@ def run_search(
     worker_context: WorkerContext,
     settings: SearchSettings,
     *,
-    storage: StorageAdapter | None = None,
     rank_front: Callable[[list[SearchNode]], list[SearchNode]] | None = None,
     policy: OperatorPolicy | None = None,
     stop: threading.Event | None = None,
@@ -213,7 +210,6 @@ def run_search(
             tournament_size=settings.tournament_size,
             crossover_distance_threshold=settings.crossover_distance,
         ),
-        storage=storage or MemoryStorage(),
         max_total_tasks=settings.max_total_tasks,
         rank_front=rank_front,
         make_state=to_state,

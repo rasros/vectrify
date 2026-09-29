@@ -5,7 +5,6 @@ import threading
 from PIL import Image
 
 from tests.helpers import rasterize
-from vectrify.search.storage import MemoryStorage
 from vectrify.vector.reference import Reference
 from vectrify.vector.search import SearchSettings, run_search, seed_node
 from vectrify.vector.worker import WorkerContext
@@ -54,20 +53,17 @@ def test_seed_node_is_measured_on_every_objective():
 def test_search_runs_local_operators_and_returns_its_pool():
     reference, context, seed = setup()
     seen = []
-    storage = MemoryStorage()
     outcome = run_search(
         reference,
         [seed],
         context,
         SearchSettings(pool_size=4, max_total_tasks=30, epochs=1),
-        storage=storage,
         progress=seen.append,
     )
     assert outcome.tasks_completed >= 30
     assert outcome.pool
     assert all(node.valid for node in outcome.pool)
     assert outcome.best is not None
-    assert storage.best is outcome.best
     assert seen[-1].tasks_completed == outcome.tasks_completed
 
 
