@@ -49,48 +49,15 @@ class FakeStrategy(_TierMixin):
         return pool[:max_parents]
 
 
-class FakeStorage:
-    def __init__(self):
-        self.save_called = False
-        self.best_saved: SearchNode | None = None
-        self.max_node_id = 1
-        self.current_run_dir = None
-
-    def initialize(self) -> None:
-        pass
-
-    def load_resume_nodes(self, max_nodes: int = 20) -> list:
-        _ = max_nodes
-        return []
-
-    def save_node(
-        self,
-        node: SearchNode,
-        tasks_completed: int = 0,
-        keep_content: bool = True,
-    ) -> None:
-        _ = (node, tasks_completed, keep_content)
-        self.save_called = True
-
-    def save_best(self, node: SearchNode) -> None:
-        self.best_saved = node
-
-    def record_eviction(self, node_id: int, tasks_completed: int) -> None:
-        _ = node_id, tasks_completed
-
-
 def test_engine_init():
-    engine = MultiprocessSearchEngine(2, FakeStrategy(), FakeStorage())
+    engine = MultiprocessSearchEngine(2, FakeStrategy())
     assert engine.workers == 2
 
 
 def test_engine_run_loop_processes_result_and_saves():
     strat = FakeStrategy()
-    store = FakeStorage()
 
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=store, max_total_tasks=1
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, max_total_tasks=1)
 
     res = Result(
         task_id=1,
@@ -109,12 +76,12 @@ def test_engine_run_loop_processes_result_and_saves():
         state=ChainState(payload=None),
     )
 
-    engine.run(
+    outcome = engine.run(
         initial_nodes=[initial_node],
         max_wall_seconds=None,
     )
 
-    assert store.save_called is True
+    assert any(n.id != 1 for n in outcome.pool)
 
 
 def test_engine_respects_max_wall_seconds(monkeypatch):
@@ -128,7 +95,7 @@ def test_engine_respects_max_wall_seconds(monkeypatch):
             return 1, None
 
     strat = TrackingStrategy()
-    engine = MultiprocessSearchEngine(workers=1, strategy=strat, storage=FakeStorage())
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat)
 
     class FakeTime:
         def __init__(self):
@@ -164,10 +131,7 @@ def test_engine_epoch_patience_triggers_transition():
             return pool[:max_parents]
 
     strat = TrackingStrategy()
-    store = FakeStorage()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=store, max_total_tasks=3
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, max_total_tasks=3)
     for _ in range(3):
         engine.unscored_q.put(
             Result(
@@ -183,14 +147,14 @@ def test_engine_epoch_patience_triggers_transition():
         valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
     epochs_seen: set[int] = set()
-    engine.run(
+    outcome = engine.run(
         initial_nodes=[initial_node],
         max_wall_seconds=None,
         epoch_patience=3,
         progress=lambda state: epochs_seen.add(state.epoch),
     )
     assert max(epochs_seen) >= 1
-    assert store.save_called
+    assert any(n.id != 1 for n in outcome.pool)
 
 
 def test_epoch_patience_resets_when_a_child_reaches_the_top_tier():
@@ -207,10 +171,7 @@ def test_epoch_patience_resets_when_a_child_reaches_the_top_tier():
             return pool[:max_parents]
 
     strat = TrackingStrategy()
-    store = FakeStorage()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=store, max_total_tasks=3
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, max_total_tasks=3)
 
     for edge in (0.35, 0.2, 0.05):
         engine.unscored_q.put(
@@ -227,7 +188,7 @@ def test_epoch_patience_resets_when_a_child_reaches_the_top_tier():
     initial_node = SearchNode(
         valid=True, id=1, parent_id=0, state=ChainState(payload=None)
     )
-    engine.run(
+    outcome = engine.run(
         initial_nodes=[initial_node],
         max_wall_seconds=None,
         epoch_patience=2,
@@ -235,7 +196,7 @@ def test_epoch_patience_resets_when_a_child_reaches_the_top_tier():
         generation_size=1,
     )
     assert strat.epoch_parents_calls == 0
-    assert store.save_called
+    assert any(n.id != 1 for n in outcome.pool)
 
 
 def test_engine_epoch_patience_none_no_transitions():
@@ -252,7 +213,6 @@ def test_engine_epoch_patience_none_no_transitions():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=strat,
-        storage=FakeStorage(),
         max_total_tasks=0,
     )
     dummy_node = SearchNode(
@@ -277,10 +237,7 @@ def test_engine_respects_max_total_tasks():
             return 1, None
 
     strat = TrackingStrategy()
-    store = FakeStorage()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=store, max_total_tasks=0
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, max_total_tasks=0)
     dummy_node = SearchNode(
         valid=True,
         id=1,
@@ -288,9 +245,9 @@ def test_engine_respects_max_total_tasks():
         state=ChainState(payload=None),
     )
 
-    engine.run(initial_nodes=[dummy_node], max_wall_seconds=None)
+    outcome = engine.run(initial_nodes=[dummy_node], max_wall_seconds=None)
     assert strat.select_calls == 0
-    assert store.save_called is False
+    assert [n.id for n in outcome.pool] == [1]
 
 
 def test_engine_active_pool_bounded():
@@ -303,10 +260,7 @@ def test_engine_active_pool_bounded():
             return nodes[0].id, None
 
     strat = TrackingStrategy()
-    store = FakeStorage()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=store, max_total_tasks=10
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, max_total_tasks=10)
 
     for i in range(10):
         engine.unscored_q.put(
@@ -331,9 +285,7 @@ def test_engine_active_pool_bounded():
 
 
 def test_engine_score_fn_none_with_unscored_result_raises():
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage()
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=FakeStrategy())
     engine.unscored_q.put(
         Result(
             task_id=1,
@@ -378,7 +330,6 @@ def test_front_is_ranked_by_the_evaluator_not_by_the_round_score():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=strat,
-        storage=FakeStorage(),
         max_total_tasks=4,
         rank_front=rank_front,
     )
@@ -430,7 +381,6 @@ def test_a_run_without_llm_seeds_offers_the_epoch_only_the_evolved_pool():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=strat,
-        storage=FakeStorage(),
         max_total_tasks=2,
         # The field is only built for an evaluator to rank.
         rank_front=lambda nodes: nodes,
@@ -460,7 +410,6 @@ def test_a_failing_evaluator_does_not_stop_the_run():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=FakeStrategy(),
-        storage=FakeStorage(),
         max_total_tasks=3,
         rank_front=_explode,
     )
@@ -491,9 +440,7 @@ def test_children_join_the_pool_only_when_the_generation_closes():
             return nodes[0].id, None
 
     strat = TrackingStrategy()
-    engine = MultiprocessSearchEngine(
-        workers=1, strategy=strat, storage=FakeStorage(), max_total_tasks=5
-    )
+    engine = MultiprocessSearchEngine(workers=1, strategy=strat, max_total_tasks=5)
     for tid in range(1, 6):
         engine.unscored_q.put(
             Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
@@ -527,7 +474,6 @@ def test_epoch_transition_closes_the_open_generation():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=strat,
-        storage=FakeStorage(),
         max_total_tasks=2,
         rank_front=lambda nodes: nodes,
     )
@@ -567,7 +513,7 @@ def test_the_engine_picks_the_operator_and_hears_how_it_did():
 
     policy = RecordingPolicy()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
+        workers=1, strategy=FakeStrategy(), max_total_tasks=2
     )
     for tid, edge in ((1, 0.1), (2, 0.9)):
         engine.unscored_q.put(
@@ -628,7 +574,7 @@ def test_an_operator_that_produced_nothing_is_charged_for_the_draw():
 
     policy = RecordingPolicy()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=2
+        workers=1, strategy=FakeStrategy(), max_total_tasks=2
     )
     # One blank draw naming its operator, one ordinary failure naming none.
     engine.unscored_q.put(
@@ -658,11 +604,10 @@ def test_an_operator_that_produced_nothing_is_charged_for_the_draw():
     assert policy.updates == [("op", 0.0)]
 
 
-def _engine_with_evaluator(store, rank_front):
+def _engine_with_evaluator(rank_front):
     return MultiprocessSearchEngine(
         workers=1,
         strategy=FakeStrategy(),
-        storage=store,
         max_total_tasks=2,
         rank_front=rank_front,
     )
@@ -673,7 +618,7 @@ def _run_two_children(engine):
         engine.unscored_q.put(
             Result(task_id=tid, parent_id=1, valid=True, measured=True, payload="p")
         )
-    engine.run(
+    return engine.run(
         initial_nodes=[
             SearchNode(valid=True, id=1, parent_id=0, state=ChainState(payload=None))
         ],
@@ -687,15 +632,14 @@ def test_the_final_artifact_is_chosen_by_the_evaluator():
     """The round score is a proxy that ranks candidates at about rho 0.83, and
     the evaluator finds roughly a 2x spread inside one front -- so writing out
     the proxy's winner is close to picking arbitrarily among the good ones."""
-    store = FakeStorage()
     # An evaluator that prefers the worst round score, which the proxy never would.
     engine = _engine_with_evaluator(
-        store, lambda nodes: sorted(nodes, key=lambda n: -_rank_of(n))
+        lambda nodes: sorted(nodes, key=lambda n: -_rank_of(n))
     )
-    _run_two_children(engine)
+    outcome = _run_two_children(engine)
 
-    assert store.best_saved is not None
-    assert store.best_saved.id == 3
+    assert outcome.best is not None
+    assert outcome.best.id == 3
 
 
 def test_a_failing_evaluator_still_writes_a_top_tier_candidate():
@@ -706,11 +650,10 @@ def test_a_failing_evaluator_still_writes_a_top_tier_candidate():
     def explode(_nodes):
         raise RuntimeError("no")
 
-    store = FakeStorage()
-    _run_two_children(_engine_with_evaluator(store, explode))
+    outcome = _run_two_children(_engine_with_evaluator(explode))
 
-    assert store.best_saved is not None
-    assert store.best_saved.valid
+    assert outcome.best is not None
+    assert outcome.best.valid
 
 
 def test_scorer_thread_scores_queued_results_together():
@@ -722,7 +665,7 @@ def test_scorer_thread_scores_queued_results_together():
             return nodes[0].id, None
 
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=PoolStrategy(), storage=FakeStorage(), max_total_tasks=8
+        workers=1, strategy=PoolStrategy(), max_total_tasks=8
     )
     for task_id in range(1, 9):
         engine.unscored_q.put(
@@ -756,7 +699,7 @@ def test_a_scoring_failure_loses_only_the_batch_it_belongs_to():
     """Scoring in batches must not let one bad candidate discard the candidates
     scored alongside it, which singly-scored candidates never risked."""
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=4
+        workers=1, strategy=FakeStrategy(), max_total_tasks=4
     )
     for task_id in range(1, 5):
         engine.unscored_q.put(
@@ -794,7 +737,7 @@ def test_the_epoch_budget_ends_an_epoch_that_has_not_gone_stale():
     Here nothing goes stale, and the epoch ends anyway."""
     epochs_seen: set[int] = set()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=6
+        workers=1, strategy=FakeStrategy(), max_total_tasks=6
     )
     for task_id in range(1, 7):
         engine.unscored_q.put(
@@ -831,7 +774,6 @@ def test_the_evaluator_is_asked_during_an_epoch_not_only_at_its_boundary():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=FakeStrategy(),
-        storage=FakeStorage(),
         max_total_tasks=4,
         rank_front=rank,
     )
@@ -869,7 +811,6 @@ def test_the_epoch_ends_when_the_evaluator_stops_seeing_improvement():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=FakeStrategy(),
-        storage=FakeStorage(),
         max_total_tasks=8,
         rank_front=rank,
     )
@@ -912,7 +853,6 @@ def test_evaluator_patience_counts_checks_not_generations():
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=FakeStrategy(),
-        storage=FakeStorage(),
         max_total_tasks=12,
         rank_front=rank,
     )
@@ -963,9 +903,8 @@ def test_a_candidate_measuring_as_its_parent_is_rejected_and_charged():
             self.updates.append((operator, reward))
 
     policy = RecordingPolicy()
-    store = FakeStorage()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=store, max_total_tasks=2
+        workers=1, strategy=FakeStrategy(), max_total_tasks=2
     )
     parent_metrics = {"edge": 0.4, "colour": 0.2}
     for task_id in (1, 2):
@@ -1017,7 +956,7 @@ def test_a_candidate_that_moves_any_measure_is_kept():
 
     policy = RecordingPolicy()
     engine = MultiprocessSearchEngine(
-        workers=1, strategy=FakeStrategy(), storage=FakeStorage(), max_total_tasks=1
+        workers=1, strategy=FakeStrategy(), max_total_tasks=1
     )
     engine.unscored_q.put(
         Result(
@@ -1075,7 +1014,6 @@ def _epoch_run(rank_front, *, tasks, improvement=0.0, patience=1, epochs=50):
     engine = MultiprocessSearchEngine(
         workers=1,
         strategy=strat,
-        storage=FakeStorage(),
         max_total_tasks=tasks,
         rank_front=rank_front,
     )

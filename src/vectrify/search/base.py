@@ -1,4 +1,3 @@
-from pathlib import Path
 from typing import Protocol, TypeVar
 
 from vectrify.search.models import SearchNode
@@ -29,37 +28,5 @@ class SearchStrategy(Protocol[TState]):
     def epoch_parents(
         self, pool: list[SearchNode[TState]], max_parents: int
     ) -> list[SearchNode[TState]]:
-        """Select the nodes the next epoch's LLM edits should start from.
-
-        These are parents, not pool members: the epoch's pool is built from
-        their edited children, so a node returned here survives only through
-        whatever the LLM makes of it.
-        """
+        """The leading, distinct candidates for the evaluator to rank."""
         ...
-
-
-class StorageAdapter(Protocol[TState]):
-    current_run_dir: Path | None
-
-    def initialize(self) -> None: ...
-
-    def save_node(
-        self,
-        node: SearchNode[TState],
-        tasks_completed: int = 0,
-        keep_content: bool = True,
-    ) -> None:
-        """Record *node*. *keep_content* asks for the drawing itself as well as
-        the lineage row, which is how a run stays a readable directory."""
-        ...
-
-    def save_best(self, node: SearchNode[TState]) -> None:
-        """Write the best final candidate to the top-level output path."""
-        ...
-
-    def record_eviction(self, node_id: int, tasks_completed: int) -> None: ...
-
-    def load_resume_nodes(self) -> list[tuple[int, str]]: ...
-
-    @property
-    def max_node_id(self) -> int: ...
