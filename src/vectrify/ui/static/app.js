@@ -1261,6 +1261,11 @@ $('contact-dialog').addEventListener('close',()=>{const preview=contactContext?.
 const generateSettings = {
   samvg: () => ({max_layers:Number($('samvg-max-layers').value), segments:Number($('samvg-segments').value), model:$('samvg-model').value,
     fill_holes:$('samvg-fill-holes').checked, hybrid_strokes:$('samvg-hybrid-strokes').checked}),
+  'colour-regions': () => {
+    const outlines = $('regions-outlines').value;
+    return {colours:Number($('regions-colours').value), min_pixels:Number($('regions-min-pixels').value), tolerance:Number($('regions-tolerance').value),
+      preserve_outlines:outlines !== 'none', outline_style:outlines === 'none' ? 'preserve' : outlines, geometry_cleanup:$('regions-cleanup').checked};
+  },
 };
 function showGenerateMethod() {
   for (const panel of document.querySelectorAll('[data-generate]')) panel.hidden = panel.dataset.generate !== $('generate-method').value;
@@ -1295,7 +1300,8 @@ async function pollGenerate() {
     $('generate-previews').hidden = false;
     const before = metrics.before.error, after = metrics.after.error;
     const improvement = before > 0 ? 100*(before-after)/before : 0;
-    $('generate-metrics').textContent = changed ? `${metrics.shapes.toLocaleString()} shapes · reference error reduced ${improvement.toFixed(1)}%. Apply adds them as one undoable edit.` : 'Nothing was generated. Try other settings.';
+    const change = improvement >= 0 ? `reduced ${improvement.toFixed(1)}%` : `increased ${(-improvement).toFixed(1)}%`;
+    $('generate-metrics').textContent = changed ? `${metrics.shapes.toLocaleString()} shapes · reference error ${change}. Apply adds them as one undoable edit.` : 'Nothing was generated. Try other settings.';
     $('generate-apply').hidden = !changed; $('generate-close').textContent = 'Discard'; $('generate-run').textContent = 'Generate again';
   } catch (error) { if (context === generateContext) { generateError(error); generateIdle(); } }
 }

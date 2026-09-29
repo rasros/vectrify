@@ -9,6 +9,7 @@ new group, inserted at the front of the chosen container in one transaction.
 from __future__ import annotations
 
 import io
+import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from typing import Any
@@ -99,9 +100,40 @@ def container(request: OperationRequest) -> str:
     raise DocumentError("Select the whole drawing or one group to generate into")
 
 
+def fresh_ids(svg: str) -> str:
+    """Rename every id, and each local reference to it, so repeats never collide."""
+    root = ET.fromstring(svg)
+    renamed = {
+        element.get("id"): new_id("generated")
+        for element in root.iter()
+        if element.get("id")
+    }
+    if not renamed:
+        return svg
+    pattern = re.compile(r"url\(\s*#([^)\s]+)\s*\)")
+    for element in root.iter():
+        for key, value in element.attrib.items():
+            if key == "id":
+                element.set(key, renamed[value])
+            elif key in HREF and value.startswith("#") and value[1:] in renamed:
+                element.set(key, "#" + renamed[value[1:]])
+            elif "url(" in value:
+                element.set(
+                    key,
+                    pattern.sub(
+                        lambda m: f"url(#{renamed.get(m.group(1), m.group(1))})",
+                        value,
+                    ),
+                )
+    return ET.tostring(root, encoding="unicode")
+
+
+HREF = {"href", "{http://www.w3.org/1999/xlink}href"}
+
+
 def insert_svg(tx, request: OperationRequest, svg: str, region: Region, name: str):
     """Add *svg* (in the region's pixel space) as a new named group."""
-    generated = import_svg(svg)
+    generated = import_svg(fresh_ids(svg))
     if not generated.root.children:
         return None, 0
     group = Element(

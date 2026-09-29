@@ -172,6 +172,12 @@ does not support SVG text. Preview shows the reference, before and after, with
 the change in reference error; Apply adds the group as one undoable edit.
 SAMVG needs the `samvg` extra and holds the GPU while it runs.
 
+The Colour regions method fits a palette on the GPU and traces each colour
+region, with an optional dark-outline layer ("Preserve dark linework") or clean
+mode ("Clean shared regions and ink"), which defines each region once and
+reuses it for fill and clip. Geometry cleanup merges compatible paths and drops
+redundant vertices afterwards. It needs CUDA and the `vision` extra.
+
 Node handles currently edit direct `path` elements. Local `use` instances can
 be selected, styled, moved and detached; editing a referenced source still
 requires selecting every affected consumer, as enforced by the backend. Groups
