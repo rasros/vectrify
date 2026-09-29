@@ -128,7 +128,10 @@ you choose a saved browser recovery copy from a new tab.
 groups. Tick what it may do: **Shape** moves points and curve handles, **Add
 detail** splits segments and moves the new point (only with a reference),
 **Simplify** removes points while the fit stays within the tolerance,
-**Strokes** scales stroke widths and **Position** moves whole paths. Colour is
+**Strokes** scales stroke widths and **Position** moves whole paths. **Snap to
+reference** first moves filled paths' points straight onto the reference's
+edges nearby and refits their handles, as the search's start or on its own;
+with Add detail it also splits segments that still miss the edge. Colour is
 left to Fit colours. It is scored on the selection's surroundings, never the
 whole image: against the reference, or without one against the paths as they
 were, so Simplify on its own removes points while keeping their look.
