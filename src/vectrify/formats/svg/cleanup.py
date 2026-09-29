@@ -132,11 +132,17 @@ def _disjoint(first, second):
     )
 
 
-def cleanup_svg_geometry(svg: str) -> tuple[str, CleanupStats]:
+def cleanup_svg_geometry(
+    svg: str, *, unreferenced: frozenset[str] = frozenset()
+) -> tuple[str, CleanupStats]:
     """Simplify redundant vertices and merge compatible consecutive paths.
 
     Shape coordinates are never rounded or approximated. Merging opaque
     strokes can change antialiasing slightly at their shared pixels.
+
+    A path with an ``id`` is left alone, since something may reference it,
+    unless the caller lists that id in *unreferenced*; a merge keeps the first
+    path's id.
     """
     root = ET.fromstring(svg)
     paths = list(root.iter(_SVG + "path"))
@@ -222,7 +228,11 @@ def cleanup_svg_geometry(svg: str) -> tuple[str, CleanupStats]:
                 visit(child, paint, protected)
                 previous = None
                 continue
-            attrs = {key: value for key, value in child.attrib.items() if key != "d"}
+            attrs = {
+                key: value
+                for key, value in child.attrib.items()
+                if key != "d" and not (key == "id" and value in unreferenced)
+            }
             effective = {**paint, **attrs}
             chains = parsed[id(child)]
             safe = not protected and not (set(attrs) - _PAINT) and chains is not None

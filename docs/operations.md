@@ -61,7 +61,9 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
 | improve | `nsga` | NSGA-II local search over the selected objects, ranked by reference error |
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
+| improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |
 | simplify | `curves` | Refits selected contours with fewer lines and cubics |
+| simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
 | link | `boundaries` | Matches touching edges into shared boundaries |
 
 Generate methods use `vectrify.operations.generate`: `target_region` crops the

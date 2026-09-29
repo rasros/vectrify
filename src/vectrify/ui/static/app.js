@@ -288,6 +288,8 @@ function renderInspector() {
   $('optimize-path').disabled = !item || item.tag !== 'path' || item.resource || !state.reference;
   $('nsga-open').disabled = !state.reference;
   $('llm-open').disabled = !state.reference;
+  $('colours-open').disabled = !state.reference || !selected.length;
+  $('cleanup-open').disabled = !selected.length;
   $('optimize-hint').textContent = !state.reference ? 'Add a reference image to fit against.' : item?.tag === 'use' ? 'Detach shared geometry to optimize this instance.' : !item || item.tag !== 'path' || item.resource ? 'Select one visible path.' : 'Run the path-fit mutator on this path.';
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
@@ -1505,3 +1507,85 @@ $('llm-dialog').addEventListener('close', () => {
   clearTimeout(llmPoll); const job = llmContext?.job; llmContext = null;
   if (job) operation('discard', {job}).catch(error => toast(error.message, true));
 });
+
+// A dialog around one operation job: start, poll, stop, preview, apply.
+function jobDialog(prefix, {start, describe, applied, idle = () => {}}) {
+  let context = null, poll = null;
+  const show = id => $(prefix+'-'+id);
+  const fail = error => { show('error').textContent = error.message; show('error').hidden = false; };
+  const ready = () => { show('settings').disabled = false; show('run').disabled = false; show('stop').hidden = true; idle(); };
+  async function refresh() {
+    const current = context; if (!current?.job) return;
+    try {
+      const job = await operation('status', {job:current.job, preview:true});
+      if (current !== context) return;
+      show('meter').max = job.steps || 1; show('meter').value = job.step; show('status').textContent = job.message;
+      if (job.status === 'running') { poll = setTimeout(refresh, 700); return; }
+      ready();
+      if (job.status === 'failed') throw new Error(job.error);
+      if (job.status !== 'ready') return;
+      for (const [key, url] of Object.entries(job.result.previews)) { const img = show(key); if (img) img.src = url; }
+      show('previews').hidden = false; show('metrics').textContent = describe(job.result);
+      show('apply').hidden = !job.result.changed; show('close').textContent = 'Discard';
+    } catch (error) { if (current === context) { fail(error); ready(); } }
+  }
+  return {
+    open(summary) {
+      context = {epoch:state.epoch, revision:state.revision, job:null};
+      show('summary').textContent = summary;
+      for (const id of ['error','previews','progress','apply','stop']) show(id).hidden = true;
+      show('close').textContent = 'Cancel'; ready();
+      show('dialog').showModal();
+    },
+    async run() {
+      const current = context; if (!current) return;
+      for (const id of ['error','apply','previews']) show(id).hidden = true;
+      show('settings').disabled = true; show('run').disabled = true;
+      try {
+        if (current.job) { await operation('discard', {job:current.job}); current.job = null; }
+        const job = await operation('start', {epoch:current.epoch, revision:current.revision, ...start()});
+        if (current !== context) { await operation('discard', {job:job.id}); return; }
+        current.job = job.id; show('progress').hidden = false; show('stop').hidden = job.status !== 'running';
+        show('close').textContent = 'Cancel & discard';
+        await refresh();
+      } catch (error) { fail(error); ready(); }
+    },
+    wire() {
+      show('run').onclick = () => this.run();
+      show('stop').onclick = async () => { try { await operation('stop', {job:context.job}); show('stop').hidden = true; } catch (error) { fail(error); } };
+      show('apply').onclick = async () => {
+        show('apply').disabled = true;
+        try { const result = await operation('apply', {job:context.job}); context.job = null; dirty = true; await applyState(result); show('dialog').close(); toast(applied); }
+        catch (error) { fail(error); } finally { show('apply').disabled = false; }
+      };
+      show('close').onclick = () => show('dialog').close();
+      show('dialog').addEventListener('close', () => {
+        clearTimeout(poll); const job = context?.job; context = null;
+        if (job) operation('discard', {job}).catch(error => toast(error.message, true));
+      });
+      return this;
+    },
+  };
+}
+function errorChange(metrics) {
+  const before = metrics.before.error, after = metrics.after.error;
+  const change = before > 0 ? 100*(before-after)/before : 0;
+  return change >= 0 ? `reduced ${change.toFixed(1)}%` : `increased ${(-change).toFixed(1)}%`;
+}
+const selectionSummary = () => oneObject()?.label || `${state.selection.objects.length} selected objects`;
+const coloursDialog = jobDialog('colours', {
+  start: () => ({action:'improve', method:'colours', permissions:{paint:true},
+    settings:{passes:Number($('colours-passes').value), resolution:Number($('colours-resolution').value)}}),
+  describe: result => result.changed ? `${result.metrics.objects} of ${result.metrics.considered} fills changed · reference error ${errorChange(result.metrics)}. Apply keeps it as one undoable edit.` : 'The colours already fit the reference.',
+  applied: 'Colours fitted. Undo restores the previous fills.',
+}).wire();
+$('colours-open').onclick = async () => { await queue; coloursDialog.open(selectionSummary()); };
+const cleanupDialog = jobDialog('cleanup', {
+  start: () => ({action:'simplify', method:'cleanup', bounds:simplifyBounds(), permissions:{geometry:true, structure:true}}),
+  describe: result => {
+    const c = result.metrics.cleanup;
+    return result.changed ? `${c.paths_before} → ${c.paths_after} paths (${c.paths_merged} merged, ${c.duplicate_paths_removed + c.empty_paths_removed} removed) · ${c.vertices_removed} redundant vertices removed. Apply keeps it as one undoable edit.` : 'Nothing to clean up in the selection.';
+  },
+  applied: 'Geometry cleaned up. Undo restores the original paths.',
+}).wire();
+$('cleanup-open').onclick = async () => { await queue; cleanupDialog.open(selectionSummary()); };

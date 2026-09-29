@@ -160,6 +160,19 @@ replies, pick one by preview and reference error. The Generate dialog's LLM
 method draws the reference from scratch instead. Both need an API key in the
 environment (`OPENAI_API_KEY`, `ANTHROPIC_API_KEY` or `GEMINI_API_KEY`).
 
+**Fit colours…** solves the flat fill colour of every selected object that
+best matches the reference, with geometry locked. Each object is rendered with
+its fill black and white, which measures its exact coverage (including
+antialiasing, opacity, clipping and objects in front), so the best colour has
+a closed form; outlines painted in the fill colour follow it. Objects are
+fitted back to front; more passes help where fitted objects overlap. No GPU is
+needed.
+
+**Clean up geometry…** removes duplicate and collinear vertices and empty or
+duplicate paths, and merges compatible neighbouring paths into compound paths,
+within the selection only. Paths referenced by instances or clips are kept.
+Coordinates are never rounded.
+
 **Smooth / simplify…** reduces selected paths, path instances or groups of paths
 without a reference image. It fits shorter runs of lines/cubic curves to the
 current contour, using an adjustable approximation tolerance in local SVG
