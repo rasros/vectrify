@@ -23,7 +23,7 @@ from vectrify.document.editor import Transaction
 from vectrify.document.model import Element, Geometry
 from vectrify.document.svg import PAINT
 from vectrify.operations.contract import OperationRequest
-from vectrify.operations.generate import Region
+from vectrify.operations.generate import Region, frame
 from vectrify.svg.selection import MutationScope
 
 
@@ -291,10 +291,7 @@ def region_svg(
     source = export_svg(request.snapshot.document)
     root = ET.fromstring(source)
     original = dict(root.attrib)
-    root.set("viewBox", f"{region.x!r} {region.y!r} {region.width!r} {region.height!r}")
-    root.set("width", str(size[0]))
-    root.set("height", str(size[1]))
-    root.set("preserveAspectRatio", "none")
+    frame(root, (region.x, region.y, region.width, region.height), size)
     ET.register_namespace("", "http://www.w3.org/2000/svg")
     return ET.tostring(root, encoding="unicode"), original
 

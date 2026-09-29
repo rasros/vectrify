@@ -88,6 +88,14 @@ def container(request: OperationRequest) -> str:
     raise DocumentError("Select the whole drawing or one group to generate into")
 
 
+def validate_generate(request: OperationRequest) -> None:
+    """What every Generate method needs: leave to add shapes, a place, a region."""
+    if not request.permissions.structure:
+        raise DocumentError("Allow structure changes to add generated shapes")
+    container(request)
+    target_region(request)
+
+
 def fresh_ids(svg: str) -> str:
     """Rename every id, and each local reference to it, so repeats never collide."""
     root = ET.fromstring(svg)
@@ -136,12 +144,21 @@ def insert_svg(tx, request: OperationRequest, svg: str, region: Region, name: st
     return group.id, shapes
 
 
+def frame(
+    root: ET.Element,
+    box: tuple[float, float, float, float],
+    size: tuple[int, int],
+) -> None:
+    """Aim *root*'s viewBox at *box*, stretched over *size* pixels."""
+    root.set("viewBox", " ".join(str(v) for v in box))
+    root.set("width", str(size[0]))
+    root.set("height", str(size[1]))
+    root.set("preserveAspectRatio", "none")
+
+
 def render_region(document: Document, region: Region) -> Image.Image:
     root = ET.fromstring(export_svg(document))
-    root.set("viewBox", f"{region.x} {region.y} {region.width} {region.height}")
-    root.set("width", str(region.image.width))
-    root.set("height", str(region.image.height))
-    root.set("preserveAspectRatio", "none")
+    frame(root, (region.x, region.y, region.width, region.height), region.image.size)
     png = cairosvg.svg2png(bytestring=ET.tostring(root), background_color="white")
     assert png is not None
     with Image.open(io.BytesIO(png)) as image:

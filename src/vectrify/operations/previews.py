@@ -9,6 +9,7 @@ import xml.etree.ElementTree as ET
 import cairosvg
 
 from vectrify.document import DocumentError, export_svg
+from vectrify.operations.generate import frame
 
 
 def render_previews(before, after, bounds, *, highlight=False):
@@ -25,10 +26,8 @@ def render_previews(before, after, bounds, *, highlight=False):
 
     def render(document):
         root = ET.fromstring(export_svg(document))
-        root.set("viewBox", f"{x} {y} {width} {height}")
-        root.set("width", str(max(1, round(width * scale))))
-        root.set("height", str(max(1, round(height * scale))))
-        root.set("preserveAspectRatio", "none")
+        size = (max(1, round(width * scale)), max(1, round(height * scale)))
+        frame(root, (x, y, width, height), size)
         if highlight and document is after:
             from vectrify.document.hit_test import IDENTITY, multiply, transform
             from vectrify.document.topology import edge, inverse_matrix
