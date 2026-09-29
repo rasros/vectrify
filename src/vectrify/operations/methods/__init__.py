@@ -2,7 +2,9 @@
 
 from vectrify.operations.methods import (
     boundaries,
+    cleanup,
     colour_regions,
+    colours,
     curves,
     llm,
     nsga,
@@ -12,7 +14,9 @@ from vectrify.operations.methods import (
 
 __all__ = [
     "boundaries",
+    "cleanup",
     "colour_regions",
+    "colours",
     "curves",
     "llm",
     "nsga",

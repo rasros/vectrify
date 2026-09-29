@@ -92,3 +92,8 @@
 
 #nsga-choices, #llm-choices { margin-bottom:12px; flex-wrap:wrap; }
 #llm-settings textarea, #generate-settings textarea { display:block; width:100%; margin-top:8px; }
+.job-dialog { width:min(1080px,calc(100vw - 64px)); max-width:1080px; max-height:90vh; overflow:auto; }
+.job-settings { border:1px solid var(--border); padding:16px; margin:18px 0; }
+.job-progress progress { width:100%; }
+.job-error { color:#ffb3a3; }
+.fit-previews.two { grid-template-columns:repeat(2,minmax(0,1fr)); }

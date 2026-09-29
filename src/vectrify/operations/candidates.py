@@ -82,7 +82,9 @@ class _Replayer:
         candidate: Document,
         lenient: bool,
         baseline: Document | None = None,
+        contours: bool = False,
     ):
+        self.contours = contours or lenient
         self.tx = tx
         self.candidate = candidate
         self.baseline = baseline
@@ -196,7 +198,7 @@ class _Replayer:
             }
             self.tx.update_nodes(oid, values)
         else:
-            if not self.lenient:
+            if not self.contours:
                 raise CandidateRejectedError(f"{oid}: path structure changed")
             if not self.permitted(oid, "geometry", "structure"):
                 return
@@ -243,20 +245,22 @@ def replay(
     *,
     lenient: bool = False,
     baseline: str | None = None,
+    contours: bool = False,
 ) -> Replay:
     """Repeat *svg*'s differences from ``tx.preview`` as commands in *tx*.
 
     *baseline* is the original after the same rewriting the candidate went
     through (e.g. normalization that rounds coordinates). Values the candidate
     shares with it are treated as unchanged, so the rewrite itself is never
-    replayed and the document keeps its full precision.
+    replayed and the document keeps its full precision. *contours* lets a
+    strict replay replace a path's contours when its structure changed.
     """
     try:
         candidate = import_svg(svg)
         reference = import_svg(baseline) if baseline is not None else None
     except DocumentError as exc:
         raise CandidateRejectedError(f"Candidate is not editable SVG: {exc}") from exc
-    return _Replayer(tx, candidate, lenient, reference).run()
+    return _Replayer(tx, candidate, lenient, reference, contours).run()
 
 
 def mutation_scope(request: OperationRequest) -> MutationScope:
