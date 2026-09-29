@@ -9,11 +9,15 @@ uv run vectrify
 Or open a specific SVG and its reference image:
 
 ```sh
-uv run vectrify drawing.svg --reference original.png --port 8765
+uv run vectrify drawing.svg --reference original.png
 ```
 
-Open the printed localhost address in a browser. The server listens on loopback
-only. The UI is included in the Python package and needs no Node build step.
+With the `desktop` extra the editor opens in a native window (pywebview: the
+platform's web view, or Qt WebEngine on Linux), and the page calls the Python
+backend directly; saving asks for a file with a native dialog. Without the
+extra, or with `--serve` (and optionally `--port`), vectrify serves the editor
+on loopback and prints the address to open in a browser. The UI is included in
+the Python package and needs no Node build step.
 For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 
 ## What works
