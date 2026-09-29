@@ -8,6 +8,7 @@ let joinContext = null;
 let fitContext = null, fitPoll = null;
 let generateContext = null, generatePoll = null;
 let nsgaContext = null, nsgaPoll = null;
+let llmContext = null, llmPoll = null;
 let simplifyContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
@@ -286,6 +287,7 @@ function renderInspector() {
   $('smooth-shape').disabled = !selected.length || !selected.every(id => ['path','use','g'].includes(object(id)?.tag));
   $('optimize-path').disabled = !item || item.tag !== 'path' || item.resource || !state.reference;
   $('nsga-open').disabled = !state.reference;
+  $('llm-open').disabled = !state.reference;
   $('optimize-hint').textContent = !state.reference ? 'Add a reference image to fit against.' : item?.tag === 'use' ? 'Detach shared geometry to optimize this instance.' : !item || item.tag !== 'path' || item.resource ? 'Select one visible path.' : 'Run the path-fit mutator on this path.';
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
@@ -1263,6 +1265,8 @@ $('contact-dialog').addEventListener('close',()=>{const preview=contactContext?.
 const generateSettings = {
   samvg: () => ({max_layers:Number($('samvg-max-layers').value), segments:Number($('samvg-segments').value), model:$('samvg-model').value,
     fill_holes:$('samvg-fill-holes').checked, hybrid_strokes:$('samvg-hybrid-strokes').checked}),
+  llm: () => ({provider:$('gen-llm-provider').value, model:$('gen-llm-model').value.trim(), reasoning:$('gen-llm-reasoning').value,
+    candidates:Number($('gen-llm-candidates').value), instruction:$('gen-llm-instruction').value}),
   'colour-regions': () => {
     const outlines = $('regions-outlines').value;
     return {colours:Number($('regions-colours').value), min_pixels:Number($('regions-min-pixels').value), tolerance:Number($('regions-tolerance').value),
@@ -1418,5 +1422,86 @@ $('nsga-apply').onclick = async () => {
 $('nsga-close').onclick = () => $('nsga-dialog').close();
 $('nsga-dialog').addEventListener('close', () => {
   clearTimeout(nsgaPoll); const job = nsgaContext?.job; nsgaContext = null;
+  if (job) operation('discard', {job}).catch(error => toast(error.message, true));
+});
+
+// Improve: edit with an LLM; the backend replays the reply within scope.
+function llmError(error) { $('llm-error').textContent = error.message; $('llm-error').hidden = false; }
+function llmIdle() { $('llm-settings').disabled = false; $('llm-run').disabled = false; $('llm-stop').hidden = true; }
+$('llm-open').onclick = async () => {
+  await queue;
+  llmContext = {epoch:state.epoch, revision:state.revision, job:null, results:[], choice:0};
+  const count = state.selection.objects.length;
+  $('llm-scope').value = count ? 'selection' : 'drawing';
+  $('llm-scope').options[0].disabled = !count;
+  $('llm-summary').textContent = count ? (oneObject()?.label || `${count} selected objects`) : 'Whole drawing';
+  for (const id of ['llm-error','llm-previews','llm-progress','llm-apply','llm-stop']) $(id).hidden = true;
+  $('llm-run').textContent = 'Ask the model'; $('llm-close').textContent = 'Cancel';
+  llmIdle(); $('llm-dialog').showModal();
+};
+function showLlmChoice(index) {
+  const context = llmContext, result = context?.results[index]; if (!result) return;
+  context.choice = index;
+  for (const key of ['reference','before','after']) $('llm-'+key).src = result.previews[key];
+  const {before, after, edits, skipped} = result.metrics;
+  const change = before.error > 0 ? 100*(before.error-after.error)/before.error : 0;
+  const trend = change >= 0 ? `reduced ${change.toFixed(1)}%` : `increased ${(-change).toFixed(1)}%`;
+  $('llm-metrics').textContent = result.changed ? `${edits} edit(s) · reference error ${trend}${skipped ? ` · ${skipped} change(s) outside the scope were left out` : ''}. Apply keeps it as one undoable edit.` : `The reply changed nothing that is allowed${skipped ? ` (${skipped} change(s) outside the scope were left out)` : ''}.`;
+  $('llm-apply').hidden = !result.changed;
+}
+async function pollLlm() {
+  const context = llmContext; if (!context?.job) return;
+  try {
+    const job = await operation('status', {job:context.job, preview:true});
+    if (context !== llmContext) return;
+    $('llm-meter').max = job.steps || 1; $('llm-meter').value = job.step;
+    $('llm-status').textContent = job.message;
+    if (job.status === 'running') { llmPoll = setTimeout(pollLlm, 1000); return; }
+    llmIdle();
+    if (job.status === 'failed') throw new Error(job.error);
+    if (job.status !== 'ready') return;
+    context.results = [job.result, ...job.alternatives];
+    const choices = $('llm-choices'); choices.replaceChildren();
+    if (context.results.length > 1) context.results.forEach((result, index) => {
+      const label = document.createElement('label'); label.className = 'toggle';
+      const input = document.createElement('input'); input.type = 'radio'; input.name = 'llm-choice'; input.checked = index === 0;
+      input.onchange = () => showLlmChoice(index);
+      label.append(input, ` Reply ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`);
+      choices.append(label);
+    });
+    $('llm-previews').hidden = false; showLlmChoice(0);
+    $('llm-close').textContent = 'Discard'; $('llm-run').textContent = 'Ask again';
+  } catch (error) { if (context === llmContext) { llmError(error); llmIdle(); } }
+}
+$('llm-run').onclick = async () => {
+  const context = llmContext; if (!context) return;
+  for (const id of ['llm-error','llm-apply','llm-previews']) $(id).hidden = true;
+  $('llm-settings').disabled = true; $('llm-run').disabled = true;
+  try {
+    if (context.job) { await operation('discard', {job:context.job}); context.job = null; }
+    const job = await operation('start', {action:'improve', method:'llm', epoch:context.epoch, revision:context.revision, scope:$('llm-scope').value,
+      permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},
+      settings:{instruction:$('llm-instruction').value, provider:$('llm-provider').value, model:$('llm-model').value.trim(), reasoning:$('llm-reasoning').value, candidates:Number($('llm-candidates').value)}});
+    if (context !== llmContext) { await operation('discard', {job:job.id}); return; }
+    context.job = job.id;
+    $('llm-progress').hidden = false; $('llm-stop').hidden = false; $('llm-close').textContent = 'Cancel & discard';
+    await pollLlm();
+  } catch (error) { llmError(error); llmIdle(); }
+};
+$('llm-stop').onclick = async () => {
+  try { await operation('stop', {job:llmContext.job}); $('llm-stop').hidden = true; } catch (error) { llmError(error); }
+};
+$('llm-apply').onclick = async () => {
+  $('llm-apply').disabled = true;
+  try {
+    const result = await operation('apply', {job:llmContext.job, choice:llmContext.choice});
+    llmContext.job = null; dirty = true; await applyState(result); $('llm-dialog').close();
+    toast('LLM edit applied. Undo restores the previous drawing.');
+  } catch (error) { llmError(error); }
+  finally { $('llm-apply').disabled = false; }
+};
+$('llm-close').onclick = () => $('llm-dialog').close();
+$('llm-dialog').addEventListener('close', () => {
+  clearTimeout(llmPoll); const job = llmContext?.job; llmContext = null;
   if (job) operation('discard', {job}).catch(error => toast(error.message, true));
 });

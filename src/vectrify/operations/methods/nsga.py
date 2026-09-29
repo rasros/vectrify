@@ -172,7 +172,7 @@ class Nsga:
                 break
             tx = request.transaction(LABEL)
             try:
-                edits = replay(tx, restore_root(content, root_attributes))
+                edits = replay(tx, restore_root(content, root_attributes)).edits
             except DocumentError:
                 rejected += 1
                 continue

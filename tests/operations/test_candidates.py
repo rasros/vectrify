@@ -37,7 +37,7 @@ def test_paint_and_node_changes_replay_in_place_keeping_node_ids():
     svg = svg.replace('fill="#ff0000"', 'fill="#ee1100"').replace(
         "L10.0 0.0", "L11.5 0.5"
     )
-    assert replay(tx, svg) == 2
+    assert replay(tx, svg).edits == 2
     tx.commit()
     after = ed.snapshot.document.geometry_for("a")
     assert [n.id for s in after.subpaths for n in s.nodes] == [
@@ -88,17 +88,21 @@ def test_structural_changes_are_rejected():
     svg = exported(ed).replace("L10.0 10.0 Z", "L10.0 10.0 L5.0 12.0 Z")
     with pytest.raises(CandidateRejectedError, match="structure"):
         replay(tx, svg)
-    ed, tx = editor("g", structure=True)
+    ed, tx = editor("g", geometry=True)
     removed = exported(ed)
     start = removed.index("<rect")
     removed = removed[:start] + removed[removed.index("/>", start) + 2 :]
-    with pytest.raises(CandidateRejectedError, match="adds or removes"):
+    with pytest.raises(DocumentError, match="not permitted"):
         replay(tx, removed)
+    ed, tx = editor("g", structure=True)
+    replay(tx, removed)
+    tx.commit()
+    assert [c.id for c in ed.snapshot.document.element("g").children] == ["a"]
 
 
 def test_unchanged_candidate_makes_no_edits():
     ed, tx = editor("a", geometry=True, paint=True)
-    assert replay(tx, exported(ed)) == 0
+    assert replay(tx, exported(ed)).edits == 0
     assert tx.preview == ed.snapshot.document
 
 
@@ -158,7 +162,7 @@ def test_scoped_search_pool_replays_through_the_transaction():
     changed = 0
     for node in outcome.pool:
         tx = request.transaction("Improve")
-        changed += replay(tx, node.state.payload.content) > 0
+        changed += replay(tx, node.state.payload.content).edits > 0
         for other in ("b", "c"):
             assert tx.preview.element(other) == ed.snapshot.document.element(other)
     assert changed
