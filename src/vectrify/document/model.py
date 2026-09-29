@@ -222,6 +222,23 @@ class Document:
         object.__setattr__(self, "geometries", tuple(self.geometries))
         object.__setattr__(self, "boundaries", tuple(self.boundaries))
 
+    def artboard(self) -> tuple[float, float, float, float]:
+        """The root's viewBox as x, y, width, height, or its size at the origin.
+
+        This is the drawing's own coordinate frame: the editor shows the
+        artboard in it and stretches the reference image over it.
+        """
+        viewbox = self.root.get("viewBox")
+        if viewbox:
+            x, y, w, h = (float(v) for v in viewbox.replace(",", " ").split())
+            return x, y, w, h
+        return (
+            0.0,
+            0.0,
+            float(self.root.get("width") or 1024),
+            float(self.root.get("height") or 768),
+        )
+
     def elements(self) -> tuple[Element, ...]:
         def walk(element):
             yield element

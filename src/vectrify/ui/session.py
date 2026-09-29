@@ -174,17 +174,7 @@ class Session:
                 }
             )
         root = snapshot.document.root
-        viewbox = root.get("viewBox")
-        bounds = (
-            [float(v) for v in viewbox.replace(",", " ").split()]
-            if viewbox
-            else [
-                0,
-                0,
-                float(root.get("width", "1024") or 1024),
-                float(root.get("height", "768") or 768),
-            ]
-        )
+        bounds = list(snapshot.document.artboard())
         result = {
             "epoch": self.epoch,
             "revision": snapshot.revision,
