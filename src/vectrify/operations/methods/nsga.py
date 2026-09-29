@@ -19,7 +19,6 @@ from PIL import Image
 
 from vectrify.document import DocumentError, export_svg
 from vectrify.image_utils import (
-    png_bytes_to_data_url,
     rasterize_svg_to_png_bytes,
     resize_long_side,
 )
@@ -112,23 +111,13 @@ class Nsga:
             seed_png,
             node_id=1,
             origin="Current drawing",
-            resolution_llm=max(size),
         )
         worker_context = WorkerContext(
             scope=scope,
-            image_data_url=png_bytes_to_data_url(reference.png),
             original_png_bytes=reference.png,
             original_w=size[0],
             original_h=size[1],
-            resolution_llm=max(size),
             log_level="WARNING",
-            log_file=None,
-            goal=None,
-            source_name=None,
-            llm_provider="openai",
-            llm_model="",
-            reasoning="none",
-            api_key=None,
         )
         outcome = run_search(
             reference,
@@ -141,7 +130,6 @@ class Nsga:
                 epochs=1,
                 max_total_tasks=tasks,
                 max_wall_seconds=request.budget.seconds,
-                resolution_llm=max(size),
             ),
             stop=context.stop,
             progress=lambda p: context.progress(

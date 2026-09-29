@@ -6,7 +6,6 @@ from PIL import Image
 
 from tests.helpers import make_png
 from vectrify.image_utils import (
-    downscale_png_bytes,
     pixel_diff_png,
     png_bytes_to_data_url,
     rasterize_svg_to_png_bytes,
@@ -41,20 +40,6 @@ def test_png_bytes_to_data_url():
     data_url = png_bytes_to_data_url(png_bytes)
     assert data_url.startswith("data:image/png;base64,")
     assert "ZmFrZV9wbmdfZGF0YQ==" in data_url
-
-
-def test_downscale_png_bytes_skips_if_small():
-    png_bytes = create_test_image(100, 100)
-    downscaled = downscale_png_bytes(png_bytes, 512)
-    assert downscaled == png_bytes
-
-
-def test_downscale_png_bytes_resizes():
-    png_bytes = create_test_image(1000, 1000)
-    downscaled = downscale_png_bytes(png_bytes, 512)
-
-    img = Image.open(io.BytesIO(downscaled))
-    assert img.size == (512, 512)
 
 
 def test_rasterize_svg_to_png_bytes_valid():

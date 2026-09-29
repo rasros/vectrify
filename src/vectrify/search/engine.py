@@ -8,7 +8,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
-from vectrify.score.metrics import FRONT_SCORE, SCORER_METRICS
+from vectrify.score.metrics import FRONT_SCORE
 from vectrify.search.base import SearchStrategy, StorageAdapter
 from vectrify.search.models import (
     ChainState,
@@ -21,78 +21,16 @@ from vectrify.search.operators import GradedReward, OperatorPolicy
 TState = TypeVar("TState")
 log = logging.getLogger(__name__)
 
-SEED_PHASE = "seed"
-LOCAL_PHASE = "local"
-
 # Cap the expensive evaluator's front.
 FRONT_EVAL_CAP = 24
 
-# Limit remembered LLM seeds in each front.
-SEED_ARCHIVE_POOL_SHARE = 4
-
 # Batch candidates for model-backed scoring.
 SCORE_BATCH_SIZE = 32
-
-# Bound replacement seed edits to the requested batch size.
-SEED_RETRY_SHARE = 1.0
 
 
 def keep_payload(result: Result) -> ChainState:
     """Default state builder: carry the worker's payload through unchanged."""
     return ChainState(payload=result.payload)
-
-
-def _spread_parents(
-    ranked: list[SearchNode[TState]], count: int
-) -> list[SearchNode[TState]]:
-    """The best *count* candidates that are not near-copies of each other.
-
-    Walk the ranking in order and skip near-copies using the field's median
-    separation as a data-dependent threshold. If too few candidates clear it,
-    fill the remainder by rank order so the LLM batch is not undersized.
-    """
-    if count <= 0 or len(ranked) <= count:
-        return ranked[:count]
-
-    def vector(node: SearchNode[TState]) -> tuple[float, ...] | None:
-        values: list[float] = []
-        for name in SCORER_METRICS:
-            value = node.metrics.get(name)
-            if value is None:
-                return None
-            values.append(value)
-        return tuple(values)
-
-    vectors = {n.id: vector(n) for n in ranked}
-    known = [v for v in vectors.values() if v is not None]
-    if len(known) < 2:
-        return ranked[:count]
-
-    gaps = sorted(
-        sum(abs(a - b) for a, b in zip(left, right, strict=True))
-        for index, left in enumerate(known)
-        for right in known[index + 1 :]
-    )
-    threshold = gaps[len(gaps) // 2]
-
-    chosen: list[SearchNode[TState]] = []
-    for node in ranked:
-        here = vectors[node.id]
-        if here is None or all(
-            sum(abs(a - b) for a, b in zip(here, there, strict=True)) >= threshold
-            for other in chosen
-            if (there := vectors[other.id]) is not None
-        ):
-            chosen.append(node)
-        if len(chosen) == count:
-            return chosen
-
-    for node in ranked:
-        if len(chosen) == count:
-            break
-        if all(node.id != c.id for c in chosen):
-            chosen.append(node)
-    return chosen
 
 
 @dataclass
@@ -206,11 +144,12 @@ class SearchOutcome(Generic[TState]):
 
 
 class MultiprocessSearchEngine(Generic[TState]):
-    """Alternating LLM-seed / local-refine epochs.
+    """NSGA-II local search in epochs, judged by an optional evaluator.
 
-    Every epoch opens with a batch of LLM calls and then runs local mutation
-    and crossover only, until it converges. LLM edits are restart points rather
-    than moves competing with local operators.
+    Workers mutate and recombine the pool; generations are merged by NSGA-II
+    truncation. An epoch ends on staleness, a task budget or evaluator
+    patience; the evaluator picks the best candidate at each boundary and at
+    the end of the run.
     """
 
     def __init__(
@@ -241,11 +180,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
     def start_workers(self, worker_target: Callable, worker_params: Any) -> None:
         log.info(f"Starting {self.workers} worker processes...")
-        self._llm_in_flight = self.ctx.Value("i", 0)
-        if isinstance(worker_params, dict):
-            worker_params["llm_in_flight"] = self._llm_in_flight
-        else:
-            worker_params.llm_in_flight = self._llm_in_flight
         for index in range(max(1, self.workers)):
             if isinstance(worker_params, dict):
                 worker_params["worker_index"] = index
@@ -267,8 +201,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         active_pool_size: int = 20,
         generation_size: int | None = None,
         score_fn: Callable[[list[Result]], None] | None = None,
-        epoch_seeds: int = 0,
-        initial_seeds: int | None = None,
         epochs: int | None = None,
         epoch_max_tasks: int | None = None,
         epoch_eval_interval: int | None = None,
@@ -305,15 +237,7 @@ class MultiprocessSearchEngine(Generic[TState]):
         graded_reward = GradedReward()
         # Each starting candidate is its own lineage; children inherit it.
         node_roots = run_state.node_roots
-        # Origins outlive lineages: an epoch's LLM edit opens a lineage but
-        # continues the original attempt it was derived from.
         node_origins = run_state.node_origins
-        # Keep each epoch's LLM output reachable for later fronts: local
-        # refinement is not monotone. Key by lineage so local descendants do
-        # not fill the archive, and start empty because resume data lacks
-        # provenance.
-        seed_archive: dict[int, SearchNode[TState]] = {}
-        seed_archive_cap = max(1, active_pool_size // SEED_ARCHIVE_POOL_SHARE)
         # Per-region champions intentionally sit outside the main population:
         # the best rendition of a target part must survive global trade-offs.
         segment_elites: dict[str, SearchNode[TState]] = {}
@@ -344,228 +268,89 @@ class MultiprocessSearchEngine(Generic[TState]):
         # evaluator's observations.
         checks_without_gain = 0
         # Track run-level evaluator progress separately from per-epoch
-        # staleness: one decides whether to re-seed, the other whether another
-        # epoch is worth starting.
+        # staleness: one ends an epoch, the other decides whether another epoch
+        # is worth starting.
         panel_at_epoch_open: float | None = None
         epochs_without_gain = 0
-        # Set when the epochs stop paying, so the loop stops without the
-        # transition having opened a seed batch it is about to discard.
+        # Set when the epochs stop paying, so the loop stops.
         epochs_exhausted = False
         # Reset at every transition, so each epoch is judged against the
         # pool it opened with rather than against the first one.
-        pool_refilling = False  # True until a fresh epoch's pool reaches capacity
-
-        # Children accumulate outside active_pool: they replace it wholesale
-        # once the batch lands. Epoch 0's batch is sized separately because
-        # resumed candidates already count as seeds.
-        first_batch = epoch_seeds if initial_seeds is None else initial_seeds
-        phase = SEED_PHASE if first_batch > 0 else LOCAL_PHASE
-        seed_parents: list[SearchNode[TState]] = list(active_pool)
-        seed_children: list[SearchNode[TState]] = []
-        seeds_target = first_batch
-        seeds_dispatched = 0
-        seeds_completed = 0
-        # Replacements left for unusable seed edits, preventing a short batch
-        # from starving the next epoch.
-        # Seeded here as well as in _begin_seed_phase because epoch 0 does not
-        # go through it -- its batch is sized from initial_seeds and the phase
-        # is set directly -- and epoch 0 is where the run's seeds come from.
-        seed_retries_left = int(first_batch * SEED_RETRY_SHARE)
-        # An epoch can transition with local tasks still in flight, and those
-        # results land during the next seed phase. Without this they count as
-        # seeds and end the batch before its LLM children arrive.
-        seed_task_ids: set[int] = set()
 
         next_task_id = 1
         tasks_completed = 0
         in_flight = 0
-        last_invalid_msg = "unknown error"
 
         log.info(f"Search started with {len(active_pool)} candidate(s) in the pool.")
-        if phase == SEED_PHASE:
-            log.info(
-                f"Epoch 0: seeding with {seeds_target} LLM call(s) "
-                f"over {len(seed_parents)} parent(s)."
-            )
 
-        def _begin_seed_phase() -> None:
-            """Open an epoch with a batch of LLM edits of the current front."""
-            nonlocal \
-                phase, \
-                seed_parents, \
-                seed_children, \
-                seeds_target, \
-                seeds_dispatched, \
-                seeds_completed, \
-                seed_task_ids, \
-                seed_retries_left, \
-                best_node, \
-                best_panel
+        def _rank_epoch_front() -> None:
+            """Ask the evaluator for the best candidate as an epoch opens.
 
-            # The remembered seeds enter the ranking as candidates rather than
-            # being handed a reserved slot: a seed the pool has genuinely
-            # improved on deserves to lose, and reserving would spend an LLM
-            # call re-editing a drawing the search already beat. All that has to
-            # be guaranteed is that the model's own work is still reachable when
-            # local search has wandered away from it -- from there the same
-            # comparison that ranks everything else can decide.
+            The field is the pool's leading tier plus every tile's champion,
+            which the pool's global trade-offs may have dropped, and the
+            standing best. The standing best joins afterwards, not before:
+            epoch_parents selects by dominance over the measures, and the
+            candidate the evaluator likes best is often dominated on those.
+            """
+            nonlocal best_node, best_panel
+
+            pending_children.clear()
+            if self.rank_front is None:
+                return
             pool_ids = {n.id for n in active_pool}
             candidates = active_pool + [
-                n for n in seed_archive.values() if n.id not in pool_ids
+                n for n in segment_elites.values() if n.id not in pool_ids
             ]
-            remembered = {n.id for n in candidates}
-            candidates.extend(
-                n for n in segment_elites.values() if n.id not in remembered
-            )
-            # Reserve part of the next seed batch for locally best drawings.
-            # They stay in the main candidate field too, but global ranking
-            # alone would immediately erase the reason this archive exists.
             region_champions = list(
                 {node.id: node for node in segment_elites.values()}.values()
             )
-            parents = self.strategy.epoch_parents(
-                candidates, max(epoch_seeds, FRONT_EVAL_CAP)
-            )
+            parents = self.strategy.epoch_parents(candidates, FRONT_EVAL_CAP)
             for champion in region_champions:
                 if all(champion.id != parent.id for parent in parents):
                     parents.append(champion)
-            # The standing best joins the ranked set afterwards, not before:
-            # epoch_parents selects by dominance over the measures, and the
-            # candidate the evaluator likes best is often dominated on those --
-            # so choosing the field first would drop it, and then the boundary
-            # would hand its title to something the evaluator rates lower.
             if best_node is not None and all(n.id != best_node.id for n in parents):
                 parents.append(best_node)
-            if parents and self.rank_front is not None:
-                try:
-                    parents = self.rank_front(parents)
-                    # Only a candidate that improves the evaluator's score
-                    # takes the title; dominance ranking may omit its prior
-                    # choice.
-                    top = parents[0] if parents else None
-                    value = top.metrics.get(FRONT_SCORE) if top is not None else None
-                    if (
-                        top is not None
-                        and value is not None
-                        and (best_panel is None or value < best_panel)
-                    ):
-                        best_panel = value
-                        best_node = top
-                        log.info(f"Best so far: node={top.id} evaluator={value:.6f}")
-                except Exception as exc:
-                    log.warning(f"Front evaluation failed, keeping rank order: {exc}")
-            elite_slots = min(len(region_champions), max(1, epoch_seeds // 2))
-            elite_parents = _spread_parents(region_champions, elite_slots)
-            other_parents = _spread_parents(
-                [
-                    parent
-                    for parent in parents
-                    if all(parent.id != elite.id for elite in elite_parents)
-                ],
-                max(0, epoch_seeds - len(elite_parents)),
-            )
-            parents = elite_parents + other_parents
             if not parents:
-                parents = list(active_pool)
-
-            seed_parents = parents
-            seed_children = []
-            pending_children.clear()
-            seed_task_ids = set()
-            seeds_dispatched = 0
-            seeds_completed = 0
-            seeds_target = epoch_seeds
-            seed_retries_left = int(epoch_seeds * SEED_RETRY_SHARE)
-
-            if seeds_target <= 0 or not seed_parents:
-                phase = LOCAL_PHASE
                 return
-
-            phase = SEED_PHASE
-            log.info(
-                f"Epoch {epoch}: seeding with {seeds_target} LLM call(s) "
-                f"over {len(seed_parents)} parent(s)."
-            )
-
-        def _finish_seed_phase() -> None:
-            """Install the LLM children as the epoch's pool and start refining."""
-            nonlocal phase, active_pool, node_states, epoch_no_improve, pool_refilling
-
-            valid_children = [c for c in seed_children if c.valid]
-            previous_ids = {n.id for n in active_pool}
-
-            if not valid_children:
-                if epoch == 0 and not any(n.valid for n in active_pool):
-                    raise RuntimeError(
-                        f"All {seeds_target} epoch-0 seed task(s) failed and no "
-                        f"candidate was accepted; last error: {last_invalid_msg}"
-                    )
-                # Not fatal mid-run: keep refining the pool the edits came from.
-                log.warning(
-                    f"Epoch {epoch}: every seed edit failed; "
-                    "continuing from the previous pool."
-                )
-            else:
-                if epoch == 0:
-                    # Nothing to restart from yet, and clearing here would
-                    # discard what --resume just restored. Later epochs do
-                    # replace the pool outright.
-                    carried = [n for n in active_pool if n.valid]
-                    new_pool = valid_children + carried
-                else:
-                    new_pool = valid_children
-
-                active_pool = new_pool[:active_pool_size]
-                run_state.active_pool = active_pool
-                node_states = {n.id: n.state for n in active_pool}
-                run_state.node_states = node_states
-                for nid in previous_ids - set(node_states):
-                    self.storage.record_eviction(nid, tasks_completed)
-
-            phase = LOCAL_PHASE
-            epoch_no_improve = 0
-            pool_refilling = True
-            log.info(
-                f"Epoch {epoch}: refining {len(active_pool)} candidate(s) locally."
-            )
+            try:
+                parents = self.rank_front(parents)
+            except Exception as exc:
+                log.warning(f"Front evaluation failed, keeping rank order: {exc}")
+                return
+            # Only a candidate that improves the evaluator's score takes the
+            # title; dominance ranking may omit its prior choice.
+            top = parents[0] if parents else None
+            value = top.metrics.get(FRONT_SCORE) if top is not None else None
+            if (
+                top is not None
+                and value is not None
+                and (best_panel is None or value < best_panel)
+            ):
+                best_panel = value
+                best_node = top
+                log.info(f"Best so far: node={top.id} evaluator={value:.6f}")
 
         def _dispatch_tasks():
-            nonlocal in_flight, next_task_id, seeds_dispatched
+            nonlocal in_flight, next_task_id
 
             while in_flight < self.workers and (
                 self.max_total_tasks is None or next_task_id <= self.max_total_tasks
             ):
-                if phase == SEED_PHASE:
-                    if seeds_dispatched >= seeds_target:
-                        return
-                    # Round-robin: a front smaller than the batch still gets
-                    # every parent edited before any is edited twice.
-                    parent = seed_parents[seeds_dispatched % len(seed_parents)]
-                    task = Task(
-                        task_id=next_task_id,
-                        parent_id=parent.id,
-                        parent_state=parent.state,
-                        force_llm=True,
-                    )
-                    seed_task_ids.add(next_task_id)
-                    seeds_dispatched += 1
-                else:
-                    pid1, pid2 = self.strategy.select_parent(active_pool)
-                    task = Task(
-                        task_id=next_task_id,
-                        parent_id=pid1,
-                        parent_state=node_states[pid1],
-                        secondary_parent_id=pid2,
-                        secondary_parent_state=node_states[pid2] if pid2 else None,
-                        force_llm=False,
-                        # Crossover ignores it, but the worker falls back to
-                        # mutation when the second parent turns out unusable.
-                        operator=(
-                            operator_policy.select()
-                            if operator_policy is not None
-                            else None
-                        ),
-                    )
+                pid1, pid2 = self.strategy.select_parent(active_pool)
+                task = Task(
+                    task_id=next_task_id,
+                    parent_id=pid1,
+                    parent_state=node_states[pid1],
+                    secondary_parent_id=pid2,
+                    secondary_parent_state=node_states[pid2] if pid2 else None,
+                    # Crossover ignores it, but the worker falls back to
+                    # mutation when the second parent turns out unusable.
+                    operator=(
+                        operator_policy.select()
+                        if operator_policy is not None
+                        else None
+                    ),
+                )
 
                 self.task_q.put(task)
                 next_task_id += 1
@@ -582,15 +367,14 @@ class MultiprocessSearchEngine(Generic[TState]):
                     raise RuntimeError("All worker processes have exited.") from None
                 return True, None
 
-        def _make_node(res: Result, *, new_lineage: bool = False) -> SearchNode[TState]:
+        def _make_node(res: Result) -> SearchNode[TState]:
             if not res.measured:
                 raise RuntimeError("Result was never measured and no score_fn ran")
 
             run_state.next_node_id += 1
             node_id = run_state.next_node_id
-            # An LLM seed is an independent attempt at the picture, so it opens
-            # a lineage; a local child continues its parent's.
-            root = node_id if new_lineage else node_roots.get(res.parent_id, node_id)
+            # A child continues its parent's lineage.
+            root = node_roots.get(res.parent_id, node_id)
             node_roots[node_id] = root
             origin = node_origins.get(res.parent_id) or node_id
             node_origins[node_id] = origin
@@ -608,45 +392,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 operator=res.operator,
             )
 
-        def _outranks(a: SearchNode[TState], b: SearchNode[TState]) -> bool:
-            """Whether *a* beats *b* under the strategy's own relation."""
-            if not b.valid:
-                return a.valid
-            if not a.valid:
-                return False
-            return a.id in self.strategy.top_tier_ids([a, b])
-
-        def _note_accepted(new_node: SearchNode[TState], res: Result) -> None:
-            """Record an accepted candidate. Nothing here decides it is best:
-            that is the evaluator's call and it happens at epoch boundaries."""
-            if res.llm_type:
-                log.info(f"[{res.llm_type.upper()} ACCEPTED] node={new_node.id}")
-            else:
-                log.debug(f"[ACCEPTED] node={new_node.id}")
-
-        def _archive_seed(node: SearchNode[TState]) -> None:
-            """Keep an LLM seed available to the fronts of later epochs.
-
-            One entry per lineage, and only the best of it, so a lineage the
-            model revisits cannot claim more of the front than a lineage it got
-            right first time. Over the cap the worst entry goes, which leaves
-            the archive holding the seeds most likely to still be worth editing.
-            """
-            current = seed_archive.get(node.root_id)
-            if current is not None and not _outranks(node, current):
-                return
-            seed_archive[node.root_id] = node
-            if len(seed_archive) > seed_archive_cap:
-                # The entry the rest of the archive beats most often. Dominance
-                # rather than a score, so no measure is privileged here either.
-                entries = list(seed_archive.values())
-                losses = {
-                    n.root_id: sum(1 for m in entries if m is not n and _outranks(m, n))
-                    for n in entries
-                }
-                worst = max(entries, key=lambda n: losses[n.root_id])
-                del seed_archive[worst.root_id]
-
         def _archive_segment_elites(node: SearchNode[TState]) -> None:
             """Remember the best candidate ever measured for every tile."""
             for name in self.elite_metric_names:
@@ -656,16 +401,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 current = segment_elites.get(name)
                 if current is None or value < current.metrics.get(name, float("inf")):
                     segment_elites[name] = node
-
-        def _process_seed_result(res: Result) -> None:
-            new_node = _make_node(res, new_lineage=True)
-            seed_children.append(new_node)
-            _archive_seed(new_node)
-            _archive_segment_elites(new_node)
-            node_states[new_node.id] = new_node.state
-            node_metrics[new_node.id] = dict(new_node.metrics)
-            _note_accepted(new_node, res)
-            self.storage.save_node(new_node, tasks_completed)
 
         def _close_generation() -> None:
             """Merge the finished batch of children into the pool.
@@ -768,7 +503,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             new_node = _make_node(res)
             pending_children.append(new_node)
             _archive_segment_elites(new_node)
-            _note_accepted(new_node, res)
+            log.debug(f"[ACCEPTED] node={new_node.id}")
 
             # Progress is decided when the generation closes, where the pool is
             # ranked -- see _close_generation. A candidate cannot be known to
@@ -786,23 +521,19 @@ class MultiprocessSearchEngine(Generic[TState]):
             # but the patience counting restarts with the epoch.
             checks_without_gain = 0
 
-            # The next seed batch edits this pool's front, so the children that
-            # arrived since the last generation have to land in it first.
+            # The children that arrived since the last generation have to land
+            # in the pool before the evaluator looks at it.
             _close_generation()
 
             log.info(f"Epoch {epoch} → {epoch + 1}: {reason}")
             epoch += 1
             if epochs is not None and epoch >= epochs:
-                # The run loop is about to stop; a batch opened here would be
-                # paid for and discarded.
+                # The run loop is about to stop and ranks the pool itself.
                 return
 
-            # Ask the evaluator what the epoch just ended actually bought,
-            # before deciding to pay for another batch of seeds. The pool it
-            # sees is the one the epoch finished with, since _close_generation
-            # has already run. A second call here is close to free: the score
-            # is absolute and cached per node, so re-ranking the same field in
-            # _begin_seed_phase re-prices only what is new.
+            # Ask the evaluator what the epoch just ended actually bought. The
+            # score is absolute and cached per node, so ranking the same field
+            # again in _rank_epoch_front re-prices only what is new.
             _run_panel_check()
             if epoch_improvement_patience > 0 and best_panel is not None:
                 if panel_at_epoch_open is not None:
@@ -819,7 +550,7 @@ class MultiprocessSearchEngine(Generic[TState]):
                     )
                     epochs_exhausted = True
                     return
-            _begin_seed_phase()
+            _rank_epoch_front()
 
         def _run_panel_check() -> None:
             """Put the current front to the evaluator and record its verdict.
@@ -860,13 +591,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 log.info(f"Evaluator: node={top.id} score={value:.6f}")
 
         def _check_epoch_end():
-            nonlocal pool_refilling
-
-            if pool_refilling:
-                if len(active_pool) < active_pool_size:
-                    return
-                pool_refilling = False
-
             staleness = (
                 epoch_patience is not None and epoch_no_improve >= epoch_patience
             )
@@ -987,45 +711,12 @@ class MultiprocessSearchEngine(Generic[TState]):
                 if res is None:
                     continue
 
-                # A derived candidate rode along in a reply that was already
-                # paid for: it never occupied a worker slot and was never
-                # dispatched, so it frees nothing and completes no task.
-                if not res.derived:
-                    in_flight -= 1
-                    tasks_completed += 1
+                in_flight -= 1
+                tasks_completed += 1
+                # Staleness asks how long hill-climbing has stalled.
+                epoch_no_improve += 1
 
-                # Belonging to the open batch and being one of its deliveries
-                # are different questions once a reply can carry several
-                # candidates. The extras belong -- they must not be dropped as
-                # having outlived the epoch -- but the batch is only satisfied
-                # by the calls it asked for.
-                in_batch = res.task_id in seed_task_ids
-                # Outlived its epoch: the pool it was measured against is gone.
-                stale = phase == SEED_PHASE and not in_batch
-                if in_batch and not res.derived:
-                    seeds_completed += 1
-                    # A batch that came back short used to just run short. Ask
-                    # for a replacement instead: the epoch is the only thing
-                    # that puts new structure into the pool, and one that opens
-                    # on two candidates cannot do it.
-                    if not res.valid and seed_retries_left > 0:
-                        seeds_target += 1
-                        seed_retries_left -= 1
-                        log.info(
-                            f"Seed edit failed; asking for a replacement "
-                            f"({seed_retries_left} left this epoch)"
-                        )
-                elif not stale:
-                    # Staleness asks how long hill-climbing has stalled, so
-                    # only local tasks count.
-                    epoch_no_improve += 1
-
-                if stale:
-                    log.debug(
-                        f"Task {res.task_id} outlived epoch {epoch - 1}; dropped."
-                    )
-                elif not res.valid:
-                    last_invalid_msg = res.invalid_msg or "unknown error"
+                if not res.valid:
                     # A failed result names its operator only when that operator
                     # produced nothing to score. Charge the draw: it consumed a
                     # slot and returned no candidate, which is what a zero
@@ -1033,23 +724,11 @@ class MultiprocessSearchEngine(Generic[TState]):
                     # operator at its prior weight and let it keep drawing.
                     if res.operator is not None and operator_policy is not None:
                         operator_policy.update(res.operator, 0.0)
-                    if res.llm_type:
-                        log.info(
-                            f"[{res.llm_type.upper()} INVALID] "
-                            f"task={res.task_id} msg={res.invalid_msg}"
-                        )
-                    else:
-                        log.debug(f"Task {res.task_id} rejected: {res.invalid_msg}")
-                elif in_batch and phase == SEED_PHASE:
-                    _process_seed_result(res)
+                    log.debug(f"Task {res.task_id} rejected: {res.invalid_msg}")
                 else:
                     _process_local_result(res)
 
-                if phase == SEED_PHASE:
-                    if seeds_completed >= seeds_target and in_flight == 0:
-                        _finish_seed_phase()
-                else:
-                    _check_epoch_end()
+                _check_epoch_end()
 
                 if progress is not None:
                     progress(

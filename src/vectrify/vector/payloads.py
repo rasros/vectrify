@@ -1,4 +1,4 @@
-"""The drawing and renders a search node or worker result carries."""
+"""The drawing a search node or worker result carries."""
 
 import dataclasses
 
@@ -6,16 +6,12 @@ import dataclasses
 @dataclasses.dataclass
 class VectorStatePayload:
     content: str | None
-    raster_data_url: str | None
-    raster_preview_data_url: str | None
     origin: str | None
-    heatmap_data_url: str | None = None
 
 
 @dataclasses.dataclass
 class VectorResultPayload:
     content: str | None
+    # The candidate rendered at the reference's size, for the scorer thread.
     raster_png: bytes | None
     origin: str | None
-    raster_preview_data_url: str | None = None
-    heatmap_png: bytes | None = None

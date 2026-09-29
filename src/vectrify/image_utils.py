@@ -29,21 +29,6 @@ def png_bytes_to_data_url(png_bytes: bytes) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-def downscale_png_bytes(png_bytes: bytes, long_side: int) -> bytes:
-    if long_side <= 0:
-        return png_bytes
-
-    im = Image.open(io.BytesIO(png_bytes)).convert("RGB")
-    w, h = im.size
-    if max(w, h) <= long_side:
-        return png_bytes
-
-    im2 = resize_long_side(im, long_side)
-    out = io.BytesIO()
-    im2.save(out, format="PNG")
-    return out.getvalue()
-
-
 def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> bytes:
     """
     Rasterizes SVG to PNG and composites it over a white background
@@ -73,11 +58,6 @@ def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> byte
 def rasterize_svg(svg_text: str, width: int, height: int) -> bytes:
     """Positional form, for APIs that take a (svg, width, height) rasterizer."""
     return rasterize_svg_to_png_bytes(svg_text, out_w=width, out_h=height)
-
-
-def make_preview_data_url(full_png: bytes, resolution_llm: int) -> str:
-    preview_png = downscale_png_bytes(full_png, resolution_llm)
-    return png_bytes_to_data_url(preview_png)
 
 
 def pixel_diff_png(ref_img: Image.Image, cand_png: bytes, long_side: int) -> bytes:

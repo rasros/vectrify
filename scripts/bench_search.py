@@ -80,7 +80,6 @@ def vision_score(target_png: Path, content: str, resolution: int) -> float:
 
 def run_case(case: Path, seed: int, args) -> dict:
     """One search over a case's seed pool; the evaluator judges start and end."""
-    from vectrify.image_utils import png_bytes_to_data_url
     from vectrify.score import choose_scorer
     from vectrify.vector.reference import Reference
     from vectrify.vector.search import (
@@ -103,7 +102,6 @@ def run_case(case: Path, seed: int, args) -> dict:
             rasterize_svg(content, width, height),
             node_id=index,
             origin=f"Seed {index}",
-            resolution_llm=512,
         )
         for index, content in enumerate(
             (s.read_text(encoding="utf-8") for s in case_seeds(case)), start=1
@@ -123,19 +121,10 @@ def run_case(case: Path, seed: int, args) -> dict:
         )
 
     context = WorkerContext(
-        image_data_url=png_bytes_to_data_url(reference.png),
         original_png_bytes=reference.png,
         original_w=width,
         original_h=height,
-        resolution_llm=512,
         log_level="ERROR",
-        log_file=None,
-        goal=None,
-        source_name=None,
-        llm_provider="openai",
-        llm_model="",
-        reasoning="none",
-        api_key=None,
         random_seed=seed,
     )
     outcome = run_search(
