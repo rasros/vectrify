@@ -271,3 +271,19 @@ def test_hosted_keys_come_before_the_local_server_under_automatic():
     keys.save({"gemini": "g-key"}, {"base_url": "http://127.0.0.1:1234/v1"})
     assert resolve_provider("auto").provider == "gemini"
     assert resolve_provider("local").model is None
+
+
+def test_the_desktop_bridge_answers_like_the_server():
+    from vectrify.ui.desktop import Api
+    from vectrify.ui.server import Backend
+
+    api = Api(Backend())
+    opened = api.request("/api/session", {})
+    assert opened["status"] == 200
+    session = opened["body"]["session"]
+    assert api.request("/api/reference", {}, session) == {
+        "status": 200,
+        "body": {"reference": None},
+    }
+    assert api.request("/api/reference", {}, "stale")["status"] == 401
+    assert api.request("/api/nope", {}, session)["status"] == 404
