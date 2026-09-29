@@ -64,7 +64,7 @@ import numpy as np
 from PIL import Image, ImageEnhance, ImageFilter
 
 from vectrify.formats.svg import operations as ops
-from vectrify.formats.svg.plugin import SvgPlugin
+from vectrify.image_utils import rasterize_svg
 
 REPO = Path(__file__).resolve().parent.parent
 CASES = REPO / "bench" / "cases"
@@ -533,7 +533,6 @@ def hf_sources(per_set: int) -> list[tuple[str, str]]:
     """
     from datasets import load_dataset
 
-    plugin = SvgPlugin()
     out: list[tuple[str, str]] = []
     for name, key in HF_SETS:
         taken = 0
@@ -545,7 +544,7 @@ def hf_sources(per_set: int) -> list[tuple[str, str]]:
             if not HF_ELEMENT_RANGE[0] <= count <= HF_ELEMENT_RANGE[1]:
                 continue
             try:
-                render = plugin.rasterize(svg, SIZE, SIZE)
+                render = rasterize_svg(svg, SIZE, SIZE)
                 grey = Image.open(io.BytesIO(render)).convert("L")
             except Exception:
                 continue
@@ -621,7 +620,6 @@ def main(per_set: int = 0) -> None:
     from vectrify.score.embedding import EmbeddingScorer
     from vectrify.score.ensemble import PANEL_MODELS, EnsembleScorer
 
-    plugin = SvgPlugin()
     panel = EnsembleScorer()
     members = [EmbeddingScorer(model_name=m) for m in PANEL_MODELS]
     results: dict[str, dict[str, list[float]]] = {}
@@ -658,7 +656,7 @@ def main(per_set: int = 0) -> None:
         drawings += hf_sources(per_set)
 
     for label, clean in drawings:
-        clean_png = plugin.rasterize(clean, SIZE, SIZE)
+        clean_png = rasterize_svg(clean, SIZE, SIZE)
         target = Image.open(io.BytesIO(clean_png)).convert("RGB")
         refs = (
             panel.prepare_reference(target),
@@ -670,7 +668,7 @@ def main(per_set: int = 0) -> None:
             variants = vector_levels(clean, operator)
             record(
                 f"svg: {name}",
-                [plugin.rasterize(v, SIZE, SIZE) for v in variants],
+                [rasterize_svg(v, SIZE, SIZE) for v in variants],
                 refs,
             )
 
@@ -678,7 +676,7 @@ def main(per_set: int = 0) -> None:
             variants = damage_levels(clean, damage)
             record(
                 f"svg: {name}",
-                [plugin.rasterize(v, SIZE, SIZE) for v in variants],
+                [rasterize_svg(v, SIZE, SIZE) for v in variants],
                 refs,
             )
 

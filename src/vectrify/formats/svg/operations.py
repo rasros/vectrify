@@ -8,7 +8,6 @@ from typing import cast
 
 import numpy as np
 
-from vectrify.formats.mutations import MutationTable, pick_operator
 from vectrify.formats.svg.ownership import (
     adjacent_parts,
     drawable_elements,
@@ -17,6 +16,36 @@ from vectrify.formats.svg.ownership import (
 )
 from vectrify.formats.svg.pathdata import PATH_TOKEN_RE
 from vectrify.formats.svg.selection import MutationContext, MutationScope, NoChangeError
+
+# Operators are (function, name, weight); the name is what the engine's policy
+# selects by, so it has to be stable across tasks, results and learned state.
+
+
+MutationTable = tuple[tuple[Callable[[str], str], str, float], ...]
+
+
+def operator_weights(table: MutationTable) -> Mapping[str, float]:
+    """The table as a name -> weight mapping, for a policy to start from."""
+    return {name: weight for _fn, name, weight in table}
+
+
+def pick_operator(
+    table: MutationTable, operator: str | None = None
+) -> tuple[Callable[[str], str], str]:
+    """Resolve *operator* against *table*, falling back to a weighted draw.
+
+    An unknown name draws at random rather than raising: the caller may be a
+    policy carrying state from a run of a different format, and losing one
+    mutation is cheaper than losing the task.
+    """
+    for fn, name, _weight in table:
+        if name == operator:
+            return fn, name
+    fns, names, weights = zip(*table, strict=True)
+    return random.choices(
+        list(zip(fns, names, strict=True)), weights=list(weights), k=1
+    )[0]
+
 
 SVG_NS = "http://www.w3.org/2000/svg"
 
@@ -807,7 +836,18 @@ def apply_mutation(
     return with_retries(run, fallback=parent_svg), name
 
 
-def apply_crossover(svg_a: str, svg_b: str) -> tuple[str, str]:
+def mutation_weights(scope: MutationScope | None = None) -> Mapping[str, float]:
+    """Starting operator weights for a policy, limited to what *scope* allows."""
+    return operator_weights(scoped_mutations(scope))
+
+
+def apply_crossover(
+    svg_a: str, svg_b: str, scope: MutationScope | None = None
+) -> tuple[str, str]:
+    if scope is not None:
+        # Grafting matched elements between parents can move content across
+        # the scope boundary, so a scoped search does not recombine.
+        return svg_a, "Local crossover"
     return (
         with_retries(lambda: crossover(svg_a, svg_b), fallback=svg_a),
         "Local crossover",

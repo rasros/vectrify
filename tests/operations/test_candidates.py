@@ -107,7 +107,7 @@ def test_unchanged_candidate_makes_no_edits():
 
 
 def test_scoped_search_pool_replays_through_the_transaction():
-    from vectrify.formats.svg.plugin import SvgPlugin
+    from tests.helpers import rasterize
     from vectrify.image_utils import png_bytes_to_data_url
     from vectrify.operations import OperationRequest, Permissions
     from vectrify.operations.candidates import mutation_scope
@@ -123,17 +123,15 @@ def test_scoped_search_pool_replays_through_the_transaction():
         editor=ed,
         permissions=Permissions(paint=True),
     )
-    plugin = SvgPlugin()
-    plugin.scope = mutation_scope(request)
     source = export_svg(ed.snapshot.document)
-    png = plugin.rasterize(source, out_w=40, out_h=40)
+    png = rasterize(source, 40, 40)
     reference = Reference.build(
         Image.new("RGB", (40, 40), "white"),
         score_resolution=40,
         segment_count=1,
     )
     context = WorkerContext(
-        format_plugin=plugin,
+        scope=mutation_scope(request),
         image_data_url=png_bytes_to_data_url(reference.png),
         original_png_bytes=reference.png,
         original_w=40,

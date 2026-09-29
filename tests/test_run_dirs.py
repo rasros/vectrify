@@ -1,11 +1,10 @@
 from pathlib import Path
 
-from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.run_dirs import OUTPUT_EXTENSIONS, project_runs_dir, run_dirs_in
 
 
 def test_output_extensions_match_svg():
-    assert {SvgPlugin.file_extension} == OUTPUT_EXTENSIONS
+    assert {".svg"} == OUTPUT_EXTENSIONS
 
 
 def test_removed_output_formats_are_not_treated_as_svg_projects(tmp_path):

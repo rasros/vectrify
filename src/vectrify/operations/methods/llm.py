@@ -18,6 +18,7 @@ from typing import ClassVar
 from PIL import Image
 
 from vectrify.document import DocumentError, UnsupportedSvgError
+from vectrify.formats.svg.replies import apply_edits, extract_svg
 from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
 from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, resolve_provider
 from vectrify.operations.candidates import mutation_scope, replay
@@ -131,7 +132,6 @@ class LlmGenerate:
         target_region(request)
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        from vectrify.formats.svg.plugin import SvgPlugin
         from vectrify.formats.svg.prompts import build_svg_gen_prompt
 
         settings = read_settings(request.settings, GENERATE, "LLM")
@@ -147,11 +147,10 @@ class LlmGenerate:
         replies = _ask(
             client, config, prompt, context, settings["candidates"], "Drawing"
         )
-        plugin = SvgPlugin()
         proposals, problems = [], []
         for raw in replies:
             try:
-                svg = to_canvas(plugin.extract_from_llm(raw), canvas)
+                svg = to_canvas(extract_svg(raw), canvas)
                 result = generated_result(
                     request, svg, region, label="Generate with LLM", name="LLM drawing"
                 )
@@ -186,7 +185,6 @@ class LlmEdit:
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
         from vectrify.formats.svg.normalize import normalize_svg
-        from vectrify.formats.svg.plugin import SvgPlugin
         from vectrify.formats.svg.prompts import build_svg_gen_prompt
 
         settings = read_settings(request.settings, EDIT, "LLM")
@@ -215,13 +213,12 @@ class LlmEdit:
             canvas=(round(region.width), round(region.height)),
         )
         replies = _ask(client, config, prompt, context, settings["candidates"], "Edit")
-        plugin = SvgPlugin()
         target = region.image.convert("RGB")
         before = error(before_image, target)
         proposals, problems = [], []
         for raw in replies:
             try:
-                candidates = plugin.apply_edits(svg, raw)
+                candidates = apply_edits(svg, raw)
             except Exception as exc:
                 problems.append(str(exc))
                 continue

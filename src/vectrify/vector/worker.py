@@ -9,15 +9,22 @@ from typing import Any, Protocol
 
 from PIL import Image
 
-from vectrify.formats.models import VectorResultPayload
+from vectrify.formats.svg.operations import apply_crossover, apply_mutation
+from vectrify.formats.svg.ownership import invisible_descriptions
+from vectrify.formats.svg.prompts import build_svg_gen_prompt, is_valid_svg
+from vectrify.formats.svg.replies import apply_edits, extract_svg
+from vectrify.formats.svg.selection import MutationScope
+from vectrify.formats.svg.targets import element_targets
 from vectrify.image_utils import (
     png_bytes_to_data_url,
+    rasterize_svg_to_png_bytes,
     resize_long_side,
 )
 from vectrify.llm import LLMConfig, get_provider
 from vectrify.search import Result
 from vectrify.search.diversity import simhash
 from vectrify.utils import setup_worker_logger
+from vectrify.vector.payloads import VectorResultPayload
 
 
 class NoChangeError(Exception):
@@ -38,7 +45,6 @@ class NoChangeError(Exception):
 class WorkerContext:
     """All configuration a worker process needs to handle tasks."""
 
-    format_plugin: Any
     image_data_url: str
     original_png_bytes: bytes
     original_w: int
@@ -56,6 +62,9 @@ class WorkerContext:
     api_key: str | None
     # Set it and a single-worker run repeats exactly.
     random_seed: int | None = None
+    # Set by an editor operation: limits every mutation to these elements and
+    # edit kinds, and turns crossover off.
+    scope: MutationScope | None = None
     worker_index: int = 0
     log_queue: Any = None
     llm_in_flight: Any = None
@@ -78,7 +87,7 @@ class MessageQueue(Protocol):
 
 
 def _build_llm_contents(
-    ctx: WorkerContext, task: Any, plugin: Any, client: Any, log: logging.Logger
+    ctx: WorkerContext, task: Any, client: Any, log: logging.Logger
 ) -> tuple[list[str], str, Any]:
     """Generate or edit with the model, returning the lazily-created client."""
     parent = task.parent_state
@@ -95,7 +104,7 @@ def _build_llm_contents(
         invisible: list[str] = []
         if has_content:
             try:
-                invisible = plugin.invisible_elements(parent.payload.content)
+                invisible = invisible_descriptions(parent.payload.content)
                 if invisible:
                     log.debug(
                         f"{len(invisible)} element(s) paint nothing "
@@ -103,11 +112,11 @@ def _build_llm_contents(
                     )
             except Exception as exc:
                 log.debug(f"Invisible-element check failed: {exc}")
-        prompt = plugin.build_generate_prompt(
+        prompt = build_svg_gen_prompt(
             ctx.image_data_url,
             task.parent_id,
-            content_prev=parent.payload.content,
-            raster_preview_url=parent_preview if has_content else None,
+            svg_prev=parent.payload.content,
+            rasterized_svg_data_url=parent_preview if has_content else None,
             goal=ctx.goal,
             canvas=(ctx.original_w, ctx.original_h),
             source_name=ctx.source_name,
@@ -121,9 +130,9 @@ def _build_llm_contents(
             prompt, LLMConfig(model=ctx.llm_model, reasoning=ctx.reasoning)
         )
         contents = (
-            plugin.apply_edits(parent.payload.content, raw)
+            apply_edits(parent.payload.content, raw)
             if has_content
-            else [plugin.extract_from_llm(raw)]
+            else [extract_svg(raw)]
         )
         return contents, "llm edit", client
     finally:
@@ -135,15 +144,16 @@ def _build_llm_contents(
 def _build_local_contents(
     ctx: WorkerContext,
     task: Any,
-    plugin: Any,
     target_cache: dict[str, dict[int, float]],
     log: logging.Logger,
 ) -> tuple[list[str], str]:
     """Apply crossover when available, otherwise a targeted local mutation."""
     parent = task.parent_state
     if task.secondary_parent_state and task.secondary_parent_state.payload.content:
-        content, origin = plugin.crossover(
-            parent.payload.content, task.secondary_parent_state.payload.content
+        content, origin = apply_crossover(
+            parent.payload.content,
+            task.secondary_parent_state.payload.content,
+            ctx.scope,
         )
         return [content], origin
     source = parent.payload.content
@@ -152,15 +162,12 @@ def _build_local_contents(
         if len(target_cache) > 64:
             target_cache.clear()
         try:
-            target_cache[key] = plugin.element_targets(source, ctx.original_png_bytes)
+            target_cache[key] = element_targets(source, ctx.original_png_bytes)
         except Exception as exc:
             log.debug(f"Error attribution failed: {exc}")
             target_cache[key] = {}
-    content, origin = plugin.mutate(
-        source,
-        task.operator,
-        target_cache[key],
-        reference_png=ctx.original_png_bytes,
+    content, origin = apply_mutation(
+        source, task.operator, target_cache[key], ctx.scope
     )
     return [content], origin
 
@@ -168,7 +175,6 @@ def _build_local_contents(
 def _materialize_results(
     ctx: WorkerContext,
     task: Any,
-    plugin: Any,
     contents: list[str],
     origin: str,
     llm_type: str | None,
@@ -177,11 +183,13 @@ def _materialize_results(
     built: list[Result] = []
     last_error: Exception | None = None
     for content in contents:
-        valid, err = plugin.validate(content)
+        valid, err = is_valid_svg(content)
         if not valid:
             last_error = ValueError(err)
             continue
-        png = plugin.rasterize(content, out_w=ctx.original_w, out_h=ctx.original_h)
+        png = rasterize_svg_to_png_bytes(
+            content, out_w=ctx.original_w, out_h=ctx.original_h
+        )
         full_img = Image.open(io.BytesIO(png)).convert("RGB")
         preview_img = resize_long_side(full_img, ctx.resolution_llm)
         preview_buf = io.BytesIO()
@@ -218,7 +226,6 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
     log = logging.getLogger("worker")
 
     try:
-        plugin = ctx.format_plugin
         # Attribution costs two renders, and a parent is reused across many
         # tasks, so it is computed once per parent rather than once per task.
         target_cache: dict[str, dict[int, float]] = {}
@@ -251,13 +258,9 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
         try:
             if use_llm:
                 llm_type = "llm-generate"
-                contents, origin, client = _build_llm_contents(
-                    ctx, task, plugin, client, log
-                )
+                contents, origin, client = _build_llm_contents(ctx, task, client, log)
             else:
-                contents, origin = _build_local_contents(
-                    ctx, task, plugin, target_cache, log
-                )
+                contents, origin = _build_local_contents(ctx, task, target_cache, log)
 
             # An operator that could not find anything to change hands back the
             # parent it was given, and nothing downstream can tell that apart
@@ -275,7 +278,7 @@ def worker_loop(task_q: MessageQueue, result_q: MessageQueue, ctx: WorkerContext
             # counted as tasks completed, worker slots freed, or seeds of the
             # batch delivered. If every one of them fails to validate the task
             # fails, which is what a single bad edit always did.
-            built = _materialize_results(ctx, task, plugin, contents, origin, llm_type)
+            built = _materialize_results(ctx, task, contents, origin, llm_type)
 
             # Extras first, the dispatched one last. Delivering the asked-for
             # call is what closes the seed batch and installs the epoch's pool,

@@ -4,8 +4,9 @@ from xml.etree import ElementTree as ET
 
 import pytest
 
+from tests.helpers import rasterize
 from vectrify.formats.svg.operations import _COLOR_ATTRS, _NUMERIC_ATTRS
-from vectrify.formats.svg.plugin import SvgPlugin
+from vectrify.formats.svg.prompts import is_valid_svg
 
 BENCH = Path(__file__).resolve().parent.parent / "bench"
 CASES = sorted(
@@ -29,23 +30,18 @@ def test_case_has_a_target_and_several_seeds(case):
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
 def test_every_seed_renders(case):
-    plugin = SvgPlugin()
     for seed in _seeds(case):
         svg = seed.read_text(encoding="utf-8")
-        ok, err = plugin.validate(svg)
+        ok, err = is_valid_svg(svg)
         assert ok, f"{seed}: {err}"
-        assert plugin.rasterize(svg, out_w=384, out_h=384)[:8] == b"\x89PNG\r\n\x1a\n"
+        assert rasterize(svg, 384, 384)[:8] == b"\x89PNG\r\n\x1a\n"
 
 
 @pytest.mark.parametrize("case", CASES, ids=lambda c: c.name)
 def test_seeds_are_distinct_lineages(case):
     """Identical seeds give crossover nothing to recombine, which is the whole
     reason the corpus ships more than one."""
-    plugin = SvgPlugin()
-    renders = {
-        plugin.rasterize(s.read_text(encoding="utf-8"), out_w=384, out_h=384)
-        for s in _seeds(case)
-    }
+    renders = {rasterize(s.read_text(encoding="utf-8"), 384, 384) for s in _seeds(case)}
     assert len(renders) == len(_seeds(case))
 
 

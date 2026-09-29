@@ -1,8 +1,8 @@
 """Seed budgeting: how many LLM calls a run opens an epoch with."""
 
 from vectrify.cli import DEFAULT_SEEDS
-from vectrify.formats.models import VectorStatePayload
 from vectrify.search.models import ChainState, SearchNode
+from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.runner import initial_seed_tasks, resolve_seeds
 
 

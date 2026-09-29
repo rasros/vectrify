@@ -14,7 +14,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vectrify.formats.svg.plugin import SvgPlugin
+from tests.helpers import rasterize
 from vectrify.refine.paths import coverage, parse_cubics, to_knots
 
 torch = pytest.importorskip("torch", reason="the fit needs the vision extra")
@@ -31,7 +31,6 @@ CASES = {
 
 def _real_ink(path_d: str) -> np.ndarray:
     """What cairosvg actually paints for this stroke, as ink in [0, 1]."""
-    plugin = SvgPlugin()
     head = f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {SIZE} {SIZE}">'
     drawn = (
         f'{head}<path d="{path_d}" fill="none" stroke="#000000" '
@@ -41,7 +40,7 @@ def _real_ink(path_d: str) -> np.ndarray:
     blank = f"{head}</svg>"
 
     def ink(svg: str) -> np.ndarray:
-        png = plugin.rasterize(svg, SIZE, SIZE)
+        png = rasterize(svg, SIZE, SIZE)
         grey = Image.open(io.BytesIO(png)).convert("L")
         return 1.0 - np.asarray(grey, dtype=np.float32) / 255.0
 
@@ -131,11 +130,8 @@ def test_a_pinned_vertex_does_not_move():
     """
     from vectrify.refine.paths import fit_group, parse_cubics, to_knots
 
-    plugin = SvgPlugin()
     head = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 700 700">'
-    target = Image.open(
-        io.BytesIO(plugin.rasterize(f"{head}</svg>", SIZE, SIZE))
-    ).convert("L")
+    target = Image.open(io.BytesIO(rasterize(f"{head}</svg>", SIZE, SIZE))).convert("L")
     path_d = "M 300 300 C 340 280 400 280 440 300"
     knots = to_knots(parse_cubics(path_d))
     fitted, _widths, _colours, _first, _last = fit_group(

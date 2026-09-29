@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from vectrify.dashboard import Dashboard
-    from vectrify.formats.base import SvgBackend
     from vectrify.search.stats import SearchStats
 
 from PIL import Image, UnidentifiedImageError
@@ -28,11 +27,13 @@ from vectrify.cli import (
     DEFAULT_SEEDS,
     DEFAULT_TOURNAMENT_SIZE,
 )
-from vectrify.formats.models import VectorStatePayload
+from vectrify.formats.svg.prompts import is_valid_svg
+from vectrify.formats.svg.replies import extract_svg
 from vectrify.image_utils import (
     crop_single_color_background,
     downscale_png_bytes,
     png_bytes_to_data_url,
+    rasterize_svg_to_png_bytes,
     resize_long_side,
 )
 from vectrify.llm.models import api_key_env
@@ -59,6 +60,7 @@ from vectrify.search import (
 from vectrify.search.collector import StatCollector
 from vectrify.search.operators import Exp3Policy
 from vectrify.utils import setup_logger, start_log_listener
+from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.reference import Reference
 from vectrify.vector.resume import filter_to_pool_size, resume_nodes
 from vectrify.vector.search import (
@@ -217,7 +219,6 @@ def evaluate_front(
     nodes: list[SearchNode],
     *,
     front_scorer: Callable[[], tuple[Any, Any]],
-    format_plugin: Any,
     out_w: int,
     out_h: int,
 ) -> list[SearchNode]:
@@ -244,7 +245,7 @@ def evaluate_front(
             continue
         try:
             renders.append(
-                (format_plugin.rasterize(content, out_w=out_w, out_h=out_h), node)
+                (rasterize_svg_to_png_bytes(content, out_w=out_w, out_h=out_h), node)
             )
         except Exception as exc:
             log.debug(f"Front evaluation skipped node {node.id}: {exc}")
@@ -294,7 +295,6 @@ def run_vector_search(
     llm_provider: str,
     llm_model: str,
     reasoning: str,
-    format_plugin: "SvgBackend",
     resolution_llm: int = DEFAULT_RESOLUTION_LLM,
     score_resolution: int | None = None,
     edge_tolerance: float | None = None,
@@ -472,7 +472,6 @@ def run_vector_search(
     if resumed_items:
         initial_nodes = resume_nodes(
             resumed_items=resumed_items,
-            format_plugin=format_plugin,
             original_img=original_img,
             original_w=original_w,
             original_h=original_h,
@@ -491,7 +490,7 @@ def run_vector_search(
     resumed_seed_nodes = list(initial_nodes)
     if samvg_seed:
         try:
-            content = format_plugin.extract_from_llm(
+            content = extract_svg(
                 generate_svg(
                     original_img,
                     min_pixels=samvg_min_pixels,
@@ -504,18 +503,18 @@ def run_vector_search(
                     max_side=samvg_max_side,
                     model=samvg_model,
                     points_per_batch=samvg_points_per_batch,
-                    rasterize=lambda svg, width, height: format_plugin.rasterize(
+                    rasterize=lambda svg, width, height: rasterize_svg_to_png_bytes(
                         svg, out_w=width, out_h=height
                     ),
                 )
             )
-            valid, error = format_plugin.validate(content)
+            valid, error = is_valid_svg(content)
             if not valid:
                 raise ValueError(error or "generated SVG failed validation")
             seed = seed_node(
                 reference,
                 content,
-                format_plugin.rasterize(content, out_w=original_w, out_h=original_h),
+                rasterize_svg_to_png_bytes(content, out_w=original_w, out_h=original_h),
                 node_id=max((node.id for node in initial_nodes), default=0) + 1,
                 origin="SAMVG-inspired seed",
                 resolution_llm=resolution_llm,
@@ -594,7 +593,6 @@ def run_vector_search(
     # bounded resource instead of multiplying its memory footprint by the CPU
     # worker count.
     gate = gpu_gate()
-    format_plugin.gpu_gate = gate
 
     def _front_scorer() -> tuple[Any, Any]:
         if not _front:
@@ -609,7 +607,6 @@ def run_vector_search(
             return evaluate_front(
                 nodes,
                 front_scorer=_front_scorer,
-                format_plugin=format_plugin,
                 out_w=original_w,
                 out_h=original_h,
             )
@@ -621,7 +618,6 @@ def run_vector_search(
     # does not need — scoring reads the full-resolution raster, not this.
     model_png = downscale_png_bytes(original_png_bytes, resolution_llm)
     worker_ctx = WorkerContext(
-        format_plugin=format_plugin,
         image_data_url=png_bytes_to_data_url(model_png),
         original_png_bytes=original_png_bytes,
         original_w=original_w,
@@ -648,7 +644,7 @@ def run_vector_search(
             dashboard.__enter__()
             dashboard_entered = True
 
-        policy = operator_policy(format_plugin, adaptive_operators)
+        policy = operator_policy(None, adaptive_operators)
         run_search(
             reference,
             initial_nodes,

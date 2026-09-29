@@ -24,9 +24,8 @@ from pathlib import Path
 
 from PIL import Image
 
-from vectrify.formats.svg.plugin import SvgPlugin
+from vectrify.image_utils import rasterize_svg
 
-P = SvgPlugin()
 _NUM = re.compile(r"-?(?:\d+\.\d+|\.\d+|\d+)")
 
 
@@ -114,7 +113,7 @@ def families(svg):
 
 
 def render(svg, size=700):
-    return Image.open(io.BytesIO(P.rasterize(svg, size, size))).convert("RGB")
+    return Image.open(io.BytesIO(rasterize_svg(svg, size, size))).convert("RGB")
 
 
 def main() -> None:
@@ -132,7 +131,7 @@ def main() -> None:
     for name, levels in families_.items():
         severities = [s for s, _ in levels]
         values = [
-            scorer.score(reference, P.rasterize(svg, 700, 700)) for _, svg in levels
+            scorer.score(reference, rasterize_svg(svg, 700, 700)) for _, svg in levels
         ]
         hits = pairs = 0
         for i, j in itertools.combinations(range(len(severities)), 2):

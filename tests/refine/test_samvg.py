@@ -9,7 +9,7 @@ from PIL import Image
 
 import vectrify.refine.paths as paths
 import vectrify.refine.samvg as samvg
-from vectrify.formats.svg.plugin import SvgPlugin
+from tests.helpers import rasterize
 from vectrify.refine.paths import fit_svg_primitives_locally
 from vectrify.refine.samvg import (
     MaskLayer,
@@ -159,11 +159,8 @@ def test_accepted_fit_uses_bounded_fill_coordinate_descent(monkeypatch):
     monkeypatch.setattr(paths, "fit_filled_svg_bounded", bounded)
     image = Image.new("RGB", (16, 16), "white")
     svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" />'
-    plugin = SvgPlugin()
 
-    fitted, rendered = samvg._accepted_fit(
-        svg, image, rasterize=plugin.rasterize, steps=7
-    )
+    fitted, rendered = samvg._accepted_fit(svg, image, rasterize=rasterize, steps=7)
 
     assert fitted == svg
     assert rendered.size == image.size
@@ -206,9 +203,7 @@ def test_vectorize_svg_runs_a_second_residual_recovery_phase(monkeypatch):
         return svg, image
 
     monkeypatch.setattr(samvg, "_accepted_fit", accepted)
-    result = samvg.vectorize_svg(
-        image, rasterize=SvgPlugin().rasterize, steps=3, learn_alpha=True
-    )
+    result = samvg.vectorize_svg(image, rasterize=rasterize, steps=3, learn_alpha=True)
 
     assert calls == [(1, 3, True), (2, 3, True)]
     root = ET.fromstring(result)
@@ -243,7 +238,7 @@ def test_vectorize_svg_rejects_a_residual_phase_that_regresses_first_fit(monkeyp
         lambda svg, _image, **_kwargs: (svg, renders.pop(0)),
     )
 
-    result = samvg.vectorize_svg(image, rasterize=SvgPlugin().rasterize, steps=3)
+    result = samvg.vectorize_svg(image, rasterize=rasterize, steps=3)
 
     root = ET.fromstring(result)
     path_count = sum(element.tag.endswith("path") for element in root.iter())
@@ -724,16 +719,13 @@ def test_branched_stroke_seed_roundtrips_through_unified_local_fitter():
     mask[6:9, 10:37] = True
     image = Image.new("RGB", (48, 48), "white")
     svg = generate_svg(image, [mask], min_pixels=1, min_impact=0, ocr=False)
-    plugin = SvgPlugin()
-    reference = plugin.rasterize(svg, 48, 48)
+    reference = rasterize(svg, 48, 48)
 
-    fitted = fit_svg_primitives_locally(
-        svg, reference, rasterize=plugin.rasterize, steps=1
-    )
+    fitted = fit_svg_primitives_locally(svg, reference, rasterize=rasterize, steps=1)
 
     assert fitted != svg
     assert fitted.count("stroke-width=") >= 3
-    Image.open(io.BytesIO(plugin.rasterize(fitted, 48, 48))).verify()
+    Image.open(io.BytesIO(rasterize(fitted, 48, 48))).verify()
 
 
 def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():

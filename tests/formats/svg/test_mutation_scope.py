@@ -8,10 +8,11 @@ import pytest
 from vectrify.formats.svg.operations import (
     MUTATIONS,
     OPERATOR_KINDS,
+    apply_crossover,
     apply_mutation,
+    mutation_weights,
     scoped_mutations,
 )
-from vectrify.formats.svg.plugin import SvgPlugin
 from vectrify.formats.svg.selection import MutationScope
 
 SVG = (
@@ -94,15 +95,14 @@ def test_reorder_needs_both_siblings_in_scope():
     assert order(svg, "left") == ["b", "a"]
 
 
-def test_scoped_plugin_skips_crossover_and_path_fit():
-    plugin = SvgPlugin()
-    plugin.scope = MutationScope(frozenset({"a"}), frozenset({"geometry", "paint"}))
+def test_scope_turns_crossover_off_and_limits_policy_weights():
+    scope = MutationScope(frozenset({"a"}), frozenset({"geometry", "paint"}))
     other = SVG.replace("#aa0000", "#010101")
-    assert plugin.crossover(SVG, other)[0] == SVG
-    assert plugin.mutate(SVG, "Mutation: path fit")[0] == SVG
-    assert set(plugin.mutation_weights()) == {
+    assert apply_crossover(SVG, other, scope)[0] == SVG
+    assert set(mutation_weights(scope)) == {
         name for name, kinds in OPERATOR_KINDS.items() if kinds <= {"geometry", "paint"}
     }
+    assert set(mutation_weights()) == set(OPERATOR_KINDS)
 
 
 def test_unscoped_mutation_is_unchanged_by_the_scope_parameter():

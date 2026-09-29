@@ -6,7 +6,7 @@ from PIL import Image, ImageDraw
 
 from vectrify.formats.svg.operations import apply_mutation
 from vectrify.formats.svg.ownership import drawable_elements
-from vectrify.formats.svg.plugin import SvgPlugin
+from vectrify.formats.svg.prompts import is_valid_svg
 from vectrify.formats.svg.targets import element_targets
 
 NS = "http://www.w3.org/2000/svg"
@@ -78,7 +78,7 @@ def test_every_element_stays_reachable_under_targeting():
 
 def test_mutation_without_targets_is_unchanged():
     mutated, label = apply_mutation(DRAWING, "Mutation: color tweak")
-    assert SvgPlugin().validate(mutated)[0]
+    assert is_valid_svg(mutated)[0]
     assert label == "Mutation: color tweak"
 
 

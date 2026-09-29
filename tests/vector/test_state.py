@@ -2,8 +2,8 @@ import io
 
 from PIL import Image
 
-from vectrify.formats.models import VectorResultPayload, VectorStatePayload
 from vectrify.search.models import Result
+from vectrify.vector.payloads import VectorResultPayload, VectorStatePayload
 from vectrify.vector.state import VectorStateBuilder
 
 

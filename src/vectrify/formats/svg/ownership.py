@@ -354,3 +354,19 @@ def describe_invisible(root: ET.Element, indices: list[int]) -> list[str]:
             text = text[:157] + "..."
         lines.append(f"{text}{group}")
     return lines
+
+
+def invisible_descriptions(content: str) -> list[str]:
+    """Elements that paint nothing, described for the edit prompt to name.
+
+    The model cannot see this: on screen the element simply is not there,
+    and in the markup it looks like any other. An LLM edit is also the only
+    operator that can fix it, since making an occluded element visible needs
+    its order changed and its position moved in one move, and the mutation
+    operators each do one of those.
+    """
+    try:
+        root = ET.fromstring(content)
+    except ET.ParseError:
+        return []
+    return describe_invisible(root, invisible_elements(root))

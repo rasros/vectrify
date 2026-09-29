@@ -6,10 +6,10 @@ import re
 from datetime import datetime
 from pathlib import Path
 
-from vectrify.formats.models import VectorStatePayload
 from vectrify.llm.base import split_data_url
 from vectrify.score.metrics import FRONT_SCORE, METRIC_NAMES
 from vectrify.search import SearchNode
+from vectrify.vector.payloads import VectorStatePayload
 
 log = logging.getLogger(__name__)
 

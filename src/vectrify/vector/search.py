@@ -15,7 +15,8 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 
-from vectrify.formats.models import VectorStatePayload
+from vectrify.formats.svg.operations import mutation_weights
+from vectrify.formats.svg.selection import MutationScope
 from vectrify.image_utils import make_preview_data_url
 from vectrify.score.utils import MAX_SCORE
 from vectrify.search import (
@@ -30,6 +31,7 @@ from vectrify.search.diversity import simhash
 from vectrify.search.engine import SearchOutcome, SearchProgress
 from vectrify.search.operators import Exp3Policy, FixedWeightPolicy, OperatorPolicy
 from vectrify.search.storage import MemoryStorage
+from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.reference import Reference
 from vectrify.vector.state import VectorStateBuilder
 from vectrify.vector.worker import WorkerContext, worker_loop
@@ -125,11 +127,9 @@ def pixel_scorer(
     return score
 
 
-def operator_policy(format_plugin, adaptive: bool) -> OperatorPolicy:
-    weights = format_plugin.mutation_weights()
-    if adaptive:
-        return Exp3Policy(weights, reward_scale=format_plugin.operator_reward_scale())
-    return FixedWeightPolicy(weights)
+def operator_policy(scope: MutationScope | None, adaptive: bool) -> OperatorPolicy:
+    weights = mutation_weights(scope)
+    return Exp3Policy(weights) if adaptive else FixedWeightPolicy(weights)
 
 
 def run_search(
@@ -147,7 +147,7 @@ def run_search(
 ) -> SearchOutcome:
     """Run workers over *initial_nodes* and return the best candidate and pool."""
     policy = policy or operator_policy(
-        worker_context.format_plugin, settings.adaptive_operators
+        worker_context.scope, settings.adaptive_operators
     )
     engine = MultiprocessSearchEngine(
         workers=settings.workers,

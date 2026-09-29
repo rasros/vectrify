@@ -5,8 +5,7 @@ from typing import TYPE_CHECKING
 
 from PIL import Image
 
-from vectrify.formats.models import VectorStatePayload
-from vectrify.image_utils import make_preview_data_url
+from vectrify.image_utils import make_preview_data_url, rasterize_svg_to_png_bytes
 from vectrify.score.simple import SimpleFallbackScorer
 from vectrify.search import (
     ChainState,
@@ -15,9 +14,9 @@ from vectrify.search import (
 )
 from vectrify.search.diversity import simhash
 from vectrify.search.nsga import build_objectives, pareto_select
+from vectrify.vector.payloads import VectorStatePayload
 
 if TYPE_CHECKING:
-    from vectrify.formats.base import SvgBackend
     from vectrify.vector.reference import Reference
 
 log = logging.getLogger(__name__)
@@ -77,7 +76,6 @@ def prefilter_nodes(
 
 def resume_nodes(
     resumed_items: list[tuple[int, str]],
-    format_plugin: "SvgBackend",
     original_img: Image.Image,
     original_w: int,
     original_h: int,
@@ -108,7 +106,9 @@ def resume_nodes(
 
     def _prep(item: tuple) -> PreppedNode:
         old_id, content_text, sig = item
-        png = format_plugin.rasterize(content_text, out_w=original_w, out_h=original_h)
+        png = rasterize_svg_to_png_bytes(
+            content_text, out_w=original_w, out_h=original_h
+        )
         return PreppedNode(
             old_id=old_id,
             content=content_text,

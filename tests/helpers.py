@@ -25,3 +25,10 @@ def text_blocks(blocks: list[dict]) -> list[str]:
 def image_urls(blocks: list[dict]) -> list[str]:
     """Extract image URLs from LLM prompt blocks."""
     return [b["image_url"] for b in blocks if b.get("type") == "input_image"]
+
+
+def rasterize(svg: str, width: int, height: int) -> bytes:
+    """Positional rasterizer, for APIs that take a (svg, width, height) callback."""
+    from vectrify.image_utils import rasterize_svg
+
+    return rasterize_svg(svg, width, height)

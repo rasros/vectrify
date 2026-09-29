@@ -1,3 +1,5 @@
+"""The drawing and renders a search node or worker result carries."""
+
 import dataclasses
 
 

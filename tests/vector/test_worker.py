@@ -6,10 +6,10 @@ import pytest
 from PIL import Image
 
 from tests.helpers import make_png as _make_png
-from vectrify.formats.models import VectorStatePayload
 from vectrify.image_utils import png_bytes_to_data_url, resize_long_side
 from vectrify.search import ChainState, Result, Task
 from vectrify.vector import worker as worker_module
+from vectrify.vector.payloads import VectorStatePayload
 from vectrify.vector.worker import WorkerContext, worker_loop
 
 
@@ -71,12 +71,34 @@ class FakePlugin:
         return self.png
 
 
+def install(monkeypatch, plugin: "FakePlugin") -> None:
+    """Route the worker's SVG functions through *plugin*, which records calls."""
+    patches = {
+        "apply_crossover": lambda a, b, _scope=None: plugin.crossover(a, b),
+        "apply_mutation": lambda content, op=None, targets=None, _scope=None: (
+            plugin.mutate(content, op, targets)
+        ),
+        "element_targets": plugin.element_targets,
+        "is_valid_svg": lambda content: plugin.validate(content),
+        "rasterize_svg_to_png_bytes": lambda content, *, out_w, out_h: plugin.rasterize(
+            content, out_w, out_h
+        ),
+        "build_svg_gen_prompt": plugin.build_generate_prompt,
+        "apply_edits": lambda parent, raw: [plugin.apply_edit(parent, raw)],
+        "extract_svg": plugin.extract_from_llm,
+        "invisible_descriptions": lambda _content: [],
+    }
+    for name, value in patches.items():
+        monkeypatch.setattr(worker_module, name, value)
+
+
 def _run_one(
     task: Task, monkeypatch, *, no_change: bool = False, plugin=None
 ) -> tuple[Result, FakeClient, FakePlugin]:
     png = _make_png()
     client = FakeClient()
     plugin = plugin or FakePlugin(png, no_change=no_change)
+    install(monkeypatch, plugin)
     monkeypatch.setattr(worker_module, "get_provider", lambda *_a, **_kw: client)
 
     task_q: queue.Queue = queue.Queue()
@@ -85,7 +107,6 @@ def _run_one(
     task_q.put(None)
 
     ctx = WorkerContext(
-        format_plugin=plugin,
         image_data_url=png_bytes_to_data_url(png),
         original_png_bytes=png,
         original_w=32,
@@ -180,6 +201,7 @@ def test_ordinary_failure_does_not_name_an_operator(parent_state, monkeypatch):
     png = _make_png()
     client, plugin = FakeClient(), FakePlugin(png)
     plugin.validate = lambda _content: (False, "broken")  # type: ignore[method-assign]
+    install(monkeypatch, plugin)
     monkeypatch.setattr(worker_module, "get_provider", lambda *_a, **_kw: client)
 
     task_q: queue.Queue = queue.Queue()
@@ -187,7 +209,6 @@ def test_ordinary_failure_does_not_name_an_operator(parent_state, monkeypatch):
     task_q.put(Task(task_id=1, parent_id=1, parent_state=parent_state, force_llm=False))
     task_q.put(None)
     ctx = WorkerContext(
-        format_plugin=plugin,
         image_data_url=png_bytes_to_data_url(png),
         original_png_bytes=png,
         original_w=32,
