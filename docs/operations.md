@@ -111,11 +111,20 @@ is the drawing's own render of the region (`generate.drawing_region`).
 
 The state the search changes is each path's `Geometry` and stroke width
 (`vector.nodes.Paths`); the moves are in `vector.nodes`, and workers render a
-state by rewriting only those paths' `d` and `stroke-width` in the region SVG.
-Every change is scored by the simple scorer in the main process. A removal is
-kept while the score stays within the tolerance of the start (the budget is
-shared by the run); a split must improve the score by 1%; any other move is kept
-when the score does not get worse. The result is applied with
+state by rewriting only those paths' `d` and `stroke-width`. In a drawing with
+more than a couple of dozen other shapes, everything else is rendered once in
+slices around the selected paths, and a render paints only the selected paths
+over them (unless group opacity, a clip, a mask, a filter or a `<use>` of a
+selected path makes that inexact). Renders stay in memory as arrays.
+
+The search is a beam search (`vector.search`): each generation expands every
+state in the beam (2 by default) into children (4 each) across the workers,
+scores them in the main process at the crop's own size, and merges the
+children that improved different points into one more candidate. The next beam
+is the best distinct states; ties keep the older one. A removal is kept while
+the score stays within the tolerance of the start (the budget is shared by the
+run, and the beam then prefers fewer points); a split must improve its parent
+by 1%. The result is applied with
 `Transaction.reshape_path`, which keeps surviving node IDs, refuses to move or
 remove pinned endpoints, and leaves linked boundary edges as they are.
 

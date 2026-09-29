@@ -98,3 +98,21 @@ def test_stop_event_ends_the_search_early():
         progress=progress,
     )
     assert 5 <= outcome.tasks_completed < 100
+
+
+def test_improvements_to_different_points_merge_into_one_state():
+    import random
+
+    from vectrify.vector import nodes
+    from vectrify.vector.search import merge_improvements
+
+    paths, _score, context = setup()
+    rng = random.Random(4)
+    moved = [nodes.nudge(paths, rng, context.fixed) for _ in range(12)]
+    merged = merge_improvements(paths, [m for m in moved if m is not None])
+    assert merged is not None
+    base = {n.id: n for s in paths.geometries["p"].subpaths for n in s.nodes}
+    after = {n.id: n for s in merged.geometries["p"].subpaths for n in s.nodes}
+    assert after.keys() == base.keys()
+    assert sum(after[i] != base[i] for i in base) >= 2
+    assert merge_improvements(paths, []) is None

@@ -15,6 +15,8 @@ import os
 import xml.etree.ElementTree as ET
 from typing import ClassVar
 
+import numpy as np
+
 from vectrify.document import DocumentError
 from vectrify.document.join import path_style
 from vectrify.image_utils import preview_urls, resize_long_side
@@ -110,7 +112,7 @@ class OptimizeNodes:
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
         from vectrify.image_utils import rasterize_svg_to_png_bytes
-        from vectrify.score.simple import SimpleFallbackScorer
+        from vectrify.score.compare import compare, prepare
         from vectrify.vector.nodes import Paths, frozen
         from vectrify.vector.search import SearchSettings, run_search
         from vectrify.vector.worker import Renderer, WorkerContext
@@ -139,11 +141,14 @@ class OptimizeNodes:
             },
         )
         worker = WorkerContext(svg, size, frozen(document, start))
-        scorer = SimpleFallbackScorer()
-        reference = scorer.prepare_reference(target)
+        # Scored at the crop's own size: the stock scorer shrinks everything
+        # to 256 px first, which on a small region blurs away the edges a
+        # point is being moved onto.
+        reference = prepare(target)
 
-        def score(png: bytes) -> float:
-            return scorer.score(reference, png)
+        def score(image: bytes | np.ndarray) -> float:
+            value = compare(reference, image).blend()
+            return value if np.isfinite(value) else 1.0
 
         # What the selected paths are worth to the fit: the region scored
         # without them, against the region scored as they start.
