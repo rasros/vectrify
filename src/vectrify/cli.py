@@ -97,8 +97,7 @@ def parse_args(args: list[str] | None = None) -> argparse.Namespace:
         "-o",
         default=DEFAULT_OUTPUT,
         metavar="PATH",
-        help="Output SVG file path. Use the .svg extension. "
-        f"Default: {DEFAULT_OUTPUT}",
+        help=f"Output SVG file path. Use the .svg extension. Default: {DEFAULT_OUTPUT}",
     )
     parser.add_argument(
         "--version",

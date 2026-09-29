@@ -129,9 +129,7 @@ def test_eviction_row_lands_in_the_evicted_column(tmp_path, dummy_node):
 
 
 def test_load_resume_nodes(tmp_path):
-    adapter = FileStorageAdapter(
-        str(tmp_path / "resume_test.svg"), resume=True
-    )
+    adapter = FileStorageAdapter(str(tmp_path / "resume_test.svg"), resume=True)
     adapter.initialize()
 
     valid_svg = '<svg xmlns="http://www.w3.org/2000/svg"><rect/></svg>'

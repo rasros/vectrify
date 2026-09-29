@@ -266,9 +266,7 @@ def test_shared_mesh_preserves_holes_and_canvas_edges():
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20">{paths}</svg>'
     )
-    rendered = np.asarray(
-        Image.open(io.BytesIO(render_png(svg))).convert("RGBA")
-    )
+    rendered = np.asarray(Image.open(io.BytesIO(render_png(svg))).convert("RGBA"))
     assert np.all(rendered[:, :, 3] == 255)
     assert np.array_equal(rendered[:, :, 2] == 255, labels == 1)
 
@@ -462,9 +460,7 @@ def test_clean_method_reuses_region_geometry_and_preserves_holes(monkeypatch):
             if el.get("{http://www.w3.org/1999/xlink}href") == reference
         ]
         assert len(uses) == 2  # One clip and one painted fill share the path.
-    rendered = np.asarray(
-        Image.open(io.BytesIO(render_png(svg))).convert("RGB")
-    )
+    rendered = np.asarray(Image.open(io.BytesIO(render_png(svg))).convert("RGB"))
     assert np.array_equal(rendered[32, 32], [230, 230, 230])
     assert np.array_equal(rendered[16, 16], [190, 80, 60])
 
