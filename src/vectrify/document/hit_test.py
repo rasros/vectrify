@@ -10,17 +10,16 @@ from __future__ import annotations
 import math
 import re
 from itertools import pairwise
-from typing import Literal
 
 import numpy as np
 from cairosvg.colors import color
-from shapely import BufferCapStyle, BufferJoinStyle, STRtree, clip_by_rect, prepare
+from shapely import BufferCapStyle, BufferJoinStyle, clip_by_rect, prepare
 from shapely.affinity import affine_transform
-from shapely.geometry import GeometryCollection, LineString, Point, Polygon, box
+from shapely.geometry import GeometryCollection, LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.ops import polygonize, unary_union
 
-from vectrify.document.model import Document, DocumentError, Element, Rect, Selection
+from vectrify.document.model import Document, DocumentError, Element
 from vectrify.document.svg import PAINT
 
 Matrix = tuple[float, float, float, float, float, float]
@@ -142,8 +141,8 @@ class HitIndex:
     """Build once for an immutable document; rebuild after document changes.
 
     Coordinates and tolerance use the root SVG user space (viewBox coordinates),
-    not screen pixels. Default queries select leaf objects, including use
-    instances. Supply candidate IDs to select at a chosen group/layer level.
+    not screen pixels. An object's painted area is its fill and stroke after
+    transforms and clips; a group's is the union of its children's.
     """
 
     def __init__(self, document: Document, *, tolerance: float = 0.1):
@@ -162,11 +161,6 @@ class HitIndex:
             for oid, area in areas.items()
             if not area.is_empty and area.area > 0
         }
-        self._ids = tuple(oid for oid in self._elements if oid in self._areas)
-        self._tree = STRtree([self._areas[oid] for oid in self._ids])
-        self._leaves = frozenset(
-            oid for oid in self._ids if self._elements[oid].tag not in {"svg", "g"}
-        )
 
     def _collection(self, parts: list[BaseGeometry]) -> BaseGeometry:
         members = tuple(part for part in parts if not part.is_empty)
@@ -191,34 +185,19 @@ class HitIndex:
         area = self._areas.get(object_id)
         return area is not None and not area.is_empty and region.covers(area)
 
-    def query(
-        self,
-        rectangle: Rect,
-        *,
-        mode: Literal["intersect", "contain"] = "intersect",
-        candidates: frozenset[str] | None = None,
-    ) -> Selection:
-        if mode not in {"intersect", "contain"}:
-            raise DocumentError("Rectangle mode must be intersect or contain")
-        if candidates is not None and not candidates <= self._elements.keys():
-            raise DocumentError("Unknown rectangle-selection candidate")
-        candidates = self._leaves if candidates is None else candidates
-        region = box(
-            rectangle.x,
-            rectangle.y,
-            rectangle.x + rectangle.width,
-            rectangle.y + rectangle.height,
-        )
-        ids = set()
-        for i in self._tree.query(region):
-            oid = self._ids[int(i)]
-            if oid in candidates and (
-                region.intersects(self._areas[oid])
-                if mode == "intersect" and self._elements[oid].tag not in {"g", "svg"}
-                else region.covers(self._areas[oid])
-            ):
-                ids.add(oid)
-        return Selection(object_ids=frozenset(ids))
+    def area(self, object_id: str) -> BaseGeometry | None:
+        """Where *object_id* paints, or None if it paints nothing."""
+        return self._areas.get(object_id)
+
+    def bounds(
+        self, object_ids: frozenset[str]
+    ) -> tuple[float, float, float, float] | None:
+        """The painted bounds of *object_ids* together, or None if none paint."""
+        shapes = [self._areas[oid] for oid in object_ids if oid in self._areas]
+        if not shapes:
+            return None
+        lefts, tops, rights, bottoms = zip(*(s.bounds for s in shapes), strict=True)
+        return min(lefts), min(tops), max(rights), max(bottoms)
 
     def _contours(self, element: Element, tolerance: float) -> tuple[Contour, ...]:
         def number(name: str, default: float = 0) -> float:

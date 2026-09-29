@@ -1,14 +1,13 @@
-"""Rectangle selection tests use painted geometry, not object bounding boxes."""
+"""Painted areas follow the drawn geometry, not object bounding boxes."""
 
 import pytest
+from shapely.geometry import box
 
 from tests.document.test_document import select
 from vectrify.document import (
     DocumentError,
     Editor,
     HitIndex,
-    Rect,
-    Selection,
     import_svg,
 )
 
@@ -17,11 +16,31 @@ def index(body, **kwargs):
     return HitIndex(import_svg(f'<svg width="100" height="100">{body}</svg>'), **kwargs)
 
 
-def hits(hit_index, x, y, w=1, h=1, **kwargs):
-    return hit_index.query(Rect(x, y, w, h), **kwargs).object_ids
+def hits(hit_index, x, y, w=1, h=1, mode="intersect", candidates=None):
+    """Objects painting in a box: leaf objects by default, or *candidates*.
+
+    A leaf counts when its paint meets the box (with contain, lies inside it);
+    a group only when the box covers all of its paint.
+    """
+    region = box(x, y, x + w, y + h)
+    document = hit_index.document
+    if candidates is None:
+        candidates = {e.id for e in document.elements() if e.tag not in {"svg", "g"}}
+    found = set()
+    for oid in candidates:
+        area = hit_index.area(oid)
+        if area is None:
+            continue
+        group = document.element(oid).tag in {"svg", "g"}
+        meets = (
+            region.intersects if mode == "intersect" and not group else region.covers
+        )
+        if meets(area):
+            found.add(oid)
+    return found
 
 
-def test_intersection_containment_and_explicit_group_candidates():
+def test_intersection_containment_and_group_areas():
     hit = index(
         """<g id="group">
 <rect id="a"
@@ -38,11 +57,9 @@ r="10"/>
     assert hits(hit, 15, 15) == {"a"}
     assert hits(hit, 15, 15, mode="contain") == set()
     assert hits(hit, 10, 10, 10, 10, mode="contain") == {"a"}
-    assert not hits(hit, 15, 15, candidates=frozenset({"group"}))
-    assert not hits(hit, 9, 9, 20, 20, candidates=frozenset({"group"}))
-    assert hits(hit, 9, 9, 42, 42, candidates=frozenset({"group"})) == {"group"}
-    assert not hits(hit, 15, 15, candidates=frozenset())
-    assert not hit.query(Rect(90, 90, 1, 1)).whole_document
+    assert hit.bounds(frozenset({"group"})) == (10, 10, 50, 50)
+    assert hit.bounds(frozenset({"a", "b"})) == (10, 10, 50, 50)
+    assert not hits(hit, 90, 90)
 
 
 def test_triangle_and_circle_empty_bbox_corners_are_not_hits():
@@ -252,7 +269,7 @@ height="100"/>
     assert hits(hit, 39, 31) == {"rounded"}
 
 
-def test_index_is_snapshot_scoped_and_selection_does_not_change_focus():
+def test_index_is_snapshot_scoped():
     doc = import_svg(
         '<svg width="100" height="100"><rect id="a" width="10" height="10"/></svg>'
     )
@@ -264,7 +281,6 @@ def test_index_is_snapshot_scoped_and_selection_does_not_change_focus():
     new = HitIndex(editor.snapshot.document)
     assert not hits(new, 2, 2)
     assert hits(new, 52, 2) == {"a"}
-    assert new.query(Rect(52, 2, 1, 1)).focus is None
 
 
 def test_root_viewbox_coordinates_and_occluded_objects_are_selectable():
@@ -290,31 +306,12 @@ fill="blue"/>
     assert not hits(hit, 22, 22)
 
 
-def test_empty_and_singular_shapes_and_invalid_queries():
+def test_empty_and_singular_shapes_paint_nothing():
     hit = index('<rect id="a" width="10" height="10" transform="scale(0)"/>')
-    assert hit.query(Rect(0, 0, 100, 100)) == Selection()
-    with pytest.raises(DocumentError, match="candidate"):
-        hits(hit, 0, 0, candidates=frozenset({"missing"}))
+    assert not hits(hit, 0, 0, 100, 100)
+    assert hit.bounds(frozenset({"a"})) is None
     with pytest.raises(DocumentError, match="positive"):
         index("", tolerance=0)
-
-
-def test_editor_rectangle_selection_keeps_focus_and_rebuilds_after_edits_and_undo():
-    editor = Editor(
-        import_svg("""<svg width="100" height="100">
-    <rect id="a" width="10" height="10"/></svg>"""),
-        selection=select("a", focus=Rect(0, 0, 5, 5)),
-    )
-    original_focus = editor.snapshot.selection.focus
-    revision = editor.snapshot.revision
-    assert editor.select_rectangle(Rect(1, 1, 2, 2)).object_ids == {"a"}
-    assert editor.snapshot.revision == revision
-    assert editor.snapshot.selection.focus == original_focus
-    with editor.transaction("Move") as tx:
-        tx.set_attributes("a", {"transform": "translate(50 0)"})
-    assert not editor.select_rectangle(Rect(1, 1, 2, 2)).object_ids
-    editor.undo()
-    assert editor.select_rectangle(Rect(1, 1, 2, 2)).object_ids == {"a"}
 
 
 def test_referenced_shape_inherits_from_instance_not_definition_ancestors():

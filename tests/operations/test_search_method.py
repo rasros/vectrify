@@ -42,7 +42,7 @@ def editor(*ids):
 
 def test_validation_needs_a_reference_scope_and_permission():
     search = method("improve", "search")
-    with pytest.raises(DocumentError, match="Select objects"):
+    with pytest.raises(DocumentError, match="Select the objects"):
         search.validate(request(editor(), paint=True))
     with pytest.raises(DocumentError, match="at least one"):
         search.validate(request(editor("a")))

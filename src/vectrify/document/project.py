@@ -13,7 +13,6 @@ from vectrify.document.model import (
     Element,
     Geometry,
     PathNode,
-    Rect,
     Selection,
     SharedBoundary,
     Subpath,
@@ -47,7 +46,6 @@ def save_project(document: Document, selection: Selection | None = None) -> str:
                 "object_ids": sorted(selection.object_ids),
                 "node_ids": sorted(selection.node_ids),
                 "whole_document": selection.whole_document,
-                "focus": asdict(selection.focus) if selection.focus else None,
             },
         },
         allow_nan=False,
@@ -106,7 +104,6 @@ def load_project(source: str) -> tuple[Document, Selection]:
             object_ids=frozenset(selection_data["object_ids"]),
             node_ids=frozenset(selection_data["node_ids"]),
             whole_document=selection_data["whole_document"],
-            focus=Rect(**selection_data["focus"]) if selection_data["focus"] else None,
         )
         export_svg(document)
         document.selection_ids(selection)

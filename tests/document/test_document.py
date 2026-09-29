@@ -14,7 +14,6 @@ from vectrify.document import (
     EditKind,
     Editor,
     EditRejectedError,
-    Rect,
     Selection,
     StaleRevisionError,
     UnsupportedSvgError,
@@ -45,8 +44,8 @@ def render(svg):
     return np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))
 
 
-def select(*ids, nodes=(), focus=None):
-    return Selection(frozenset(ids), frozenset(nodes), focus=focus)
+def select(*ids, nodes=()):
+    return Selection(frozenset(ids), frozenset(nodes))
 
 
 def test_import_export_preserves_rendering_and_shared_dependencies():
@@ -99,7 +98,7 @@ def test_snapshots_are_immutable():
 
 
 def test_empty_selection_and_focus_alone_never_mean_everything():
-    for selection in (Selection(), Selection(focus=Rect(0, 0, 32, 32))):
+    for selection in (Selection(),):
         editor = Editor(import_svg(SVG), selection=selection)
         with (
             pytest.raises(EditRejectedError, match="unselected"),
@@ -298,7 +297,7 @@ def test_project_roundtrip_retains_all_identities_constraints_and_selection():
     node = editor.snapshot.document.geometry_for("first").subpaths[0].nodes[0]
     editor.pin_node("first", node.id)
     editor.set_locks("first", frozenset({"fill", EditKind.TRANSFORM}))
-    editor.select(select("first", nodes=[node.id], focus=Rect(0, 0, 10, 10)))
+    editor.select(select("first", nodes=[node.id]))
     document, selection = load_project(
         save_project(editor.snapshot.document, editor.snapshot.selection)
     )
@@ -468,17 +467,6 @@ def test_project_loader_checks_structural_and_property_constraints():
         load_project(json.dumps(data))
     with pytest.raises(UnsupportedSvgError, match="Invalid XML"):
         import_svg("<svg><path></svg>")
-
-
-def test_focus_region_validation_and_immutable_selection_inputs():
-    with pytest.raises(DocumentError, match="positive"):
-        Rect(0, 0, 0, 10)
-    with pytest.raises(DocumentError, match="finite"):
-        Rect(float("nan"), 0, 10, 10)
-    objects = {"a"}
-    selection = Selection(object_ids=frozenset(objects))
-    objects.add("b")
-    assert selection.object_ids == {"a"}
 
 
 def test_detach_materializes_path_with_instance_and_source_compositing():

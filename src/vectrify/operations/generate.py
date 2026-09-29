@@ -18,7 +18,14 @@ import cairosvg
 import numpy as np
 from PIL import Image
 
-from vectrify.document import Document, DocumentError, Element, export_svg, import_svg
+from vectrify.document import (
+    Document,
+    DocumentError,
+    Element,
+    HitIndex,
+    export_svg,
+    import_svg,
+)
 from vectrify.document.model import new_id
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import OperationRequest, OperationResult, Proposal
@@ -42,20 +49,49 @@ class Region:
         return f"matrix({sx!r} 0 0 {sy!r} {self.x!r} {self.y!r})"
 
 
+# Room around the selection for the search to move into, as a share of the
+# selection's larger side, and never less than a few reference pixels.
+REGION_MARGIN = 0.1
+REGION_MARGIN_PIXELS = 3
+
+
+def selected_bounds(request: OperationRequest) -> tuple[float, float, float, float]:
+    """The painted bounds of the selected objects, or the artboard for a
+    whole-drawing request or a selection that paints nothing (an empty group)."""
+    document = request.snapshot.document
+    vx, vy, vw, vh = document.artboard()
+    selection = request.snapshot.selection
+    painted = (
+        None
+        if selection.whole_document or not selection.object_ids
+        else HitIndex(document).bounds(selection.object_ids)
+    )
+    if painted is None:
+        return vx, vy, vx + vw, vy + vh
+    left, top, right, bottom = painted
+    assert request.reference is not None
+    pixel = max(vw / request.reference.width, vh / request.reference.height)
+    pad = max(
+        REGION_MARGIN * max(right - left, bottom - top), REGION_MARGIN_PIXELS * pixel
+    )
+    return left - pad, top - pad, right + pad, bottom + pad
+
+
 def target_region(request: OperationRequest) -> Region:
-    """The focus rectangle if one is set, otherwise the whole artboard."""
+    """The selected objects' surroundings, or the artboard for the whole drawing.
+
+    Scoring a small edit against the whole picture drowns it: a path that
+    covers 2% of the artboard moves the error of the whole by almost nothing.
+    """
     if request.reference is None:
         raise DocumentError("Add a reference image to generate from")
     reference = on_white(request.reference)
     vx, vy, vw, vh = request.snapshot.document.artboard()
-    focus = request.snapshot.selection.focus
-    if focus is None:
-        return Region(vx, vy, vw, vh, reference)
-    left, top = max(focus.x, vx), max(focus.y, vy)
-    right = min(focus.x + focus.width, vx + vw)
-    bottom = min(focus.y + focus.height, vy + vh)
+    left, top, right, bottom = selected_bounds(request)
+    left, top = max(left, vx), max(top, vy)
+    right, bottom = min(right, vx + vw), min(bottom, vy + vh)
     if right <= left or bottom <= top:
-        raise DocumentError("The focus region is outside the artboard")
+        raise DocumentError("The selection is outside the artboard")
     sx, sy = reference.width / vw, reference.height / vh
     box = (
         round((left - vx) * sx),
@@ -64,7 +100,7 @@ def target_region(request: OperationRequest) -> Region:
         round((bottom - vy) * sy),
     )
     if box[2] <= box[0] or box[3] <= box[1]:
-        raise DocumentError("The focus region is smaller than one reference pixel")
+        raise DocumentError("The selection is smaller than one reference pixel")
     # Snap the region to the crop's whole pixels so the transform is exact.
     return Region(
         vx + box[0] / sx,

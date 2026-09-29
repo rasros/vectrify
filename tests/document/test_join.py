@@ -289,12 +289,13 @@ def test_join_two_groups_preserves_clipping_and_inherited_color_choice():
     editor = Editor(doc, selection=select("g", "h"))
     with editor.transaction("Join") as tx:
         joined = tx.join_paths(frozenset({"g", "h"}), color_source="b")
-    from vectrify.document import HitIndex, Rect
+    from tests.document.test_hit_test import hits
+    from vectrify.document import HitIndex
 
     hit = HitIndex(editor.snapshot.document)
-    assert hit.query(Rect(1, 1, 1, 1)).object_ids == {joined}
-    assert not hit.query(Rect(7, 1, 1, 1)).object_ids
-    assert hit.query(Rect(21, 1, 1, 1)).object_ids == {joined}
+    assert hits(hit, 1, 1, 1, 1) == {joined}
+    assert not hits(hit, 7, 1, 1, 1)
+    assert hits(hit, 21, 1, 1, 1) == {joined}
     assert editor.snapshot.document.element(joined).get("fill") == "blue"
 
 
