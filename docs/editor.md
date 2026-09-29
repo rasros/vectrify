@@ -157,8 +157,10 @@ allowed (shape and position, paint, adding/removing/restacking). The reply is
 replayed as ordinary edits: anything outside the chosen objects or permissions
 is left out and reported, and locks and pins are enforced. With several
 replies, pick one by preview and reference error. The Generate dialog's LLM
-method draws the reference from scratch instead. Both need an API key, entered
-under **Settings** in the top bar; the editor shows only the last four
+method draws the reference from scratch instead. Both need an API key or a local
+server, set up under **Settings** in the top bar. A local server is any
+OpenAI-compatible endpoint, such as `http://localhost:11434/v1` for Ollama,
+with a model that accepts images. The editor shows only the last four
 characters of a saved key.
 
 **Fit colours…** solves the flat fill colour of every selected object that

@@ -53,10 +53,12 @@ colour regions need an NVIDIA GPU with PyTorch CUDA; SAMVG and the search use
 it when available. Optimize path also needs the optional native CUDA extension
 (below).
 
-The LLM methods need an OpenAI, Anthropic or Gemini API key, entered under
-**Settings** in the editor. Keys are saved to `~/.config/vectrify/settings.json`
-(owner-readable only); with the provider set to automatic, the first saved key
-is used in that order.
+The LLM methods need an OpenAI, Anthropic or Gemini API key, or a local
+server with an OpenAI-compatible API (Ollama, LM Studio, llama.cpp, vLLM) and a
+vision model, entered under **Settings** in the editor. They are saved to
+`~/.config/vectrify/settings.json` (owner-readable only). With the provider set
+to automatic, the hosted providers are tried in that order and the local server
+last.
 
 ## SAMVG
 

@@ -16,7 +16,7 @@ from typing import ClassVar
 
 from vectrify.document import DocumentError, UnsupportedSvgError
 from vectrify.image_utils import png_url, preview_urls, resize_long_side
-from vectrify.llm.models import DEFAULT_MODELS, PROVIDERS, resolve_provider
+from vectrify.llm.models import PROVIDERS, resolve_provider
 from vectrify.operations.candidates import (
     mutation_scope,
     region_svg,
@@ -59,13 +59,15 @@ def _client(settings):
     from vectrify.llm import LLMConfig, get_provider
 
     try:
-        provider, key = resolve_provider(settings["provider"])
+        connection = resolve_provider(settings["provider"])
     except ValueError as exc:
         raise DocumentError(str(exc)) from exc
-    model = settings["model"] or DEFAULT_MODELS[provider]
-    return get_provider(provider, key), LLMConfig(
-        model=model, reasoning=settings["reasoning"]
-    )
+    model = settings["model"] or connection.model
+    if not model:
+        raise DocumentError("Name the local server's model here or in Settings")
+    # Local servers mostly reject OpenAI's reasoning_effort parameter.
+    reasoning = None if connection.provider == "local" else settings["reasoning"]
+    return get_provider(connection), LLMConfig(model=model, reasoning=reasoning)
 
 
 def to_canvas(svg: str, size: tuple[int, int]) -> str:

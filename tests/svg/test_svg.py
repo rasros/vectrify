@@ -135,7 +135,7 @@ def test_llm_svg_generation_produces_valid_svg():
     from vectrify.llm import LLMConfig, get_provider
     from vectrify.llm.models import resolve_provider
 
-    client = get_provider(*resolve_provider("openai"))
+    client = get_provider(resolve_provider("openai"))
     prompt = build_svg_gen_prompt(_make_image_data_url("blue"), iter_index=1)
     raw = client.generate(prompt, LLMConfig(model=_MODEL))
     svg = extract_svg_fragment(raw)
@@ -156,7 +156,7 @@ def test_llm_svg_refinement_produces_valid_svg():
         svg_prev=parent_svg,
         goal="Make the fill color match the target image.",
     )
-    client = get_provider(*resolve_provider("openai"))
+    client = get_provider(resolve_provider("openai"))
     raw = client.generate(prompt, LLMConfig(model=_MODEL))
     svg = apply_edit(parent_svg, raw)
     valid, err = is_valid_svg(svg)

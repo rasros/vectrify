@@ -227,3 +227,18 @@ def test_the_session_prefers_the_reference_name_and_skips_placeholders():
     assert session.source_name() == "logo.svg"
     session.reference = {"name": "duck.png", "data_url": "", "opacity": 0.5}
     assert session.source_name() == "duck.png"
+
+
+def test_a_local_server_needs_a_model_and_sends_no_reasoning(monkeypatch):
+    from vectrify.llm import keys
+    from vectrify.operations.methods.llm import _client
+
+    seen = []
+    monkeypatch.setattr("vectrify.llm.get_provider", seen.append)
+    keys.save(local={"base_url": "http://localhost:11434/v1"})
+    settings = {"provider": "local", "model": "", "reasoning": "high"}
+    with pytest.raises(DocumentError, match="model"):
+        _client(settings)
+    _, config = _client({**settings, "model": "qwen2.5vl"})
+    assert seen[-1].base_url == "http://localhost:11434/v1"
+    assert (config.model, config.reasoning) == ("qwen2.5vl", None)

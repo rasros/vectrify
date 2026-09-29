@@ -115,9 +115,11 @@ recommendation. Stop ends the search and keeps the best pool so far.
 ## LLM methods
 
 `generate/llm` and `improve/llm` pick the provider from `settings.provider`
-(`auto` takes the first key saved in Settings, in the order OpenAI,
-Anthropic, Gemini; see `vectrify.llm.keys`), `model` (empty for the provider default) and
-`reasoning`. `candidates` asks for several replies, each ranked by reference
+(`auto` takes the first provider set up in Settings, in the order OpenAI,
+Anthropic, Gemini, then `local`; see `vectrify.llm.keys`), `model` (empty for
+the provider default, or the local server's saved model) and `reasoning`. The
+`local` provider sends the OpenAI chat request to the saved server URL, and
+leaves out `reasoning`, which most local servers reject. `candidates` asks for several replies, each ranked by reference
 error. Generate pins the model's viewBox to the region's pixel size and
 rescales a reply that uses another. Improve requires an instruction, names the
 editable object IDs in the prompt, and replays leniently; the prompt is a
