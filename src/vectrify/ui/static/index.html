@@ -56,16 +56,24 @@
 </main>
 <div id="toast" role="status" aria-live="polite" hidden><span id="toast-message"></span><button id="toast-close" aria-label="Dismiss message">×</button></div>
 <dialog id="recovery-dialog" aria-labelledby="recovery-title"><h2 id="recovery-title">Restore saved project</h2><p>Browser recovery copies include the drawing, reference image and selection. Choose a copy to open it in this tab.</p><div id="recovery-list"></div><button id="recovery-close">Cancel</button></dialog>
-<dialog id="contact-dialog" aria-labelledby="contact-title"><h2 id="contact-title">Share boundary</h2><p>Automatically match touching edges of the two selected paths. The frontmost contour stays in place; the other contour snaps to it. Regions keep their own colors.</p><label>Contact distance (SVG units)<input id="contact-distance" type="number" min="0.01" max="20" step="0.25" value="1"></label><p class="muted">Linked endpoints and handles move together, even when only one region is selected. Pins and locks still apply. Save a project to keep these links; SVG preserves the contours but not the editing links.</p><div id="contact-previews" class="simplify-previews" hidden><figure><figcaption>Before</figcaption><img id="contact-before" alt="Regions before boundary matching"></figure><figure><figcaption>After · shared edges highlighted</figcaption><img id="contact-after" alt="Matched edges highlighted in cyan"></figure></div><p id="contact-status" role="status"></p><p id="contact-error" hidden></p><div class="join-actions"><button id="contact-close">Cancel</button><button id="contact-preview">Preview</button><button id="contact-apply" class="primary" hidden>Apply shared boundary</button></div></dialog>
-<dialog id="simplify-dialog" aria-labelledby="simplify-title">
+<dialog id="contact-dialog" class="job-dialog" aria-labelledby="contact-title">
+  <h2 id="contact-title">Share boundary</h2>
+  <p id="contact-summary" class="muted">Automatically match touching edges of the two selected paths. The frontmost contour stays in place; the other contour snaps to it. Regions keep their own colors.</p>
+  <fieldset id="contact-settings" class="job-settings"><label>Contact distance (SVG units)<input id="contact-distance" type="number" min="0.01" max="20" step="0.25" value="1"></label><p class="muted">Linked endpoints and handles move together, even when only one region is selected. Pins and locks still apply. Save a project to keep these links; SVG preserves the contours but not the editing links.</p></fieldset>
+  <div id="contact-progress" class="job-progress" hidden><progress id="contact-meter" max="1" value="0"></progress><p id="contact-status" role="status" aria-live="polite"></p></div>
+  <div id="contact-previews" hidden><div class="fit-previews two"><figure><figcaption>Before</figcaption><img id="contact-before" alt="Regions before boundary matching"></figure><figure><figcaption>After · shared edges highlighted</figcaption><img id="contact-after" alt="Matched edges highlighted in cyan"></figure></div><p id="contact-metrics"></p></div>
+  <p id="contact-error" class="job-error" role="alert" hidden></p>
+  <div class="join-actions"><button id="contact-close">Cancel</button><button id="contact-stop" hidden>Stop</button><button id="contact-run">Preview</button><button id="contact-apply" class="primary" hidden>Apply shared boundary</button></div>
+</dialog>
+<dialog id="simplify-dialog" class="job-dialog" aria-labelledby="simplify-title">
   <h2 id="simplify-title">Smooth / simplify</h2>
   <p id="simplify-summary"></p>
   <p class="muted">Replace noisy segments with fewer lines and curves. Higher tolerance allows more smoothing.</p>
-  <fieldset id="simplify-settings"><div class="two-fields"><label>Contour tolerance (SVG units)<input id="simplify-tolerance" type="number" min="0.01" max="100" step="0.25" value="1"></label><label class="toggle"><input id="simplify-corners" type="checkbox" checked> Keep sharp corners</label></div><p class="muted">Pinned endpoints stay fixed; holes and separate parts are preserved. Paint and stacking stay unchanged. No reference image needed.</p></fieldset>
-  <p id="simplify-status" role="status" aria-live="polite"></p>
-  <div id="simplify-previews" hidden><div class="simplify-previews"><figure><figcaption>Before</figcaption><img id="simplify-before" alt="Shape before simplification"></figure><figure><figcaption>After</figcaption><img id="simplify-after" alt="Smoothed and simplified shape"></figure></div><p id="simplify-stats"></p></div>
-  <p id="simplify-error" role="alert" hidden></p>
-  <div class="join-actions"><button id="simplify-close">Cancel</button><button id="simplify-run">Preview</button><button id="simplify-apply" class="primary" hidden>Apply</button></div>
+  <fieldset id="simplify-settings" class="job-settings"><div class="two-fields"><label>Contour tolerance (SVG units)<input id="simplify-tolerance" type="number" min="0.01" max="100" step="0.25" value="1"></label><label class="toggle"><input id="simplify-corners" type="checkbox" checked> Keep sharp corners</label></div><p class="muted">Pinned endpoints stay fixed; holes and separate parts are preserved. Paint and stacking stay unchanged. No reference image needed.</p></fieldset>
+  <div id="simplify-progress" class="job-progress" hidden><progress id="simplify-meter" max="1" value="0"></progress><p id="simplify-status" role="status" aria-live="polite"></p></div>
+  <div id="simplify-previews" hidden><div class="fit-previews two"><figure><figcaption>Before</figcaption><img id="simplify-before" alt="Shape before simplification"></figure><figure><figcaption>After</figcaption><img id="simplify-after" alt="Smoothed and simplified shape"></figure></div><p id="simplify-metrics"></p></div>
+  <p id="simplify-error" class="job-error" role="alert" hidden></p>
+  <div class="join-actions"><button id="simplify-close">Cancel</button><button id="simplify-stop" hidden>Stop</button><button id="simplify-run">Preview</button><button id="simplify-apply" class="primary" hidden>Apply</button></div>
 </dialog>
 <dialog id="optimize-dialog" aria-labelledby="optimize-title">
   <h2 id="optimize-title">Optimize path</h2>
