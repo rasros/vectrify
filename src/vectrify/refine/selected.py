@@ -7,6 +7,7 @@ Cairo again, so renderer approximation cannot turn a worse fit into a result.
 
 from __future__ import annotations
 
+import functools
 import io
 import math
 import xml.etree.ElementTree as ET
@@ -72,6 +73,22 @@ class FitResult:
             tx.set_attributes(self.object_id, {"fill": self.fill})
         if self.stroke is not None:
             tx.set_attributes(self.object_id, {"stroke": self.stroke})
+
+
+@functools.cache
+def gpu_problem() -> str | None:
+    """Why GPU fitting cannot run on this machine, or None when it can."""
+    try:
+        import torch
+    except ImportError:
+        return "GPU fitting needs PyTorch with CUDA and the Vectrify CUDA extension"
+    from vectrify.refine.cuda_renderer import available
+
+    if not torch.cuda.is_available():
+        return "GPU fitting needs an NVIDIA GPU with CUDA"
+    if not available():
+        return "GPU fitting needs the Vectrify CUDA extension"
+    return None
 
 
 def validate_selection(document: Document, selection: Selection, options: FitOptions):
@@ -285,18 +302,13 @@ def fit_selected_path(
     progress: Callable[[int, str], None] | None = None,
 ) -> FitResult:
     """Expose the path-fit mutator's filled-path optimizer for an explicit selection."""
-    try:
-        import torch
-    except ImportError:
-        raise DocumentError(
-            "GPU fitting needs PyTorch with CUDA and the Vectrify CUDA extension"
-        ) from None
+    problem = gpu_problem()
+    if problem:
+        raise DocumentError(problem)
+    import torch
 
-    from vectrify.refine.cuda_renderer import available
     from vectrify.refine.paths import fit_filled_svg, to_path_d
 
-    if not torch.cuda.is_available() or not available():
-        raise DocumentError("GPU fitting needs CUDA and the Vectrify CUDA extension")
     stop = stop or Event()
     report = progress or (lambda _step, _message: None)
     report(0, "Preparing clipping and surrounding artwork…")

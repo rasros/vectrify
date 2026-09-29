@@ -7,9 +7,9 @@ from vectrify.operations.methods import (
     colours,
     curves,
     llm,
+    nodes,
     path_fit,
     samvg,
-    search,
 )
 
 __all__ = [
@@ -19,7 +19,7 @@ __all__ = [
     "colours",
     "curves",
     "llm",
+    "nodes",
     "path_fit",
     "samvg",
-    "search",
 ]

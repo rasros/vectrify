@@ -11,7 +11,7 @@ from __future__ import annotations
 import io
 import re
 import xml.etree.ElementTree as ET
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any
 
 import cairosvg
@@ -69,12 +69,36 @@ def selected_bounds(request: OperationRequest) -> tuple[float, float, float, flo
     if painted is None:
         return vx, vy, vx + vw, vy + vh
     left, top, right, bottom = painted
-    assert request.reference is not None
-    pixel = max(vw / request.reference.width, vh / request.reference.height)
+    reference = request.reference
+    pixel = max(vw / reference.width, vh / reference.height) if reference else 0.0
     pad = max(
         REGION_MARGIN * max(right - left, bottom - top), REGION_MARGIN_PIXELS * pixel
     )
     return left - pad, top - pad, right + pad, bottom + pad
+
+
+def _on_artboard(request: OperationRequest) -> tuple[float, float, float, float]:
+    vx, vy, vw, vh = request.snapshot.document.artboard()
+    left, top, right, bottom = selected_bounds(request)
+    left, top = max(left, vx), max(top, vy)
+    right, bottom = min(right, vx + vw), min(bottom, vy + vh)
+    if right <= left or bottom <= top:
+        raise DocumentError("The selection is outside the artboard")
+    return left, top, right, bottom
+
+
+def drawing_region(request: OperationRequest, long_side: int) -> Region:
+    """The selection's surroundings with the drawing itself as the image.
+
+    What an operation compares against when there is no reference: the
+    drawing as it stands, so a change is judged by how far it moves from it.
+    """
+    left, top, right, bottom = _on_artboard(request)
+    width, height = right - left, bottom - top
+    scale = long_side / max(width, height)
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+    blank = Region(left, top, width, height, Image.new("RGB", size))
+    return replace(blank, image=render_region(request.snapshot.document, blank))
 
 
 def target_region(request: OperationRequest) -> Region:
@@ -87,11 +111,7 @@ def target_region(request: OperationRequest) -> Region:
         raise DocumentError("Add a reference image to generate from")
     reference = on_white(request.reference)
     vx, vy, vw, vh = request.snapshot.document.artboard()
-    left, top, right, bottom = selected_bounds(request)
-    left, top = max(left, vx), max(top, vy)
-    right, bottom = min(right, vx + vw), min(bottom, vy + vh)
-    if right <= left or bottom <= top:
-        raise DocumentError("The selection is outside the artboard")
+    left, top, right, bottom = _on_artboard(request)
     sx, sy = reference.width / vw, reference.height / vh
     box = (
         round((left - vx) * sx),

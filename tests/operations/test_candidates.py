@@ -1,7 +1,6 @@
 """Mutated SVG is accepted only as ordinary, scope-checked transaction commands."""
 
 import pytest
-from PIL import Image
 
 from vectrify.document import (
     DocumentError,
@@ -104,42 +103,3 @@ def test_unchanged_candidate_makes_no_edits():
     ed, tx = editor("a", geometry=True, paint=True)
     assert replay(tx, exported(ed)).edits == 0
     assert tx.preview == ed.snapshot.document
-
-
-def test_scoped_search_results_replay_through_the_transaction():
-    from vectrify.image_utils import png_bytes
-    from vectrify.operations import OperationRequest, Permissions
-    from vectrify.operations.candidates import mutation_scope
-    from vectrify.score.simple import SimpleFallbackScorer
-    from vectrify.vector.search import SearchSettings, run_search
-    from vectrify.vector.worker import WorkerContext
-
-    ed = Editor(import_svg(SVG), selection=Selection(object_ids=frozenset({"a"})))
-    request = OperationRequest(
-        action="improve",
-        method="search",
-        snapshot=ed.snapshot,
-        editor=ed,
-        permissions=Permissions(paint=True),
-    )
-    target = Image.new("RGB", (40, 40), "white")
-    scorer = SimpleFallbackScorer()
-    reference = scorer.prepare_reference(target)
-    outcome = run_search(
-        [export_svg(ed.snapshot.document)],
-        lambda png: scorer.score(reference, png),
-        WorkerContext(
-            scope=mutation_scope(request),
-            original_png_bytes=png_bytes(target),
-            original_w=40,
-            original_h=40,
-        ),
-        SearchSettings(max_total_tasks=40, keep=6, random_seed=3),
-    )
-    changed = 0
-    for candidate in outcome.ranked:
-        tx = request.transaction("Improve")
-        changed += replay(tx, candidate.content).edits > 0
-        for other in ("b", "c"):
-            assert tx.preview.element(other) == ed.snapshot.document.element(other)
-    assert changed
