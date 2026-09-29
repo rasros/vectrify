@@ -31,7 +31,6 @@ class SearchNode(Generic[TState]):
     # every constructor call between the worker and the objective vector.
     metrics: dict[str, float] = dataclasses.field(default_factory=dict, repr=False)
     signature: int | None = None
-    epoch: int = 0
     # The seed this node descends from. Crossover between two nodes of the same
     # lineage recombines a candidate with itself, so selection uses this to pair
     # only across lineages.

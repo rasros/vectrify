@@ -125,7 +125,6 @@ class SearchProgress:
     """A snapshot of a running search, reported after every result."""
 
     tasks_completed: int
-    epoch: int
     pool_size: int
     elapsed: float
 
@@ -140,12 +139,11 @@ class SearchOutcome(Generic[TState]):
 
 
 class MultiprocessSearchEngine(Generic[TState]):
-    """NSGA-II local search in epochs, judged by an optional evaluator.
+    """NSGA-II local search, judged by an optional evaluator.
 
     Workers mutate and recombine the pool; generations are merged by NSGA-II
-    truncation. An epoch ends on staleness, a task budget or evaluator
-    patience; the evaluator picks the best candidate at each boundary and at
-    the end of the run.
+    truncation. The evaluator is asked every ``epoch_eval_interval`` tasks and
+    picks the best candidate at the end of the run.
     """
 
     def __init__(
@@ -156,7 +154,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         make_state: Callable[[Result], ChainState[TState]] = keep_payload,
         rank_front: Callable[[list[SearchNode[TState]]], list[SearchNode[TState]]]
         | None = None,
-        elite_metric_names: tuple[str, ...] = (),
     ):
         self.workers = workers
         self.strategy = strategy
@@ -164,7 +161,6 @@ class MultiprocessSearchEngine(Generic[TState]):
         self.make_state = make_state
         # Orders a converged front by the run's real objective.
         self.rank_front = rank_front
-        self.elite_metric_names = elite_metric_names
 
         self.ctx = mp.get_context("spawn")
         self.task_q = self.ctx.Queue(maxsize=max(64, workers * 8))
@@ -191,16 +187,10 @@ class MultiprocessSearchEngine(Generic[TState]):
         self,
         initial_nodes: list[SearchNode[TState]],
         max_wall_seconds: float | None = None,
-        epoch_patience: int | None = None,
         active_pool_size: int = 20,
         generation_size: int | None = None,
         score_fn: Callable[[list[Result]], None] | None = None,
-        epochs: int | None = None,
-        epoch_max_tasks: int | None = None,
         epoch_eval_interval: int | None = None,
-        epoch_eval_patience: int | None = None,
-        epoch_improvement: float = 0.0,
-        epoch_improvement_patience: int = 1,
         operator_policy: OperatorPolicy | None = None,
         stop: threading.Event | None = None,
         progress: Callable[[SearchProgress], None] | None = None,
@@ -231,16 +221,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         # Each starting candidate is its own lineage; children inherit it.
         node_roots = run_state.node_roots
         node_origins = run_state.node_origins
-        # Per-region champions intentionally sit outside the main population:
-        # the best rendition of a target part must survive global trade-offs.
-        segment_elites: dict[str, SearchNode[TState]] = {}
 
         # No ordering to apply: the measures are traded off by dominance and
         # nothing ranks a candidate on its own. The pool is a set, and the cap
         # takes whatever arrived.
         active_pool = run_state.active_pool
-        # Set by the evaluator, the run's only score, at each epoch boundary and
-        # at the end. There is deliberately no best between those points.
+        # Set by the evaluator, the run's only score, at each check and at the
+        # end. There is deliberately no best between those points.
         best_node: SearchNode[TState] | None = None
 
         # Hold children back and merge them as a generation: selection is a
@@ -248,80 +235,16 @@ class MultiprocessSearchEngine(Generic[TState]):
         pending_children: list[SearchNode[TState]] = []
         lambda_size = max(1, generation_size or active_pool_size)
 
-        epoch = 0
-        epoch_no_improve = 0
-        epoch_started_at = 0
-        # The evaluator's view of the epoch, kept between checks. Its score is
-        # a calibrated distance to the target, so a value from one check is
-        # comparable with the next -- which is the whole reason it can be
-        # tracked at all.
+        # The evaluator's best so far. Its score is a calibrated distance to the
+        # target, so a value from one check is comparable with the next.
         best_panel: float | None = None
         last_eval_at = 0
-        # Counted in evaluator checks, not generations, because checks are the
-        # evaluator's observations.
-        checks_without_gain = 0
-        # Track run-level evaluator progress separately from per-epoch
-        # staleness: one ends an epoch, the other decides whether another epoch
-        # is worth starting.
-        panel_at_epoch_open: float | None = None
-        epochs_without_gain = 0
-        # Set when the epochs stop paying, so the loop stops.
-        epochs_exhausted = False
-        # Reset at every transition, so each epoch is judged against the
-        # pool it opened with rather than against the first one.
 
         next_task_id = 1
         tasks_completed = 0
         in_flight = 0
 
         log.info(f"Search started with {len(active_pool)} candidate(s) in the pool.")
-
-        def _rank_epoch_front() -> None:
-            """Ask the evaluator for the best candidate as an epoch opens.
-
-            The field is the pool's leading tier plus every tile's champion,
-            which the pool's global trade-offs may have dropped, and the
-            standing best. The standing best joins afterwards, not before:
-            epoch_parents selects by dominance over the measures, and the
-            candidate the evaluator likes best is often dominated on those.
-            """
-            nonlocal best_node, best_panel
-
-            pending_children.clear()
-            if self.rank_front is None:
-                return
-            pool_ids = {n.id for n in active_pool}
-            candidates = active_pool + [
-                n for n in segment_elites.values() if n.id not in pool_ids
-            ]
-            region_champions = list(
-                {node.id: node for node in segment_elites.values()}.values()
-            )
-            parents = self.strategy.epoch_parents(candidates, FRONT_EVAL_CAP)
-            for champion in region_champions:
-                if all(champion.id != parent.id for parent in parents):
-                    parents.append(champion)
-            if best_node is not None and all(n.id != best_node.id for n in parents):
-                parents.append(best_node)
-            if not parents:
-                return
-            try:
-                parents = self.rank_front(parents)
-            except Exception as exc:
-                log.warning(f"Front evaluation failed, keeping rank order: {exc}")
-                return
-            # Only a candidate that improves the evaluator's score takes the
-            # title; dominance ranking may omit its prior choice.
-            top = parents[0] if parents else None
-            value = top.metrics.get(FRONT_SCORE) if top is not None else None
-            if (
-                top is not None
-                and value is not None
-                and (best_panel is None or value < best_panel)
-            ):
-                best_panel = value
-                best_node = top
-                log.info(f"Best so far: node={top.id} evaluator={value:.6f}")
 
         def _dispatch_tasks():
             nonlocal in_flight, next_task_id
@@ -379,21 +302,10 @@ class MultiprocessSearchEngine(Generic[TState]):
                 secondary_parent_id=res.secondary_parent_id,
                 metrics=res.metrics,
                 signature=res.signature,
-                epoch=epoch,
                 root_id=root,
                 origin_id=origin,
                 operator=res.operator,
             )
-
-        def _archive_segment_elites(node: SearchNode[TState]) -> None:
-            """Remember the best candidate ever measured for every tile."""
-            for name in self.elite_metric_names:
-                value = node.metrics.get(name)
-                if value is None:
-                    continue
-                current = segment_elites.get(name)
-                if current is None or value < current.metrics.get(name, float("inf")):
-                    segment_elites[name] = node
 
         def _close_generation() -> None:
             """Merge the finished batch of children into the pool.
@@ -401,7 +313,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             Survival is an NSGA-II truncation of parents and children by
             non-dominated rank then crowding distance.
             """
-            nonlocal active_pool, epoch_no_improve
+            nonlocal active_pool
 
             if not pending_children:
                 return
@@ -409,16 +321,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             combined = active_pool + pending_children
             survivors = self.strategy.select_survivors(combined, active_pool_size)
             kept = {n.id for n in survivors}
-
-            # Progress is a new candidate reaching the best-ranked tier. Read
-            # off the dominance relation, so it needs no blended score and no
-            # threshold on a magnitude -- an epoch goes stale when nothing new
-            # can get to the front any more, whatever the numbers happen to be
-            # denominated in.
-            new_ids = {n.id for n in pending_children}
-            top_tier = self.strategy.top_tier_ids(combined)
-            if new_ids & top_tier:
-                epoch_no_improve = 0
 
             for child in pending_children:
                 if operator_policy is not None:
@@ -484,7 +386,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
             new_node = _make_node(res)
             pending_children.append(new_node)
-            _archive_segment_elites(new_node)
             log.debug(f"[ACCEPTED] node={new_node.id}")
 
             # Progress is decided when the generation closes, where the pool is
@@ -492,47 +393,6 @@ class MultiprocessSearchEngine(Generic[TState]):
             # have reached the top tier before it has been ranked against one.
             if len(pending_children) >= lambda_size:
                 _close_generation()
-
-        def _do_epoch_transition(reason: str) -> None:
-            nonlocal epoch, epoch_started_at, checks_without_gain
-            nonlocal panel_at_epoch_open, epochs_without_gain, epochs_exhausted
-
-            epoch_started_at = tasks_completed
-            # The evaluator's best carries across epochs -- it is an absolute
-            # score, and a later epoch has to beat what the run already has --
-            # but the patience counting restarts with the epoch.
-            checks_without_gain = 0
-
-            # The children that arrived since the last generation have to land
-            # in the pool before the evaluator looks at it.
-            _close_generation()
-
-            log.info(f"Epoch {epoch} → {epoch + 1}: {reason}")
-            epoch += 1
-            if epochs is not None and epoch >= epochs:
-                # The run loop is about to stop and ranks the pool itself.
-                return
-
-            # Ask the evaluator what the epoch just ended actually bought. The
-            # score is absolute and cached per node, so ranking the same field
-            # again in _rank_epoch_front re-prices only what is new.
-            _run_panel_check()
-            if epoch_improvement_patience > 0 and best_panel is not None:
-                if panel_at_epoch_open is not None:
-                    if panel_at_epoch_open - best_panel > epoch_improvement:
-                        epochs_without_gain = 0
-                    else:
-                        epochs_without_gain += 1
-                panel_at_epoch_open = best_panel
-                if epochs_without_gain >= epoch_improvement_patience:
-                    log.info(
-                        f"Epochs stopped paying: {epochs_without_gain} in a row "
-                        f"improved the evaluator's best by no more than "
-                        f"{epoch_improvement:g} (best {best_panel:.6f})."
-                    )
-                    epochs_exhausted = True
-                    return
-            _rank_epoch_front()
 
         def _run_panel_check() -> None:
             """Put the current front to the evaluator and record its verdict.
@@ -543,7 +403,7 @@ class MultiprocessSearchEngine(Generic[TState]):
             has already scored costs nothing to include, so the cap is about
             new work, not about the size of the field.
             """
-            nonlocal best_panel, last_eval_at, checks_without_gain, best_node
+            nonlocal best_panel, last_eval_at, best_node
 
             # Before anything else, including ranking a field: with no
             # evaluator there is no check to run, and building the field costs
@@ -552,7 +412,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 return
 
             last_eval_at = tasks_completed
-            checks_without_gain += 1
             field = self.strategy.epoch_parents(active_pool, FRONT_EVAL_CAP)
             if not field or self.rank_front is None:
                 return
@@ -568,59 +427,18 @@ class MultiprocessSearchEngine(Generic[TState]):
             value = top.metrics[FRONT_SCORE]
             if best_panel is None or value < best_panel:
                 best_panel = value
-                checks_without_gain = 0
                 best_node = top
                 log.info(f"Evaluator: node={top.id} score={value:.6f}")
 
-        def _check_epoch_end():
-            staleness = (
-                epoch_patience is not None and epoch_no_improve >= epoch_patience
-            )
-            # A ceiling on how long one epoch may run. Staleness measures pool
-            # progress; this caps time without evaluator feedback. Cheap
-            # measures can improve without the drawing getting better, so ask
-            # the evaluator while an epoch is running.
+        def _maybe_check_evaluator() -> None:
+            # Cheap measures can improve without the drawing getting better, so
+            # ask the evaluator while the run is going, not only at its end.
             if (
                 self.rank_front is not None
                 and epoch_eval_interval
                 and tasks_completed - last_eval_at >= epoch_eval_interval
             ):
                 _run_panel_check()
-
-            panel_stale = (
-                epoch_eval_patience is not None
-                and epoch_eval_patience > 0
-                and best_panel is not None
-                and checks_without_gain >= epoch_eval_patience
-            )
-
-            over_budget = (
-                epoch_max_tasks is not None
-                and epoch_max_tasks > 0
-                and tasks_completed - epoch_started_at >= epoch_max_tasks
-            )
-
-            # Any one stopping condition is sufficient; diversity is optional
-            # because a pool can converge in shape while still improving.
-            if staleness:
-                reason = (
-                    f"staleness ({epoch_no_improve} >="
-                    f" {epoch_patience} tasks without improvement)"
-                )
-            elif panel_stale:
-                reason = (
-                    "the evaluator has not seen a better candidate in "
-                    f"{checks_without_gain} checks"
-                )
-            elif over_budget:
-                reason = (
-                    f"epoch budget ({tasks_completed - epoch_started_at} >="
-                    f" {epoch_max_tasks} tasks)"
-                )
-            else:
-                return
-
-            _do_epoch_transition(reason)
 
         def _any_top_tier() -> SearchNode[TState] | None:
             """A member of the best-ranked tier, for when the evaluator never
@@ -638,13 +456,13 @@ class MultiprocessSearchEngine(Generic[TState]):
         def _final_artifact() -> SearchNode[TState] | None:
             """The candidate to write out, chosen by the evaluator.
 
-            best_node is whatever the evaluator chose at the last epoch
-            boundary. It is included in the comparison rather than replaced, so
+            best_node is whatever the evaluator chose at the last check. It is
+            included in the comparison rather than replaced, so
             this cannot come out worse by the evaluator's own judgement than its
             previous pick.
 
-            The whole pool is evaluated, not the capped front used at epoch
-            boundaries, so the final choice can include any valid candidate.
+            The whole pool is evaluated, not the capped front used by the
+            checks, so the final choice can include any valid candidate.
             """
             fallback = best_node or _any_top_tier()
             if self.rank_front is None or not active_pool:
@@ -679,11 +497,6 @@ class MultiprocessSearchEngine(Generic[TState]):
                 ):
                     log.warning("Max task limit reached.")
                     break
-                if epochs is not None and epoch >= epochs:
-                    log.info(f"Max epochs ({epochs}) reached.")
-                    break
-                if epochs_exhausted:
-                    break
 
                 _dispatch_tasks()
 
@@ -695,8 +508,6 @@ class MultiprocessSearchEngine(Generic[TState]):
 
                 in_flight -= 1
                 tasks_completed += 1
-                # Staleness asks how long hill-climbing has stalled.
-                epoch_no_improve += 1
 
                 if not res.valid:
                     # A failed result names its operator only when that operator
@@ -710,13 +521,12 @@ class MultiprocessSearchEngine(Generic[TState]):
                 else:
                     _process_local_result(res)
 
-                _check_epoch_end()
+                _maybe_check_evaluator()
 
                 if progress is not None:
                     progress(
                         SearchProgress(
                             tasks_completed=tasks_completed,
-                            epoch=epoch,
                             pool_size=len(run_state.active_pool),
                             elapsed=time.monotonic() - start_time,
                         )
