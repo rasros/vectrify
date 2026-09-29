@@ -24,8 +24,6 @@ far away it is, which is why it is a companion to a distance that degrades
 smoothly and not a replacement for one.
 """
 
-import io
-
 import numpy as np
 from PIL import Image, ImageFilter
 
@@ -83,18 +81,3 @@ def overlap_distance(reference: np.ndarray, candidate: np.ndarray) -> float:
         return 0.0
     shared = float(np.minimum(reference, candidate).sum())
     return clamp01(1.0 - 2.0 * shared / total)
-
-
-def edge_score(reference_rgb: Image.Image, candidate_png: bytes) -> float:
-    """Structural distance between a reference image and a rendered candidate.
-
-    Zero when the structure matches, however wrong the colours are; one when
-    the candidate shares no boundary with the target, which is what a blank
-    canvas gets.
-    """
-    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
-    if candidate.size != reference_rgb.size:
-        candidate = candidate.resize(
-            reference_rgb.size, resample=Image.Resampling.BILINEAR
-        )
-    return overlap_distance(edge_map(reference_rgb), edge_map(candidate))

@@ -2,13 +2,8 @@ import base64
 import io
 
 import cairosvg
-from PIL import Image, ImageChops
+from PIL import Image
 from PIL.Image import Resampling
-
-DIFF_BRIGHTNESS_BOOST = 3
-BACKGROUND_EDGE_COVERAGE = 0.9
-BACKGROUND_PADDING_RATIO = 0.04
-BACKGROUND_PADDING_MIN_PIXELS = 2
 
 
 def resize_long_side(im: Image.Image, long_side: int) -> Image.Image:
@@ -86,14 +81,3 @@ def rasterize_svg_to_image(svg_text: str, *, out_w: int, out_h: int) -> Image.Im
 def rasterize_svg(svg_text: str, width: int, height: int) -> bytes:
     """Positional form, for APIs that take a (svg, width, height) rasterizer."""
     return rasterize_svg_to_png_bytes(svg_text, out_w=width, out_h=height)
-
-
-def pixel_diff_png(ref_img: Image.Image, cand_png: bytes, long_side: int) -> bytes:
-    """Pixel-wise RGB difference with brightness boost, returned as PNG bytes."""
-    cand = Image.open(io.BytesIO(cand_png)).convert("RGB")
-    if cand.size != ref_img.size:
-        cand = cand.resize(ref_img.size, resample=Resampling.BILINEAR)
-    diff = ImageChops.difference(ref_img, cand)
-    lut = [min(255, i * DIFF_BRIGHTNESS_BOOST) for i in range(256)]
-    diff = diff.point(lut * len(diff.getbands()))
-    return png_bytes(resize_long_side(diff, long_side))

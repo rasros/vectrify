@@ -149,10 +149,6 @@ class RunContext:
         for listener in self._listeners:
             listener(step, message)
 
-    @property
-    def stopped(self) -> bool:
-        return self.stop.is_set()
-
 
 class Method(Protocol):
     """One way of carrying out an action."""

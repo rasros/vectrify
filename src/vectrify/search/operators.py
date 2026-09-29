@@ -232,10 +232,6 @@ class GradedReward:
         self._scale = dict.fromkeys(names, 0.0)
         self._seen = dict.fromkeys(names, 0)
 
-    def scales(self) -> dict[str, float]:
-        """The current per-objective step size, for reporting."""
-        return dict(self._scale)
-
     def __call__(
         self, parent: Mapping[str, float], child: Mapping[str, float]
     ) -> float:

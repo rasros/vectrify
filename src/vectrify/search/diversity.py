@@ -1,7 +1,4 @@
 import binascii
-import random
-
-from vectrify.search.models import SearchNode
 
 _NGRAM_SIZE = 4
 _BITS = 64
@@ -46,28 +43,3 @@ def simhash(text: str | None) -> int | None:
 def hamming_distance(a: int, b: int) -> int:
     """Number of differing bits between two 64-bit SimHash values."""
     return (a ^ b).bit_count()
-
-
-def pool_diversity(nodes: list[SearchNode], sample_pairs: int = 100) -> float:
-    """
-    Estimate pool diversity via sampled pairwise normalised Hamming distance.
-
-    Returns a value in [0, 1] where 1.0 = maximally diverse and 0.0 = identical.
-    Returns 1.0 when there is too little data to measure.
-    """
-    sigs: list[int] = [
-        n.signature for n in nodes if n.signature is not None and n.valid
-    ]
-    if len(sigs) < 2:
-        return 1.0
-
-    n = len(sigs)
-    all_pairs = [(i, j) for i in range(n) for j in range(i + 1, n)]
-    pairs = (
-        all_pairs
-        if len(all_pairs) <= sample_pairs
-        else random.sample(all_pairs, sample_pairs)
-    )
-
-    total = sum(hamming_distance(sigs[i], sigs[j]) for i, j in pairs)
-    return total / (len(pairs) * _BITS)

@@ -1,6 +1,3 @@
-import io
-
-import numpy as np
 import pytest
 from PIL import Image
 
@@ -102,44 +99,3 @@ def test_load_is_idempotent(scorer):
     s1 = scorer.score(ref1, make_png("white"))
     s2 = scorer.score(ref2, make_png("white"))
     assert s1 == pytest.approx(s2, abs=1e-6)
-
-
-def test_diff_heatmap_returns_validmake_png(scorer):
-    ref_img = Image.new("RGB", (32, 32), color="red")
-    ref = scorer.prepare_reference(ref_img)
-    png = scorer.diff_heatmap(ref, make_png("blue"), long_side=64)
-    assert png is not None
-    img = Image.open(io.BytesIO(png))
-    assert img.mode == "RGB"
-    assert img.size[0] > 0
-    assert img.size[1] > 0
-
-
-def test_diff_heatmap_identical_images_are_dark(scorer):
-    ref_img = Image.new("RGB", (32, 32), color="green")
-    ref = scorer.prepare_reference(ref_img)
-    png = scorer.diff_heatmap(ref, make_png("green"), long_side=64)
-    assert png is not None
-    arr = np.array(Image.open(io.BytesIO(png)))
-    assert arr.mean() < 30.0
-
-
-def test_diff_heatmap_different_images_are_brighter(scorer):
-    ref_img = Image.new("RGB", (32, 32), color="red")
-    ref = scorer.prepare_reference(ref_img)
-    same_png = scorer.diff_heatmap(ref, make_png("red"), long_side=64)
-    diff_png = scorer.diff_heatmap(ref, make_png("blue"), long_side=64)
-    assert same_png is not None
-    assert diff_png is not None
-    mean_same = np.array(Image.open(io.BytesIO(same_png))).mean()
-    mean_diff = np.array(Image.open(io.BytesIO(diff_png))).mean()
-    assert mean_diff > mean_same
-
-
-def test_diff_heatmap_respects_long_side(scorer):
-    ref_img = Image.new("RGB", (32, 32), color="red")
-    ref = scorer.prepare_reference(ref_img)
-    png = scorer.diff_heatmap(ref, make_png("blue"), long_side=32)
-    assert png is not None
-    img = Image.open(io.BytesIO(png))
-    assert max(img.size) == 32

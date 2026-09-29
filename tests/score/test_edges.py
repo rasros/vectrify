@@ -1,7 +1,15 @@
+import io
+
 from PIL import Image, ImageDraw
 
 from vectrify.image_utils import png_bytes
-from vectrify.score.edges import edge_map, edge_score
+from vectrify.score.edges import edge_map, overlap_distance
+
+
+def edge_score(reference: Image.Image, candidate_png: bytes) -> float:
+    """Structural distance between a reference and a same-size candidate."""
+    candidate = Image.open(io.BytesIO(candidate_png)).convert("RGB")
+    return overlap_distance(edge_map(reference), edge_map(candidate))
 
 
 def _square(fill: str, background: str = "white", box=(8, 8, 24, 24)) -> Image.Image:
@@ -37,15 +45,6 @@ def test_a_misplaced_shape_costs_more_than_a_correctly_placed_one():
 
 def test_edge_map_is_flat_on_a_flat_image():
     assert edge_map(Image.new("RGB", (16, 16), "grey")).max() == 0.0
-
-
-def test_edge_score_resizes_a_mismatched_candidate():
-    """Resampling softens the boundaries, so the same drawing at twice the size
-    is not free -- but it must still beat a candidate drawn wrong."""
-    reference = _square("black")
-    rescaled = edge_score(reference, png_bytes(_square("black").resize((64, 64))))
-    misplaced = edge_score(reference, png_bytes(_square("black", box=(10, 10, 26, 26))))
-    assert rescaled < misplaced
 
 
 def test_edge_score_of_an_inverted_image_is_small():

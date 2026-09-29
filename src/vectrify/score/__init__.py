@@ -24,7 +24,6 @@ __all__ = [
     "ScorerChoice",
     "ScorerType",
     "choose_scorer",
-    "get_scorer",
 ]
 
 
@@ -45,26 +44,6 @@ class ScorerChoice:
     requested: str
     degraded: bool
     reason: str | None = None
-
-    def as_record(self) -> str:
-        """The choice as a file, so a comparison can assert two runs match.
-
-        A log line is exactly what gets skimmed; this sits in the run directory
-        next to the numbers it qualifies.
-        """
-        lines = [
-            self.name,
-            f"requested={self.requested}",
-            f"degraded={str(self.degraded).lower()}",
-        ]
-        if self.reason:
-            lines.append(f"reason={self.reason}")
-        return "\n".join(lines) + "\n"
-
-    def summary(self) -> str:
-        if not self.degraded:
-            return f"scorer={self.name} (requested {self.requested})"
-        return f"scorer={self.name} DEGRADED from {self.requested}: {self.reason}"
 
 
 def choose_scorer(
@@ -121,11 +100,3 @@ def choose_scorer(
             degraded=True,
             reason=reason,
         )
-
-
-def get_scorer(
-    scorer_type: ScorerType | str = ScorerType.AUTO,
-    vision_model: str = DEFAULT_VISION_MODEL,
-) -> Scorer:
-    """The scorer alone, for callers with nothing to report it to."""
-    return choose_scorer(scorer_type, vision_model=vision_model).scorer

@@ -18,7 +18,6 @@ from typing import Any
 
 from vectrify.image_utils import rasterize_svg_to_png_bytes
 from vectrify.score.metrics import FRONT_SCORE
-from vectrify.score.utils import MAX_SCORE
 from vectrify.search import (
     ChainState,
     MultiprocessSearchEngine,
@@ -95,8 +94,7 @@ def evaluate_front(
     something to score, so a call the cache answers in full never builds a
     model.
 
-    Re-rasterises rather than reading a node's stored render, which is only
-    kept when --write-lineage or --save-raster is on.
+    Re-rasterises: a node keeps its drawing, not its render.
     """
     renders: list[tuple[bytes, SearchNode]] = []
     for node in nodes:
@@ -176,10 +174,6 @@ def pixel_scorer(
         else:
             for res in results:
                 measure(res)
-        for res in results:
-            if not res.measured:
-                # Nothing rendered, so nothing can be measured.
-                res.score = MAX_SCORE
 
     return score
 
