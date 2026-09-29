@@ -23,7 +23,7 @@ from vectrify.document import Document, DocumentError, Selection, export_svg
 from vectrify.document.editor import Transaction
 from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.join import path_style
-from vectrify.image_utils import preview_urls
+from vectrify.image_utils import on_white, preview_urls
 
 
 @dataclass(frozen=True)
@@ -195,10 +195,7 @@ class FitContext:
         )
         # The UI stretches the reference over the artboard, including
         # nonzero viewBox origins.
-        opaque_target = Image.alpha_composite(
-            Image.new("RGBA", target.size, "white"), target.convert("RGBA")
-        ).convert("RGB")
-        self.target = opaque_target.resize(
+        self.target = on_white(target).resize(
             self.size,
             Image.Resampling.BICUBIC,
             box=(

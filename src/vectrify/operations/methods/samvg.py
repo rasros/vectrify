@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import ClassVar
 
 from vectrify.document import DocumentError
-from vectrify.image_utils import rasterize_svg_to_png_bytes
+from vectrify.image_utils import rasterize_svg
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -65,9 +65,7 @@ class Samvg:
             region.image,
             # Text layers need the unsupported <text> element in the editor.
             ocr=False,
-            rasterize=lambda svg, w, h: rasterize_svg_to_png_bytes(
-                svg, out_w=w, out_h=h
-            ),
+            rasterize=rasterize_svg,
             **settings,
         )
         context.progress(1, "Placing traced shapes…")

@@ -10,7 +10,6 @@ lock- and pin-checked edit. No LLM call and no gradient fitting is involved.
 
 from __future__ import annotations
 
-import io
 import os
 from typing import ClassVar
 
@@ -19,6 +18,7 @@ from PIL import Image
 from vectrify.document import DocumentError
 from vectrify.image_utils import (
     preview_urls,
+    rasterize_svg_to_image,
     rasterize_svg_to_png_bytes,
     resize_long_side,
 )
@@ -82,9 +82,7 @@ class Nsga:
         scope = mutation_scope(request)
 
         def render(content: str) -> Image.Image:
-            png = rasterize_svg_to_png_bytes(content, out_w=size[0], out_h=size[1])
-            with Image.open(io.BytesIO(png)) as image:
-                return image.convert("RGB")
+            return rasterize_svg_to_image(content, out_w=size[0], out_h=size[1])
 
         seed_png = rasterize_svg_to_png_bytes(svg, out_w=size[0], out_h=size[1])
         seed = seed_node(

@@ -50,6 +50,13 @@ def preview_urls(
     }
 
 
+def on_white(image: Image.Image) -> Image.Image:
+    """*image* composited over white, so transparency never reads as black."""
+    return Image.alpha_composite(
+        Image.new("RGBA", image.size, "white"), image.convert("RGBA")
+    ).convert("RGB")
+
+
 def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> bytes:
     """
     Rasterizes SVG to PNG and composites it over a white background
@@ -66,11 +73,14 @@ def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> byte
     if raw_png is None:
         raise ValueError(f"Failed to rasterize SVG to PNG: {svg_text}")
 
-    img = Image.open(io.BytesIO(raw_png)).convert("RGBA")
+    return png_bytes(on_white(Image.open(io.BytesIO(raw_png))))
 
-    bg = Image.new("RGBA", img.size, (255, 255, 255, 255))
-    combined = Image.alpha_composite(bg, img).convert("RGB")
-    return png_bytes(combined)
+
+def rasterize_svg_to_image(svg_text: str, *, out_w: int, out_h: int) -> Image.Image:
+    """The white-backed RGB render of *svg_text*, as an image."""
+    png = rasterize_svg_to_png_bytes(svg_text, out_w=out_w, out_h=out_h)
+    with Image.open(io.BytesIO(png)) as image:
+        return image.convert("RGB")
 
 
 def rasterize_svg(svg_text: str, width: int, height: int) -> bytes:
