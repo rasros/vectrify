@@ -32,7 +32,7 @@ for every control.
 | Generate | SAMVG | Segments the reference with SAM and traces each region |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
 | Generate | LLM | Asks a multimodal model to draw the reference |
-| Improve | Optimize nodes | Fits the selected paths to the reference by fitting, snapping, adding detail and simplifying; simplifies without one |
+| Improve | Optimize nodes | Tidies the selected paths in seconds: snaps their points to the reference and simplifies, with Add detail and a gradient shape fit on request; simplifies without one |
 | Improve | Edit with LLM | Sends the drawing and an instruction to a model |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
 | Simplify | Clean up geometry | Drops redundant vertices and merges compatible paths |

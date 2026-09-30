@@ -223,45 +223,54 @@ for a very large one. The model is released after three idle minutes, when
 the reference changes, and before another GPU tool runs. Only visible filled
 paths can be retraced; locked geometry, pinned points and shared geometry are
 refused (unpin or detach first). It replaces Optimize nodes for fixing a whole
-shape; Optimize nodes remains for fine fitting.
+shape; Optimize nodes remains for tidying one.
 
-**Optimize nodes…** fits the selected paths, or the paths inside selected
-groups, to the reference around them, never the whole image. Tick the steps it
-may use:
+**Optimize nodes…** is a quick clean-up of the selected paths, or the paths
+inside selected groups, against the reference around them, never the whole
+image. By default it snaps their points onto the reference's edges and removes
+the points they do not need, in a few seconds; to reshape a path, use Retrace
+shape (Shift+R) or Redraw outline (R). Tick the steps it may use:
 
-- **Fit shape** moves points and curve handles by gradient descent, with a
-  number of fitting steps and a maximum movement per fit in local SVG units.
-  Straight segments are fitted as curves, so it can give them handles where
-  the reference curves; those it leaves straight stay lines. It runs on the GPU when PyTorch CUDA and the Vectrify CUDA extension are
-  there, and on the CPU otherwise; outlined (stroked) fills need the GPU.
-- **Snap to reference** moves the points onto the reference's nearest edges.
-  With **Add detail** it also adds points where the path misses a piece of the
-  shape or covers too much: one point, two, or a spike of three whose base
-  stays on the outline, reaching bit by bit along a strand that curls away.
-  **Pixels per added point** is how many reference pixels each new point has to
-  fix to be kept, and **Search beyond the path** how far past the selection,
-  as a share of its size, the reference is read: a point can only reach that
-  far.
-- **Simplify** removes the points the outline does not need, moving it no more
-  than the tolerance in reference pixels, and turns curves whose handles lie
-  on their line within the tolerance into straight segments.
+- **Snap to reference** (on by default) moves the points onto the reference's
+  nearest edges. With **Add detail** it also adds points where the path
+  misses a piece of the shape or covers too much: one point, two, or a spike
+  of three whose base stays on the outline, reaching bit by bit along a strand
+  that curls away. **Pixels per added point** is how many reference pixels
+  each new point has to fix to be kept, and **Search beyond the path** how far
+  past the selection, as a share of its size, the reference is read: a point
+  can only reach that far. Add detail tries a limited number of new points per
+  round, so on a large path it adds the ones that fix most first.
+- **Simplify** (on by default) removes the points the outline does not need,
+  moving it no more than the tolerance in reference pixels, and turns curves
+  whose handles lie on their line within the tolerance into straight
+  segments.
+- **Fit shape** (off by default: slow on large paths) moves points and curve
+  handles by gradient descent, with a number of fitting steps and a maximum
+  movement per fit in local SVG units. Straight segments are fitted as curves,
+  so it can give them handles where the reference curves; those it leaves
+  straight stay lines. It runs on the GPU when PyTorch CUDA and the Vectrify
+  CUDA extension are there, and on the CPU otherwise; outlined (stroked) fills
+  need the GPU.
 
 Each round tries every ticked step on the paths as they stand and keeps the one
-that brings them closest to the reference, if it improves on them by at least
-the **Minimum improvement** (0.1% by default; on a large selection a small fix
-is a small share, so lower it to keep those); when none helps, Simplify gets its
-turn, and the run ends once nothing changes or the rounds run out. So a rough
-shape can be snapped, fitted, thinned and fitted again in whatever order works.
-No step may leave an outline folded over itself: a result where a path crosses
-itself more than it did, a twist or a curve looped round, is not kept, and the
-shape fit pulls such folds back as it goes. Concave outlines are fine, and a
-path that already crossed itself may keep those crossings. With several
-parallel workers a round's steps run side by side, with one shape
-fit at a time. Without a reference only Simplify runs, keeping the paths'
-look. Pinned endpoints stay fixed, and surviving
-points keep their identity. Colour is left to Fit colours. The job runs in the
-background with progress, Stop & keep best, and reference/before/after
-previews; the result lists the steps it took. Apply is one undoable edit.
+that brings them closest to the reference, if it fixes at least the **Minimum
+improvement** (1% by default) of the difference where it acted: over the
+pixels it changed and a thin band around them, so a small fix on a large
+selection counts as much as on a small one. When none helps, Simplify gets its
+turn, and the run ends once nothing changes, the rounds (4 by default) run out
+or the **Time limit** (10 s by default) passes. Each round gives each step a
+share of the time left, and a step that runs out hands back how far it got; a
+run that runs out of time keeps the best result so far, as Stop does, and says
+so. No step may leave an outline folded over itself: a result where a path
+crosses itself more than it did, a twist or a curve looped round, is not kept,
+and the shape fit pulls such folds back as it goes. Concave outlines are fine,
+and a path that already crossed itself may keep those crossings. With several
+parallel workers a round's steps run side by side, with one shape fit at a
+time. Without a reference only Simplify runs, keeping the paths' look. Pinned
+endpoints stay fixed, and surviving points keep their identity. Colour is left
+to Fit colours. The job runs in the background with progress, Stop & keep
+best, and reference/before/after previews; the result lists the steps it
+took. Apply is one undoable edit.
 
 **Edit with LLM…** sends the drawing, a render of it, the reference and your
 instruction to a multimodal model. Choose which objects and kinds of change are

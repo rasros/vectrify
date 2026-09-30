@@ -1,7 +1,10 @@
 """Optimize nodes reshapes only the selected paths and proposes one ordinary edit."""
 
+import time
 from dataclasses import replace
+from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
@@ -28,6 +31,11 @@ def editor(*ids):
     return Editor(import_svg(SVG), selection=Selection(object_ids=frozenset(ids)))
 
 
+# The path fit on its own unless a test says otherwise, as the tests were
+# written against it.
+FIT = {"shape": True, "snap": False, "simplify": False}
+
+
 def request(ed, *, steps=4, with_reference=True, **settings):
     return OperationRequest(
         action="improve",
@@ -35,7 +43,7 @@ def request(ed, *, steps=4, with_reference=True, **settings):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True, paint=True),
-        settings={"workers": 1, "resolution": 64, "steps": 30, **settings},
+        settings={"workers": 1, "resolution": 64, "steps": 30, **FIT, **settings},
         budget=Budget(steps=steps),
         reference=reference() if with_reference else None,
     )
@@ -150,7 +158,13 @@ def test_the_fit_gives_straight_segments_handles_where_the_reference_curves():
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True, paint=True),
-        settings={"workers": 1, "resolution": 64, "steps": 40, "movement": 6.0},
+        settings={
+            "workers": 1,
+            "resolution": 64,
+            "steps": 40,
+            "movement": 6.0,
+            **FIT,
+        },
         budget=Budget(steps=3),
         reference=disc,
     )
@@ -182,7 +196,7 @@ def snap_twists(monkeypatch):
 
     def twisting(step, task, stop=None, progress=None):
         if step == "snap":
-            return bow_tie(task.document), 0.0, {}
+            return bow_tie(task.document), np.asarray(task.region.image), {}
         return run_step(step, task, stop, progress)
 
     monkeypatch.setattr(nodes_method, "_run_step", twisting)
@@ -206,3 +220,111 @@ def test_only_crossing_results_leave_the_paths_as_they_were():
     assert not state["result"]["changed"]
     assert state["result"]["metrics"]["folded"] == {"snap": 1}
     assert "cross itself" in state["message"]
+
+
+def test_the_defaults_are_a_quick_tidy():
+    from vectrify.operations.settings import read_settings
+
+    settings = read_settings({}, nodes_method.SETTINGS, nodes_method.LABEL)
+    assert (settings["snap"], settings["simplify"]) == (True, True)
+    assert not settings["shape"]
+    assert not settings["detail"]
+    assert settings["seconds"] == 10
+    assert nodes_method.DEFAULT_ROUNDS <= 4
+
+
+def moved(document, where):
+    """*document* with path p's points moved: *where* maps each point's
+    values to new ones."""
+    geometry = document.geometry_for("p")
+    subpaths = tuple(
+        replace(s, nodes=tuple(replace(n, values=where(n.values)) for n in s.nodes))
+        for s in geometry.subpaths
+    )
+    return document.replace_geometry(replace(geometry, subpaths=subpaths))
+
+
+def test_a_small_local_fix_on_a_large_selection_is_kept(monkeypatch):
+    # A large square with one point pushed 2 px in from its edge, and a disc
+    # in the reference the path cannot match: next to the difference the
+    # disc leaves, putting the point back is a sliver.
+    def fixing(_step, task, _stop=None, _progress=None):
+        document = moved(
+            task.document, lambda v: (136.0, 16.0) if v == (136.0, 18.0) else v
+        )
+        return document, nodes_method._pixels(document, task.region), {}
+
+    monkeypatch.setattr(nodes_method, "_run_step", fixing)
+    ed = Editor(
+        import_svg(
+            '<svg width="256" height="256"><path id="p" fill="#000000" '
+            'd="M16 16 L128 16 L136 18 L144 16 L240 16 L240 240 L16 240 Z"/></svg>'
+        ),
+        selection=Selection(object_ids=frozenset({"p"})),
+    )
+    target = Image.new("RGB", (256, 256), "white")
+    ImageDraw.Draw(target).rectangle((16, 16, 239, 239), fill="black")
+    ImageDraw.Draw(target).ellipse((48, 48, 208, 208), fill="white")
+    req = OperationRequest(
+        action="improve",
+        method="nodes",
+        snapshot=ed.snapshot,
+        editor=ed,
+        permissions=Permissions(geometry=True, structure=True),
+        settings={"workers": 1, "simplify": False},
+        budget=Budget(steps=1),
+        reference=target,
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    metrics = job.state()["result"]["metrics"]
+    before, after = metrics["before"]["difference"], metrics["after"]["difference"]
+    # Of the whole region the fix is under the old bar of 0.1%, yet it is
+    # kept: where it acted it fixed all there was.
+    assert 0 < (before - after) / before < 0.001
+    assert metrics["steps"] == ["snap"]
+
+
+def test_a_step_is_judged_by_the_pixels_it_changed():
+    region = SimpleNamespace(image=Image.new("RGB", (40, 40), "black"))
+    start = np.zeros((40, 40, 3), dtype=np.uint8)
+    start[:, 20:] = 255
+    fixed, worse = start.copy(), start.copy()
+    fixed[10:14, 20:24] = 0
+    worse[10:14, 10:14] = 255
+    now = nodes_method._Scored.of(start, region)
+    assert nodes_method._Scored.of(fixed, region).fixed(now) > 0.3
+    assert nodes_method._Scored.of(worse, region).fixed(now) < 0
+    assert nodes_method._Scored.of(start, region).fixed(now) == 0
+
+
+def test_the_time_limit_ends_the_run_and_keeps_the_best_so_far(monkeypatch):
+    # Each snap takes a while and brings the square 1 px nearer: only the
+    # time limit ends the run.
+    def nearer(_step, task, _stop=None, _progress=None):
+        time.sleep(0.2)
+        document = moved(task.document, lambda v: tuple(x + 1 for x in v))
+        return document, nodes_method._pixels(document, task.region), {}
+
+    monkeypatch.setattr(nodes_method, "_run_step", nearer)
+    ed = Editor(
+        import_svg(
+            '<svg width="64" height="64"><path id="p" fill="#000000" '
+            'd="M8 8 L40 8 L40 40 L8 40 Z"/></svg>'
+        ),
+        selection=Selection(object_ids=frozenset({"p"})),
+    )
+    started = time.monotonic()
+    job = Job(
+        method("improve", "nodes"),
+        request(ed, steps=50, shape=False, snap=True, seconds=0.5),
+    )
+    job.run()
+    assert time.monotonic() - started < 3
+    metrics = job.state()["result"]["metrics"]
+    assert metrics["out_of_time"]
+    assert 1 <= len(metrics["steps"]) < 8
+    assert metrics["after"]["difference"] < metrics["before"]["difference"]
+    job.apply()
+    corner = ed.snapshot.document.geometry_for("p").subpaths[0].nodes[0].values
+    assert corner == (8 + len(metrics["steps"]),) * 2

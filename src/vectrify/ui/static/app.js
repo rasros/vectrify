@@ -1429,7 +1429,7 @@ start();
 const operation = (command, body) => request('/api/operation', {command, ...body});
 
 
-// Improve: Optimize nodes, which mixes fitting, snapping and simplifying.
+// Improve: Optimize nodes, a quick tidy that mixes snapping, simplifying and fitting.
 const NODE_STEPS = ['shape', 'snap', 'detail', 'simplify'];
 const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
 const nodeSteps = () => Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
@@ -1452,7 +1452,8 @@ const nodesDialog = jobDialog('nodes', {
       permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify},
       settings:{...steps, tolerance:Number($('nodes-tolerance').value), steps:Number($('nodes-steps').value),
         movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value),
-        detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value)},
+        detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
+        seconds:Number($('nodes-seconds').value)},
       budget:{steps:Number($('nodes-rounds').value)}};
   },
   describe: ({changed, metrics}) => {
@@ -1462,15 +1463,18 @@ const nodesDialog = jobDialog('nodes', {
     const order = metrics.steps.map(step => STEP_NAMES[step] || step).join(' → ');
     const skipped = Object.values(metrics.skipped || {});
     const note = skipped.length ? ` Some paths were not fitted: ${[...new Set(skipped)].join('; ')}.` : '';
-    return `${points} · ${fit} · ${order}.${note} Apply keeps this result as one undoable edit.`;
+    const late = metrics.out_of_time ? ' Stopped at the time limit.' : '';
+    return `${points} · ${fit} · ${order}.${late}${note} Apply keeps this result as one undoable edit.`;
   },
   applied: 'Paths optimized. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
-for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 $('nodes-open').onclick = async () => {
   await queue;
   const reference = Boolean(state.reference);
+  // Snap comes back on with the reference, as it is by default.
+  if (reference && $('nodes-snap').disabled) $('nodes-snap').checked = true;
   for (const step of ['shape', 'snap']) {
     $('nodes-'+step).disabled = !reference;
     if (!reference) $('nodes-'+step).checked = false;

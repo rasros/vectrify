@@ -13,6 +13,7 @@ stay a shape: two points when open, three when closed.
 
 from __future__ import annotations
 
+import time
 from dataclasses import replace
 from itertools import pairwise
 
@@ -30,16 +31,25 @@ MEASURED = 64
 
 
 def simplify(
-    document: Document, paths: Paths, region: Region, fixed: Frozen, tolerance: float
+    document: Document,
+    paths: Paths,
+    region: Region,
+    fixed: Frozen,
+    tolerance: float,
+    deadline: float = float("inf"),
 ) -> Paths:
-    """*paths* with the points removed that move no outline over *tolerance* px."""
+    """*paths* with the points removed that move no outline over *tolerance* px.
+
+    Past *deadline* (time.monotonic()) no more points go, and each path
+    keeps those removed so far.
+    """
     geometries = dict(paths.geometries)
     for oid, geometry in paths.geometries.items():
         frame = _frame(document, oid, region, region.image.size)
         if frame is None:
             continue
         # Points go first: a curve drawn as a line joins its neighbours worse.
-        geometry = _simplified(geometry, frame, fixed, tolerance)
+        geometry = _simplified(geometry, frame, fixed, tolerance, deadline)
         geometries[oid] = straightened(geometry, tolerance, frame)
     return replace(paths, geometries=geometries)
 
@@ -107,18 +117,32 @@ def simplified_geometry(
 
 
 def _simplified(
-    geometry: Geometry, frame: _Frame, fixed: Frozen, tolerance: float
+    geometry: Geometry,
+    frame: _Frame,
+    fixed: Frozen,
+    tolerance: float,
+    deadline: float = float("inf"),
 ) -> Geometry:
     subpaths = []
     for subpath in geometry.subpaths:
+        if time.monotonic() >= deadline:
+            subpaths.append(subpath)
+            continue
         nodes = list(subpath.nodes)
         least = 3 if subpath.closed else 2
         # The outline each segment stands for, as it was before any point
         # went: a join is fitted to and measured against it, so removals
         # never drift further than the tolerance from the original.
         spans = _spans(nodes, frame)
-        costs = [_cost(nodes, spans, i, fixed, frame) for i in range(len(nodes))]
-        while len(nodes) > least:
+        costs = []
+        for i in range(len(nodes)):
+            if time.monotonic() >= deadline:
+                break
+            costs.append(_cost(nodes, spans, i, fixed, frame))
+        if len(costs) < len(nodes):
+            subpaths.append(subpath)
+            continue
+        while len(nodes) > least and time.monotonic() < deadline:
             choices = [(cost[0], i) for i, cost in enumerate(costs) if cost is not None]
             best = min(choices, default=None)
             closing = _closing(nodes, subpath.closed, fixed, frame)

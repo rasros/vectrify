@@ -392,12 +392,12 @@ def test_check_reports_whether_an_operation_would_run_without_running_it():
             }
         )
 
-    assert check("nodes", shape=False, simplify=True) == {
+    assert check("nodes", shape=False, snap=False, simplify=True) == {
         "ok": False,
         "error": "Select the paths to optimize",
     }
     session.editor.select(SELECTION)
-    assert check("nodes", shape=False, simplify=True) == {"ok": True}
+    assert check("nodes", shape=False, snap=False, simplify=True) == {"ok": True}
     assert not session.jobs
 
 

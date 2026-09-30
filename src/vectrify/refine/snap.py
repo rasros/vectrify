@@ -24,12 +24,14 @@ same for a transformed or tiny path. Pinned endpoints stay.
 from __future__ import annotations
 
 import io
+import time
 from dataclasses import dataclass, field, replace
 
 import cairosvg
 import numpy as np
 from PIL import Image
 from scipy import ndimage
+from scipy.spatial import KDTree
 
 from vectrify.document import Document, Geometry, PathNode
 from vectrify.document.hit_test import IDENTITY, multiply, transform
@@ -70,10 +72,16 @@ AT_NODE = 0.05
 HOLD = (0.1, 0.4)
 SPLIT_GROWTH = 2.0
 SPLIT_LEAST = 16
+# The most tries detail scores in one call, over all its rounds.
+SPLIT_TRIES = 160
 # How finely the normal is read, in pixels.
 STEP = 0.5
 # How many points each segment is drawn with when checking for crossings.
 CROSSING_SAMPLES = 8
+# Detail's tries are scored on outlines drawn as straight edges this long, in
+# pixels, with at most so many to a curve.
+FILL_CHORD = 2.0
+FILL_SAMPLES = 32
 
 
 @dataclass(frozen=True)
@@ -177,6 +185,76 @@ def _coverage(contours: list[_Contour], size, rule: str, window=None) -> np.ndar
         return np.asarray(image.convert("L")) < 128
 
 
+def _edges(contours: list[_Contour]) -> np.ndarray:
+    """The contours as straight edges (n, 2, 2), curves flattened, each closed
+    as a fill closes it."""
+    lines, cubics = [], []
+    for contour in contours:
+        segments = _segments(contour)
+        if not segments:
+            continue
+        for _end, control in segments:
+            (cubics if len(control) == 4 else lines).append(control)
+        first, last = segments[0][1][0], segments[-1][1][-1]
+        if np.linalg.norm(last - first) > 1e-9:
+            lines.append(np.vstack([last, first]))
+    parts = [np.asarray(lines, dtype=np.float64).reshape(-1, 2, 2)]
+    if cubics:
+        control = np.asarray(cubics, dtype=np.float64)
+        hull = np.linalg.norm(np.diff(control, axis=1), axis=2).sum(axis=1).max()
+        count = int(np.clip(np.ceil(hull / FILL_CHORD), 2, FILL_SAMPLES))
+        t = np.linspace(0, 1, count + 1)[:, None]
+        u = 1 - t
+        basis = np.hstack([u**3, 3 * u**2 * t, 3 * u * t**2, t**3])
+        points = np.einsum("sk,nkc->nsc", basis, control)
+        parts.append(
+            np.stack([points[:, :-1], points[:, 1:]], axis=2).reshape(-1, 2, 2)
+        )
+    return np.concatenate(parts)
+
+
+def _fill(contours: list[_Contour], rule: str, window) -> np.ndarray:
+    """Which pixels of *window* the contours fill, judged at pixel centres.
+
+    What _coverage gives, without drawing and decoding an image: each row's
+    centre line is crossed with the outline's edges, and the winding counted
+    from the left.
+    """
+    x0, y0, x1, y1 = window
+    width, height = x1 - x0, y1 - y0
+    edges = _edges(contours)
+    a, b = edges[:, 0], edges[:, 1]
+    low, high = np.minimum(a[:, 1], b[:, 1]), np.maximum(a[:, 1], b[:, 1])
+    # Only edges that cross a row of the window and start left of its right
+    # side can change the winding inside it.
+    keep = (high > y0) & (low < y1) & (low < high)
+    keep &= np.minimum(a[:, 0], b[:, 0]) < x1
+    a, b, low, high = a[keep], b[keep], low[keep], high[keep]
+    # The rows whose centre, at y0 + row + 0.5, lies in [low, high).
+    first = np.maximum(0, np.ceil(low - y0 - 0.5)).astype(int)
+    last = np.minimum(height - 1, np.ceil(high - y0 - 0.5).astype(int) - 1)
+    counts = np.maximum(0, last - first + 1)
+    edge = np.repeat(np.arange(len(a)), counts)
+    rows = (
+        first[edge]
+        + np.arange(len(edge))
+        - np.repeat(np.cumsum(counts) - counts, counts)
+    )
+    a, b = a[edge], b[edge]
+    y = y0 + rows + 0.5
+    x = a[:, 0] + (y - a[:, 1]) / (b[:, 1] - a[:, 1]) * (b[:, 0] - a[:, 0])
+    # A crossing counts for the pixel centres to its right.
+    columns = np.clip(np.floor(x - x0 - 0.5).astype(int) + 1, 0, width)
+    direction = np.where(b[:, 1] > a[:, 1], 1.0, -1.0)
+    if rule == "evenodd":
+        direction = np.ones_like(direction)
+    winding = np.bincount(
+        rows * (width + 1) + columns, weights=direction, minlength=height * (width + 1)
+    ).reshape(height, width + 1)
+    winding = np.cumsum(winding, axis=1)[:, :width].round().astype(int)
+    return winding % 2 == 1 if rule == "evenodd" else winding != 0
+
+
 def _unit(vector: np.ndarray) -> np.ndarray | None:
     size = float(np.linalg.norm(vector))
     return None if size < 1e-9 else vector / size
@@ -184,7 +262,15 @@ def _unit(vector: np.ndarray) -> np.ndarray | None:
 
 class _Snapper:
     def __init__(
-        self, frame, reference, rule, fixed: Frozen, detail: bool, split_gain: float
+        self,
+        frame,
+        reference,
+        rule,
+        fixed: Frozen,
+        detail: bool,
+        split_gain: float,
+        deadline: float = float("inf"),
+        tries: int = SPLIT_TRIES,
     ):
         self.frame = frame
         self.reference = ndimage.gaussian_filter(reference, (0.6, 0.6, 0))
@@ -194,6 +280,9 @@ class _Snapper:
         self.detail = detail
         self.split_gain = split_gain
         self.reach = REACH
+        # When to stop (time.monotonic()), and how many tries detail has left.
+        self.deadline = deadline
+        self.tries = tries
 
     def run(self, geometry: Geometry) -> Geometry:
         contours = [
@@ -217,15 +306,22 @@ class _Snapper:
         self.reach = max(2.0, min(REACH, REACH_SHARE * extent))
         start = sum(len(c.nodes) for c in contours)
         for _ in range(PASSES):
-            if self._pass(contours) < SETTLED:
+            if self._pass(contours) < SETTLED or self._late():
                 break
         if self.detail:
             limit = max(SPLIT_GROWTH * start, start + SPLIT_LEAST)
-            while sum(len(c.nodes) for c in contours) < limit:
+            while sum(len(c.nodes) for c in contours) < limit and not self._spent():
                 if not self._split(contours, limit):
                     break
                 self._pass(contours)
         return self._geometry(geometry, contours)
+
+    def _late(self) -> bool:
+        return time.monotonic() >= self.deadline
+
+    def _spent(self) -> bool:
+        """Whether detail has used up its tries or the time."""
+        return self.tries <= 0 or self._late()
 
     # Reading the reference.
 
@@ -363,6 +459,9 @@ class _Snapper:
         ring = count - 1 if repeats else count
         offsets: dict[int, tuple[np.ndarray, float]] = {}
         for i, node in enumerate(nodes[:ring]):
+            # Out of time, the points looked at so far still move.
+            if self._late():
+                break
             if node.pinned:
                 continue
             if not closed and i in (0, count - 1):
@@ -440,6 +539,8 @@ class _Snapper:
 
     def _move_middles(self, contour: _Contour, coverage, colour_in) -> None:
         for end, control in _segments(contour):
+            if self._late():
+                break
             node = contour.nodes[end]
             if node.command != "C" or len(control) != 4:
                 continue
@@ -480,7 +581,7 @@ class _Snapper:
         points_now = sum(len(c.nodes) for c in contours)
         done: set[int] = set()
         for index in order:
-            if areas[index] < self.split_gain or points_now >= limit:
+            if areas[index] < self.split_gain or points_now >= limit or self._spent():
                 break
             ys, xs = np.nonzero(labels == index + 1)
             blob = np.column_stack([xs, ys]) + 0.5
@@ -490,20 +591,19 @@ class _Snapper:
             if window is None:
                 continue
             truth = _crop(inside, window)
-            base = int(
-                (_coverage(contours, self.size, self.rule, window) != truth).sum()
-            )
+            base = int((_fill(contours, self.rule, window) != truth).sum())
             best: tuple[float, int, int, _Contour] | None = None
             for c, trials in self._targets(blob, centre, samples, contours, done):
                 for added, trial in trials:
+                    if self._spent():
+                        break
                     if points_now + added > limit:
                         continue
+                    self.tries -= 1
                     trying = [
                         trial if k == c else other for k, other in enumerate(contours)
                     ]
-                    error = int(
-                        (_coverage(trying, self.size, self.rule, window) != truth).sum()
-                    )
+                    error = int((_fill(trying, self.rule, window) != truth).sum())
                     # Each new point has to pay for itself.
                     gain = (base - error) / max(added, 1)
                     # Moving a point adds none, so it only has to help.
@@ -548,9 +648,7 @@ class _Snapper:
             [np.full(len(points), k) for k, (*_rest, points) in enumerate(samples)]
         )
         spots = np.concatenate([t for *_rest, t, _points in samples])
-        gaps = np.linalg.norm(blob[:, None, :] - every[None, :, :], axis=2)
-        nearest = gaps.argmin(axis=1)
-        distance = gaps[np.arange(len(blob)), nearest]
+        distance, nearest = KDTree(every).query(blob)
         far = int(distance.argmax())
         aims = [far]
         for steps in CREEP:
@@ -816,12 +914,16 @@ def snap(
     detail: bool = False,
     split_gain: float = SPLIT_GAIN,
     long_side: int = LONG_SIDE,
+    deadline: float = float("inf"),
+    tries: int = SPLIT_TRIES,
 ) -> Paths:
     """*paths* with each filled path's points moved onto the reference's edges.
 
     *region* is the reference crop around the paths. Stroke-only paths are
     left as they are. With *detail*, segments may be split where one curve
-    cannot follow the edge; otherwise every path keeps its nodes.
+    cannot follow the edge, scoring at most *tries* of them per path;
+    otherwise every path keeps its nodes. Past *deadline* (time.monotonic())
+    each path keeps how far it got.
     """
     image = resize_long_side(region.image.convert("RGB"), long_side)
     reference = np.asarray(image, dtype=np.float64) / 255
@@ -834,7 +936,14 @@ def snap(
         if frame is None:
             continue
         snapper = _Snapper(
-            frame, reference, style["fill-rule"], fixed, detail, split_gain
+            frame,
+            reference,
+            style["fill-rule"],
+            fixed,
+            detail,
+            split_gain,
+            deadline,
+            tries,
         )
         geometries[oid] = snapper.run(geometry)
     return replace(paths, geometries=geometries)
