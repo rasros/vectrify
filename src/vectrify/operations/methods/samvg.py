@@ -23,7 +23,6 @@ from vectrify.operations.generate import (
 from vectrify.operations.settings import Setting, read_settings
 from vectrify.refine.samvg import (
     LINE_WIDTH,
-    SAMVG_MAX_SIDE,
     SAMVG_MODEL,
     SAMVG_POINTS_PER_BATCH,
 )
@@ -48,7 +47,8 @@ SETTINGS = {
     "outlines": Setting(bool, True),
     # Move region edges onto the reference's own, finer than SAM's masks.
     "refine": Setting(bool, True),
-    "max_side": Setting(int, SAMVG_MAX_SIDE, minimum=64, maximum=4096),
+    # The longest side SAM segments at; 0 segments at the reference's own size.
+    "max_side": Setting(int, 0, minimum=0, maximum=4096),
     "model": Setting(
         str,
         SAMVG_MODEL,
@@ -108,6 +108,8 @@ class Samvg:
 
         settings = read_settings(request.settings, SETTINGS, "SAMVG")
         region = target_region(request)
+        if not settings["max_side"]:
+            settings["max_side"] = max(region.image.size)
         traced, settings = _enlarged(region, settings)
         # The widest line looked for grows with the image.
         settings["outlines"] = (

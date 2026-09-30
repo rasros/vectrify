@@ -196,6 +196,25 @@ def test_flattened_samvg_trace_links_the_seams_between_its_regions(
     assert editor.undo_labels == ("Generate with SAMVG",)
 
 
+def test_samvg_segments_at_the_reference_size_by_default(monkeypatch):
+    seen = {}
+
+    def fake(image, **kwargs):
+        seen.update(kwargs, size=image.size)
+        return SQUARE
+
+    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", fake)
+    job = Job(
+        method("generate", "samvg"),
+        request(Editor(import_svg(DOC)), Selection.all(), settings={}),
+    )
+    job.run()
+    assert job.state()["status"] == "ready"
+    # The 400x200 reference is neither shrunk nor enlarged.
+    assert seen["size"] == (400, 200)
+    assert seen["max_side"] == 400
+
+
 def test_samvg_rejects_bad_settings_and_missing_permission():
     editor = Editor(import_svg(DOC))
     samvg = method("generate", "samvg")
