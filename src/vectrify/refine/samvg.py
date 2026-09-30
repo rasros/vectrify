@@ -1081,8 +1081,8 @@ def prompted_masks(
             )
         return output_masks
     finally:
-        if own_runtime and torch.cuda.is_available():
-            torch.cuda.empty_cache()
+        if own_runtime:
+            _release(runtime)
 
 
 def retrieve_layers(
@@ -1098,11 +1098,60 @@ def retrieve_layers(
     points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[MaskLayer]:
-    """Run SAMVG's automatic-mask, coverage-prompt, filter sequence."""
+    """Run SAMVG's automatic-mask, coverage-prompt, filter sequence.
+
+    A model loaded here is released, and its GPU memory returned, before
+    this returns: the tracing that follows needs no GPU.
+    """
+    runtime = _runtime
+    if masks is None and runtime is None:
+        runtime = _sam_runtime(model=model)
+    try:
+        return _retrieve_layers(
+            image,
+            masks,
+            min_pixels=min_pixels,
+            min_impact=min_impact,
+            max_layers=max_layers,
+            fill_holes=fill_holes,
+            max_side=max_side,
+            points_per_batch=points_per_batch,
+            _runtime=runtime,
+        )
+    finally:
+        if _runtime is None and runtime is not None:
+            _release(runtime)
+
+
+def _release(runtime: _SamRuntime) -> None:
+    """Drop *runtime*'s model and embedding and hand their memory back."""
+    import gc
+
+    runtime.generator = runtime.processor = runtime.image_embeddings = None
+    gc.collect()
+    try:
+        import torch
+    except ImportError:  # pragma: no cover - installation-specific
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+
+
+def _retrieve_layers(
+    image: Image.Image,
+    masks: list[np.ndarray] | None,
+    *,
+    min_pixels: int,
+    min_impact: float,
+    max_layers: int,
+    fill_holes: bool,
+    max_side: int | None,
+    points_per_batch: int,
+    _runtime: _SamRuntime | None,
+) -> list[MaskLayer]:
     image = image.convert("RGB")
     runtime = _runtime
     if masks is None:
-        runtime = runtime or _sam_runtime(model=model)
         initial = automatic_masks(
             image,
             max_side=max_side,
