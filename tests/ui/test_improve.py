@@ -399,3 +399,45 @@ def test_check_reports_whether_an_operation_would_run_without_running_it():
     session.editor.select(SELECTION)
     assert check("nodes", simplify=True) == {"ok": True}
     assert not session.jobs
+
+
+def _ring(curves: int) -> str:
+    import itertools
+    import math
+
+    points = [
+        (
+            32 + 20 * math.cos(2 * math.pi * i / curves),
+            32 + 20 * math.sin(2 * math.pi * i / curves),
+        )
+        for i in range(curves + 1)
+    ]
+    d = f"M{points[0][0]:.3f} {points[0][1]:.3f}" + "".join(
+        f" C{a[0]:.3f} {a[1]:.3f} {b[0]:.3f} {b[1]:.3f} {b[0]:.3f} {b[1]:.3f}"
+        for a, b in itertools.pairwise(points)
+    )
+    return (
+        '<svg width="64" height="64"><rect width="64" height="64" fill="#eeeeff"/>'
+        f'<path id="a" d="{d} Z" fill="#800000"/></svg>'
+    )
+
+
+def test_gpu_fit_refuses_contours_longer_than_the_native_renderer():
+    options = FitOptions(steps=4, resolution=64)
+    doc = import_svg(_ring(17))
+    with pytest.raises(DocumentError, match="up to 16 curves"):
+        validate_selection(doc, SELECTION, options)
+    validate_selection(import_svg(_ring(16)), SELECTION, options)
+
+
+def test_a_closed_sixteen_curve_contour_moves():
+    require_gpu()
+    svg = _ring(16)
+    result = fit_selected_path(
+        import_svg(svg),
+        SELECTION,
+        target(svg.replace('id="a"', 'id="a" transform="translate(3 2)"')),
+        FitOptions(color=False, steps=20, resolution=64, displacement=4),
+    )
+    assert result.values
+    assert result.after < result.before
