@@ -38,6 +38,8 @@ SETTINGS = {
     "min_width": Setting(int, 3, minimum=0, maximum=64, label="minimum width"),
     # Cut every region down to its visible part, so none overlap.
     "flatten": Setting(bool, False),
+    # Fold small patches into a neighbour of a similar colour.
+    "merge": Setting(bool, True),
     "max_side": Setting(int, SAMVG_MAX_SIDE, minimum=64, maximum=4096),
     "model": Setting(
         str,

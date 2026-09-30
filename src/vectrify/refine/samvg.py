@@ -55,6 +55,9 @@ SAMVG_STABILITY_SCORE_THRESH = float(
 SAMVG_RESIDUAL_RADIUS_FRACTION = float(
     os.environ.get("VECTRIFY_SAMVG_RESIDUAL_RADIUS_FRACTION", "0.005")
 )
+# The share of the impact filter's threshold one merge of neighbouring
+# regions may cost; see ``merge_patches``.
+MERGE_SHARE = float(os.environ.get("VECTRIFY_SAMVG_MERGE_SHARE", "0.1"))
 # Outlines are smoothed over this many SAM pixels before curves are fitted,
 # so the fit does not follow the masks' raster steps.
 SAMVG_SMOOTH = float(os.environ.get("VECTRIFY_SAMVG_SMOOTH", "1.0"))
@@ -1473,6 +1476,83 @@ def _without_slivers(
     ]
 
 
+def merge_patches(
+    layers: list[MaskLayer], image: Image.Image, *, min_impact: float
+) -> list[MaskLayer]:
+    """Merge neighbouring regions whose difference is not worth a shape.
+
+    SAM returns many small masks along the edges between larger regions, and
+    regions of one colour cut in pieces, each traced as a shape of its own.
+    Two regions painted in their own mean colours differ from one painted in
+    the mean of both by n1 n2 / (n1 + n2) |c1 - c2|^2, summed over what each
+    shows. Where that is below *min_impact*, the least the impact filter
+    keeps a layer for, the smaller region joins its neighbour: a tiny patch
+    merges even when its colour is off, a large region only when the colours
+    all but match. Smallest first, into the neighbour it costs least to join.
+    """
+    if not layers:
+        return layers
+    target = np.asarray(image.convert("RGB"), dtype=np.float64) / 255
+    height, width = layers[0].mask.shape
+    # The impact filter's error is a mean over every pixel and channel; each
+    # merge may cost a share of what keeps a layer, since hundreds add up.
+    budget = MERGE_SHARE * min_impact * height * width * 3
+    # Which layer shows at each pixel: the last one to paint it.
+    owner = np.zeros((height, width), dtype=np.int32)
+    for index, layer in enumerate(layers, start=1):
+        owner[layer.mask] = index
+    masks = {index: layer.mask.copy() for index, layer in enumerate(layers, 1)}
+    areas = np.bincount(owner.ravel(), minlength=len(layers) + 1)
+    colours = np.zeros((len(layers) + 1, 3))
+    for index in masks:
+        if areas[index]:
+            colours[index] = target[owner == index].mean(axis=0)
+    for patch in sorted(masks, key=lambda index: areas[index]):
+        if not areas[patch]:
+            continue
+        ys, xs = np.nonzero(owner == patch)
+        top, left = max(ys.min() - 1, 0), max(xs.min() - 1, 0)
+        window = owner[top : ys.max() + 2, left : xs.max() + 2]
+        shown = window == patch
+        ring = _binary_dilation(shown, 1) & ~shown
+        best, cheapest = 0, budget
+        for neighbour in np.unique(window[ring]):
+            if neighbour in (0, patch) or not areas[neighbour]:
+                continue
+            n1, n2 = areas[patch], areas[neighbour]
+            cost = (
+                n1
+                * n2
+                / (n1 + n2)
+                * float(np.sum((colours[patch] - colours[neighbour]) ** 2))
+            )
+            if cost < cheapest:
+                best, cheapest = int(neighbour), cost
+        if not best:
+            continue
+        n1, n2 = areas[patch], areas[best]
+        colours[best] = (colours[patch] * n1 + colours[best] * n2) / (n1 + n2)
+        areas[best] += n1
+        areas[patch] = 0
+        masks[best] |= owner == patch
+        owner[owner == patch] = best
+        masks.pop(patch)
+    return [
+        replace(
+            layer,
+            mask=masks[index],
+            colour=cast(
+                tuple[int, int, int],
+                tuple(int(v) for v in np.rint(colours[index] * 255)),
+            ),
+        )
+        if areas[index]
+        else replace(layer, mask=masks[index])
+        for index, layer in enumerate(layers, start=1)
+        if index in masks
+    ]
+
+
 def backdrop_colour(
     image: Image.Image, layers: list[MaskLayer]
 ) -> tuple[int, int, int]:
@@ -1531,6 +1611,7 @@ def generate_svg(
     min_width: int = 0,
     drop_hidden: bool = False,
     flatten: bool = False,
+    merge: bool = False,
     backdrop: bool = False,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
@@ -1573,6 +1654,8 @@ def generate_svg(
         flatten=flatten,
         min_pixels=min_pixels,
     )
+    if merge:
+        layers = merge_patches(layers, image, min_impact=min_impact)
     width, height = image.size
     # SAM's masks have steps of one SAM pixel, which is more than one of the
     # image's when SAM worked at a smaller size.
