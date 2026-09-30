@@ -31,6 +31,10 @@ def reference(shape="circle"):
     draw = ImageDraw.Draw(image)
     if shape == "circle":
         draw.ellipse((53, 52, 139, 138), fill="#203050")
+    elif shape == "notch":
+        # A square with a thin notch cut into its right side.
+        draw.rectangle((50, 50, 140, 140), fill="#203050")
+        draw.polygon([(141, 83), (105, 95), (141, 107)], fill="white")
     else:
         # A square with a step in one side, which one segment cannot follow.
         draw.rectangle((50, 50, 140, 140), fill="#203050")
@@ -109,6 +113,19 @@ def test_detail_splits_where_one_curve_cannot_follow_the_edge():
     assert len(ids(start)) < len(ids(result)) <= 2 * len(ids(start))
     assert set(ids(start)) <= set(ids(result))
     assert after < plain < before
+
+
+def test_detail_cuts_a_notch_without_moving_the_side_it_is_in():
+    square = SVG.replace(CIRCLE, "M25 25 L70 25 L70 70 L25 70 Z")
+    start, result, before, after = snapped(square, "p", reference("notch"), detail=True)
+    assert after < 0.5 * before
+    points = [n.values[-2:] for n in result.subpaths[0].nodes]
+    # The tip reaches well into the side, and the corners stay where they were.
+    assert min(x for x, _y in points) < 58
+    for corner in [(25, 25), (70, 25), (70, 70), (25, 70)]:
+        assert min(abs(x - corner[0]) + abs(y - corner[1]) for x, y in points) < 1.5
+    tips = [x for x, y in points if 30 < y < 65]
+    assert tips and min(tips) < 58
 
 
 def test_snap_alone_is_the_proposal_and_needs_a_reference():

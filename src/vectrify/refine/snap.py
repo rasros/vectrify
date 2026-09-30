@@ -1,17 +1,21 @@
 """Snap to the reference: move the selected paths' points onto its edges.
 
-Where the node search tries random moves and keeps what scores better, this
-reads the edge off the reference and puts the outline on it. For each filled
-path a target mask is built: the path's own coverage, except in a band around
-its outline, where each reference pixel belongs to the shape when its colour
-is closer to the colour inside the path than to the colour just outside.
+For each free point, the reference is read along the outline's normal, a few
+pixels either way. The colour just inside the path there and the colour just
+outside it are taken from that same line, and the edge is where the line
+stops looking like the inside and starts looking like the outside, nearest
+to where the point already is. The point moves there and takes its two
+handles along, so the curve keeps its shape. Segment middles are then pulled
+onto the edge the same way by their handles.
 
-Each pass samples every segment and looks along its normal for the mask's
-edge. A point moves by the shift that best carries both of its segments onto
-the edge where they meet it, so corners follow their two sides and smooth
-points only move across the outline. Cubic handles are then refitted to the
-edge between their ends. With detail on, segments that still miss the edge
-are split where they miss it most.
+The reach is small on purpose: the job is to put an outline on the edge that
+is right there, not to hunt for one, since the nearest edge further away is
+as often a neighbouring shape's. A pass that would make an outline cross
+itself is scaled back until it does not. With detail on, points are added
+where the path and the reference disagree most: each large blob of pixels
+the path misses or covers wrongly gets new points on the segment beside it,
+one, two or a spike of three, kept when they pay for themselves, and the
+passes run again.
 
 All of it works in the reference's pixels, so steps and tolerances are the
 same for a transformed or tiny path. Pinned endpoints and linked edges stay.
@@ -21,7 +25,6 @@ from __future__ import annotations
 
 import io
 from dataclasses import dataclass, field, replace
-from typing import cast
 
 import cairosvg
 import numpy as np
@@ -36,25 +39,32 @@ from vectrify.image_utils import resize_long_side
 from vectrify.operations.generate import Region
 from vectrify.vector.nodes import Frozen, Paths
 
-# The band around the outline the edge is looked for in, as a share of the
-# path's larger side in pixels, and never less than a few pixels.
-BAND = 0.1
-MIN_BAND = 3.0
+# How far a point looks for the edge either way, in reference pixels, and
+# the share of the path's size that caps it for small paths.
+REACH = 6.0
+REACH_SHARE = 0.05
 # Reference crops larger than this are shrunk first.
 LONG_SIDE = 512
 PASSES = 6
-# How far a point may go in all, in bands.
-REACH = 2.0
+# How far a point may travel in all, in reaches.
+TRAVEL = 3.0
 # Stop once no point moves further than this, in pixels.
 SETTLED = 0.2
 # Inside and outside colours closer than this (RGB, 0-1) cannot tell the
-# edge apart, so the path's own coverage stands there.
+# edge apart, so the point stays.
 CONTRAST = 0.08
-# Detail: a segment is split when the edge is further than this from it.
-SPLIT_ERROR = 1.5
-SPLIT_PASSES = 6
-# How finely the normal is searched, in pixels.
+# Detail: how many pixels each added point has to fix, how many of the
+# largest wrong blobs each round looks at, and how finely each segment is
+# sampled to find the one a blob sits on. The path never grows past
+# SPLIT_GROWTH times its points.
+SPLIT_GAIN = 12
+SPLIT_BLOBS = 8
+SAMPLES = 32
+SPLIT_GROWTH = 2.0
+# How finely the normal is read, in pixels.
 STEP = 0.5
+# How many points each segment is drawn with when checking for crossings.
+CROSSING_SAMPLES = 8
 
 
 @dataclass(frozen=True)
@@ -157,10 +167,13 @@ def _path_data(contours: list[_Contour]) -> str:
     return " ".join(parts)
 
 
-def _coverage(contours: list[_Contour], size, rule: str) -> np.ndarray:
+def _coverage(contours: list[_Contour], size, rule: str, window=None) -> np.ndarray:
+    """Which pixels the contours fill, over the whole crop or a *window* of it."""
+    x0, y0, x1, y1 = window or (0, 0, size[0], size[1])
     svg = (
-        f'<svg xmlns="http://www.w3.org/2000/svg" width="{size[0]}" '
-        f'height="{size[1]}"><path d="{_path_data(contours)}" fill="#000" '
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{x1 - x0}" '
+        f'height="{y1 - y0}" viewBox="{x0} {y0} {x1 - x0} {y1 - y0}">'
+        f'<path d="{_path_data(contours)}" fill="#000" '
         f'fill-rule="{rule}"/></svg>'
     )
     png = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
@@ -169,143 +182,20 @@ def _coverage(contours: list[_Contour], size, rule: str) -> np.ndarray:
         return np.asarray(image.convert("L")) < 128
 
 
-def _local_colour(reference, where, window):
-    """The mean colour of *where* around each pixel, or its median overall."""
-    weight = where.astype(np.float64)
-    if not weight.any():
-        return None
-    total = ndimage.uniform_filter(weight, window, mode="constant")
-    fallback = np.median(reference[where], axis=0)
-    colour = np.empty_like(reference)
-    for channel in range(3):
-        summed = ndimage.uniform_filter(
-            reference[..., channel] * weight, window, mode="constant"
-        )
-        colour[..., channel] = np.where(
-            total > 1e-3, summed / np.maximum(total, 1e-9), fallback[channel]
-        )
-    return colour
-
-
-def distance_transform_edt(mask: np.ndarray) -> np.ndarray:
-    """Euclidean distance to the nearest zero, typed for the one return value."""
-    return cast(np.ndarray, ndimage.distance_transform_edt(mask))
-
-
-def nearest_indices(mask: np.ndarray) -> tuple[np.ndarray, ...]:
-    """Index arrays of the nearest zero for every pixel, for fancy indexing."""
-    indices = ndimage.distance_transform_edt(
-        mask, return_distances=False, return_indices=True
-    )
-    return tuple(cast(np.ndarray, indices))
-
-
-def _nearest_colour(reference, where):
-    """The colour of the nearest pixel in *where*, lightly smoothed.
-
-    Unlike a mean it never blends two backgrounds into a colour neither has.
-    """
-    if not where.any():
-        return None
-    smooth = ndimage.gaussian_filter(reference, (1.0, 1.0, 0))
-    rows, columns = nearest_indices(~where)
-    return smooth[rows, columns]
-
-
-class _Target:
-    """The shape's pixels as the reference shows them, near the outline."""
-
-    def __init__(self, reference, coverage, band):
-        self.band = band
-        inside = distance_transform_edt(coverage)
-        outside = distance_transform_edt(~coverage)
-        signed = outside - inside
-        near = np.abs(signed) <= band
-        deep = signed < -band
-        if deep.sum() < 10:
-            deep = coverage
-        ring = (signed > band) & (signed <= 2 * band)
-        if ring.sum() < 10:
-            ring = ~coverage
-        window = int(4 * band) | 1
-        colour_in = _local_colour(reference, deep, window)
-        colour_out = _nearest_colour(reference, ring)
-        mask = coverage.copy()
-        if colour_in is not None and colour_out is not None:
-            closer = np.linalg.norm(reference - colour_in, axis=2) < np.linalg.norm(
-                reference - colour_out, axis=2
-            )
-            telling = np.linalg.norm(colour_in - colour_out, axis=2) > CONTRAST
-            classify = near & telling
-            mask[classify] = closer[classify]
-            # Drop single-pixel specks.
-            mask = ndimage.uniform_filter(mask.astype(np.float64), 3) > 0.5
-        self.mask = ndimage.gaussian_filter(mask.astype(np.float64), 0.7)
-        self.coverage = ndimage.gaussian_filter(coverage.astype(np.float64), 1.0)
-
-    def sample(self, field, points):
-        return ndimage.map_coordinates(
-            field, [points[..., 1] - 0.5, points[..., 0] - 0.5], order=1, mode="nearest"
-        )
-
-    def outward(self, points, normals) -> float:
-        """+1 when *normals* point out of the path, -1 when in, 0 unknown."""
-        inner = self.sample(self.coverage, points - 2 * normals)
-        outer = self.sample(self.coverage, points + 2 * normals)
-        balance = float(np.sum(inner - outer))
-        return float(np.sign(balance)) if abs(balance) > 0.1 * len(points) else 0.0
-
-    def offsets(self, points, normals, reach) -> np.ndarray:
-        """How far along each outward normal the edge is; NaN where none is."""
-        steps = np.arange(-reach, reach + 1e-9, STEP)
-        probe = points[:, None, :] + steps[None, :, None] * normals[:, None, :]
-        value = self.sample(self.mask, probe) - 0.5
-        found = np.full(len(points), np.nan)
-        for k, row in enumerate(value):
-            # Leaving the shape going outward.
-            index = np.nonzero((row[:-1] > 0) & (row[1:] <= 0))[0]
-            if index.size:
-                at = steps[index] + row[index] / (row[index] - row[index + 1]) * STEP
-                found[k] = at[np.argmin(np.abs(at))]
-        # Off the crop there is nothing to see, only its border.
-        edge = points + np.nan_to_num(found)[:, None] * normals
-        height, width = self.mask.shape
-        outside = (
-            (edge[:, 0] < 0.5)
-            | (edge[:, 1] < 0.5)
-            | (edge[:, 0] > width - 0.5)
-            | (edge[:, 1] > height - 0.5)
-        )
-        found[outside] = np.nan
-        return found
-
-
-@dataclass
-class _Samples:
-    t: np.ndarray
-    points: np.ndarray
-    normals: np.ndarray
-    offsets: np.ndarray
-
-    @property
-    def valid(self) -> np.ndarray:
-        return ~np.isnan(self.offsets)
-
-    def edge(self) -> np.ndarray:
-        """The edge points found, in order along the segment."""
-        ok = self.valid
-        return self.points[ok] + self.offsets[ok, None] * self.normals[ok]
+def _unit(vector: np.ndarray) -> np.ndarray | None:
+    size = float(np.linalg.norm(vector))
+    return None if size < 1e-9 else vector / size
 
 
 class _Snapper:
     def __init__(self, frame, reference, rule, fixed: Frozen, detail: bool):
         self.frame = frame
-        self.reference = reference
+        self.reference = ndimage.gaussian_filter(reference, (0.6, 0.6, 0))
         self.size = (reference.shape[1], reference.shape[0])
         self.rule = rule
         self.fixed = fixed
         self.detail = detail
-        self.band = MIN_BAND
+        self.reach = REACH
 
     def run(self, geometry: Geometry) -> Geometry:
         contours = [
@@ -327,230 +217,386 @@ class _Snapper:
         ]
         every = np.vstack([n.points for c in contours for n in c.nodes])
         extent = float(np.max(every.max(axis=0) - every.min(axis=0)))
-        coverage = self._coverage(contours)
-        if not coverage.any():
-            return geometry
-        # No wider than the shape is thick, or one side's band reaches the
-        # other side's edge.
-        thickness = float(np.max(distance_transform_edt(coverage)))
-        self.band = max(MIN_BAND, min(BAND * extent, thickness))
-        self._settle(contours)
+        self.reach = max(2.0, min(REACH, REACH_SHARE * extent))
+        start = sum(len(c.nodes) for c in contours)
+        for _ in range(PASSES):
+            if self._pass(contours) < SETTLED:
+                break
         if self.detail:
-            self._add_detail(contours)
+            while sum(len(c.nodes) for c in contours) < SPLIT_GROWTH * start:
+                if not self._split(contours, SPLIT_GROWTH * start):
+                    break
+                self._pass(contours)
         return self._geometry(geometry, contours)
 
-    def _settle(self, contours: list[_Contour]) -> None:
-        """Move points and refit handles until the points stop moving."""
-        for _ in range(PASSES):
-            target = self._target(contours)
-            moved = max((self._move_points(c, target) for c in contours), default=0.0)
-            for contour in contours:
-                self._refit(contour, target)
-            if moved < SETTLED:
-                break
-        # Only once the corners are in place can a line tell it should bow.
-        target = self._target(contours)
-        for contour in contours:
-            self._refit(contour, target, bend=True)
+    # Reading the reference.
 
-    def _coverage(self, contours):
+    def _coverage(self, contours) -> np.ndarray:
         return _coverage(contours, self.size, self.rule)
 
-    def _target(self, contours) -> _Target:
-        return _Target(self.reference, self._coverage(contours), self.band)
-
-    def _sample(self, control, target, direction, count=None) -> _Samples:
-        length = float(np.sum(np.linalg.norm(np.diff(control, axis=0), axis=1)))
-        count = count or int(np.clip(length / 1.5, 4, 64))
-        t = (np.arange(count) + 0.5) / count
-        points, tangents = _bezier(control, t)
-        norm = np.maximum(np.linalg.norm(tangents, axis=1, keepdims=True), 1e-12)
-        normals = direction * np.column_stack([tangents[:, 1], -tangents[:, 0]]) / norm
-        return _Samples(t, points, normals, target.offsets(points, normals, self.band))
-
-    def _direction(self, contour, target) -> float:
-        points, normals = [], []
-        for _, control in _segments(contour):
-            t = np.linspace(0.1, 0.9, 5)
-            p, tangent = _bezier(control, t)
-            norm = np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-12)
-            points.append(p)
-            normals.append(np.column_stack([tangent[:, 1], -tangent[:, 0]]) / norm)
-        if not points:
-            return 0.0
-        return target.outward(np.vstack(points), np.vstack(normals))
-
-    def _move_points(self, contour: _Contour, target: _Target) -> float:
-        """Move each free point onto the edge; the furthest move, in pixels."""
-        direction = self._direction(contour, target)
-        if not direction:
-            return 0.0
-        nodes = contour.nodes
-        segments = _segments(contour)
-        # Per node: the edge's offset where each of its segments meets it,
-        # along that segment's normal there, and how much to trust it.
-        constraints: dict[int, list[tuple[np.ndarray, float, float]]] = {}
-        for end, control in segments:
-            samples = self._sample(control, target, direction)
-            ok = samples.valid
-            if ok.sum() < 3:
-                continue
-            fit = _robust_line(samples.t[ok], samples.offsets[ok])
-            # Never beyond what was seen: a curve's offsets extrapolate badly.
-            low, high = np.min(samples.offsets[ok]), np.max(samples.offsets[ok])
-            for index, at in (((end - 1) % len(nodes), 0.0), (end, 1.0)):
-                _, tangent = _bezier(control, np.array([at]))
-                normal = direction * np.array([tangent[0, 1], -tangent[0, 0]])
-                size = np.linalg.norm(normal)
-                if size < 1e-9:
-                    continue
-                weight = ok.mean()
-                constraints.setdefault(index, []).append(
-                    (
-                        normal / size,
-                        float(np.clip(fit[0] + fit[1] * at, low, high)),
-                        weight,
-                    )
+    def _read(self, points: np.ndarray) -> np.ndarray:
+        rows = points[..., 1] - 0.5
+        columns = points[..., 0] - 0.5
+        return np.stack(
+            [
+                ndimage.map_coordinates(
+                    self.reference[..., c], [rows, columns], order=1, mode="nearest"
                 )
-        # A closed contour whose last node sits on its first moves them together.
-        twin = (
-            contour.closed
-            and len(nodes) > 1
-            and np.linalg.norm(nodes[-1].end - nodes[0].end) <= 1e-6
+                for c in range(3)
+            ],
+            axis=-1,
         )
-        if twin:
-            merged = constraints.get(0, []) + constraints.get(len(nodes) - 1, [])
-            constraints[0] = constraints[len(nodes) - 1] = merged
-        furthest = 0.0
-        shifts = {}
-        for index, rows in constraints.items():
-            node = nodes[index]
+
+    def _inside_colour(self, coverage) -> np.ndarray | None:
+        """The reference's colour over the path's interior, away from its edge."""
+        core = ndimage.binary_erosion(coverage, iterations=2)
+        if core.sum() < 10:
+            core = coverage
+        if not core.any():
+            return None
+        return np.median(self.reference[core], axis=0)
+
+    def _edge(self, point, normal, colour_in) -> float | None:
+        """Offset along *normal* (pointing out) to the edge nearest *point*.
+
+        Where the whole line still looks like the inside, the edge is further
+        out than the reach, and the answer is a full step outward so the next
+        pass can look again from there; likewise inward.
+        """
+        steps = np.arange(-self.reach, self.reach + 1e-9, STEP)
+        probe = point[None, :] + steps[:, None] * normal[None, :]
+        width, height = self.size
+        # Near the crop's border the line is cut short where it leaves it.
+        within = (
+            (probe[:, 0] >= 0.5)
+            & (probe[:, 1] >= 0.5)
+            & (probe[:, 0] <= width - 0.5)
+            & (probe[:, 1] <= height - 0.5)
+        )
+        centre = len(steps) // 2
+        if not within[centre]:
+            return None
+        outside = np.nonzero(~within)[0]
+        low = outside[outside < centre].max() + 1 if (outside < centre).any() else 0
+        high = (
+            outside[outside > centre].min() if (outside > centre).any() else len(steps)
+        )
+        steps, probe = steps[low:high], probe[low:high]
+        if len(steps) < 4:
+            return None
+        colours = self._read(probe)
+        distance = np.linalg.norm(colours - colour_in, axis=1)
+        end = max(2, len(steps) // 5)
+        colour_out = np.median(colours[-end:], axis=0)
+        contrast = float(np.linalg.norm(colour_out - colour_in))
+        inner_like = float(np.median(distance[:end])) < CONTRAST
+        if contrast < CONTRAST:
+            # The far end looks like the inside too: step out if the near end
+            # agrees, since the shape then carries on past the reach.
+            return self.reach if inner_like else None
+        if not inner_like:
+            # Even inside the outline the reference is not the shape's colour:
+            # the outline sits outside the shape, so step in.
+            return -self.reach
+        # Positive where the reference looks like the inside.
+        likeness = contrast / 2 - distance
+        crossings = np.nonzero((likeness[:-1] > 0) & (likeness[1:] <= 0))[0]
+        if not crossings.size:
+            return None
+        at = (
+            steps[crossings]
+            + likeness[crossings]
+            / (likeness[crossings] - likeness[crossings + 1])
+            * STEP
+        )
+        return float(at[np.argmin(np.abs(at))])
+
+    def _outward(self, point, normal, coverage) -> np.ndarray | None:
+        """*normal* turned to point out of the path, or None if unclear."""
+        height, width = coverage.shape
+
+        def filled(p):
+            x, y = int(np.floor(p[0])), int(np.floor(p[1]))
+            return 0 <= x < width and 0 <= y < height and bool(coverage[y, x])
+
+        ahead, behind = filled(point + 1.5 * normal), filled(point - 1.5 * normal)
+        if ahead == behind:
+            return None
+        return normal if behind else -normal
+
+    # Moving points.
+
+    def _pass(self, contours) -> float:
+        """One round of moving points and segment middles; the furthest move."""
+        coverage = self._coverage(contours)
+        if not coverage.any():
+            return 0.0
+        before = [[n.points.copy() for n in c.nodes] for c in contours]
+        crossings = sum(_crossings(c) for c in contours)
+        colour_in = self._inside_colour(coverage)
+        if colour_in is None:
+            return 0.0
+        moved = 0.0
+        for contour in contours:
+            moved = max(moved, self._move_points(contour, coverage, colour_in))
+            self._move_middles(contour, coverage, colour_in)
+        # Scale the whole pass back until no outline crosses itself more.
+        scale = 1.0
+        while sum(_crossings(c) for c in contours) > crossings and scale > 0.1:
+            scale /= 2
+            for contour, saved in zip(contours, before, strict=True):
+                for node, old in zip(contour.nodes, saved, strict=True):
+                    node.points = old + (node.points - old) * scale
+        if sum(_crossings(c) for c in contours) > crossings:
+            for contour, saved in zip(contours, before, strict=True):
+                for node, old in zip(contour.nodes, saved, strict=True):
+                    node.points = old
+            return 0.0
+        return moved * scale
+
+    def _move_points(self, contour: _Contour, coverage, colour_in) -> float:
+        nodes = contour.nodes
+        count = len(nodes)
+        closed = contour.closed and count > 2
+        # A closed contour whose last node repeats its first has one point
+        # there: it moves as node 0, whose neighbours are node 1 and the one
+        # before the last.
+        repeats = closed and np.linalg.norm(nodes[-1].end - nodes[0].end) < 1e-6
+        ring = count - 1 if repeats else count
+        offsets: dict[int, tuple[np.ndarray, float]] = {}
+        for i, node in enumerate(nodes[:ring]):
             if node.fixed or node.pinned:
                 continue
-            system = 0.1 * np.eye(2)
-            rhs = np.zeros(2)
-            for normal, offset, weight in rows:
-                system += weight * np.outer(normal, normal)
-                rhs += weight * normal * offset
-            shift = np.linalg.solve(system, rhs)
-            away = node.end + shift - node.origin
-            size = np.linalg.norm(away)
-            if size > REACH * self.band:
-                shift = node.origin + away * (REACH * self.band / size) - node.end
-            shifts[index] = shift
-        if twin and (
-            nodes[0].fixed or nodes[0].pinned or nodes[-1].fixed or nodes[-1].pinned
-        ):
-            shifts.pop(0, None)
-            shifts.pop(len(nodes) - 1, None)
-        for index, shift in shifts.items():
-            self._shift(contour, index, shift)
-            furthest = max(furthest, float(np.linalg.norm(shift)))
-        return furthest
-
-    def _shift(self, contour: _Contour, index: int, shift: np.ndarray) -> None:
-        """Move an endpoint, taking its neighbouring handles along."""
-        nodes = contour.nodes
-        node = nodes[index]
-        node.points = node.points.copy()
-        node.points[-1] += shift
-        if node.command == "C":
-            node.points[1] += shift
-        if index + 1 < len(nodes):
-            after = nodes[index + 1]
-            if after.command == "C" and not after.fixed:
-                after.points = after.points.copy()
-                after.points[0] += shift
-
-    def _refit(self, contour: _Contour, target: _Target, bend=False) -> None:
-        """Fit each segment's handles to the edge between its ends.
-
-        With *bend*, a line alongside a clearly curved edge becomes a cubic.
-        """
-        direction = self._direction(contour, target)
-        if not direction:
-            return
-        for end, control in _segments(contour):
-            if end == 0:
+            if not closed and i in (0, count - 1):
                 continue
-            node = contour.nodes[end]
-            if node.fixed:
+            before = nodes[(i - 1) % ring].end
+            after = nodes[(i + 1) % ring].end
+            tangent = _unit(after - before)
+            if tangent is None:
                 continue
-            samples = self._sample(control, target, direction)
-            ok = samples.valid
-            if ok.sum() < max(4, 0.5 * len(ok)):
-                continue
-            if node.command == "C" or (bend and _curved(samples, control)):
-                fitted = _cubic_through(
-                    control[0], control[-1], samples.t[ok], samples.edge()
-                )
-                if fitted is not None:
-                    node.command = "C"
-                    node.points = fitted
-
-    def _add_detail(self, contours: list[_Contour]) -> None:
-        """Split segments where the edge is still far from them.
-
-        After each round of splits the points settle again, so the corners
-        the new points make find their place.
-        """
-        limit = 2 * sum(len(c.nodes) for c in contours)
-        for _ in range(SPLIT_PASSES):
-            target = self._target(contours)
-            split = False
-            for contour in contours:
-                direction = self._direction(contour, target)
-                if not direction:
-                    continue
-                for end, control in reversed(_segments(contour)):
-                    if sum(len(c.nodes) for c in contours) >= limit:
-                        break
-                    if not contour.nodes[end].fixed:
-                        split |= self._split(contour, end, control, target, direction)
-            if not split:
-                return
-            self._settle(contours)
-
-    def _split(self, contour, end, control, target, direction) -> bool:
-        length = float(np.sum(np.linalg.norm(np.diff(control, axis=0), axis=1)))
-        count = int(np.clip(length, 8, 128))
-        samples = self._sample(control, target, direction, count)
-        ok = samples.valid
-        if ok.sum() < max(4, 0.5 * count):
-            return False
-        error = np.where(ok, np.abs(samples.offsets), 0.0)
-        # Not so near an end that a sliver is left.
-        room = (samples.t > 0.1) & (samples.t < 0.9)
-        error[~room] = 0.0
-        k = int(np.argmax(error))
-        if error[k] <= SPLIT_ERROR or length * min(samples.t[k], 1 - samples.t[k]) < 2:
-            return False
-        middle = samples.points[k] + samples.offsets[k] * samples.normals[k]
-        before = ok & (np.arange(count) < k)
-        after = ok & (np.arange(count) > k)
-        edge = (
-            samples.points + np.nan_to_num(samples.offsets)[:, None] * samples.normals
-        )
-        t, at = samples.t, samples.t[k]
-        node = contour.nodes[end]
-        if node.command == "C":
-            # Each half follows the edge where it can, or the curve it was.
-            first, second = _halves(control, at, middle)
-            fitted = _cubic_through(control[0], middle, t[before] / at, edge[before])
-            first = first if fitted is None else fitted
-            fitted = _cubic_through(
-                middle, control[-1], (t[after] - at) / (1 - at), edge[after]
+            normal = self._outward(
+                node.end, np.array([tangent[1], -tangent[0]]), coverage
             )
-            second = second if fitted is None else fitted
-            new = _Node(new_id("node"), "C", first, False, False, None)
-            node.points = second
-        else:
-            new = _Node(new_id("node"), "L", middle[None].copy(), False, False, None)
-        if end == 0:
-            contour.nodes.append(new)
-        else:
-            contour.nodes.insert(end, new)
-        return True
+            if normal is None:
+                continue
+            found = self._edge(node.end, normal, colour_in)
+            if found is not None and abs(found) > 1e-3:
+                offsets[i] = (normal, found)
+        # A lone point jumping far from both neighbours is more likely to have
+        # found a different edge than to be right.
+        moved = 0.0
+        for i, (normal, found) in offsets.items():
+            near = [
+                offsets[j][1] for j in ((i - 1) % ring, (i + 1) % ring) if j in offsets
+            ]
+            if near and all(abs(found - other) > self.reach / 2 for other in near):
+                found = float(np.median([found, *near]))
+            delta = normal * found
+            # Never further than a few reaches from where the point started.
+            travel = nodes[i].end + delta - nodes[i].origin
+            limit = TRAVEL * self.reach
+            if np.linalg.norm(travel) > limit:
+                delta = (
+                    nodes[i].origin
+                    + travel * (limit / np.linalg.norm(travel))
+                    - nodes[i].end
+                )
+            self._shift_point(contour, i, delta)
+            moved = max(moved, abs(found))
+        return moved
+
+    def _shift_point(self, contour: _Contour, i: int, delta: np.ndarray) -> None:
+        """Move node *i*'s endpoint and both handles beside it by *delta*."""
+        nodes = contour.nodes
+        node = nodes[i]
+        points = node.points.copy()
+        points[-1] += delta
+        if node.command == "C":
+            points[1] += delta
+        node.points = points
+        following = (i + 1) % len(nodes)
+        if (i + 1 < len(nodes) or contour.closed) and following != i:
+            nxt = nodes[following]
+            if nxt.command == "C" and not nxt.fixed:
+                shifted = nxt.points.copy()
+                shifted[0] += delta
+                nxt.points = shifted
+        # A closed contour whose last node repeats its first moves them as one.
+        if contour.closed and i == 0 and len(nodes) > 1:
+            last = nodes[-1]
+            if np.linalg.norm(last.end - (node.end - delta)) < 1e-6 and not last.fixed:
+                shifted = last.points.copy()
+                shifted[-1] += delta
+                last.points = shifted
+
+    def _middle(self, control, coverage, colour_in):
+        """The edge's offset from the segment's middle, along its normal."""
+        point, tangent = _bezier(control, np.array([0.5]))
+        unit = _unit(tangent[0])
+        if unit is None:
+            return None, None
+        normal = self._outward(point[0], np.array([unit[1], -unit[0]]), coverage)
+        if normal is None:
+            return None, None
+        return self._edge(point[0], normal, colour_in), normal
+
+    def _move_middles(self, contour: _Contour, coverage, colour_in) -> None:
+        for end, control in _segments(contour):
+            node = contour.nodes[end]
+            if node.command != "C" or node.fixed or len(control) != 4:
+                continue
+            found, normal = self._middle(control, coverage, colour_in)
+            if found is None or normal is None or abs(found) < 0.25:
+                continue
+            # Both handles moved by d move the curve's middle by 3/4 d.
+            points = node.points.copy()
+            points[0] += normal * found * 4 / 3
+            points[1] += normal * found * 4 / 3
+            node.points = points
+
+    def _split(self, contours, limit: float) -> bool:
+        """Add points where the path misses a piece of the shape, or covers too much.
+
+        The pixels where path and reference disagree are grouped into blobs,
+        largest first. For each, the segment nearest to it is split there: a
+        point at the blob's far end, two spanning it, or a spike of three whose
+        base points stay on the outline so the rest of the contour keeps its
+        shape. A try is kept when each point it adds fixes SPLIT_GAIN pixels.
+        """
+        coverage = self._coverage(contours)
+        colour_in = self._inside_colour(coverage)
+        if colour_in is None:
+            return False
+        inside = self._inside(coverage, colour_in)
+        if inside is None:
+            return False
+        wrong = inside != coverage
+        # One pixel slivers along the outline are antialiasing, not shape.
+        wrong = ndimage.binary_opening(wrong)
+        labels, count = ndimage.label(wrong)
+        if not count:
+            return False
+        areas = ndimage.sum(wrong, labels, range(1, count + 1))
+        order = np.argsort(-areas)[:SPLIT_BLOBS]
+        samples = self._samples(contours)
+        points_now = sum(len(c.nodes) for c in contours)
+        done: set[int] = set()
+        for index in order:
+            if areas[index] < SPLIT_GAIN or points_now >= limit:
+                break
+            ys, xs = np.nonzero(labels == index + 1)
+            blob = np.column_stack([xs, ys]) + 0.5
+            target = self._target(blob, samples, done)
+            if target is None:
+                continue
+            c, end, control, low, tip, high, depth, normal = target
+            contour = contours[c]
+            window = self._window(np.vstack([control, blob]))
+            if window is None:
+                continue
+            truth = _crop(inside, window)
+            base = int(
+                (_coverage(contours, self.size, self.rule, window) != truth).sum()
+            )
+            best: tuple[float, int, _Contour] | None = None
+            for added, trial in _targeted(
+                contour, end, control, low, tip, high, depth, normal
+            ):
+                if points_now + added > limit:
+                    continue
+                trying = [
+                    trial if k == c else other for k, other in enumerate(contours)
+                ]
+                error = int(
+                    (_coverage(trying, self.size, self.rule, window) != truth).sum()
+                )
+                # Each new point has to pay for itself.
+                gain = (base - error) / added
+                if gain >= SPLIT_GAIN and (best is None or gain > best[0]):
+                    best = (gain, added, trial)
+            if best is None:
+                continue
+            # One split per contour per round: a split renumbers its nodes,
+            # and the passes after settle the rest.
+            contours[c] = best[2]
+            done.add(c)
+            points_now += best[1]
+        return bool(done)
+
+    def _samples(self, contours):
+        """Points along every free segment: (contour, end node, t, point) rows."""
+        t = np.linspace(0, 1, SAMPLES + 1)
+        rows = []
+        for c, contour in enumerate(contours):
+            for end, control in _segments(contour):
+                if contour.nodes[end].fixed:
+                    continue
+                points, _ = _bezier(control, t)
+                rows.append((c, end, control, t, points))
+        return rows
+
+    def _target(self, blob, samples, done):
+        """Where on the outline a blob sits, and how far it reaches from it."""
+        if not samples:
+            return None
+        every = np.vstack([points for *_rest, points in samples])
+        owner = np.concatenate(
+            [np.full(len(points), k) for k, (*_rest, points) in enumerate(samples)]
+        )
+        spots = np.concatenate([t for *_rest, t, _points in samples])
+        gaps = np.linalg.norm(blob[:, None, :] - every[None, :, :], axis=2)
+        nearest = gaps.argmin(axis=1)
+        distance = gaps[np.arange(len(blob)), nearest]
+        far = int(distance.argmax())
+        k = int(owner[nearest[far]])
+        c, end, control, _t, _points = samples[k]
+        if c in done:
+            return None
+        # The blob's footprint on that segment: where its near pixels touch it.
+        mine = owner[nearest] == k
+        touching = mine & (distance <= max(2.0, 0.25 * distance[far]))
+        if not touching.any():
+            touching = mine
+        at = spots[nearest[touching]]
+        tip = float(spots[nearest[far]])
+        low, high = float(at.min()), float(at.max())
+        low, high = min(low, tip - 0.02), max(high, tip + 0.02)
+        if low <= 0.0 or high >= 1.0 or distance[far] < 1.0:
+            low, high = max(low, 0.01), min(high, 0.99)
+        point, tangent = _bezier(control, np.array([tip]))
+        unit = _unit(tangent[0])
+        if unit is None:
+            return None
+        normal = _unit(blob[far] - point[0])
+        if normal is None:
+            return None
+        return c, end, control, low, tip, high, float(distance[far]), normal
+
+    def _inside(self, coverage, colour_in) -> np.ndarray | None:
+        """Where the reference looks like the path's inside rather than around it."""
+        distance = np.linalg.norm(self.reference - colour_in, axis=2)
+        ring = (
+            ndimage.binary_dilation(coverage, iterations=int(np.ceil(self.reach)))
+            & ~coverage
+        )
+        if not ring.any():
+            return None
+        contrast = float(np.median(distance[ring]))
+        if contrast < CONTRAST:
+            return None
+        return distance < contrast / 2
+
+    def _window(self, control) -> tuple[int, int, int, int] | None:
+        """The pixels around a segment, padded by twice the reach."""
+        pad = 2 * self.reach
+        low = np.floor(control.min(axis=0) - pad).astype(int)
+        high = np.ceil(control.max(axis=0) + pad).astype(int)
+        width, height = self.size
+        x0, y0 = max(0, low[0]), max(0, low[1])
+        x1, y1 = min(width, high[0]), min(height, high[1])
+        if x1 - x0 < 2 or y1 - y0 < 2:
+            return None
+        return int(x0), int(y0), int(x1), int(y1)
 
     def _geometry(self, geometry: Geometry, contours: list[_Contour]) -> Geometry:
         subpaths = []
@@ -572,81 +618,123 @@ class _Snapper:
         return replace(geometry, subpaths=tuple(subpaths))
 
 
-def _robust_line(t: np.ndarray, offsets: np.ndarray) -> tuple[float, float]:
-    """offset = a + b t, fitted with outliers weighed down."""
-    weight = np.ones_like(t)
-    design = np.column_stack([np.ones_like(t), t])
-    a = b = 0.0
-    for _ in range(3):
-        root = np.sqrt(weight)
-        (a, b), *_ = np.linalg.lstsq(design * root[:, None], offsets * root, rcond=None)
-        residual = np.abs(offsets - a - b * t)
-        weight = 1 / np.maximum(1.0, residual / 1.5)
-    return float(a), float(b)
-
-
-def _curved(samples: _Samples, control: np.ndarray) -> bool:
-    """Whether the edge alongside a line clearly bows away from it."""
-    offsets = samples.offsets[samples.valid]
-    length = float(np.linalg.norm(control[-1] - control[0]))
-    # The bow, once a tilt of the whole line is taken out.
-    a, b = _robust_line(samples.t[samples.valid], offsets)
-    bow = offsets - a - b * samples.t[samples.valid]
-    middle = np.abs(samples.t[samples.valid] - 0.5) < 0.25
-    if not middle.any():
-        return False
-    depth = float(np.median(bow[middle]))
-    return abs(depth) > max(1.5, 0.04 * length)
-
-
-def _cubic_through(start, end, t, edge) -> np.ndarray | None:
-    """Cubic controls (c1, c2, end) from *start* to *end* following *edge*.
-
-    *t* are the edge points' parameters along the segment they were found
-    from, a far better start than spacing them evenly when some are missing.
-    A few Newton steps then move each parameter to its point's closest spot
-    on the curve before the final least-squares fit. None when the points do
-    not pin a curve down, or the curve that fits them runs wild.
-    """
-    if len(edge) < 3 or np.ptp(t) < 0.5:
-        return None
-    t = np.clip(t, 0.0, 1.0)
-    for step in range(4):
-        u = 1 - t
-        basis = np.column_stack([3 * u**2 * t, 3 * u * t**2])
-        base = u[:, None] ** 3 * start + t[:, None] ** 3 * end
-        (c1, c2), *_ = np.linalg.lstsq(basis, edge - base, rcond=None)
-        points, first = _bezier(np.vstack([start, c1, c2, end]), t)
-        if step == 3:
-            break
-        second = 6 * u[:, None] * (c2 - 2 * c1 + start) + 6 * t[:, None] * (
-            end - 2 * c2 + c1
-        )
-        miss = points - edge
-        slope = np.sum(first * first, axis=1) + np.sum(miss * second, axis=1)
-        change = np.sum(miss * first, axis=1) / np.where(
-            np.abs(slope) > 1e-9, slope, np.inf
-        )
-        t = np.sort(np.clip(t - change, 0.0, 1.0))
-    trail = np.vstack([start, edge, end])
-    length = float(np.sum(np.linalg.norm(np.diff(trail, axis=0), axis=1)))
-    miss = float(np.max(np.linalg.norm(points - edge, axis=1)))
-    if (
-        np.linalg.norm(c1 - start) > length
-        or np.linalg.norm(c2 - end) > length
-        or miss > max(2.0, 0.1 * length)
-    ):
-        return None
-    return np.vstack([c1, c2, end])
-
-
-def _halves(control, at, middle) -> tuple[np.ndarray, np.ndarray]:
-    """A cubic split at *at* (de Casteljau), the split point moved to *middle*."""
+def _halves(control: np.ndarray, t: float = 0.5) -> tuple[np.ndarray, np.ndarray]:
+    """A cubic split at *t*: each part's c1, c2 and end."""
     a, b, c, d = control
-    ab, bc, cd = a + (b - a) * at, b + (c - b) * at, c + (d - c) * at
-    left, right = ab + (bc - ab) * at, bc + (cd - bc) * at
-    shift = middle - (left + (right - left) * at)
-    return np.vstack([ab, left + shift, middle]), np.vstack([right + shift, cd, d])
+    ab, bc, cd = a + (b - a) * t, b + (c - b) * t, c + (d - c) * t
+    abc, bcd = ab + (bc - ab) * t, bc + (cd - bc) * t
+    middle = abc + (bcd - abc) * t
+    return np.vstack([ab, abc, middle]), np.vstack([bcd, cd, d])
+
+
+def _crop(image: np.ndarray, window) -> np.ndarray:
+    x0, y0, x1, y1 = window
+    return image[y0:y1, x0:x1]
+
+
+def _split_segment(
+    contour: _Contour,
+    end: int,
+    control,
+    at: list[tuple[float, np.ndarray]],
+    sharp=False,
+) -> _Contour:
+    """A copy of *contour* with the segment ending at node *end* split.
+
+    *at* lists (t, delta) in order: each new point sits at t on the segment
+    and moves by delta, taking the handles beside it along. *sharp* draws the
+    two segments beside each moved point straight, for a spike's tip.
+    """
+    nodes = [replace(n, points=n.points.copy()) for n in contour.nodes]
+    for new, old in zip(nodes, contour.nodes, strict=True):
+        new.origin = old.origin
+    pieces: list[np.ndarray] = []
+    rest, done = control, 0.0
+    for t, _delta in at:
+        local = (t - done) / (1 - done)
+        if len(control) == 4:
+            first, second = _halves(rest, local)
+            pieces.append(first)
+            rest = np.vstack([first[-1], second])
+        else:
+            point = rest[0] + (rest[1] - rest[0]) * local
+            pieces.append(point[None, :])
+            rest = np.vstack([point, rest[1]])
+        done = t
+    pieces.append(rest[1:])
+    for k, (_t, delta) in enumerate(at):
+        pieces[k][-1] += delta
+        if len(control) == 4:
+            pieces[k][1] += delta
+            pieces[k + 1][0] += delta
+    if sharp and len(control) == 4:
+        moved = {k for k, (_t, delta) in enumerate(at) if np.any(delta)}
+        for k in sorted(moved | {k + 1 for k in moved}):
+            begin = control[0] if k == 0 else pieces[k - 1][-1]
+            pieces[k][0], pieces[k][1] = begin, pieces[k][-1]
+    command = "C" if len(control) == 4 else "L"
+    nodes[end].points = pieces[-1] if command == "C" else nodes[end].points
+    added = [
+        _Node(new_id("node"), command, piece, False, False, None)
+        for piece in pieces[:-1]
+    ]
+    # The closing line ends at node 0, so its new points go last.
+    where = end if end > 0 else len(nodes)
+    nodes[where:where] = added
+    return _Contour(nodes, contour.closed)
+
+
+def _targeted(contour, end, control, low, tip, high, depth, normal):
+    """(points added, *contour* split) for each way of reaching a blob.
+
+    The blob touches the segment from *low* to *high* (in t) and reaches
+    *depth* pixels along *normal* at *tip*.
+    """
+    none = np.zeros(2)
+    for share in (0.75, 1.0):
+        reach = normal * depth * share
+        yield 1, _split_segment(contour, end, control, [(tip, reach)])
+        if high - low > 0.02:
+            yield (
+                2,
+                _split_segment(contour, end, control, [(low, reach), (high, reach)]),
+            )
+        if low < tip < high:
+            for sharp in (False, True):
+                at = [(low, none), (tip, reach), (high, none)]
+                yield 3, _split_segment(contour, end, control, at, sharp)
+
+
+def _crossings(contour: _Contour) -> int:
+    """How many times the outline crosses itself, drawn as a polyline."""
+    t = np.linspace(0, 1, CROSSING_SAMPLES + 1)[1:]
+    line = [contour.nodes[0].end]
+    for _end, control in _segments(contour):
+        points, _ = _bezier(control, t)
+        line.extend(points)
+    if contour.closed:
+        line.append(contour.nodes[0].end)
+    p = np.asarray(line)
+    if len(p) < 4:
+        return 0
+    a, b = p[:-1], p[1:]
+    ax, ay, bx, by = a[:, 0], a[:, 1], b[:, 0], b[:, 1]
+
+    # Orientation tests for every pair of segments at once.
+    def side(px, py, qx, qy, rx, ry):
+        return (qx - px) * (ry - py) - (qy - py) * (rx - px)
+
+    d1 = side(ax[:, None], ay[:, None], bx[:, None], by[:, None], ax[None], ay[None])
+    d2 = side(ax[:, None], ay[:, None], bx[:, None], by[:, None], bx[None], by[None])
+    d3 = side(ax[None], ay[None], bx[None], by[None], ax[:, None], ay[:, None])
+    d4 = side(ax[None], ay[None], bx[None], by[None], bx[:, None], by[:, None])
+    hit = (d1 * d2 < 0) & (d3 * d4 < 0)
+    n = len(a)
+    index = np.arange(n)
+    near = np.abs(index[:, None] - index[None]) <= 1
+    if contour.closed:
+        near |= np.abs(index[:, None] - index[None]) >= n - 1
+    return int(np.triu(hit & ~near, 1).sum())
 
 
 def snap(
