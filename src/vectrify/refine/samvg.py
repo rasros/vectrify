@@ -72,6 +72,18 @@ DENSITY = 6
 EDGE_SMOOTHNESS = float(os.environ.get("VECTRIFY_SAMVG_EDGE_SMOOTHNESS", "0.01"))
 # How far, in SAM pixels, an edge may move.
 EDGE_BAND = float(os.environ.get("VECTRIFY_SAMVG_EDGE_BAND", "6"))
+# Drawn edges: an edge between two regions at least LINE_SHARE of which is
+# drawn line counts as drawn, as does a region's outline; a region with at
+# least LINE_LINED of its outline drawn is in a drawn area, and merges with a
+# neighbour across an undrawn edge when their colours are within
+# LINE_MERGE_DIFFERENCE (RGB, 0-1). See ``stroked_regions``.
+LINE_SHARE = float(os.environ.get("VECTRIFY_SAMVG_LINE_SHARE", "0.5"))
+LINE_LINED = float(os.environ.get("VECTRIFY_SAMVG_LINE_LINED", "0.2"))
+# The most of a stroked region's outline that may run along the image border.
+LINE_BORDER = 0.1
+LINE_MERGE_DIFFERENCE = float(
+    os.environ.get("VECTRIFY_SAMVG_LINE_MERGE_DIFFERENCE", "0.1")
+)
 # Outlines are smoothed over this many SAM pixels before curves are fitted,
 # so the fit does not follow the masks' raster steps.
 SAMVG_SMOOTH = float(os.environ.get("VECTRIFY_SAMVG_SMOOTH", "1.0"))
@@ -1678,33 +1690,155 @@ def line_art(image: Image.Image, width: int) -> np.ndarray:
     return kept[labels]
 
 
-def with_line_art(
+def stroked_regions(
     layers: list[MaskLayer], image: Image.Image, width: int
-) -> tuple[list[MaskLayer], list[MaskLayer]]:
-    """*layers* filled in beneath the image's drawn lines, and the lines.
+) -> list[MaskLayer]:
+    """*layers* as regions bounded by the image's drawn lines, outlined.
 
-    SAM gives a drawn outline to neither region beside it, or makes it a thin
-    region of its own that is then left out. Here the lines are found in the
-    image itself and traced on top, one path per connected line, in their
-    colour, and the regions beside a line grow under it so nothing shows
-    through.
+    SAM gives a drawn line to one region beside it, or to neither. Here the
+    lines are found in the image itself and taken from every region; the
+    regions then grow back from either side and meet at each line's middle.
+    Neighbours whose shared edge is not drawn, such as a patch of shading
+    and the area it shades, are one area the artist drew, so they merge,
+    when their colours are close and one of them has drawn edges already.
+    A region whose outline is then mostly drawn gets a stroke of the lines'
+    colour, about as wide as they are, and is painted after its neighbours
+    so none of them covers half of it. Lines that bound no region, drawn
+    inside one, are left out: every path is a region.
+
+    The regions come out cut to what shows, so none overlap.
     """
     ink = line_art(image, width)
     if not ink.any() or not layers:
-        return layers, []
+        return layers
+    target = np.asarray(image.convert("RGB"), dtype=np.float64) / 255
     owner = np.zeros(ink.shape, dtype=np.int32)
     for index, layer in enumerate(layers, start=1):
         owner[layer.mask] = index
+    owner[ink] = 0
     owner = _grown(owner, ink, 2 * width + 2)
-    grown = [
-        replace(layer, mask=layer.mask | (owner == index))
-        for index, layer in enumerate(layers, start=1)
-    ]
-    pixels = np.asarray(image.convert("RGB"))[ink]
-    colour = cast(
-        tuple[int, int, int], tuple(int(v) for v in np.median(pixels, axis=0))
+    count = len(layers) + 1
+    near = _binary_dilation(ink, 1)
+    depth = _distance_transform_edt(ink)
+
+    def pairs(labels: np.ndarray):
+        """Every edge between two regions: (first, second, drawn, depth)."""
+        found = []
+        for a, b, na, nb, da, db in (
+            (
+                labels[:, :-1],
+                labels[:, 1:],
+                near[:, :-1],
+                near[:, 1:],
+                depth[:, :-1],
+                depth[:, 1:],
+            ),
+            (labels[:-1], labels[1:], near[:-1], near[1:], depth[:-1], depth[1:]),
+        ):
+            edge = (a != b) & (a > 0) & (b > 0)
+            found.append((a[edge], b[edge], (na | nb)[edge], np.maximum(da, db)[edge]))
+        return tuple(np.concatenate(parts) for parts in zip(*found, strict=True))
+
+    first, second, drawn, depths = pairs(owner)
+    edge_length = np.bincount(first, minlength=count) + np.bincount(
+        second, minlength=count
     )
-    return grown, _pieces(MaskLayer(ink, colour, 1.0))
+    drawn_length = np.bincount(first[drawn], minlength=count) + np.bincount(
+        second[drawn], minlength=count
+    )
+    colours = np.zeros((count, 3))
+    clear = owner * ~ink
+    for channel in range(3):
+        colours[:, channel] = np.bincount(
+            clear.ravel(), weights=target[..., channel].ravel(), minlength=count
+        ) / np.maximum(np.bincount(clear.ravel(), minlength=count), 1)
+    lined = drawn_length >= LINE_LINED * np.maximum(edge_length, 1)
+
+    # Merge across the edges that are not drawn.
+    low, high = np.minimum(first, second), np.maximum(first, second)
+    keys, inverse = np.unique(low * count + high, return_inverse=True)
+    lengths = np.bincount(inverse)
+    drawn_pairs = np.bincount(inverse, weights=drawn.astype(np.float64))
+    parent = np.arange(count)
+
+    def root(index: int) -> int:
+        while parent[index] != index:
+            parent[index] = parent[parent[index]]
+            index = int(parent[index])
+        return index
+
+    candidates = []
+    for key, length, lines in zip(keys, lengths, drawn_pairs, strict=True):
+        a, b = divmod(int(key), count)
+        if lines >= LINE_SHARE * length or not (lined[a] or lined[b]):
+            continue
+        candidates.append((float(np.linalg.norm(colours[a] - colours[b])), a, b))
+    # Closest first, each judged against the areas merged so far, so a chain
+    # of small steps cannot carry one colour into a very different one.
+    areas = np.bincount(clear.ravel(), minlength=count).astype(np.float64)
+    for _difference, a, b in sorted(candidates):
+        ra, rb = root(a), root(b)
+        if ra == rb:
+            continue
+        if np.linalg.norm(colours[ra] - colours[rb]) > LINE_MERGE_DIFFERENCE:
+            continue
+        keep, gone = min(ra, rb), max(ra, rb)
+        total = areas[keep] + areas[gone]
+        colours[keep] = (
+            colours[keep] * areas[keep] + colours[gone] * areas[gone]
+        ) / max(total, 1)
+        areas[keep] = total
+        parent[gone] = keep
+    roots = np.array([root(index) for index in range(count)])
+    owner = roots[owner]
+
+    # Which merged regions are outlined, and how wide.
+    first, second, drawn, depths = pairs(owner)
+    edge_length = np.bincount(first, minlength=count) + np.bincount(
+        second, minlength=count
+    )
+    drawn_length = np.bincount(first[drawn], minlength=count) + np.bincount(
+        second[drawn], minlength=count
+    )
+    depth_sum = np.bincount(
+        first[drawn], weights=depths[drawn], minlength=count
+    ) + np.bincount(second[drawn], weights=depths[drawn], minlength=count)
+    line_colour = cast(
+        tuple[int, int, int],
+        tuple(int(v) for v in np.median(np.asarray(image.convert("RGB"))[ink], axis=0)),
+    )
+    # A stroke runs round a region's whole outline, along the image's border
+    # too, where nothing is drawn: a region lying much along it is left to
+    # the strokes of the regions inside it.
+    border = np.zeros(owner.shape, dtype=bool)
+    border[[0, -1], :] = border[:, [0, -1]] = True
+    bordering = np.bincount(owner[border], minlength=count)
+    plain, outlined = [], []
+    clear = owner * ~ink
+    for index in np.unique(owner[owner > 0]):
+        mask = owner == index
+        shown = clear == index
+        colour = cast(
+            tuple[int, int, int],
+            tuple(
+                int(v)
+                for v in np.rint(
+                    target[shown if shown.any() else mask].mean(axis=0) * 255
+                )
+            ),
+        )
+        layer = replace(layers[index - 1], mask=mask, colour=colour)
+        along = edge_length[index] + bordering[index]
+        if (
+            drawn_length[index] >= LINE_SHARE * max(edge_length[index], 1)
+            and bordering[index] <= LINE_BORDER * along
+        ):
+            # The edge lies along a line's middle, half a line from its sides.
+            across = max(1.0, 2 * depth_sum[index] / max(drawn_length[index], 1))
+            outlined.append(replace(layer, stroke=(line_colour, float(across))))
+        else:
+            plain.append(layer)
+    return plain + outlined
 
 
 def backdrop_colour(
@@ -1752,7 +1886,15 @@ def _layer_svg_attributes(
         return []
     if tolerance:
         data = _simplified_data(data, tolerance)
-    return [{"d": data, "fill": colour, "fill-rule": "evenodd"}]
+    attributes = {"d": data, "fill": colour, "fill-rule": "evenodd"}
+    if layer.stroke is not None:
+        (red, green, blue), across = layer.stroke
+        attributes |= {
+            "stroke": f"#{red:02x}{green:02x}{blue:02x}",
+            "stroke-width": f"{across:.2f}",
+            "stroke-linejoin": "round",
+        }
+    return [attributes]
 
 
 def _simplified_data(data: str, tolerance: float) -> str:
@@ -1838,9 +1980,8 @@ def generate_svg(
         layers = refine_edges(layers, image, band=round(EDGE_BAND * scale))
     if merge:
         layers = merge_patches(layers, image, min_impact=min_impact)
-    lines: list[MaskLayer] = []
     if outlines:
-        layers, lines = with_line_art(layers, image, outlines)
+        layers = stroked_regions(layers, image, outlines)
     width, height = image.size
     # SAM's masks have steps of one SAM pixel, which is more than one of the
     # image's when SAM worked at a smaller size.
@@ -1857,16 +1998,6 @@ def generate_svg(
             layer,
             segments,
             curvature_threshold=curvature_threshold,
-            maximum_segments=maximum_segments,
-            smooth=smooth,
-            tolerance=tolerance,
-        ):
-            markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
-            paths.append(f"<path {markup} />")
-    for line in lines:
-        for attributes in _layer_svg_attributes(
-            line,
-            segments * 4,
             maximum_segments=maximum_segments,
             smooth=smooth,
             tolerance=tolerance,
