@@ -72,13 +72,26 @@ def mapped(shape: BaseGeometry, matrix: Matrix) -> BaseGeometry:
     return affine_transform(shape, (a, c, b, d, e, f))
 
 
+def _from_chord(point: Point2, a: Point2, b: Point2) -> float:
+    """How far *point* is from the segment between *a* and *b*."""
+    dx, dy = b[0] - a[0], b[1] - a[1]
+    length = dx * dx + dy * dy
+    along = (
+        0.0
+        if length == 0
+        else max(
+            0.0, min(1.0, ((point[0] - a[0]) * dx + (point[1] - a[1]) * dy) / length)
+        )
+    )
+    return math.hypot(point[0] - a[0] - along * dx, point[1] - a[1] - along * dy)
+
+
 def _flatten(
     points: tuple[Point2, ...], tolerance: float, depth: int = 0
 ) -> list[Point2]:
     a, b, c, d = points
     # Distance to the finite chord also catches collinear overshoot/cusps.
-    chord = LineString((a, d))
-    if max(chord.distance(Point(b)), chord.distance(Point(c))) <= tolerance:
+    if max(_from_chord(b, a, d), _from_chord(c, a, d)) <= tolerance:
         return [d]
     if depth >= 24:
         raise DocumentError("Curve exceeds hit-testing subdivision budget")

@@ -69,7 +69,9 @@ def selected_bounds(
     painted = (
         None
         if selection.whole_document or not selection.object_ids
-        else HitIndex(document).bounds(selection.object_ids)
+        else HitIndex(_holding(document, selection.object_ids)).bounds(
+            selection.object_ids
+        )
     )
     if painted is None:
         return vx, vy, vx + vw, vy + vh
@@ -78,6 +80,35 @@ def selected_bounds(
     pixel = max(vw / reference.width, vh / reference.height) if reference else 0.0
     pad = max(margin * max(right - left, bottom - top), REGION_MARGIN_PIXELS * pixel)
     return left - pad, top - pad, right + pad, bottom + pad
+
+
+def _holding(document: Document, object_ids) -> Document:
+    """*document* with only *object_ids*, what they sit in and what is in them.
+
+    Their painted bounds are the same, and indexing a large drawing for a
+    few objects' bounds takes seconds.
+    """
+    keep = {a.id for oid in object_ids for a in document.ancestry(oid)}
+
+    def prune(element: Element, inside: bool) -> Element:
+        if element.tag == "defs" or inside:
+            return element
+        return replace(
+            element,
+            children=tuple(
+                prune(c, c.id in object_ids)
+                for c in element.children
+                if c.id in keep or c.tag == "defs"
+            ),
+        )
+
+    subset = replace(document, root=prune(document.root, False))
+    # References can target drawing objects outside the subset.
+    try:
+        subset.validate()
+    except DocumentError:
+        return document
+    return subset
 
 
 def _on_artboard(
