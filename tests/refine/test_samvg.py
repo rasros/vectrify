@@ -292,6 +292,22 @@ def test_retrieve_layers_reuses_one_runtime_for_automatic_and_coverage_prompts(
 
     assert seen["automatic"]["_runtime"] is runtime
     assert seen["prompted"]["_runtime"] is runtime
+    # A caller's runtime is the caller's to release.
+    assert runtime.generator is not None
+
+
+def test_retrieve_layers_releases_the_model_it_loaded(monkeypatch):
+    runtime = samvg._SamRuntime(generator=object(), image_embeddings=object())
+    monkeypatch.setattr(samvg, "_sam_runtime", lambda **_kwargs: runtime)
+    monkeypatch.setattr(samvg, "automatic_masks", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(samvg, "filter_by_impact", lambda *_args, **_kwargs: [])
+    monkeypatch.setattr(samvg, "coverage_prompt_points", lambda *_args: [])
+    monkeypatch.setattr(samvg, "prompted_masks", lambda *_args, **_kwargs: [])
+
+    samvg.retrieve_layers(Image.new("RGB", (8, 8)))
+
+    assert runtime.generator is None
+    assert runtime.image_embeddings is None
 
 
 def test_filter_by_impact_keeps_useful_nested_masks_in_layer_order():
