@@ -2,7 +2,6 @@
 
 import time
 from dataclasses import replace
-from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -10,6 +9,7 @@ from PIL import Image, ImageDraw
 
 from vectrify.document import DocumentError, Editor, Selection, import_svg
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
+from vectrify.operations.generate import Region
 from vectrify.operations.methods import nodes as nodes_method
 
 # The square is drawn with more points than it needs and a little off target.
@@ -286,7 +286,7 @@ def test_a_small_local_fix_on_a_large_selection_is_kept(monkeypatch):
 
 
 def test_a_step_is_judged_by_the_pixels_it_changed():
-    region = SimpleNamespace(image=Image.new("RGB", (40, 40), "black"))
+    region = Region(0, 0, 40, 40, Image.new("RGB", (40, 40), "black"))
     start = np.zeros((40, 40, 3), dtype=np.uint8)
     start[:, 20:] = 255
     fixed, worse = start.copy(), start.copy()
