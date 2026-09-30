@@ -21,8 +21,8 @@ let redrawHover = null;
 const SNAP_RADIUS = 8;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
-const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
-const hints = {select: 'Click to select · Double-click a group to enter it, a path to edit its points · Drag elsewhere to box select, a selected object to move it', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
+const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', trace: 'Trace', hand: 'Pan'};
+const hints = {select: 'Click to select · Double-click a group to enter it, a path to edit its points · Drag elsewhere to box select, a selected object to move it', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', trace: '', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -425,7 +425,15 @@ const COMMANDS = [
   {id: 'detach', name: 'Detach', label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Actions', run: () => action('detach'),
     disabled: () => !['path', 'use'].includes(oneObject()?.tag) && 'Select one path or instance'},
   {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', level: 'objects', run: () => action('delete'), disabled: noSelection},
+  {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
+  {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
+  {id: 'toggle-overlay', name: 'Show or hide the overlay', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
+  {id: 'retrace', name: 'Retrace selection', group: 'Reference', keys: 'Shift R', run: retraceShapes,
+    disabled: () => noReference() || ((!state.selection.objects.length || !visiblePaths()) && 'Select one or more visible paths')},
+  {id: 'tidy', name: 'Tidy (Optimize nodes)…', group: 'Reference', run: openOptimize,
+    disabled: () => !state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them'},
+  {id: 'fit-colours', name: 'Fit colours…', group: 'Reference', run: openColours, disabled: () => noReference() || noSelection()},
   {id: 'handles-0', name: 'No handles', group: 'Points', keys: '1', run: () => pointHandles(0), disabled: noPoints},
   {id: 'handles-1', name: 'One handle', group: 'Points', keys: '2', run: () => pointHandles(1), disabled: noPoints},
   {id: 'handles-2', name: 'Two handles', group: 'Points', keys: '3', run: () => pointHandles(2), disabled: noPoints},
@@ -486,12 +494,6 @@ function renderInspector() {
   renderNodeInspector();
   $('empty-reference-hint').hidden = !!state.reference;
   renderRelationships(item);
-  const noRef = noReference();
-  enable('nodes-open', !selected.some(id => ['path','g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them');
-  enable('llm-open', noRef);
-  enable('colours-open', noRef);
-  enable('retrace', noRef || ((!selected.length || !visiblePaths()) && 'Select one or more visible paths'));
-  $('optimize-hint').textContent = state.reference ? 'Compare with the reference image. Retrace applies at once as one undoable edit; the other tools show a preview first.' :'These tools compare the drawing with a reference image. Add one under Reference on the left to use them.';
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
     const value = paintValue(kind, kind === 'fill' ? 'black' : 'none');
@@ -1711,7 +1713,9 @@ $('svg-file').onchange=async event=>{
   if(success){dirty=false;$('dirty').textContent='';await loadReference();fit();}
 };
 function showReference() {
-  $('reference-empty').hidden=!!reference; $('reference-controls').hidden=!reference;
+  $('reference-controls').hidden=!reference; $('remove-reference').hidden=!reference;
+  $('reference-name').textContent=reference?.name || 'No reference';
+  $('add-reference').textContent=reference ? 'Replace…' : 'Load reference…';
   const enabled = !!reference && $('reference-visible').checked;
   const visible = enabled && reference.opacity > 0;
   $('reference-image').hidden=!enabled;
@@ -1721,7 +1725,7 @@ function showReference() {
   toggle.title=enabled ? 'Hide reference overlay (O)' : 'Show reference overlay (O)';
   $('reference-status').textContent=enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Overlay hidden';
   stage.classList.toggle('reference-visible', visible);
-  if(reference){$('reference-image').src=reference.data_url;$('reference-image').style.opacity=reference.opacity;$('reference-name').textContent=reference.name;$('reference-opacity').value=Math.round(reference.opacity*100);$('reference-percent').textContent=`${Math.round(reference.opacity*100)}%`;}
+  if(reference){$('reference-image').src=reference.data_url;$('reference-image').style.opacity=reference.opacity;$('reference-opacity').value=Math.round(reference.opacity*100);$('reference-percent').textContent=`${Math.round(reference.opacity*100)}%`;}
   else{$('reference-image').removeAttribute('src');}
 }
 function toggleReference() {
@@ -1731,12 +1735,13 @@ function toggleReference() {
 }
 $('reference-toggle').onclick=toggleReference;
 async function loadReference(){const result=await request('/api/reference');reference=result.reference;showReference();}
-for(const id of ['add-reference','add-reference-empty'])$(id).onclick=()=>$('reference-file').click();
+$('add-reference').onclick=()=>$('reference-file').click();
 $('reference-file').onchange=async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
   const reader=new FileReader();reader.onload=async()=>{const value={name:file.name,data_url:reader.result,opacity:.5};if(await action('reference',{reference:value},'Loading reference…')){reference=value;$('reference-visible').checked=true;showReference();}};reader.readAsDataURL(file);
 };
-$('remove-reference').onclick=async()=>{if(await action('reference',{reference:null})){reference=null;showReference();}};
+async function removeReference(){if(await action('reference',{reference:null})){reference=null;showReference();renderInspector();}}
+$('remove-reference').onclick=removeReference;
 $('reference-visible').onchange=showReference;
 $('reference-opacity').oninput=event=>{if(reference){reference.opacity=Number(event.target.value)/100;showReference();}};
 $('reference-opacity').onchange=()=>{if(reference)action('reference',{reference});};
@@ -1782,8 +1787,8 @@ window.addEventListener('keydown',event=>{
   }
   if(event.ctrlKey||event.metaKey||event.altKey)return;
   // Shift+R retraces the selected paths; R alone is the Redraw tool.
-  if(event.shiftKey&&event.key.toLowerCase()==='r'){event.preventDefault();if(!event.repeat)retraceShapes();return;}
-  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',h:'hand'};const key=event.key.toLowerCase();
+  if(event.shiftKey&&event.key.toLowerCase()==='r'){event.preventDefault();if(!event.repeat)runCommand('retrace');return;}
+  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',t:'trace',h:'hand'};const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();if(!event.repeat)toggleReference();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(tools[key])setTool(tools[key]);if(key==='f')fit();
@@ -1884,7 +1889,6 @@ async function openOptimize() {
 // Retrace: a quick job applied as soon as it is ready, as one undoable edit.
 async function retraceShapes() {
   await queue;
-  if ($('retrace').disabled) { toast($('retrace').title, true); return; }
   const count = state.selection.objects.length;
   setBusy(`Retracing ${count === 1 ? 'the shape' : `${count} shapes`}…`, 1);
   let job = null;
@@ -1911,7 +1915,6 @@ async function retraceShapes() {
     setBusy('', -1);
   }
 }
-$('retrace').onclick = retraceShapes;
 
 function simplifyBounds() {
   const points = [];
@@ -1993,7 +1996,6 @@ const llmDialog = jobDialog('llm', {
   applied: 'LLM edit applied. Undo restores the previous drawing.',
   choiceLabel: (result, index) => `Reply ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
 }).wire();
-$('llm-open').onclick = async () => { await queue; openOnScope(llmDialog, 'llm'); };
 
 // A dialog around one operation job: start, poll, stop, preview, choose, apply.
 // Elements are found by id as `${prefix}-name`; missing optional ones are skipped.
@@ -2097,7 +2099,6 @@ const coloursDialog = jobDialog('colours', {
   applied: 'Colours fitted. Undo restores the previous fills.',
 }).wire();
 async function openColours() { await queue; coloursDialog.open(selectionSummary()); }
-$('colours-open').onclick = openColours; $('nodes-open').onclick = openOptimize;
 const cleanupDialog = jobDialog('cleanup', {
   start: () => ({action:'simplify', method:'cleanup', bounds:simplifyBounds(), permissions:{geometry:true, structure:true}}),
   describe: result => {
