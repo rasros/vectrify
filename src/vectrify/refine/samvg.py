@@ -193,11 +193,19 @@ def _distance_transform_edt(mask: np.ndarray) -> np.ndarray:
 
 
 def _binary_dilation(mask: np.ndarray, iterations: int) -> np.ndarray:
-    """Apply scipy's default 4-connected binary dilation with Torch kernels."""
+    """Apply scipy's default 4-connected binary dilation with Torch kernels.
+
+    Without Torch, SciPy's own dilation, so the tracing runs on any install.
+    """
     if iterations <= 0:
         return np.asarray(mask, dtype=bool)
-    import torch
-    import torch.nn.functional as functional
+    try:
+        import torch
+        import torch.nn.functional as functional
+    except ImportError:  # pragma: no cover - installation-specific
+        from scipy import ndimage
+
+        return ndimage.binary_dilation(mask, iterations=iterations)
 
     source = torch.as_tensor(mask, dtype=torch.float32)[None, None]
     cross = source.new_tensor([[[[0, 1, 0], [1, 1, 1], [0, 1, 0]]]])
@@ -887,7 +895,12 @@ def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
     """Trace pixel-boundary loops, retaining exterior and hole contours."""
     edges: dict[tuple[int, int], list[tuple[int, int]]] = defaultdict(list)
     height, width = mask.shape
-    for y, x in zip(*np.nonzero(mask), strict=True):
+    # Only a pixel with a neighbour outside has an edge; walking just those,
+    # in the same order, leaves a large region's interior out of the loop.
+    padded = np.pad(np.asarray(mask, dtype=bool), 1)
+    inner = padded[:-2, 1:-1] & padded[2:, 1:-1] & padded[1:-1, :-2]
+    inner &= padded[1:-1, 2:]
+    for y, x in zip(*np.nonzero(mask & ~inner), strict=True):
         if y == 0 or not mask[y - 1, x]:
             edges[(x, y)].append((x + 1, y))
         if x == width - 1 or not mask[y, x + 1]:
