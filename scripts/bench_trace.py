@@ -133,11 +133,12 @@ def trace(image: Image.Image, settings: dict, paths: int, *, cache: bool) -> dic
         "error": round(metrics["after"]["error"] * 255**2, 2),
         "paths": sum(1 for e in document.elements() if e.tag == "path"),
         "curves": data.count("C"),
-        "linked": metrics.get("linked", 0),
+        # Edges a flattened trace snapped together.
+        "snapped": metrics.get("snapped", 0),
         "segment_s": round(timing["segment"], 1),
         "cached": timing["cached"],
         "total_s": round(total, 1),
-        "after_sam_s": round(total - timing["segment"], 1),
+        "after_sam_s": round(total - timing["spent"], 1),
     }
     if paths:
         row["optimize"] = optimize(editor, image, paths)
@@ -199,10 +200,18 @@ def _cached_segmentation(enabled: bool) -> dict:
     """Keep SAM's layers on disk per image and model setting, and time SAM."""
     import vectrify.refine.samvg as samvg
 
-    timing = {"segment": 0.0, "cached": False}
+    # What SAM took (then or now), and what this run spent getting its masks.
+    timing = {"segment": 0.0, "cached": False, "spent": 0.0}
     original = getattr(samvg.retrieve_layers, "__wrapped__", samvg.retrieve_layers)
 
     def retrieve(image, masks=None, **kwargs):
+        started = time.perf_counter()
+        try:
+            return _retrieve(image, masks, **kwargs)
+        finally:
+            timing["spent"] = time.perf_counter() - started
+
+    def _retrieve(image, masks=None, **kwargs):
         options = {k: v for k, v in kwargs.items() if not k.startswith("_")}
         digest = hashlib.sha1(image.tobytes() + repr(image.size).encode())
         digest.update(json.dumps(options, sort_keys=True, default=str).encode())
@@ -293,7 +302,7 @@ def _line(row: dict) -> str:
         return f"{row['reference']} [{row['preset']}]: failed: {row['failed']}"
     text = (
         f"{row['reference']} [{row['preset']}]: error {row['error']}, "
-        f"{row['paths']} paths, {row['curves']} curves, {row['linked']} links, "
+        f"{row['paths']} paths, {row['curves']} curves, {row['snapped']} snapped, "
         f"{row['total_s']} s ({row['after_sam_s']} s after SAM"
         f"{', SAM cached' if row['cached'] else ''})"
     )
