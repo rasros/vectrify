@@ -520,10 +520,12 @@ class Session:
                     for oid in selected
                     if document.element(oid).tag == "path"
                 }
-                for boundary in document.boundaries:
-                    for member in boundary.members:
-                        if member.geometry_id in gids:
-                            tx.detach_boundary(member)
+                tx.detach_boundaries(
+                    member
+                    for boundary in document.boundaries
+                    for member in boundary.members
+                    if member.geometry_id in gids
+                )
             elif command == "paint":
                 changes = payload["changes"]
                 if not isinstance(changes, dict) or not changes.keys() <= {

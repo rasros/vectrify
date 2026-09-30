@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
@@ -560,23 +561,37 @@ class Transaction:
 
     def detach_boundary(self, member: EdgeRef) -> None:
         """Unlink an edge without changing coordinates or any node identity."""
+        self.detach_boundaries((member,))
+
+    def detach_boundaries(self, members: Iterable[EdgeRef]) -> None:
+        """Unlink edges without changing coordinates or any node identity.
+
+        All in one pass: a traced drawing links thousands of edges, and
+        unlinking them one at a time rebuilt and validated everything for each.
+        """
         with self._change():
             if self._selection.node_ids:
                 raise EditRejectedError("Detaching requires a whole object selection")
-            edge(self._working, member)
-            self._authorize(
-                self._working.geometry_users(member.geometry_id), EditKind.STRUCTURE
-            )
+            gone = set()
+            checked: set[str] = set()
+            for member in members:
+                edge(self._working, member)
+                if member.geometry_id not in checked:
+                    self._authorize(
+                        self._working.geometry_users(member.geometry_id),
+                        EditKind.STRUCTURE,
+                    )
+                    checked.add(member.geometry_id)
+                gone.add((member.geometry_id, member.node_id))
             boundaries = []
             for boundary in self._working.boundaries:
-                members = tuple(
+                kept = tuple(
                     m
                     for m in boundary.members
-                    if (m.geometry_id, m.node_id)
-                    != (member.geometry_id, member.node_id)
+                    if (m.geometry_id, m.node_id) not in gone
                 )
-                if len(members) >= 2:
-                    boundaries.append(replace(boundary, members=members))
+                if len(kept) >= 2:
+                    boundaries.append(replace(boundary, members=kept))
             self._working = replace(self._working, boundaries=tuple(boundaries))
 
     def split_edge(

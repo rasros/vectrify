@@ -7,7 +7,12 @@ import json
 import pytest
 from PIL import Image
 
-from vectrify.document import DocumentError, StaleRevisionError, import_svg
+from vectrify.document import (
+    DocumentError,
+    Selection,
+    StaleRevisionError,
+    import_svg,
+)
 from vectrify.ui.session import Session
 
 SVG = """<svg width="100" height="100"><g id="layer">
@@ -603,3 +608,26 @@ def test_fill_hole_and_hole_to_shape_commands():
     result = send(session, "fill_holes", object="outer", holes=[hole])
     assert result["undo"][-1] == "Fill holes"
     assert not hole_ids(session, "outer")
+
+
+def test_unlinking_a_grid_of_shared_edges_is_one_undoable_edit():
+    # A traced drawing links thousands of edges; they all go in one pass.
+    squares = "".join(
+        f'<path id="p{i}{j}" d="M{i * 10} {j * 10} h10 v10 h-10 Z"/>'
+        for i in range(5)
+        for j in range(5)
+    )
+    session = Session(import_svg(f'<svg width="50" height="50">{squares}</svg>'))
+    everything = frozenset(
+        e.id for e in session.editor.snapshot.document.elements() if e.tag == "path"
+    )
+    session.editor.select(Selection(object_ids=everything))
+    with session.editor.transaction(
+        "share", selection=Selection(object_ids=everything)
+    ) as tx:
+        linked = tx.share_boundaries(0.5)
+    assert linked == 40
+    send(session, "unlink_boundaries")
+    assert not session.editor.snapshot.document.boundaries
+    send(session, "undo")
+    assert len(session.editor.snapshot.document.boundaries) == 40
