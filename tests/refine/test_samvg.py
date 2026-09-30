@@ -846,10 +846,21 @@ def test_drawn_lines_are_found_and_regions_fill_in_beneath_them():
     right = np.zeros((80, 80), dtype=bool)
     right[:, 42:] = True
     layers, lines = with_line_art([_layer(left), _layer(right)], image, 6)
-    assert lines is not None
-    assert lines.colour == (30, 30, 30)
+    assert len(lines) == 1
+    assert lines[0].colour == (30, 30, 30)
     # Nothing beneath the line is left for the backdrop.
     assert (layers[0].mask | layers[1].mask)[:, 39:42].all()
+
+
+def test_a_flattened_layer_cut_in_two_becomes_two_regions():
+    below = np.zeros((20, 20), dtype=bool)
+    below[5:15, 0:20] = True
+    across = np.zeros((20, 20), dtype=bool)
+    across[0:20, 8:12] = True
+    flat = arrange_layers([_layer(below), _layer(across)], flatten=True)
+
+    assert len(flat) == 3
+    assert all(len(np.unique(_label(layer.mask)[0])) == 2 for layer in flat)
 
 
 def test_the_backdrop_takes_the_colour_of_what_no_layer_claims():

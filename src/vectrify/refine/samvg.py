@@ -1439,7 +1439,17 @@ def arrange_layers(
     kept = kept[::-1]
     if flatten:
         kept = _without_slivers(kept, max(1, min_width // 2), min_pixels, min_width)
+        # A layer cut by those above can fall apart; each piece is a region.
+        kept = [piece for layer in kept for piece in _pieces(layer)]
     return kept
+
+
+def _pieces(layer: MaskLayer) -> list[MaskLayer]:
+    """*layer* split into its connected parts, holes kept with their part."""
+    labels, count = _label(layer.mask)
+    if count <= 1:
+        return [layer]
+    return [replace(layer, mask=labels == index) for index in range(1, count + 1)]
 
 
 def _without_slivers(
@@ -1595,17 +1605,18 @@ def line_art(image: Image.Image, width: int) -> np.ndarray:
 
 def with_line_art(
     layers: list[MaskLayer], image: Image.Image, width: int
-) -> tuple[list[MaskLayer], MaskLayer | None]:
+) -> tuple[list[MaskLayer], list[MaskLayer]]:
     """*layers* filled in beneath the image's drawn lines, and the lines.
 
     SAM gives a drawn outline to neither region beside it, or makes it a thin
     region of its own that is then left out. Here the lines are found in the
-    image itself and traced as one layer on top, in their own colour, and the
-    regions beside a line grow under it so nothing shows through.
+    image itself and traced on top, one path per connected line, in their
+    colour, and the regions beside a line grow under it so nothing shows
+    through.
     """
     ink = line_art(image, width)
     if not ink.any() or not layers:
-        return layers, None
+        return layers, []
     owner = np.zeros(ink.shape, dtype=np.int32)
     for index, layer in enumerate(layers, start=1):
         owner[layer.mask] = index
@@ -1618,7 +1629,7 @@ def with_line_art(
     colour = cast(
         tuple[int, int, int], tuple(int(v) for v in np.median(pixels, axis=0))
     )
-    return grown, MaskLayer(ink, colour, 1.0)
+    return grown, _pieces(MaskLayer(ink, colour, 1.0))
 
 
 def backdrop_colour(
@@ -1725,7 +1736,7 @@ def generate_svg(
     )
     if merge:
         layers = merge_patches(layers, image, min_impact=min_impact)
-    lines = None
+    lines: list[MaskLayer] = []
     if outlines:
         layers, lines = with_line_art(layers, image, outlines)
     width, height = image.size
@@ -1749,9 +1760,9 @@ def generate_svg(
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
-    if lines is not None:
+    for line in lines:
         for attributes in _layer_svg_attributes(
-            lines, segments * 4, maximum_segments=maximum_segments, smooth=smooth
+            line, segments * 4, maximum_segments=maximum_segments, smooth=smooth
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
