@@ -1155,64 +1155,49 @@ start();
 const operation = (command, body) => request('/api/operation', {command, ...body});
 
 
-// Improve: Optimize nodes, on the GPU path fit where it can run, else the CPU search.
-const NODE_MOVES = ['shape', 'detail', 'simplify', 'strokes', 'position', 'snap'];
-let gpuNote = '', enginePicked = null;
-const nodeMoves = () => Object.fromEntries(NODE_MOVES.map(move => [move, $('nodes-'+move).checked]));
-const gpuChosen = () => $('nodes-engine-gpu').checked && !$('nodes-engine-gpu').disabled;
-function syncNodeEngine() {
-  const moves = nodeMoves();
-  const cpuOnly = NODE_MOVES.filter(move => move !== 'shape' && moves[move]).map(move => $('nodes-'+move).parentElement.textContent.trim());
-  const gpu = $('nodes-engine-gpu');
-  gpu.disabled = Boolean(gpuNote) || cpuOnly.length > 0;
-  // The GPU fit is the default wherever it can run, unless CPU was picked.
-  if (gpu.disabled) $('nodes-engine-cpu').checked = true;
-  else if (enginePicked !== 'cpu') gpu.checked = true;
-  $('nodes-engine-note').textContent = gpuNote ? `GPU fit unavailable: ${gpuNote}.`
-    : cpuOnly.length ? `${cpuOnly.join(', ')} need${cpuOnly.length === 1 ? 's' : ''} the CPU search.` : 'The GPU fit is faster; the CPU search also handles strokes, open and grouped paths.';
-  for (const block of document.querySelectorAll('#nodes-settings [data-engine]')) block.hidden = block.dataset.engine !== (gpuChosen() ? 'gpu' : 'cpu');
-  $('nodes-tolerance-row').hidden = !moves.simplify;
+// Improve: Optimize nodes, which mixes fitting, snapping and simplifying.
+const NODE_STEPS = ['shape', 'snap', 'detail', 'simplify'];
+const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
+const nodeSteps = () => Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
+function syncNodeSteps() {
+  const steps = nodeSteps();
+  $('nodes-detail').disabled = !steps.snap || !state.reference;
+  $('nodes-tolerance-row').hidden = !steps.simplify;
+  $('nodes-fit-row').hidden = !steps.shape;
   $('nodes-apply').hidden = true; $('nodes-previews').hidden = true;
 }
 const nodesDialog = jobDialog('nodes', {
   start: () => {
-    if (gpuChosen()) return {action:'improve', method:'path-fit', permissions:{geometry:true},
-      settings:{nodes:true, handles:true, color:false, displacement:Number($('nodes-movement').value)}, budget:{steps:Number($('nodes-steps').value)}};
-    const moves = nodeMoves();
+    const steps = nodeSteps();
     return {action:'improve', method:'nodes', scope:'selection',
-      permissions:{geometry:true, structure:moves.detail || moves.simplify, paint:moves.strokes},
-      settings:{...moves, tolerance:Number($('nodes-tolerance').value), workers:Number($('nodes-workers').value)},
-      budget:{steps:Number($('nodes-tasks').value)}};
+      permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify},
+      settings:{...steps, tolerance:Number($('nodes-tolerance').value), steps:Number($('nodes-steps').value),
+        movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value)},
+      budget:{steps:Number($('nodes-rounds').value)}};
   },
   describe: ({changed, metrics}) => {
-    if (!changed) return 'Nothing improved the paths within these settings. They are unchanged.';
-    if (metrics.size) return `Reference error ${errorChange(metrics)} · ${metrics.size.join(' × ')} px crop. Apply keeps this result as one undoable edit.`;
+    if (!changed) return 'No step improved the paths within these settings. They are unchanged.';
     const points = `${metrics.before.nodes.toLocaleString()} → ${metrics.after.nodes.toLocaleString()} points`;
     const fit = metrics.reference ? `difference from the reference ${errorChange(metrics, 'difference')}` : 'the look is kept within the tolerance';
-    const after = metrics.tasks ? `after ${metrics.snapped ? 'snapping and ' : ''}${metrics.tasks.toLocaleString()} tries` : 'after snapping';
-    return `${points} · ${fit} ${after}. Apply keeps this result as one undoable edit.`;
+    const order = metrics.steps.map(step => STEP_NAMES[step] || step).join(' → ');
+    const skipped = Object.values(metrics.skipped || {});
+    const note = skipped.length ? ` Some paths were not fitted: ${[...new Set(skipped)].join('; ')}.` : '';
+    return `${points} · ${fit} · ${order}.${note} Apply keeps this result as one undoable edit.`;
   },
   applied: 'Paths optimized. Undo restores them.',
 }).wire();
-for (const move of NODE_MOVES) $('nodes-'+move).addEventListener('change', syncNodeEngine);
-for (const id of ['nodes-engine-gpu', 'nodes-engine-cpu']) $(id).addEventListener('change', event => { enginePicked = event.target.value; syncNodeEngine(); });
-for (const id of ['nodes-tolerance', 'nodes-tasks', 'nodes-workers', 'nodes-steps', 'nodes-movement']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
+for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 $('nodes-open').onclick = async () => {
   await queue;
   const reference = Boolean(state.reference);
-  $('nodes-detail').disabled = !reference;
-  $('nodes-detail').parentElement.title = reference ? 'Split segments and move the new point, where the reference needs more detail' : 'Adding detail needs a reference image';
-  $('nodes-snap').disabled = !reference;
-  $('nodes-snap').parentElement.title = reference ? "Move the points onto the reference's edges before searching; with Add detail it may also split segments" : 'Snapping needs a reference image';
-  if (!reference) { $('nodes-detail').checked = false; $('nodes-snap').checked = false; $('nodes-simplify').checked = true; }
+  for (const step of ['shape', 'snap']) {
+    $('nodes-'+step).disabled = !reference;
+    if (!reference) $('nodes-'+step).checked = false;
+  }
+  if (!reference) { $('nodes-detail').checked = false; $('nodes-simplify').checked = true; }
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
-  try {
-    const check = await operation('check', {epoch:state.epoch, revision:state.revision, action:'improve', method:'path-fit',
-      permissions:{geometry:true}, settings:{nodes:true, handles:true, color:false}});
-    gpuNote = check.ok ? '' : check.error.replace(/\.$/, '').replace(/^./, c => c.toLowerCase());
-  } catch (error) { gpuNote = error.message; }
-  enginePicked = null;
-  syncNodeEngine();
+  syncNodeSteps();
   nodesDialog.open(selectionSummary());
 };
 

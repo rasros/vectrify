@@ -124,34 +124,31 @@ you choose a saved browser recovery copy from a new tab.
 
 ## Operations
 
-**Optimize nodes…** reshapes the selected paths, or the paths inside selected
-groups. Tick what it may do: **Shape** moves points and curve handles, **Add
-detail** splits segments and moves the new point (only with a reference),
-**Simplify** removes points while the fit stays within the tolerance,
-**Strokes** scales stroke widths and **Position** moves whole paths. **Snap to
-reference** first moves filled paths' points straight onto the reference's
-edges nearby and refits their handles, as the search's start or on its own;
-with Add detail it also splits segments that still miss the edge. Colour is
-left to Fit colours. It is scored on the selection's surroundings, never the
-whole image: against the reference, or without one against the paths as they
-were, so Simplify on its own removes points while keeping their look.
+**Optimize nodes…** fits the selected paths, or the paths inside selected
+groups, to the reference around them, never the whole image. Tick the steps it
+may use:
 
-The tolerance is a budget for the whole run, as a percentage of what the
-selected paths contribute to the fit (the difference between the region
-without them and with them as they started). Removals are kept while the
-result stays within it, and nudges that improve the fit earn room for more.
+- **Fit shape** moves points and curve handles by gradient descent, with a
+  number of fitting steps and a maximum movement per fit in local SVG units.
+  It runs on the GPU when PyTorch CUDA and the Vectrify CUDA extension are
+  there, and on the CPU otherwise; outlined (stroked) fills need the GPU.
+- **Snap to reference** moves the points onto the reference's nearest edges.
+  With **Add detail** it also adds points where the path misses a piece of the
+  shape or covers too much: one point, two, or a spike of three whose base
+  stays on the outline, reaching bit by bit along a strand that curls away.
+- **Simplify** removes the points the outline does not need, moving it no more
+  than the tolerance in reference pixels.
 
-Two engines do the work. The **GPU fit** is the default where it can run: one
-filled path, a reference, and PyTorch CUDA with the Vectrify CUDA extension. It
-moves points and handles by gradient descent, with a step budget and a maximum
-movement in local SVG units, and supports only Shape. The **CPU search** runs
-everywhere else and for every option: a beam search: the workers try changes to
-the best few versions together, and each round merges the changes that
-improved different points, so the whole shape moves at once (a split has to
-improve the fit by 1%). The dialog explains why the GPU fit is unavailable when it is. Pinned
-endpoints and linked boundary edges stay fixed, and surviving points keep their
-identity. The job runs in the background with progress, Stop & keep best, and
-reference/before/after previews; Apply is one undoable edit.
+Each round tries every ticked step on the paths as they stand and keeps the one
+that brings them closest to the reference; when none helps, Simplify gets its
+turn, and the run ends once nothing changes or the rounds run out. So a rough
+shape can be snapped, fitted, thinned and fitted again in whatever order works.
+With several parallel workers a round's steps run side by side, with one shape
+fit at a time. Without a reference only Simplify runs, keeping the paths'
+look. Pinned endpoints and linked boundary edges stay fixed, and surviving
+points keep their identity. Colour is left to Fit colours. The job runs in the
+background with progress, Stop & keep best, and reference/before/after
+previews; the result lists the steps it took. Apply is one undoable edit.
 
 **Edit with LLM…** sends the drawing, a render of it, the reference and your
 instruction to a multimodal model. Choose which objects and kinds of change are

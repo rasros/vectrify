@@ -32,7 +32,7 @@ for every control.
 | Generate | SAMVG | Segments the reference with SAM and traces each region |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
 | Generate | LLM | Asks a multimodal model to draw the reference |
-| Improve | Optimize nodes | Moves, adds or removes the selected paths' points to follow the reference; simplifies without one |
+| Improve | Optimize nodes | Fits the selected paths to the reference by fitting, snapping, adding detail and simplifying; simplifies without one |
 | Improve | Edit with LLM | Sends the drawing and an instruction to a model |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
 | Simplify | Clean up geometry | Drops redundant vertices and merges compatible paths |
@@ -49,10 +49,10 @@ Python 3.10 or newer. SVG rendering needs Cairo; on Debian/Ubuntu install it
 with `sudo apt install libcairo2`.
 
 The `vision` and `samvg` extras install PyTorch and transformers, which SAMVG,
-colour regions and the GPU engine of Optimize nodes need; `all` installs both.
-Colour regions and the GPU engine need an NVIDIA GPU with CUDA; SAMVG uses it
-when available. The GPU engine also needs the optional native CUDA extension
-(below); without it Optimize nodes uses its CPU search.
+colour regions and the shape fit of Optimize nodes need; `all` installs both.
+Colour regions need an NVIDIA GPU with CUDA; SAMVG uses it when available. The
+shape fit runs on the GPU with the optional native CUDA extension (below) and
+on the CPU otherwise, except for outlined fills, which need the GPU.
 
 The LLM methods need an OpenAI, Anthropic or Gemini API key, or a local
 server with an OpenAI-compatible API (Ollama, LM Studio, llama.cpp, vLLM) and a
