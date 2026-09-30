@@ -205,6 +205,26 @@ you choose a saved browser recovery copy from a new tab.
 
 ## Operations
 
+**Retrace shape** (Shift+R) replaces the outline of each selected
+path with a fresh trace of its object in the reference, keeping the path's ID,
+paint and place in the stacking order. Draw or keep a rough shape over the
+object and press it: the new outline lands as one undoable edit, with a toast
+giving the change in reference error. **With SAM** prompts SAM with the path's
+box, points inside it and points just outside it that look different, and
+takes the mask that agrees with the path, keeps to one colour and has its
+outline on the reference's edges; holes in the object stay holes. It needs the
+`samvg` extra and a CUDA GPU; without one it retraces **By colour**, which
+grows the region from the path's inside over pixels of its colour, within a
+margin around it. Either way the region's edges are moved onto the reference's
+own and the outline is traced as SAMVG traces its regions. The first retrace
+loads SAM (ViT-H) and encodes the reference, a few seconds; later ones on the
+same reference reuse both and take under a second for a typical shape, more
+for a very large one. The model is released after three idle minutes, when
+the reference changes, and before another GPU tool runs. Only visible filled
+paths can be retraced; locked geometry, pinned points and shared geometry are
+refused (unpin or detach first). It replaces Optimize nodes for fixing a whole
+shape; Optimize nodes remains for fine fitting.
+
 **Optimize nodes…** fits the selected paths, or the paths inside selected
 groups, to the reference around them, never the whole image. Tick the steps it
 may use:

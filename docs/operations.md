@@ -62,6 +62,7 @@ commands `start`, `check` (validate a request without running it), `status`,
 | generate | `llm` | Asks an LLM to draw the reference region as SVG |
 | improve | `path-fit` | Gradient fitting of one selected path's nodes, handles and colour (CUDA, or the CPU for unstroked fills) |
 | improve | `nodes` | Fits the selected paths to the reference by mixing the path fit, snapping and simplifying |
+| improve | `retrace` | Replaces each selected path's outline with its object's, found by SAM or by colour |
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
@@ -150,6 +151,42 @@ pinned ones.
 
 The result is applied with `Transaction.reshape_path`, which keeps surviving
 node IDs and refuses to move or remove pinned endpoints.
+
+## Retrace shape
+
+`improve/retrace` (`vectrify.operations.methods.retrace`, with the work in
+`vectrify.refine.retrace`) needs a reference, geometry and structure
+permission, and selected visible filled paths whose geometry is unlocked,
+unpinned and not shared. Its settings are `mode` (`sam`, the default, or
+`colour`), `model` (the SAMVG model setting's choices, ViT-H by default) and
+`tolerance`, the RGB distance (0-1) the colour fill grows over. `sam` falls
+back to `colour` when there is no CUDA GPU or no `samvg` extra; the result's
+`mode` metric says which ran.
+
+Each path is located in the reference's pixels through its ancestry
+transform and rendered for its coverage. SAM is prompted three ways from one
+set of prompts (box, points and the coverage as a mask; box and points;
+points alone), where the points are three deep inside the path, where its
+colour is the inside's, and up to four just outside that differ from it. Of
+the nine masks the one with the best IoU with the coverage, less the RMS
+spread of its colours, plus the strength of the reference's edges along its
+outline wins: the edge term keeps SAM from echoing the path's own outline
+back. The colour fallback grows 4-connected regions of the blurred reference
+within the tolerance of the inside's colour, inside a margin of a quarter of
+the path's size. Pieces that miss the path and pinholes are dropped, edges
+are moved onto the reference's with `samvg.refine_edges` against a ring of
+the surroundings, and the outline is traced with `mask_path` and simplified to
+half a pixel, then mapped back into the path's own coordinates. The new
+geometry keeps the old node IDs in order (`reshape_path`) when the contour
+count is unchanged, and otherwise replaces the contours (`replace_geometry`).
+The result is one proposal with the reference error before and after, node
+counts and the paths skipped with why; the editor applies it straight away.
+
+The SAM model and the reference's embedding are held in `retrace.SAM_CACHE`,
+one per process, keyed by model and reference content, so repeat retraces run
+only SAM's prompt decoder. It is released after `IDLE_SECONDS` (three
+minutes) unused, when a session opens a drawing or changes its reference, and
+before any other method holding the `gpu` resource starts.
 
 ## LLM methods
 
