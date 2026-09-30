@@ -1,6 +1,7 @@
 import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 import {dropIndex, dropRefusal, dropTarget} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
+import {matchCommands, moveHighlight} from './palette.js';
 import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, pickTarget, pointInside, pointKey, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
@@ -400,6 +401,31 @@ const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Sele
 const visiblePaths = () => state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
 const noReference = () => !state.reference && 'Add a reference image first (Trace tool, T)';
 const COMMANDS = [
+  {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
+  {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'N', keywords: 'edit points handles', run: () => setTool('nodes')},
+  {id: 'tool-path', name: 'Pen: draw a path', group: 'Tools', keys: 'P', keywords: 'pen draw path shape', run: () => setTool('path')},
+  {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'K', keywords: 'cut slice', run: () => setTool('knife')},
+  {id: 'tool-redraw', name: 'Redraw outline tool', group: 'Tools', keys: 'R', keywords: 'lasso outline fix', run: () => setTool('redraw')},
+  {id: 'tool-trace', name: 'Trace tool', group: 'Tools', keys: 'T', keywords: 'reference image match', run: () => setTool('trace')},
+  {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'H', keywords: 'hand scroll', run: () => setTool('hand')},
+  {id: 'open', name: 'Open…', group: 'File', keywords: 'svg project load', run: () => $('open-file').click()},
+  {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
+  {id: 'save', name: 'Save project', group: 'File', keys: 'Ctrl/⌘ S', keywords: 'download vectrify', run: () => download(true)},
+  {id: 'export', name: 'Export SVG', group: 'File', keywords: 'download save', run: () => download(false)},
+  {id: 'settings', name: 'Settings…', group: 'File', keywords: 'api keys models', run: openSettings},
+  {id: 'help', name: 'Keyboard shortcuts', group: 'Help', keys: '?', keywords: 'help keys', run: () => $('help-dialog').showModal()},
+  {id: 'undo', name: 'Undo', label: () => state?.undo.length ? `Undo ${state.undo.at(-1).toLowerCase()}` : 'Undo', group: 'Edit', keys: 'Ctrl/⌘ Z', run: () => action('undo', {}, 'Undoing…'), disabled: () => !state.undo.length && 'Nothing to undo'},
+  {id: 'redo', name: 'Redo', label: () => state?.redo.length ? `Redo ${state.redo[0].toLowerCase()}` : 'Redo', group: 'Edit', keys: 'Ctrl/⌘ Shift Z', run: () => action('redo', {}, 'Redoing…'), disabled: () => !state.redo.length && 'Nothing to redo'},
+  {id: 'fit', name: 'Fit the drawing', group: 'View', keys: 'F', keywords: 'zoom', run: fit},
+  {id: 'zoom-selection', name: 'Zoom to selection', group: 'View', run: focusSelection, disabled: noSelection},
+  {id: 'zoom-in', name: 'Zoom in', group: 'View', keys: 'Scroll', run: () => zoomAt(1.25)},
+  {id: 'zoom-out', name: 'Zoom out', group: 'View', keys: 'Scroll', run: () => zoomAt(.8)},
+  {id: 'finish-path', name: 'Finish path', group: 'Pen', keys: 'Enter', run: () => finishPath(false), disabled: () => (tool !== 'path' || pathDraft.length < 2) && 'Draw two or more points with the pen first'},
+  {id: 'close-path', name: 'Close shape', group: 'Pen', run: () => finishPath(true), disabled: () => (tool !== 'path' || pathDraft.length < 3) && 'Draw three or more points with the pen first'},
+  {id: 'fill', name: 'Edit fill', group: 'Properties', keywords: 'paint colour color', run: () => $('fill-value').focus(), disabled: noSelection},
+  {id: 'stroke', name: 'Edit stroke', group: 'Properties', keywords: 'paint colour color outline', run: () => $('stroke-value').focus(), disabled: noSelection},
+  {id: 'move-by', name: 'Move by…', group: 'Properties', keywords: 'offset position', run: () => $('move-x').select(), disabled: noSelection},
+  {id: 'command-palette', name: 'Command palette', group: 'Help', keys: 'Ctrl/⌘ K', hidden: () => true, run: openPalette},
   {id: 'to-back', name: 'Send to back', group: 'Arrange', keys: 'Ctrl/⌘ Shift [', run: () => action('reorder', {to: 'back'}),
     disabled: () => noSelection() || (state.selection.objects.some(id => object(id)?.resource) && 'Definitions and clipping boundaries keep their place')},
   {id: 'backward', name: 'Send backward', group: 'Arrange', keys: 'Ctrl/⌘ [', run: () => action('reorder', {step: -1}), disabled: () => !oneObject() && 'Select one object to restack'},
@@ -410,10 +436,11 @@ const COMMANDS = [
   {id: 'edit-points', name: 'Edit points', group: 'Select', keys: 'Double-click', run: () => enterObject(oneObject().id), disabled: () => (oneObject()?.tag !== 'path' || oneObject().resource) && 'Select one visible path'},
   {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', run: stepUp, disabled: () => !state.selection.objects.length && !scope && 'Nothing to step up from'},
   {id: 'rename', name: 'Rename…', group: 'Object', keys: 'F2', run: renameObject, disabled: () => !oneObject() && 'Select one object to rename'},
-  {id: 'group', name: 'Group', group: 'Actions', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
+  {id: 'exit-group', name: 'Leave the entered group', group: 'Select', run: () => { scope = null; renderStatus(); }, disabled: () => !scope && 'No group is entered'},
+  {id: 'group', name: 'Group', group: 'Actions', keywords: 'combine', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
   {id: 'ungroup', name: 'Ungroup', group: 'Actions', run: () => action('ungroup'),
     disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
-  {id: 'join', name: 'Join paths…', group: 'Actions', run: openJoin, disabled: () => joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them'},
+  {id: 'join', name: 'Join paths…', group: 'Actions', keywords: 'merge union combine', run: openJoin, disabled: () => joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them'},
   {id: 'split-parts', name: 'Split parts', group: 'Actions', run: splitParts,
     disabled: () => noSelection() || (oneObject()?.tag === 'use' ? 'Detach this instance to an editable path first' : !visiblePaths() && 'Only visible paths can be split')},
   {id: 'cut-hole', name: 'Cut out as hole', group: 'Actions', run: cutHole,
@@ -421,17 +448,17 @@ const COMMANDS = [
   {id: 'holes', name: 'Holes…', group: 'Actions', run: inspectHoles, disabled: () => (oneObject()?.tag !== 'path' || oneObject().resource) && 'Select one visible path'},
   {id: 'snap-edges', name: 'Snap edges…', group: 'Actions', run: openSnapEdges,
     disabled: () => state.selection.objects.length < 2 ? 'Select two or more paths' : !visiblePaths() && 'Every object must be a visible path'},
-  {id: 'cleanup', name: 'Clean up…', group: 'Actions', run: openCleanup, disabled: noSelection},
+  {id: 'cleanup', name: 'Clean up…', group: 'Actions', keywords: 'duplicate vertices merge tidy', run: openCleanup, disabled: noSelection},
   {id: 'detach', name: 'Detach', label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Actions', run: () => action('detach'),
     disabled: () => !['path', 'use'].includes(oneObject()?.tag) && 'Select one path or instance'},
-  {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', level: 'objects', run: () => action('delete'), disabled: noSelection},
+  {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', keywords: 'remove', level: 'objects', run: () => action('delete'), disabled: noSelection},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
   {id: 'toggle-overlay', name: 'Show or hide the overlay', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
   {id: 'retrace', name: 'Retrace selection', group: 'Reference', keys: 'Shift R', run: retraceShapes,
     disabled: () => noReference() || ((!state.selection.objects.length || !visiblePaths()) && 'Select one or more visible paths')},
-  {id: 'tidy', name: 'Tidy (Optimize nodes)…', group: 'Reference', run: openOptimize,
+  {id: 'tidy', name: 'Tidy (Optimize nodes)…', group: 'Reference', keywords: 'simplify snap fit shape', run: openOptimize,
     disabled: () => !state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them'},
   {id: 'fit-colours', name: 'Fit colours…', group: 'Reference', run: openColours, disabled: () => noReference() || noSelection()},
   {id: 'handles-0', name: 'No handles', group: 'Points', keys: '1', run: () => pointHandles(0), disabled: noPoints},
@@ -549,6 +576,68 @@ function openContextMenu(x, y) {
   menu.querySelector('.menu-item:not(:disabled)')?.focus();
 }
 function closeContextMenu() { $('context-menu').hidden = true; }
+// The command palette (Ctrl/⌘ K) finds any command by name and runs it; a
+// command that cannot run now says why.
+let paletteRows = [], paletteIndex = 0;
+function openPalette() {
+  if (!state || document.querySelector('dialog[open]')) return;
+  closeContextMenu();
+  $('palette-input').value = '';
+  renderPalette();
+  $('palette').showModal();
+  $('palette-input').focus();
+}
+function renderPalette() {
+  paletteRows = matchCommands(COMMANDS.filter(command => !command.hidden?.()), $('palette-input').value);
+  paletteIndex = Math.min(paletteIndex, Math.max(0, paletteRows.length - 1));
+  if ($('palette-input').dataset.query !== $('palette-input').value) paletteIndex = 0;
+  $('palette-input').dataset.query = $('palette-input').value;
+  const list = document.createDocumentFragment();
+  paletteRows.forEach((command, i) => {
+    const row = document.createElement('div');
+    row.className = 'palette-row'; row.id = `palette-row-${i}`; row.setAttribute('role', 'option');
+    row.setAttribute('aria-selected', String(i === paletteIndex));
+    const reason = commandRefusal(command);
+    row.classList.toggle('disabled', !!reason); row.setAttribute('aria-disabled', String(!!reason));
+    const text = document.createElement('span'); text.className = 'palette-text';
+    const name = document.createElement('span'); name.className = 'palette-name'; name.textContent = commandName(command);
+    const detail = document.createElement('small'); detail.textContent = reason || command.group;
+    text.append(name, detail);
+    const keys = document.createElement('kbd'); keys.textContent = command.keys || ''; keys.hidden = !command.keys;
+    row.append(text, keys);
+    row.onpointermove = () => { if (paletteIndex !== i) { paletteIndex = i; highlightPalette(); } };
+    row.onclick = () => runPaletteRow(i);
+    list.append(row);
+  });
+  if (!paletteRows.length) list.append(Object.assign(document.createElement('p'), {className: 'palette-empty', textContent: 'No command matches.'}));
+  $('palette-list').replaceChildren(list);
+  highlightPalette();
+}
+function highlightPalette() {
+  for (const row of $('palette-list').querySelectorAll('.palette-row')) row.setAttribute('aria-selected', String(row.id === `palette-row-${paletteIndex}`));
+  const row = $(`palette-row-${paletteIndex}`);
+  $('palette-input').setAttribute('aria-activedescendant', row?.id || '');
+  row?.scrollIntoView({block: 'nearest'});
+}
+async function runPaletteRow(i) {
+  const command = paletteRows[i]; if (!command) return;
+  const reason = commandRefusal(command);
+  // A command that cannot run keeps the palette open, with its reason shown.
+  if (reason) return;
+  $('palette').close();
+  await queue;
+  runCommand(command.id);
+}
+$('palette-input').addEventListener('input', renderPalette);
+$('palette-input').addEventListener('keydown', event => {
+  if (['ArrowDown', 'ArrowUp'].includes(event.key)) {
+    event.preventDefault();
+    paletteIndex = moveHighlight(paletteIndex, event.key === 'ArrowDown' ? 1 : -1, paletteRows.length);
+    highlightPalette();
+  } else if (event.key === 'Enter') { event.preventDefault(); runPaletteRow(paletteIndex); }
+});
+$('palette').addEventListener('click', event => { if (event.target === $('palette')) $('palette').close(); });
+
 window.addEventListener('pointerdown', event => { if (!event.target.closest('#context-menu')) closeContextMenu(); }, true);
 window.addEventListener('blur', closeContextMenu);
 $('context-menu').addEventListener('keydown', event => {
@@ -1623,6 +1712,7 @@ async function openSettings(){
   }catch(error){toast(error.message,true);}
 }
 $('settings-open').onclick=openSettings;
+$('palette-open').onclick=openPalette;
 document.querySelectorAll('[data-open-settings]').forEach(button=>button.onclick=openSettings);
 for(const name of KEY_PROVIDERS) $(`key-${name}-remove`).onclick=()=>{
   keyRemovals.add(name);
@@ -1756,6 +1846,7 @@ $('object-name').onkeydown = event => {
 window.addEventListener('keydown',event=>{
   if(event.key==='F2' && oneObject() && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.querySelector('dialog[open]')) {event.preventDefault();renameObject();return;}
   if(event.key==='Escape'&&treeDrag){event.preventDefault();endTreeDrag(false);return;}
+  if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='k'){event.preventDefault();if(!document.querySelector('dialog[open]'))openPalette();return;}
   if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;
   if (tool==='path' && pathDraft.length && !pending) {
     if (event.key==='Enter') {event.preventDefault();if(!drag)finishPath(false);return;}
