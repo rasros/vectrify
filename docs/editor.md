@@ -191,7 +191,10 @@ thinnest region to keep: regions narrower than that everywhere, such as
 outlines and hairlines, are left out (0 keeps everything). Regions hidden entirely by
 those above are left out, and a backdrop rectangle beneath them all, in the
 colour of what no region claims (usually the drawn outlines), fills the gaps
-between regions. **Flatten overlaps** cuts every region down to its visible
+between regions. **Merge small patches** (on by default) joins neighbouring regions whose
+difference is not worth a shape of its own, such as the small patches SAM
+leaves along edges or one region cut in pieces, and recolours the result.
+**Flatten overlaps** cuts every region down to its visible
 part, so none overlap; the thin strips that cutting leaves along edges go to
 a neighbouring region instead of becoming shapes of their own. Outlines are
 smoothed over about one SAM pixel before curves are fitted, so they do not

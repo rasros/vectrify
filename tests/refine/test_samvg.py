@@ -25,6 +25,7 @@ from vectrify.refine.samvg import (
     filter_by_impact,
     generate_svg,
     mask_path,
+    merge_patches,
     recolour_visible_layers,
     residual_prompt_points,
     thinner_than,
@@ -795,6 +796,35 @@ def test_flattening_gives_a_sliver_to_its_neighbour_without_a_gap():
 
     assert len(flat) == 1
     assert flat[0].mask.all()
+
+
+def test_merging_folds_what_is_not_worth_a_shape_into_a_neighbour():
+    pixels = np.zeros((60, 60, 3), dtype=np.uint8)
+    pixels[:, :30] = (200, 120, 40)
+    pixels[:, 30:] = (40, 120, 200)
+    # A small patch of a slightly different orange, and the left half cut
+    # into two pieces of the same colour.
+    pixels[10:13, 10:13] = (215, 130, 50)
+    image = Image.fromarray(pixels)
+    top = np.zeros((60, 60), dtype=bool)
+    top[:30, :30] = True
+    bottom = np.zeros((60, 60), dtype=bool)
+    bottom[30:, :30] = True
+    patch = np.zeros((60, 60), dtype=bool)
+    patch[10:13, 10:13] = True
+    right = np.zeros((60, 60), dtype=bool)
+    right[:, 30:] = True
+    layers = [_layer(top), _layer(bottom), _layer(right), _layer(patch)]
+
+    merged = merge_patches(layers, image, min_impact=1e-3)
+
+    # The two orange pieces and the patch are one region; blue stays apart.
+    assert len(merged) == 2
+    orange = next(layer for layer in merged if layer.mask[0, 0])
+    assert orange.mask[:, :30].all()
+    assert not orange.mask[:, 30:].any()
+    assert orange.colour[0] > 150
+    assert orange.colour[2] < 100
 
 
 def test_the_backdrop_takes_the_colour_of_what_no_layer_claims():
