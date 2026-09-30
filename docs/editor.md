@@ -196,7 +196,10 @@ difference is not worth a shape of its own, such as the small patches SAM
 leaves along edges or one region cut in pieces, and recolours the result.
 **Flatten overlaps** cuts every region down to its visible
 part, so none overlap; the thin strips that cutting leaves along edges go to
-a neighbouring region instead of becoming shapes of their own. Outlines are
+a neighbouring region instead of becoming shapes of their own. The seams
+between flattened regions are then linked as shared boundaries, matching
+edges within about 1.5 traced pixels, so moving a node on a seam moves both
+regions; a trace whose seams cannot be linked is kept without links. Outlines are
 smoothed over about one SAM pixel before curves are fitted, so they do not
 follow the masks' raster steps. The result is placed over the
 artboard exactly where the reference is shown, as one new group at the front of
@@ -234,16 +237,19 @@ Enter or leaving the field applies the name; Escape cancels. Clearing the field
 restores its automatic label. Names support undo/redo and survive project saves
 and SVG export/reimport, without changing object IDs or shared references.
 
-**Share boundary…** matches touching edges of two selected, closed paths.
-Adjust the contact distance, preview the cyan highlighted shared spans, then
-apply. The frontmost contour is the reference; the other region snaps to it.
+**Share boundary…** matches touching edges of two or more selected, closed
+paths: every pair of them that comes within the contact distance. Adjust the
+distance, preview the cyan highlighted shared spans, then apply. Of each pair
+the front contour is the reference; the region behind snaps to it.
 Curves are subdivided to accommodate different node spacing without flattening.
 Shared endpoints and curve handles propagate direct node edits to the linked
 region, subject to every region's pins and locks. **Unlink boundaries** removes
 these constraints without changing the geometry; undo restores them.
 
-Both paths must be closed and unclipped, and neither may share geometry or
-already have linked boundaries. It matches line-to-line and
+The paths must be closed and unclipped and may not share geometry. Edges that
+are already linked stay as they are and are not matched again, and a span is
+left unlinked when snapping it would move a node of a linked edge, so a region
+linked to one neighbour can be linked to the next. It matches line-to-line and
 cubic-to-cubic spans, rather than rebuilding mismatched contour types. Moving a
 linked region separately requires unlinking first. Project files retain the
 editing links; exported SVG retains the coincident contours but not the links.

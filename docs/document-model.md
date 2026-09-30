@@ -116,9 +116,15 @@ Boundary members are compared in a common frame: each `EdgeRef` carries a
 `matrix` that maps its local geometry coordinates into it, so paths under
 different transforms can share a boundary. `link_boundary` itself never finds
 or snaps edges; `Transaction.share_boundaries(tolerance)` (the `link/boundaries`
-method, in `vectrify.document.contact`) finds the touching spans of two
-selected paths, subdivides them, snaps the rear contour to the front one and
-links them.
+method, in `vectrify.document.contact`) finds the touching spans of every
+pair of two or more selected paths whose bounds come within the tolerance,
+subdivides them, snaps the rear contour of each pair to the front one and links
+them. Edges already in a boundary are never matched again, and a span whose
+snapping would move a slot of a linked edge is skipped, so existing links stay
+valid. It checks everything before changing the transaction, so a caller can
+catch a refusal and carry on; SAMVG's Generate does that to link the seams of a
+flattened trace (`object_ids` names the inserted paths, and geometry the
+transaction added itself needs no geometry permission to snap).
 
 ## Node topology and selection remapping
 

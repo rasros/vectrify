@@ -295,9 +295,9 @@ function renderInspector() {
   renderNodeInspector();
   const paths = selected.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
   const noReference = !state.reference && 'Add a reference image first (Reference, left panel)';
-  enable('share-boundaries', selected.length !== 2 ? 'Select exactly two paths' : !paths && 'Both objects must be visible paths');
+  enable('share-boundaries', selected.length < 2 ? 'Select two or more paths' : !paths && 'Every object must be a visible path');
   const shared = selected.reduce((sum,id)=>sum+(object(id)?.shared_edges || 0),0);
-  $('contact-hint').textContent = shared ? 'Linked nodes move both regions. Unlink before moving a region separately.' : 'Shift-click two paths to snap their touching edges together.';
+  $('contact-hint').textContent = shared ? 'Linked nodes move both regions. Unlink before moving a region separately.' : 'Shift-click two or more paths to snap their touching edges together.';
   $('unlink-boundaries').hidden = !shared;
   $('empty-reference-hint').hidden = !!state.reference;
   if (editingNodes) return;

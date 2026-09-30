@@ -9,6 +9,7 @@ new group, inserted at the front of the chosen container in one transaction.
 from __future__ import annotations
 
 import io
+import logging
 import re
 import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
@@ -29,6 +30,8 @@ from vectrify.document import (
 from vectrify.document.model import new_id
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import OperationRequest, OperationResult, Proposal
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -184,10 +187,13 @@ HREF = {"href", "{http://www.w3.org/1999/xlink}href"}
 
 
 def insert_svg(tx, request: OperationRequest, svg: str, region: Region, name: str):
-    """Add *svg* (in the region's pixel space) as a new named group."""
+    """Add *svg* (in the region's pixel space) as a new named group.
+
+    Returns the group's ID and the IDs of the shapes in it, front last.
+    """
     generated = import_svg(fresh_ids(svg))
     if not generated.root.children:
-        return None, 0
+        return None, ()
     group = Element(
         new_id("object"),
         "g",
@@ -196,8 +202,26 @@ def insert_svg(tx, request: OperationRequest, svg: str, region: Region, name: st
         name=name,
     )
     tx.insert_object(container(request), group, geometries=generated.geometries)
-    shapes = sum(e.tag != "g" for e in Document(group).elements())
+    shapes = tuple(e.id for e in Document(group).elements() if e.tag != "g")
     return group.id, shapes
+
+
+# Largest contact distance boundary matching accepts, in document units.
+SEAM_LIMIT = 20.0
+
+
+def link_seams(tx, paths: frozenset[str], distance: float) -> int:
+    """Share the touching edges of freshly inserted *paths*; 0 when none match.
+
+    A trace is worth keeping without its links, so a refusal only logs.
+    """
+    if len(paths) < 2:
+        return 0
+    try:
+        return tx.share_boundaries(min(max(distance, 1e-3), SEAM_LIMIT), paths)
+    except DocumentError as exc:
+        log.info("Kept the trace without shared boundaries: %s", exc)
+        return 0
 
 
 def frame(
@@ -236,14 +260,25 @@ def generated_result(
     name: str,
     metrics: dict[str, Any] | None = None,
     traced: Region | None = None,
+    seams: float | None = None,
 ) -> OperationResult:
     """Insert *svg* and measure the region against the reference, before and after.
 
     *svg* is in the pixels of *traced*, the same area as *region* at another
-    size, when it was traced from an enlarged crop.
+    size, when it was traced from an enlarged crop. With *seams*, a contact
+    distance in those pixels, the touching edges of the inserted paths are
+    linked into shared boundaries.
     """
     tx = request.transaction(label)
-    group, shapes = insert_svg(tx, request, svg, traced or region, name)
+    traced = traced or region
+    group, shapes = insert_svg(tx, request, svg, traced, name)
+    if seams is not None:
+        paths = frozenset(i for i in shapes if tx.preview.element(i).tag == "path")
+        scale = traced.width / traced.image.width
+        metrics = {
+            **(metrics or {}),
+            "linked": link_seams(tx, paths, seams * scale),
+        }
     before = render_region(request.snapshot.document, region)
     after = render_region(tx.preview, region) if group else before
     return OperationResult(
@@ -253,7 +288,7 @@ def generated_result(
             metrics={
                 "before": {"error": error(before, region.image)},
                 "after": {"error": error(after, region.image)},
-                "shapes": shapes,
+                "shapes": len(shapes),
                 **(metrics or {}),
             },
             previews=preview_urls(region.image, before, after),

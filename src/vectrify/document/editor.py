@@ -438,10 +438,17 @@ class Transaction:
             self._working = candidate
 
     def _authorize_geometry_change(self, candidate: Document) -> None:
-        """Check all propagated edits before exposing any changed geometry."""
+        """Check all propagated edits before exposing any changed geometry.
+
+        Geometry this transaction added is its own to shape: a trace can be
+        snapped together before it lands without leave to edit geometry.
+        """
+        added = {g.id for g in self._working.geometries} - {
+            g.id for g in self._base.document.geometries
+        }
         for geometry in candidate.geometries:
             original = self._working.geometry(geometry.id)
-            if geometry == original:
+            if geometry == original or geometry.id in added:
                 continue
             self._authorize(
                 self._working.geometry_users(geometry.id), EditKind.GEOMETRY
@@ -460,20 +467,28 @@ class Transaction:
                     if old.pinned and old.endpoint != node.endpoint:
                         raise EditRejectedError("Endpoint is pinned")
 
-    def share_boundaries(self, tolerance: float = 1.0) -> int:
+    def share_boundaries(
+        self, tolerance: float = 1.0, object_ids: frozenset[str] | None = None
+    ) -> int:
+        """Link the touching edges of the selected paths, or of *object_ids*.
+
+        Nothing changes before every check has passed, so a refusal leaves
+        the transaction usable for other edits.
+        """
         from vectrify.document.contact import match_boundaries
 
+        if self._closed or self._failed:
+            raise EditRejectedError("Transaction is closed or has a failed edit")
+        if self._selection.node_ids:
+            raise EditRejectedError("Select whole paths to share boundaries")
+        object_ids = self._selection.object_ids if object_ids is None else object_ids
+        candidate, count = match_boundaries(self._working, object_ids, tolerance)
+        for oid in object_ids:
+            self._authorize(frozenset({oid}), EditKind.STRUCTURE)
+        self._authorize_geometry_change(candidate)
         with self._change():
-            if self._selection.node_ids:
-                raise EditRejectedError("Select whole paths to share boundaries")
-            candidate, count = match_boundaries(
-                self._working, self._selection.object_ids, tolerance
-            )
-            for oid in self._selection.object_ids:
-                self._authorize(frozenset({oid}), EditKind.STRUCTURE)
-            self._authorize_geometry_change(candidate)
             self._working = candidate
-            return count
+        return count
 
     def link_boundary(self, members: tuple[EdgeRef, ...]) -> str:
         """Link exactly coincident local edges; no inference or coordinate snapping."""
