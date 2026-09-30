@@ -53,7 +53,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   then click a point; drag blue handles for curves. Zoom in to reveal dense nodes.
   **No handles**, **One handle** and **Two handles** turn the selected point
   into a corner, a point curved on one side (click again to switch sides), or
-  a smooth point with its handles in line.
+  a smooth point with its handles in line. The keys 1, 2 and 3 do the same.
   Dragging a point (or typing its coordinates) moves both of its handles by
   the same offset, so the curve keeps its shape around it; dragging a handle
   moves only that handle. Linked boundaries follow live, handles included, and
