@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 from typing import ClassVar
+
+from PIL import Image
 
 from vectrify.image_utils import rasterize_svg
 from vectrify.operations.contract import (
@@ -12,6 +15,7 @@ from vectrify.operations.contract import (
     register,
 )
 from vectrify.operations.generate import (
+    Region,
     generated_result,
     target_region,
     validate_generate,
@@ -48,6 +52,31 @@ SETTINGS = {
 }
 
 
+def _enlarged(region: Region, settings: dict) -> tuple[Region, dict]:
+    """*region* smoothly enlarged to SAM's working size, if it is smaller.
+
+    A reference smaller than SAM works at comes back as masks on its own
+    pixel grid, and tracing those follows every pixel's edge: outlines turn
+    into staircases one reference pixel a step. Enlarged first, SAM's masks
+    are interpolated between the pixels and the outlines come out smooth.
+    The pixel sizes in the settings are scaled with it, so they still count
+    reference pixels.
+    """
+    longest = max(region.image.size)
+    if longest >= settings["max_side"]:
+        return region, settings
+    scale = settings["max_side"] / longest
+    width, height = region.image.size
+    image = region.image.resize(
+        (round(width * scale), round(height * scale)), Image.Resampling.BICUBIC
+    )
+    return replace(region, image=image), {
+        **settings,
+        "min_width": round(settings["min_width"] * scale),
+        "min_pixels": round(settings["min_pixels"] * scale * scale),
+    }
+
+
 class Samvg:
     action: ClassVar[str] = "generate"
     name: ClassVar[str] = "samvg"
@@ -64,9 +93,10 @@ class Samvg:
 
         settings = read_settings(request.settings, SETTINGS, "SAMVG")
         region = target_region(request)
+        traced, settings = _enlarged(region, settings)
         context.progress(0, "Segmenting the reference with SAM…", total=2)
         svg = generate_svg(
-            region.image,
+            traced.image,
             # Text layers need the unsupported <text> element in the editor.
             ocr=False,
             rasterize=rasterize_svg,
@@ -78,7 +108,12 @@ class Samvg:
         )
         context.progress(1, "Placing traced shapes…")
         result = generated_result(
-            request, svg, region, label="Generate with SAMVG", name="SAMVG trace"
+            request,
+            svg,
+            region,
+            label="Generate with SAMVG",
+            name="SAMVG trace",
+            traced=traced,
         )
         context.progress(2, "Preview ready")
         return result

@@ -120,7 +120,7 @@ def test_samvg_job_inserts_the_trace_with_text_disabled(monkeypatch):
     editor = Editor(import_svg(DOC))
     job = Job(
         method("generate", "samvg"),
-        request(editor, Selection.all(), settings={"max_layers": 8}),
+        request(editor, Selection.all(), settings={"max_layers": 8, "max_side": 400}),
     )
     job.run()
     state = job.state(preview=True)
@@ -130,6 +130,40 @@ def test_samvg_job_inserts_the_trace_with_text_disabled(monkeypatch):
     assert seen["size"] == (400, 200)
     job.apply()
     assert editor.undo_labels == ("Generate with SAMVG",)
+
+
+def test_samvg_traces_a_small_reference_enlarged_and_places_it_the_same(
+    monkeypatch,
+):
+    seen = {}
+
+    def fake(image, **kwargs):
+        seen.update(kwargs, size=image.size)
+        # The red square, in the enlarged image's pixels.
+        return (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400">'
+            '<path d="M200 100H600V300H200Z" fill="#c80000"/></svg>'
+        )
+
+    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", fake)
+    editor = Editor(import_svg(DOC))
+    job = Job(
+        method("generate", "samvg"),
+        request(
+            editor,
+            Selection.all(),
+            settings={"max_side": 800, "min_width": 3, "min_pixels": 32},
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    # Twice the size, so pixel settings double and areas quadruple.
+    assert seen["size"] == (800, 400)
+    assert seen["min_width"] == 6
+    assert seen["min_pixels"] == 128
+    # Placed exactly over the reference's square: no error left.
+    assert state["result"]["metrics"]["after"]["error"] < 1e-3
 
 
 def test_samvg_rejects_bad_settings_and_missing_permission():

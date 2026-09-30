@@ -183,7 +183,9 @@ contract in `vectrify.operations` (see `docs/operations.md`) via
 **Generate from reference…** (in the Reference panel) traces the reference into
 new shapes. The SAMVG method segments the image with SAM and traces each region
 into filled paths. Choose the model (ViT-H is best, ViT-B is faster), the
-resolution SAM segments at (higher traces a large image with smoother edges),
+resolution SAM segments at (higher traces a large image with smoother edges;
+a smaller reference is enlarged to it first, so outlines do not follow its
+pixels),
 the maximum shapes and curves per outline, whether to fill small holes, and the
 thinnest region to keep: regions narrower than that everywhere, such as
 outlines and hairlines, are left out (0 keeps everything). Regions hidden entirely by

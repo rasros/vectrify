@@ -235,10 +235,15 @@ def generated_result(
     label: str,
     name: str,
     metrics: dict[str, Any] | None = None,
+    traced: Region | None = None,
 ) -> OperationResult:
-    """Insert *svg* and measure the region against the reference, before and after."""
+    """Insert *svg* and measure the region against the reference, before and after.
+
+    *svg* is in the pixels of *traced*, the same area as *region* at another
+    size, when it was traced from an enlarged crop.
+    """
     tx = request.transaction(label)
-    group, shapes = insert_svg(tx, request, svg, region, name)
+    group, shapes = insert_svg(tx, request, svg, traced or region, name)
     before = render_region(request.snapshot.document, region)
     after = render_region(tx.preview, region) if group else before
     return OperationResult(
