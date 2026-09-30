@@ -167,6 +167,7 @@ class Handler(BaseHTTPRequestHandler):
             "/app.js": "app.js",
             "/snap.js": "snap.js",
             "/tree.js": "tree.js",
+            "/redraw.js": "redraw.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }

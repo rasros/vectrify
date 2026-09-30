@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
@@ -43,6 +44,7 @@ from vectrify.document.model import (
     new_id,
     references,
 )
+from vectrify.document.redraw import redrawn, root_matrix
 from vectrify.document.svg import GEOMETRY, PAINT, validate_attributes
 from vectrify.document.topology import (
     EdgeRef,
@@ -569,6 +571,49 @@ class Transaction:
             self._authorize_geometry_change(candidate)
             self._working = candidate
             return added
+
+    def redraw_outline(
+        self,
+        object_id: str,
+        contour_id: str,
+        start: tuple[str, float],
+        end: tuple[str, float],
+        points: Sequence[tuple[str, Sequence[float]]],
+        *,
+        long_way: bool = False,
+    ) -> tuple[str, ...]:
+        """Replace the stretch of a contour between two places with new segments.
+
+        A place is a segment's end node and a t along it, 1 at the node;
+        *points* are the new segments' commands and local values, drawn from
+        *start* to *end*. On a closed contour the shorter way round, in root
+        user space, is replaced, or the longer one with *long_way*. Nodes
+        outside the stretch keep their IDs; pinned points inside it refuse
+        the edit. Returns the IDs of the new nodes.
+        """
+        with self._change():
+            self._whole_objects()
+            geometry = self._working.geometry_for(object_id)
+            affected = self._working.geometry_users(geometry.id)
+            self._authorize(affected, EditKind.STRUCTURE)
+            self._authorize(affected, EditKind.GEOMETRY)
+            updated, removed = redrawn(
+                geometry,
+                contour_id,
+                start,
+                end,
+                points,
+                matrix=root_matrix(self._working, object_id),
+                long_way=long_way,
+            )
+            if any(geometry.node(n).pinned for n in removed):
+                raise EditRejectedError("Unpin the points in the stretch to redraw it")
+            self._working = self._working.replace_geometry(updated)
+            self._record_remap({n: set() for n in removed})
+            old = {n.id for s in geometry.subpaths for n in s.nodes}
+            return tuple(
+                n.id for s in updated.subpaths for n in s.nodes if n.id not in old
+            )
 
     def delete_node(self, object_id: str, node_id: str) -> None:
         """Remove a point, the contour's start point included.

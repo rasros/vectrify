@@ -154,6 +154,25 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   points, shared geometry, instances and locks are refused. The pieces are
   selected afterwards, and the cut is one undoable edit. Without a selection
   the knife asks you to select shapes first; a plain click selects.
+- The **Redraw outline** tool (`R`) fixes a stretch of one path's outline in
+  one gesture, like a magnetic lasso: a missing spike, a notch or a grass
+  blade. Select a path, press on its outline (or on one of its points), draw
+  roughly along the reference's edge and release on the same contour. Each
+  end attaches to the nearest point within 6 screen pixels, else to the
+  nearest place on the outline within 10; white dots show where, and the
+  stretch that will be replaced is dashed. On a closed contour that is the
+  shorter way round between the two ends; hold Shift while drawing for the
+  longer. The stretch is replaced by curves fitted to the reference's edge
+  near the stroke: the cheapest path through a band 8 screen pixels (at
+  least 3 reference pixels) either side of the stroke, cheap along strong
+  colour edges and following the stroke where there is none, moved onto the
+  edge's peak within a pixel, fitted with short cubics that keep sharp turns
+  as corners and simplified to 0.6 reference pixels. Without a reference the
+  stroke itself is fitted, to about a screen pixel. Every point outside the
+  stretch keeps its ID, place and handles; the ends are split exactly where
+  they attach. Pinned points inside the stretch and geometry or structure
+  locks are refused. The redraw is one undoable edit; a
+  plain click selects, and Escape cancels a stroke.
 - **Inspect holes** on a selected drawing path previews its holes. Pick holes
   on the canvas or in the list, zoom to an individual hole with **View**, or
   select all holes up to a maximum area (SVG document units squared).
@@ -313,7 +332,9 @@ requires selecting every affected consumer, as enforced by the backend. Groups
 with compositing or reference relationships that cannot be ungrouped without
 changing appearance return a clear error. The knife cuts only along straight
 lines, across whole filled shapes; there are no tools for cutting a stroke-only
-path or welding endpoints.
+path or welding endpoints. Redraw outline replaces a stretch between two places
+on one contour; it cannot extend an open contour past its ends, and a spike
+only a few reference pixels wide may come out thinner than drawn.
 
 Only the documented static SVG subset is accepted. Unsupported imports are
 reported instead of silently dropping content. The editor namespaces SVG IDs
