@@ -1,5 +1,6 @@
 import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 import {dropIndex, dropRefusal, dropTarget} from './tree.js';
+import {attach, contourLines, stretch} from './redraw.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
@@ -9,11 +10,12 @@ let pathDraft = [], pathHover = null;
 let joinContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let nodeHoles = null;
+let redrawHover = null;
 const SNAP_RADIUS = 8;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
-const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', hand: 'Pan'};
-const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Alt or Ctrl/⌘ drags without snapping · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', hand: 'Drag to pan · Scroll to zoom'};
+const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
+const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Alt or Ctrl/⌘ drags without snapping · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -110,7 +112,7 @@ async function applyState(next) {
   if (changed) { geometry = null; clickCycle = null; }
   if (holePlan && (changed || oneObject()?.id !== holePlan.object)) holePlan = null;
   renderObjects(); renderInspector();
-  if (tool === 'nodes') await loadNodes();
+  if (['nodes','redraw'].includes(tool)) await loadNodes();
   drawOverlay();
 }
 function paintReference(element) {
@@ -626,6 +628,7 @@ function drawOverlay() {
   drawHoles();
   drawPathDraft();
   drawKnife();
+  drawRedraw();
   drawSnap();
   if (holePlan || tool !== 'nodes' || !geometry || geometryObject !== oneObject()?.id) return;
   const element = svgElement(geometryObject), matrix = localToOverlay(element);
@@ -752,6 +755,46 @@ async function cutWithKnife({start, end}) {
   if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y]},'Cutting…'))
     toast(`Cut into ${state.selection.objects.length} pieces. They meet exactly along the cut; Join paths merges them again.`);
 }
+// Redraw outline: the stroke, where its ends attach to the selected path's
+// outline and the stretch it will replace, all in the overlay's frame.
+function redrawLines() {
+  const item = oneObject();
+  if (!geometry || item?.tag !== 'path' || geometryObject !== item.id) return null;
+  const matrix = localToOverlay(svgElement(geometryObject));
+  if (!matrix) return null;
+  return contourLines(geometry, ([x, y]) => { const p = new DOMPoint(x, y).matrixTransform(matrix); return [p.x, p.y]; });
+}
+function redrawPlan(points, longWay) {
+  const lines = points.length ? redrawLines() : null;
+  if (!lines) return null;
+  const start = attach(lines, ...points[0], 1/zoom);
+  const end = start && points.length > 1 ? attach(lines, ...points.at(-1), 1/zoom, start.contour) : null;
+  const line = start && lines.find(l => l.id === start.contour);
+  return {start, end, replaced: end ? stretch(line, start, end, longWay) : null};
+}
+function drawRedraw() {
+  if (tool !== 'redraw') return;
+  const stroke = drag?.kind === 'redraw' ? drag.points : null;
+  const plan = redrawPlan(stroke || (redrawHover ? [redrawHover] : []), drag?.longWay);
+  const group = xmlElement('g', {'pointer-events': 'none', 'aria-hidden': 'true'});
+  if (plan?.replaced) {
+    group.append(xmlElement('polyline', {points: plan.replaced.join(' '), fill: 'none', stroke: '#ff8a5c', 'stroke-width': 3/zoom, 'stroke-dasharray': `${6/zoom} ${4/zoom}`}));
+  }
+  if (stroke && drag.moved) {
+    group.append(xmlElement('polyline', {points: stroke.join(' '), fill: 'none', stroke: '#052b3a', 'stroke-width': 4/zoom}),
+      xmlElement('polyline', {points: stroke.join(' '), fill: 'none', stroke: '#5cdeff', 'stroke-width': 2/zoom}));
+  }
+  for (const end of [plan?.start, plan?.end]) {
+    if (end) group.append(xmlElement('circle', {cx: end.x, cy: end.y, r: 5/zoom, fill: '#fff', stroke: '#052b3a', 'stroke-width': 1.5/zoom}));
+  }
+  overlay.append(group);
+}
+async function redrawOutline({points, longWay}) {
+  const plan = redrawPlan(points, longWay);
+  if (!redrawLines()) {toast('Select one path, then draw along the edge it should follow.', true);return;}
+  if (!plan?.start || !plan.end) {toast('Start and end the stroke on the selected path\'s outline.', true);return;}
+  await action('redraw_outline', {object: geometryObject, points, pixel: 1/zoom, long_way: Boolean(longWay)}, state.reference ? 'Fitting to the reference…' : 'Redrawing outline…');
+}
 async function finishPath(closed) {
   if(pending||pathDraft.length<(closed?3:2))return;
   const draft=pathDraft; pathDraft=[];pathHover=null;
@@ -785,13 +828,13 @@ function point(event, element = overlay) {
 }
 async function setTool(value) {
   if (!state || pending) return;
-  clickCycle = null; pathDraft=[]; pathHover=null; tool=value;
+  clickCycle = null; pathDraft=[]; pathHover=null; redrawHover=null; tool=value;
   if (!['select','hand'].includes(value)) holePlan = null;
   document.querySelectorAll('[data-tool]').forEach(button => button.classList.toggle('active', button.dataset.tool === tool));
   $('tool-name').textContent=names[tool]; $('canvas-hint').textContent=hints[tool];
-  stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife'].includes(tool) ? 'crosshair' : 'default';
+  stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife','redraw'].includes(tool) ? 'crosshair' : 'default';
   renderInspector();
-  if (tool === 'nodes') {
+  if (['nodes','redraw'].includes(tool)) {
     setBusy('Loading path nodes…',1);
     try { await loadNodes(); } catch(error) {toast(error.message,true);} finally {setBusy('',-1);}
   }
@@ -880,6 +923,10 @@ stage.addEventListener('pointerdown', event => {
     const p=point(event);
     drag={...common,kind:'knife',id,start:{x:p.x,y:p.y},end:{x:p.x,y:p.y}}; return;
   }
+  if (tool === 'redraw') {
+    const p=point(event);
+    drag={...common,kind:'redraw',id,points:[[p.x,p.y]],longWay:event.shiftKey}; redrawHover=null; drawOverlay(); return;
+  }
   if (tool === 'select' && selectedHit && !common.shift) {
     const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || ''})).filter(m=>m.element);
     drag={...common,kind:'move',id,members}; return;
@@ -889,10 +936,17 @@ stage.addEventListener('pointerdown', event => {
 stage.addEventListener('pointermove', event => {
   if (!drag) {
     if (tool==='path' && pathDraft.length) {pathHover=point(event);drawOverlay();}
+    if (tool==='redraw' && redrawLines()) {const p=point(event);redrawHover=[p.x,p.y];drawOverlay();}
     return;
   }
   drag.moved ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>3;
   if (drag.kind === 'knife' && drag.moved) { drag.end=knifeEnd(event); drawOverlay(); }
+  if (drag.kind === 'redraw') {
+    const p=point(event), last=drag.points.at(-1);
+    drag.longWay=event.shiftKey;
+    if (Math.hypot(p.x-last[0],p.y-last[1])*zoom>=1.5) drag.points.push([p.x,p.y]);
+    if (drag.moved) drawOverlay();
+  }
   if (drag.kind === 'pan') { pan={x:drag.pan.x+event.clientX-drag.x,y:drag.pan.y+event.clientY-drag.y}; updateView(); }
   if (drag.kind === 'drawPath' && drag.moved) {
     const p=point(event), a=drag.anchor;
@@ -920,10 +974,11 @@ stage.addEventListener('pointerup', async event => {
   if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
   // A workspace click clears selection in every tool; dragging keeps its normal behavior.
   if (finished.deselectOutside && !finished.moved) { await selectObject(null); return; }
-  if (['click','move','knife'].includes(finished.kind) && !finished.moved) await selectAtPoint(finished);
+  if (['click','move','knife','redraw'].includes(finished.kind) && !finished.moved) await selectAtPoint(finished);
   else if (finished.kind === 'click') await selectObject(finished.id,finished.shift);
   if (finished.moved) clickCycle = null;
   if (finished.kind === 'knife' && finished.moved) {drawOverlay();await cutWithKnife(finished);return;}
+  if (finished.kind === 'redraw' && finished.moved) {drawOverlay();await redrawOutline(finished);return;}
   if (finished.kind === 'drawPath') {pathHover=null;drawOverlay();return;}
   if (finished.kind === 'closePath') {if (!finished.moved) await finishPath(true);return;}
   if (finished.kind === 'node' && finished.moved) {
@@ -1317,7 +1372,7 @@ window.addEventListener('keydown',event=>{
     pathDraft=[];pathHover=null;stage.classList.remove('panning');holePlan=null;
     drag=null;activeNode=null;geometry=null;
     if(state){renderDrawing();renderInspector();}
-    if(tool==='nodes')loadNodes().then(drawOverlay).catch(error=>toast(error.message,true));
+    if(['nodes','redraw'].includes(tool))loadNodes().then(drawOverlay).catch(error=>toast(error.message,true));
     drawOverlay();return;
   }
   if((event.ctrlKey||event.metaKey)&&['BracketLeft','BracketRight'].includes(event.code)){
@@ -1327,7 +1382,7 @@ window.addEventListener('keydown',event=>{
     if(!pending&&state?.selection.objects.length&&!button.disabled)button.click();return;
   }
   if(event.ctrlKey||event.metaKey||event.altKey)return;
-  const tools={v:'select',n:'nodes',p:'path',k:'knife',h:'hand'};const key=event.key.toLowerCase();
+  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',h:'hand'};const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();if(!event.repeat)toggleReference();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(tools[key])setTool(tools[key]);if(key==='f')fit();

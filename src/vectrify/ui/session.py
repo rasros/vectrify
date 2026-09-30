@@ -27,6 +27,7 @@ from vectrify.document import (
 )
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.model import new_id
+from vectrify.document.redraw import attachment
 from vectrify.document.svg import parse_path
 from vectrify.operations import (
     Budget,
@@ -36,8 +37,13 @@ from vectrify.operations import (
     Permissions,
     method,
 )
+from vectrify.refine.redraw import redraw_stretch
 
 MAX_SOURCE = 128 * 1024 * 1024
+# How near, in screen pixels, a redraw stroke's ends attach to a point of the
+# outline, else to the outline itself.
+NODE_REACH = 6
+REACH = 10
 
 
 def number(value: Any) -> float:
@@ -442,6 +448,9 @@ class Session:
                 shapes = tx.holes_to_shapes(oid, frozenset(payload.get("holes", [])))
             self.editor.select(Selection(object_ids=frozenset(shapes)))
             return
+        if command == "redraw_outline":
+            self._redraw_outline(payload)
+            return
         if command == "cut_hole":
             with self.editor.transaction("Cut out as hole", selection=selection) as tx:
                 outer = tx.cut_out_hole(selected)
@@ -599,3 +608,61 @@ class Session:
             self.editor.select(Selection(object_ids=frozenset({group_id})))
         if pieces:
             self.editor.select(Selection(object_ids=frozenset(pieces)))
+
+    def _redraw_outline(self, payload: dict) -> None:
+        """Redraw the stretch of a selected path's contour a stroke runs along.
+
+        The stroke is in root user space; *pixel* is a screen pixel's size
+        there. Each end attaches to the nearest point within NODE_REACH
+        screen pixels, else the nearest place on the outline within REACH,
+        both on the contour the start attaches to.
+        """
+        document = self.editor.snapshot.document
+        oid = payload["object"]
+        if oid not in self.editor.snapshot.selection.object_ids:
+            raise DocumentError("Select the path whose outline to redraw")
+        if document.element(oid).tag != "path":
+            raise DocumentError("Redraw works on a path; convert the shape first")
+        stroke = payload.get("points")
+        if not isinstance(stroke, list) or len(stroke) < 2:
+            raise DocumentError("Draw along the outline to redraw it")
+        if any(not isinstance(p, (list, tuple)) or len(p) != 2 for p in stroke):
+            raise DocumentError("Stroke points need two coordinates")
+        points = [(number(x), number(y)) for x, y in stroke]
+        pixel = number(payload.get("pixel", 1))
+        if pixel <= 0:
+            raise DocumentError("The screen pixel size must be positive")
+        start = attachment(document, oid, points[0], REACH * pixel, NODE_REACH * pixel)
+        end = start and attachment(
+            document,
+            oid,
+            points[-1],
+            REACH * pixel,
+            NODE_REACH * pixel,
+            start.subpath_id,
+        )
+        if start is None or end is None:
+            raise DocumentError(
+                "Start and end the stroke on the same outline of the selected path"
+            )
+        stretch = redraw_stretch(
+            document,
+            oid,
+            [start.point, *points[1:-1], end.point],
+            self.reference_image(),
+            pixel,
+        )
+        gid = document.geometry_for(oid).id
+        scope = frozenset({oid}) | document.geometry_users(gid)
+        with self.editor.transaction(
+            "Redraw outline", selection=Selection(object_ids=scope)
+        ) as tx:
+            tx.redraw_outline(
+                oid,
+                start.subpath_id,
+                (start.node_id, start.t),
+                (end.node_id, end.t),
+                stretch,
+                long_way=bool(payload.get("long_way")),
+            )
+        self.editor.select(Selection(object_ids=frozenset({oid})))
