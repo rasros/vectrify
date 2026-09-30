@@ -8,8 +8,8 @@ let joinContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
-const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', hand: 'Pan'};
-const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', hand: 'Drag to pan · Scroll to zoom'};
+const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', hand: 'Pan'};
+const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -531,6 +531,7 @@ function drawOverlay() {
   }
   drawHoles();
   drawPathDraft();
+  drawKnife();
   if (holePlan || tool !== 'nodes' || !geometry || geometryObject !== oneObject()?.id) return;
   const element = svgElement(geometryObject), matrix = localToOverlay(element);
   if (!matrix) return;
@@ -597,6 +598,23 @@ function drawPathDraft() {
   });
   overlay.append(group);
 }
+function drawKnife() {
+  if(drag?.kind!=='knife'||!drag.moved)return;
+  const {start:a,end:b}=drag, line={x1:a.x,y1:a.y,x2:b.x,y2:b.y,'pointer-events':'none','aria-hidden':'true'};
+  overlay.append(xmlElement('line',{...line,stroke:'#052b3a','stroke-width':4/zoom}),
+    xmlElement('line',{...line,stroke:'#ff8a5c','stroke-width':2/zoom,'stroke-dasharray':`${6/zoom} ${4/zoom}`}));
+}
+function knifeEnd(event) {
+  const p=point(event), a=drag.start;
+  if(!event.shiftKey)return {x:p.x,y:p.y};
+  const step=Math.PI/12, angle=Math.round(Math.atan2(p.y-a.y,p.x-a.x)/step)*step, length=Math.hypot(p.x-a.x,p.y-a.y);
+  return {x:a.x+Math.cos(angle)*length,y:a.y+Math.sin(angle)*length};
+}
+async function cutWithKnife({start, end}) {
+  if(!state.selection.objects.length){toast('Select the shapes to cut, then drag the knife across them.',true);return;}
+  if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y]},'Cutting…'))
+    toast(`Cut into ${state.selection.objects.length} pieces. Their cut edges are linked; Unlink boundaries separates them.`);
+}
 async function finishPath(closed) {
   if(pending||pathDraft.length<(closed?3:2))return;
   const draft=pathDraft; pathDraft=[];pathHover=null;
@@ -634,7 +652,7 @@ async function setTool(value) {
   if (!['select','hand'].includes(value)) holePlan = null;
   document.querySelectorAll('[data-tool]').forEach(button => button.classList.toggle('active', button.dataset.tool === tool));
   $('tool-name').textContent=names[tool]; $('canvas-hint').textContent=hints[tool];
-  stage.style.cursor = tool === 'hand' ? 'grab' : tool === 'path' ? 'crosshair' : 'default';
+  stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife'].includes(tool) ? 'crosshair' : 'default';
   renderInspector();
   if (tool === 'nodes') {
     setBusy('Loading path nodes…',1);
@@ -689,6 +707,10 @@ stage.addEventListener('pointerdown', event => {
   const id = hits[0] || null;
   const selectedHit = id && (state.selection.objects.includes(id) ||
     (sameClickSpot(event.clientX, event.clientY, hits) && state.selection.objects.includes(hits[clickCycle.index])));
+  if (tool === 'knife') {
+    const p=point(event);
+    drag={...common,kind:'knife',id,start:{x:p.x,y:p.y},end:{x:p.x,y:p.y}}; return;
+  }
   if (tool === 'select' && selectedHit && !common.shift) {
     const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || ''})).filter(m=>m.element);
     drag={...common,kind:'move',id,members}; return;
@@ -701,6 +723,7 @@ stage.addEventListener('pointermove', event => {
     return;
   }
   drag.moved ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>3;
+  if (drag.kind === 'knife' && drag.moved) { drag.end=knifeEnd(event); drawOverlay(); }
   if (drag.kind === 'pan') { pan={x:drag.pan.x+event.clientX-drag.x,y:drag.pan.y+event.clientY-drag.y}; updateView(); }
   if (drag.kind === 'drawPath' && drag.moved) {
     const p=point(event), a=drag.anchor;
@@ -735,9 +758,10 @@ stage.addEventListener('pointerup', async event => {
   if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
   // A workspace click clears selection in every tool; dragging keeps its normal behavior.
   if (finished.deselectOutside && !finished.moved) { await selectObject(null); return; }
-  if ((finished.kind === 'click' || finished.kind === 'move') && !finished.moved) await selectAtPoint(finished);
+  if (['click','move','knife'].includes(finished.kind) && !finished.moved) await selectAtPoint(finished);
   else if (finished.kind === 'click') await selectObject(finished.id,finished.shift);
   if (finished.moved) clickCycle = null;
+  if (finished.kind === 'knife' && finished.moved) {drawOverlay();await cutWithKnife(finished);return;}
   if (finished.kind === 'drawPath') {pathHover=null;drawOverlay();return;}
   if (finished.kind === 'closePath') {if (!finished.moved) await finishPath(true);return;}
   if (finished.kind === 'node' && finished.moved) {
@@ -1123,7 +1147,7 @@ window.addEventListener('keydown',event=>{
     drawOverlay();return;
   }
   if(event.ctrlKey||event.metaKey||event.altKey)return;
-  const tools={v:'select',n:'nodes',p:'path',h:'hand'};const key=event.key.toLowerCase();
+  const tools={v:'select',n:'nodes',p:'path',k:'knife',h:'hand'};const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();if(!event.repeat)toggleReference();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(tools[key])setTool(tools[key]);if(key==='f')fit();

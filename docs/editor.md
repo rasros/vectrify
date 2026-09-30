@@ -95,6 +95,21 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   detached first. **Detach to editable path** converts a path instance into a
   selected independent path ready to split, retaining its paint and transforms
   in wrapper groups. Other instances keep their shared definition.
+- The **Knife** tool (`K`) cuts selected filled paths, or the paths inside
+  selected groups, along a straight line: drag across them and release. Shift
+  snaps the line to 15° steps. A path is cut only when the line runs through
+  it from outside to outside; a line that ends inside a shape or misses it
+  leaves it alone, and stroke-only paths are skipped. The cut runs along the
+  whole line through that path, so a line across one arm of a U also cuts the
+  other arm if the line's extension reaches it. Each cut path becomes one path
+  per side of the line (compound when that side has several parts, holes
+  kept), with the original's paint, transform, locks and stacking place; the
+  first piece keeps its ID. Curves stay curves. The cut edges of the two
+  pieces are a linked boundary, so dragging a seam point moves both sides;
+  **Unlink boundaries** separates them. Pinned points, existing boundary
+  links, shared geometry, instances and locks are refused. The pieces are
+  selected afterwards, and the cut is one undoable edit. Without a selection
+  the knife asks you to select shapes first; a plain click selects.
 - **Inspect holes** on a selected drawing path previews its holes. Pick holes
   on the canvas or in the list, zoom to an individual hole with **View**, or
   select all holes up to a maximum area (SVG document units squared).
@@ -107,8 +122,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 - Geometry/paint/position/structure locks and backend-enforced constraints.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
 
-Keyboard shortcuts are available from the `?` button. `V`, `N`, `P`, and `H`
-switch tools. Drag with the middle mouse button (in any tool), or hold Space
+Keyboard shortcuts are available from the `?` button. `V`, `N`, `P`, `K`, and
+`H` switch tools. Drag with the middle mouse button (in any tool), or hold Space
 and drag, to pan. Use the scroll wheel to zoom, and press `F` to
 fit. Ctrl/Command-Z undoes; add Shift to redo. Ctrl/Command-S saves a project.
 
@@ -225,8 +240,9 @@ Node handles edit direct `path` elements. Local `use` instances can
 be selected, styled, moved and detached; editing a referenced source still
 requires selecting every affected consumer, as enforced by the backend. Groups
 with compositing or reference relationships that cannot be ungrouped without
-changing appearance return a clear error. There are no tools for cutting a
-continuous path or welding endpoints.
+changing appearance return a clear error. The knife cuts only along straight
+lines, across whole filled shapes; there are no tools for cutting a stroke-only
+path or welding endpoints.
 
 Only the documented static SVG subset is accepted. Unsupported imports are
 reported instead of silently dropping content. The editor namespaces SVG IDs
