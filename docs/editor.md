@@ -278,6 +278,26 @@ does not support SVG text. Preview shows the reference, before and after, with
 the change in reference error; Apply adds the group as one undoable edit.
 SAMVG needs the `samvg` extra and holds the GPU while it runs.
 
+The Cel art method is for flat, outlined illustrations such as cel and anime
+art, and is the dialog's default. It follows their drawn lines: it finds the
+lines (marks narrower and darker than the surface either side; faint narrow
+shading, and dark notches as dark as the surface they open into, are left to
+the fills), fills the space between them with a shrinking ball so a small gap in
+a line does not join the regions either side, splits each region where its
+colour changes with no line, and merges neighbours down to the chosen number
+of **Regions**, those of a similar colour first and those a drawn line
+separates last. The line pixels go to the regions either side, so neighbours
+meet at the line's middle; each edge between two regions is traced once and
+used by both, so they meet exactly with no gap or overlap. Each region is
+coloured from its own pixels, not the lines'. The lines are thinned to
+centrelines and drawn over the regions as round-capped strokes, one path per
+line colour (two when some lines of a colour are much bolder), each at its
+lines' measured width; **Line width** fixes the width instead. With **Trace
+lines as strokes** off, or when most lines taper along their length, they are
+filled shapes. **Outline tolerance** is how far a traced edge or line may
+stray from the reference, in reference pixels. It runs on the CPU and needs
+no extra.
+
 The Colour regions method fits a palette on the GPU and traces each colour
 region. Dark outlines can be treated as ordinary regions, kept as separate
 linework, or kept as linework with the regions beneath cleaned up, which

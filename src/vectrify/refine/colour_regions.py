@@ -3,7 +3,8 @@
 A representation separate from SAMVG: a CUDA-fitted palette divides the image
 into colour regions, which are traced into shared-contour SVG regions, with
 optional preserved dark outlines and a final conservative geometry cleanup.
-Needs PyTorch with CUDA and SciPy (the ``vision`` extra).
+The vectorizer needs PyTorch with CUDA (the ``vision`` extra); the palette
+fit also runs on the CPU, for the cel tracer.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from typing import cast
 from xml.etree import ElementTree as ET
 
 import numpy as np
-import torch
 from PIL import Image
 from scipy.ndimage import (
     binary_propagation,
@@ -54,6 +54,11 @@ def nearest_indices(mask: np.ndarray) -> tuple[np.ndarray, ...]:
 
 def simplify(points: np.ndarray, tolerance: float) -> np.ndarray:
     """Keep endpoints and bound sample-to-segment error without recursion."""
+    return points[simplified_indices(points, tolerance)]
+
+
+def simplified_indices(points: np.ndarray, tolerance: float) -> list[int]:
+    """The indices of the points :func:`simplify` keeps, in order."""
     keep = {0, len(points) - 1}
     pending = [(0, len(points) - 1)]
     while pending:
@@ -74,7 +79,7 @@ def simplify(points: np.ndarray, tolerance: float) -> np.ndarray:
             middle = first + split
             keep.add(middle)
             pending.extend(((first, middle), (middle, last)))
-    return points[sorted(keep)]
+    return sorted(keep)
 
 
 def simplify_loop(points: np.ndarray, tolerance: float) -> np.ndarray:
@@ -104,8 +109,60 @@ def trace(
     return " ".join(parts)
 
 
-def fit_palette(pixels: np.ndarray, count: int, steps: int) -> np.ndarray:
-    """Fit representative colours on CUDA using deterministic farthest seeds."""
+def fit_palette(
+    pixels: np.ndarray, count: int, steps: int, *, gpu: bool = True
+) -> np.ndarray:
+    """Fit representative colours using deterministic farthest seeds.
+
+    On CUDA when *gpu* is set and a device is there, otherwise with numpy.
+    """
+    if gpu and _cuda():
+        return _fit_palette_cuda(pixels, count, steps)
+    # The same fit as on CUDA, a sample of the pixels at a time.
+    flat = pixels.reshape(-1, 3).astype(np.float32)
+    sample = flat[:: max(1, len(flat) // 131072)] / 255
+    centers = [sample.mean(0)]
+    nearest = np.full(len(sample), np.inf, dtype=np.float32)
+    for _ in range(count - 1):
+        nearest = np.minimum(nearest, np.square(sample - centers[-1]).sum(1))
+        centers.append(sample[nearest.argmax()])
+    palette = np.stack(centers)
+    for _ in range(steps):
+        assigned = _nearest_centre(sample, palette)
+        counts = np.bincount(assigned, minlength=count)
+        sums = np.zeros_like(palette)
+        np.add.at(sums, assigned, sample)
+        palette = np.where(
+            counts[:, None] > 0, sums / np.maximum(counts, 1)[:, None], palette
+        )
+    labels = np.empty(len(flat), dtype=np.int32)
+    for start in range(0, len(flat), 131072):
+        labels[start : start + 131072] = _nearest_centre(
+            flat[start : start + 131072] / 255, palette
+        )
+    return labels.reshape(pixels.shape[:2])
+
+
+def _nearest_centre(sample: np.ndarray, centers: np.ndarray) -> np.ndarray:
+    distance = (
+        np.square(sample).sum(1, keepdims=True)
+        + np.square(centers).sum(1)[None]
+        - 2 * sample @ centers.T
+    )
+    return distance.argmin(1)
+
+
+def _cuda() -> bool:
+    try:
+        import torch
+    except ImportError:
+        return False
+    return torch.cuda.is_available()
+
+
+def _fit_palette_cuda(pixels: np.ndarray, count: int, steps: int) -> np.ndarray:
+    import torch
+
     # Bound training memory independently of input size. Labels below still
     # use every original-resolution pixel, not an upscaled small label map.
     flat = pixels.reshape(-1, 3)
@@ -691,6 +748,8 @@ def vectorize(
     texture_tolerance: float = 5.0,
     geometry_cleanup: bool = True,
 ) -> tuple[str, dict]:
+    import torch
+
     if not torch.cuda.is_available():
         raise RuntimeError("Colour regions need CUDA; no CPU fit is substituted")
     if not 2 <= colours <= 256 or steps < 1 or min_pixels < 1:
