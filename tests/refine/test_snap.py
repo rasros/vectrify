@@ -117,15 +117,15 @@ def test_detail_splits_where_one_curve_cannot_follow_the_edge():
 
 def test_detail_cuts_a_notch_without_moving_the_side_it_is_in():
     square = SVG.replace(CIRCLE, "M25 25 L70 25 L70 70 L25 70 Z")
-    start, result, before, after = snapped(square, "p", reference("notch"), detail=True)
+    _, result, before, after = snapped(square, "p", reference("notch"), detail=True)
     assert after < 0.5 * before
     points = [n.values[-2:] for n in result.subpaths[0].nodes]
     # The tip reaches well into the side, and the corners stay where they were.
-    assert min(x for x, _y in points) < 58
     for corner in [(25, 25), (70, 25), (70, 70), (25, 70)]:
         assert min(abs(x - corner[0]) + abs(y - corner[1]) for x, y in points) < 1.5
     tips = [x for x, y in points if 30 < y < 65]
-    assert tips and min(tips) < 58
+    assert tips
+    assert min(tips) < 58
 
 
 def test_snap_alone_is_the_proposal_and_needs_a_reference():
