@@ -24,11 +24,13 @@ from vectrify.refine.samvg import (
     detect_text,
     filter_by_impact,
     generate_svg,
+    line_art,
     mask_path,
     merge_patches,
     recolour_visible_layers,
     residual_prompt_points,
     thinner_than,
+    with_line_art,
 )
 from vectrify.refine.samvg_runtime import device_name, pipeline_options
 
@@ -825,6 +827,29 @@ def test_merging_folds_what_is_not_worth_a_shape_into_a_neighbour():
     assert not orange.mask[:, 30:].any()
     assert orange.colour[0] > 150
     assert orange.colour[2] < 100
+
+
+def test_drawn_lines_are_found_and_regions_fill_in_beneath_them():
+    pixels = np.full((80, 80, 3), 220, dtype=np.uint8)
+    # Two light regions with a dark three-pixel line between them, and a
+    # dark block far too wide to be a line.
+    pixels[:, 40:] = (200, 210, 120)
+    pixels[:, 39:42] = (30, 30, 30)
+    pixels[60:78, 2:30] = (30, 30, 30)
+    image = Image.fromarray(pixels)
+    ink = line_art(image, 6)
+    assert ink[:, 39:42].mean() > 0.9
+    assert not ink[65:72, 8:24].any()
+
+    left = np.zeros((80, 80), dtype=bool)
+    left[:, :39] = True
+    right = np.zeros((80, 80), dtype=bool)
+    right[:, 42:] = True
+    layers, lines = with_line_art([_layer(left), _layer(right)], image, 6)
+    assert lines is not None
+    assert lines.colour == (30, 30, 30)
+    # Nothing beneath the line is left for the backdrop.
+    assert (layers[0].mask | layers[1].mask)[:, 39:42].all()
 
 
 def test_the_backdrop_takes_the_colour_of_what_no_layer_claims():

@@ -22,6 +22,7 @@ from vectrify.operations.generate import (
 )
 from vectrify.operations.settings import Setting, read_settings
 from vectrify.refine.samvg import (
+    LINE_WIDTH,
     SAMVG_MAX_SIDE,
     SAMVG_MODEL,
     SAMVG_POINTS_PER_BATCH,
@@ -40,6 +41,8 @@ SETTINGS = {
     "flatten": Setting(bool, False),
     # Fold small patches into a neighbour of a similar colour.
     "merge": Setting(bool, True),
+    # Trace the reference's drawn lines as a layer of their own on top.
+    "outlines": Setting(bool, True),
     "max_side": Setting(int, SAMVG_MAX_SIDE, minimum=64, maximum=4096),
     "model": Setting(
         str,
@@ -100,6 +103,12 @@ class Samvg:
         settings = read_settings(request.settings, SETTINGS, "SAMVG")
         region = target_region(request)
         traced, settings = _enlarged(region, settings)
+        # The widest line looked for grows with the image.
+        settings["outlines"] = (
+            max(LINE_WIDTH, round(max(traced.image.size) / 200))
+            if settings["outlines"]
+            else 0
+        )
         context.progress(0, "Segmenting the reference with SAM…", total=2)
         svg = generate_svg(
             traced.image,
