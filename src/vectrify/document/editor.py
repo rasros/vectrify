@@ -6,14 +6,28 @@ import math
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
+import pathops
+from shapely import make_valid
+from shapely.geometry import Polygon
+
 from vectrify.document.components import disconnected_parts
-from vectrify.document.hit_test import IDENTITY, multiply, transform
-from vectrify.document.holes import find_holes
+from vectrify.document.hit_test import IDENTITY, mapped, multiply, transform
+from vectrify.document.holes import (
+    Hole,
+    filled_region,
+    find_holes,
+    reversed_subpath,
+    ring_points,
+    signed_area,
+)
 from vectrify.document.join import (
     bake_group_path,
+    curve_path,
     join_paint,
     painted_weights,
+    path_geometry,
     path_style,
+    transformed_geometry,
     union_geometry,
 )
 from vectrify.document.knife import cut_geometry
@@ -26,6 +40,7 @@ from vectrify.document.model import (
     Geometry,
     Selection,
     SharedBoundary,
+    Subpath,
     new_id,
     references,
 )
@@ -384,21 +399,26 @@ class Transaction:
             updated = replace(node, values=tuple(values))
             if updated == node:
                 return
-            # Handles retracted onto a moved point go with it, so a corner
-            # stays a corner instead of growing handles back to where it was.
+            # A moved point takes both of its handles along, so the curve
+            # keeps its shape around it and a retracted handle stays a corner.
+            # An incoming handle the edit already placed is left where it is.
             point, moved = node.endpoint, updated.endpoint
+            dx, dy = moved[0] - point[0], moved[1] - point[1]
             following = []
             if moved != point:
-                if updated.command == "C" and updated.values[2:4] == point:
+                if updated.command == "C" and updated.values[2:4] == node.values[2:4]:
+                    c2 = (node.values[2] + dx, node.values[3] + dy)
                     updated = replace(
-                        updated, values=(*updated.values[:2], *moved, *moved)
+                        updated, values=(*updated.values[:2], *c2, *moved)
                     )
                 nodes = next(s.nodes for s in geometry.subpaths if node in s.nodes)
                 after = nodes[nodes.index(node) + 1 :][:1]
                 following = [
-                    replace(n, values=(*moved, *n.values[2:]))
+                    replace(
+                        n, values=(n.values[0] + dx, n.values[1] + dy, *n.values[2:])
+                    )
                     for n in after
-                    if n.command == "C" and n.values[0:2] == point
+                    if n.command == "C"
                 ]
             candidate = self._working
             for change in (updated, *following):
@@ -1468,38 +1488,234 @@ class Transaction:
         """Fill explicitly chosen holes, including their nested contour islands."""
         with self._change():
             self._whole_objects()
+            self._remove_holes(object_id, hole_ids, "fill")
+
+    def holes_to_shapes(
+        self, object_id: str, hole_ids: frozenset[str]
+    ) -> tuple[str, ...]:
+        """Turn chosen holes into shapes of their own, just above the path.
+
+        Each hole's contour leaves the path, which fills there, and becomes a
+        new path with the same paint. Islands inside a hole go with it and
+        stay holes of the new shape, their direction alternating inward so
+        either fill rule leaves them open.
+        """
+        with self._change():
+            self._whole_objects()
             document = self._working
-            holes = {hole.id: hole for hole in find_holes(document, object_id)}
-            if not hole_ids or not hole_ids <= holes.keys():
-                raise EditRejectedError("Choose existing holes to fill")
+            element = document.element(object_id)
+            if any(object_id in references(e) for e in document.elements()):
+                raise EditRejectedError(
+                    "This path is referenced; detach its instances first"
+                )
             geometry = document.geometry_for(object_id)
-            self._authorize(document.geometry_users(geometry.id), EditKind.GEOMETRY)
-            self._authorize(document.geometry_users(geometry.id), EditKind.STRUCTURE)
-            removed = set().union(*(holes[hid].subpath_ids for hid in hole_ids))
-            nodes = {
-                n.id for s in geometry.subpaths if s.id in removed for n in s.nodes
-            }
-            if any(
-                n.pinned for s in geometry.subpaths if s.id in removed for n in s.nodes
-            ):
-                raise EditRejectedError(
-                    "Unpin the selected hole contours before filling"
-                )
-            if any(
-                m.geometry_id == geometry.id and m.node_id in nodes
-                for b in document.boundaries
-                for m in b.members
-            ):
-                raise EditRejectedError(
-                    "Detach shared boundaries on the selected holes first"
-                )
-            self._working = document.replace_geometry(
-                replace(
-                    geometry,
-                    subpaths=tuple(s for s in geometry.subpaths if s.id not in removed),
-                )
+            if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
+                raise EditRejectedError("Detach shared geometry first")
+            holes = self._remove_holes(object_id, hole_ids, "turn into shapes")
+            order = [s.id for s in geometry.subpaths]
+            # A hole inside a chosen hole's island already goes with it.
+            chosen = sorted(
+                (
+                    holes[hid]
+                    for hid in hole_ids
+                    if not any(
+                        hid in holes[other].subpath_ids
+                        for other in hole_ids
+                        if other != hid
+                    )
+                ),
+                key=lambda h: order.index(h.id),
             )
-            self._record_remap({nid: set() for nid in nodes})
+            shapes = []
+            for hole in chosen:
+                subs = [s for s in geometry.subpaths if s.id in hole.subpath_ids]
+                rings = [ring_points(s) for s in subs]
+                polygons = [make_valid(Polygon(r)) for r in rings]
+                contours = []
+                for sub, ring, polygon in zip(subs, rings, polygons, strict=True):
+                    depth = sum(
+                        other is not polygon
+                        and other.area > polygon.area
+                        and other.covers(polygon)
+                        for other in polygons
+                    )
+                    contour = Subpath(
+                        new_id("subpath"),
+                        tuple(
+                            replace(n, id=new_id("node"), pinned=False)
+                            for n in sub.nodes
+                        ),
+                        True,
+                    )
+                    if (signed_area(ring) > 0) != (depth % 2 == 0):
+                        contour = reversed_subpath(contour)
+                    contours.append(contour)
+                shapes.append(Geometry(new_id("geometry"), tuple(contours)))
+            children = tuple(
+                Element(
+                    new_id("object"),
+                    "path",
+                    element.attributes,
+                    geometry_id=g.id,
+                    locks=element.locks,
+                )
+                for g in shapes
+            )
+            parent = self._working.ancestry(object_id)[-2]
+            index = next(i for i, c in enumerate(parent.children) if c.id == object_id)
+            self._working = replace(
+                self._working.replace_element(
+                    replace(
+                        parent,
+                        children=(
+                            *parent.children[: index + 1],
+                            *children,
+                            *parent.children[index + 1 :],
+                        ),
+                    )
+                ),
+                geometries=(*self._working.geometries, *shapes),
+            )
+            ids = tuple(c.id for c in children)
+            self._ids |= frozenset(ids)
+            return ids
+
+    def _remove_holes(
+        self, object_id: str, hole_ids: frozenset[str], verb: str
+    ) -> dict[str, Hole]:
+        """Drop chosen hole contours and their islands from a path."""
+        document = self._working
+        holes = {hole.id: hole for hole in find_holes(document, object_id)}
+        if not hole_ids or not hole_ids <= holes.keys():
+            raise EditRejectedError(f"Choose existing holes to {verb}")
+        geometry = document.geometry_for(object_id)
+        self._authorize(document.geometry_users(geometry.id), EditKind.GEOMETRY)
+        self._authorize(document.geometry_users(geometry.id), EditKind.STRUCTURE)
+        removed = set().union(*(holes[hid].subpath_ids for hid in hole_ids))
+        nodes = {n.id for s in geometry.subpaths if s.id in removed for n in s.nodes}
+        if any(n.pinned for s in geometry.subpaths if s.id in removed for n in s.nodes):
+            raise EditRejectedError(f"Unpin the selected hole contours to {verb}")
+        if any(
+            m.geometry_id == geometry.id and m.node_id in nodes
+            for b in document.boundaries
+            for m in b.members
+        ):
+            raise EditRejectedError(
+                "Detach shared boundaries on the selected holes first"
+            )
+        self._working = document.replace_geometry(
+            replace(
+                geometry,
+                subpaths=tuple(s for s in geometry.subpaths if s.id not in removed),
+            )
+        )
+        self._record_remap({nid: set() for nid in nodes})
+        return holes
+
+    def cut_out_hole(self, object_ids: frozenset[str]) -> str:
+        """Cut one of two filled paths out of the other as a hole.
+
+        A path lying inside the other is cut out of it; when neither contains
+        the other, the front one cuts the back one. The cutter's contours are
+        added to the outer path, turned so they cut under its fill rule, and
+        the cutter is deleted. Where added contours cannot reproduce the
+        difference (a partial overlap), the outer outline is recomputed as a
+        curved boolean difference instead. Returns the outer path's ID.
+        """
+        self._whole_objects()
+        document = self._working
+        elements = [e for e in document.elements() if e.id in object_ids]
+        if len(object_ids) != 2 or len(elements) != 2:
+            raise EditRejectedError("Select two paths: a shape and one to cut out")
+        if any(
+            e.tag != "path"
+            or any(a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id))
+            for e in elements
+        ):
+            raise EditRejectedError("Select two drawing paths to cut a hole")
+        styles = [path_style(document, e) for e in elements]
+        if any(style["fill"] == "none" for style in styles):
+            raise EditRejectedError("Both paths need a fill to cut a hole")
+        matrices = []
+        for e in elements:
+            matrix = IDENTITY
+            for ancestor in document.ancestry(e.id):
+                matrix = multiply(matrix, transform(ancestor.get("transform")))
+            matrices.append(matrix)
+        geometries = [document.geometry_for(e.id) for e in elements]
+        regions = [
+            mapped(filled_region(g, style["fill-rule"]), matrix)
+            for g, style, matrix in zip(geometries, styles, matrices, strict=True)
+        ]
+        tolerance = 1e-6 * max(r.area for r in regions) + 1e-9
+        if regions[0].intersection(regions[1]).area <= tolerance:
+            raise EditRejectedError("The two paths do not overlap")
+        # The back path is the outer one unless the front one contains it.
+        inside = [
+            regions[i].difference(regions[1 - i]).area <= 1e-4 * regions[i].area
+            for i in (0, 1)
+        ]
+        outer, inner = (1, 0) if inside[0] and not inside[1] else (0, 1)
+        outer_element, inner_element = elements[outer], elements[inner]
+        outer_geometry, inner_geometry = geometries[outer], geometries[inner]
+        if any(outer_element.id in references(e) for e in document.elements()):
+            raise EditRejectedError(
+                "This path is referenced; detach its instances before cutting a hole"
+            )
+        if sum(e.geometry_id == outer_geometry.id for e in document.elements()) != 1:
+            raise EditRejectedError("Detach shared geometry before cutting a hole")
+        if any(
+            m.geometry_id == inner_geometry.id
+            for b in document.boundaries
+            for m in b.members
+        ):
+            raise EditRejectedError(
+                "Unlink the shared boundaries of the path to cut out first"
+            )
+        rule, cutter_rule = styles[outer]["fill-rule"], styles[inner]["fill-rule"]
+        cutter = transformed_geometry(
+            inner_geometry,
+            multiply(inverse_matrix(matrices[outer]), matrices[inner]),
+        ).detached()
+        cutter = replace(
+            cutter,
+            subpaths=tuple(
+                replace(
+                    s,
+                    closed=True,
+                    nodes=tuple(replace(n, pinned=False) for n in s.nodes),
+                )
+                for s in cutter.subpaths
+            ),
+        )
+        expected = filled_region(outer_geometry, rule).difference(
+            filled_region(cutter, cutter_rule)
+        )
+        if expected.area <= tolerance:
+            raise EditRejectedError("Cutting this hole would leave nothing")
+        for contours in (
+            cutter.subpaths,
+            tuple(reversed_subpath(s) for s in cutter.subpaths),
+        ):
+            candidate = replace(
+                outer_geometry, subpaths=outer_geometry.subpaths + contours
+            )
+            result = filled_region(candidate, rule)
+            if result.symmetric_difference(expected).area <= 1e-5 * expected.area:
+                self.reshape_path(outer_element.id, candidate)
+                break
+        else:
+            try:
+                difference = pathops.op(
+                    curve_path(outer_geometry, rule),
+                    curve_path(cutter, cutter_rule),
+                    pathops.PathOp.DIFFERENCE,
+                )
+            except pathops.PathOpsError as exc:
+                raise EditRejectedError("Could not resolve the hole's outline") from exc
+            self.replace_geometry(outer_element.id, path_geometry(difference))
+        self.delete_objects(frozenset({inner_element.id}))
+        return outer_element.id
 
     def _whole_objects(self) -> None:
         if self._selection.node_ids:

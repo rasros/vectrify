@@ -456,3 +456,67 @@ def test_knife_line_that_ends_inside_changes_nothing():
     with pytest.raises(DocumentError, match="Drag the knife across"):
         send(session, "knife", start=[10, -5], end=[10, 5])
     assert session.editor.snapshot.document == before
+
+
+def test_dragging_a_node_moves_both_handles_and_a_handle_drag_only_itself():
+    session = Session(
+        import_svg(
+            '<svg width="40" height="40"><path id="p" fill="none" '
+            'd="M0 0 C0 10 10 10 10 0 C10 -10 20 -10 20 0"/></svg>'
+        )
+    )
+    send(session, "select", objects=["p"])
+    _, point, end = session.nodes("p")["geometry"]["subpaths"][0]["nodes"]
+    send(session, "node", object="p", node=point["id"], values=[0, 10, 10, 10, 12, 3])
+    _, point, end = session.nodes("p")["geometry"]["subpaths"][0]["nodes"]
+    assert point["values"] == (0, 10, 12, 13, 12, 3)
+    assert end["values"] == (12, -7, 20, -10, 20, 0)
+    send(session, "node", object="p", node=end["id"], values=[14, -9, 20, -10, 20, 0])
+    _, point, end = session.nodes("p")["geometry"]["subpaths"][0]["nodes"]
+    assert point["values"] == (0, 10, 12, 13, 12, 3)
+    assert end["values"] == (14, -9, 20, -10, 20, 0)
+
+
+HOLES = (
+    '<svg width="100" height="100">'
+    '<path id="outer" fill="#336699" d="M0 0H100V100H0Z M10 10V30H30V10Z"/>'
+    '<path id="inner" fill="red" d="M50 50H80V80H50Z"/></svg>'
+)
+
+
+def hole_ids(session, oid):
+    send(session, "select", objects=[oid])
+    revision = session.editor.snapshot.revision
+    payload = {"object": oid, "epoch": session.epoch, "revision": revision}
+    return [h["id"] for h in session.holes(payload)["holes"]]
+
+
+def test_cut_hole_command_makes_one_path_and_one_undo_step():
+    session = Session(import_svg(HOLES))
+    send(session, "select", objects=["outer", "inner"])
+    result = send(session, "cut_hole")
+    assert result["undo"] == ["Cut out as hole"]
+    assert result["selection"]["objects"] == ["outer"]
+    assert [o["id"] for o in result["objects"] if o["tag"] == "path"] == ["outer"]
+    assert len(hole_ids(session, "outer")) == 2
+    undone = send(session, "undo")
+    assert {o["id"] for o in undone["objects"]} >= {"outer", "inner"}
+    send(session, "select", objects=["outer"])
+    with pytest.raises(DocumentError, match="two paths"):
+        send(session, "cut_hole")
+
+
+def test_fill_hole_and_hole_to_shape_commands():
+    session = Session(import_svg(HOLES))
+    (hole,) = hole_ids(session, "outer")
+    result = send(session, "holes_to_shapes", object="outer", holes=[hole])
+    (shape,) = result["selection"]["objects"]
+    paths = [o for o in result["objects"] if o["tag"] == "path"]
+    assert [o["id"] for o in paths] == ["outer", shape, "inner"]
+    assert paths[1]["attributes"]["fill"] == "#336699"
+    assert not hole_ids(session, "outer")
+    send(session, "undo")
+    (hole,) = hole_ids(session, "outer")
+    result = send(session, "fill_holes", object="outer", holes=[hole])
+    assert result["undo"][-1] == "Fill holes"
+    assert not hole_ids(session, "outer")

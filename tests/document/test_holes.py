@@ -5,7 +5,13 @@ import pytest
 from tests.document.test_document import select
 from tests.ui.test_session import send
 from vectrify.document import DocumentError, Editor, EditRejectedError, import_svg
-from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
+from vectrify.document.holes import (
+    document_hole_shape,
+    enclosed_objects,
+    filled_region,
+    find_holes,
+)
+from vectrify.document.join import path_style
 from vectrify.ui.session import Session
 
 OUTER = "M0 0H100V100H0Z"
@@ -194,3 +200,128 @@ def test_self_touching_contours_keep_their_holes_editable():
         editor.snapshot.document.geometry_for("p").subpaths
         == doc.geometry_for("p").subpaths[:1]
     )
+
+
+def painted(document, object_id):
+    style = path_style(document, document.element(object_id))
+    return filled_region(document.geometry_for(object_id), style["fill-rule"])
+
+
+@pytest.mark.parametrize("rule", ["nonzero", "evenodd"])
+@pytest.mark.parametrize("inner", [SMALL, "M10 10H30V30H10Z"])
+def test_cut_out_hole_adds_the_inner_contour_and_undo_restores(rule, inner):
+    doc = drawing(OUTER, f'fill-rule="{rule}"', f'<path id="q" d="{inner}"/>')
+    editor = Editor(doc, selection=select("p", "q"))
+    with editor.transaction("Cut out as hole") as tx:
+        assert tx.cut_out_hole(frozenset({"p", "q"})) == "p"
+    after = editor.snapshot.document
+    assert [e.id for e in after.elements() if e.tag == "path"] == ["p"]
+    geometry = after.geometry_for("p")
+    # The outer contour keeps its nodes; the hole is appended.
+    assert geometry.subpaths[0] == doc.geometry_for("p").subpaths[0]
+    assert len(geometry.subpaths) == 2
+    assert painted(after, "p").area == pytest.approx(10000 - 400)
+    assert len(find_holes(after, "p")) == 1
+    assert editor.undo().document == doc
+
+
+def test_cutting_out_a_ring_leaves_an_island_in_its_middle():
+    doc = drawing(OUTER, shapes=f'<path id="q" d="{LARGE} M60 60H80V80H60Z"/>')
+    editor = Editor(doc, selection=select("p", "q"))
+    with editor.transaction("Cut out as hole") as tx:
+        tx.cut_out_hole(frozenset({"p", "q"}))
+    after = editor.snapshot.document
+    assert len(after.geometry_for("p").subpaths) == 3
+    assert painted(after, "p").area == pytest.approx(10000 - 1600 + 400)
+
+
+def test_cut_out_hole_maps_between_groups_and_keeps_the_outer_paint():
+    doc = drawing(
+        OUTER,
+        'fill="#123456" transform="translate(10 0)"',
+        '<g transform="scale(2)"><path id="q" d="M10 10H20V20H10Z"/></g>',
+    )
+    editor = Editor(doc, selection=select("p", "q"))
+    with editor.transaction("Cut out as hole") as tx:
+        tx.cut_out_hole(frozenset({"p", "q"}))
+    after = editor.snapshot.document
+    assert after.element("p").get("fill") == "#123456"
+    (hole,) = find_holes(after, "p")
+    assert hole.shape.bounds == pytest.approx((10, 20, 30, 40))
+
+
+def test_partly_overlapping_front_shape_cuts_the_back_one():
+    doc = drawing(OUTER, shapes='<path id="q" d="M50 50H150V150H50Z"/>')
+    editor = Editor(doc, selection=select("p", "q"))
+    with editor.transaction("Cut out as hole") as tx:
+        assert tx.cut_out_hole(frozenset({"p", "q"})) == "p"
+    after = editor.snapshot.document
+    assert "q" not in {e.id for e in after.elements()}
+    assert painted(after, "p").area == pytest.approx(10000 - 2500)
+
+
+def test_cut_out_hole_refuses_disjoint_locked_and_single_paths():
+    far = drawing(OUTER, shapes='<path id="q" d="M150 150H190V190H150Z"/>')
+    far_editor = Editor(far, selection=select("p", "q"))
+    with (
+        pytest.raises(EditRejectedError, match="do not overlap"),
+        far_editor.transaction("Cut") as tx,
+    ):
+        tx.cut_out_hole(frozenset({"p", "q"}))
+    doc = drawing(OUTER, shapes=f'<path id="q" d="{SMALL}"/>')
+    editor = Editor(doc, selection=select("p", "q"))
+    editor.set_locks("p", frozenset({"geometry"}))
+    with (
+        pytest.raises(EditRejectedError, match="locked"),
+        editor.transaction("Cut") as tx,
+    ):
+        tx.cut_out_hole(frozenset({"p", "q"}))
+    assert editor.snapshot.document.geometry_for("p") == doc.geometry_for("p")
+    single = Editor(doc, selection=select("p"))
+    with (
+        pytest.raises(EditRejectedError, match="two paths"),
+        single.transaction("Cut") as tx,
+    ):
+        tx.cut_out_hole(frozenset({"p"}))
+
+
+def test_hole_to_shape_moves_the_contour_into_a_new_path_above():
+    doc = drawing(attrs='fill="#abcdef"', shapes='<path id="top" d="M0 0H1V1Z"/>')
+    small = find_holes(doc, "p")[0]
+    editor = Editor(doc, selection=select("p"))
+    with editor.transaction("Holes to shapes") as tx:
+        (shape,) = tx.holes_to_shapes("p", frozenset({small.id}))
+    after = editor.snapshot.document
+    order = [e.id for e in after.elements() if e.tag == "path"]
+    assert order == ["p", shape, "top"]
+    assert after.element(shape).get("fill") == "#abcdef"
+    assert painted(after, shape).area == pytest.approx(400)
+    assert len(find_holes(after, "p")) == 1
+    assert painted(after, "p").area == pytest.approx(10000 - 1600)
+    assert editor.undo().document == doc
+
+
+@pytest.mark.parametrize("rule", ["nonzero", "evenodd"])
+def test_hole_to_shape_keeps_islands_open_in_the_new_shape(rule):
+    island = "M60 60H80V80H60Z"
+    doc = drawing(OUTER + LARGE + island, f'fill-rule="{rule}"')
+    large = find_holes(doc, "p")[-1]
+    editor = Editor(doc, selection=select("p"))
+    with editor.transaction("Holes to shapes") as tx:
+        (shape,) = tx.holes_to_shapes("p", frozenset({large.id}))
+    after = editor.snapshot.document
+    assert painted(after, shape).area == pytest.approx(1600 - 400)
+    assert painted(after, "p").area == pytest.approx(10000)
+
+
+def test_hole_to_shape_refuses_pinned_contours():
+    doc = drawing()
+    small = find_holes(doc, "p")[0]
+    node = next(s for s in doc.geometry_for("p").subpaths if s.id == small.id).nodes[1]
+    editor = Editor(doc, selection=select("p"))
+    editor.pin_node("p", node.id, pinned=True)
+    with (
+        pytest.raises(EditRejectedError, match="Unpin"),
+        editor.transaction("Holes to shapes") as tx,
+    ):
+        tx.holes_to_shapes("p", frozenset({small.id}))

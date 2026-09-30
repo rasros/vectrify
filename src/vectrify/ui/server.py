@@ -165,6 +165,7 @@ class Handler(BaseHTTPRequestHandler):
         files = {
             "/": "index.html",
             "/app.js": "app.js",
+            "/snap.js": "snap.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }
