@@ -1,28 +1,37 @@
-"""Improve: Optimize nodes, a search over the selected paths' points.
+"""Improve: Optimize nodes, which fits the selected paths to the reference.
 
-The general tool for reshaping paths, and the fallback where the GPU path fit
-cannot go (several paths, strokes, open contours, no GPU). Each checkbox adds
-a kind of move: nudging points and handles, splitting segments, removing
-points, moving whole paths, scaling strokes. Snap first puts the points on the
-reference's edges directly, as the search's start or on its own. It is scored
-on the selection's surroundings against the reference, or, without one,
-against the paths as they were, so on its own Simplify removes points while
-keeping the look.
+It mixes three steps and picks, round by round, whichever helps:
+
+- Shape fits the points and handles by gradient descent (the path fit),
+  on the GPU when there is one and on the CPU otherwise.
+- Snap puts the points on the reference's nearest edges; with Add detail it
+  also adds points where a piece of the shape is missing or too much.
+- Simplify removes the points the outline does not need, within a tolerance
+  in the reference's pixels.
+
+Every round tries each chosen step on the paths as they stand and keeps the
+one that lowers the difference to the reference most. When none does,
+Simplify gets its turn, and once nothing changes the run ends. So a rough
+shape can be snapped, fitted, thinned and fitted again, in whatever order
+works. With several workers a round's steps run side by side, but only one
+path fit runs at a time.
+
+Without a reference only Simplify runs, judged against the drawing itself.
 Colour is left to Fit colours.
 """
 
 from __future__ import annotations
 
+import multiprocessing as mp
 import os
-import xml.etree.ElementTree as ET
+from concurrent.futures import Future, ProcessPoolExecutor
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
-import numpy as np
+from PIL import Image
 
-from vectrify.document import DocumentError
-from vectrify.document.join import path_style
-from vectrify.image_utils import preview_urls, resize_long_side
-from vectrify.operations.candidates import region_svg
+from vectrify.document import Document, DocumentError, Geometry, Selection
+from vectrify.image_utils import preview_urls
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -31,30 +40,34 @@ from vectrify.operations.contract import (
     register,
 )
 from vectrify.operations.generate import (
+    Region,
     drawing_region,
+    error,
     render_region,
     target_region,
 )
 from vectrify.operations.settings import Setting, read_settings
 
-DEFAULT_TASKS = 600
 LABEL = "Optimize nodes"
-MOVES = ("shape", "detail", "simplify", "strokes", "position", "snap")
+STEPS = ("shape", "snap", "simplify")
+DEFAULT_ROUNDS = 8
+# A step has to lower the difference by this share to count as helping.
+GAIN = 0.005
 
 SETTINGS = {
     "shape": Setting(bool, True),
+    "snap": Setting(bool, False),
+    # Snap may add points where the path misses the shape.
     "detail": Setting(bool, False),
     "simplify": Setting(bool, False),
-    "strokes": Setting(bool, False),
-    "position": Setting(bool, False),
-    # Move the points onto the reference's edges before any search.
-    "snap": Setting(bool, False),
-    # How much of the fit simplifying may give up, as a percentage of what the
-    # selected paths contribute: the difference between the region without
-    # them and with them as they started.
-    "tolerance": Setting(float, 2.0, minimum=0.0, maximum=50.0, label="tolerance"),
+    # How far Simplify may move an outline, in the reference's pixels.
+    "tolerance": Setting(float, 1.0, minimum=0.0, maximum=20.0, label="tolerance"),
+    # Each path fit: gradient steps, how far a point may move in SVG units,
+    # and the size it works at.
+    "steps": Setting(int, 40, minimum=1, maximum=1000, label="steps"),
+    "movement": Setting(float, 2.0, minimum=0.0, maximum=100.0, label="movement"),
+    "resolution": Setting(int, 768, minimum=64, maximum=2048, label="resolution"),
     "workers": Setting(int, 2, minimum=1, maximum=max(1, os.cpu_count() or 1)),
-    "resolution": Setting(int, 256, minimum=64, maximum=1024, label="resolution"),
 }
 
 
@@ -82,13 +95,113 @@ def selected_paths(request: OperationRequest) -> list[str]:
 
 def needed_permissions(settings) -> set[str]:
     kinds = set()
-    if settings["shape"] or settings["position"] or settings["snap"]:
+    if settings["shape"] or settings["snap"]:
         kinds.add("geometry")
-    if settings["detail"] or settings["simplify"]:
+    if (settings["snap"] and settings["detail"]) or settings["simplify"]:
         kinds |= {"geometry", "structure"}
-    if settings["strokes"]:
-        kinds.add("paint")
     return kinds
+
+
+@dataclass(frozen=True)
+class _Task:
+    """What a step needs, sent to a worker whole."""
+
+    document: Document
+    # The difference is measured against the region's image: the reference,
+    # or the drawing as it started when there is none.
+    region: Region
+    settings: dict
+    oids: tuple[str, ...]
+    reference: Image.Image | None
+
+
+def _with(document: Document, geometries: dict[str, Geometry]) -> Document:
+    for geometry in geometries.values():
+        document = document.replace_geometry(geometry)
+    return document
+
+
+def _paths(document: Document, oids):
+    from vectrify.refine.frozen import Paths
+
+    return Paths({oid: document.geometry_for(oid) for oid in oids})
+
+
+def _difference(document: Document, region: Region) -> float:
+    return error(render_region(document, region), region.image)
+
+
+def _run_step(step: str, task: _Task, stop=None, progress=None):
+    """(document after *step*, its difference, why paths were skipped)."""
+    document, region, settings = task.document, task.region, task.settings
+    skipped: dict[str, str] = {}
+    if step == "shape":
+        document, skipped = _fit(task, stop, progress)
+    else:
+        from vectrify.refine.frozen import frozen
+
+        paths = _paths(document, task.oids)
+        fixed = frozen(document, paths)
+        if step == "snap":
+            from vectrify.refine.snap import snap
+
+            paths = snap(document, paths, region, fixed, detail=settings["detail"])
+        else:
+            from vectrify.refine.simplify import simplify
+
+            paths = simplify(document, paths, region, fixed, settings["tolerance"])
+        document = _with(document, dict(paths.geometries))
+    return document, _difference(document, region), skipped
+
+
+def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
+    """Fit each path in turn by gradient descent."""
+    from vectrify.refine.selected import FitOptions, fit_selected_path
+
+    document, settings = task.document, task.settings
+    assert task.reference is not None
+    options = FitOptions(
+        steps=settings["steps"],
+        displacement=settings["movement"],
+        resolution=settings["resolution"],
+    )
+    skipped: dict[str, str] = {}
+    for oid in task.oids:
+        if stop is not None and stop.is_set():
+            break
+        try:
+            fit = fit_selected_path(
+                document,
+                Selection(object_ids=frozenset({oid})),
+                task.reference,
+                options,
+                stop=stop,
+                progress=progress,
+            )
+        except DocumentError as exc:
+            skipped[oid] = str(exc)
+            continue
+        if not fit.values:
+            continue
+        geometry = document.geometry_for(oid)
+        document = document.replace_geometry(
+            replace(
+                geometry,
+                subpaths=tuple(
+                    replace(
+                        s,
+                        nodes=tuple(
+                            replace(n, values=fit.values[n.id])
+                            if n.id in fit.values
+                            else n
+                            for n in s.nodes
+                        ),
+                    )
+                    for s in geometry.subpaths
+                ),
+            )
+        )
+    return document, skipped
 
 
 class OptimizeNodes:
@@ -99,151 +212,142 @@ class OptimizeNodes:
     resources: ClassVar[frozenset[str]] = frozenset()
 
     def validate(self, request: OperationRequest) -> None:
-        settings = read_settings(request.settings, SETTINGS, "Optimize nodes")
-        if not any(settings[move] for move in MOVES):
-            raise DocumentError("Choose at least one thing to optimize")
+        settings = read_settings(request.settings, SETTINGS, LABEL)
+        if not any(settings[step] for step in STEPS):
+            raise DocumentError("Choose at least one step")
         selected_paths(request)
         if request.reference is None:
-            if settings["detail"]:
-                raise DocumentError("Add a reference image to add detail")
+            if settings["shape"]:
+                raise DocumentError("Add a reference image to fit the shape to")
             if settings["snap"]:
                 raise DocumentError("Add a reference image to snap to")
-            if not settings["simplify"]:
-                raise DocumentError(
-                    "Add a reference image to fit against, or choose Simplify"
-                )
+        if settings["shape"]:
+            from vectrify.refine.selected import fit_problem
+
+            problem = fit_problem()
+            if problem:
+                raise DocumentError(problem)
         missing = needed_permissions(settings) - request.permissions.allowed
         if missing:
             raise DocumentError(f"Allow {', '.join(sorted(missing))} changes")
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
-        from vectrify.image_utils import rasterize_svg_to_png_bytes
-        from vectrify.score.compare import compare, prepare
-        from vectrify.vector.nodes import Paths, frozen
-        from vectrify.vector.search import SearchSettings, run_search
-        from vectrify.vector.worker import Renderer, WorkerContext
-
-        settings = read_settings(request.settings, SETTINGS, "Optimize nodes")
-        tasks = request.budget.steps or DEFAULT_TASKS
-        document = request.snapshot.document
-        oids = selected_paths(request)
+        settings = read_settings(request.settings, SETTINGS, LABEL)
+        rounds = request.budget.steps or DEFAULT_ROUNDS
+        start = request.snapshot.document
+        oids = tuple(selected_paths(request))
         region = (
             target_region(request)
             if request.reference is not None
             else drawing_region(request, settings["resolution"])
         )
-        target = resize_long_side(region.image, settings["resolution"])
-        size = target.size
-        context.progress(0, "Starting the workers…", total=tasks)
-        svg, _ = region_svg(request, region, size)
-
-        start = Paths(
-            {oid: document.geometry_for(oid) for oid in oids},
-            {
-                oid: float(style["stroke-width"])
-                for oid in oids
-                if (style := path_style(document, document.element(oid)))["stroke"]
-                != "none"
-            },
-        )
-        fixed = frozen(document, start)
-        worker = WorkerContext(svg, size, fixed)
-        # Scored at the crop's own size: the stock scorer shrinks everything
-        # to 256 px first, which on a small region blurs away the edges a
-        # point is being moved onto.
-        reference = prepare(target)
-
-        def score(image: bytes | np.ndarray) -> float:
-            value = compare(reference, image).blend()
-            return value if np.isfinite(value) else 1.0
-
-        # What the selected paths are worth to the fit: the region scored
-        # without them, against the region scored as they start.
-        without = ET.fromstring(svg)
-        for parent in list(without.iter()):
-            for child in list(parent):
-                if child.get("id") in start.geometries:
-                    parent.remove(child)
-        empty = score(
-            rasterize_svg_to_png_bytes(
-                ET.tostring(without, encoding="unicode"), out_w=size[0], out_h=size[1]
+        steps = [s for s in STEPS if settings[s]]
+        document = start
+        before = current = _difference(document, region)
+        points = _count(document, oids)
+        taken: list[str] = []
+        skipped: dict[str, str] = {}
+        workers = min(settings["workers"], len(steps))
+        pool = (
+            ProcessPoolExecutor(
+                max_workers=workers - 1 if "shape" in steps else workers,
+                mp_context=mp.get_context("spawn"),
             )
+            if workers > 1
+            else None
         )
-        initial = score(Renderer(worker)(start))
-        tolerance = settings["tolerance"] / 100 * max(empty - initial, 0.0)
+        try:
+            for done in range(rounds):
+                if context.stop.is_set():
+                    break
+                heading = f"Round {done + 1}/{rounds} · {points} points"
+                context.progress(done, heading, total=rounds)
 
-        moves = tuple(
-            move
-            for move in ("shape", "detail", "position", "strokes")
-            if settings[move]
-        )
-        begin, begin_score = start, initial
-        if settings["snap"] and request.reference is not None:
-            from vectrify.refine.snap import snap
+                def report(_step, message, done=done, heading=heading):
+                    context.progress(done, f"{heading} · {message}")
 
-            context.progress(0, "Snapping to the reference…", total=tasks)
-            snapped = snap(document, start, region, fixed, detail=settings["detail"])
-            snapped_score = score(Renderer(worker)(snapped))
-            # Snapping is kept only where it helps the fit.
-            if snapped_score < initial:
-                begin, begin_score = snapped, snapped_score
-        tasks_completed = accepted = 0
-        best, best_score = begin, begin_score
-        if moves or settings["simplify"]:
-            outcome = run_search(
-                begin,
-                score,
-                worker,
-                SearchSettings(
-                    moves=moves,
-                    simplify=settings["simplify"],
-                    tolerance=tolerance,
-                    workers=settings["workers"],
-                    max_total_tasks=tasks,
-                    max_wall_seconds=request.budget.seconds,
-                ),
-                stop=context.stop,
-                progress=lambda p: context.progress(
-                    p.tasks_completed,
-                    f"Optimizing · {p.tasks_completed:,}/{tasks:,} tries"
-                    f" · {p.nodes:,} points",
-                ),
-            )
-            best, best_score = outcome.best.state, outcome.best.score
-            tasks_completed, accepted = outcome.tasks_completed, outcome.accepted
+                task = _Task(document, region, settings, oids, request.reference)
+                results = _round(steps, task, pool, context.stop, report)
+                for _doc, _diff, why in results.values():
+                    skipped.update(why)
+                chosen = _choose(results, current, points, oids)
+                if chosen is None:
+                    break
+                taken.append(chosen)
+                document, current, _ = results[chosen]
+                points = _count(document, oids)
+        finally:
+            if pool is not None:
+                pool.shutdown(wait=True, cancel_futures=True)
+
         tx = request.transaction(LABEL)
-        for oid, geometry in best.geometries.items():
-            if geometry != start.geometries[oid]:
+        for oid in oids:
+            geometry = document.geometry_for(oid)
+            if geometry != start.geometry_for(oid):
                 tx.reshape_path(oid, geometry)
-        for oid, width in best.strokes.items():
-            if width != start.strokes[oid]:
-                tx.set_attributes(oid, {"stroke-width": f"{width:.4g}"})
-        changed = best.key() != start.key()
-        before = render_region(document, region)
+        changed = bool(taken)
+        message = None
+        if not changed:
+            message = next(iter(skipped.values()), "No step improved the paths")
         return OperationResult(
             Proposal(
                 tx,
                 changed,
                 metrics={
-                    "before": {
-                        "difference": initial,
-                        "nodes": start.nodes(),
-                    },
-                    "after": {
-                        "difference": best_score,
-                        "nodes": best.nodes(),
-                    },
-                    "tasks": tasks_completed,
-                    "accepted": accepted,
-                    "snapped": begin is not start,
+                    "before": {"difference": before, "nodes": _count(start, oids)},
+                    "after": {"difference": current, "nodes": points},
+                    "steps": taken,
+                    "skipped": skipped,
                     "reference": request.reference is not None,
                 },
                 previews=preview_urls(
-                    region.image, before, render_region(tx.preview, region)
+                    region.image,
+                    render_region(start, region),
+                    render_region(tx.preview, region),
                 ),
             ),
-            message=None if changed else "No change improved the paths",
+            message=message,
         )
+
+
+def _count(document: Document, oids) -> int:
+    return sum(
+        len(s.nodes) for oid in oids for s in document.geometry_for(oid).subpaths
+    )
+
+
+def _round(steps, task: _Task, pool, stop, report):
+    """Each step's outcome from the same start. The path fit runs here, the
+    others on the workers alongside it."""
+    pending: dict[str, Future] = {}
+    if pool is not None:
+        for step in steps:
+            if step != "shape":
+                pending[step] = pool.submit(_run_step, step, task)
+    results = {}
+    for step in steps:
+        if step not in pending:
+            results[step] = _run_step(step, task, stop, report)
+    for step, future in pending.items():
+        results[step] = future.result()
+    return results
+
+
+def _choose(results, current: float, points: int, oids) -> str | None:
+    """The step to keep: the one that lowers the difference most, or else
+    Simplify if it removed points."""
+    helping = [
+        (difference, step)
+        for step, (_doc, difference, _why) in results.items()
+        if step != "simplify" and difference < current * (1 - GAIN)
+    ]
+    if helping:
+        return min(helping)[1]
+    if "simplify" in results:
+        simpler, _difference, _why = results["simplify"]
+        if _count(simpler, oids) < points:
+            return "simplify"
+    return None
 
 
 register(OptimizeNodes())

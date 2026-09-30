@@ -61,7 +61,7 @@ commands `start`, `check` (validate a request without running it), `status`,
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | generate | `llm` | Asks an LLM to draw the reference region as SVG |
 | improve | `path-fit` | Gradient fitting of one selected path's nodes, handles and colour (CUDA, or the CPU for unstroked fills) |
-| improve | `nodes` | CPU search over the selected paths' points: move, split, remove, shift, stroke |
+| improve | `nodes` | Fits the selected paths to the reference by mixing the path fit, snapping and simplifying |
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
@@ -103,34 +103,39 @@ into the `MutationScope` the LLM prompt names as editable.
 ## Optimize nodes
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
-no other object shares. Its settings are the moves to try (`shape`, `detail`,
-`simplify`, `strokes`, `position`), a `tolerance` in percent for Simplify, and
-`workers` and `resolution`; the budget's `steps` is the number of tries.
-`detail` needs a reference; without one, `simplify` is required and the target
-is the drawing's own render of the region (`generate.drawing_region`).
+no other object shares. Its settings are the steps to use (`shape`, `snap`,
+`simplify`, and `detail` for Snap to add points), Simplify's `tolerance` in
+reference pixels, each path fit's `steps`, `movement` (SVG units) and
+`resolution`, and `workers`; the budget's `steps` is the most rounds.
+`shape` and `snap` need a reference; without one the target is the drawing's
+own render of the region (`generate.drawing_region`) and only `simplify` runs.
 
-The state the search changes is each path's `Geometry` and stroke width
-(`vector.nodes.Paths`); the moves are in `vector.nodes`, and workers render a
-state by rewriting only those paths' `d` and `stroke-width`. In a drawing with
-more than a couple of dozen other shapes, everything else is rendered once in
-slices around the selected paths, and a render paints only the selected paths
-over them (unless group opacity, a clip, a mask, a filter or a `<use>` of a
-selected path makes that inexact). Renders stay in memory as arrays.
+Every round runs each chosen step on the paths as they stand and measures the
+region's mean squared difference to the target (`generate.error`). The step
+that lowers it most, by at least 0.5%, is kept; if none does, Simplify is kept
+when it removed points, and otherwise the run ends. With more than one worker,
+Snap and Simplify run in spawned processes while the path fit runs in the job's
+thread, so only one fit runs at a time.
 
-The search is a beam search (`vector.search`): each generation expands every
-state in the beam (2 by default) into children (4 each) across the workers,
-scores them in the main process at the crop's own size, and merges the
-children that improved different points into one more candidate. The next beam
-is the best distinct states; ties keep the older one. A removal is kept while
-the score stays within the tolerance of the start (the budget is shared by the
-run, and the beam then prefers fewer points); a split must improve its parent
-by 1%. The result is applied with
-`Transaction.reshape_path`, which keeps surviving node IDs, refuses to move or
-remove pinned endpoints, and leaves linked boundary edges as they are.
+The steps are separate functions over `refine.frozen.Paths` (each selected
+path's `Geometry`), which leave `refine.frozen.Frozen` nodes alone: pinned
+endpoints and the nodes of linked boundary edges.
 
-The editor's Optimize nodes dialog runs `improve/path-fit` instead when Shape
-is the only move ticked, the GPU fit can run (it asks with `check` on opening)
-and the user has not picked the CPU search.
+- Shape is `refine.selected.fit_selected_path`, one path at a time; paths it
+  refuses are skipped and reported under `skipped` in the metrics.
+- Snap is `refine.snap.snap`: points and segment middles move along the
+  outline's normal to the nearest edge within a few pixels, and with `detail`
+  the largest blobs of wrongly covered or missed pixels get new points on the
+  segment beside them (one, two, or a three-point spike, kept when each point
+  fixes enough pixels), creeping along a blob by aiming part of the way in.
+- Simplify is `refine.simplify.simplify`: the point whose removal moves the
+  outline least goes first, the joined cubic keeping the tangents either side
+  with least-squares handle lengths, until any removal would move it more than
+  the tolerance.
+
+The result is applied with `Transaction.reshape_path`, which keeps surviving
+node IDs, refuses to move or remove pinned endpoints, and leaves linked
+boundary edges as they are.
 
 ## LLM methods
 

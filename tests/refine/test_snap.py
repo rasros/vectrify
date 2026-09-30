@@ -6,8 +6,8 @@ from PIL import Image, ImageDraw
 from vectrify.document import DocumentError, Editor, Selection, import_svg
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 from vectrify.operations.generate import error, render_region, target_region
+from vectrify.refine.frozen import Paths, frozen
 from vectrify.refine.snap import snap
-from vectrify.vector.nodes import Paths, frozen
 
 # A circle of radius 20 at (46, 46) as four cubics, under transforms that
 # cancel out, so mapping to pixels has to compose them. The reference circle
@@ -31,6 +31,11 @@ def reference(shape="circle"):
     draw = ImageDraw.Draw(image)
     if shape == "circle":
         draw.ellipse((53, 52, 139, 138), fill="#203050")
+    elif shape == "strand":
+        # A square with a tapering strand, like a lock of hair, leaving its
+        # right side and curling up.
+        draw.rectangle((50, 50, 140, 140), fill="#203050")
+        draw.polygon(strand(), fill="#203050")
     elif shape == "notch":
         # A square with a thin notch cut into its right side.
         draw.rectangle((50, 50, 140, 140), fill="#203050")
@@ -40,6 +45,24 @@ def reference(shape="circle"):
         draw.rectangle((50, 50, 140, 140), fill="#203050")
         draw.rectangle((140, 95, 147, 140), fill="#203050")
     return image
+
+
+def strand():
+    """The strand's outline: a band along a curve, from 18 px wide to a point."""
+    left, right = [], []
+    for i in range(33):
+        t = i / 32
+        u = 1 - t
+        # A quadratic from the side, out to the right and up.
+        x = u * u * 138 + 2 * u * t * 185 + t * t * 182
+        y = u * u * 108 + 2 * u * t * 108 + t * t * 48
+        dx = 2 * u * (185 - 138) + 2 * t * (182 - 185)
+        dy = 2 * u * (108 - 108) + 2 * t * (48 - 108)
+        size = (dx * dx + dy * dy) ** 0.5
+        half = 9 * u
+        left.append((x - dy / size * half, y + dx / size * half))
+        right.append((x + dy / size * half, y - dx / size * half))
+    return left + right[::-1]
 
 
 def editor(svg=SVG, *ids):
@@ -64,7 +87,7 @@ def snapped(svg, oid, ref, *, detail=False):
     req = request(ed, ref)
     region = target_region(req)
     document = ed.snapshot.document
-    start = Paths({oid: document.geometry_for(oid)}, {})
+    start = Paths({oid: document.geometry_for(oid)})
     result = snap(document, start, region, frozen(document, start), detail=detail)
     tx = req.transaction("snap")
     tx.reshape_path(oid, result.geometries[oid])
@@ -90,7 +113,7 @@ def test_pinned_points_stay_put():
     ed.pin_node("p", first)
     svg = ed.snapshot.document
     region = target_region(request(ed, reference()))
-    start = Paths({"p": svg.geometry_for("p")}, {})
+    start = Paths({"p": svg.geometry_for("p")})
     result = snap(svg, start, region, frozen(svg, start))
     before, after = start.geometries["p"], result.geometries["p"]
     assert after.subpaths[0].nodes[0] == before.subpaths[0].nodes[0]
@@ -101,7 +124,7 @@ def test_stroke_only_paths_are_left_alone():
     ed = editor(SVG, "line")
     document = ed.snapshot.document
     region = target_region(request(ed, reference()))
-    start = Paths({"line": document.geometry_for("line")}, {"line": 1.0})
+    start = Paths({"line": document.geometry_for("line")})
     assert snap(document, start, region, frozen(document, start)) == start
 
 
@@ -138,19 +161,44 @@ def test_snap_alone_is_the_proposal_and_needs_a_reference():
     result = job.state()["result"]
     assert result["changed"]
     metrics = result["metrics"]
-    assert metrics["tasks"] == 0
-    assert metrics["snapped"]
+    assert set(metrics["steps"]) == {"snap"}
     assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
     before = ids(ed.snapshot.document.geometry_for("p"))
     job.apply()
     assert ids(ed.snapshot.document.geometry_for("p")) == before
 
 
-def test_the_search_starts_from_the_snapped_paths():
+def test_snap_and_the_path_fit_take_turns():
     ed = editor(SVG, "p")
     job = Job(method("improve", "nodes"), request(ed, reference(), snap=True))
     job.run()
     metrics = job.state()["result"]["metrics"]
-    assert metrics["snapped"]
-    assert metrics["tasks"] > 0
+    assert metrics["steps"][0] == "snap"
     assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
+
+
+def test_detail_creeps_along_a_curling_strand():
+    # A far white dot is selected too, so the reference crop takes in the
+    # whole strand.
+    square = SVG.replace(CIRCLE, "M25 25 L70 25 L70 70 L25 70 Z").replace(
+        '<path id="line"',
+        '<path id="dot" fill="#ffffff" d="M95 15 L96 15 L96 16 Z"/><path id="line"',
+    )
+    ed = editor(square, "p", "dot")
+    region = target_region(request(ed, reference("strand")))
+    document = ed.snapshot.document
+    start = Paths({"p": document.geometry_for("p")})
+    plain = snap(document, start, region, frozen(document, start))
+    result = snap(document, start, region, frozen(document, start), detail=True)
+
+    def difference(paths):
+        tx = request(ed, reference("strand")).transaction("snap")
+        tx.reshape_path("p", paths.geometries["p"])
+        return error(render_region(tx.preview, region), region.image)
+
+    assert difference(result) < 0.5 * difference(plain)
+    points = [n.values[-2:] for n in result.geometries["p"].subpaths[0].nodes]
+    # The outline follows the strand up past where a straight spike would end.
+    assert any(x > 85 and y < 38 for x, y in points)
+    for corner in [(25, 25), (70, 25), (25, 70)]:
+        assert min(abs(x - corner[0]) + abs(y - corner[1]) for x, y in points) < 1.5

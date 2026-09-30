@@ -25,14 +25,14 @@ def editor(*ids):
     return Editor(import_svg(SVG), selection=Selection(object_ids=frozenset(ids)))
 
 
-def request(ed, *, steps=150, with_reference=True, **settings):
+def request(ed, *, steps=4, with_reference=True, **settings):
     return OperationRequest(
         action="improve",
         method="nodes",
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True, paint=True),
-        settings={"workers": 1, "resolution": 64, **settings},
+        settings={"workers": 1, "resolution": 64, "steps": 30, **settings},
         budget=Budget(steps=steps),
         reference=reference() if with_reference else None,
     )
@@ -50,11 +50,11 @@ def test_validation_names_what_is_missing():
         nodes.validate(request(editor("bg")))
     with pytest.raises(DocumentError, match="at least one"):
         nodes.validate(request(editor("p"), shape=False))
-    with pytest.raises(DocumentError, match="or choose Simplify"):
+    with pytest.raises(DocumentError, match="fit the shape to"):
         nodes.validate(request(editor("p"), with_reference=False))
-    with pytest.raises(DocumentError, match="add detail"):
+    with pytest.raises(DocumentError, match="snap to"):
         nodes.validate(
-            request(editor("p"), with_reference=False, simplify=True, detail=True)
+            request(editor("p"), with_reference=False, shape=False, snap=True)
         )
     ed = editor("p")
     narrow = OperationRequest(
@@ -63,7 +63,7 @@ def test_validation_names_what_is_missing():
         ed.snapshot,
         ed,
         Permissions(geometry=True),
-        settings={"simplify": True},
+        settings={"shape": False, "simplify": True},
         reference=reference(),
     )
     with pytest.raises(DocumentError, match="Allow structure"):
@@ -92,22 +92,46 @@ def test_fitting_moves_only_the_selected_path_and_keeps_its_node_ids():
 
 def test_simplify_without_a_reference_removes_points_and_keeps_the_look():
     ed = editor("p")
-    before = len(nodes_of(ed.snapshot.document))
     job = Job(
         method("improve", "nodes"),
-        request(
-            ed,
-            steps=200,
-            with_reference=False,
-            shape=False,
-            simplify=True,
-            tolerance=5.0,
-        ),
+        request(ed, with_reference=False, shape=False, simplify=True, tolerance=0.5),
     )
     job.run()
     state = job.state()
     assert state["status"] == "ready", state
     metrics = state["result"]["metrics"]
-    assert metrics["after"]["nodes"] < before
+    # The square's in-between points go, and its four corners stay.
+    assert metrics["after"]["nodes"] == 4
+    assert metrics["after"]["difference"] < 1e-4
     job.apply()
     assert len(nodes_of(ed.snapshot.document)) == metrics["after"]["nodes"]
+
+
+def test_the_steps_mix_to_fit_a_rough_shape_with_fewer_points():
+    ed = editor("p")
+    job = Job(
+        method("improve", "nodes"),
+        request(ed, steps=8, snap=True, simplify=True, tolerance=0.5),
+    )
+    job.run()
+    result = job.state()["result"]
+    metrics = result["metrics"]
+    assert "simplify" in metrics["steps"]
+    assert {"shape", "snap"} & set(metrics["steps"])
+    assert metrics["after"]["nodes"] < metrics["before"]["nodes"]
+    assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
+
+
+def test_workers_run_the_steps_side_by_side_to_the_same_result():
+    alone, together = (
+        Job(
+            method("improve", "nodes"),
+            request(editor("p"), steps=3, snap=True, simplify=True, workers=n),
+        )
+        for n in (1, 3)
+    )
+    alone.run()
+    together.run()
+    first, second = alone.state()["result"], together.state()["result"]
+    assert first["metrics"]["steps"] == second["metrics"]["steps"]
+    assert first["metrics"]["after"] == second["metrics"]["after"]
