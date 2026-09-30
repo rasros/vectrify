@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
@@ -257,14 +257,24 @@ class Editor:
         self, object_id: str, node_id: str, *, pinned: bool = True
     ) -> Snapshot:
         """Pin an endpoint in geometry coordinates, including shared instances."""
-        geometry = self._document.geometry_for(object_id)
-        node = geometry.node(node_id)
-        document = self._document.replace_geometry(
-            geometry.replace_node(replace(node, pinned=pinned))
-        )
-        return self._apply(
-            document, "Pin node" if pinned else "Unpin node", self._revision
-        )
+        return self.pin_nodes(((object_id, node_id),), pinned=pinned)
+
+    def pin_nodes(
+        self, points: Iterable[tuple[str, str]], *, pinned: bool = True
+    ) -> Snapshot:
+        """Pin or unpin (object ID, node ID) endpoints as one undoable edit."""
+        points = tuple(points)
+        document = self._document
+        for object_id, node_id in points:
+            geometry = document.geometry_for(object_id)
+            node = geometry.node(node_id)
+            document = document.replace_geometry(
+                geometry.replace_node(replace(node, pinned=pinned))
+            )
+        label = "Pin node" if pinned else "Unpin node"
+        if len(points) > 1:
+            label += "s"
+        return self._apply(document, label, self._revision)
 
     def undo(self) -> Snapshot:
         if self._undo:
