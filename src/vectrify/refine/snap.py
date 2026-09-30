@@ -37,6 +37,8 @@ from vectrify.document.join import path_style
 from vectrify.document.model import new_id
 from vectrify.image_utils import resize_long_side
 from vectrify.operations.generate import Region
+from vectrify.refine.crossings import bezier as _bezier
+from vectrify.refine.crossings import contour_line, polyline_crossings
 from vectrify.refine.frozen import Frozen, Paths
 
 # How far a point looks for the edge either way, in reference pixels, and
@@ -127,19 +129,6 @@ class _Node:
 class _Contour:
     nodes: list[_Node]
     closed: bool
-
-
-def _bezier(control: np.ndarray, t: np.ndarray):
-    """Points and tangents along a line (two controls) or cubic (four)."""
-    t = t[:, None]
-    if len(control) == 2:
-        a, b = control
-        return a + (b - a) * t, np.repeat((b - a)[None], len(t), axis=0)
-    a, b, c, d = control
-    u = 1 - t
-    points = u**3 * a + 3 * u**2 * t * b + 3 * u * t**2 * c + t**3 * d
-    tangents = 3 * u**2 * (b - a) + 6 * u * t * (c - b) + 3 * t**2 * (d - c)
-    return points, tangents
 
 
 def _segments(contour: _Contour) -> list[tuple[int, np.ndarray]]:
@@ -815,34 +804,9 @@ def _targeted(contour, end, control, low, tip, high, depth, normal):
 
 def _crossings(contour: _Contour) -> int:
     """How many times the outline crosses itself, drawn as a polyline."""
-    t = np.linspace(0, 1, CROSSING_SAMPLES + 1)[1:]
-    line = [contour.nodes[0].end]
-    for _end, control in _segments(contour):
-        points, _ = _bezier(control, t)
-        line.extend(points)
-    if contour.closed:
-        line.append(contour.nodes[0].end)
-    p = np.asarray(line)
-    if len(p) < 4:
-        return 0
-    a, b = p[:-1], p[1:]
-    ax, ay, bx, by = a[:, 0], a[:, 1], b[:, 0], b[:, 1]
-
-    # Orientation tests for every pair of segments at once.
-    def side(px, py, qx, qy, rx, ry):
-        return (qx - px) * (ry - py) - (qy - py) * (rx - px)
-
-    d1 = side(ax[:, None], ay[:, None], bx[:, None], by[:, None], ax[None], ay[None])
-    d2 = side(ax[:, None], ay[:, None], bx[:, None], by[:, None], bx[None], by[None])
-    d3 = side(ax[None], ay[None], bx[None], by[None], ax[:, None], ay[:, None])
-    d4 = side(ax[None], ay[None], bx[None], by[None], bx[:, None], by[:, None])
-    hit = (d1 * d2 < 0) & (d3 * d4 < 0)
-    n = len(a)
-    index = np.arange(n)
-    near = np.abs(index[:, None] - index[None]) <= 1
-    if contour.closed:
-        near |= np.abs(index[:, None] - index[None]) >= n - 1
-    return int(np.triu(hit & ~near, 1).sum())
+    controls = [control for _end, control in _segments(contour)]
+    line, _segment = contour_line(controls, CROSSING_SAMPLES)
+    return polyline_crossings(line, contour.closed)
 
 
 def snap(

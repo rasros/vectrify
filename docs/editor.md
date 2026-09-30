@@ -187,7 +187,11 @@ Each round tries every ticked step on the paths as they stand and keeps the one
 that brings them closest to the reference; when none helps, Simplify gets its
 turn, and the run ends once nothing changes or the rounds run out. So a rough
 shape can be snapped, fitted, thinned and fitted again in whatever order works.
-With several parallel workers a round's steps run side by side, with one shape
+No step may leave an outline folded over itself: a result where a path crosses
+itself more than it did, a twist or a curve looped round, is not kept, and the
+shape fit pulls such folds back as it goes. Concave outlines are fine, and a
+path that already crossed itself may keep those crossings. With several
+parallel workers a round's steps run side by side, with one shape
 fit at a time. Without a reference only Simplify runs, keeping the paths'
 look. Pinned endpoints and linked boundary edges stay fixed, and surviving
 points keep their identity. Colour is left to Fit colours. The job runs in the
