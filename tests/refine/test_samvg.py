@@ -30,6 +30,7 @@ from vectrify.refine.samvg import (
     mask_path,
     merge_patches,
     recolour_visible_layers,
+    refine_edges,
     residual_prompt_points,
     thinner_than,
     with_line_art,
@@ -885,6 +886,24 @@ def test_a_flattened_layer_cut_in_two_becomes_two_regions():
 
     assert len(flat) == 3
     assert all(len(np.unique(_label(layer.mask)[0])) == 2 for layer in flat)
+
+
+def test_refining_grows_a_region_back_into_a_spike_its_mask_missed():
+    pixels = np.full((40, 40, 3), (160, 150, 60), dtype=np.uint8)
+    pixels[20:, :] = (220, 190, 90)
+    # A thin light spike up from the lower region that its mask smoothed away.
+    pixels[12:20, 18:21] = (220, 190, 90)
+    image = Image.fromarray(pixels)
+    upper = np.zeros((40, 40), dtype=bool)
+    upper[:20] = True
+    lower = ~upper
+    refined = refine_edges([_layer(upper), _layer(lower)], image, band=8)
+
+    assert refined[1].mask[12:20, 18:21].mean() > 0.9
+    assert not refined[0].mask[12:20, 18:21].any()
+    # Away from the spike the edge stays where it was.
+    assert refined[1].mask[20:, :].all()
+    assert not refined[1].mask[:20, :10].any()
 
 
 def test_the_backdrop_takes_the_colour_of_what_no_layer_claims():
