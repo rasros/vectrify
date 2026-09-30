@@ -173,6 +173,7 @@ class Handler(BaseHTTPRequestHandler):
             "/tree.js": "tree.js",
             "/redraw.js": "redraw.js",
             "/selection.js": "selection.js",
+            "/palette.js": "palette.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }
