@@ -54,6 +54,21 @@ from vectrify.document.topology import (
     split_edges,
 )
 
+# Initial values of inherited paint, written onto a moved object that would
+# otherwise inherit something else from its new group.
+INITIAL_PAINT = {
+    "fill": "black",
+    "stroke": "none",
+    "fill-rule": "nonzero",
+    "clip-rule": "nonzero",
+    "fill-opacity": "1",
+    "stroke-opacity": "1",
+    "stroke-width": "1",
+    "stroke-linecap": "butt",
+    "stroke-linejoin": "miter",
+    "stroke-miterlimit": "4",
+}
+
 
 def _on_chord(
     h: tuple[float, ...], a: tuple[float, float], b: tuple[float, float]
@@ -1864,6 +1879,172 @@ class Transaction:
             self._working = self._working.replace_element(
                 replace(parent, children=tuple(children))
             )
+
+    def move_objects(
+        self, object_ids: frozenset[str], parent_id: str, index: int
+    ) -> None:
+        """Move objects, in paint order, to *index* among the container's others.
+
+        Zero is the back. An object moved to another group keeps its look:
+        the transform and paint it inherited from the groups it leaves are
+        written onto it. Group opacity and clipping cannot be carried that
+        way, so those moves are refused, as are transform changes to paths
+        with shared edges, whose links are kept in their old frame.
+        """
+        with self._change():
+            self._whole_objects()
+            document = self._working
+            if not object_ids:
+                raise EditRejectedError("Choose objects to move")
+            if document.root.id in object_ids:
+                raise EditRejectedError("Cannot move the document root")
+            elements = {e.id: e for e in document.elements()}
+            parents = {c.id: e for e in elements.values() for c in e.children}
+
+            def chain(element_id: str) -> tuple[Element, ...]:
+                if element_id not in elements:
+                    raise EditRejectedError(f"Unknown object: {element_id}")
+                ancestors = [elements[element_id]]
+                while ancestors[-1].id in parents:
+                    ancestors.append(parents[ancestors[-1].id])
+                return tuple(reversed(ancestors))
+
+            for object_id in object_ids:
+                chain(object_id)
+            target = chain(parent_id)
+            if target[-1].tag not in {"svg", "g"} or any(
+                a.tag in {"defs", "clipPath"} for a in target
+            ):
+                raise EditRejectedError("Move objects into a group or the drawing")
+            if any(a.id in object_ids for a in target):
+                raise EditRejectedError("Cannot move a group into itself")
+            # A moved group takes its selected descendants along.
+            moved = [
+                e
+                for e in document.elements()
+                if e.id in object_ids
+                and not any(a.id in object_ids for a in chain(e.id)[:-1])
+            ]
+            if any(a.tag in {"defs", "clipPath"} for e in moved for a in chain(e.id)):
+                raise EditRejectedError(
+                    "Definitions and clipping boundaries cannot be restacked"
+                )
+            moved_ids = {e.id for e in moved}
+            self._authorize(document.dependents(moved_ids), EditKind.STRUCTURE)
+            updated = [self._carry_context(e, chain(e.id)[:-1], target) for e in moved]
+
+            def prune(element: Element) -> Element:
+                return replace(
+                    element,
+                    children=tuple(
+                        prune(c) for c in element.children if c.id not in moved_ids
+                    ),
+                )
+
+            self._working = replace(document, root=prune(document.root))
+            parent = self._working.element(parent_id)
+            if not 0 <= index <= len(parent.children):
+                raise EditRejectedError("Stacking index is outside the container")
+            self._working = self._working.replace_element(
+                replace(
+                    parent,
+                    children=(
+                        *parent.children[:index],
+                        *updated,
+                        *parent.children[index:],
+                    ),
+                )
+            )
+            # Groups that now contain the objects, and their instances, change too.
+            self._authorize(self._working.dependents(moved_ids), EditKind.STRUCTURE)
+
+    def _carry_context(
+        self,
+        element: Element,
+        old: tuple[Element, ...],
+        new: tuple[Element, ...],
+    ) -> Element:
+        """*element* with what it inherited under *old* kept when under *new*."""
+        common = 0
+        while common < min(len(old), len(new)) and old[common].id == new[common].id:
+            common += 1
+        if common == len(old) == len(new):
+            return element
+        for group in (*old[common:], *new[common:]):
+            if (
+                float(group.get("opacity", "1") or "1") != 1
+                or group.get("clip-path", "none") != "none"
+            ):
+                raise EditRejectedError(
+                    "Group opacity or clipping would change how the moved "
+                    "objects look; resolve it first"
+                )
+        attrs = dict(element.attributes)
+
+        def inherited(ancestors: tuple[Element, ...]) -> dict[str, str]:
+            style = dict(INITIAL_PAINT)
+            for ancestor in ancestors:
+                style.update(
+                    (k, v) for k, v in ancestor.attributes if k in PAINT - {"opacity"}
+                )
+            return style
+
+        before, after = inherited(old), inherited(new)
+        changes = {
+            key: value
+            for key, value in before.items()
+            if key not in attrs and after[key] != value
+        }
+        frames = []
+        for ancestors in (old, new):
+            matrix = IDENTITY
+            for ancestor in ancestors:
+                matrix = multiply(matrix, transform(ancestor.get("transform")))
+            frames.append(matrix)
+        # The local transform that keeps the object where it was on the page.
+        delta = tuple(
+            0.0 if abs(v) < 1e-12 else v
+            for v in multiply(inverse_matrix(frames[1]), frames[0])
+        )
+        subtree = Document(element).elements()
+        if not all(
+            math.isclose(a, b, abs_tol=1e-12)
+            for a, b in zip(delta, IDENTITY, strict=True)
+        ):
+            geometries = {e.geometry_id for e in subtree if e.geometry_id}
+            if any(
+                m.geometry_id in geometries
+                for b in self._working.boundaries
+                for m in b.members
+            ):
+                raise EditRejectedError(
+                    "Unlink its shared edges first: moving it to this group "
+                    "changes its transform"
+                )
+            a, b, c, d, e, f = delta
+            local = (
+                f"translate({e:.15g} {f:.15g})"
+                if (a, b, c, d) == (1, 0, 0, 1)
+                else f"matrix({' '.join(f'{v:.15g}' for v in delta)})"
+            )
+            changes["transform"] = f"{local} {attrs.get('transform', '')}".strip()
+        if not changes:
+            return element
+        ids = {e.id for e in subtree}
+        if any(set(references(e)) & ids for e in self._working.elements()):
+            raise EditRejectedError(
+                "Detach instances of the moved objects before moving them "
+                "to another group"
+            )
+        affected = self._working.dependents({element.id})
+        for key in changes:
+            if key == "transform":
+                self._authorize(affected, EditKind.TRANSFORM, key)
+            else:
+                self._authorize(affected, EditKind.PAINT, key)
+        attrs.update(changes)
+        validate_attributes(element.tag, attrs)
+        return replace(element, attributes=tuple(attrs.items()))
 
     def group_objects(self, object_ids: frozenset[str]) -> str:
         """Wrap consecutive siblings without changing paint order or inheritance."""

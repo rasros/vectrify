@@ -425,6 +425,27 @@ class Session:
                 tx.insert_object(document.root.id, element, geometries=(geometry,))
             self.editor.select(Selection(object_ids=frozenset({element.id})))
             return
+        if command == "move_objects":
+            # Dragging rows in the tree names its objects, selected or not.
+            objects = payload.get("objects")
+            if not isinstance(objects, list) or not objects:
+                raise DocumentError("Choose objects to move")
+            moving = frozenset(str(oid) for oid in objects)
+            parent = str(payload["parent"])
+            if document.root.id in moving:
+                raise DocumentError("Cannot move the document root")
+            regrouped = any(
+                ancestry[-2].id != parent
+                for ancestry in map(document.ancestry, moving)
+                if not any(a.id in moving for a in ancestry[:-1])
+            )
+            with self.editor.transaction(
+                "Move into group" if regrouped else "Change stacking",
+                selection=Selection(object_ids=moving),
+            ) as tx:
+                tx.move_objects(moving, parent, int(payload["index"]))
+            self.editor.select(Selection(object_ids=moving))
+            return
         if not selected:
             raise DocumentError("Select an object first")
         if command == "fill_holes":
@@ -496,6 +517,8 @@ class Session:
                 )
         group_id = None
         pieces: tuple[str, ...] = ()
+        if command == "reorder" and payload.get("to") in {"front", "back"}:
+            command = f"to_{payload['to']}"
         with self.editor.transaction(
             {
                 "unlink_boundaries": "Unlink boundaries",
@@ -506,6 +529,8 @@ class Session:
                 "ungroup": "Ungroup objects",
                 "delete": "Delete selection",
                 "reorder": "Change stacking",
+                "to_front": "Bring to front",
+                "to_back": "Send to back",
                 "split": "Split edge",
                 "node_handles": "Change handles",
                 "delete_node": "Delete node",
@@ -565,6 +590,23 @@ class Session:
                     tx.ungroup_object(oid)
             elif command == "delete":
                 tx.delete_objects(selected)
+            elif command in {"to_front", "to_back"}:
+                # Each container's selected children go to its front or back
+                # together, in their current order.
+                groups: dict[str, set[str]] = {}
+                for oid in selected:
+                    ancestry = document.ancestry(oid)
+                    if len(ancestry) < 2:
+                        raise DocumentError("Cannot restack the document root")
+                    if not any(a.id in selected for a in ancestry[:-1]):
+                        groups.setdefault(ancestry[-2].id, set()).add(oid)
+                for parent, children in groups.items():
+                    others = len(document.element(parent).children) - len(children)
+                    tx.move_objects(
+                        frozenset(children),
+                        parent,
+                        others if command == "to_front" else 0,
+                    )
             elif command == "reorder":
                 if len(selected) != 1:
                     raise DocumentError(

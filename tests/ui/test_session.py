@@ -631,3 +631,41 @@ def test_unlinking_a_grid_of_shared_edges_is_one_undoable_edit():
     assert not session.editor.snapshot.document.boundaries
     send(session, "undo")
     assert len(session.editor.snapshot.document.boundaries) == 40
+
+
+def test_tree_drag_moves_objects_into_a_group_as_one_undoable_edit():
+    session = Session(
+        import_svg(SVG.replace("<g id", '<g transform="translate(5 5)" id'))
+    )
+    before = session.editor.snapshot.document
+    root = before.root.id
+    state = send(session, "move_objects", objects=["b"], parent=root, index=1)
+    assert state["undo"] == ["Move into group"]
+    assert state["selection"]["objects"] == ["b"]
+    document = session.editor.snapshot.document
+    assert [c.id for c in document.root.children] == ["layer", "b"]
+    assert document.element("b").get("transform") == "translate(5 5)"
+    state = send(session, "move_objects", objects=["b"], parent=root, index=0)
+    assert state["undo"][-1] == "Change stacking"
+    with pytest.raises(DocumentError, match="into itself"):
+        send(session, "move_objects", objects=["layer"], parent="layer", index=0)
+    send(session, "undo")
+    send(session, "undo")
+    assert session.editor.snapshot.document == before
+
+
+def test_bring_to_front_and_send_to_back_move_the_selection_together():
+    session = Session(
+        import_svg(
+            SVG.replace("</g>", '<rect id="c" y="30" width="5" height="5"/></g>')
+        )
+    )
+    send(session, "select", objects=["a", "b"])
+    state = send(session, "reorder", to="front")
+    assert state["undo"] == ["Bring to front"]
+    layer = session.editor.snapshot.document.element("layer")
+    assert [c.id for c in layer.children] == ["c", "a", "b"]
+    send(session, "select", objects=["b"])
+    assert send(session, "reorder", to="back")["undo"][-1] == "Send to back"
+    layer = session.editor.snapshot.document.element("layer")
+    assert [c.id for c in layer.children] == ["b", "c", "a"]

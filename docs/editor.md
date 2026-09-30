@@ -73,6 +73,21 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   or **Cancel** discards the draft. Creation is one undoable edit and selects the
   new path for paint and node editing. Middle mouse panning works while drawing.
 - Group/ungroup, stacking order, delete and detach shared geometry.
+  **Backward**/**Forward** (Ctrl/⌘ `[` / `]`) move one object a step;
+  **To back**/**To front** (add Shift) move the selection to the back or front
+  of its group, keeping the selected objects' order.
+- Drag rows in the object tree to restack them. The tree lists objects back to
+  front: a row paints over the rows above it. Dragging a selected row carries
+  the whole selection, which keeps its order. A line shows where the objects
+  land; where a group ends, move the pointer left or right to drop inside it
+  or after it. Dropping onto the middle of a group row moves the objects into
+  that group, at its front. Escape cancels. Objects moved to another group keep
+  their look: the transform and paint they inherited are written onto them.
+  Moves that cannot keep it are refused with a reason: leaving or entering a
+  group with opacity or clipping, a changed transform on a path with shared
+  edges, and objects with instances that would change too. Locked objects and
+  groups, definitions, clipping contours and a group into itself are refused
+  as well. Each drop is one undoable edit.
 - **Join paths…** combines selected paths and groups, recursively including
   paths in nested groups and counting overlapping selections only once, even if other objects
   sit between them. The result always occupies the frontmost selected position;

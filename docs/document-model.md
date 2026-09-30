@@ -166,6 +166,12 @@ geometry edits. They participate in the same preview/apply/abort transaction.
 - `reorder_object(object_id, index)` moves one selected object to a final sibling
   index; zero is the back. Other siblings retain their relative ordering. This
   can change occlusion.
+- `move_objects(object_ids, parent_id, index)` moves objects, in their paint
+  order, to an index among the container's other children (zero is the back).
+  Across groups it writes the inherited transform and paint onto each object
+  so it looks the same; group opacity or clipping on the way, instances of the
+  objects, shared edges under a changed transform, locks, definitions and
+  moves into the objects themselves return an explicit error.
 - `group_objects(object_ids)` wraps consecutive selected siblings in a neutral
   group, preserving IDs, paint order and appearance. Nonconsecutive objects
   require an explicit reorder first.

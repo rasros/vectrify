@@ -108,3 +108,11 @@
 .step-card legend .toggle { margin:0; font-size:12px; color:#d5e6db; }
 .step-card .muted { margin:4px 0 0; }
 .step-card.off > :not(legend) { opacity:.45; }
+
+.object-list { position: relative; }
+.object-list.dragging, .object-list.dragging .object-row { cursor: grabbing; }
+.object-list.drop-refused, .object-list.drop-refused .object-row { cursor: not-allowed; }
+.object-row.dragged { opacity: .5; }
+.object-row.drop-into { background: #2f4a39; border-color: var(--accent); }
+.tree-drop-line { position: absolute; right: 8px; height: 2px; background: var(--accent); border-radius: 1px; pointer-events: none; box-shadow: 0 0 0 1px #141918; }
+.stack-row { margin-top: 7px; }
