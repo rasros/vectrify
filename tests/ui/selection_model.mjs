@@ -1,6 +1,6 @@
 // Checks the two-level selection's transitions; run by test_selection_model.py.
 import assert from 'node:assert/strict';
-import {boxSelect, clickPoint, dragBox, escapeStep, pickTarget, pointInside, pointKey, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
+import {boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
 
 // The drawing holds group trees (group pines (a, b), c) and d.
 const parents = new Map([['trees', 'root'], ['pines', 'trees'], ['a', 'pines'], ['b', 'pines'], ['c', 'trees'], ['d', 'root']]);
@@ -60,3 +60,33 @@ assert.equal(selectionStatus('points', ['a', 'b', 'c'], ['a 1', 'a 2', 'b 1', 'c
 assert.equal(selectionStatus('points', ['a'], ['a 1']), 'Points · 1 point in 1 path');
 assert.equal(selectionStatus('points', ['a', 'b'], []), 'Points · none selected in 2 paths');
 assert.equal(selectionStatus('points', [], []), 'Points · select a path');
+
+// Point tools show the points of selected paths and of every path inside a
+// selected group, however deep; instances are counted apart.
+const drawing = [
+  {id: 'trees', tag: 'g', parent: 'root'}, {id: 'pines', tag: 'g', parent: 'trees'},
+  {id: 'a', tag: 'path', parent: 'pines'}, {id: 'b', tag: 'path', parent: 'pines'},
+  {id: 'c', tag: 'use', parent: 'trees'}, {id: 'd', tag: 'path', parent: 'root'},
+  {id: 'defs', tag: 'defs', parent: 'root', resource: true}, {id: 'e', tag: 'path', parent: 'defs', resource: true},
+];
+assert.deepEqual(pointTargets(['trees'], drawing), {paths: ['a', 'b'], instances: ['c']});
+assert.deepEqual(pointTargets(['d', 'pines'], drawing), {paths: ['a', 'b', 'd'], instances: []});
+assert.deepEqual(pointTargets(['a', 'pines'], drawing), {paths: ['a', 'b'], instances: []});
+assert.deepEqual(pointTargets(['defs', 'e'], drawing), {paths: [], instances: []});
+assert.deepEqual(pointTargets([], drawing), {paths: [], instances: []});
+
+// Paths a and b draw geometry G; c its own. A node picked in b is selected in
+// b alone, and a twin in a.
+const geometryOf = id => ({a: 'G', b: 'G', c: 'H'}[id]);
+const shown = [{id: 'a', geometry: 'G', nodes: ['n1', 'n2']}, {id: 'b', geometry: 'G', nodes: ['n1', 'n2']}, {id: 'c', geometry: 'H', nodes: ['m1']}];
+const picked = pointOwners(['b n1', 'c m1'], geometryOf);
+assert.deepEqual(instancePoints(shown, new Set(['n1', 'm1']), picked), {strong: ['b n1', 'c m1'], twins: ['a n1']});
+// A node the server selected that was not picked (a split's new point) goes
+// with the path last picked in for its geometry.
+assert.deepEqual(instancePoints(shown, new Set(['n1', 'n2']), picked), {strong: ['b n1', 'b n2'], twins: ['a n1', 'a n2']});
+// With nothing picked, the first path showing the geometry has it.
+assert.deepEqual(instancePoints(shown, new Set(['n2']), pointOwners([], geometryOf)), {strong: ['a n2'], twins: ['b n2']});
+// Picked in both, it is selected in both.
+assert.deepEqual(instancePoints(shown, new Set(['n1']), pointOwners(['a n1', 'b n1'], geometryOf)), {strong: ['a n1', 'b n1'], twins: []});
+// When the path it was picked in is no longer shown, another one has it.
+assert.deepEqual(instancePoints(shown.slice(0, 1), new Set(['n1']), picked), {strong: ['a n1'], twins: []});
