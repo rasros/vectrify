@@ -12,6 +12,7 @@ run only the steps after SAM are timed and tuning them takes seconds;
     uv run python scripts/bench_trace.py --set max_side=1024 --out runs/b.jsonl
     uv run python scripts/bench_trace.py --compare runs/base.jsonl runs/b.jsonl
     uv run python scripts/bench_trace.py --method cel --paths 0 --out runs/cel.jsonl
+    uv run python scripts/bench_trace.py --nodes shape=true --nodes seconds=60
 
 The error is the mean squared difference to the reference in 0-255 RGB. SAM
 and the steps after it are deterministic, so one run per case compares
@@ -54,9 +55,9 @@ PRESETS: dict[str, dict[str, dict]] = {
         "clean-outlines": {"preserve_outlines": True, "outline_style": "clean"},
     },
 }
-# Optimize nodes: which steps, and how many rounds per path.
-OPTIMIZE = {"shape": True, "snap": True, "detail": False, "simplify": True}
-ROUNDS = 4
+# Optimize nodes runs with its own defaults, a quick tidy, on one worker;
+# `--nodes` overrides them.
+OPTIMIZE = {"workers": 1}
 CACHE = Path.home() / ".cache" / "vectrify-bench"
 
 
@@ -77,6 +78,13 @@ def main() -> None:
     parser.add_argument(
         "--paths", type=int, default=3, help="Largest paths to Optimize (0: none)"
     )
+    parser.add_argument(
+        "--nodes",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Override an Optimize nodes setting; rounds=N sets the rounds",
+    )
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--out", type=Path, help="Write one JSON line per case")
@@ -96,6 +104,7 @@ def main() -> None:
             f"choose from {', '.join(sorted(presets))}"
         )
     overrides = dict(_setting(item) for item in args.set)
+    nodes = OPTIMIZE | dict(_setting(item) for item in args.nodes)
     references = args.references or [ROOT / name for name in REFERENCES]
     rows = []
     for path in references:
@@ -114,6 +123,7 @@ def main() -> None:
                         args.method,
                         settings,
                         args.paths,
+                        nodes=nodes,
                         cache=not args.no_cache,
                         render=(
                             args.renders / f"{path.stem}-{args.method}-{preset}.png"
@@ -137,11 +147,13 @@ def trace(
     settings: dict,
     paths: int,
     *,
+    nodes: dict | None = None,
     cache: bool,
     render: Path | None = None,
 ) -> dict:
     """Generate from *image* with method *name* and *settings*, then Optimize
-    its largest paths. With *render*, the traced drawing is saved there."""
+    its largest paths with the settings *nodes*. With *render*, the traced
+    drawing is saved there."""
     from vectrify.document import Editor, Selection, export_svg, import_svg
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
@@ -207,12 +219,13 @@ def trace(
             "after_sam_s": round(total - timing["spent"], 1),
         }
     if paths:
-        row["optimize"] = optimize(editor, image, paths)
+        row["optimize"] = optimize(editor, image, paths, nodes or OPTIMIZE)
     return row
 
 
-def optimize(editor, image: Image.Image, count: int) -> dict:
-    """Optimize nodes on each of the *count* largest paths, one at a time."""
+def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
+    """Optimize nodes on each of the *count* largest paths, one at a time,
+    with *settings*, where `rounds` is the budget's steps."""
     from vectrify.document import Selection
     from vectrify.document.hit_test import HitIndex
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
@@ -226,6 +239,8 @@ def optimize(editor, image: Image.Image, count: int) -> dict:
     before = after = seconds = 0.0
     points_before = points_after = 0
     each: list[float] = []
+    # Paths whose run the time limit ended.
+    late = 0
     for oid in largest:
         editor.select(Selection(object_ids=frozenset({oid})))
         request = OperationRequest(
@@ -234,8 +249,8 @@ def optimize(editor, image: Image.Image, count: int) -> dict:
             editor.snapshot,
             editor,
             Permissions(geometry=True, structure=True),
-            settings={"workers": 1, **OPTIMIZE},
-            budget=Budget(steps=ROUNDS),
+            settings={k: v for k, v in settings.items() if k != "rounds"},
+            budget=Budget(steps=settings.get("rounds")),
             reference=image,
         )
         started = time.perf_counter()
@@ -252,13 +267,16 @@ def optimize(editor, image: Image.Image, count: int) -> dict:
         after += metrics["after"]["difference"]
         points_before += metrics["before"]["nodes"]
         points_after += metrics["after"]["nodes"]
+        late += bool(metrics.get("out_of_time"))
     return {
+        "settings": settings,
         "paths": len(largest),
         # Each path's own region, summed: the share left says how much it fixed.
         "error_left": round(after / before, 3) if before else None,
         "points": [points_before, points_after],
         "seconds": round(seconds, 1),
         "each_s": each,
+        "out_of_time": late,
     }
 
 

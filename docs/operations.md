@@ -104,27 +104,40 @@ into the `MutationScope` the LLM prompt names as editable.
 ## Optimize nodes
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
-no other object shares. Its settings are the steps to use (`shape`, `snap`,
-`simplify`, and `detail` for Snap to add points, each of which has to fix
-`detail_gain` reference pixels), Simplify's `tolerance` in reference pixels,
-each path fit's `steps`, `movement` (SVG units) and `resolution`, `workers`,
-the `gain` in percent a step must improve by, and the `margin` in percent of
-the selection's size that the reference region extends past it; the budget's
-`steps` is the most rounds.
+no other object shares. Its settings are the steps to use (`snap` and
+`simplify`, on by default, `shape`, off, and `detail` for Snap to add points,
+each of which has to fix `detail_gain` reference pixels), Simplify's
+`tolerance` in reference pixels, each path fit's `steps`, `movement` (SVG
+units) and `resolution`, `workers` (1 by default), the `gain` in percent of the local
+difference a step must fix (1 by default), `seconds`, the run's time limit
+(10 by default), and the `margin` in percent of the selection's size that the
+reference region extends past it; the budget's `steps` is the most rounds (4
+by default).
 `shape` and `snap` need a reference; without one the target is the drawing's
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
 
-Every round runs each chosen step on the paths as they stand and measures the
-region's mean squared difference to the target (`generate.error`). The step
-that lowers it most, by at least `gain` percent, is kept; if none does, Simplify is kept
-when it removed points, and otherwise the run ends. A step's result is not
-eligible when any path crosses itself more than before the step
-(`refine.crossings.crossings`: each contour drawn as a polyline, cubics at 8
-points, every pair of non-neighbouring lines that properly cross counting once,
-so a bow-tie counts 1, a looped cubic 1 and a concave outline 0); such steps
-are counted under `folded` in the metrics. With more than one worker,
-Snap and Simplify run in spawned processes while the path fit runs in the job's
-thread, so only one fit runs at a time.
+Every round runs each chosen step on the paths as they stand and renders the
+region. A step is judged where it acted: over the pixels whose colour it
+changed, widened by `BAND` (2) pixels, the share of the squared difference to
+the target there that it removed has to be at least `gain`, so the bar does
+not grow with the selection. Of the steps that pass, the one that lowers the
+region's mean squared difference (`generate.error`) most is kept; if none
+does, Simplify is kept when it removed points, and otherwise the run ends. A
+step's result is not eligible when any path crosses itself more than before
+the step (`refine.crossings.crossings`: each contour drawn as a polyline,
+cubics at 8 points, every pair of non-neighbouring lines that properly cross
+counting once, so a bow-tie counts 1, a looped cubic 1 and a concave outline
+0); such steps are counted under `folded` in the metrics. With more than one
+worker, Snap and Simplify run in spawned processes while the path fit runs in
+the job's thread, so only one fit runs at a time.
+
+The time limit is checked before each round, and each step of a round may
+take the time left divided by one more than the number of steps, from when it
+starts, the last share left for rendering and judging the results: the
+path fit treats that as a stop, Snap stops its passes and Add detail's tries
+there, each handing back how far it got. When the time is up the run ends
+with the best result so far, as on Stop, and the metrics say `out_of_time`
+along with the `seconds` it took.
 
 The steps are separate functions over `refine.frozen.Paths` (each selected
 path's `Geometry`), which leave `refine.frozen.Frozen` endpoints alone: the
@@ -144,6 +157,10 @@ pinned ones.
   the largest blobs of wrongly covered or missed pixels get new points on the
   segment beside them (one, two, or a three-point spike, kept when each point
   fixes enough pixels), creeping along a blob by aiming part of the way in.
+  It scores at most `SPLIT_TRIES` tries per path in one call, each by filling
+  the outline in numpy at pixel centres over a window around the blob rather
+  than rendering it with Cairo, and finds each blob pixel's nearest point of
+  the outline with a k-d tree.
 - Simplify is `refine.simplify.simplify`: the point whose removal moves the
   outline least goes first, the joined cubic keeping the tangents either side
   with least-squares handle lengths, until any removal would move it more than

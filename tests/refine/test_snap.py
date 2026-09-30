@@ -6,6 +6,7 @@ from PIL import Image, ImageDraw
 from vectrify.document import DocumentError, Editor, Selection, import_svg
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 from vectrify.operations.generate import error, render_region, target_region
+from vectrify.refine import snap as snap_module
 from vectrify.refine.frozen import Paths, frozen
 from vectrify.refine.snap import snap
 
@@ -227,3 +228,43 @@ def test_a_wider_search_reaches_a_spike_beyond_the_default_margin():
     # The spike ends at x = 92; the default crop stops about 5 units past 70.
     assert furthest() < 78
     assert furthest(margin=60) > 82
+
+
+def test_detail_scores_no_more_tries_than_it_may(monkeypatch):
+    square = SVG.replace(CIRCLE, "M25 25 L70 25 L70 70 L25 70 Z")
+    ed = editor(square, "p")
+    region = target_region(request(ed, reference("step")))
+    document = ed.snapshot.document
+    start = Paths({"p": document.geometry_for("p")})
+    fills = []
+    fill = snap_module._fill
+
+    def counted(*args):
+        fills.append(args)
+        return fill(*args)
+
+    monkeypatch.setattr(snap_module, "_fill", counted)
+
+    def points(**options):
+        fills.clear()
+        result = snap(document, start, region, frozen(start), detail=True, **options)
+        return len(ids(result.geometries["p"]))
+
+    assert points() > len(ids(start.geometries["p"]))
+    assert len(fills) > 2
+    # No tries: detail adds nothing and scores nothing.
+    assert points(tries=0) == len(ids(start.geometries["p"]))
+    assert not fills
+    # One try: the blob's own score and that try's, at most one split.
+    assert points(tries=1) <= len(ids(start.geometries["p"])) + 3
+    assert len(fills) <= 2
+
+
+def test_a_snap_out_of_time_leaves_the_path_as_it_is():
+    square = SVG.replace(CIRCLE, "M25 25 L70 25 L70 70 L25 70 Z")
+    ed = editor(square, "p")
+    region = target_region(request(ed, reference("step")))
+    document = ed.snapshot.document
+    start = Paths({"p": document.geometry_for("p")})
+    late = snap(document, start, region, frozen(start), detail=True, deadline=0.0)
+    assert late.geometries["p"] == start.geometries["p"]

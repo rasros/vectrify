@@ -1,22 +1,29 @@
-"""Improve: Optimize nodes, which fits the selected paths to the reference.
+"""Improve: Optimize nodes, a quick tidy of the selected paths' points.
 
 It mixes three steps and picks, round by round, whichever helps:
 
-- Shape fits the points and handles by gradient descent (the path fit),
-  on the GPU when there is one and on the CPU otherwise.
 - Snap puts the points on the reference's nearest edges; with Add detail it
   also adds points where a piece of the shape is missing or too much.
 - Simplify removes the points the outline does not need, within a tolerance
   in the reference's pixels.
+- Shape fits the points and handles by gradient descent (the path fit),
+  on the GPU when there is one and on the CPU otherwise. It is off unless
+  asked for: Retrace shape and Redraw outline reshape a path far faster.
 
 Every round tries each chosen step on the paths as they stand and keeps the
-one that lowers the difference to the reference most. When none does,
-Simplify gets its turn, and once nothing changes the run ends. So a rough
-shape can be snapped, fitted, thinned and fitted again, in whatever order
-works. A step that leaves an outline crossing itself more than before, a
-twist or a curve looped over itself, is never kept, however close it gets;
-concave outlines are fine. With several workers a round's steps run side
-by side, but only one path fit runs at a time.
+one that lowers the difference to the reference most, if it fixes enough of
+the difference where it acted: over the pixels it changed and a thin band
+around them, so a small fix on a large selection counts as much as on a
+small one. When none does, Simplify gets its turn, and once nothing changes
+the run ends. A step that leaves an outline crossing itself more than
+before, a twist or a curve looped over itself, is never kept, however close
+it gets; concave outlines are fine. With several workers a round's steps run
+side by side, but only one path fit runs at a time.
+
+Every run has a time limit. Each round checks it and gives each step a share
+of what is left, keeping one back to judge them; a slow step stops at its
+share, handing back how far it got. A run out of time keeps the best it
+found, as Stop does.
 
 Without a reference only Simplify runs, judged against the drawing itself.
 Colour is left to Fit colours.
@@ -26,11 +33,15 @@ from __future__ import annotations
 
 import multiprocessing as mp
 import os
+import threading
+import time
 from concurrent.futures import Future, ProcessPoolExecutor
 from dataclasses import dataclass, replace
 from typing import ClassVar
 
+import numpy as np
 from PIL import Image
+from scipy import ndimage
 
 from vectrify.document import Document, DocumentError, Geometry, Selection
 from vectrify.image_utils import preview_urls
@@ -44,7 +55,6 @@ from vectrify.operations.contract import (
 from vectrify.operations.generate import (
     Region,
     drawing_region,
-    error,
     render_region,
     target_region,
 )
@@ -52,14 +62,17 @@ from vectrify.operations.settings import Setting, read_settings
 
 LABEL = "Optimize nodes"
 STEPS = ("shape", "snap", "simplify")
-DEFAULT_ROUNDS = 8
+DEFAULT_ROUNDS = 4
+# How far, in reference pixels, the pixels a step changed are widened to
+# judge it by the difference where it acted.
+BAND = 2
 # How far, in reference pixels, a fitted curve's handles may sit from its
 # line and still be drawn as the line.
 STRAIGHT = 0.25
 
 SETTINGS = {
-    "shape": Setting(bool, True),
-    "snap": Setting(bool, False),
+    "shape": Setting(bool, False),
+    "snap": Setting(bool, True),
     # Snap may add points where the path misses the shape, each of which has
     # to fix this many reference pixels.
     "detail": Setting(bool, False),
@@ -69,7 +82,7 @@ SETTINGS = {
     "detail_gain": Setting(
         float, 12.0, minimum=1.0, maximum=500.0, label="detail gain"
     ),
-    "simplify": Setting(bool, False),
+    "simplify": Setting(bool, True),
     # How far Simplify may move an outline, in the reference's pixels.
     "tolerance": Setting(float, 1.0, minimum=0.0, maximum=20.0, label="tolerance"),
     # Each path fit: gradient steps, how far a point may move in SVG units,
@@ -77,9 +90,12 @@ SETTINGS = {
     "steps": Setting(int, 40, minimum=1, maximum=1000, label="steps"),
     "movement": Setting(float, 2.0, minimum=0.0, maximum=100.0, label="movement"),
     "resolution": Setting(int, 768, minimum=64, maximum=2048, label="resolution"),
-    "workers": Setting(int, 2, minimum=1, maximum=max(1, os.cpu_count() or 1)),
-    # How much a step has to lower the difference to be kept, in percent.
-    "gain": Setting(float, 0.1, minimum=0.0, maximum=50.0, label="minimum improvement"),
+    "workers": Setting(int, 1, minimum=1, maximum=max(1, os.cpu_count() or 1)),
+    # How much of the difference where a step acted it has to fix to be
+    # kept, in percent.
+    "gain": Setting(float, 1.0, minimum=0.0, maximum=50.0, label="minimum improvement"),
+    # The most the whole run may take, in seconds.
+    "seconds": Setting(float, 10.0, minimum=0.5, maximum=3600.0, label="time limit"),
 }
 
 
@@ -125,6 +141,26 @@ class _Task:
     settings: dict
     oids: tuple[str, ...]
     reference: Image.Image | None
+    # When the run's time is up (time.monotonic()), and how long of it each
+    # step may take from when it starts.
+    deadline: float = float("inf")
+    share: float = float("inf")
+
+
+class _Until(threading.Event):
+    """Set once *stop* is, or once *deadline* passes: a step's own stop."""
+
+    def __init__(self, deadline: float, stop: threading.Event | None = None):
+        super().__init__()
+        self.deadline = deadline
+        self.stop = stop
+
+    def is_set(self) -> bool:
+        return (
+            super().is_set()
+            or (self.stop is not None and self.stop.is_set())
+            or time.monotonic() >= self.deadline
+        )
 
 
 def _with(document: Document, geometries: dict[str, Geometry]) -> Document:
@@ -139,16 +175,56 @@ def _paths(document: Document, oids):
     return Paths({oid: document.geometry_for(oid) for oid in oids})
 
 
-def _difference(document: Document, region: Region) -> float:
-    return error(render_region(document, region), region.image)
+def _pixels(document: Document, region: Region) -> np.ndarray:
+    return np.asarray(render_region(document, region))
+
+
+@dataclass(frozen=True)
+class _Scored:
+    """A render of the region and how far each of its pixels is off."""
+
+    pixels: np.ndarray
+    # Squared difference per pixel, summed over RGB in 0-1.
+    off: np.ndarray
+
+    @classmethod
+    def of(cls, pixels: np.ndarray, region: Region) -> _Scored:
+        target = np.asarray(region.image.convert("RGB"), dtype=np.float64) / 255
+        off = ((pixels.astype(np.float64) / 255 - target) ** 2).sum(axis=-1)
+        return cls(pixels, off)
+
+    @property
+    def difference(self) -> float:
+        """The mean squared difference over the region, as generate.error."""
+        return float(self.off.sum() / (3 * self.off.size))
+
+    def fixed(self, before: _Scored) -> float:
+        """The share of *before*'s difference fixed where the two differ.
+
+        Only the pixels whose colour changed, and a band of BAND pixels
+        around them, count: what a step did is judged by where it acted,
+        not diluted by the rest of a large selection.
+        """
+        changed = np.any(self.pixels != before.pixels, axis=-1)
+        if not changed.any():
+            return 0.0
+        near = ndimage.binary_dilation(changed, iterations=BAND)
+        base, now = float(before.off[near].sum()), float(self.off[near].sum())
+        if base <= 0:
+            # Nothing was off there: a change can only make it worse.
+            return 0.0 if now <= 0 else float("-inf")
+        return (base - now) / base
 
 
 def _run_step(step: str, task: _Task, stop=None, progress=None):
-    """(document after *step*, its difference, why paths were skipped)."""
+    """(document after *step*, its render of the region, why paths were
+    skipped). The step stops at its share of the time, keeping how far it
+    got."""
     document, region, settings = task.document, task.region, task.settings
+    deadline = min(task.deadline, time.monotonic() + task.share)
     skipped: dict[str, str] = {}
     if step == "shape":
-        document, skipped = _fit(task, stop, progress)
+        document, skipped = _fit(task, _Until(deadline, stop), progress)
     else:
         from vectrify.refine.frozen import frozen
 
@@ -164,13 +240,16 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
                 fixed,
                 detail=settings["detail"],
                 split_gain=settings["detail_gain"],
+                deadline=deadline,
             )
         else:
             from vectrify.refine.simplify import simplify
 
-            paths = simplify(document, paths, region, fixed, settings["tolerance"])
+            paths = simplify(
+                document, paths, region, fixed, settings["tolerance"], deadline
+            )
         document = _with(document, dict(paths.geometries))
-    return document, _difference(document, region), skipped
+    return document, _pixels(document, region), skipped
 
 
 def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
@@ -273,8 +352,11 @@ class OptimizeNodes:
             else drawing_region(request, settings["resolution"], margin)
         )
         steps = [s for s in STEPS if settings[s]]
+        began = time.monotonic()
+        deadline = began + settings["seconds"]
         document = start
-        before = current = _difference(document, region)
+        current = _Scored.of(_pixels(document, region), region)
+        first, before = current.pixels, current.difference
         points = _count(document, oids)
         taken: list[str] = []
         skipped: dict[str, str] = {}
@@ -293,29 +375,47 @@ class OptimizeNodes:
             for done in range(rounds):
                 if context.stop.is_set():
                     break
+                left = deadline - time.monotonic()
+                if left <= 0:
+                    break
                 heading = f"Round {done + 1}/{rounds} · {points} points"
                 context.progress(done, heading, total=rounds)
 
                 def report(_step, message, done=done, heading=heading):
                     context.progress(done, f"{heading} · {message}")
 
-                task = _Task(document, region, settings, oids, request.reference)
+                task = _Task(
+                    document,
+                    region,
+                    settings,
+                    oids,
+                    request.reference,
+                    deadline,
+                    # One share is kept back for rendering and judging them.
+                    left / (len(steps) + 1),
+                )
                 results = _round(steps, task, pool, context.stop, report)
-                for _doc, _diff, why in results.values():
+                for _doc, _pixels_after, why in results.values():
                     skipped.update(why)
                 for step in _folding(results, _crossings(document, oids), oids):
                     del results[step]
                     folded[step] = folded.get(step, 0) + 1
-                chosen = _choose(results, current, points, oids, settings["gain"] / 100)
+                scored = {
+                    step: (after, _Scored.of(pixels, region))
+                    for step, (after, pixels, _why) in results.items()
+                }
+                chosen = _choose(scored, current, points, oids, settings["gain"] / 100)
                 if chosen is None:
                     break
                 taken.append(chosen)
-                document, current, _ = results[chosen]
+                document, current = scored[chosen]
                 points = _count(document, oids)
         finally:
             if pool is not None:
                 pool.shutdown(wait=True, cancel_futures=True)
 
+        spent = time.monotonic() - began
+        out_of_time = not context.stop.is_set() and time.monotonic() >= deadline
         tx = request.transaction(LABEL)
         for oid in oids:
             geometry = document.geometry_for(oid)
@@ -328,7 +428,8 @@ class OptimizeNodes:
                 iter(skipped.values()),
                 "Every step that helped made a path cross itself"
                 if folded
-                else "No step improved the paths",
+                else "No step improved the paths"
+                + (" within the time limit" if out_of_time else ""),
             )
         return OperationResult(
             Proposal(
@@ -336,16 +437,20 @@ class OptimizeNodes:
                 changed,
                 metrics={
                     "before": {"difference": before, "nodes": _count(start, oids)},
-                    "after": {"difference": current, "nodes": points},
+                    "after": {"difference": current.difference, "nodes": points},
                     "steps": taken,
+                    "seconds": round(spent, 3),
+                    # The time limit ended the run, not the steps running out.
+                    "out_of_time": out_of_time,
                     "skipped": skipped,
                     "folded": folded,
                     "reference": request.reference is not None,
                 },
+                # The renders the steps were judged by.
                 previews=preview_urls(
                     region.image,
-                    render_region(start, region),
-                    render_region(tx.preview, region),
+                    Image.fromarray(first),
+                    Image.fromarray(current.pixels),
                 ),
             ),
             message=message,
@@ -373,7 +478,7 @@ def _folding(results, before: dict[str, int], oids) -> list[str]:
     """
     return [
         step
-        for step, (document, _difference, _why) in results.items()
+        for step, (document, _pixels, _why) in results.items()
         if any(n > before[oid] for oid, n in _crossings(document, oids).items())
     ]
 
@@ -395,18 +500,20 @@ def _round(steps, task: _Task, pool, stop, report):
     return results
 
 
-def _choose(results, current: float, points: int, oids, gain: float) -> str | None:
-    """The step to keep: the one that lowers the difference most, by at least
-    *gain* of it, or else Simplify if it removed points."""
+def _choose(scored, current: _Scored, points: int, oids, gain: float) -> str | None:
+    """The step to keep: the one that lowers the difference most, fixing at
+    least *gain* of it where it acted, or else Simplify if it removed points."""
     helping = [
-        (difference, step)
-        for step, (_doc, difference, _why) in results.items()
-        if step != "simplify" and difference < current * (1 - gain)
+        (after.difference, step)
+        for step, (_doc, after) in scored.items()
+        if step != "simplify"
+        and after.difference < current.difference
+        and after.fixed(current) >= gain
     ]
     if helping:
         return min(helping)[1]
-    if "simplify" in results:
-        simpler, _difference, _why = results["simplify"]
+    if "simplify" in scored:
+        simpler, _after = scored["simplify"]
         if _count(simpler, oids) < points:
             return "simplify"
     return None
