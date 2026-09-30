@@ -113,3 +113,65 @@ export function selectionStatus(level, objects, points) {
   }
   return objects.length ? `Objects · ${objects.length.toLocaleString()} selected` : 'Objects · nothing selected';
 }
+
+// The paths a point tool shows and edits for the selected objects: the
+// selected paths, and every path inside a selected group, however deep, in
+// drawing order. *objects* lists {id, tag, parent, resource} in drawing order.
+// Instances (use) have no points of their own: they are counted apart, to ask
+// for them to be detached.
+export function pointTargets(selected, objects) {
+  const chosen = new Set(selected), parent = new Map(objects.map(item => [item.id, item.parent]));
+  const inside = id => {
+    for (let at = id; at !== undefined && at !== null; at = parent.get(at)) if (chosen.has(at)) return true;
+    return false;
+  };
+  const paths = [], instances = [];
+  for (const item of objects) {
+    if (item.resource || !inside(item.id)) continue;
+    if (item.tag === 'path') paths.push(item.id);
+    else if (item.tag === 'use') instances.push(item.id);
+  }
+  return {paths, instances};
+}
+
+// Which path each selected point was picked in, from the picked point keys:
+// per node the paths it was picked in, and per geometry the path picked in
+// last. *geometryOf* gives a path's geometry.
+export function pointOwners(keys, geometryOf) {
+  const nodes = new Map(), geometries = new Map();
+  for (const key of keys) {
+    const [object, node] = splitKey(key);
+    if (!nodes.has(node)) nodes.set(node, []);
+    if (!nodes.get(node).includes(object)) nodes.get(node).push(object);
+    geometries.set(geometryOf(object), object);
+  }
+  return {nodes, geometries};
+}
+
+// The selected points to show, as point keys. The server holds node ids, and
+// paths drawing one geometry share them: such a node is selected (*strong*)
+// in the path it was picked in, else in the path picked in last for that
+// geometry, else in the first path showing it. The other paths showing it
+// get it as a *twin*, drawn faintly, since an edit moves them too.
+// *paths* lists {id, geometry, nodes: [node ids]}.
+export function instancePoints(paths, selectedNodes, owners) {
+  const users = new Map();
+  for (const path of paths) {
+    if (!users.has(path.geometry)) users.set(path.geometry, []);
+    users.get(path.geometry).push(path.id);
+  }
+  const strong = [], twins = [];
+  for (const path of paths) {
+    const shown = users.get(path.geometry);
+    for (const node of path.nodes) {
+      if (!selectedNodes.has(node)) continue;
+      let picked = (owners.nodes.get(node) || []).filter(id => shown.includes(id));
+      if (!picked.length) {
+        const last = owners.geometries.get(path.geometry);
+        picked = [shown.includes(last) ? last : shown[0]];
+      }
+      (picked.includes(path.id) ? strong : twins).push(pointKey(path.id, node));
+    }
+  }
+  return {strong, twins};
+}

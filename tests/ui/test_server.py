@@ -50,6 +50,8 @@ def test_static_ui_and_session_edit_export_roundtrip(server):
     assert call(server, "/redraw.js")[0] == 200
     assert call(server, "/selection.js")[0] == 200
     assert call(server, "/palette.js")[0] == 200
+    assert call(server, "/input.js")[0] == 200
+    assert call(server, "/strip.js")[0] == 200
     assert call(server, "/style.css")[0] == 200
     status, state = call(server, "/api/session", {})
     assert status == 200

@@ -174,6 +174,8 @@ class Handler(BaseHTTPRequestHandler):
             "/redraw.js": "redraw.js",
             "/selection.js": "selection.js",
             "/palette.js": "palette.js",
+            "/input.js": "input.js",
+            "/strip.js": "strip.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }

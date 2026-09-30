@@ -2,7 +2,9 @@ import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 import {dropIndex, dropRefusal, dropTarget} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
 import {matchCommands, moveHighlight} from './palette.js';
-import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, pickTarget, pointInside, pointKey, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
+import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
+import {HeldGesture, inputQueue} from './input.js';
+import {overflowLayout} from './strip.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
@@ -11,19 +13,25 @@ let reference = null;
 // revision, the unselected path under the pointer, the point last clicked,
 // and the points hidden while an object tool is active.
 let geometries = new Map(), hoverPath = null, focusPoint = null, pointMemory = null;
+// Which path each selected point was picked in: paths drawing one geometry
+// share its node ids, and only the path a point was picked in shows it
+// selected.
+let owners = pointOwners([], () => null);
 // The group entered by double-clicking it: object tools then pick within it.
 let scope = null;
 let clickCycle = null, lastPick = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
-let nodeHoles = null;
 let redrawHover = null;
 const SNAP_RADIUS = 8;
+// Two clicks at one spot within this many milliseconds are a double-click.
+const DOUBLE_CLICK = 400;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
 const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', trace: 'Trace', hand: 'Pan'};
-const hints = {select: 'Click to select · Double-click a group to enter it, a path to edit its points · Drag elsewhere to box select, a selected object to move it', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', trace: '', hand: 'Drag to pan · Scroll to zoom'};
+// A one-line hint for the tools with few controls of their own.
+const hints = {select: '', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from a selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', trace: '', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -35,7 +43,21 @@ function setBusy(label, delta) {
   pending += delta; $('busy').hidden = pending === 0;
   $('hole-controls').disabled = pending > 0;
   if (label) $('busy-label').textContent = label;
-  document.body.setAttribute('aria-busy', String(pending > 0));
+  document.body.setAttribute('aria-busy', String(pending > 0 || input.waiting > 0));
+}
+// Input while an edit runs, or while a canvas drag is under way, waits for it:
+// keys, clicks and commands run in order afterwards, on the state it leaves.
+// Only event handlers queue input; what they run calls the editor directly.
+const idle = () => new Promise(resolve => {
+  const check = () => { if (!pending && !drag) resolve(); else setTimeout(check, 25); };
+  check();
+});
+const input = inputQueue(() => pending > 0 || !!drag, idle);
+function later(fn) {
+  const result = input.run(fn);
+  document.body.setAttribute('aria-busy', String(pending > 0 || input.waiting > 0));
+  Promise.resolve(result).catch(() => {}).finally(() => document.body.setAttribute('aria-busy', String(pending > 0 || input.waiting > 0)));
+  return result;
 }
 // In the desktop window (vectrify[desktop]) the page calls Python through
 // pywebview's bridge instead of the local server; the bridge appears a moment
@@ -57,9 +79,11 @@ async function request(path, data = {}) {
   return result;
 }
 function action(command, data = {}, label = 'Applying edit…') {
+  // Busy from now, so input meanwhile waits for this edit.
+  setBusy('', 1);
   queue = queue.then(async () => {
     if (command !== 'select') clickCycle = null;
-    setBusy(label, 1);
+    $('busy-label').textContent = label;
     try {
       const result = await request('/api/action', {command, ...data, epoch: state.epoch, revision: state.revision});
       if (command !== 'select') dirty = true;
@@ -117,7 +141,7 @@ async function applyState(next) {
   $('undo').title = state.undo.length ? `Undo: ${state.undo.at(-1)}` : 'Nothing to undo';
   $('redo').title = state.redo.length ? `Redo: ${state.redo[0]}` : 'Nothing to redo';
   if (replaced) { focusPoint = null; pointMemory = null; scope = null; fit(); }
-  if (changed) { geometries = new Map(); clickCycle = null; lastPick = null; }
+  if (changed) { geometries = new Map(); pathHoles.clear(); clickCycle = null; lastPick = null; }
   if (scope && object(scope)?.tag !== 'g') scope = null;
   if (holePlan && (changed || oneObject()?.id !== holePlan.object)) holePlan = null;
   renderObjects(); renderInspector();
@@ -126,24 +150,38 @@ async function applyState(next) {
 }
 const level = () => TOOL_LEVEL[tool];
 const parents = () => new Map(state.objects.map(item => [item.id, item.parent]));
-// The paths whose points the point tools show and edit: the selected ones.
-function pointPaths() {
-  return state.selection.objects.filter(id => { const item = object(id); return item?.tag === 'path' && !item.resource; });
+// The paths whose points the point tools show and edit: the selected ones and
+// every path inside a selected group, and the instances among them, which
+// have no points of their own. Worked out once per state.
+let targetCache = {state: null};
+function pointTargetsNow() {
+  if (targetCache.state !== state) targetCache = {state, ...pointTargets(state.selection.objects, state.objects)};
+  return targetCache;
 }
+const pointPaths = () => pointTargetsNow().paths;
 function geometryNodes(id) { return geometries.get(id)?.subpaths.flatMap(s => s.nodes) || []; }
 function nodeAt(key) { const [id, node] = splitKey(key); return geometryNodes(id).find(n => n.id === node); }
 function contourAt(key) { const [id, node] = splitKey(key); return geometries.get(id)?.subpaths.find(s => s.nodes.some(n => n.id === node)); }
 // The selected points, from the node ids the server holds, while a point tool
-// is active: in an object tool they are hidden.
-function selectedPoints() {
-  if (level() !== 'points') return [];
-  const nodes = new Set(state.selection.nodes), keys = [];
-  if (!nodes.size) return keys;
-  for (const id of pointPaths()) for (const node of geometryNodes(id)) if (nodes.has(node.id)) keys.push(pointKey(id, node.id));
-  return keys;
+// is active: in an object tool they are hidden. A node of geometry several
+// shown paths draw is selected in the path it was picked in; the others show
+// it faintly, as a twin, since editing it moves them too.
+let shownCache = {};
+function shownPoints() {
+  if (level() !== 'points') return {strong: [], twins: []};
+  const nodes = state.selection.nodes, cache = shownCache;
+  if (cache.state !== state || cache.geometries !== geometries || cache.size !== geometries.size || cache.owners !== owners || cache.tool !== tool) {
+    const paths = pointPaths().filter(id => geometries.has(id)).map(id => ({id, geometry: geometries.get(id).id, nodes: geometryNodes(id).map(n => n.id)}));
+    shownCache = {state, geometries, size: geometries.size, owners, tool, ...(nodes.length ? instancePoints(paths, new Set(nodes), owners) : {strong: [], twins: []})};
+  }
+  return shownCache;
 }
+const selectedPoints = () => shownPoints().strong;
+// The other paths drawing the geometry of a shown path.
+function sharingPaths(id) { return (geometries.get(id)?.users || []).filter(user => user !== id); }
 function selectPoints(objects, keys, focus = keys.at(-1)) {
   focusPoint = focus ?? null;
+  owners = pointOwners(keys, id => geometries.get(id)?.id);
   return action('select', {objects: [...new Set(objects)], nodes: [...new Set(keys.map(key => splitKey(key)[1]))]}, 'Selecting…');
 }
 async function loadGeometries() {
@@ -269,8 +307,11 @@ function renderObjects() {
     }
     row.append(swatch, label);
     if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; mark.title = `Locked: ${item.inherited_locks.map(lock => lock === 'transform' ? 'position' : lock).join(', ')}`; row.append(mark); }
-    row.onclick = event => { if (!treeDragEnded) selectObject(item.id, event.shiftKey || event.ctrlKey || event.metaKey, true); };
-    row.ondblclick = () => { if (!item.resource) queue.then(() => enterObject(item.id)); };
+    row.onclick = event => {
+      const additive = event.shiftKey || event.ctrlKey || event.metaKey;
+      if (!treeDragEnded) later(() => object(item.id) && selectObject(item.id, additive, true));
+    };
+    row.ondblclick = () => { if (!item.resource) later(() => object(item.id) && enterObject(item.id)); };
     row.onpointerdown = event => pressTreeRow(event, item);
     fragment.append(row);
   }
@@ -283,7 +324,7 @@ const TREE_INDENT = 9;
 const treeDropLine = document.createElement('div'); treeDropLine.className = 'tree-drop-line'; treeDropLine.hidden = true;
 let treeDrag = null, treeDragEnded = false;
 function pressTreeRow(event, item) {
-  if (event.button !== 0 || pending || item.resource) return;
+  if (event.button !== 0 || item.resource) return;
   treeDrag = {item: item.id, x: event.clientX, y: event.clientY, active: false, target: null};
 }
 function treeRows() {
@@ -312,20 +353,24 @@ function moveTreeDrag(event) {
     if (Math.hypot(event.clientX - treeDrag.x, event.clientY - treeDrag.y) < 5) return;
     const selected = state.selection.objects;
     const ids = selected.includes(treeDrag.item) ? selected.filter(id => !object(id)?.resource) : [treeDrag.item];
-    treeDrag = {...treeDrag, active: true, ids: new Set(ids)};
+    treeDrag = {...treeDrag, active: true, ids: new Set(ids), revision: `${state.epoch}:${state.revision}`};
     $('objects').classList.add('dragging');
   }
   const list = $('objects'), box = list.getBoundingClientRect();
   // Scroll while the pointer is near the list's top or bottom edge.
   if (event.clientY < box.top + 24) list.scrollTop -= 12;
   else if (event.clientY > box.bottom - 24) list.scrollTop += 12;
-  const rows = treeRows();
-  const target = dropTarget(rows, event.clientX - (rows[0]?.left ?? box.left) - TREE_INDENT, event.clientY, TREE_INDENT);
+  treeDrag.point = {x: event.clientX, y: event.clientY};
+  Object.assign(treeDrag, treeDropAt(treeDrag.point, treeDrag.ids));
+  showTreeDrop();
+}
+// Where rows dropped at *point* land, and why they cannot, if so.
+function treeDropAt(point, ids) {
+  const rows = treeRows(), box = $('objects').getBoundingClientRect();
+  const target = dropTarget(rows, point.x - (rows[0]?.left ?? box.left) - TREE_INDENT, point.y, TREE_INDENT);
   const parents = new Map(state.objects.map(item => [item.id, item.parent]));
   const resources = new Set(state.objects.filter(item => item.resource).map(item => item.id));
-  treeDrag.target = target;
-  treeDrag.refusal = dropRefusal(target, treeDrag.ids, parents, resources);
-  showTreeDrop();
+  return {target, refusal: dropRefusal(target, ids, parents, resources)};
 }
 function endTreeDrag(drop) {
   const finished = treeDrag;
@@ -335,10 +380,17 @@ function endTreeDrag(drop) {
   if (!finished?.active) return;
   // The pointer is released over a row: that is not a click on it.
   treeDragEnded = true; setTimeout(() => treeDragEnded = false);
-  if (!drop || finished.refusal) { if (drop) toast(finished.refusal, true); return; }
-  const {target, ids} = finished;
-  const children = state.objects.filter(item => item.parent === target.parent).map(item => item.id);
-  action('move_objects', {objects: [...ids], parent: target.parent, index: dropIndex(target, children, ids)}, 'Moving objects…');
+  if (!drop) return;
+  // Dropped while an edit runs, it lands once the edit is done, where the
+  // rows then are.
+  later(() => {
+    const ids = new Set([...finished.ids].filter(id => object(id)));
+    const {target, refusal} = finished.revision !== `${state.epoch}:${state.revision}` ? treeDropAt(finished.point, ids) : finished;
+    if (!ids.size) return;
+    if (refusal) { toast(refusal, true); return; }
+    const children = state.objects.filter(item => item.parent === target.parent).map(item => item.id);
+    return action('move_objects', {objects: [...ids], parent: target.parent, index: dropIndex(target, children, ids)}, 'Moving objects…');
+  });
 }
 window.addEventListener('pointermove', moveTreeDrag);
 window.addEventListener('pointerup', () => endTreeDrag(true));
@@ -375,7 +427,7 @@ function renderRelationships(item) {
   function link(label, target) {
     const button = document.createElement('button');
     button.textContent = `${label}: ${target.label}`;
-    button.onclick = () => selectObject(target.id, false, true);
+    button.onclick = () => later(() => object(target.id) && selectObject(target.id, false, true));
     links.append(button);
   }
   if (context.source) link('Source geometry', context.source);
@@ -403,10 +455,10 @@ const noReference = () => !state.reference && 'Add a reference image first (Trac
 const COMMANDS = [
   {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
   {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'N', keywords: 'edit points handles', run: () => setTool('nodes')},
-  {id: 'tool-path', name: 'Pen: draw a path', group: 'Tools', keys: 'P', keywords: 'pen draw path shape', run: () => setTool('path')},
+  {id: 'tool-path', name: 'Draw path tool', group: 'Tools', keys: 'P', keywords: 'pen draw path shape', run: () => setTool('path')},
   {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'K', keywords: 'cut slice', run: () => setTool('knife')},
   {id: 'tool-redraw', name: 'Redraw outline tool', group: 'Tools', keys: 'R', keywords: 'lasso outline fix', run: () => setTool('redraw')},
-  {id: 'tool-trace', name: 'Trace tool', group: 'Tools', keys: 'T', keywords: 'reference image match', run: () => setTool('trace')},
+  {id: 'tool-trace', name: 'Trace tool', group: 'Tools', keys: 'T', keywords: 'reference image generate retrace tidy', run: () => setTool('trace')},
   {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'H', keywords: 'hand scroll', run: () => setTool('hand')},
   {id: 'open', name: 'Open…', group: 'File', keywords: 'svg project load', run: () => $('open-file').click()},
   {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
@@ -454,11 +506,11 @@ const COMMANDS = [
   {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', keywords: 'remove', level: 'objects', run: () => action('delete'), disabled: noSelection},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
-  {id: 'toggle-overlay', name: 'Show or hide the overlay', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
+  {id: 'toggle-overlay', name: 'Show or hide the reference overlay', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
-  {id: 'retrace', name: 'Retrace selection', group: 'Reference', keys: 'Shift R', run: retraceShapes,
+  {id: 'retrace', name: 'Retrace', group: 'Reference', keys: 'Shift R', keywords: 'trace outline shape sam', run: retraceShapes,
     disabled: () => noReference() || ((!state.selection.objects.length || !visiblePaths()) && 'Select one or more visible paths')},
-  {id: 'tidy', name: 'Tidy (Optimize nodes)…', group: 'Reference', keywords: 'simplify snap fit shape', run: openOptimize,
+  {id: 'tidy', name: 'Tidy…', group: 'Reference', keywords: 'simplify snap fit shape optimize nodes points', run: openTidy,
     disabled: () => !state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them'},
   {id: 'fit-colours', name: 'Fit colours…', group: 'Reference', run: openColours, disabled: () => noReference() || noSelection()},
   {id: 'handles-0', name: 'No handles', group: 'Points', keys: '1', run: () => pointHandles(0), disabled: noPoints},
@@ -472,16 +524,17 @@ const COMMANDS = [
     disabled: () => noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them')},
   {id: 'delete-contour', name: 'Delete contour', group: 'Points', run: () => action('delete_contour', {points: pointPairs()}, 'Deleting contours…'),
     disabled: () => noPoints() || (selectedPoints().some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it')},
-  {id: 'fill-hole', name: 'Fill hole', group: 'Points', run: fillPointHoles, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes of one path')},
-  {id: 'hole-to-shape', name: 'Hole to shape', group: 'Points', run: pointHolesToShapes, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes of one path')},
+  {id: 'fill-hole', name: 'Fill hole', group: 'Points', keywords: 'holes remove', run: fillPointHoles, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
+  {id: 'hole-to-shape', name: 'Hole to shape', group: 'Points', keywords: 'holes shapes', run: pointHolesToShapes, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
 ];
 const commandById = new Map(COMMANDS.map(command => [command.id, command]));
 const commandName = command => command.label?.() || command.name;
 function commandRefusal(command) {
   if (!state) return 'The drawing is still opening';
-  if (pending) return 'Wait for the current edit to finish';
   return command.disabled?.() || '';
 }
+// Run a command now; event handlers queue it with later() instead, so it runs
+// once any edit under way is done.
 function runCommand(id) {
   const command = commandById.get(id), reason = command && commandRefusal(command);
   if (!command) return;
@@ -501,7 +554,7 @@ function renderCommands() {
 }
 document.addEventListener('click', event => {
   const button = event.target.closest('[data-command]');
-  if (button && !button.closest('#context-menu')) runCommand(button.dataset.command);
+  if (button && !button.closest('#context-menu')) later(() => runCommand(button.dataset.command));
 });
 // The right panel shows the selection's properties: with points selected their
 // coordinates and handles first, then the objects' name, paint and locks, and
@@ -544,6 +597,7 @@ function renderInspector() {
   });
   renderCommands();
   renderHoles();
+  scheduleStrip();
 }
 // The context menu offers the selection's commands where the pointer is.
 const MENU_GROUPS = {objects: ['Select', 'Arrange', 'Object', 'Actions'], points: ['Points', 'Actions']};
@@ -564,7 +618,7 @@ function openContextMenu(x, y) {
       const name = document.createElement('span'); name.textContent = commandName(command);
       const keys = document.createElement('kbd'); keys.textContent = command.keys || '';
       item.append(name, keys);
-      item.onclick = () => { closeContextMenu(); runCommand(command.id); };
+      item.onclick = () => { closeContextMenu(); later(() => runCommand(command.id)); };
       menu.append(item);
     }
   }
@@ -625,8 +679,7 @@ async function runPaletteRow(i) {
   // A command that cannot run keeps the palette open, with its reason shown.
   if (reason) return;
   $('palette').close();
-  await queue;
-  runCommand(command.id);
+  later(() => runCommand(command.id));
 }
 $('palette-input').addEventListener('input', renderPalette);
 $('palette-input').addEventListener('keydown', event => {
@@ -646,30 +699,37 @@ $('context-menu').addEventListener('keydown', event => {
   if (['ArrowDown', 'ArrowUp'].includes(event.key) && items.length) { event.preventDefault(); items[(i + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
 });
 // Right-clicking something unselected selects it first, as a click would.
-stage.addEventListener('contextmenu', async event => {
+stage.addEventListener('contextmenu', event => {
   event.preventDefault();
-  if (!state || pending || drag) return;
+  if (!state) return;
   const x = event.clientX, y = event.clientY;
-  if (level() === 'objects' || level() === 'points') {
-    const hits = hitStack(x, y), targets = hits.length ? clickTargets(hits) : [];
-    const node = event.target.dataset?.node && pointKey(event.target.dataset.object, event.target.dataset.node);
-    if (node && level() === 'points' && !selectedPoints().includes(node)) await selectPoints([...new Set([...state.selection.objects, splitKey(node)[0]])], [node]);
-    else if (!node && targets.length && !targets.some(id => state.selection.objects.includes(id))) await selectObject(targets[0]);
-  }
-  await queue;
-  openContextMenu(x, y);
+  later(async () => {
+    if (level() === 'objects' || level() === 'points') {
+      // Found again now: an edit before it may have changed what is there.
+      const hits = hitStack(x, y), targets = hits.length ? clickTargets(hits) : [];
+      const at = document.elementFromPoint(x, y);
+      const node = at?.dataset?.node && pointKey(at.dataset.object, at.dataset.node);
+      if (node && level() === 'points' && !selectedPoints().includes(node)) await selectPoints(pointPaths().includes(splitKey(node)[0]) ? state.selection.objects : [...state.selection.objects, splitKey(node)[0]], [node]);
+      else if (!node && targets.length && !targets.some(id => state.selection.objects.includes(id) || pointPaths().includes(id))) await selectObject(targets[0]);
+    }
+    await queue;
+    openContextMenu(x, y);
+  });
 });
-$('objects').addEventListener('contextmenu', async event => {
+$('objects').addEventListener('contextmenu', event => {
   const row = event.target.closest('.object-row'); if (!row) return;
   event.preventDefault();
-  if (!state || pending) return;
-  if (!state.selection.objects.includes(row.dataset.object)) await selectObject(row.dataset.object);
-  await queue;
-  openContextMenu(event.clientX, event.clientY);
+  if (!state) return;
+  const id = row.dataset.object, x = event.clientX, y = event.clientY;
+  later(async () => {
+    if (!object(id)) return;
+    if (!state.selection.objects.includes(id)) await selectObject(id);
+    await queue;
+    openContextMenu(x, y);
+  });
 });
 async function selectObject(id, additive = false, focus = false) {
   clickCycle = null;
-  if (pending) return;
   let selected = new Set(additive ? state.selection.objects : []);
   if (id) { if (additive && selected.has(id)) selected.delete(id); else selected.add(id); }
   // Picking an object in the tree enters the group it is in.
@@ -740,13 +800,15 @@ function clickTargets(hits) {
 async function selectAtPoint(finished) {
   const hits = finished.hits?.length ? clickTargets(finished.hits) : [];
   if (!hits.length) return clickEmpty(finished.shift);
-  const cycled = !finished.shift && sameClickSpot(finished.x, finished.y, hits);
-  const index = cycled ? (clickCycle.index+1)%hits.length : 0;
-  // A double-click acts on what its first click picked, not on the next
-  // shape its second click cycled to.
-  lastPick = {id: hits[index], first: cycled ? hits[clickCycle.index] : hits[index]};
+  // The second click of a double-click keeps what the first one picked.
+  const again = sameClickSpot(finished.x, finished.y, hits), double = again && finished.time - clickCycle.time < DOUBLE_CLICK;
+  const cycled = !finished.shift && again && !double;
+  const index = double ? clickCycle.index : cycled ? (clickCycle.index+1)%hits.length : 0;
+  // A double-click acts on what was picked before it: its first click may
+  // have cycled on from a selected object to the next one under it.
+  lastPick = {id: hits[index], first: double ? lastPick?.first ?? hits[index] : cycled ? hits[clickCycle.index] : hits[index]};
   const success = await selectObject(hits[index], finished.shift);
-  if (success && !finished.shift) clickCycle = {x:finished.x, y:finished.y, hits, index};
+  if (success && !finished.shift) clickCycle = {x:finished.x, y:finished.y, time:finished.time, hits, index};
 }
 // A click on empty canvas: in point tools it drops the points first.
 function clickEmpty(shift) {
@@ -775,10 +837,16 @@ function renderNodeInspector() {
   const nodes = paths.flatMap(geometryNodes), loaded = paths.every(id => geometries.has(id));
   const node = points.length === 1 && nodeAt(points[0]);
   const chosen = points.map(nodeAt).filter(Boolean), count = new Set(points.map(key => splitKey(key)[0])).size;
-  $('point-section').hidden = !onPoints || !paths.length;
+  const instances = pointTargetsNow().instances.length;
+  $('point-section').hidden = !onPoints || (!paths.length && !instances);
   $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
-  $('node-hint').textContent = !loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (N) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : '';
+  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (N) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
+  // Points of shared geometry are points of every path drawing it.
+  const sharing = new Set(points.flatMap(key => sharingPaths(splitKey(key)[0])));
+  if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (Actions) to edit one path alone.`);
+  if (instances) hints.push(`${plural(instances, 'instance')} (use) ${instances === 1 ? 'has' : 'have'} no points of ${instances === 1 ? 'its' : 'their'} own here: Detach ${instances === 1 ? 'it' : 'them'} to edit ${instances === 1 ? 'its' : 'their'} points.`);
+  $('node-hint').textContent = hints.filter(Boolean).join(' ');
   $('node-hint').hidden = !$('node-hint').textContent;
   $('point-properties').hidden = !chosen.length;
   // Coordinates are shown for one point, in its path's own frame.
@@ -786,9 +854,9 @@ function renderNodeInspector() {
     row.hidden = !node;
     if (!node) continue;
     for (const [selector, value] of [['.point-x', node.values.at(-2)], ['.point-y', node.values.at(-1)]]) {
-      const input = row.querySelector(selector);
-      if (document.activeElement !== input) input.value = +value.toFixed(4);
-      input.disabled = node.pinned;
+      const field = row.querySelector(selector);
+      if (document.activeElement !== field) field.value = +value.toFixed(4);
+      field.disabled = node.pinned;
     }
   }
   const handles = node ? handleCount(points[0]) : null;
@@ -796,42 +864,64 @@ function renderNodeInspector() {
   const pinned = chosen.filter(n => n.pinned).length;
   $('node-pin').checked = chosen.length > 0 && pinned === chosen.length; $('node-pin').indeterminate = pinned > 0 && pinned < chosen.length;
   $('strip-pin').setAttribute('aria-pressed', String($('node-pin').checked));
-  // Points on holes of one path offer to fill the holes or make them shapes.
+  // Points on holes, in one path or several, offer to fill the holes or make
+  // them shapes.
   const holes = holeContours(points);
   if (holes === undefined) loadNodeHoles(points);
   $('strip-hole').hidden = !holes;
   renderCommands();
+  scheduleStrip();
 }
-// The hole contours the selected points are on, when they are all on holes of
-// one path: null when they are not, undefined while that is being found out.
-function holeContours(points) {
-  const objects = new Set(points.map(key => splitKey(key)[0]));
-  if (!points.length || objects.size !== 1) return null;
-  const [id] = objects;
-  if (nodeHoles?.key !== holesKey(id)) return undefined;
-  const contours = new Set(points.map(key => contourAt(key)?.id));
-  return nodeHoles.ids && [...contours].every(c => nodeHoles.ids.has(c)) ? {object: id, holes: [...contours]} : null;
-}
+// The hole contours the selected points are on, as [path, contour] pairs,
+// when every point is on a hole, in however many paths: null when they are
+// not, undefined while the paths' holes are being found out.
+const pathHoles = new Map();
 function holesKey(id) { return `${state.epoch}:${state.revision}:${id}`; }
-async function loadNodeHoles(points) {
-  const id = splitKey(points[0])[0], key = holesKey(id);
-  if (nodeHoles?.key === key) return;
-  nodeHoles = {key, ids: null};
-  let ids = new Set();
-  try {
-    const result = await request('/api/holes', {object: id, epoch: state.epoch, revision: state.revision});
-    ids = new Set(result.holes.map(h => h.id));
-  } catch { /* A path whose holes cannot be read simply offers none. */ }
-  if (nodeHoles.key !== key) return;
-  nodeHoles.ids = ids; renderNodeInspector();
+function holeContours(points) {
+  if (!points.length) return null;
+  const contours = new Map();
+  for (const key of points) {
+    const [id] = splitKey(key), contour = contourAt(key)?.id;
+    if (!contour) return null;
+    contours.set(`${id} ${contour}`, [id, contour]);
+  }
+  let loading = false;
+  for (const [id, contour] of contours.values()) {
+    const holes = pathHoles.get(holesKey(id));
+    if (!holes) { loading = true; continue; }
+    if (!holes.has(contour)) return null;
+  }
+  if (loading) return undefined;
+  const pairs = [...contours.values()];
+  return {contours: pairs, paths: new Set(pairs.map(([id]) => id)).size};
 }
+async function loadNodeHoles(points) {
+  const ids = [...new Set(points.map(key => splitKey(key)[0]))].filter(id => !pathHoles.has(holesKey(id)));
+  if (!ids.length) return;
+  const {epoch, revision} = state;
+  for (const id of ids) pathHoles.set(holesKey(id), null);
+  await Promise.all(ids.map(async id => {
+    let found = new Set();
+    try {
+      const result = await request('/api/holes', {object: id, epoch, revision});
+      found = new Set(result.holes.map(h => h.id));
+    } catch { /* A path whose holes cannot be read simply offers none. */ }
+    if (state.epoch === epoch && state.revision === revision) pathHoles.set(holesKey(id), found);
+  }));
+  if (state.epoch === epoch && state.revision === revision) renderNodeInspector();
+}
+const plural = (count, one, many = `${one}s`) => `${count} ${count === 1 ? one : many}`;
 async function fillPointHoles() {
   const holes = holeContours(selectedPoints()); if (!holes) return;
-  if (await action('fill_holes',{object:holes.object,holes:holes.holes},'Filling hole…')) toast(`Filled the ${holes.holes.length === 1 ? 'hole' : 'holes'}. Undo restores ${holes.holes.length === 1 ? 'it' : 'them'}.`);
+  const count = holes.contours.length, where = holes.paths > 1 ? ` in ${plural(holes.paths, 'path')}` : '';
+  if (await action('fill_holes', {contours: holes.contours}, count === 1 ? 'Filling hole…' : 'Filling holes…'))
+    toast(`Filled ${count === 1 ? 'the hole' : `${count} holes`}${where}. Undo restores ${count === 1 ? 'it' : 'them'}.`);
 }
 async function pointHolesToShapes() {
   const holes = holeContours(selectedPoints()); if (!holes) return;
-  if (await action('holes_to_shapes',{object:holes.object,holes:holes.holes},'Making a shape…')) toast('The hole is now its own shape, just above the path. Undo restores the hole.');
+  const count = holes.contours.length;
+  if (await action('holes_to_shapes', {contours: holes.contours}, count === 1 ? 'Making a shape…' : 'Making shapes…'))
+    toast(count === 1 ? 'The hole is now its own shape, just above the path. Undo restores the hole.' : `The ${count} holes are now shapes of their own, each just above its path. Undo restores them.`);
 }
 
 function localToOverlay(element) {
@@ -939,36 +1029,38 @@ function drawOverlay() {
   if (!holePlan && level() === 'points') drawPoints();
   renderStatus();
 }
-// The points of every selected path, and of the unselected path under the
-// pointer in Nodes, faintly, so a click on one adds its path.
+// The points of every selected path and of the paths in selected groups, and
+// of the unselected path under the pointer in Nodes, faintly, so a click on
+// one adds its path. A selected point of shared geometry is marked faintly in
+// the other paths drawing it.
 function drawPoints() {
-  const stageBox = stage.getBoundingClientRect(), chosen = new Set(selectedPoints());
-  const selected = new Set(state.selection.objects), editable = tool === 'nodes';
+  const stageBox = stage.getBoundingClientRect(), {strong, twins} = shownPoints(), chosen = new Set(strong), twin = new Set(twins);
+  const selected = new Set(pointPaths()), editable = tool === 'nodes';
   const paths = [...pointPaths(), ...(editable && hoverPath && !selected.has(hoverPath) ? [hoverPath] : [])];
   // Limit handles in dense drawings by screen-space spacing, without dropping
   // geometry. Zooming in exposes the original nodes at their full resolution.
-  const occupied = new Set(); let shown = 0, total = 0;
+  const occupied = new Set(); let count = 0, total = 0;
   for (const id of paths) {
     const element = svgElement(id), matrix = localToOverlay(element), screen = element?.getScreenCTM();
     if (!matrix || !screen || !geometries.has(id)) continue;
     const ghost = !selected.has(id);
     for (const node of geometryNodes(id)) {
       total++;
-      const key = pointKey(id, node.id), picked = chosen.has(key);
+      const key = pointKey(id, node.id), picked = chosen.has(key), mirrored = twin.has(key);
       const x = node.values.at(-2), y = node.values.at(-1), pos = new DOMPoint(x,y).matrixTransform(screen);
       if (pos.x < stageBox.left || pos.x > stageBox.right || pos.y < stageBox.top || pos.y > stageBox.bottom) continue;
       const cell = `${Math.floor(pos.x/10)},${Math.floor(pos.y/10)}`;
-      if (!picked && (occupied.has(cell) || shown >= 1200)) continue;
-      occupied.add(cell); shown++;
+      if (!picked && !mirrored && (occupied.has(cell) || count >= 1200)) continue;
+      occupied.add(cell); count++;
       const p = new DOMPoint(x,y).matrixTransform(matrix);
-      const circle = xmlElement('circle', {cx:p.x, cy:p.y, r: (picked ? 4.8 : 3.3)/zoom, class:`node${picked ? ' selected' : ''}${node.pinned ? ' pinned' : ''}${ghost ? ' ghost' : ''}${editable ? '' : ' passive'}`});
+      const circle = xmlElement('circle', {cx:p.x, cy:p.y, r: (picked ? 4.8 : mirrored ? 4.2 : 3.3)/zoom, class:`node${picked ? ' selected' : ''}${mirrored ? ' twin' : ''}${node.pinned ? ' pinned' : ''}${ghost ? ' ghost' : ''}${editable ? '' : ' passive'}`});
       circle.dataset.object = id; circle.dataset.node = node.id; circle.dataset.part = 'endpoint';
       overlay.append(circle);
     }
   }
   // The handles of the selected points, up to a few hundred of them.
   if (editable) for (const key of [...chosen].slice(0, 300)) drawHandles(key);
-  $('node-count').textContent = `${shown.toLocaleString()} / ${total.toLocaleString()}`;
+  $('node-count').textContent = `${count.toLocaleString()} / ${total.toLocaleString()}`;
 }
 function drawHandles(key) {
   const [id] = splitKey(key), node = nodeAt(key), subpath = contourAt(key), matrix = localToOverlay(svgElement(id));
@@ -992,9 +1084,65 @@ function drawBox() {
   const a = new DOMPoint(drag.x, drag.y).matrixTransform(inverse), b = new DOMPoint(drag.end.x, drag.end.y).matrixTransform(inverse);
   overlay.append(xmlElement('rect', {x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), width:Math.abs(a.x-b.x), height:Math.abs(a.y-b.y), class:'select-box'}));
 }
+// The tool strip keeps to one row: the active tool's controls that do not fit
+// go, least important first, into the "⋯" menu, keeping the status line.
+const parked = new Map();
+let stripFrame = 0, stripSignature = '';
+function scheduleStrip() {
+  if (!stripFrame) stripFrame = requestAnimationFrame(() => { stripFrame = 0; layoutStrip(); });
+}
+function layoutStrip(force = false) {
+  const strip = $('tool-strip'), more = $('strip-more'), menu = $('strip-more-menu');
+  const controls = strip.querySelector('.tool-controls:not([hidden])');
+  const all = controls ? [...controls.querySelectorAll('[data-priority]'), ...[...parked.keys()].filter(item => controls.contains(parked.get(item)))] : [];
+  const signature = [strip.clientWidth, tool, $('selection-level').textContent, $('scope-trail').textContent, $('canvas-hint').textContent,
+    ...all.map(item => `${item.hidden}${item.textContent.length}`)].join('|');
+  if (!force && signature === stripSignature) return;
+  stripSignature = signature;
+  for (const [item, mark] of parked) mark.replaceWith(item);
+  parked.clear();
+  more.hidden = false;
+  const moreWidth = more.getBoundingClientRect().width;
+  more.hidden = true;
+  const items = controls ? [...controls.querySelectorAll('[data-priority]')].filter(item => !item.hidden) : [];
+  const style = getComputedStyle(strip), gap = parseFloat(style.columnGap) || 0;
+  const inner = parseFloat(getComputedStyle(controls || strip).columnGap) || 0;
+  // What the strip holds besides the controls, and the gaps between them all.
+  const others = [...strip.children].filter(child => child !== controls && child !== more && child.id !== 'canvas-hint' && !child.hidden && getComputedStyle(child).display !== 'none');
+  const fixed = others.reduce((sum, child) => sum + child.getBoundingClientRect().width + gap, 0) + ($('canvas-hint').textContent ? gap + 40 : 0);
+  const available = strip.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - fixed;
+  const widths = items.map(item => ({width: item.getBoundingClientRect().width + inner, priority: Number(item.dataset.priority)}));
+  const hidden = overflowLayout(widths, available, moreWidth + gap);
+  for (const index of hidden) {
+    const item = items[index], mark = document.createComment('parked');
+    item.before(mark); menu.append(item); parked.set(item, mark);
+  }
+  more.hidden = !hidden.length;
+  if (!hidden.length) closeStripMenu();
+  else if (!menu.hidden) placeStripMenu();
+}
+function placeStripMenu() {
+  const menu = $('strip-more-menu'), box = $('strip-more').getBoundingClientRect(), size = menu.getBoundingClientRect();
+  menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - size.width - 8))}px`;
+  menu.style.top = `${box.bottom + 6}px`;
+}
+function closeStripMenu() { $('strip-more-menu').hidden = true; $('strip-more').setAttribute('aria-expanded', 'false'); }
+$('strip-more').onclick = () => {
+  const menu = $('strip-more-menu');
+  if (!menu.hidden) { closeStripMenu(); return; }
+  menu.hidden = false; $('strip-more').setAttribute('aria-expanded', 'true');
+  placeStripMenu();
+  menu.querySelector('button:not(:disabled), input, select')?.focus();
+};
+// A command run from the menu closes it; fields and choices keep it open.
+$('strip-more-menu').addEventListener('click', event => { if (event.target.closest('button')) closeStripMenu(); });
+$('strip-more-menu').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeStripMenu(); $('strip-more').focus(); } });
+window.addEventListener('pointerdown', event => { if (!event.target.closest('#strip-more-menu, #strip-more')) closeStripMenu(); }, true);
+new ResizeObserver(() => scheduleStrip()).observe($('tool-strip'));
 // The level and count of the selection, and the entered group.
 function renderStatus() {
   if (!state) return;
+  scheduleStrip();
   const points = selectedPoints(), paths = level() === 'points' ? pointPaths() : state.selection.objects;
   $('selection-level').textContent = selectionStatus(level() === 'points' ? 'points' : 'objects', paths, points);
   const trail = $('scope-trail');
@@ -1023,9 +1171,9 @@ function draftPathData(points, closed=false) {
 }
 function drawPathDraft() {
   $('path-controls').hidden=tool!=='path';
-  $('path-finish').disabled=pending>0||pathDraft.length<2;
-  $('path-close').disabled=pending>0||pathDraft.length<3;
-  $('path-cancel').disabled=pending>0||!pathDraft.length;
+  $('path-finish').disabled=pathDraft.length<2;
+  $('path-close').disabled=pathDraft.length<3;
+  $('path-cancel').disabled=!pathDraft.length;
   if(tool!=='path'||!pathDraft.length)return;
   const group=xmlElement('g',{'pointer-events':'none','aria-hidden':'true'});
   const points=pathHover?[...pathDraft,pathHover]:pathDraft;
@@ -1143,13 +1291,13 @@ async function redrawOutline({points, longWay}) {
   await action('redraw_outline', {object: plan.object, points, pixel: 1/zoom, long_way: Boolean(longWay)}, state.reference ? 'Fitting to the reference…' : 'Redrawing outline…');
 }
 async function finishPath(closed) {
-  if(pending||pathDraft.length<(closed?3:2))return;
+  if(pathDraft.length<(closed?3:2))return;
   const draft=pathDraft; pathDraft=[];pathHover=null;
   if(await action('add_path',{d:draftPathData(draft,closed),stroke_width:2/zoom},'Drawing path…'))await setTool('select');
   else {pathDraft=draft;drawOverlay();}
 }
-$('path-finish').onclick=()=>finishPath(false);
-$('path-close').onclick=()=>finishPath(true);
+$('path-finish').onclick=()=>later(()=>finishPath(false));
+$('path-close').onclick=()=>later(()=>finishPath(true));
 $('path-cancel').onclick=()=>{pathDraft=[];pathHover=null;drawOverlay();};
 function updateView() {
   clickCycle = null;
@@ -1177,7 +1325,7 @@ function point(event, element = overlay) {
 // points and remembers them; coming back shows them again if the objects are
 // the same.
 async function setTool(value) {
-  if (!state || pending) return;
+  if (!state) return;
   const from = tool;
   const switched = switchTool({objects: state.selection.objects, points: selectedPoints(), memory: pointMemory}, from, value);
   clickCycle = null; lastPick = null; pathDraft=[]; pathHover=null; redrawHover=null; hoverPath = null; tool=value; pointMemory = switched.memory;
@@ -1190,6 +1338,8 @@ async function setTool(value) {
   if (level() === 'points') {
     setBusy('Loading path nodes…',1);
     try { await loadGeometries(); } catch(error) {toast(error.message,true);} finally {setBusy('',-1);}
+    // Restored points show in the paths they were picked in.
+    if (switched.points.length) owners = pointOwners(switched.points, id => geometries.get(id)?.id);
   }
   if (nodes.length || state.selection.nodes.length) {
     focusPoint = switched.points.includes(focusPoint) ? focusPoint : switched.points.at(-1) ?? null;
@@ -1257,6 +1407,8 @@ function previewPointDrag(target) {
     }
     carryHandles(g, saved);
     element.setAttribute('d', pathData(g));
+    // The other paths drawing this geometry follow it.
+    for (const other of sharingPaths(id)) if (!drag.saved.has(other)) svgElement(other)?.setAttribute('d', pathData(g));
   }
 }
 // Press on a point: select it (with Shift, add or remove it), adding its path
@@ -1264,15 +1416,22 @@ function previewPointDrag(target) {
 function pressPoint(event, common) {
   const id = event.target.dataset.object, nodeId = event.target.dataset.node, part = event.target.dataset.part;
   const key = pointKey(id, nodeId), current = selectedPoints();
-  const objects = state.selection.objects.includes(id) ? state.selection.objects : [...state.selection.objects, id];
+  // A path inside a selected group is selected with it.
+  const objects = pointPaths().includes(id) ? state.selection.objects : [...state.selection.objects, id];
   let points = current;
   if (part === 'endpoint') {
     points = current.includes(key) && !common.shift ? current : clickPoint(current, key, common.shift);
     if (points !== current || objects !== state.selection.objects) selectPoints(objects, points, key);
     else focusPoint = key;
   }
-  // A handle moves alone; a point moves with the other selected points.
-  const moving = part === 'endpoint' ? points.filter(k => nodeAt(k) && !nodeAt(k).pinned) : [key];
+  // A handle moves alone; a point moves with the other selected points, and a
+  // point of shared geometry picked in two paths moves once, as grabbed.
+  const once = new Set();
+  const moving = part === 'endpoint' ? [key, ...points.filter(k => k !== key)].filter(k => {
+    const node = nodeAt(k), twin = `${geometries.get(splitKey(k)[0])?.id} ${splitKey(k)[1]}`;
+    if (!node || node.pinned || once.has(twin)) return false;
+    once.add(twin); return true;
+  }) : [key];
   if (part === 'endpoint' && (!points.includes(key) || nodeAt(key)?.pinned)) { drag = {...common, kind: 'point-click'}; renderInspector(); drawOverlay(); return; }
   const paths = new Set(moving.map(k => splitKey(k)[0]));
   const saved = new Map([...paths].filter(p => geometries.has(p)).map(p => [p, valuesById(geometries.get(p))]));
@@ -1306,14 +1465,38 @@ async function finishBox(finished) {
   focusPoint = null;
   return action('select', {objects: boxSelect(state.selection.objects, found, finished.shift)}, 'Selecting…');
 }
+// A press on the canvas while an edit runs, or input waits, is held: its
+// events are recorded and replayed once the edit is done, finding again what
+// is under the pointer then, so the gesture acts on the state the edit left.
+let holding = null;
 stage.addEventListener('pointerdown', event => {
-  if (!state || pending || drag || ![0,1].includes(event.button)) return;
+  if (!state || ![0,1].includes(event.button)) return;
+  if (event.button === 1) event.preventDefault();
+  if (drag || (holding && !holding.released)) return;
+  if (pending || input.waiting) { holdGesture(event); return; }
+  pressStage(event);
+});
+function holdGesture(event) {
+  const gesture = new HeldGesture(event);
+  holding = gesture;
+  try { stage.setPointerCapture(event.pointerId); } catch { /* The pointer may be gone already. */ }
+  later(async () => {
+    let released;
+    const again = e => ({...e, target: document.elementFromPoint(e.clientX, e.clientY) || stage, preventDefault() {}});
+    const live = gesture.replay({down: e => pressStage(again(e)), move: e => moveStage(again(e)), up: e => { released = releaseStage(again(e)); }, cancel: cancelStage});
+    // Still pressed: the rest of the gesture goes on live.
+    if (live && holding === gesture) holding = null;
+    await released;
+  });
+}
+function pressStage(event) {
+  if (!state || drag) return;
   const middle = event.button === 1;
-  if (middle) event.preventDefault();
   const holeId = event.target.dataset?.hole;
   if (holeId && !middle && !space && tool !== 'hand') { toggleHole(holeId); return; }
-  stage.focus({preventScroll:true}); stage.setPointerCapture(event.pointerId);
-  const common = {x:event.clientX,y:event.clientY,shift:event.shiftKey || event.ctrlKey || event.metaKey,moved:false};
+  stage.focus({preventScroll:true});
+  try { stage.setPointerCapture(event.pointerId); } catch { /* A replayed press may be released already. */ }
+  const common = {x:event.clientX,y:event.clientY,time:event.timeStamp ?? performance.now(),shift:event.shiftKey || event.ctrlKey || event.metaKey,moved:false};
   const bounds = $('artboard').getBoundingClientRect();
   common.deselectOutside = !middle && !space && (event.clientX < bounds.left || event.clientX > bounds.right ||
     event.clientY < bounds.top || event.clientY > bounds.bottom);
@@ -1340,9 +1523,10 @@ stage.addEventListener('pointerdown', event => {
     const p=point(event);
     drag={...common,kind:'redraw',id,points:[[p.x,p.y]],longWay:event.shiftKey}; redrawHover=null; drawOverlay(); return;
   }
-  // Dragging a selected object moves the selection; a click picks what is
-  // under the pointer, and any other drag selects what lies inside its box.
-  if (level() === 'objects' && id) {
+  // In Select, dragging a selected object moves the selection; a click picks
+  // what is under the pointer, and any other drag selects what lies inside
+  // its box. Knife and Trace only select.
+  if (tool === 'select' && id) {
     const targets = clickTargets(hits), picked = targets[0];
     const selectedHit = state.selection.objects.includes(picked) ||
       (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
@@ -1352,7 +1536,7 @@ stage.addEventListener('pointerdown', event => {
     }
   }
   drag = {...common, kind: 'box', id, end: {x: event.clientX, y: event.clientY}};
-});
+}
 // In Nodes the unselected path under the pointer shows its points faintly.
 let hoverFrame = 0;
 function hoverPoints(event) {
@@ -1360,9 +1544,9 @@ function hoverPoints(event) {
   const x = event.clientX, y = event.clientY;
   hoverFrame = requestAnimationFrame(async () => {
     hoverFrame = 0;
-    if (tool !== 'nodes' || drag || pending) return;
+    if (tool !== 'nodes' || drag || pending || holding) return;
     const hit = event.target.dataset?.object || hitStack(x, y).find(id => object(id)?.tag === 'path');
-    const next = hit && !state.selection.objects.includes(hit) ? hit : null;
+    const next = hit && !pointPaths().includes(hit) ? hit : null;
     if (next === hoverPath) return;
     hoverPath = next;
     if (next && !geometries.has(next)) { try { await loadGeometries(); } catch { return; } }
@@ -1370,6 +1554,10 @@ function hoverPoints(event) {
   });
 }
 stage.addEventListener('pointermove', event => {
+  if (holding && !holding.released) { holding.record(event); return; }
+  moveStage(event);
+});
+function moveStage(event) {
   if (!drag) {
     if (tool==='path' && pathDraft.length) {pathHover=point(event);drawOverlay();}
     if (tool==='redraw' && redrawLines()) {const p=point(event);redrawHover=[p.x,p.y];drawOverlay();}
@@ -1400,7 +1588,7 @@ stage.addEventListener('pointermove', event => {
     }
     drawOverlay();
   }
-});
+}
 // A point drag sends the moved values: one point or handle as a node edit the
 // server carries the handles of, several points with their handles moved.
 async function finishPointDrag(finished) {
@@ -1421,7 +1609,11 @@ async function finishPointDrag(finished) {
     else { renderDrawing(); drawOverlay(); }
   } else await action('move_nodes', {changes}, 'Moving points…');
 }
-stage.addEventListener('pointerup', async event => {
+stage.addEventListener('pointerup', event => {
+  if (holding && !holding.released) { holding.record(event); holding = null; return; }
+  releaseStage(event);
+});
+async function releaseStage(event) {
   if (!drag) return;
   const finished=drag; drag=null; stage.classList.remove('panning');
   if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
@@ -1437,14 +1629,18 @@ stage.addEventListener('pointerup', async event => {
   if (finished.kind === 'node' && finished.moved) await finishPointDrag(finished);
   else if (finished.kind === 'node' && finished.collapse) await selectPoints(finished.objects, [finished.key]);
   if (finished.kind === 'move' && finished.moved) await action('move',{dx:0,dy:0,offsets:Object.fromEntries(finished.members.map(m=>[m.id,m.offset||[0,0]]))},'Moving selection…');
-});
+}
 // Double-click a group to pick within it, or a path to edit its points.
-stage.addEventListener('dblclick', async event => {
-  if (!state || level() !== 'objects' || space) return;
-  await queue;
-  const id = lastPick?.first, item = object(id);
-  if (!item || item.resource) return;
-  await enterObject(id, hitStack(event.clientX, event.clientY));
+stage.addEventListener('dblclick', event => {
+  if (!state || space) return;
+  const x = event.clientX, y = event.clientY;
+  later(async () => {
+    await queue;
+    if (level() !== 'objects') return;
+    const id = lastPick?.first, item = object(id);
+    if (!item || item.resource) return;
+    await enterObject(id, hitStack(x, y));
+  });
 });
 async function enterObject(id, hits = []) {
   const item = object(id);
@@ -1464,27 +1660,40 @@ async function stepUp() {
   const next = escapeStep({objects: state.selection.objects, points: selectedPoints(), scope}, parents(), state.root);
   scope = next.scope; clickCycle = null; focusPoint = null;
   if (next.objects.join() !== state.selection.objects.join() || hadPoints) await action('select', {objects: next.objects}, 'Selecting…');
-  // A group has no points of its own: stepping up to it leaves the point tool.
-  if (!hadPoints && level() === 'points') await setTool('select');
   renderStatus();
 }
-stage.addEventListener('pointercancel',()=>{if(drag?.kind==='drawPath')pathDraft.pop();stage.classList.remove('panning');clickCycle=null;drag=null;geometries=new Map();if(state){renderDrawing();loadGeometries().then(drawOverlay).catch(()=>{});}drawOverlay();});
+stage.addEventListener('pointercancel', event => {
+  if (holding && !holding.released) { holding.record(event); holding = null; return; }
+  cancelStage();
+});
+function cancelStage() {
+  if (drag?.kind === 'drawPath') pathDraft.pop();
+  stage.classList.remove('panning'); clickCycle = null; drag = null; geometries = new Map();
+  if (state) { renderDrawing(); loadGeometries().then(drawOverlay).catch(() => {}); }
+  drawOverlay();
+}
 stage.addEventListener('auxclick',event=>{if(event.button===1)event.preventDefault();});
 stage.addEventListener('lostpointercapture',()=>{if(drag?.kind==='pan'){drag=null;stage.classList.remove('panning');}});
 stage.addEventListener('wheel',event=>{event.preventDefault();if(!state)return;const b=stage.getBoundingClientRect();zoomAt(Math.exp(-event.deltaY*.0015),event.clientX-b.left,event.clientY-b.top);},{passive:false});
 new ResizeObserver(()=>{if(state)updateView();}).observe(stage);
 $('fit').onclick=fit; $('zoom-in').onclick=()=>zoomAt(1.25); $('zoom-out').onclick=()=>zoomAt(.8);
-document.querySelectorAll('[data-tool]').forEach(button=>button.onclick=()=>setTool(button.dataset.tool));
+document.querySelectorAll('[data-tool]').forEach(button=>button.onclick=()=>later(()=>setTool(button.dataset.tool)));
 $('object-search').oninput=renderObjects;
-$('undo').onclick=()=>action('undo',{},'Undoing…'); $('redo').onclick=()=>action('redo',{},'Redoing…');
+$('undo').onclick=()=>later(()=>action('undo',{},'Undoing…')); $('redo').onclick=()=>later(()=>action('redo',{},'Redoing…'));
+// Paint and offsets apply in order with other input, after any edit under way.
+const paint = changes => later(() => action('paint', {changes}));
 for (const kind of ['fill','stroke']) {
-  $(`${kind}-value`).onchange=event=>action('paint',{changes:{[kind]:event.target.value.trim()||null}});
-  $(`${kind}-color`).onchange=event=>action('paint',{changes:{[kind]:event.target.value}});
-  $(`${kind}-none`).onclick=()=>action('paint',{changes:{[kind]:'none'}});
+  $(`${kind}-value`).onchange=event=>paint({[kind]:event.target.value.trim()||null});
+  $(`${kind}-color`).onchange=event=>paint({[kind]:event.target.value});
+  $(`${kind}-none`).onclick=()=>paint({[kind]:'none'});
 }
-$('stroke-width').onchange=event=>action('paint',{changes:{'stroke-width':event.target.value||null}});
-$('opacity').onchange=event=>action('paint',{changes:{opacity:String(Number(event.target.value)/100)}});
-$('move-apply').onclick=async()=>{await action('move',{dx:Number($('move-x').value),dy:Number($('move-y').value)});$('move-x').value='0';$('move-y').value='0';};
+$('stroke-width').onchange=event=>paint({'stroke-width':event.target.value||null});
+$('opacity').onchange=event=>paint({opacity:String(Number(event.target.value)/100)});
+$('move-apply').onclick=()=>{
+  const dx=Number($('move-x').value), dy=Number($('move-y').value);
+  $('move-x').value='0';$('move-y').value='0';
+  later(()=>action('move',{dx,dy}));
+};
 // Point commands act on every selected point, in however many paths.
 function movePointTo(x, y) {
   const key = focusedPoint(), node = key && nodeAt(key); if (!node) return;
@@ -1492,12 +1701,13 @@ function movePointTo(x, y) {
   action('node', {object: id, node: nodeId, values: [...node.values.slice(0,-2), x, y]});
 }
 // The point's coordinates, in the right panel and the Nodes strip.
-for (const input of document.querySelectorAll('.point-x, .point-y')) {
-  input.onchange = () => {
-    const row = input.closest('.point-coordinates');
-    movePointTo(Number(row.querySelector('.point-x').value), Number(row.querySelector('.point-y').value));
+for (const field of document.querySelectorAll('.point-x, .point-y')) {
+  field.onchange = () => {
+    const row = field.closest('.point-coordinates');
+    const x = Number(row.querySelector('.point-x').value), y = Number(row.querySelector('.point-y').value);
+    later(() => movePointTo(x, y));
   };
-  input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); input.blur(); } };
+  field.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); field.blur(); } };
 }
 $('node-pin').onchange=()=>runCommand('pin');
 function joinSelectionKey() { return JSON.stringify([state.epoch,state.revision,state.selection.objects]); }
@@ -1683,7 +1893,10 @@ $('hole-shapes').onclick = async () => {
 async function cutHole() {
   if (await action('cut_hole', {}, 'Cutting out the hole…')) toast('Cut the shape out as a hole. Undo restores both paths.');
 }
-document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});
+document.querySelectorAll('[data-lock]').forEach(box=>box.onchange=()=>{
+  const item=oneObject(), locks=[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock);
+  if(item)later(()=>object(item.id)&&action('locks',{object:item.id,locks}));
+});
 const KEY_PROVIDERS=['openai','anthropic','gemini','local'];
 const keyRemovals=new Set();
 const HOSTED=['openai','anthropic','gemini'];
@@ -1817,6 +2030,7 @@ function showReference() {
   stage.classList.toggle('reference-visible', visible);
   if(reference){$('reference-image').src=reference.data_url;$('reference-image').style.opacity=reference.opacity;$('reference-opacity').value=Math.round(reference.opacity*100);$('reference-percent').textContent=`${Math.round(reference.opacity*100)}%`;}
   else{$('reference-image').removeAttribute('src');}
+  scheduleStrip();
 }
 function toggleReference() {
   if (!reference) return;
@@ -1837,61 +2051,75 @@ $('reference-opacity').oninput=event=>{if(reference){reference.opacity=Number(ev
 $('reference-opacity').onchange=()=>{if(reference)action('reference',{reference});};
 $('object-name').onchange = event => {
   const input = event.target, item = object(input.dataset.objectId);
-  if (item && input.value.trim() !== item.name) action('rename', {object:item.id, name:input.value}, 'Renaming object…');
+  const name = input.value;
+  if (item && name.trim() !== item.name) later(() => object(item.id) && action('rename', {object:item.id, name}, 'Renaming object…'));
 };
 $('object-name').onkeydown = event => {
   if (event.key === 'Enter') {event.preventDefault();event.target.blur();}
   if (event.key === 'Escape') {event.preventDefault();event.target.value=oneObject()?.name || '';event.target.blur();}
 };
+// Keys that edit wait for any edit under way, and run in order once it is
+// done; keys that only change the view act at once.
 window.addEventListener('keydown',event=>{
-  if(event.key==='F2' && oneObject() && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.querySelector('dialog[open]')) {event.preventDefault();renameObject();return;}
+  const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName), dialog=document.querySelector('dialog[open]');
+  const mod=event.ctrlKey||event.metaKey, key=event.key.toLowerCase();
+  if(event.key==='F2'&&!typing&&!dialog&&oneObject()){event.preventDefault();later(()=>{if(oneObject())renameObject();});return;}
   if(event.key==='Escape'&&treeDrag){event.preventDefault();endTreeDrag(false);return;}
-  if((event.ctrlKey||event.metaKey)&&!event.altKey&&event.key.toLowerCase()==='k'){event.preventDefault();if(!document.querySelector('dialog[open]'))openPalette();return;}
-  if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;
-  if (tool==='path' && pathDraft.length && !pending) {
-    if (event.key==='Enter') {event.preventDefault();if(!drag)finishPath(false);return;}
-    if (event.key==='Backspace' || event.key==='Delete' || ((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z')) {
-      event.preventDefault();if(!drag){pathDraft.pop();pathHover=null;drawOverlay();}return;
-    }
-  }
-  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='s'){event.preventDefault();download(true);return;}
-  if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();if(!pending)action(event.shiftKey?'redo':'undo');return;}
+  if(mod&&!event.altKey&&key==='k'){event.preventDefault();if(!dialog)openPalette();return;}
+  if(typing||dialog)return;
   if(event.code==='Space'){event.preventDefault();space=true;return;}
   if(event.key==='Escape'){
-    // Escape cancels what is under way, else steps the selection up a level.
-    const busy = drag || pathDraft.length || holePlan;
+    // Escape cancels what is under way at once, else steps the selection up
+    // a level once any edit is done.
+    const busy = drag || pathDraft.length || holePlan || (holding && !holding.released);
     pathDraft=[];pathHover=null;stage.classList.remove('panning');holePlan=null;
+    if (holding && !holding.released) { holding.cancel(); holding = null; }
     if (drag) {
       if (drag.saved) for (const [id, saved] of drag.saved) if (geometries.has(id)) restoreValues(geometries.get(id), saved);
       drag = null; if (state) renderDrawing();
     }
     if (state) renderInspector();
     drawOverlay();
-    if (!busy && state && !pending) stepUp();
+    if (!busy && state && !event.repeat) later(stepUp);
     return;
   }
-  if((event.ctrlKey||event.metaKey)&&['BracketLeft','BracketRight'].includes(event.code)){
+  // Held keys repeat; while an edit runs the repeats would pile up.
+  if(event.repeat&&(pending||input.waiting)&&!['arrowleft','arrowright','arrowup','arrowdown'].includes(key)){event.preventDefault();return;}
+  if (tool==='path' && pathDraft.length) {
+    if (event.key==='Enter') {event.preventDefault();later(()=>finishPath(false));return;}
+    if (event.key==='Backspace' || event.key==='Delete' || (mod&&key==='z')) {
+      event.preventDefault();if(!drag){pathDraft.pop();pathHover=null;drawOverlay();}return;
+    }
+  }
+  if(mod&&key==='s'){event.preventDefault();download(true);return;}
+  if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'));return;}
+  if(mod&&['BracketLeft','BracketRight'].includes(event.code)){
     // Ctrl/⌘ ] and [ step forward and backward; with Shift, to the front and back.
     event.preventDefault();
     const command=event.shiftKey?(event.code==='BracketRight'?'to-front':'to-back'):(event.code==='BracketRight'?'forward':'backward');
-    if(!pending&&state?.selection.objects.length)runCommand(command);return;
+    later(()=>{if(state?.selection.objects.length)runCommand(command);});return;
   }
-  if(event.ctrlKey||event.metaKey||event.altKey)return;
+  if(mod||event.altKey)return;
   // Shift+R retraces the selected paths; R alone is the Redraw tool.
-  if(event.shiftKey&&event.key.toLowerCase()==='r'){event.preventDefault();if(!event.repeat)runCommand('retrace');return;}
-  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',t:'trace',h:'hand'};const key=event.key.toLowerCase();
+  if(event.shiftKey&&key==='r'){event.preventDefault();if(!event.repeat)later(()=>runCommand('retrace'));return;}
+  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',t:'trace',h:'hand'};
   if(key==='o'){event.preventDefault();if(!event.repeat)toggleReference();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
-  if(tools[key])setTool(tools[key]);if(key==='f')fit();
-  // 1, 2, 3: the selected point gets no handle, one or both.
-  if(tool==='nodes'&&['1','2','3'].includes(event.key)&&!pending&&selectedPoints().length){
-    event.preventDefault();runCommand(`handles-${Number(event.key)-1}`);
+  if(key==='f'){fit();return;}
+  if(tools[key]){later(()=>setTool(tools[key]));return;}
+  // 1, 2, 3: the selected points get no handle, one or both.
+  if(['1','2','3'].includes(event.key)){
+    const count=Number(event.key)-1;
+    later(()=>{if(tool==='nodes'&&selectedPoints().length)runCommand(`handles-${count}`);});
     return;
   }
-  if((event.key==='Delete'||event.key==='Backspace')&&!pending&&state?.selection.objects.length){
+  if(event.key==='Delete'||event.key==='Backspace'){
     event.preventDefault();
-    if(level()==='points') { if(selectedPoints().length) runCommand('delete-points'); }
-    else runCommand('delete');
+    later(()=>{
+      if(!state?.selection.objects.length)return;
+      if(level()==='points') { if(selectedPoints().length) runCommand('delete-points'); }
+      else runCommand('delete');
+    });
   }
 });
 window.addEventListener('keyup',event=>{if(event.code==='Space')space=false;});
@@ -1921,7 +2149,8 @@ start();
 const operation = (command, body) => request('/api/operation', {command, ...body});
 
 
-// Improve: Optimize nodes, a quick tidy that mixes snapping, simplifying and fitting.
+// Tidy: a quick clean-up of the selected paths that mixes snapping, simplifying
+// and fitting (the operation's method is still called nodes).
 const NODE_STEPS = ['shape', 'snap', 'detail', 'simplify'];
 const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
 const nodeSteps = () => Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
@@ -1958,11 +2187,11 @@ const nodesDialog = jobDialog('nodes', {
     const late = metrics.out_of_time ? ' Stopped at the time limit.' : '';
     return `${points} · ${fit} · ${order}.${late}${note} Apply keeps this result as one undoable edit.`;
   },
-  applied: 'Paths optimized. Undo restores them.',
+  applied: 'Paths tidied. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
 for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
-async function openOptimize() {
+async function openTidy() {
   await queue;
   const reference = Boolean(state.reference);
   // Snap comes back on with the reference, as it is by default.
