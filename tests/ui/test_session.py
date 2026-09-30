@@ -477,6 +477,89 @@ def test_dragging_a_node_moves_both_handles_and_a_handle_drag_only_itself():
     assert end["values"] == (14, -9, 20, -10, 20, 0)
 
 
+def shared_curve_session():
+    # The right region's contour closes with a curve that ends on its moveto,
+    # so its top seam vertex is two nodes: the moveto and the closing node.
+    session = Session(
+        import_svg(
+            '<svg width="40" height="40">'
+            '<path id="a" d="M0 0 C5 -3 15 -3 20 0 C22 5 22 15 20 20 L0 20Z"/>'
+            '<path id="b" d="M20 0 C25 -3 35 -3 40 0 L40 20 L20 20 '
+            'C22 15 22 5 20 0Z"/></svg>'
+        )
+    )
+    send(session, "select", objects=["a", "b"])
+    session.operation(
+        {
+            "command": "apply",
+            "job": session.operation(
+                {
+                    "command": "start",
+                    "action": "link",
+                    "method": "boundaries",
+                    "epoch": session.epoch,
+                    "revision": session.editor.snapshot.revision,
+                    "permissions": {"geometry": True, "structure": True},
+                    "settings": {"tolerance": 0.01},
+                }
+            )["id"],
+        }
+    )
+    assert len(session.editor.snapshot.document.boundaries) == 1
+    return session
+
+
+def contour(session, oid):
+    return [n["values"] for n in session.nodes(oid)["geometry"]["subpaths"][0]["nodes"]]
+
+
+@pytest.mark.parametrize("index", [0, 4])
+def test_dragging_a_shared_seam_vertex_moves_both_regions_with_their_handles(index):
+    from vectrify.document.topology import validate_boundaries
+
+    session = shared_curve_session()
+    send(session, "select", objects=["b"])
+    node = session.nodes("b")["geometry"]["subpaths"][0]["nodes"][index]
+    values = [*node["values"][:-2], 23, 2]
+    send(session, "node", object="b", node=node["id"], values=values)
+    assert contour(session, "b") == [
+        (23, 2),
+        (28, -1, 35, -3, 40, 0),
+        (40, 20),
+        (20, 20),
+        (22, 15, 25, 7, 23, 2),
+    ]
+    assert contour(session, "a") == [
+        (0, 0),
+        (5, -3, 18, -1, 23, 2),
+        (25, 7, 22, 15, 20, 20),
+        (0, 20),
+    ]
+    document = session.editor.snapshot.document
+    document.validate()
+    validate_boundaries(document)
+
+
+def test_nodes_payload_names_shared_edges_and_the_peers_a_drag_moves():
+    session = shared_curve_session()
+    send(session, "select", objects=["b"])
+    payload = session.nodes("b")
+    seam = payload["geometry"]["subpaths"][0]["nodes"][4]["id"]
+    assert payload["shared"] == [seam]
+    (peer,) = payload["peers"].values()
+    assert peer["objects"] == ["a"]
+    top = peer["geometry"]["subpaths"][0]["nodes"][1]["id"]
+    assert payload["links"][f"{seam}/4"] == [
+        [
+            session.editor.snapshot.document.geometry_for("a").id,
+            top,
+            4,
+            [1, 0, 0, 1, 0, 0],
+        ]
+    ]
+    json.dumps(payload)
+
+
 HOLES = (
     '<svg width="100" height="100">'
     '<path id="outer" fill="#336699" d="M0 0H100V100H0Z M10 10V30H30V10Z"/>'

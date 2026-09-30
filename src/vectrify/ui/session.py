@@ -28,6 +28,7 @@ from vectrify.document import (
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.model import new_id
 from vectrify.document.svg import parse_path
+from vectrify.document.topology import linked_slots
 from vectrify.operations import (
     Budget,
     Job,
@@ -218,11 +219,36 @@ class Session:
     def nodes(self, object_id: str) -> dict:
         document = self.editor.snapshot.document
         geometry = document.geometry_for(object_id)
+        # What a drag moves elsewhere, so the editor can show it moving live:
+        # "node/index" coordinate -> [geometry, node, index, local matrix].
+        links = linked_slots(document, geometry.id)
+        peers = {gid for entries in links.values() for gid, *_ in entries}
         return {
             "epoch": self.epoch,
             "revision": self.editor.snapshot.revision,
             "object": object_id,
             "geometry": asdict(geometry),
+            "shared": [
+                m.node_id
+                for b in document.boundaries
+                for m in b.members
+                if m.geometry_id == geometry.id
+            ],
+            "links": {
+                f"{node}/{index}": [[*peer[:3], list(peer[3])] for peer in entries]
+                for (node, index), entries in links.items()
+            },
+            "peers": {
+                gid: {
+                    "objects": [
+                        e.id
+                        for e in document.elements()
+                        if e.tag == "path" and e.geometry_id == gid
+                    ],
+                    "geometry": asdict(document.geometry(gid)),
+                }
+                for gid in peers - {geometry.id}
+            },
         }
 
     def holes(self, payload: dict) -> dict:
