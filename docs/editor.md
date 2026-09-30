@@ -142,7 +142,8 @@ without them and with them as they started). Removals are kept while the
 result stays within it, and nudges that improve the fit earn room for more.
 
 Two engines do the work. The **GPU fit** is the default where it can run: one
-filled path, a reference, and PyTorch CUDA with the Vectrify CUDA extension. It
+filled path whose contours have up to 16 curves each, a reference, and PyTorch
+CUDA with the Vectrify CUDA extension. It
 moves points and handles by gradient descent, with a step budget and a maximum
 movement in local SVG units, and supports only Shape. The **CPU search** runs
 everywhere else and for every option: a beam search: the workers try changes to
@@ -186,7 +187,9 @@ contract in `vectrify.operations` (see `docs/operations.md`) via
 **Generate from reference…** (in the Reference panel) traces the reference into
 new shapes. The SAMVG method segments the image with SAM and traces each region
 into filled paths. Choose the model (ViT-H is best, ViT-B is faster), the
-maximum shapes and curves per outline, whether to fill small holes, and the
+resolution SAM segments at (higher traces a large image with smoother edges),
+the maximum shapes and curves per outline (up to 16 keeps them fittable on the
+GPU), whether to fill small holes, and the
 thinnest region to keep: regions narrower than that everywhere, such as
 outlines and hairlines, are left out (0 keeps everything). Regions hidden entirely by
 those above are left out, and a backdrop rectangle beneath them all, in the
