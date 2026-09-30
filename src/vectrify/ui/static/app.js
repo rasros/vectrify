@@ -1,4 +1,5 @@
 import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
+import {dropIndex, dropRefusal, dropTarget} from './tree.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
@@ -228,11 +229,79 @@ function renderObjects() {
     }
     row.append(swatch, label);
     if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; mark.title = `Locked: ${item.inherited_locks.map(lock => lock === 'transform' ? 'position' : lock).join(', ')}`; row.append(mark); }
-    row.onclick = event => selectObject(item.id, event.shiftKey || event.ctrlKey || event.metaKey, true);
+    row.onclick = event => { if (!treeDragEnded) selectObject(item.id, event.shiftKey || event.ctrlKey || event.metaKey, true); };
+    row.onpointerdown = event => pressTreeRow(event, item);
     fragment.append(row);
   }
-  $('objects').replaceChildren(fragment); $('object-count').textContent = count;
+  $('objects').replaceChildren(fragment, treeDropLine); $('object-count').textContent = count;
+  if (treeDrag?.active) showTreeDrop();
 }
+// Dragging rows in the tree restacks them, or moves them into a group. The
+// drag carries the whole selection when it starts on a selected row.
+const TREE_INDENT = 9;
+const treeDropLine = document.createElement('div'); treeDropLine.className = 'tree-drop-line'; treeDropLine.hidden = true;
+let treeDrag = null, treeDragEnded = false;
+function pressTreeRow(event, item) {
+  if (event.button !== 0 || pending || item.resource) return;
+  treeDrag = {item: item.id, x: event.clientX, y: event.clientY, active: false, target: null};
+}
+function treeRows() {
+  return [...$('objects').querySelectorAll('.object-row')].map(row => {
+    const item = object(row.dataset.object), box = row.getBoundingClientRect();
+    return {id: item.id, parent: item.parent, depth: item.depth, container: item.tag === 'g' && !item.resource, top: box.top, height: box.height, left: box.left};
+  });
+}
+function showTreeDrop() {
+  const {target, refusal} = treeDrag;
+  for (const row of $('objects').querySelectorAll('.object-row')) {
+    row.classList.toggle('drop-into', !refusal && !!target?.into && row.dataset.object === target.parent);
+    row.classList.toggle('dragged', treeDrag.ids.has(row.dataset.object));
+  }
+  treeDropLine.hidden = !!refusal || !target?.line;
+  $('objects').classList.toggle('drop-refused', !!refusal);
+  $('objects').title = refusal;
+  if (treeDropLine.hidden) return;
+  const list = $('objects'), box = list.getBoundingClientRect();
+  treeDropLine.style.top = `${target.line.y - box.top + list.scrollTop - 1}px`;
+  treeDropLine.style.left = `${8 + TREE_INDENT * (1 + target.line.depth)}px`;
+}
+function moveTreeDrag(event) {
+  if (!treeDrag) return;
+  if (!treeDrag.active) {
+    if (Math.hypot(event.clientX - treeDrag.x, event.clientY - treeDrag.y) < 5) return;
+    const selected = state.selection.objects;
+    const ids = selected.includes(treeDrag.item) ? selected.filter(id => !object(id)?.resource) : [treeDrag.item];
+    treeDrag = {...treeDrag, active: true, ids: new Set(ids)};
+    $('objects').classList.add('dragging');
+  }
+  const list = $('objects'), box = list.getBoundingClientRect();
+  // Scroll while the pointer is near the list's top or bottom edge.
+  if (event.clientY < box.top + 24) list.scrollTop -= 12;
+  else if (event.clientY > box.bottom - 24) list.scrollTop += 12;
+  const rows = treeRows();
+  const target = dropTarget(rows, event.clientX - (rows[0]?.left ?? box.left) - TREE_INDENT, event.clientY, TREE_INDENT);
+  const parents = new Map(state.objects.map(item => [item.id, item.parent]));
+  const resources = new Set(state.objects.filter(item => item.resource).map(item => item.id));
+  treeDrag.target = target;
+  treeDrag.refusal = dropRefusal(target, treeDrag.ids, parents, resources);
+  showTreeDrop();
+}
+function endTreeDrag(drop) {
+  const finished = treeDrag;
+  treeDrag = null; treeDropLine.hidden = true;
+  $('objects').classList.remove('dragging', 'drop-refused'); $('objects').title = '';
+  for (const row of $('objects').querySelectorAll('.drop-into, .dragged')) row.classList.remove('drop-into', 'dragged');
+  if (!finished?.active) return;
+  // The pointer is released over a row: that is not a click on it.
+  treeDragEnded = true; setTimeout(() => treeDragEnded = false);
+  if (!drop || finished.refusal) { if (drop) toast(finished.refusal, true); return; }
+  const {target, ids} = finished;
+  const children = state.objects.filter(item => item.parent === target.parent).map(item => item.id);
+  action('move_objects', {objects: [...ids], parent: target.parent, index: dropIndex(target, children, ids)}, 'Moving objects…');
+}
+window.addEventListener('pointermove', moveTreeDrag);
+window.addEventListener('pointerup', () => endTreeDrag(true));
+window.addEventListener('pointercancel', () => endTreeDrag(false));
 function paintValue(attr, fallback = '') {
   const values = state.selection.objects.map(id => resolvedPaint(id, attr, fallback));
   return values.length && values.every(v => v === values[0]) ? values[0] : '';
@@ -336,6 +405,7 @@ function renderInspector() {
   enable('group', selected.length < 2 && 'Select two or more objects to group');
   enable('ungroup', !selected.every(id => object(id)?.tag === 'g') && 'Select one or more groups');
   for (const id of ['backward', 'forward']) enable(id, !item && 'Select one object to restack');
+  for (const id of ['to-back', 'to-front']) enable(id, selected.some(id => object(id)?.resource) && 'Definitions and clipping boundaries keep their place');
   enable('join_paths', joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them');
   enable('split_disconnected', item?.tag === 'use' ? 'Detach this instance to an editable path first' : !paths && 'Only visible paths can be split');
   enable('cut_hole', (selected.length !== 2 || !paths) && 'Select two visible paths, one inside or overlapping the other');
@@ -1115,6 +1185,7 @@ $('node-delete').onclick=()=>action('delete_node',{object:geometryObject,node:ac
 document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});
 for (const command of ['group','ungroup','delete','detach']) $(command).onclick=()=>action(command);
 $('backward').onclick=()=>action('reorder',{step:-1});$('forward').onclick=()=>action('reorder',{step:1});
+$('to-back').onclick=()=>action('reorder',{to:'back'});$('to-front').onclick=()=>action('reorder',{to:'front'});
 const KEY_PROVIDERS=['openai','anthropic','gemini','local'];
 const keyRemovals=new Set();
 const HOSTED=['openai','anthropic','gemini'];
@@ -1272,6 +1343,7 @@ $('object-name').onkeydown = event => {
 };
 window.addEventListener('keydown',event=>{
   if(event.key==='F2' && oneObject() && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.querySelector('dialog[open]')) {event.preventDefault();$('object-name').focus();$('object-name').select();return;}
+  if(event.key==='Escape'&&treeDrag){event.preventDefault();endTreeDrag(false);return;}
   if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;
   if (tool==='path' && pathDraft.length && !pending) {
     if (event.key==='Enter') {event.preventDefault();if(!drag)finishPath(false);return;}
@@ -1288,6 +1360,12 @@ window.addEventListener('keydown',event=>{
     if(state){renderDrawing();renderInspector();}
     if(tool==='nodes')loadNodes().then(drawOverlay).catch(error=>toast(error.message,true));
     drawOverlay();return;
+  }
+  if((event.ctrlKey||event.metaKey)&&['BracketLeft','BracketRight'].includes(event.code)){
+    // Ctrl/⌘ ] and [ step forward and backward; with Shift, to the front and back.
+    event.preventDefault();
+    const button=$(event.shiftKey?(event.code==='BracketRight'?'to-front':'to-back'):(event.code==='BracketRight'?'forward':'backward'));
+    if(!pending&&state?.selection.objects.length&&!button.disabled)button.click();return;
   }
   if(event.ctrlKey||event.metaKey||event.altKey)return;
   const tools={v:'select',n:'nodes',p:'path',k:'knife',h:'hand'};const key=event.key.toLowerCase();
