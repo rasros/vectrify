@@ -376,7 +376,25 @@ class Transaction:
             updated = replace(node, values=tuple(values))
             if updated == node:
                 return
-            candidate = propagate_node(self._working, geometry.id, updated)
+            # Handles retracted onto a moved point go with it, so a corner
+            # stays a corner instead of growing handles back to where it was.
+            point, moved = node.endpoint, updated.endpoint
+            following = []
+            if moved != point:
+                if updated.command == "C" and updated.values[2:4] == point:
+                    updated = replace(
+                        updated, values=(*updated.values[:2], *moved, *moved)
+                    )
+                nodes = next(s.nodes for s in geometry.subpaths if node in s.nodes)
+                after = nodes[nodes.index(node) + 1 :][:1]
+                following = [
+                    replace(n, values=(*moved, *n.values[2:]))
+                    for n in after
+                    if n.command == "C" and n.values[0:2] == point
+                ]
+            candidate = self._working
+            for change in (updated, *following):
+                candidate = propagate_node(candidate, geometry.id, change)
             self._authorize_geometry_change(candidate)
             self._working = candidate
 

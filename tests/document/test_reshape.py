@@ -139,3 +139,24 @@ def test_handles_respect_permissions_and_ask_for_a_segment():
     tx = lonely.transaction("Handles")
     with pytest.raises(EditRejectedError, match="no segment"):
         tx.set_node_handles("p", middle(lonely)[0].id, 2)
+
+
+WAVE = (
+    '<svg width="40" height="40">'
+    '<path id="p" d="M0 0 C0 10 10 10 10 0 C10 -10 20 -10 20 0" fill="none"/></svg>'
+)
+
+
+@pytest.mark.parametrize("count", [0, 1])
+def test_moving_a_point_keeps_its_retracted_handles_on_it(count):
+    editor = Editor(import_svg(WAVE), selection=select("p"))
+    _, point, end = handles(editor, count)
+    before = (point.values[2:4] != point.endpoint) + (end.values[0:2] != point.endpoint)
+    assert before == count
+    # A drag sends the point's own values with only the endpoint moved.
+    with editor.transaction("Move") as tx:
+        tx.update_node("p", point.id, (*point.values[:4], 12.0, 2.0))
+    _, point, end = middle(editor)
+    assert point.endpoint == (12.0, 2.0)
+    after = (point.values[2:4] != point.endpoint) + (end.values[0:2] != point.endpoint)
+    assert after == count
