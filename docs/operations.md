@@ -79,7 +79,7 @@ their references, so repeated generations never collide.
 
 ## Replaying edited SVG
 
-LLM edits and Clean up geometry change exported SVG, where every element keeps
+LLM edits and Clean up change exported SVG, where every element keeps
 its object ID. `replay(tx, svg)` in `vectrify.operations.candidates` accepts
 such a candidate only by repeating its differences as transaction commands:
 deletions and insertions (structure), attribute edits, in-place node updates
@@ -101,7 +101,7 @@ introduced by that rewrite is never replayed. `mutation_scope(request)` turns
 the selection (or the whole drawing's top-level objects) and the permissions
 into the `MutationScope` the LLM prompt names as editable.
 
-## Optimize nodes
+## Tidy (improve/nodes)
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
 no other object shares. Its settings are the steps to use (`snap` and

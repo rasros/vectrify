@@ -1,8 +1,8 @@
-"""Benchmark tracing and Optimize nodes on fixed references.
+"""Benchmark tracing and Tidy (improve/nodes) on fixed references.
 
 For each reference and preset, this runs a Generate method (SAMVG unless
 `--method` names another) through the same code the editor uses, then
-Optimize nodes on the largest traced paths, and records how close the
+Tidy on the largest traced paths, and records how close the
 result is to the reference, how heavy it is and how long it took. SAM's
 masks are cached on disk per image and model setting, so after the first
 run only the steps after SAM are timed and tuning them takes seconds;

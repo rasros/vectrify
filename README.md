@@ -32,10 +32,10 @@ for every control.
 | Generate | SAMVG | Segments the reference with SAM and traces each region |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
 | Generate | LLM | Asks a multimodal model to draw the reference |
-| Improve | Optimize nodes | Tidies the selected paths in seconds: snaps their points to the reference and simplifies, with Add detail and a gradient shape fit on request; simplifies without one |
+| Improve | Tidy | Tidies the selected paths in seconds: snaps their points to the reference and simplifies, with Add detail and a gradient shape fit on request; simplifies without one |
 | Improve | Edit with LLM | Sends the drawing and an instruction to a model |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
-| Simplify | Clean up geometry | Drops redundant vertices and merges compatible paths |
+| Simplify | Clean up | Drops redundant vertices and merges compatible paths |
 
 Generated shapes are placed over the artboard exactly where the reference is
 shown. Improve and Simplify change only the selection, and locks, pins and
@@ -49,7 +49,7 @@ Python 3.10 or newer. SVG rendering needs Cairo; on Debian/Ubuntu install it
 with `sudo apt install libcairo2`.
 
 The `vision` and `samvg` extras install PyTorch and transformers, which SAMVG,
-colour regions and the shape fit of Optimize nodes need; `all` installs both.
+colour regions and the shape fit of Tidy need; `all` installs both.
 Colour regions need an NVIDIA GPU with CUDA; SAMVG uses it when available. The
 shape fit runs on the GPU with the optional native CUDA extension (below) and
 on the CPU otherwise, except for outlined fills, which need the GPU.
@@ -86,7 +86,7 @@ PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 `scripts/` holds standalone tools run from a checkout:
 `bench_colour_regions.py` runs colour regions on one image,
 `bench_samvg_renderer.py` and `check_cuda_renderer.py` time the filled-path
-fit, `bench_trace.py` benchmarks Generate with SAMVG and Optimize nodes on
+fit, `bench_trace.py` benchmarks Generate with SAMVG and Tidy on
 fixed references, `subtle_screen.py`
 checks that the scorers in `vectrify.score` order graded path damage
 correctly, and

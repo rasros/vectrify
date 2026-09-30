@@ -34,11 +34,18 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   buttons (None / One / Two), **Pin points**, **Split edge**, **Delete**,
   **Delete contour**, X / Y for a single point, and **Fill hole** / **Hole to
   shape** when the points are on holes. Draw path has Finish, Close shape and
-  Cancel. Knife and Redraw show a one-line hint. Trace holds the reference
-  image and the tools that match the drawing to it (below).
+  Cancel. Knife, Redraw outline, Draw path and Pan show a one-line hint. Trace
+  holds the reference image and the tools that match the drawing to it
+  (below). The strip keeps to one row: when the window is too narrow for the
+  tool's controls, the least important of them (Delete contour first, then
+  Split edge and the coordinates, and so on) move into a **⋯** menu at the
+  end of the controls, which holds them until there is room again; the status
+  stays in view. A command run from the menu closes it.
 - **Right**: only the selection's properties, in the same order every time.
   With points selected, the points come first: a single point's coordinates
-  (in its path's own frame), its handles and whether it is pinned. Then the
+  (in its path's own frame), its handles and whether it is pinned, and a note
+  when the points are of shared geometry or the selection holds instances.
+  Then the
   objects' name, role and connections, paint (fill, stroke, stroke width,
   opacity), **Move by** an offset, locks, and the **Actions** on the
   selection: Group, Ungroup, Join paths…, Split parts, Cut out as hole,
@@ -54,10 +61,20 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 - The footer shows the artboard size, the reference overlay toggle (`O`),
   with its opacity and an amber canvas border while it is visible, and zoom.
 
-Dialogs remain where a preview or confirmation is needed: Generate, Tidy,
-Fit colours, Join paths, Clean up, Snap edges, Settings, Restore saved and the
-shortcuts. They open from the tool strip, the Actions, the context menu or the
+Dialogs remain where a preview or confirmation is needed: Generate from
+reference, Tidy, Fit colours, Join paths, Clean up, Snap edges, Settings,
+Restore saved project and Keyboard shortcuts, each titled as the command that
+opens it. They open from the tool strip, the Actions, the context menu or the
 palette.
+
+Input never gets lost while an edit is running. Keys, clicks, commands, tree
+clicks and drops, and canvas drags made meanwhile wait for it, then apply in
+the order they were made, each once, on the drawing the edit left: a click or
+drag is hit-tested again when it runs, so a drag started during an edit acts
+on its result. A drag still held when the edit finishes carries on live.
+Escape cancels a waiting drag at once. Viewing needs no wait: panning,
+zooming, fit and the overlay toggle act immediately. Edits made during a
+canvas drag also wait for the drag to finish.
 
 ## Selecting
 
@@ -66,14 +83,15 @@ may span several paths, say five points in three paths; point commands act on
 all of them as one undoable edit.
 
 - In an object tool (Select, Knife, Trace) a click picks the outermost group
-  under the pointer, as in most editors. **Double-click** a group to enter it:
+  under the pointer, as in most editors. Only Select moves objects by
+  dragging; in Knife a drag cuts and in Trace it box selects. **Double-click** a group to enter it:
   clicks then pick within it, and the breadcrumb shows where you are. A click
   outside the entered group leaves it. Double-click a path to switch to Nodes
   on it. Picking an object in the tree enters the group it is in.
 - Repeated canvas clicks at the same spot cycle through the overlapping
   objects at that level, front to back, then wrap around. Moving or zooming
   the view, editing, or selecting in the tree resets the cycle. A double-click
-  acts on what its first click picked.
+  acts on what was picked before it: its second click does not cycle on.
 - **Shift-click** adds or removes an object; in the tree, Ctrl-click
   (Command-click on Mac) does too. Tree selection centres and zooms the canvas
   on the whole selection; selecting on the canvas reveals the row in the tree,
@@ -81,20 +99,29 @@ all of them as one undoable edit.
 - **Box select**: drag on the canvas, from empty space or from an unselected
   object, to select what lies wholly inside the box: objects at the entered
   group's level in an object tool, points of the selected paths in a point
-  tool. Shift toggles what the box finds. Dragging a selected object moves the
-  selection instead.
-- In a point tool, the points of every selected path show. Hovering an
-  unselected path in Nodes shows its points faintly; clicking one selects that
-  point and adds its path. Shift-click adds or removes a point; a click on one
-  of several selected points, without dragging, selects it alone.
+  tool. Shift toggles what the box finds. In Select, dragging a selected
+  object moves the selection instead.
+- In a point tool, the points of every selected path show, and those of
+  every path inside a selected group, however deep; box select and the point
+  commands span all of them. Selected instances (`use`) have no points of
+  their own: the right panel asks to Detach them. Hovering an unselected path
+  in Nodes shows its points faintly; clicking one selects that point and adds
+  its path. Shift-click adds or removes a point; a click on one of several
+  selected points, without dragging, selects it alone.
+- Paths drawing one shared geometry share its points. A point is selected in
+  the path it was clicked in, drawn strong there; the other selected paths
+  drawing that geometry show it faintly, since editing it moves them all, and
+  the right panel says how many other paths it changes. Detach a path to edit
+  it alone. A point picked in two such paths is still one point: it moves,
+  splits or changes handles once.
 - Switching tools never discards the selection. Going from a point tool to an
   object tool keeps the objects and hides the points; going back restores the
   same points if the objects have not changed meanwhile, and clears them if
   they have.
 - **Escape** first cancels what is under way (a drag, a path being drawn, a
   hole inspection, a redraw stroke). Otherwise it steps up one level: points
-  to their paths, a path to the group it is in (leaving the point tool, since
-  a group has no points), top-level objects to nothing, and, with nothing
+  to their paths, a path to the group it is in (a point tool stays, showing
+  the group's points), top-level objects to nothing, and, with nothing
   selected, out of an entered group.
 - A click outside the artboard clears the selection in every tool; in a point
   tool a click on empty canvas drops the points first.
@@ -141,10 +168,11 @@ and saved projects restore it.
   screen pixels at any zoom; an orange diamond marks the target and a dashed
   line the edge. Hold Alt or Ctrl/⌘ to drag without snapping. Where a point
   started is never a target.
-  When the selected points are on holes of one path, **Fill hole** removes
-  those holes (and islands inside them) and **Hole to shape** moves them out
-  into new paths with the path's paint, stacked just above it and selected
-  afterwards. Islands inside a hole go along as holes of the new shape.
+  When the selected points are all on holes, in one path or several,
+  **Fill hole** removes those holes (and islands inside them) and **Hole to
+  shape** moves them out into new paths, each with its path's paint, stacked
+  just above it and selected afterwards, as one undoable edit. Islands inside
+  a hole go along as holes of the new shape.
 - **Draw path (P)**: click to add corners, drag to set mirrored Bézier handles.
   Click the first point or **Close shape** for a filled shape, or press Enter /
   **Finish** for an open stroked path. Backspace removes the last point; Escape
@@ -232,8 +260,10 @@ and saved projects restore it.
   the knife asks you to select shapes first; a plain click selects.
 - The **Redraw outline** tool (`R`) fixes a stretch of one path's outline in
   one gesture, like a magnetic lasso: a missing spike, a notch or a grass
-  blade. Select a path, press on its outline (or on one of its points), draw
-  roughly along the reference's edge and release on the same contour. Each
+  blade. Select a path (or several, or a group: every path the point tools
+  show can be redrawn), press on its outline (or on one of its points), draw
+  roughly along the reference's edge and release on the same contour; the
+  stroke redraws the path it starts on, and the selection stays as it was. Each
   end attaches to the nearest point within 6 screen pixels, else to the
   nearest place on the outline within 10; white dots show where, and the
   stretch that will be replaced is dashed. On a closed contour that is the
@@ -285,8 +315,9 @@ The **Trace** tool (`T`) is where the reference lives: **Load reference…**
 (or **Replace…**) takes a PNG, JPEG or WebP image, × removes it, and the strip
 shows the overlay toggle (`O`) and its opacity. Beside them are the tools that
 compare the drawing with it: **Generate…**, **Retrace** with its mode,
-**Tidy…** and **Fit colours…**. Trace selects like Select, so pick the shapes
-to work on without switching tools. Each tool is also in the command palette.
+**Tidy…** and **Fit colours…**. Trace selects like Select (click, box select,
+double-click into groups) but never moves objects, so pick the shapes to work
+on without switching tools or nudging them. Each tool is also in the command palette.
 
 **Retrace** (Shift+R) replaces the outline of each selected
 path with a fresh trace of its object in the reference, keeping the path's ID,
@@ -308,7 +339,7 @@ paths can be retraced; locked geometry, pinned points and shared geometry are
 refused (unpin or detach first). It replaces Tidy for fixing a whole
 shape; Tidy remains for tidying one.
 
-**Tidy (Optimize nodes)…** is a quick clean-up of the selected paths, or the paths
+**Tidy…** is a quick clean-up of the selected paths, or the paths
 inside selected groups, against the reference around them, never the whole
 image. By default it snaps their points onto the reference's edges and removes
 the points they do not need, in a few seconds; to reshape a path, use Retrace
@@ -370,7 +401,7 @@ a closed form; outlines painted in the fill colour follow it. Objects are
 fitted back to front; more passes help where fitted objects overlap. No GPU is
 needed.
 
-**Clean up geometry…** removes duplicate and collinear vertices and empty or
+**Clean up…** removes duplicate and collinear vertices and empty or
 duplicate paths, and merges compatible neighbouring paths into compound paths,
 within the selection only. Paths referenced by instances or clips are kept.
 Coordinates are never rounded.
@@ -432,8 +463,8 @@ needs CUDA and PyTorch (the `vision` or `samvg` extra).
 
 ## Limits
 
-Node handles edit direct `path` elements. Local `use` instances can
-be selected, styled, moved and detached; editing a referenced source still
+Point tools edit `path` elements, selected or inside a selected group. Local
+`use` instances can be selected, styled, moved and detached; editing a referenced source still
 requires selecting every affected consumer, as enforced by the backend. Groups
 with compositing or reference relationships that cannot be ungrouped without
 changing appearance return a clear error. The knife cuts only along straight
