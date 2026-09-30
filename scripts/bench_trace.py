@@ -1,15 +1,17 @@
 """Benchmark tracing and Optimize nodes on fixed references.
 
-For each reference and preset, this runs Generate with SAMVG through the
-same method the editor uses, then Optimize nodes on the largest traced
-paths, and records how close the result is to the reference, how heavy it
-is and how long it took. SAM's masks are cached on disk per image and model
-setting, so after the first run only the steps after SAM are timed and
-tuning them takes seconds; `--no-cache` segments again.
+For each reference and preset, this runs a Generate method (SAMVG unless
+`--method` names another) through the same code the editor uses, then
+Optimize nodes on the largest traced paths, and records how close the
+result is to the reference, how heavy it is and how long it took. SAM's
+masks are cached on disk per image and model setting, so after the first
+run only the steps after SAM are timed and tuning them takes seconds;
+`--no-cache` segments again.
 
     uv run python scripts/bench_trace.py --out runs/base.jsonl
     uv run python scripts/bench_trace.py --set max_side=1024 --out runs/b.jsonl
     uv run python scripts/bench_trace.py --compare runs/base.jsonl runs/b.jsonl
+    uv run python scripts/bench_trace.py --method cel --paths 0 --out runs/cel.jsonl
 
 The error is the mean squared difference to the reference in 0-255 RGB. SAM
 and the steps after it are deterministic, so one run per case compares
@@ -34,9 +36,21 @@ REFERENCES = (
     "ChatGPT Image Sep 29, 2026, 10_40_22 PM.png",
     "chest-clothing-bold-v2.png",
 )
-# Generate settings on top of the method's defaults.
-PRESETS: dict[str, dict] = {
-    "defaults": {},
+# Generate settings on top of each method's defaults, by method and preset.
+PRESETS: dict[str, dict[str, dict]] = {
+    "samvg": {
+        "defaults": {},
+    },
+    "cel": {
+        "defaults": {},
+        "regions-100": {"regions": 100},
+        "regions-200": {"regions": 200},
+        "filled-lines": {"strokes": False},
+    },
+    "colour-regions": {
+        "defaults": {},
+        "clean-outlines": {"preserve_outlines": True, "outline_style": "clean"},
+    },
 }
 # Optimize nodes: which steps, and how many rounds per path.
 OPTIMIZE = {"shape": True, "snap": True, "detail": False, "simplify": True}
@@ -49,7 +63,8 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--references", nargs="+", type=Path)
-    parser.add_argument("--preset", nargs="+", choices=sorted(PRESETS))
+    parser.add_argument("--method", default="samvg", choices=sorted(PRESETS))
+    parser.add_argument("--preset", nargs="+", help="Presets of the method to run")
     parser.add_argument(
         "--set",
         action="append",
@@ -63,24 +78,46 @@ def main() -> None:
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--out", type=Path, help="Write one JSON line per case")
+    parser.add_argument(
+        "--renders", type=Path, help="Save each case's traced drawing here as PNG"
+    )
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("BEFORE", "AFTER"))
     args = parser.parse_args()
     if args.compare:
         compare(*args.compare)
         return
+    presets = PRESETS[args.method]
+    unknown = set(args.preset or ()) - set(presets)
+    if unknown:
+        parser.error(
+            f"no {args.method} preset {', '.join(sorted(unknown))}; "
+            f"choose from {', '.join(sorted(presets))}"
+        )
     overrides = dict(_setting(item) for item in args.set)
     references = args.references or [ROOT / name for name in REFERENCES]
     rows = []
     for path in references:
         image = Image.open(path).convert("RGB")
-        for preset in args.preset or list(PRESETS):
-            settings = {**PRESETS[preset], **overrides}
+        for preset in args.preset or list(presets):
+            settings = {**presets[preset], **overrides}
             for _ in range(args.repeat):
                 row = {
                     "reference": path.name,
+                    "method": args.method,
                     "preset": preset,
                     "settings": settings,
-                    **trace(image, settings, args.paths, cache=not args.no_cache),
+                    **trace(
+                        image,
+                        args.method,
+                        settings,
+                        args.paths,
+                        cache=not args.no_cache,
+                        render=(
+                            args.renders / f"{path.stem}-{args.method}-{preset}.png"
+                            if args.renders
+                            else None
+                        ),
+                    ),
                 }
                 rows.append(row)
                 print(_line(row), flush=True)
@@ -91,12 +128,25 @@ def main() -> None:
                 file.write(json.dumps(row) + "\n")
 
 
-def trace(image: Image.Image, settings: dict, paths: int, *, cache: bool) -> dict:
-    """Generate from *image* with *settings*, then Optimize its largest paths."""
+def trace(
+    image: Image.Image,
+    name: str,
+    settings: dict,
+    paths: int,
+    *,
+    cache: bool,
+    render: Path | None = None,
+) -> dict:
+    """Generate from *image* with method *name* and *settings*, then Optimize
+    its largest paths. With *render*, the traced drawing is saved there."""
     from vectrify.document import Editor, Selection, export_svg, import_svg
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
-    timing = _cached_segmentation(cache)
+    timing = (
+        _cached_segmentation(cache)
+        if name == "samvg"
+        else {"segment": 0.0, "cached": False, "spent": 0.0}
+    )
     width, height = image.size
     editor = Editor(
         import_svg(
@@ -107,7 +157,7 @@ def trace(image: Image.Image, settings: dict, paths: int, *, cache: bool) -> dic
     )
     request = OperationRequest(
         "generate",
-        "samvg",
+        name,
         editor.snapshot,
         editor,
         Permissions(geometry=True, structure=True, paint=True),
@@ -116,7 +166,7 @@ def trace(image: Image.Image, settings: dict, paths: int, *, cache: bool) -> dic
         reference=image,
     )
     started = time.perf_counter()
-    job = Job(method("generate", "samvg"), request)
+    job = Job(method("generate", name), request)
     job.run()
     total = time.perf_counter() - started
     state = job.state()
@@ -125,6 +175,17 @@ def trace(image: Image.Image, settings: dict, paths: int, *, cache: bool) -> dic
     metrics = state["result"]["metrics"]
     job.apply()
     document = editor.snapshot.document
+    if render:
+        import cairosvg
+
+        render.parent.mkdir(parents=True, exist_ok=True)
+        cairosvg.svg2png(
+            bytestring=export_svg(document).encode(),
+            write_to=str(render),
+            output_width=width,
+            output_height=height,
+            background_color="white",
+        )
     data = " ".join(
         e.get("d") or "" for e in _parse(export_svg(document)) if e.tag.endswith("path")
     )
@@ -134,11 +195,14 @@ def trace(image: Image.Image, settings: dict, paths: int, *, cache: bool) -> dic
         "curves": data.count("C"),
         # Seams Generate snapped together; SAMVG snaps none.
         "snapped": metrics.get("snapped", 0),
-        "segment_s": round(timing["segment"], 1),
-        "cached": timing["cached"],
         "total_s": round(total, 1),
-        "after_sam_s": round(total - timing["spent"], 1),
     }
+    if name == "samvg":
+        row |= {
+            "segment_s": round(timing["segment"], 1),
+            "cached": timing["cached"],
+            "after_sam_s": round(total - timing["spent"], 1),
+        }
     if paths:
         row["optimize"] = optimize(editor, image, paths)
     return row
@@ -300,14 +364,19 @@ def _setting(item: str) -> tuple[str, object]:
 
 
 def _line(row: dict) -> str:
+    case = f"{row['reference']} [{_case(row)}]"
     if "failed" in row:
-        return f"{row['reference']} [{row['preset']}]: failed: {row['failed']}"
+        return f"{case}: failed: {row['failed']}"
     text = (
-        f"{row['reference']} [{row['preset']}]: error {row['error']}, "
+        f"{case}: error {row['error']}, "
         f"{row['paths']} paths, {row['curves']} curves, {row['snapped']} snapped, "
-        f"{row['total_s']} s ({row['after_sam_s']} s after SAM"
-        f"{', SAM cached' if row['cached'] else ''})"
+        f"{row['total_s']} s"
     )
+    if "after_sam_s" in row:
+        text += (
+            f" ({row['after_sam_s']} s after SAM"
+            f"{', SAM cached' if row['cached'] else ''})"
+        )
     if "optimize" in row:
         o = row["optimize"]
         text += (
@@ -317,15 +386,31 @@ def _line(row: dict) -> str:
     return text
 
 
+def _case(row: dict) -> str:
+    """The method and preset of *row*; runs from before `--method` are SAMVG."""
+    method = row.get("method", "samvg")
+    return row["preset"] if method == "samvg" else f"{method} {row['preset']}"
+
+
 def compare(before: Path, after: Path) -> None:
-    """Print the two runs' cases side by side."""
+    """Print the two runs' cases side by side.
 
-    def load(path: Path) -> dict:
-        rows = [json.loads(line) for line in path.read_text().splitlines() if line]
-        return {(r["reference"], r["preset"]): r for r in rows}
+    Cases pair by reference and preset, and by method too when both runs
+    used the same one; runs of two methods pair up preset by preset.
+    """
 
-    old, new = load(before), load(after)
-    print("| case | error | paths | curves | after SAM s | optimize error left |")
+    def load(path: Path) -> list[dict]:
+        return [json.loads(line) for line in path.read_text().splitlines() if line]
+
+    old_rows, new_rows = load(before), load(after)
+    methods = {r.get("method", "samvg") for r in old_rows + new_rows}
+
+    def case(row: dict) -> tuple[str, str]:
+        return row["reference"], (row["preset"] if len(methods) > 1 else _case(row))
+
+    old = {case(r): r for r in old_rows}
+    new = {case(r): r for r in new_rows}
+    print("| case | error | paths | curves | total s | optimize error left |")
     print("|---|---|---|---|---|---|")
     for key in sorted(old.keys() & new.keys()):
         a, b = old[key], new[key]
@@ -339,7 +424,7 @@ def compare(before: Path, after: Path) -> None:
         )
         print(
             f"| {key[0]} [{key[1]}] | {pair('error')} | {pair('paths')} | "
-            f"{pair('curves')} | {pair('after_sam_s')} | {left[0]} → {left[1]} |"
+            f"{pair('curves')} | {pair('total_s')} | {left[0]} → {left[1]} |"
         )
 
 
