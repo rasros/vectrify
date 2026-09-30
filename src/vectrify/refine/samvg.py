@@ -1,22 +1,18 @@
 """The segmentation and tracing stages of SAMVG.
 
 The original SAMVG implementation was not released. This module follows Zhu's
-dissertation: automatic SAM masks are filtered on a blank canvas, uncovered
-regions are prompted a second time, and every retained mask is traced to a
-fixed-count cubic Bezier path.
+dissertation for the segmentation: automatic SAM masks are filtered on a blank
+canvas and uncovered regions are prompted a second time. The retained masks
+are then settled into regions, their edges moved onto the image's own, and
+each outline is traced densely with cubic Beziers and simplified.
 """
 
 from __future__ import annotations
 
-import io
-import json
 import logging
 import math
-import os
 import re
-import xml.etree.ElementTree as ET
 from collections import defaultdict
-from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
 from typing import Any, cast
@@ -25,227 +21,42 @@ import numpy as np
 from PIL import Image
 
 from vectrify.refine.samvg_runtime import device_name, pipeline_options
-from vectrify.refine.samvg_types import MaskLayer, TextLayer
+from vectrify.refine.samvg_types import MaskLayer
 
 log = logging.getLogger(__name__)
 
 # SAMVG's quality depends directly on the granularity of its automatic masks.
-# ViT-H is the paper-quality default; users who need the smaller checkpoint can
-# opt down without changing the package through VECTRIFY_SAMVG_MODEL.
-SAMVG_MODEL = os.environ.get("VECTRIFY_SAMVG_MODEL", "facebook/sam-vit-huge")
-# SAM encodes images at a native 1024px long side.  Keep that encoder-size cap
-# as the default even when Vectrify is asked to vectorize a larger original;
-# masks are restored to the original canvas before tracing.
-SAMVG_MAX_SIDE = int(os.environ.get("VECTRIFY_SAMVG_MAX_SIDE", "1024"))
+# ViT-H is the paper-quality default; ViT-B is faster.
+SAMVG_MODEL = "facebook/sam-vit-huge"
+# SAM encodes images at a native 1024px long side, the default size cap when
+# none is given; masks are restored to the original canvas before tracing.
+SAMVG_MAX_SIDE = 1024
 # This is the decoder prompt batch, not the dissertation's 32x32 sampling
-# grid. 64 doubles the old 32 while leaving full-resolution-mask
-# headroom on a 16 GB GPU; users with larger cards can raise it by environment.
-SAMVG_POINTS_PER_BATCH = int(os.environ.get("VECTRIFY_SAMVG_POINTS_PER_BATCH", "64"))
-# SAMVG's image-aware impact filter is the retained-mask decision specified by
-# the dissertation.  Keep AMG's confidence gates configurable, but disable
-# them by default so a small, useful candidate reaches that later test instead
-# of being discarded by a checkpoint-confidence heuristic.
-SAMVG_PRED_IOU_THRESH = float(os.environ.get("VECTRIFY_SAMVG_PRED_IOU_THRESH", "0"))
-SAMVG_STABILITY_SCORE_THRESH = float(
-    os.environ.get("VECTRIFY_SAMVG_STABILITY_SCORE_THRESH", "0")
-)
-# The dissertation specifies a fixed circular residual kernel scaled to the
-# image, but not its fraction. Cat calibration selects this value by final
-# raster error and complexity; callers can reproduce alternate sweeps.
-SAMVG_RESIDUAL_RADIUS_FRACTION = float(
-    os.environ.get("VECTRIFY_SAMVG_RESIDUAL_RADIUS_FRACTION", "0.005")
-)
+# grid. 64 leaves full-resolution-mask headroom on a 16 GB GPU.
+SAMVG_POINTS_PER_BATCH = 64
+# Masks and components smaller than this many pixels are left out, and holes
+# up to it filled.
+MIN_PIXELS = 32
+# The least a mask must lower the blank-canvas error to be kept.
+MIN_IMPACT = 3e-6
+# Regions narrower than this everywhere, in pixels, are left out: SAM returns
+# outlines and hairlines as regions of their own.
+MIN_WIDTH = 3
+# How far an outline may stray from its region, in pixels: each is traced
+# with one curve per DENSITY pixels and then simplified down to it.
+TOLERANCE = 0.5
+DENSITY = 6
 # The share of the impact filter's threshold one merge of neighbouring
 # regions may cost; see ``merge_patches``.
-MERGE_SHARE = float(os.environ.get("VECTRIFY_SAMVG_MERGE_SHARE", "0.1"))
-# Drawn lines: how much darker than their surroundings (0-1) a line is, and
-# how many times its width squared a line has to cover to be kept.
-LINE_CONTRAST = float(os.environ.get("VECTRIFY_SAMVG_LINE_CONTRAST", "0.12"))
-LINE_LENGTH = float(os.environ.get("VECTRIFY_SAMVG_LINE_LENGTH", "4"))
-# The narrowest a line looked for may be, in pixels.
-LINE_WIDTH = 4
-# With a fitting tolerance, outlines are first traced with one curve per this
-# many pixels and then simplified down to the tolerance.
-DENSITY = 6
+MERGE_SHARE = 0.1
 # What a pixel pays, in squared RGB (0-1), for each neighbour of another
 # region when edges are moved onto the image's; see ``refine_edges``.
-EDGE_SMOOTHNESS = float(os.environ.get("VECTRIFY_SAMVG_EDGE_SMOOTHNESS", "0.01"))
+EDGE_SMOOTHNESS = 0.01
 # How far, in SAM pixels, an edge may move.
-EDGE_BAND = float(os.environ.get("VECTRIFY_SAMVG_EDGE_BAND", "6"))
-# Drawn edges: an edge between two regions at least LINE_SHARE of which is
-# drawn line counts as drawn, as does a region's outline; a region with at
-# least LINE_LINED of its outline drawn is in a drawn area, and merges with a
-# neighbour across an undrawn edge when their colours are within
-# LINE_MERGE_DIFFERENCE (RGB, 0-1). See ``stroked_regions``.
-LINE_SHARE = float(os.environ.get("VECTRIFY_SAMVG_LINE_SHARE", "0.5"))
-LINE_LINED = float(os.environ.get("VECTRIFY_SAMVG_LINE_LINED", "0.2"))
-# The most of a stroked region's outline that may run along the image border.
-LINE_BORDER = 0.1
-LINE_MERGE_DIFFERENCE = float(
-    os.environ.get("VECTRIFY_SAMVG_LINE_MERGE_DIFFERENCE", "0.1")
-)
+EDGE_BAND = 6
 # Outlines are smoothed over this many SAM pixels before curves are fitted,
 # so the fit does not follow the masks' raster steps.
-SAMVG_SMOOTH = float(os.environ.get("VECTRIFY_SAMVG_SMOOTH", "1.0"))
-SMOOTH = SAMVG_SMOOTH
-# The SAMVG seed only needs OCR once and does it after SAM has released its
-# automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
-# detector: it can decide which visible labels deserve editable text and place
-# them in the source coordinate system.
-SAMVG_OCR_MODEL = os.environ.get(
-    "VECTRIFY_SAMVG_OCR_MODEL", "Qwen/Qwen2.5-VL-3B-Instruct"
-)
-# OCR text is often a few pixels off because its original font is unknown.
-# Permit that small mismatch (per affected channel), but never a large visual
-# regression just because the VLM claimed confidence.
-OCR_TEXT_RMSE_TOLERANCE = 0.02
-
-
-def _text_colour(pixels: np.ndarray) -> tuple[int, int, int]:
-    """Estimate ink colour by contrasting a word crop with its border."""
-    height, width, _channels = pixels.shape
-    if height < 3 or width < 3:
-        colour = pixels.reshape(-1, 3).mean(axis=0)
-    else:
-        border = np.concatenate(
-            (pixels[0], pixels[-1], pixels[1:-1, 0], pixels[1:-1, -1])
-        )
-        background = border.mean(axis=0)
-        distance = np.linalg.norm(pixels.astype(np.float32) - background, axis=2)
-        ink = pixels[distance >= np.percentile(distance, 80)]
-        colour = ink.mean(axis=0) if len(ink) else background
-    return cast(tuple[int, int, int], tuple(int(value) for value in np.rint(colour)))
-
-
-def _ocr_json(response: str) -> list[dict[str, object]]:
-    """Decode the strict JSON array requested from the vision-language model."""
-    match = re.search(r"\[[\s\S]*\]", response)
-    if match is None:
-        return []
-    try:
-        parsed = json.loads(match.group())
-    except json.JSONDecodeError:
-        return []
-    if not isinstance(parsed, list):
-        return []
-    return [item for item in parsed if isinstance(item, dict)]
-
-
-def detect_text(image: Image.Image, *, confidence: float = 0.8) -> list[TextLayer]:
-    """Read editable text using Qwen2.5-VL's 3B Torch model.
-
-    It returns content and source-pixel bounding boxes in one inference pass.
-    We keep only the VLM's high-confidence multi-character labels: a guessed
-    font is worse than the normal SAMVG filled-path representation.
-    """
-    try:
-        import torch
-        from transformers import AutoProcessor, Qwen2_5_VLForConditionalGeneration
-    except ImportError as exc:  # pragma: no cover - installation-specific
-        raise ImportError(
-            "SAMVG OCR requires the samvg extra. Install 'vectrify[samvg]'."
-        ) from exc
-    source = np.asarray(image.convert("RGB"))
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    dtype = torch.bfloat16 if device == "cuda" else torch.float32
-    prompt = (
-        "Read visible text in this image. Return only a JSON array. Each entry "
-        'must be {"text": string, "box": [left, top, right, bottom], '
-        '"confidence": number}. Boxes must use this image\'s pixel '
-        "coordinates. Include only clearly readable labels of at least two "
-        "characters, and do not describe icons, logos, or non-text shapes."
-    )
-    messages = [
-        {
-            "role": "user",
-            "content": [
-                {"type": "image", "image": image},
-                {"type": "text", "text": prompt},
-            ],
-        }
-    ]
-    processor = AutoProcessor.from_pretrained(SAMVG_OCR_MODEL)
-    # Transformers currently exposes a descriptor mismatch between this model
-    # class and GenerationMixin to Pyrefly; runtime generation is the normal
-    # PreTrainedModel API.
-    model: Any = Qwen2_5_VLForConditionalGeneration.from_pretrained(
-        SAMVG_OCR_MODEL, torch_dtype=dtype
-    ).to(device)
-    detected: list[TextLayer] = []
-    try:
-        chat = processor.apply_chat_template(
-            messages, tokenize=False, add_generation_prompt=True
-        )
-        inputs = processor(
-            text=[chat], images=[image], padding=True, return_tensors="pt"
-        ).to(device)
-        with torch.inference_mode():
-            output = model.generate(**inputs, max_new_tokens=768, do_sample=False)
-        generated = output[:, inputs.input_ids.shape[1] :]
-        response = processor.batch_decode(
-            generated, skip_special_tokens=True, clean_up_tokenization_spaces=False
-        )[0]
-        for entry in _ocr_json(response):
-            text = entry.get("text")
-            box = entry.get("box")
-            score = entry.get("confidence")
-            if (
-                not isinstance(text, str)
-                or not isinstance(box, list)
-                or len(box) != 4
-                or not isinstance(score, (int, float))
-                or float(score) < confidence
-                or len(text.strip()) < 2
-            ):
-                continue
-            try:
-                x, y, right, bottom = (float(value) for value in box)
-            except (TypeError, ValueError):
-                continue
-            x, y = max(0.0, x), max(0.0, y)
-            right = min(float(image.width), right)
-            bottom = min(float(image.height), bottom)
-            width, height = right - x, bottom - y
-            if width < 4 or height < 4:
-                continue
-            crop = source[
-                math.floor(y) : math.ceil(bottom), math.floor(x) : math.ceil(right)
-            ]
-            if not crop.size:
-                continue
-            detected.append(
-                TextLayer(
-                    text=text.strip(),
-                    x=x,
-                    y=y,
-                    width=width,
-                    height=height,
-                    colour=_text_colour(crop),
-                )
-            )
-    finally:
-        del model
-        if torch.cuda.is_available():
-            torch.cuda.empty_cache()
-    log.info("SAMVG OCR: retained %d editable text layer(s).", len(detected))
-    return detected
-
-
-def _text_svg_attributes(layer: TextLayer) -> dict[str, str]:
-    """Map OCR geometry to a portable editable SVG text element."""
-    colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
-    attributes = {
-        "x": f"{layer.x:.2f}",
-        "y": f"{layer.y + layer.height * 0.8:.2f}",
-        "font-family": "sans-serif",
-        "font-size": f"{layer.height:.2f}",
-        "fill": colour,
-    }
-    if abs(layer.angle) > 1:
-        attributes["transform"] = (
-            f"rotate({layer.angle:.2f} {layer.x:.2f} {layer.y:.2f})"
-        )
-    return attributes
+SMOOTH = 1.0
 
 
 def _is_crop_edge_mask(
@@ -326,17 +137,6 @@ def _run_components(mask: np.ndarray) -> list[list[tuple[int, int, int]]]:
                 components.append([])
             components[label].append((y, start, end))
     return components
-
-
-def _label(mask: np.ndarray) -> tuple[np.ndarray, int]:
-    """Materialize 4-connected scanline components as an integer label map."""
-    foreground = np.asarray(mask, dtype=bool)
-    labels = np.zeros(foreground.shape, dtype=np.int32)
-    components = _run_components(foreground)
-    for index, runs in enumerate(components, start=1):
-        for y, start, end in runs:
-            labels[y, start:end] = index
-    return labels, len(components)
 
 
 def _edt_1d(values: np.ndarray) -> np.ndarray:
@@ -560,24 +360,21 @@ def _filter_automatic_masks(
     original_size: list[int],
     cropped_box_image: Any,
 ) -> tuple[Any, Any, Any]:
-    """Apply SAM AMG's full-resolution confidence and crop-edge filtering."""
-    import torch
+    """Apply SAM AMG's full-resolution crop-edge filtering.
+
+    SAMVG's impact filter is the retained-mask decision, so AMG's confidence
+    gates are left off: a small, useful candidate reaches that later test
+    instead of being discarded by a checkpoint-confidence heuristic.
+    """
     from transformers.models.sam.image_processing_sam import (
         _batched_mask_to_box,
-        _compute_stability_score,
         _is_box_near_crop_edge,
         _pad_masks,
     )
 
     original_height, original_width = original_size
     scores = iou_scores.reshape(-1)
-    masks = masks.reshape(-1, *masks.shape[-2:])
-    keep = torch.ones(len(masks), dtype=torch.bool, device=masks.device)
-    if SAMVG_PRED_IOU_THRESH > 0:
-        keep &= scores > SAMVG_PRED_IOU_THRESH
-    if SAMVG_STABILITY_SCORE_THRESH > 0:
-        keep &= _compute_stability_score(masks, 0, 1) > SAMVG_STABILITY_SCORE_THRESH
-    masks, scores = masks[keep] > 0, scores[keep]
+    masks = masks.reshape(-1, *masks.shape[-2:]) > 0
     boxes = _batched_mask_to_box(masks)
     keep = ~_is_box_near_crop_edge(
         boxes, cropped_box_image, [0, 0, original_width, original_height]
@@ -616,24 +413,23 @@ def _automatic_mask_candidates_for(
     runtime: _SamRuntime,
     *,
     cache_embedding: bool,
-    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
 ) -> tuple[Any, Any, Any]:
     """Return post-filter AMG candidates before its image-global crop NMS.
 
     Transformers' public mask-generation call already encodes an image once
     per 32x32 prompt grid. For the full image we use the same pipeline stages
-    directly so the resulting embedding can be reused by coverage/residual
+    directly so the resulting embedding can be reused by the coverage
     prompts. Crops intentionally retain their own embeddings.
     """
     import torch
 
     generator = runtime.generator
     arguments = {
-        "points_per_batch": points_per_batch,
+        "points_per_batch": SAMVG_POINTS_PER_BATCH,
         "points_per_crop": 32,
         "crops_n_layers": 0,
-        "pred_iou_thresh": SAMVG_PRED_IOU_THRESH,
-        "stability_score_thresh": SAMVG_STABILITY_SCORE_THRESH,
+        "pred_iou_thresh": 0,
+        "stability_score_thresh": 0,
     }
     # Keep a small compatibility path for mocked/older Transformers pipelines.
     if not hasattr(generator, "preprocess"):
@@ -658,7 +454,7 @@ def _automatic_mask_candidates_for(
     outputs = []
     for inputs in generator.preprocess(
         source,
-        points_per_batch=points_per_batch,
+        points_per_batch=SAMVG_POINTS_PER_BATCH,
         points_per_crop=32,
         crops_n_layers=0,
     ):
@@ -701,75 +497,61 @@ def automatic_masks(
     image: Image.Image,
     *,
     max_side: int | None = SAMVG_MAX_SIDE,
-    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[np.ndarray]:
     """Retrieve SAM AMG masks with the thesis grid, optionally size-capped."""
     original_size = image.size
     image, _scale = _sam_image(image, max_side)
     runtime = _runtime or _sam_runtime()
+    import torch
 
     # transformers' built-in crop layer tries to stack unequal crop tensors.
     # Run that first crop layer one crop at a time instead.  Crucially, do not
     # pre-pad a rectangular image: the original AMG formula uses the source's
     # short side for overlap, and black padding changes SAM's visual context.
     width, height = image.size
-
-    def collect(points_per_batch: int) -> list[np.ndarray]:
-        import torch
-
-        masks, scores, boxes = _automatic_mask_candidates_for(
-            image,
-            runtime,
-            cache_embedding=True,
-            points_per_batch=points_per_batch,
+    masks, scores, boxes = _automatic_mask_candidates_for(
+        image, runtime, cache_embedding=True
+    )
+    all_masks = [masks]
+    all_scores = [torch.full_like(scores, 1 / (width * height))]
+    all_boxes = [boxes]
+    overlap = int((512 / 1500) * min(width, height))
+    crop_width = math.ceil((overlap + width) / 2)
+    crop_height = math.ceil((overlap + height) / 2)
+    for x, y in (
+        (0, 0),
+        (0, crop_height - overlap),
+        (crop_width - overlap, 0),
+        (crop_width - overlap, crop_height - overlap),
+    ):
+        right, bottom = min(x + crop_width, width), min(y + crop_height, height)
+        crop_box = (x, y, right, bottom)
+        crop_masks, crop_scores, crop_boxes = _automatic_mask_candidates_for(
+            image.crop(crop_box), runtime, cache_embedding=False
         )
-        all_masks = [masks]
-        all_scores = [torch.full_like(scores, 1 / (width * height))]
-        all_boxes = [boxes]
-        overlap = int((512 / 1500) * min(width, height))
-        crop_width = math.ceil((overlap + width) / 2)
-        crop_height = math.ceil((overlap + height) / 2)
-        for x, y in (
-            (0, 0),
-            (0, crop_height - overlap),
-            (crop_width - overlap, 0),
-            (crop_width - overlap, crop_height - overlap),
-        ):
-            right, bottom = min(x + crop_width, width), min(y + crop_height, height)
-            crop_box = (x, y, right, bottom)
-            crop_masks, crop_scores, crop_boxes = _automatic_mask_candidates_for(
-                image.crop(crop_box),
-                runtime,
-                cache_embedding=False,
-                points_per_batch=points_per_batch,
+        for index, crop_mask in enumerate(crop_masks):
+            crop_mask_array = np.asarray(crop_mask, dtype=bool)
+            if _is_crop_edge_mask(crop_mask_array, crop_box, image.size):
+                continue
+            mask = np.zeros((height, width), dtype=bool)
+            mask[y:bottom, x:right] = crop_mask_array
+            all_masks.append(torch.from_numpy(mask)[None])
+            crop_area = (right - x) * (bottom - y)
+            all_scores.append(
+                torch.full_like(crop_scores[index : index + 1], 1 / crop_area)
             )
-            for index, crop_mask in enumerate(crop_masks):
-                crop_mask_array = np.asarray(crop_mask, dtype=bool)
-                if _is_crop_edge_mask(crop_mask_array, crop_box, image.size):
-                    continue
-                mask = np.zeros((height, width), dtype=bool)
-                mask[y:bottom, x:right] = crop_mask_array
-                all_masks.append(torch.from_numpy(mask)[None])
-                crop_area = (right - x) * (bottom - y)
-                all_scores.append(
-                    torch.full_like(crop_scores[index : index + 1], 1 / crop_area)
-                )
-                box = crop_boxes[index].clone()
-                box[[0, 2]] += x
-                box[[1, 3]] += y
-                all_boxes.append(box[None])
-        return _finalize_automatic_masks(
-            torch.cat(all_masks), torch.cat(all_scores), torch.cat(all_boxes)
-        )
-
-    collected = collect(points_per_batch)
+            box = crop_boxes[index].clone()
+            box[[0, 2]] += x
+            box[[1, 3]] += y
+            all_boxes.append(box[None])
+    collected = _finalize_automatic_masks(
+        torch.cat(all_masks), torch.cat(all_scores), torch.cat(all_boxes)
+    )
     return [_restore_mask(mask, original_size) for mask in collected]
 
 
-def _components(
-    mask: np.ndarray, min_pixels: int, *, fill_holes: bool = True
-) -> list[np.ndarray]:
+def _components(mask: np.ndarray, min_pixels: int) -> list[np.ndarray]:
     """Return traceable AMG components after its required hole cleanup.
 
     SAMVG traces each connected component independently.  Filling its mask
@@ -801,7 +583,7 @@ def _components(
         has_interior_background = (
             local.shape[0] > 2 and local.shape[1] > 2 and not local[1:-1, 1:-1].all()
         )
-        if fill_holes and has_interior_background:
+        if has_interior_background:
             # AMG's postprocessing removes *small* enclosed holes, rather
             # than turning meaningful cutouts such as an eye into a solid
             # region.  The same area cutoff as tiny components keeps those
@@ -860,9 +642,7 @@ def recolour_visible_layers(
                 tuple[int, int, int],
                 tuple(int(value) for value in np.rint(target[visible].mean(axis=0))),
             )
-        revised.append(
-            MaskLayer(layer.mask, colour, layer.impact, layer.overlap_pixels)
-        )
+        revised.append(MaskLayer(layer.mask, colour, layer.impact))
         covered_above |= layer.mask
     return list(reversed(revised))
 
@@ -881,12 +661,9 @@ def filter_by_impact(
     masks: list[np.ndarray],
     *,
     existing: list[MaskLayer] | None = None,
-    initial_canvas: np.ndarray | None = None,
-    initial_coverage: np.ndarray | None = None,
-    min_pixels: int = 32,
-    min_impact: float = 3e-6,
+    min_pixels: int = MIN_PIXELS,
+    min_impact: float = MIN_IMPACT,
     max_layers: int = 128,
-    fill_holes: bool = True,
 ) -> list[MaskLayer]:
     """Keep masks that lower blank-canvas reconstruction error.
 
@@ -898,14 +675,6 @@ def filter_by_impact(
     height, width, _ = target.shape
     accepted = list(existing or [])
     canvas, coverage = _render_layers((height, width), accepted)
-    if initial_canvas is not None:
-        if initial_canvas.shape != canvas.shape:
-            raise ValueError("initial canvas does not match the target size")
-        canvas = initial_canvas.astype(np.uint8, copy=True)
-    if initial_coverage is not None:
-        if initial_coverage.shape != coverage.shape:
-            raise ValueError("initial coverage does not match the target size")
-        coverage = initial_coverage.astype(bool, copy=True)
     error_map = _impact_error_map(target, canvas, coverage)
     error_total = float(error_map.sum(dtype=np.float64))
     error = error_total / error_map.size
@@ -917,9 +686,7 @@ def filter_by_impact(
     for raw_mask in masks:
         if np.asarray(raw_mask).shape != (height, width):
             continue
-        components = _components(
-            np.asarray(raw_mask, dtype=bool), min_pixels, fill_holes=fill_holes
-        )
+        components = _components(np.asarray(raw_mask, dtype=bool), min_pixels)
         if not components:
             continue
         mask = np.logical_or.reduce(components)
@@ -964,7 +731,6 @@ def coverage_prompt_points(
     shape: tuple[int, int],
     *,
     radius_fraction: float = 0.06,
-    max_points: int | None = None,
 ) -> list[tuple[int, int]]:
     """Find mean-shift centres of large circles untouched by retained masks."""
     _canvas, coverage = _render_layers(shape, layers)
@@ -980,44 +746,7 @@ def coverage_prompt_points(
         ((float(distance[round(y), round(x)]), round(x), round(y)) for x, y in centres),
         reverse=True,
     )
-    selected = ranked if max_points is None else ranked[:max_points]
-    return [(x, y) for _distance, x, y in selected]
-
-
-def _circular_component_centres(
-    values: np.ndarray,
-    radius: int,
-    *,
-    threshold: float,
-    max_points: int | None = None,
-) -> list[tuple[int, int]]:
-    """Return ranked centres of thresholded circular-convolution components."""
-    import torch
-    import torch.nn.functional as functional
-
-    if radius < 1:
-        raise ValueError("radius must be positive")
-    yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
-    kernel = (xx * xx + yy * yy <= radius * radius).astype(np.float32)
-    padded = np.pad(np.asarray(values, dtype=np.float32), radius, mode="symmetric")
-    smoothed = functional.conv2d(
-        torch.from_numpy(padded)[None, None],
-        torch.from_numpy((kernel / kernel.sum())[None, None]),
-    )[0, 0].numpy()
-    labels, count = _label(smoothed >= threshold)
-    ranked: list[tuple[float, int, int]] = []
-    for index in range(1, count + 1):
-        ys, xs = np.nonzero(labels == index)
-        if len(xs):
-            # The mean is the component centre prescribed by SAMVG.  Ranking
-            # by response is deterministic when callers cap prompt count.
-            ranked.append(
-                (float(smoothed[ys, xs].mean()), round(xs.mean()), round(ys.mean()))
-            )
-    selected = sorted(ranked, reverse=True)
-    if max_points is not None:
-        selected = selected[:max_points]
-    return [(x, y) for _score, x, y in selected]
+    return [(x, y) for _distance, x, y in ranked]
 
 
 def prompted_masks(
@@ -1025,7 +754,6 @@ def prompted_masks(
     points: list[tuple[int, int]],
     *,
     max_side: int | None = SAMVG_MAX_SIDE,
-    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[np.ndarray]:
     """Prompt SAM at centres and return all three masks per point.
@@ -1051,8 +779,8 @@ def prompted_masks(
         runtime.processor = SamProcessor(runtime.generator.image_processor)
     try:
         output_masks = []
-        for start in range(0, len(points), points_per_batch):
-            batch = points[start : start + points_per_batch]
+        for start in range(0, len(points), SAMVG_POINTS_PER_BATCH):
+            batch = points[start : start + SAMVG_POINTS_PER_BATCH]
             input_points = [[[list(point)] for point in batch]]
             inputs = runtime.processor(
                 images=image, input_points=input_points, return_tensors="pt"
@@ -1062,7 +790,7 @@ def prompted_masks(
                 and runtime.image_embeddings is not None
             ):
                 # The full-image automatic pass has already encoded these pixels.
-                # Retain only decoder inputs for the coverage/residual prompts.
+                # Retain only decoder inputs for the coverage prompts.
                 inputs.pop("pixel_values")
                 inputs["image_embeddings"] = runtime.image_embeddings
             with torch.inference_mode(), _sam_autocast():
@@ -1087,15 +815,12 @@ def prompted_masks(
 
 def retrieve_layers(
     image: Image.Image,
-    masks: list[np.ndarray] | None = None,
     *,
-    min_pixels: int = 32,
-    min_impact: float = 3e-6,
+    min_pixels: int = MIN_PIXELS,
+    min_impact: float = MIN_IMPACT,
     max_layers: int = 512,
-    fill_holes: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
     model: str = SAMVG_MODEL,
-    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
     _runtime: _SamRuntime | None = None,
 ) -> list[MaskLayer]:
     """Run SAMVG's automatic-mask, coverage-prompt, filter sequence.
@@ -1103,79 +828,22 @@ def retrieve_layers(
     A model loaded here is released, and its GPU memory returned, before
     this returns: the tracing that follows needs no GPU.
     """
-    runtime = _runtime
-    if masks is None and runtime is None:
-        runtime = _sam_runtime(model=model)
+    image = image.convert("RGB")
+    runtime = _runtime or _sam_runtime(model=model)
     try:
-        return _retrieve_layers(
+        initial = automatic_masks(image, max_side=max_side, _runtime=runtime)
+        layers = filter_by_impact(
             image,
-            masks,
+            initial,
             min_pixels=min_pixels,
             min_impact=min_impact,
             max_layers=max_layers,
-            fill_holes=fill_holes,
-            max_side=max_side,
-            points_per_batch=points_per_batch,
-            _runtime=runtime,
         )
+        points = coverage_prompt_points(layers, (image.height, image.width))
+        prompted = prompted_masks(image, points, max_side=max_side, _runtime=runtime)
     finally:
-        if _runtime is None and runtime is not None:
+        if _runtime is None:
             _release(runtime)
-
-
-def _release(runtime: _SamRuntime) -> None:
-    """Drop *runtime*'s model and embedding and hand their memory back."""
-    import gc
-
-    runtime.generator = runtime.processor = runtime.image_embeddings = None
-    gc.collect()
-    try:
-        import torch
-    except ImportError:  # pragma: no cover - installation-specific
-        return
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-
-
-def _retrieve_layers(
-    image: Image.Image,
-    masks: list[np.ndarray] | None,
-    *,
-    min_pixels: int,
-    min_impact: float,
-    max_layers: int,
-    fill_holes: bool,
-    max_side: int | None,
-    points_per_batch: int,
-    _runtime: _SamRuntime | None,
-) -> list[MaskLayer]:
-    image = image.convert("RGB")
-    runtime = _runtime
-    if masks is None:
-        initial = automatic_masks(
-            image,
-            max_side=max_side,
-            points_per_batch=points_per_batch,
-            _runtime=runtime,
-        )
-    else:
-        initial = masks
-    layers = filter_by_impact(
-        image,
-        initial,
-        min_pixels=min_pixels,
-        min_impact=min_impact,
-        max_layers=max_layers,
-        fill_holes=fill_holes,
-    )
-    points = coverage_prompt_points(layers, (image.height, image.width))
-    prompted = prompted_masks(
-        image,
-        points,
-        max_side=max_side,
-        points_per_batch=points_per_batch,
-        _runtime=runtime,
-    )
     recovered = filter_by_impact(
         image,
         prompted,
@@ -1183,7 +851,6 @@ def _retrieve_layers(
         min_pixels=min_pixels,
         min_impact=min_impact,
         max_layers=max_layers,
-        fill_holes=fill_holes,
     )
     log.info(
         "SAMVG first pass: %d automatic mask(s), %d retained; %d coverage "
@@ -1200,6 +867,20 @@ def _retrieve_layers(
     # exposes.  This is the least-squares fill for the emitted seed and does
     # not alter its accepted masks, ordering, or coverage prompts.
     return recolour_visible_layers(image, recovered)
+
+
+def _release(runtime: _SamRuntime) -> None:
+    """Drop *runtime*'s model and embedding and hand their memory back."""
+    import gc
+
+    runtime.generator = runtime.processor = runtime.image_embeddings = None
+    gc.collect()
+    try:
+        import torch
+    except ImportError:  # pragma: no cover - installation-specific
+        return
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
 
 
 def _loops(mask: np.ndarray) -> list[list[tuple[float, float]]]:
@@ -1264,40 +945,6 @@ def _corners(loop: list[tuple[float, float]], count: int) -> list[int]:
         )
         blocked[offsets] = True
     return sorted(chosen)
-
-
-def _variable_corners(
-    loop: list[tuple[float, float]], *, threshold: float, maximum: int
-) -> list[int]:
-    """Select local curvature extrema below SAMVG+var's threshold.
-
-    The dissertation's variable-segment variation replaces the fixed top-N
-    selection with a curvature threshold.  Its threshold is not published, so
-    callers must choose it explicitly.  ``maximum`` is only a safety bound for
-    pathological raster staircases, not a target complexity.
-    """
-    size = len(loop)
-    if size < 3:
-        return []
-    score = _curvature_scores(loop)
-    # SAMVG+var reverts the fixed variant's global-maxima-with-exclusion rule
-    # to the conventional local-extrema selector.  The curvature *score*
-    # itself uses k-neighbours (Eq. 3-4); expanding the extrema neighbourhood
-    # to that same k suppresses genuine nearby corners and is not part of the
-    # variable-segment procedure.  The asymmetric comparison retains one
-    # representative for a flat raster-corner plateau without coalescing
-    # separate extrema.
-    previous = np.roll(score, 1)
-    following = np.roll(score, -1)
-    local_minimum = (score < previous) & (score <= following)
-    eligible = np.flatnonzero(local_minimum & (score <= threshold))
-    if len(eligible) < 3:
-        return _corners(loop, min(3, size))
-    return (
-        sorted(int(index) for index in eligible[:maximum])
-        if len(eligible) >= 3
-        else _corners(loop, min(3, size))
-    )
 
 
 def _fit_cubic(
@@ -1394,24 +1041,13 @@ def _smoothed(loop: list[tuple[float, float]], sigma: float):
 
 
 def _cubic_loop(
-    loop: list[tuple[float, float]],
-    segments: int,
-    *,
-    curvature_threshold: float | None = None,
-    maximum_segments: int = 2048,
-    smooth: float = 0.0,
+    loop: list[tuple[float, float]], segments: int, *, smooth: float = 0.0
 ) -> str | None:
     size = len(loop)
     if size < 3:
         return None
     loop = _smoothed(loop, smooth)
-    corners = (
-        _corners(loop, segments)
-        if curvature_threshold is None
-        else _variable_corners(
-            loop, threshold=curvature_threshold, maximum=maximum_segments
-        )
-    )
+    corners = _corners(loop, segments)
     if len(corners) < 3:
         return None
     points = np.asarray(loop, dtype=np.float32)
@@ -1435,32 +1071,14 @@ def _cubic_loop(
 
 
 def mask_path(
-    mask: np.ndarray,
-    *,
-    segments: int = 8,
-    overlap_pixels: int = 0,
-    curvature_threshold: float | None = None,
-    maximum_segments: int = 2048,
-    smooth: float = 0.0,
-    density: int = 0,
+    mask: np.ndarray, *, smooth: float = 0.0, density: int = DENSITY
 ) -> str | None:
-    """Fit every mask contour as fixed-count or thresholded cubic Beziers,
-    each first smoothed over *smooth* pixels. With *density*, a contour gets
-    one curve per that many pixels of its length instead."""
-    if overlap_pixels:
-        mask = _binary_dilation(mask, overlap_pixels)
+    """Fit every mask contour with cubic Beziers, one per *density* pixels of
+    its length, each contour first smoothed over *smooth* pixels."""
     parts = [
         piece
         for loop in _loops(mask)
-        if (
-            piece := _cubic_loop(
-                loop,
-                max(4, len(loop) // density) if density else segments,
-                curvature_threshold=curvature_threshold,
-                maximum_segments=maximum_segments,
-                smooth=smooth,
-            )
-        )
+        if (piece := _cubic_loop(loop, max(4, len(loop) // density), smooth=smooth))
     ]
     return " ".join(parts) or None
 
@@ -1479,78 +1097,24 @@ def thinner_than(mask: np.ndarray, width: int) -> bool:
 
 
 def arrange_layers(
-    layers: list[MaskLayer],
-    *,
-    min_width: int = 0,
-    drop_hidden: bool = False,
-    flatten: bool = False,
-    min_pixels: int = 1,
+    layers: list[MaskLayer], *, min_width: int = MIN_WIDTH
 ) -> list[MaskLayer]:
-    """Settle which layers are traced, and how much of each.
+    """Settle which layers are traced.
 
     Too-thin layers go first, since removing one can uncover what is beneath.
     A layer the ones above it hide completely paints nothing and is dropped.
-    Flattening cuts every layer down to its visible part, so no two traced
-    regions overlap; a remnant smaller than *min_pixels* is dropped.
     """
     if min_width:
         layers = [layer for layer in layers if not thinner_than(layer.mask, min_width)]
-    if not (drop_hidden or flatten) or not layers:
+    if not layers:
         return layers
     above = np.zeros(layers[0].mask.shape, dtype=bool)
     kept: list[MaskLayer] = []
     for layer in reversed(layers):
-        visible = layer.mask & ~above
+        if (layer.mask & ~above).any():
+            kept.append(layer)
         above |= layer.mask
-        if not visible.any():
-            continue
-        if flatten:
-            layer = replace(layer, mask=visible)
-        kept.append(layer)
-    kept = kept[::-1]
-    if flatten:
-        kept = _without_slivers(kept, max(1, min_width // 2), min_pixels, min_width)
-        # A layer cut by those above can fall apart; each piece is a region.
-        kept = [piece for layer in kept for piece in _pieces(layer)]
-    return kept
-
-
-def _pieces(layer: MaskLayer) -> list[MaskLayer]:
-    """*layer* split into its connected parts, holes kept with their part."""
-    labels, count = _label(layer.mask)
-    if count <= 1:
-        return [layer]
-    return [replace(layer, mask=labels == index) for index in range(1, count + 1)]
-
-
-def _without_slivers(
-    layers: list[MaskLayer], radius: int, min_pixels: int, min_width: int
-) -> list[MaskLayer]:
-    """Flattened layers with the slivers between them given to a neighbour.
-
-    Cutting layers down to what shows leaves ragged strips along every edge a
-    layer above crosses, each traced as a region of its own. Opening every
-    layer by *radius* takes the strips off, a remnant smaller than
-    *min_pixels* or thinner than *min_width* goes too, and every pixel left
-    without a layer goes to the nearest one that kept it, so no gap opens.
-    """
-    if not layers:
-        return layers
-    owner = np.zeros(layers[0].mask.shape, dtype=np.int32)
-    covered = np.zeros(owner.shape, dtype=bool)
-    for index, layer in enumerate(layers, start=1):
-        covered |= layer.mask
-        eroded = ~_binary_dilation(~layer.mask, radius)
-        opened = _binary_dilation(eroded, radius) & layer.mask
-        if opened.sum() < min_pixels or (min_width and thinner_than(opened, min_width)):
-            continue
-        owner[opened] = index
-    owner = _grown(owner, covered, 4 * radius + 4)
-    return [
-        replace(layer, mask=owner == index)
-        for index, layer in enumerate(layers, start=1)
-        if (owner == index).sum() >= min_pixels
-    ]
+    return kept[::-1]
 
 
 def refine_edges(
@@ -1695,201 +1259,6 @@ def merge_patches(
     ]
 
 
-def _grown(owner: np.ndarray, into: np.ndarray, steps: int) -> np.ndarray:
-    """*owner*'s labels grown into the unlabelled pixels of *into*, one pixel
-    a step, each taking the label of a neighbour already labelled."""
-    for _ in range(steps):
-        orphans = into & (owner == 0)
-        if not orphans.any():
-            break
-        grown = owner.copy()
-        for axis, shift in ((0, 1), (0, -1), (1, 1), (1, -1)):
-            neighbour = np.roll(owner, shift, axis=axis)
-            take = orphans & (grown == 0) & (neighbour > 0)
-            grown[take] = neighbour[take]
-        owner = grown
-    return owner
-
-
-def line_art(image: Image.Image, width: int) -> np.ndarray:
-    """The drawn lines in *image*: dark strokes up to *width* pixels across.
-
-    A grey closing fills in every dark structure narrower than its footprint,
-    so where the image is much darker than its closing there is a line. Specks
-    too small to be part of one are left out.
-    """
-    from scipy import ndimage
-
-    grey = np.asarray(image.convert("L"), dtype=np.float64) / 255
-    radius = max(1, width // 2 + 1)
-    yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
-    footprint = xx * xx + yy * yy <= radius * radius
-    darker = ndimage.grey_closing(grey, footprint=footprint) - grey
-    # Antialiasing breaks a line into pieces at any one threshold: keep the
-    # faint pixels joined to a clearly dark one, then judge whole lines.
-    faint = darker > LINE_CONTRAST / 2
-    labels, count = ndimage.label(faint, structure=np.ones((3, 3)))
-    if not count:
-        return faint
-    strong = np.zeros(count + 1, dtype=bool)
-    strong[np.unique(labels[darker > LINE_CONTRAST])] = True
-    strong[0] = False
-    sizes = np.bincount(labels.ravel(), minlength=count + 1)
-    kept = strong & (sizes >= LINE_LENGTH * width * width)
-    return kept[labels]
-
-
-def stroked_regions(
-    layers: list[MaskLayer], image: Image.Image, width: int
-) -> list[MaskLayer]:
-    """*layers* as regions bounded by the image's drawn lines, outlined.
-
-    SAM gives a drawn line to one region beside it, or to neither. Here the
-    lines are found in the image itself and taken from every region; the
-    regions then grow back from either side and meet at each line's middle.
-    Neighbours whose shared edge is not drawn, such as a patch of shading
-    and the area it shades, are one area the artist drew, so they merge,
-    when their colours are close and one of them has drawn edges already.
-    A region whose outline is then mostly drawn gets a stroke of the lines'
-    colour, about as wide as they are, and is painted after its neighbours
-    so none of them covers half of it. Lines that bound no region, drawn
-    inside one, are left out: every path is a region.
-
-    The regions come out cut to what shows, so none overlap.
-    """
-    ink = line_art(image, width)
-    if not ink.any() or not layers:
-        return layers
-    target = np.asarray(image.convert("RGB"), dtype=np.float64) / 255
-    owner = np.zeros(ink.shape, dtype=np.int32)
-    for index, layer in enumerate(layers, start=1):
-        owner[layer.mask] = index
-    owner[ink] = 0
-    owner = _grown(owner, ink, 2 * width + 2)
-    count = len(layers) + 1
-    near = _binary_dilation(ink, 1)
-    depth = _distance_transform_edt(ink)
-
-    def pairs(labels: np.ndarray):
-        """Every edge between two regions: (first, second, drawn, depth)."""
-        found = []
-        for a, b, na, nb, da, db in (
-            (
-                labels[:, :-1],
-                labels[:, 1:],
-                near[:, :-1],
-                near[:, 1:],
-                depth[:, :-1],
-                depth[:, 1:],
-            ),
-            (labels[:-1], labels[1:], near[:-1], near[1:], depth[:-1], depth[1:]),
-        ):
-            edge = (a != b) & (a > 0) & (b > 0)
-            found.append((a[edge], b[edge], (na | nb)[edge], np.maximum(da, db)[edge]))
-        return tuple(np.concatenate(parts) for parts in zip(*found, strict=True))
-
-    first, second, drawn, depths = pairs(owner)
-    edge_length = np.bincount(first, minlength=count) + np.bincount(
-        second, minlength=count
-    )
-    drawn_length = np.bincount(first[drawn], minlength=count) + np.bincount(
-        second[drawn], minlength=count
-    )
-    colours = np.zeros((count, 3))
-    clear = owner * ~ink
-    for channel in range(3):
-        colours[:, channel] = np.bincount(
-            clear.ravel(), weights=target[..., channel].ravel(), minlength=count
-        ) / np.maximum(np.bincount(clear.ravel(), minlength=count), 1)
-    lined = drawn_length >= LINE_LINED * np.maximum(edge_length, 1)
-
-    # Merge across the edges that are not drawn.
-    low, high = np.minimum(first, second), np.maximum(first, second)
-    keys, inverse = np.unique(low * count + high, return_inverse=True)
-    lengths = np.bincount(inverse)
-    drawn_pairs = np.bincount(inverse, weights=drawn.astype(np.float64))
-    parent = np.arange(count)
-
-    def root(index: int) -> int:
-        while parent[index] != index:
-            parent[index] = parent[parent[index]]
-            index = int(parent[index])
-        return index
-
-    candidates = []
-    for key, length, lines in zip(keys, lengths, drawn_pairs, strict=True):
-        a, b = divmod(int(key), count)
-        if lines >= LINE_SHARE * length or not (lined[a] or lined[b]):
-            continue
-        candidates.append((float(np.linalg.norm(colours[a] - colours[b])), a, b))
-    # Closest first, each judged against the areas merged so far, so a chain
-    # of small steps cannot carry one colour into a very different one.
-    areas = np.bincount(clear.ravel(), minlength=count).astype(np.float64)
-    for _difference, a, b in sorted(candidates):
-        ra, rb = root(a), root(b)
-        if ra == rb:
-            continue
-        if np.linalg.norm(colours[ra] - colours[rb]) > LINE_MERGE_DIFFERENCE:
-            continue
-        keep, gone = min(ra, rb), max(ra, rb)
-        total = areas[keep] + areas[gone]
-        colours[keep] = (
-            colours[keep] * areas[keep] + colours[gone] * areas[gone]
-        ) / max(total, 1)
-        areas[keep] = total
-        parent[gone] = keep
-    roots = np.array([root(index) for index in range(count)])
-    owner = roots[owner]
-
-    # Which merged regions are outlined, and how wide.
-    first, second, drawn, depths = pairs(owner)
-    edge_length = np.bincount(first, minlength=count) + np.bincount(
-        second, minlength=count
-    )
-    drawn_length = np.bincount(first[drawn], minlength=count) + np.bincount(
-        second[drawn], minlength=count
-    )
-    depth_sum = np.bincount(
-        first[drawn], weights=depths[drawn], minlength=count
-    ) + np.bincount(second[drawn], weights=depths[drawn], minlength=count)
-    line_colour = cast(
-        tuple[int, int, int],
-        tuple(int(v) for v in np.median(np.asarray(image.convert("RGB"))[ink], axis=0)),
-    )
-    # A stroke runs round a region's whole outline, along the image's border
-    # too, where nothing is drawn: a region lying much along it is left to
-    # the strokes of the regions inside it.
-    border = np.zeros(owner.shape, dtype=bool)
-    border[[0, -1], :] = border[:, [0, -1]] = True
-    bordering = np.bincount(owner[border], minlength=count)
-    plain, outlined = [], []
-    clear = owner * ~ink
-    for index in np.unique(owner[owner > 0]):
-        mask = owner == index
-        shown = clear == index
-        colour = cast(
-            tuple[int, int, int],
-            tuple(
-                int(v)
-                for v in np.rint(
-                    target[shown if shown.any() else mask].mean(axis=0) * 255
-                )
-            ),
-        )
-        layer = replace(layers[index - 1], mask=mask, colour=colour)
-        along = edge_length[index] + bordering[index]
-        if (
-            drawn_length[index] >= LINE_SHARE * max(edge_length[index], 1)
-            and bordering[index] <= LINE_BORDER * along
-        ):
-            # The edge lies along a line's middle, half a line from its sides.
-            across = max(1.0, 2 * depth_sum[index] / max(drawn_length[index], 1))
-            outlined.append(replace(layer, stroke=(line_colour, float(across))))
-        else:
-            plain.append(layer)
-    return plain + outlined
-
-
 def backdrop_colour(
     image: Image.Image, layers: list[MaskLayer]
 ) -> tuple[int, int, int]:
@@ -1909,41 +1278,18 @@ def backdrop_colour(
 
 
 def _layer_svg_attributes(
-    layer: MaskLayer,
-    segments: int,
-    *,
-    min_width: int = 0,
-    curvature_threshold: float | None = None,
-    maximum_segments: int = 2048,
-    smooth: float = 0.0,
-    tolerance: float = 0.0,
-) -> list[dict[str, str]]:
-    """Trace one SAM mask as a filled path, or nothing when it is too thin."""
-    colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
-    if min_width and thinner_than(layer.mask, min_width):
-        return []
-    data = mask_path(
-        layer.mask,
-        segments=segments,
-        overlap_pixels=layer.overlap_pixels,
-        curvature_threshold=curvature_threshold,
-        maximum_segments=maximum_segments,
-        smooth=smooth,
-        density=DENSITY if tolerance else 0,
-    )
+    layer: MaskLayer, *, smooth: float = 0.0, tolerance: float = TOLERANCE
+) -> dict[str, str] | None:
+    """Trace one SAM mask as a filled path, simplified to *tolerance* pixels."""
+    data = mask_path(layer.mask, smooth=smooth)
     if data is None:
-        return []
-    if tolerance:
-        data = _simplified_data(data, tolerance)
-    attributes = {"d": data, "fill": colour, "fill-rule": "evenodd"}
-    if layer.stroke is not None:
-        (red, green, blue), across = layer.stroke
-        attributes |= {
-            "stroke": f"#{red:02x}{green:02x}{blue:02x}",
-            "stroke-width": f"{across:.2f}",
-            "stroke-linejoin": "round",
-        }
-    return [attributes]
+        return None
+    colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
+    return {
+        "d": _simplified_data(data, tolerance),
+        "fill": colour,
+        "fill-rule": "evenodd",
+    }
 
 
 def _simplified_data(data: str, tolerance: float) -> str:
@@ -1965,208 +1311,60 @@ def generate_svg(
     image: Image.Image,
     masks: list[np.ndarray] | None = None,
     *,
-    min_pixels: int = 32,
-    min_impact: float = 3e-6,
     max_layers: int = 512,
-    segments: int = 16,
-    curvature_threshold: float | None = None,
-    maximum_segments: int = 2048,
-    fill_holes: bool = True,
-    min_width: int = 0,
-    drop_hidden: bool = False,
-    flatten: bool = False,
-    merge: bool = False,
-    outlines: int = 0,
-    tolerance: float = 0.0,
-    refine: bool = False,
-    backdrop: bool = False,
-    ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
     model: str = SAMVG_MODEL,
-    points_per_batch: int = SAMVG_POINTS_PER_BATCH,
-    rasterize: Callable[[str, int, int], bytes] | None = None,
+    min_pixels: int = MIN_PIXELS,
+    min_impact: float = MIN_IMPACT,
+    min_width: int = MIN_WIDTH,
+    tolerance: float = TOLERANCE,
 ) -> str:
-    """Generate SAMVG's traced, pre-optimisation SVG from a target image."""
+    """Trace *image*'s SAM segments, or the given *masks*, into an SVG.
+
+    Regions too thin to be one, and those hidden by the ones above, are left
+    out, the edges moved onto the image's own and small patches merged into
+    a neighbour. A rectangle beneath them all fills what none claims.
+    """
     image = image.convert("RGB")
-    layers = (
-        filter_by_impact(
+    if masks is None:
+        layers = retrieve_layers(
+            image,
+            min_pixels=min_pixels,
+            min_impact=min_impact,
+            max_layers=max_layers,
+            max_side=max_side,
+            model=model,
+        )
+    else:
+        layers = filter_by_impact(
             image,
             masks,
             min_pixels=min_pixels,
             min_impact=min_impact,
             max_layers=max_layers,
-            fill_holes=fill_holes,
         )
-        if masks is not None
-        else retrieve_layers(
-            image,
-            min_pixels=min_pixels,
-            min_impact=min_impact,
-            max_layers=max_layers,
-            fill_holes=fill_holes,
-            max_side=max_side,
-            model=model,
-            points_per_batch=points_per_batch,
-        )
-    )
-    # ``retrieve_layers`` has already done this for the normal SAM path.  Do
-    # it here too for caller-supplied masks, which otherwise would export
-    # broad lower fills coloured by pixels that later paths hide.
-    if masks is not None:
+        # ``retrieve_layers`` has already done this for SAM's own masks.
         layers = recolour_visible_layers(image, layers)
-    layers = arrange_layers(
-        layers,
-        min_width=min_width,
-        drop_hidden=drop_hidden,
-        flatten=flatten,
-        min_pixels=min_pixels,
-    )
-    width, height = image.size
-    scale = max(1.0, max(width, height) / max_side) if max_side else 1.0
-    if refine:
-        layers = refine_edges(layers, image, band=round(EDGE_BAND * scale))
-    if merge:
-        layers = merge_patches(layers, image, min_impact=min_impact)
-    if outlines:
-        layers = stroked_regions(layers, image, outlines)
+    layers = arrange_layers(layers, min_width=min_width)
     width, height = image.size
     # SAM's masks have steps of one SAM pixel, which is more than one of the
     # image's when SAM worked at a smaller size.
-    smooth = SMOOTH * max(1.0, max(width, height) / max_side) if max_side else SMOOTH
-    paths = []
-    if backdrop:
-        red, green, blue = backdrop_colour(image, layers)
-        paths.append(
-            f'<rect width="{width}" height="{height}" '
-            f'fill="#{red:02x}{green:02x}{blue:02x}" />'
-        )
+    scale = max(1.0, max(width, height) / max_side) if max_side else 1.0
+    layers = refine_edges(layers, image, band=round(EDGE_BAND * scale))
+    layers = merge_patches(layers, image, min_impact=min_impact)
+    red, green, blue = backdrop_colour(image, layers)
+    paths = [
+        f'<rect width="{width}" height="{height}" '
+        f'fill="#{red:02x}{green:02x}{blue:02x}" />'
+    ]
     for layer in layers:
-        for attributes in _layer_svg_attributes(
-            layer,
-            segments,
-            curvature_threshold=curvature_threshold,
-            maximum_segments=maximum_segments,
-            smooth=smooth,
-            tolerance=tolerance,
-        ):
+        attributes = _layer_svg_attributes(
+            layer, smooth=SMOOTH * scale, tolerance=tolerance
+        )
+        if attributes is not None:
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
-    svg = (
+    return (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}">' + "".join(paths) + "</svg>"
     )
-    text_layers = detect_text(image) if ocr and masks is None else []
-    if text_layers and rasterize is not None:
-        return _accept_text_layers(svg, image, text_layers, rasterize)
-    return _append_text_layers(svg, text_layers)
-
-
-def residual_prompt_points(
-    target: Image.Image,
-    rendered: Image.Image,
-    *,
-    radius_fraction: float = SAMVG_RESIDUAL_RADIUS_FRACTION,
-    threshold: float = 0.784,
-    max_points: int | None = None,
-) -> list[tuple[int, int]]:
-    """Locate SAMVG's convolved, thresholded residual components."""
-    target_pixels = np.asarray(target.convert("RGB"), dtype=np.float32) / 255.0
-    rendered_pixels = np.asarray(rendered.convert("RGB"), dtype=np.float32) / 255.0
-    # SAMVG sums RGB-channel difference before applying its 0.784 threshold.
-    # Averaging here hides a strongly wrong but uniformly coloured face/body.
-    difference = np.abs(target_pixels - rendered_pixels).sum(axis=2)
-    height, width = difference.shape
-    radius = max(2, round(min(height, width) * radius_fraction))
-    return _circular_component_centres(
-        difference, radius, threshold=threshold, max_points=max_points
-    )
-
-
-def _append_layers(
-    svg: str,
-    layers: list[MaskLayer],
-    segments: int,
-    *,
-    min_width: int = 0,
-    curvature_threshold: float | None = None,
-    maximum_segments: int = 2048,
-) -> str:
-    """Add newly prompted paths to an already optimised SVG."""
-    root = ET.fromstring(svg)
-    for layer in layers:
-        for attributes in _layer_svg_attributes(
-            layer,
-            segments,
-            min_width=min_width,
-            curvature_threshold=curvature_threshold,
-            maximum_segments=maximum_segments,
-        ):
-            ET.SubElement(
-                root,
-                "{http://www.w3.org/2000/svg}path",
-                attributes,
-            )
-    return ET.tostring(root, encoding="unicode")
-
-
-def _append_text_layers(svg: str, layers: list[TextLayer]) -> str:
-    """Append editable OCR text without changing the pre-existing drawing."""
-    if not layers:
-        return svg
-    root = ET.fromstring(svg)
-    for layer in layers:
-        element = ET.SubElement(
-            root, "{http://www.w3.org/2000/svg}text", _text_svg_attributes(layer)
-        )
-        element.text = layer.text
-    return ET.tostring(root, encoding="unicode")
-
-
-def _render_svg(svg: str, image: Image.Image, rasterize) -> Image.Image:
-    return Image.open(io.BytesIO(rasterize(svg, image.width, image.height))).convert(
-        "RGB"
-    )
-
-
-def _mse(image: Image.Image, rendered: Image.Image) -> float:
-    target = np.asarray(image.convert("RGB"), dtype=np.float32)
-    candidate = np.asarray(rendered.convert("RGB"), dtype=np.float32)
-    return float(((target - candidate) ** 2).mean())
-
-
-def _text_error_tolerance(layer: TextLayer, image: Image.Image) -> float:
-    """Return the whole-image MSE budget for this one text bounding box."""
-    padding = 2
-    width = min(image.width, max(1, math.ceil(layer.width) + padding * 2))
-    height = min(image.height, max(1, math.ceil(layer.height) + padding * 2))
-    affected_fraction = (width * height) / (image.width * image.height)
-    return affected_fraction * (255 * OCR_TEXT_RMSE_TOLERANCE) ** 2
-
-
-def _accept_text_layers(
-    svg: str,
-    image: Image.Image,
-    layers: list[TextLayer],
-    rasterize: Callable[[str, int, int], bytes],
-) -> str:
-    """Retain OCR text that improves, or only negligibly worsens, pixel loss.
-
-    A VLM's asserted confidence is not evidence that a word is present. The
-    same rasterisation used to score the seed is the final verifier, including
-    font mismatch, positioning, and any existing SAM paths beneath the text.
-    """
-    accepted = svg
-    error = _mse(image, _render_svg(accepted, image, rasterize))
-    retained = 0
-    for layer in layers:
-        candidate = _append_text_layers(accepted, [layer])
-        candidate_error = _mse(image, _render_svg(candidate, image, rasterize))
-        if candidate_error <= error + _text_error_tolerance(layer, image):
-            accepted, error = candidate, candidate_error
-            retained += 1
-    log.info(
-        "SAMVG OCR: retained %d/%d text layer(s) after pixel verification.",
-        retained,
-        len(layers),
-    )
-    return accepted

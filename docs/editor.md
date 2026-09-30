@@ -255,39 +255,22 @@ contract in `vectrify.operations` (see `docs/operations.md`) via
 `POST /api/operation`.
 
 **Generate from reference…** (in the Reference panel) traces the reference into
-new shapes. The SAMVG method segments the image with SAM and traces each region
-into filled paths. Choose the model (ViT-H is best, ViT-B is faster), the
-resolution SAM segments at (by default the reference's own size; a fixed size
-shrinks a larger reference to it, which is faster and uses less GPU memory, and
-enlarges a smaller one first, so outlines do not follow its pixels),
-the maximum shapes, the outline tolerance (how far an outline may stray from its
-region, in reference pixels; each outline is traced densely and then simplified
-to it, so it gets as many curves as its shape needs), whether to fill small holes, and the
-thinnest region to keep: regions narrower than that everywhere, such as
-outlines and hairlines, are left out (0 keeps everything). Regions hidden entirely by
-those above are left out, and a backdrop rectangle beneath them all, in the
-colour of what no region claims (usually the drawn outlines), fills the gaps
-between regions. **Snap edges to the reference** (on by default) moves each region's edge onto
-the reference's own edges nearby, since SAM's masks are coarser than the image
-and smooth away thin spikes and notches.
-**Trace drawn outlines** (on by default) finds the dark lines drawn in the
-reference and makes them the strokes of the regions they bound: the regions on
-either side meet at each line's middle, neighbours separated only by an
-undrawn edge (such as shading) merge when their colours are close, and a
-region whose outline is then mostly drawn is stroked in the lines' colour at
-their width. Lines that bound no region, drawn inside one, are left out, so
-every shape is a region and the drawing stays small enough to clean up.
-**Merge small patches** (on by default) joins neighbouring regions whose
-difference is not worth a shape of its own, such as the small patches SAM
-leaves along edges or one region cut in pieces, and recolours the result.
-**Flatten overlaps** cuts every region down to its visible
-part, so none overlap; the thin strips that cutting leaves along edges go to
-a neighbouring region instead of becoming shapes of their own. The seams
-between flattened regions are then snapped together as **Snap edges** does,
-matching edges within about 1.5 traced pixels, so neighbouring regions meet
-exactly; a trace whose seams cannot be snapped is kept as traced. Outlines are
-smoothed over about one SAM pixel before curves are fitted, so they do not
-follow the masks' raster steps. The result is placed over the
+new shapes. The SAMVG method, a general-purpose tracer for photos and painterly
+images, segments the image with SAM and traces each region into filled paths.
+Choose the model (ViT-H is best, ViT-B is faster), the resolution SAM segments
+at (by default the reference's own size; a fixed size shrinks a larger
+reference to it, which is faster and uses less GPU memory, and enlarges a
+smaller one first, so outlines do not follow its pixels) and the maximum
+shapes. The rest is fixed: small holes in a region are filled, regions
+narrower than 3 reference pixels everywhere (outlines and hairlines) and those
+hidden entirely by the ones above are left out, each region's edge is moved
+onto the reference's own edges nearby (SAM's masks are coarser than the image
+and smooth away thin spikes and notches), neighbouring regions whose
+difference is not worth a shape of their own are merged and recoloured, and a
+backdrop rectangle beneath them all, in the colour of what no region claims
+(usually the drawn outlines), fills the gaps between regions. Each outline is
+smoothed over about one SAM pixel, traced densely and simplified to within
+half a reference pixel, so it gets as many curves as its shape needs. The result is placed over the
 artboard exactly where the reference is shown, as one new group at the front of
 the whole drawing or of a selected group. With a group selected, only the
 reference around what it already paints is traced. Text is traced as shapes, since the editor

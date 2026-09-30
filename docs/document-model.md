@@ -99,8 +99,8 @@ snapped for one pair is neither split nor matched again, and a span whose
 snapping would move a slot of such an edge is skipped, so a region can meet
 several neighbours. Pins, locks and permissions apply as for any geometry
 edit. It checks everything before changing the transaction, so a caller can
-catch a refusal and carry on; SAMVG's Generate does that to snap the seams of
-a flattened trace (`object_ids` names the inserted paths, and geometry the
+catch a refusal and carry on; `generated_result` does that to snap the seams
+of a trace (`object_ids` names the inserted paths, and geometry the
 transaction added itself needs no geometry permission to snap). It returns an
 `EdgeRef` (in `vectrify.document.topology`) for the front edge of each
 matched span, mapped into root user space, which previews highlight.

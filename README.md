@@ -66,19 +66,17 @@ last.
 SAMVG is inspired by the SAMVG paper, not an installation of the unreleased
 research code. It uses SAM ViT-H by default (ViT-B is faster), keeps masks only
 when they materially improve a flat-colour reconstruction, and traces them into
-layered SVG paths. SAM inputs default to a 1024px maximum side
-(`VECTRIFY_SAMVG_MAX_SIDE`) and decode 64 prompts per CUDA batch
-(`VECTRIFY_SAMVG_POINTS_PER_BATCH`). `VECTRIFY_SAMVG_MODEL` changes the
-default checkpoint.
+layered SVG paths. It is a general-purpose tracer for photos and painterly
+images; the editor's Generate dialog chooses the model, the resolution SAM
+segments at and the maximum number of shapes.
 
-The native CUDA extension is built only on request. Build a local wheel with
-it, then run the two-phase measurement (initial fit, residual prompts and
-recovery fit) on an image:
+The native CUDA extension for the filled-path fit is built only on request.
+Build a local wheel with it, then time it:
 
 ```sh
 VECTRIFY_BUILD_SAMVG_CUDA=1 uv build --wheel --no-build-isolation
 uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
-.venv/bin/python scripts/bench_samvg_two_phase.py --target image.png
+.venv/bin/python scripts/check_cuda_renderer.py
 ```
 
 PyPI releases are portable Python wheels and do not bundle the CUDA extension.
@@ -88,7 +86,8 @@ PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 `scripts/` holds standalone tools run from a checkout:
 `bench_colour_regions.py` runs colour regions on one image,
 `bench_samvg_renderer.py` and `check_cuda_renderer.py` time the filled-path
-fit, `bench_samvg_two_phase.py` runs SAMVG's two phases, `subtle_screen.py`
+fit, `bench_trace.py` benchmarks Generate with SAMVG and Optimize nodes on
+fixed references, `subtle_screen.py`
 checks that the scorers in `vectrify.score` order graded path damage
 correctly, and
 `analyze_profile.py` summarises a py-spy profile.

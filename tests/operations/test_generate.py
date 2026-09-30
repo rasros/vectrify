@@ -109,7 +109,7 @@ def test_generation_goes_into_a_selected_group_or_needs_the_whole_drawing():
         )
 
 
-def test_samvg_job_inserts_the_trace_with_text_disabled(monkeypatch):
+def test_samvg_job_inserts_the_trace(monkeypatch):
     seen = {}
 
     def fake(image, **kwargs):
@@ -125,7 +125,6 @@ def test_samvg_job_inserts_the_trace_with_text_disabled(monkeypatch):
     job.run()
     state = job.state(preview=True)
     assert state["status"] == "ready", state
-    assert seen["ocr"] is False
     assert seen["max_layers"] == 8
     assert seen["size"] == (400, 200)
     job.apply()
@@ -152,7 +151,7 @@ def test_samvg_traces_a_small_reference_enlarged_and_places_it_the_same(
         request(
             editor,
             Selection.all(),
-            settings={"max_side": 800, "min_width": 3, "min_pixels": 32},
+            settings={"max_side": 800},
         ),
     )
     job.run()
@@ -162,45 +161,9 @@ def test_samvg_traces_a_small_reference_enlarged_and_places_it_the_same(
     assert seen["size"] == (800, 400)
     assert seen["min_width"] == 6
     assert seen["min_pixels"] == 128
+    assert seen["tolerance"] == 1.0
     # Placed exactly over the reference's square: no error left.
     assert state["result"]["metrics"]["after"]["error"] < 1e-3
-
-
-@pytest.mark.parametrize("flatten", [True, False])
-def test_flattened_samvg_trace_snaps_the_seams_between_its_regions(
-    monkeypatch, flatten
-):
-    # Two squares a traced pixel apart, over the backdrop, as traced
-    # separately from flattened masks.
-    svg = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
-        '<rect width="400" height="200" fill="#ffffff"/>'
-        '<path d="M100 50H200V150H100Z" fill="#c80000"/>'
-        '<path d="M201 50H300V150H201Z" fill="#c80000"/></svg>'
-    )
-    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", lambda *_a, **_k: svg)
-    editor = Editor(import_svg(DOC))
-    job = Job(
-        method("generate", "samvg"),
-        request(
-            editor, Selection.all(), settings={"flatten": flatten, "max_side": 400}
-        ),
-    )
-    job.run()
-    state = job.state()
-    assert state["status"] == "ready", state
-    assert state["result"]["metrics"].get("snapped", 0) == (1 if flatten else 0)
-    job.apply()
-    doc = editor.snapshot.document
-    left, right = (
-        {n.endpoint[0] for s in doc.geometry_for(e.id).subpaths for n in s.nodes}
-        for e in doc.elements()
-        if e.tag == "path" and e.get("fill") == "#c80000"
-    )
-    # The front square stays; the one behind closes the traced gap onto it.
-    assert right == {201, 300}
-    assert left == ({100, 201} if flatten else {100, 200})
-    assert editor.undo_labels == ("Generate with SAMVG",)
 
 
 def test_samvg_segments_at_the_reference_size_by_default(monkeypatch):
@@ -228,7 +191,7 @@ def test_samvg_rejects_bad_settings_and_missing_permission():
     with pytest.raises(DocumentError, match="Unknown SAMVG setting"):
         samvg.validate(request(editor, Selection.all(), settings={"ocr": True}))
     with pytest.raises(DocumentError, match="whole number"):
-        samvg.validate(request(editor, Selection.all(), settings={"segments": 2.5}))
+        samvg.validate(request(editor, Selection.all(), settings={"max_layers": 2.5}))
     with pytest.raises(DocumentError, match="structure"):
         samvg.validate(
             OperationRequest(

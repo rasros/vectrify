@@ -38,12 +38,11 @@ def test_fixed_seed_image_exports_two_editable_coloured_paths(two_band_target):
         masks,
         min_pixels=1,
         min_impact=0,
-        segments=4,
-        ocr=False,
+        min_width=0,
     )
 
     root = ET.fromstring(svg)
-    paths = list(root)
+    paths = root.findall("{http://www.w3.org/2000/svg}path")
     assert root.attrib["viewBox"] == "0 0 6 4"
     assert [path.attrib["fill"] for path in paths] == ["#141e28", "#dcd2c8"]
     assert all(path.attrib["fill-rule"] == "evenodd" for path in paths)

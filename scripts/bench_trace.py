@@ -8,7 +8,7 @@ setting, so after the first run only the steps after SAM are timed and
 tuning them takes seconds; `--no-cache` segments again.
 
     uv run python scripts/bench_trace.py --out runs/base.jsonl
-    uv run python scripts/bench_trace.py --set merge=false --out runs/b.jsonl
+    uv run python scripts/bench_trace.py --set max_side=1024 --out runs/b.jsonl
     uv run python scripts/bench_trace.py --compare runs/base.jsonl runs/b.jsonl
 
 The error is the mean squared difference to the reference in 0-255 RGB. SAM
@@ -37,7 +37,6 @@ REFERENCES = (
 # Generate settings on top of the method's defaults.
 PRESETS: dict[str, dict] = {
     "defaults": {},
-    "flattened": {"flatten": True},
 }
 # Optimize nodes: which steps, and how many rounds per path.
 OPTIMIZE = {"shape": True, "snap": True, "detail": False, "simplify": True}
@@ -133,7 +132,7 @@ def trace(image: Image.Image, settings: dict, paths: int, *, cache: bool) -> dic
         "error": round(metrics["after"]["error"] * 255**2, 2),
         "paths": sum(1 for e in document.elements() if e.tag == "path"),
         "curves": data.count("C"),
-        # Edges a flattened trace snapped together.
+        # Seams Generate snapped together; SAMVG snaps none.
         "snapped": metrics.get("snapped", 0),
         "segment_s": round(timing["segment"], 1),
         "cached": timing["cached"],
@@ -204,19 +203,19 @@ def _cached_segmentation(enabled: bool) -> dict:
     timing = {"segment": 0.0, "cached": False, "spent": 0.0}
     original = getattr(samvg.retrieve_layers, "__wrapped__", samvg.retrieve_layers)
 
-    def retrieve(image, masks=None, **kwargs):
+    def retrieve(image, **kwargs):
         started = time.perf_counter()
         try:
-            return _retrieve(image, masks, **kwargs)
+            return _retrieve(image, **kwargs)
         finally:
             timing["spent"] = time.perf_counter() - started
 
-    def _retrieve(image, masks=None, **kwargs):
+    def _retrieve(image, **kwargs):
         options = {k: v for k, v in kwargs.items() if not k.startswith("_")}
         digest = hashlib.sha1(image.tobytes() + repr(image.size).encode())
         digest.update(json.dumps(options, sort_keys=True, default=str).encode())
         path = CACHE / f"{digest.hexdigest()}.pkl"
-        if enabled and masks is None and path.exists():
+        if enabled and path.exists():
             timing["cached"] = True
             with path.open("rb") as file:
                 cached = pickle.load(file)
@@ -234,9 +233,9 @@ def _cached_segmentation(enabled: bool) -> dict:
                     )
             return layers
         started = time.perf_counter()
-        layers = original(image, masks, **kwargs)
+        layers = original(image, **kwargs)
         timing["segment"] = time.perf_counter() - started
-        if enabled and masks is None:
+        if enabled:
             CACHE.mkdir(parents=True, exist_ok=True)
             with path.open("wb") as file:
                 pickle.dump(
@@ -272,6 +271,9 @@ def _unpacked(stored):
     if not isinstance(stored, dict):
         return stored
     stored = dict(stored)
+    # Fields layers no longer have, from caches written before they went.
+    stored.pop("overlap_pixels", None)
+    stored.pop("stroke", None)
     shape = stored.pop("shape")
     count = shape[0] * shape[1]
     mask = np.unpackbits(stored.pop("bits"), count=count).astype(bool).reshape(shape)
