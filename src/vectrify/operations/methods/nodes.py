@@ -56,14 +56,19 @@ DEFAULT_ROUNDS = 8
 # How far, in reference pixels, a fitted curve's handles may sit from its
 # line and still be drawn as the line.
 STRAIGHT = 0.25
-# A step has to lower the difference by this share to count as helping.
-GAIN = 0.005
 
 SETTINGS = {
     "shape": Setting(bool, True),
     "snap": Setting(bool, False),
-    # Snap may add points where the path misses the shape.
+    # Snap may add points where the path misses the shape, each of which has
+    # to fix this many reference pixels.
     "detail": Setting(bool, False),
+    # How far past the selection, as a share of its size in percent, the
+    # reference is read: how far a snapped or added point can reach.
+    "margin": Setting(float, 10.0, minimum=0.0, maximum=200.0, label="margin"),
+    "detail_gain": Setting(
+        float, 12.0, minimum=1.0, maximum=500.0, label="detail gain"
+    ),
     "simplify": Setting(bool, False),
     # How far Simplify may move an outline, in the reference's pixels.
     "tolerance": Setting(float, 1.0, minimum=0.0, maximum=20.0, label="tolerance"),
@@ -73,6 +78,8 @@ SETTINGS = {
     "movement": Setting(float, 2.0, minimum=0.0, maximum=100.0, label="movement"),
     "resolution": Setting(int, 768, minimum=64, maximum=2048, label="resolution"),
     "workers": Setting(int, 2, minimum=1, maximum=max(1, os.cpu_count() or 1)),
+    # How much a step has to lower the difference to be kept, in percent.
+    "gain": Setting(float, 0.1, minimum=0.0, maximum=50.0, label="minimum improvement"),
 }
 
 
@@ -150,7 +157,14 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
         if step == "snap":
             from vectrify.refine.snap import snap
 
-            paths = snap(document, paths, region, fixed, detail=settings["detail"])
+            paths = snap(
+                document,
+                paths,
+                region,
+                fixed,
+                detail=settings["detail"],
+                split_gain=settings["detail_gain"],
+            )
         else:
             from vectrify.refine.simplify import simplify
 
@@ -254,10 +268,11 @@ class OptimizeNodes:
         rounds = request.budget.steps or DEFAULT_ROUNDS
         start = request.snapshot.document
         oids = tuple(selected_paths(request))
+        margin = settings["margin"] / 100
         region = (
-            target_region(request)
+            target_region(request, margin)
             if request.reference is not None
-            else drawing_region(request, settings["resolution"])
+            else drawing_region(request, settings["resolution"], margin)
         )
         steps = [s for s in STEPS if settings[s]]
         document = start
@@ -293,7 +308,7 @@ class OptimizeNodes:
                 for step in _folding(results, _crossings(document, oids), oids):
                     del results[step]
                     folded[step] = folded.get(step, 0) + 1
-                chosen = _choose(results, current, points, oids)
+                chosen = _choose(results, current, points, oids, settings["gain"] / 100)
                 if chosen is None:
                     break
                 taken.append(chosen)
@@ -382,13 +397,13 @@ def _round(steps, task: _Task, pool, stop, report):
     return results
 
 
-def _choose(results, current: float, points: int, oids) -> str | None:
-    """The step to keep: the one that lowers the difference most, or else
-    Simplify if it removed points."""
+def _choose(results, current: float, points: int, oids, gain: float) -> str | None:
+    """The step to keep: the one that lowers the difference most, by at least
+    *gain* of it, or else Simplify if it removed points."""
     helping = [
         (difference, step)
         for step, (_doc, difference, _why) in results.items()
-        if step != "simplify" and difference < current * (1 - GAIN)
+        if step != "simplify" and difference < current * (1 - gain)
     ]
     if helping:
         return min(helping)[1]

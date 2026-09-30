@@ -104,15 +104,18 @@ into the `MutationScope` the LLM prompt names as editable.
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
 no other object shares. Its settings are the steps to use (`shape`, `snap`,
-`simplify`, and `detail` for Snap to add points), Simplify's `tolerance` in
-reference pixels, each path fit's `steps`, `movement` (SVG units) and
-`resolution`, and `workers`; the budget's `steps` is the most rounds.
+`simplify`, and `detail` for Snap to add points, each of which has to fix
+`detail_gain` reference pixels), Simplify's `tolerance` in reference pixels,
+each path fit's `steps`, `movement` (SVG units) and `resolution`, `workers`,
+the `gain` in percent a step must improve by, and the `margin` in percent of
+the selection's size that the reference region extends past it; the budget's
+`steps` is the most rounds.
 `shape` and `snap` need a reference; without one the target is the drawing's
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
 
 Every round runs each chosen step on the paths as they stand and measures the
 region's mean squared difference to the target (`generate.error`). The step
-that lowers it most, by at least 0.5%, is kept; if none does, Simplify is kept
+that lowers it most, by at least `gain` percent, is kept; if none does, Simplify is kept
 when it removed points, and otherwise the run ends. A step's result is not
 eligible when any path crosses itself more than before the step
 (`refine.crossings.crossings`: each contour drawn as a polyline, cubics at 8

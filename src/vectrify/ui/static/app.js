@@ -1270,8 +1270,13 @@ const nodeSteps = () => Object.fromEntries(NODE_STEPS.map(step => [step, $('node
 function syncNodeSteps() {
   const steps = nodeSteps();
   $('nodes-detail').disabled = !steps.snap || !state.reference;
-  $('nodes-tolerance-row').hidden = !steps.simplify;
-  $('nodes-fit-row').hidden = !steps.shape;
+  $('nodes-detail-gain').disabled = !steps.snap || !steps.detail;
+  // A step that is off keeps its options visible but dimmed.
+  for (const card of document.querySelectorAll('#nodes-settings .step-card[data-step]')) {
+    const on = steps[card.dataset.step];
+    card.classList.toggle('off', !on);
+    for (const input of card.querySelectorAll('.two-fields input')) if (input.id !== 'nodes-detail' && input.id !== 'nodes-detail-gain') input.disabled = !on;
+  }
   $('nodes-apply').hidden = true; $('nodes-previews').hidden = true;
 }
 const nodesDialog = jobDialog('nodes', {
@@ -1280,7 +1285,8 @@ const nodesDialog = jobDialog('nodes', {
     return {action:'improve', method:'nodes', scope:'selection',
       permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify},
       settings:{...steps, tolerance:Number($('nodes-tolerance').value), steps:Number($('nodes-steps').value),
-        movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value)},
+        movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value),
+        detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value)},
       budget:{steps:Number($('nodes-rounds').value)}};
   },
   describe: ({changed, metrics}) => {
@@ -1295,7 +1301,7 @@ const nodesDialog = jobDialog('nodes', {
   applied: 'Paths optimized. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
-for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 $('nodes-open').onclick = async () => {
   await queue;
   const reference = Boolean(state.reference);

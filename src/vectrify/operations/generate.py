@@ -58,7 +58,9 @@ REGION_MARGIN = 0.1
 REGION_MARGIN_PIXELS = 3
 
 
-def selected_bounds(request: OperationRequest) -> tuple[float, float, float, float]:
+def selected_bounds(
+    request: OperationRequest, margin: float = REGION_MARGIN
+) -> tuple[float, float, float, float]:
     """The painted bounds of the selected objects, or the artboard for a
     whole-drawing request or a selection that paints nothing (an empty group)."""
     document = request.snapshot.document
@@ -74,15 +76,15 @@ def selected_bounds(request: OperationRequest) -> tuple[float, float, float, flo
     left, top, right, bottom = painted
     reference = request.reference
     pixel = max(vw / reference.width, vh / reference.height) if reference else 0.0
-    pad = max(
-        REGION_MARGIN * max(right - left, bottom - top), REGION_MARGIN_PIXELS * pixel
-    )
+    pad = max(margin * max(right - left, bottom - top), REGION_MARGIN_PIXELS * pixel)
     return left - pad, top - pad, right + pad, bottom + pad
 
 
-def _on_artboard(request: OperationRequest) -> tuple[float, float, float, float]:
+def _on_artboard(
+    request: OperationRequest, margin: float = REGION_MARGIN
+) -> tuple[float, float, float, float]:
     vx, vy, vw, vh = request.snapshot.document.artboard()
-    left, top, right, bottom = selected_bounds(request)
+    left, top, right, bottom = selected_bounds(request, margin)
     left, top = max(left, vx), max(top, vy)
     right, bottom = min(right, vx + vw), min(bottom, vy + vh)
     if right <= left or bottom <= top:
@@ -90,13 +92,15 @@ def _on_artboard(request: OperationRequest) -> tuple[float, float, float, float]
     return left, top, right, bottom
 
 
-def drawing_region(request: OperationRequest, long_side: int) -> Region:
+def drawing_region(
+    request: OperationRequest, long_side: int, margin: float = REGION_MARGIN
+) -> Region:
     """The selection's surroundings with the drawing itself as the image.
 
     What an operation compares against when there is no reference: the
     drawing as it stands, so a change is judged by how far it moves from it.
     """
-    left, top, right, bottom = _on_artboard(request)
+    left, top, right, bottom = _on_artboard(request, margin)
     width, height = right - left, bottom - top
     scale = long_side / max(width, height)
     size = (max(1, round(width * scale)), max(1, round(height * scale)))
@@ -104,7 +108,7 @@ def drawing_region(request: OperationRequest, long_side: int) -> Region:
     return replace(blank, image=render_region(request.snapshot.document, blank))
 
 
-def target_region(request: OperationRequest) -> Region:
+def target_region(request: OperationRequest, margin: float = REGION_MARGIN) -> Region:
     """The selected objects' surroundings, or the artboard for the whole drawing.
 
     Scoring a small edit against the whole picture drowns it: a path that
@@ -114,7 +118,7 @@ def target_region(request: OperationRequest) -> Region:
         raise DocumentError("Add a reference image to generate from")
     reference = on_white(request.reference)
     vx, vy, vw, vh = request.snapshot.document.artboard()
-    left, top, right, bottom = _on_artboard(request)
+    left, top, right, bottom = _on_artboard(request, margin)
     sx, sy = reference.width / vw, reference.height / vh
     box = (
         round((left - vx) * sx),

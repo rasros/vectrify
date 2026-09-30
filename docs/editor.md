@@ -179,12 +179,18 @@ may use:
   With **Add detail** it also adds points where the path misses a piece of the
   shape or covers too much: one point, two, or a spike of three whose base
   stays on the outline, reaching bit by bit along a strand that curls away.
+  **Pixels per added point** is how many reference pixels each new point has to
+  fix to be kept, and **Search beyond the path** how far past the selection,
+  as a share of its size, the reference is read: a point can only reach that
+  far.
 - **Simplify** removes the points the outline does not need, moving it no more
   than the tolerance in reference pixels, and turns curves whose handles lie
   on their line within the tolerance into straight segments.
 
 Each round tries every ticked step on the paths as they stand and keeps the one
-that brings them closest to the reference; when none helps, Simplify gets its
+that brings them closest to the reference, if it improves on them by at least
+the **Minimum improvement** (0.1% by default; on a large selection a small fix
+is a small share, so lower it to keep those); when none helps, Simplify gets its
 turn, and the run ends once nothing changes or the rounds run out. So a rough
 shape can be snapped, fitted, thinned and fitted again in whatever order works.
 No step may leave an outline folded over itself: a result where a path crosses

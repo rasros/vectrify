@@ -184,13 +184,16 @@ def _unit(vector: np.ndarray) -> np.ndarray | None:
 
 
 class _Snapper:
-    def __init__(self, frame, reference, rule, fixed: Frozen, detail: bool):
+    def __init__(
+        self, frame, reference, rule, fixed: Frozen, detail: bool, split_gain: float
+    ):
         self.frame = frame
         self.reference = ndimage.gaussian_filter(reference, (0.6, 0.6, 0))
         self.size = (reference.shape[1], reference.shape[0])
         self.rule = rule
         self.fixed = fixed
         self.detail = detail
+        self.split_gain = split_gain
         self.reach = REACH
 
     def run(self, geometry: Geometry) -> Geometry:
@@ -458,7 +461,7 @@ class _Snapper:
         largest first. For each, the segment nearest to it is split there: a
         point at the blob's far end, two spanning it, or a spike of three whose
         base points stay on the outline so the rest of the contour keeps its
-        shape. A try is kept when each point it adds fixes SPLIT_GAIN pixels.
+        shape. A try is kept when each point it adds fixes *split_gain* pixels.
         """
         coverage = self._coverage(contours)
         colour_in = self._inside_colour(coverage)
@@ -479,7 +482,7 @@ class _Snapper:
         points_now = sum(len(c.nodes) for c in contours)
         done: set[int] = set()
         for index in order:
-            if areas[index] < SPLIT_GAIN or points_now >= limit:
+            if areas[index] < self.split_gain or points_now >= limit:
                 break
             ys, xs = np.nonzero(labels == index + 1)
             blob = np.column_stack([xs, ys]) + 0.5
@@ -506,7 +509,7 @@ class _Snapper:
                     # Each new point has to pay for itself.
                     gain = (base - error) / max(added, 1)
                     # Moving a point adds none, so it only has to help.
-                    needed = SPLIT_GAIN if added else SPLIT_GAIN / 4
+                    needed = self.split_gain if added else self.split_gain / 4
                     if gain >= needed and (best is None or gain > best[0]):
                         best = (gain, added, c, trial)
             if best is None:
@@ -816,6 +819,7 @@ def snap(
     fixed: Frozen,
     *,
     detail: bool = False,
+    split_gain: float = SPLIT_GAIN,
     long_side: int = LONG_SIDE,
 ) -> Paths:
     """*paths* with each filled path's points moved onto the reference's edges.
@@ -834,6 +838,8 @@ def snap(
         frame = _frame(document, oid, region, image.size)
         if frame is None:
             continue
-        snapper = _Snapper(frame, reference, style["fill-rule"], fixed, detail)
+        snapper = _Snapper(
+            frame, reference, style["fill-rule"], fixed, detail, split_gain
+        )
         geometries[oid] = snapper.run(geometry)
     return replace(paths, geometries=geometries)
