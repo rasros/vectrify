@@ -64,6 +64,9 @@ LINE_CONTRAST = float(os.environ.get("VECTRIFY_SAMVG_LINE_CONTRAST", "0.12"))
 LINE_LENGTH = float(os.environ.get("VECTRIFY_SAMVG_LINE_LENGTH", "4"))
 # The narrowest a line looked for may be, in pixels.
 LINE_WIDTH = 4
+# With a fitting tolerance, outlines are first traced with one curve per this
+# many pixels and then simplified down to the tolerance.
+DENSITY = 6
 # Outlines are smoothed over this many SAM pixels before curves are fitted,
 # so the fit does not follow the masks' raster steps.
 SAMVG_SMOOTH = float(os.environ.get("VECTRIFY_SAMVG_SMOOTH", "1.0"))
@@ -1373,9 +1376,11 @@ def mask_path(
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
     smooth: float = 0.0,
+    density: int = 0,
 ) -> str | None:
     """Fit every mask contour as fixed-count or thresholded cubic Beziers,
-    each first smoothed over *smooth* pixels."""
+    each first smoothed over *smooth* pixels. With *density*, a contour gets
+    one curve per that many pixels of its length instead."""
     if overlap_pixels:
         mask = _binary_dilation(mask, overlap_pixels)
     parts = [
@@ -1384,7 +1389,7 @@ def mask_path(
         if (
             piece := _cubic_loop(
                 loop,
-                segments,
+                max(4, len(loop) // density) if density else segments,
                 curvature_threshold=curvature_threshold,
                 maximum_segments=maximum_segments,
                 smooth=smooth,
@@ -1658,6 +1663,7 @@ def _layer_svg_attributes(
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
     smooth: float = 0.0,
+    tolerance: float = 0.0,
 ) -> list[dict[str, str]]:
     """Trace one SAM mask as a filled path, or nothing when it is too thin."""
     colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
@@ -1670,10 +1676,30 @@ def _layer_svg_attributes(
         curvature_threshold=curvature_threshold,
         maximum_segments=maximum_segments,
         smooth=smooth,
+        density=DENSITY if tolerance else 0,
     )
     if data is None:
         return []
+    if tolerance:
+        data = _simplified_data(data, tolerance)
     return [{"d": data, "fill": colour, "fill-rule": "evenodd"}]
+
+
+def _simplified_data(data: str, tolerance: float) -> str:
+    """Path *data*, in pixels, with the points it does not need removed."""
+    from vectrify.document.svg import parse_path
+    from vectrify.refine.frozen import Frozen
+    from vectrify.refine.simplify import simplified_geometry
+
+    geometry = simplified_geometry(
+        parse_path(data), Frozen(frozenset(), frozenset()), tolerance
+    )
+    # Hundredths of a pixel, as the tracer writes them.
+    return re.sub(
+        r"-?\d+\.\d+(?:e-?\d+)?",
+        lambda number: f"{float(number.group()):.2f}",
+        geometry.path_data(),
+    )
 
 
 def generate_svg(
@@ -1692,6 +1718,7 @@ def generate_svg(
     flatten: bool = False,
     merge: bool = False,
     outlines: int = 0,
+    tolerance: float = 0.0,
     backdrop: bool = False,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
@@ -1757,12 +1784,17 @@ def generate_svg(
             curvature_threshold=curvature_threshold,
             maximum_segments=maximum_segments,
             smooth=smooth,
+            tolerance=tolerance,
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
     for line in lines:
         for attributes in _layer_svg_attributes(
-            line, segments * 4, maximum_segments=maximum_segments, smooth=smooth
+            line,
+            segments * 4,
+            maximum_segments=maximum_segments,
+            smooth=smooth,
+            tolerance=tolerance,
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")

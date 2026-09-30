@@ -201,7 +201,9 @@ into filled paths. Choose the model (ViT-H is best, ViT-B is faster), the
 resolution SAM segments at (higher traces a large image with smoother edges;
 a smaller reference is enlarged to it first, so outlines do not follow its
 pixels),
-the maximum shapes and curves per outline, whether to fill small holes, and the
+the maximum shapes, the outline tolerance (how far an outline may stray from its
+region, in reference pixels; each outline is traced densely and then simplified
+to it, so it gets as many curves as its shape needs), whether to fill small holes, and the
 thinnest region to keep: regions narrower than that everywhere, such as
 outlines and hairlines, are left out (0 keeps everything). Regions hidden entirely by
 those above are left out, and a backdrop rectangle beneath them all, in the

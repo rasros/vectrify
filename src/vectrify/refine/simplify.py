@@ -14,6 +14,7 @@ stay a shape: two points when open, three when closed.
 from __future__ import annotations
 
 from dataclasses import replace
+from itertools import pairwise
 
 import numpy as np
 
@@ -22,8 +23,10 @@ from vectrify.operations.generate import Region
 from vectrify.refine.frozen import Frozen, Paths
 from vectrify.refine.snap import _bezier, _Frame, _frame
 
-# Points each segment is drawn with to measure how far the outline moved.
+# Points each segment is drawn with to measure how far the outline moved, and
+# the most a join is measured against.
 SAMPLES = 24
+MEASURED = 64
 
 
 def simplify(
@@ -39,6 +42,13 @@ def simplify(
     return replace(paths, geometries=geometries)
 
 
+def simplified_geometry(
+    geometry: Geometry, fixed: Frozen, tolerance: float
+) -> Geometry:
+    """*geometry*, already in pixels, simplified to *tolerance* pixels."""
+    return _simplified(geometry, _Frame(np.eye(2), np.zeros(2)), fixed, tolerance)
+
+
 def _simplified(
     geometry: Geometry, frame: _Frame, fixed: Frozen, tolerance: float
 ) -> Geometry:
@@ -46,18 +56,14 @@ def _simplified(
     for subpath in geometry.subpaths:
         nodes = list(subpath.nodes)
         least = 3 if subpath.closed else 2
+        # The outline each segment stands for, as it was before any point
+        # went: a join is fitted to and measured against it, so removals
+        # never drift further than the tolerance from the original.
+        spans = _spans(nodes, frame)
+        costs = [_cost(nodes, spans, i, fixed, frame) for i in range(len(nodes))]
         while len(nodes) > least:
-            best: tuple[float, int, PathNode] | None = None
-            # The first and last points end the contour, or close it.
-            for i in range(1, len(nodes) - 1):
-                if _stays(nodes[i], fixed):
-                    continue
-                joined = _join(nodes[i - 1], nodes[i], nodes[i + 1], frame)
-                if joined is None:
-                    continue
-                moved, node = joined
-                if moved <= tolerance and (best is None or moved < best[0]):
-                    best = (moved, i, node)
+            choices = [(cost[0], i) for i, cost in enumerate(costs) if cost is not None]
+            best = min(choices, default=None)
             closing = _closing(nodes, subpath.closed, fixed, frame)
             if (
                 closing is not None
@@ -65,13 +71,48 @@ def _simplified(
                 and (best is None or closing < best[0])
             ):
                 nodes.pop()
+                spans.pop()
+                costs.pop()
+                for j in (len(nodes) - 2, len(nodes) - 1):
+                    costs[j] = _cost(nodes, spans, j, fixed, frame)
                 continue
-            if best is None:
+            if best is None or best[0] > tolerance:
                 break
-            _moved, i, node = best
-            nodes[i : i + 2] = [node]
+            i = best[1]
+            cost = costs[i]
+            assert cost is not None
+            nodes[i : i + 2] = [cost[1]]
+            spans[i : i + 2] = [np.vstack([spans[i], spans[i + 1][1:]])]
+            costs[i : i + 2] = [None]
+            # Only the joins beside the new segment changed.
+            for j in (i - 1, i):
+                if 0 <= j < len(nodes):
+                    costs[j] = _cost(nodes, spans, j, fixed, frame)
         subpaths.append(replace(subpath, nodes=tuple(nodes)))
     return replace(geometry, subpaths=tuple(subpaths))
+
+
+def _spans(nodes: list[PathNode], frame: _Frame) -> list[np.ndarray]:
+    """Points along the segment ending at each node; none before the first."""
+    t = np.linspace(0, 1, SAMPLES)
+    spans = [np.empty((0, 2))]
+    for before, node in pairwise(nodes):
+        start = frame.pixels(before.values)[-1]
+        spans.append(_bezier(_controls(start, node, frame), t)[0])
+    return spans
+
+
+def _cost(nodes, spans, i: int, fixed: Frozen, frame: _Frame):
+    """(how far removing point *i* moves the outline, the joined node), or
+    None where the point has to stay."""
+    # The first and last points end the contour, or close it.
+    if not 0 < i < len(nodes) - 1 or _stays(nodes[i], fixed):
+        return None
+    old = np.vstack([spans[i], spans[i + 1][1:]])
+    # A long merged span measures just as well from fewer of its points.
+    if len(old) > MEASURED:
+        old = old[np.linspace(0, len(old) - 1, MEASURED).round().astype(int)]
+    return _join(nodes[i - 1], nodes[i], nodes[i + 1], frame, old)
 
 
 def _closing(nodes, closed: bool, fixed: Frozen, frame: _Frame) -> float | None:
@@ -100,15 +141,14 @@ def _controls(start: np.ndarray, node: PathNode, frame: _Frame) -> np.ndarray:
 
 
 def _join(
-    before: PathNode, middle: PathNode, after: PathNode, frame: _Frame
+    before: PathNode, middle: PathNode, after: PathNode, frame: _Frame, old
 ) -> tuple[float, PathNode] | None:
     """The segment replacing the two either side of *middle*, and how far it
-    strays from them in pixels; *after* keeps its ID."""
+    strays from the outline *old* they stand for, in pixels; *after* keeps
+    its ID."""
     start = frame.pixels(before.values)[-1]
     first = _controls(start, middle, frame)
     second = _controls(first[-1], after, frame)
-    t = np.linspace(0, 1, SAMPLES)
-    old = np.vstack([_bezier(first, t)[0], _bezier(second, t)[0][1:]])
     end = second[-1]
     if middle.command == "L" and after.command == "L":
         control = np.vstack([start, end])
