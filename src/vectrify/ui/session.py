@@ -255,21 +255,38 @@ class Session:
         }
 
     def geometries(self, object_ids: list) -> dict:
-        """The geometry of each of several paths, for editing their points."""
+        """The geometry of each of several paths, for editing their points.
+
+        Each also lists *users*, the paths drawing that same geometry: an
+        edit to its points changes all of them.
+        """
         document = self.editor.snapshot.document
+        users: dict[str, list[str]] = {}
+        for element in document.elements():
+            if element.geometry_id is not None:
+                users.setdefault(element.geometry_id, []).append(element.id)
+        result = {}
+        for oid in map(str, object_ids):
+            geometry = document.geometry_for(oid)
+            result[oid] = {**asdict(geometry), "users": users.get(geometry.id, [])}
         return {
             "epoch": self.epoch,
             "revision": self.editor.snapshot.revision,
-            "geometries": {
-                str(oid): asdict(document.geometry_for(str(oid))) for oid in object_ids
-            },
+            "geometries": result,
         }
+
+    def _in_selection(self, object_id: str) -> bool:
+        """Whether *object_id* is selected, or inside a selected group."""
+        snapshot = self.editor.snapshot
+        return object_id in snapshot.document.selection_ids(
+            replace(snapshot.selection, node_ids=frozenset())
+        )
 
     def holes(self, payload: dict) -> dict:
         self.check_revision(payload)
         document = self.editor.snapshot.document
         oid = payload["object"]
-        if oid not in self.editor.snapshot.selection.object_ids:
+        if not self._in_selection(oid):
             raise DocumentError("Select the path before inspecting holes")
         holes = find_holes(document, oid)
         requested = frozenset(payload.get("holes", []))
@@ -424,8 +441,10 @@ class Session:
     def _points(self, payload: dict) -> list[tuple[str, str]]:
         """The (object, node) pairs a point command acts on, in selected paths.
 
-        *points* lists them, possibly across several paths; a single point
-        may be given as *object* and *node* instead.
+        *points* lists them, possibly across several paths, selected or
+        inside a selected group; a single point may be given as *object* and
+        *node* instead. A node of geometry several paths share is one point:
+        it is kept once, in the first path naming it.
         """
         raw = payload.get("points")
         if raw is None:
@@ -437,9 +456,17 @@ class Session:
         ):
             raise DocumentError("Choose the points to edit")
         points = list(dict.fromkeys((str(o), str(n)) for o, n in raw))
-        if not {o for o, _ in points} <= self.editor.snapshot.selection.object_ids:
+        if not all(self._in_selection(o) for o in {o for o, _ in points}):
             raise DocumentError("Select the path before editing its points")
-        return points
+        document = self.editor.snapshot.document
+        unique = {}
+        for oid, nid in points:
+            try:
+                geometry = document.geometry_for(oid).id
+            except DocumentError:
+                geometry = oid
+            unique.setdefault((geometry, nid), (oid, nid))
+        return list(unique.values())
 
     def _edit_points(self, command: str, payload: dict) -> None:
         """Edit points of one or more selected paths as one undoable step."""
@@ -473,14 +500,16 @@ class Session:
                 tx.update_node(oid, nid, tuple(number(v) for v in payload["values"]))
             elif command == "move_nodes":
                 # The values already carry the handles each point takes along.
+                # A node of shared geometry moves once, as its first path has it.
+                kept = set(points)
                 for oid, nodes in changes.items():
-                    tx.update_nodes(
-                        str(oid),
-                        {
-                            str(nid): tuple(number(v) for v in values)
-                            for nid, values in nodes.items()
-                        },
-                    )
+                    moved = {
+                        str(nid): tuple(number(v) for v in values)
+                        for nid, values in nodes.items()
+                        if (str(oid), str(nid)) in kept
+                    }
+                    if moved:
+                        tx.update_nodes(str(oid), moved)
             elif command == "split":
                 for oid, nid in points:
                     tx.split_edge(oid, nid)
@@ -558,12 +587,12 @@ class Session:
         if not selected:
             raise DocumentError("Select an object first")
         if command == "fill_holes":
-            oid = payload["object"]
-            if oid not in selected:
-                raise DocumentError("Select the path whose holes should be filled")
-            requested = frozenset(payload.get("holes", []))
+            targets = self._hole_targets(payload, "be filled")
             cleanup = frozenset(payload.get("delete_objects", []))
             if cleanup:
+                if len(targets) != 1:
+                    raise DocumentError("Delete enclosed shapes with one path's holes")
+                ((oid, requested),) = targets.items()
                 holes = tuple(h for h in find_holes(document, oid) if h.id in requested)
                 if not cleanup <= enclosed_objects(document, oid, holes):
                     raise DocumentError(
@@ -572,16 +601,17 @@ class Session:
             with self.editor.transaction(
                 "Fill holes", selection=Selection(object_ids=selected | cleanup)
             ) as tx:
-                tx.fill_holes(oid, requested)
+                for oid, requested in targets.items():
+                    tx.fill_holes(oid, requested)
                 if cleanup:
                     tx.delete_objects(cleanup)
             return
         if command == "holes_to_shapes":
-            oid = payload["object"]
-            if oid not in selected:
-                raise DocumentError("Select the path whose holes should become shapes")
+            targets = self._hole_targets(payload, "become shapes")
+            shapes: list[str] = []
             with self.editor.transaction("Holes to shapes", selection=selection) as tx:
-                shapes = tx.holes_to_shapes(oid, frozenset(payload.get("holes", [])))
+                for oid, requested in targets.items():
+                    shapes.extend(tx.holes_to_shapes(oid, requested))
             self.editor.select(Selection(object_ids=frozenset(shapes)))
             return
         if command == "redraw_outline":
@@ -713,6 +743,33 @@ class Session:
         if pieces:
             self.editor.select(Selection(object_ids=frozenset(pieces)))
 
+    def _hole_targets(self, payload: dict, verb: str) -> dict[str, frozenset[str]]:
+        """The holes a hole command acts on, by path.
+
+        *contours* lists (object, hole) pairs, possibly across several paths
+        selected or inside a selected group; one path's holes may be given
+        as *object* and *holes* instead. Paths sharing geometry share their
+        holes, so each geometry's holes are taken once, by its first path.
+        """
+        raw = payload.get("contours")
+        if raw is None:
+            raw = [[payload.get("object"), hole] for hole in payload.get("holes", [])]
+        if (
+            not isinstance(raw, list)
+            or not raw
+            or any(not isinstance(p, (list, tuple)) or len(p) != 2 for p in raw)
+        ):
+            raise DocumentError(f"Choose the holes that should {verb}")
+        document = self.editor.snapshot.document
+        by_geometry: dict[str, tuple[str, set[str]]] = {}
+        for oid, hole in raw:
+            oid = str(oid)
+            if not self._in_selection(oid):
+                raise DocumentError(f"Select the path whose holes should {verb}")
+            geometry = document.geometry_for(oid).id
+            by_geometry.setdefault(geometry, (oid, set()))[1].add(str(hole))
+        return {oid: frozenset(holes) for oid, holes in by_geometry.values()}
+
     def _redraw_outline(self, payload: dict) -> None:
         """Redraw the stretch of a selected path's contour a stroke runs along.
 
@@ -723,7 +780,7 @@ class Session:
         """
         document = self.editor.snapshot.document
         oid = payload["object"]
-        if oid not in self.editor.snapshot.selection.object_ids:
+        if not self._in_selection(oid):
             raise DocumentError("Select the path whose outline to redraw")
         if document.element(oid).tag != "path":
             raise DocumentError("Redraw works on a path; convert the shape first")
@@ -758,6 +815,8 @@ class Session:
         )
         gid = document.geometry_for(oid).id
         scope = frozenset({oid}) | document.geometry_users(gid)
+        # The other selected paths, and a selected group, stay selected.
+        kept = self.editor.snapshot.selection.object_ids
         with self.editor.transaction(
             "Redraw outline", selection=Selection(object_ids=scope)
         ) as tx:
@@ -769,4 +828,5 @@ class Session:
                 stretch,
                 long_way=bool(payload.get("long_way")),
             )
-        self.editor.select(Selection(object_ids=frozenset({oid})))
+        existing = {e.id for e in self.editor.snapshot.document.elements()}
+        self.editor.select(Selection(object_ids=(kept & existing) or frozenset({oid})))

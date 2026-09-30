@@ -701,3 +701,88 @@ def test_point_commands_need_their_paths_selected():
         send(session, "delete_node", points=[["q", q[0]]])
     with pytest.raises(DocumentError, match="Select the path"):
         send(session, "move_nodes", changes={"q": {q[0]: [1, 1]}})
+
+
+def test_points_of_paths_inside_a_selected_group_can_be_edited():
+    session = Session(import_svg(TWO_PATHS))
+    q = node_ids(session, "q")
+    # The group is selected; its path's points are selected with it.
+    state = send(session, "select", objects=["g"], nodes=[q[1]])
+    assert state["selection"] == {"objects": ["g"], "nodes": [q[1]]}
+    send(session, "delete_node", points=[["q", q[1]]])
+    assert len(node_ids(session, "q")) == len(q) - 1
+    assert session.state()["selection"]["objects"] == ["g"]
+    with pytest.raises(DocumentError, match="Select the path"):
+        send(session, "delete_node", points=[["p", node_ids(session, "p")[0]]])
+
+
+SHARED = """<svg width="100" height="100">
+<path id="a" d="M0 0 L20 0 L20 20 L0 20 Z"/>
+<path id="b" transform="translate(50 0)" d="M0 0 L10 0 L10 10 Z"/></svg>"""
+
+
+def shared_session():
+    session = Session(import_svg(SHARED))
+    send(session, "select", objects=["a", "b"])
+    both = Selection(object_ids=frozenset({"a", "b"}))
+    with session.editor.transaction("Share", selection=both) as tx:
+        tx.share_geometry("b", "a")
+    return session
+
+
+def test_shared_geometry_lists_its_users_and_takes_a_point_once():
+    session = shared_session()
+    geometries = session.geometries(["a", "b"])["geometries"]
+    assert geometries["a"]["users"] == geometries["b"]["users"] == ["a", "b"]
+    nodes = node_ids(session, "a")
+    # The same node named in both paths is one point: split once, not twice.
+    send(session, "split", points=[["a", nodes[1]], ["b", nodes[1]]])
+    assert len(node_ids(session, "a")) == len(nodes) + 1
+    assert node_ids(session, "b") == node_ids(session, "a")
+    # Moved in both paths' frames, it moves once, as the first path has it.
+    node = nodes[2]
+    moved = {"a": {node: [21, 22]}, "b": {node: [-29, 22]}}
+    send(session, "move_nodes", changes=moved)
+    geometry = session.editor.snapshot.document.geometry_for("b")
+    assert geometry.node(node).endpoint == (21, 22)
+
+
+DONUTS = """<svg width="200" height="100"><g id="g">
+<path id="left" fill="#336699" d="M0 0H90V90H0Z M10 10V30H30V10Z"/>
+<path id="right" fill="#993366"
+ d="M100 0H190V90H100Z M110 10V30H130V10Z M150 50V70H170V50Z"/>
+</g></svg>"""
+
+
+def test_holes_of_several_paths_are_filled_as_one_edit():
+    session = Session(import_svg(DONUTS))
+    (left,) = hole_ids(session, "left")
+    right = hole_ids(session, "right")
+    send(session, "select", objects=["g"])
+    pairs = [["left", left], *(["right", hole] for hole in right)]
+    result = send(session, "fill_holes", contours=pairs)
+    assert result["undo"] == ["Fill holes"]
+    assert result["selection"]["objects"] == ["g"]
+    assert not hole_ids(session, "left")
+    assert not hole_ids(session, "right")
+    send(session, "undo")
+    assert len(hole_ids(session, "left")) == 1
+    assert len(hole_ids(session, "right")) == 2
+
+
+def test_holes_of_several_paths_become_shapes_as_one_edit():
+    session = Session(import_svg(DONUTS))
+    (left,) = hole_ids(session, "left")
+    right = hole_ids(session, "right")
+    send(session, "select", objects=["left", "right"])
+    pairs = [["left", left], ["right", right[0]]]
+    result = send(session, "holes_to_shapes", contours=pairs)
+    assert result["undo"] == ["Holes to shapes"]
+    shapes = result["selection"]["objects"]
+    assert len(shapes) == 2
+    fills = {o["id"]: o["attributes"].get("fill") for o in result["objects"]}
+    assert sorted(fills[s] for s in shapes) == ["#336699", "#993366"]
+    assert len(hole_ids(session, "right")) == 1
+    send(session, "select", objects=["left"])
+    with pytest.raises(DocumentError, match="Select the path"):
+        send(session, "fill_holes", contours=[["right", right[1]]])
