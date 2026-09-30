@@ -1,11 +1,18 @@
 import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 import {dropIndex, dropRefusal, dropTarget} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
+import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, pickTarget, pointInside, pointKey, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
-let geometry = null, geometryObject = null, activeNode = null, reference = null;
-let clickCycle = null;
+let reference = null;
+// Point tools show the points of every selected path: their geometry at this
+// revision, the unselected path under the pointer, the point last clicked,
+// and the points hidden while an object tool is active.
+let geometries = new Map(), hoverPath = null, focusPoint = null, pointMemory = null;
+// The group entered by double-clicking it: object tools then pick within it.
+let scope = null;
+let clickCycle = null, lastPick = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
@@ -15,7 +22,7 @@ const SNAP_RADIUS = 8;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
 const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
-const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Alt or Ctrl/⌘ drags without snapping · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
+const hints = {select: 'Click to select · Double-click a group to enter it, a path to edit its points · Drag elsewhere to box select, a selected object to move it', nodes: 'Click or box select points, Shift to add · Drag to move them · Alt or Ctrl/⌘ drags without snapping', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -108,12 +115,44 @@ async function applyState(next) {
   $('undo').disabled = !state.undo.length; $('redo').disabled = !state.redo.length;
   $('undo').title = state.undo.length ? `Undo: ${state.undo.at(-1)}` : 'Nothing to undo';
   $('redo').title = state.redo.length ? `Redo: ${state.redo[0]}` : 'Nothing to redo';
-  if (replaced) { geometry = null; activeNode = null; fit(); }
-  if (changed) { geometry = null; clickCycle = null; }
+  if (replaced) { focusPoint = null; pointMemory = null; scope = null; fit(); }
+  if (changed) { geometries = new Map(); clickCycle = null; lastPick = null; }
+  if (scope && object(scope)?.tag !== 'g') scope = null;
   if (holePlan && (changed || oneObject()?.id !== holePlan.object)) holePlan = null;
   renderObjects(); renderInspector();
-  if (['nodes','redraw'].includes(tool)) await loadNodes();
-  drawOverlay();
+  if (level() === 'points') await loadGeometries();
+  renderInspector(); drawOverlay();
+}
+const level = () => TOOL_LEVEL[tool];
+const parents = () => new Map(state.objects.map(item => [item.id, item.parent]));
+// The paths whose points the point tools show and edit: the selected ones.
+function pointPaths() {
+  return state.selection.objects.filter(id => { const item = object(id); return item?.tag === 'path' && !item.resource; });
+}
+function geometryNodes(id) { return geometries.get(id)?.subpaths.flatMap(s => s.nodes) || []; }
+function nodeAt(key) { const [id, node] = splitKey(key); return geometryNodes(id).find(n => n.id === node); }
+function contourAt(key) { const [id, node] = splitKey(key); return geometries.get(id)?.subpaths.find(s => s.nodes.some(n => n.id === node)); }
+// The selected points, from the node ids the server holds, while a point tool
+// is active: in an object tool they are hidden.
+function selectedPoints() {
+  if (level() !== 'points') return [];
+  const nodes = new Set(state.selection.nodes), keys = [];
+  if (!nodes.size) return keys;
+  for (const id of pointPaths()) for (const node of geometryNodes(id)) if (nodes.has(node.id)) keys.push(pointKey(id, node.id));
+  return keys;
+}
+function selectPoints(objects, keys, focus = keys.at(-1)) {
+  focusPoint = focus ?? null;
+  return action('select', {objects: [...new Set(objects)], nodes: [...new Set(keys.map(key => splitKey(key)[1]))]}, 'Selecting…');
+}
+async function loadGeometries() {
+  const wanted = level() === 'points' ? [...pointPaths(), ...(hoverPath ? [hoverPath] : [])] : [];
+  const missing = [...new Set(wanted)].filter(id => !geometries.has(id));
+  if (!missing.length) return;
+  const {epoch, revision} = state;
+  const result = await request('/api/nodes', {objects: missing, epoch, revision});
+  if (state.epoch !== epoch || state.revision !== revision) return;
+  for (const [id, geometry] of Object.entries(result.geometries)) geometries.set(id, geometry);
 }
 function paintReference(element) {
   const href = element?.getAttribute('href') || element?.getAttributeNS('http://www.w3.org/1999/xlink', 'href');
@@ -230,6 +269,7 @@ function renderObjects() {
     row.append(swatch, label);
     if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; mark.title = `Locked: ${item.inherited_locks.map(lock => lock === 'transform' ? 'position' : lock).join(', ')}`; row.append(mark); }
     row.onclick = event => { if (!treeDragEnded) selectObject(item.id, event.shiftKey || event.ctrlKey || event.metaKey, true); };
+    row.ondblclick = () => { if (!item.resource) queue.then(() => enterObject(item.id)); };
     row.onpointerdown = event => pressTreeRow(event, item);
     fragment.append(row);
   }
@@ -417,7 +457,12 @@ async function selectObject(id, additive = false, focus = false) {
   if (pending) return;
   let selected = new Set(additive ? state.selection.objects : []);
   if (id) { if (additive && selected.has(id)) selected.delete(id); else selected.add(id); }
-  activeNode = null; geometry = null;
+  // Picking an object in the tree enters the group it is in.
+  if (focus && id && !additive) {
+    const parent = object(id)?.parent;
+    scope = parent && parent !== state.root ? parent : null;
+  }
+  focusPoint = null;
   const success = await action('select', {objects: [...selected]}, 'Selecting…');
   if (success && selected.has(id)) revealObject(id);
   if (success && focus) focusSelection();
@@ -468,66 +513,97 @@ function sameClickSpot(x, y, hits) {
   return clickCycle && Math.hypot(x-clickCycle.x, y-clickCycle.y) <= 4 &&
     hits.length === clickCycle.hits.length && hits.every((id, i) => id === clickCycle.hits[i]);
 }
+// What clicks at a spot pick, front to back: in object tools the outermost
+// objects inside the entered group, in the others the painted shapes.
+function clickTargets(hits) {
+  if (level() !== 'objects') return hits;
+  const map = parents();
+  // A click outside the entered group leaves it.
+  if (scope && pickTarget(hits[0], scope, map, state.root).scope !== scope) scope = null;
+  return [...new Set(hits.map(hit => pickTarget(hit, scope, map, state.root).id))];
+}
 async function selectAtPoint(finished) {
-  const hits = finished.hits;
-  if (!hits?.length) return selectObject(null, finished.shift);
-  const index = !finished.shift && sameClickSpot(finished.x, finished.y, hits) ? (clickCycle.index+1)%hits.length : 0;
+  const hits = finished.hits?.length ? clickTargets(finished.hits) : [];
+  if (!hits.length) return clickEmpty(finished.shift);
+  const cycled = !finished.shift && sameClickSpot(finished.x, finished.y, hits);
+  const index = cycled ? (clickCycle.index+1)%hits.length : 0;
+  // A double-click acts on what its first click picked, not on the next
+  // shape its second click cycled to.
+  lastPick = {id: hits[index], first: cycled ? hits[clickCycle.index] : hits[index]};
   const success = await selectObject(hits[index], finished.shift);
   if (success && !finished.shift) clickCycle = {x:finished.x, y:finished.y, hits, index};
 }
-async function loadNodes() {
-  const item = oneObject();
-  if (!item || item.tag !== 'path') { geometry = null; geometryObject = null; renderNodeInspector(); return; }
-  if (geometry && geometryObject === item.id) return;
-  const result = await request('/api/nodes', {object: item.id, epoch: state.epoch, revision: state.revision});
-  geometry = result.geometry; geometryObject = item.id;
-  if (!nodeById(activeNode)) activeNode = null;
-  renderNodeInspector();
+// A click on empty canvas: in point tools it drops the points first.
+function clickEmpty(shift) {
+  if (shift) return;
+  if (selectedPoints().length) return selectPoints(state.selection.objects, []);
+  return selectObject(null);
 }
-function allNodes() { return geometry?.subpaths.flatMap(s => s.nodes) || []; }
-function nodeById(id) { return allNodes().find(node => node.id === id); }
+// The points a point command acts on: [object, node] pairs.
+const pointPairs = () => selectedPoints().map(splitKey);
+// The one selected point, or the one clicked last among several.
+function focusedPoint() {
+  const points = selectedPoints();
+  return points.includes(focusPoint) ? focusPoint : points.length === 1 ? points[0] : null;
+}
 function renderNodeInspector() {
-  const item = oneObject();
-  const current = item?.tag === 'path' && geometryObject === item.id ? geometry : null;
-  const nodes = current?.subpaths.flatMap(s=>s.nodes) || [];
-  const node = nodes.find(n=>n.id===activeNode);
-  $('node-path-name').textContent = item?.label || (state?.selection.objects.length ? 'Multiple objects selected' : 'No path selected');
-  $('node-path-stats').textContent = current ? `${nodes.length.toLocaleString()} points · ${current.subpaths.length.toLocaleString()} ${current.subpaths.length===1?'contour':'contours'}` : '';
+  const item = oneObject(), paths = pointPaths(), points = selectedPoints();
+  const nodes = paths.flatMap(geometryNodes), loaded = paths.every(id => geometries.has(id));
+  const single = points.length === 1 ? points[0] : null, node = single && nodeAt(single);
+  const chosen = points.map(nodeAt).filter(Boolean);
+  $('node-path-name').textContent = paths.length > 1 ? `${paths.length} paths` : item?.label || (state?.selection.objects.length ? 'Multiple objects selected' : 'No path selected');
+  const contours = paths.reduce((total, id) => total + (geometries.get(id)?.subpaths.length || 0), 0);
+  $('node-path-stats').textContent = paths.length && loaded ? `${nodes.length.toLocaleString()} points · ${contours.toLocaleString()} ${contours===1?'contour':'contours'}` : '';
   $('node-detach').hidden = item?.tag !== 'use';
-  $('node-properties').hidden = !node;
+  $('node-properties').hidden = !chosen.length;
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
-  $('node-hint').textContent = item?.tag === 'use' ? 'This is a shared instance. Detach it to edit its points independently.' : item?.tag !== 'path' ? 'Select one path on the canvas or in the object tree.' : !current ? 'Loading path nodes…' : node ? (node.pinned ? 'This endpoint is pinned. Unpin it to move or delete it.' : node.command === 'C' ? 'Drag the blue handles to adjust this curve.' : 'Drag this point or enter its coordinates below.') : 'Click a point on the canvas to edit it.';
-  if (node) {
-    $('node-type').textContent = node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
-    $('node-x').value = +node.values.at(-2).toFixed(4); $('node-y').value = +node.values.at(-1).toFixed(4);
-    $('node-x').disabled = node.pinned; $('node-y').disabled = node.pinned; $('node-apply').disabled = node.pinned;
-    const contour = current.subpaths.find(s => s.nodes.includes(node));
-    $('node-pin').checked = node.pinned; $('node-delete').disabled = node.pinned;
-    $('node-delete-contour').disabled = contour.nodes.some(n => n.pinned);
-    $('node-split').disabled = node.command === 'M' && !contour.closed;
+  $('node-hint').textContent = item?.tag === 'use' ? 'This is a shared instance. Detach it to edit its points independently.' : !paths.length ? 'Select one or more paths on the canvas or in the object tree.' : !loaded ? 'Loading path nodes…' : chosen.length > 1 ? `${chosen.length} points in ${new Set(points.map(key => splitKey(key)[0])).size} paths. Drag one to move them together.` : node ? (node.pinned ? 'This endpoint is pinned. Unpin it to move or delete it.' : node.command === 'C' ? 'Drag the blue handles to adjust this curve.' : 'Drag this point or enter its coordinates below.') : 'Click a point, or drag a box around several.';
+  if (chosen.length) {
+    $('node-type').textContent = !node ? `${chosen.length} points` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
+    $('node-coordinates').hidden = !node;
+    if (node) { $('node-x').value = +node.values.at(-2).toFixed(4); $('node-y').value = +node.values.at(-1).toFixed(4); }
+    for (const id of ['node-x', 'node-y', 'node-apply']) $(id).disabled = !node || node.pinned;
+    const pinned = chosen.filter(n => n.pinned).length;
+    $('node-pin').checked = pinned === chosen.length; $('node-pin').indeterminate = pinned > 0 && pinned < chosen.length;
+    enable('node-delete', pinned && 'Unpin the points to delete them');
+    enable('node-delete-contour', points.some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it');
+    enable('node-split', points.every(key => nodeAt(key)?.command === 'M' && !contourAt(key)?.closed) && 'A start point has no edge leading into it');
   }
-  // A point on a hole contour offers to fill the hole or make it a shape.
-  if (node && nodeHoles?.key !== holesKey()) loadNodeHoles();
-  $('node-hole').hidden = !node || !nodeHoles?.ids?.has(activeContour());
+  // Points on holes of one path offer to fill the holes or make them shapes.
+  const holes = holeContours(points);
+  if (holes === undefined) loadNodeHoles(points);
+  $('node-hole').hidden = !holes;
 }
-function holesKey() { return `${state.epoch}:${state.revision}:${geometryObject}`; }
-function activeContour() { return geometry?.subpaths.find(s => s.nodes.some(n => n.id === activeNode))?.id; }
-async function loadNodeHoles() {
-  const key = holesKey();
+// The hole contours the selected points are on, when they are all on holes of
+// one path: null when they are not, undefined while that is being found out.
+function holeContours(points) {
+  const objects = new Set(points.map(key => splitKey(key)[0]));
+  if (!points.length || objects.size !== 1) return null;
+  const [id] = objects;
+  if (nodeHoles?.key !== holesKey(id)) return undefined;
+  const contours = new Set(points.map(key => contourAt(key)?.id));
+  return nodeHoles.ids && [...contours].every(c => nodeHoles.ids.has(c)) ? {object: id, holes: [...contours]} : null;
+}
+function holesKey(id) { return `${state.epoch}:${state.revision}:${id}`; }
+async function loadNodeHoles(points) {
+  const id = splitKey(points[0])[0], key = holesKey(id);
+  if (nodeHoles?.key === key) return;
   nodeHoles = {key, ids: null};
   let ids = new Set();
   try {
-    const result = await request('/api/holes', {object: geometryObject, epoch: state.epoch, revision: state.revision});
+    const result = await request('/api/holes', {object: id, epoch: state.epoch, revision: state.revision});
     ids = new Set(result.holes.map(h => h.id));
   } catch { /* A path whose holes cannot be read simply offers none. */ }
   if (nodeHoles.key !== key) return;
   nodeHoles.ids = ids; renderNodeInspector();
 }
 $('node-hole-fill').onclick=async()=>{
-  if (await action('fill_holes',{object:geometryObject,holes:[activeContour()]},'Filling hole…')) toast('Filled the hole. Undo restores it.');
+  const holes = holeContours(selectedPoints()); if (!holes) return;
+  if (await action('fill_holes',{object:holes.object,holes:holes.holes},'Filling hole…')) toast(`Filled the ${holes.holes.length === 1 ? 'hole' : 'holes'}. Undo restores ${holes.holes.length === 1 ? 'it' : 'them'}.`);
 };
 $('node-hole-shape').onclick=async()=>{
-  if (await action('holes_to_shapes',{object:geometryObject,holes:[activeContour()]},'Making a shape…')) toast('The hole is now its own shape, just above the path. Undo restores the hole.');
+  const holes = holeContours(selectedPoints()); if (!holes) return;
+  if (await action('holes_to_shapes',{object:holes.object,holes:holes.holes},'Making a shape…')) toast('The hole is now its own shape, just above the path. Undo restores the hole.');
 };
 $('node-select-tool').onclick=()=>setTool('select');
 $('node-detach').onclick=()=>action('detach');
@@ -631,41 +707,80 @@ function drawOverlay() {
   drawKnife();
   drawRedraw();
   drawSnap();
-  if (holePlan || tool !== 'nodes' || !geometry || geometryObject !== oneObject()?.id) return;
-  const element = svgElement(geometryObject), matrix = localToOverlay(element);
-  if (!matrix) return;
-  const stageBox = stage.getBoundingClientRect(), screen = element.getScreenCTM();
-  if (!screen) return;
+  drawBox();
+  if (!holePlan && level() === 'points') drawPoints();
+  renderStatus();
+}
+// The points of every selected path, and of the unselected path under the
+// pointer in Nodes, faintly, so a click on one adds its path.
+function drawPoints() {
+  const stageBox = stage.getBoundingClientRect(), chosen = new Set(selectedPoints());
+  const selected = new Set(state.selection.objects), editable = tool === 'nodes';
+  const paths = [...pointPaths(), ...(editable && hoverPath && !selected.has(hoverPath) ? [hoverPath] : [])];
   // Limit handles in dense drawings by screen-space spacing, without dropping
   // geometry. Zooming in exposes the original nodes at their full resolution.
-  const occupied = new Set(); let shown = 0;
-  for (const node of allNodes()) {
-    const x = node.values.at(-2), y = node.values.at(-1), pos = new DOMPoint(x,y).matrixTransform(screen);
-    if (pos.x < stageBox.left || pos.x > stageBox.right || pos.y < stageBox.top || pos.y > stageBox.bottom) continue;
-    const cell = `${Math.floor(pos.x/10)},${Math.floor(pos.y/10)}`;
-    if (node.id !== activeNode && (occupied.has(cell) || shown >= 1200)) continue;
-    occupied.add(cell); shown++;
-    const p = new DOMPoint(x,y).matrixTransform(matrix);
-    const circle = xmlElement('circle', {cx:p.x, cy:p.y, r: (node.id === activeNode ? 4.8 : 3.3)/zoom, class:`node${node.id === activeNode ? ' selected' : ''}${node.pinned ? ' pinned' : ''}`});
-    circle.dataset.node = node.id; circle.dataset.part = 'endpoint';
-    overlay.append(circle);
-  }
-  const node = nodeById(activeNode);
-  if (node) {
-    const subpath = geometry.subpaths.find(s => s.nodes.includes(node)), i = subpath.nodes.indexOf(node);
-    const handles = [];
-    if (node.command === 'C') handles.push({node, offset:2, anchor:node.values.slice(-2)});
-    const next = subpath.nodes[i+1];
-    if (next?.command === 'C') handles.push({node:next, offset:0, anchor:node.values.slice(-2)});
-    for (const handle of handles) {
-      const p = new DOMPoint(...handle.node.values.slice(handle.offset, handle.offset+2)).matrixTransform(matrix);
-      const anchor = new DOMPoint(...handle.anchor).matrixTransform(matrix);
-      overlay.append(xmlElement('line', {x1:anchor.x,y1:anchor.y,x2:p.x,y2:p.y,class:'handle-line'}));
-      const circle = xmlElement('circle', {cx:p.x,cy:p.y,r:3.8/zoom,class:'handle'});
-      circle.dataset.node = handle.node.id; circle.dataset.part = String(handle.offset); overlay.append(circle);
+  const occupied = new Set(); let shown = 0, total = 0;
+  for (const id of paths) {
+    const element = svgElement(id), matrix = localToOverlay(element), screen = element?.getScreenCTM();
+    if (!matrix || !screen || !geometries.has(id)) continue;
+    const ghost = !selected.has(id);
+    for (const node of geometryNodes(id)) {
+      total++;
+      const key = pointKey(id, node.id), picked = chosen.has(key);
+      const x = node.values.at(-2), y = node.values.at(-1), pos = new DOMPoint(x,y).matrixTransform(screen);
+      if (pos.x < stageBox.left || pos.x > stageBox.right || pos.y < stageBox.top || pos.y > stageBox.bottom) continue;
+      const cell = `${Math.floor(pos.x/10)},${Math.floor(pos.y/10)}`;
+      if (!picked && (occupied.has(cell) || shown >= 1200)) continue;
+      occupied.add(cell); shown++;
+      const p = new DOMPoint(x,y).matrixTransform(matrix);
+      const circle = xmlElement('circle', {cx:p.x, cy:p.y, r: (picked ? 4.8 : 3.3)/zoom, class:`node${picked ? ' selected' : ''}${node.pinned ? ' pinned' : ''}${ghost ? ' ghost' : ''}${editable ? '' : ' passive'}`});
+      circle.dataset.object = id; circle.dataset.node = node.id; circle.dataset.part = 'endpoint';
+      overlay.append(circle);
     }
   }
-  $('node-count').textContent = `${shown.toLocaleString()} / ${allNodes().length.toLocaleString()}`;
+  // The handles of the selected points, up to a few hundred of them.
+  if (editable) for (const key of [...chosen].slice(0, 300)) drawHandles(key);
+  $('node-count').textContent = `${shown.toLocaleString()} / ${total.toLocaleString()}`;
+}
+function drawHandles(key) {
+  const [id] = splitKey(key), node = nodeAt(key), subpath = contourAt(key), matrix = localToOverlay(svgElement(id));
+  if (!node || !matrix) return;
+  const i = subpath.nodes.indexOf(node), handles = [];
+  if (node.command === 'C') handles.push({node, offset:2, anchor:node.values.slice(-2)});
+  const next = subpath.nodes[i+1];
+  if (next?.command === 'C') handles.push({node:next, offset:0, anchor:node.values.slice(-2)});
+  for (const handle of handles) {
+    const p = new DOMPoint(...handle.node.values.slice(handle.offset, handle.offset+2)).matrixTransform(matrix);
+    const anchor = new DOMPoint(...handle.anchor).matrixTransform(matrix);
+    overlay.append(xmlElement('line', {x1:anchor.x,y1:anchor.y,x2:p.x,y2:p.y,class:'handle-line'}));
+    const circle = xmlElement('circle', {cx:p.x,cy:p.y,r:3.8/zoom,class:'handle'});
+    circle.dataset.object = id; circle.dataset.node = handle.node.id; circle.dataset.part = String(handle.offset); overlay.append(circle);
+  }
+}
+// The rubber band of a box select, in the overlay's frame.
+function drawBox() {
+  if (drag?.kind !== 'box' || !drag.moved) return;
+  const inverse = overlay.getScreenCTM()?.inverse(); if (!inverse) return;
+  const a = new DOMPoint(drag.x, drag.y).matrixTransform(inverse), b = new DOMPoint(drag.end.x, drag.end.y).matrixTransform(inverse);
+  overlay.append(xmlElement('rect', {x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), width:Math.abs(a.x-b.x), height:Math.abs(a.y-b.y), class:'select-box'}));
+}
+// The level and count of the selection, and the entered group.
+function renderStatus() {
+  if (!state) return;
+  const points = selectedPoints(), paths = level() === 'points' ? pointPaths() : state.selection.objects;
+  $('selection-level').textContent = selectionStatus(level() === 'points' ? 'points' : 'objects', paths, points);
+  const trail = $('scope-trail');
+  trail.replaceChildren();
+  trail.hidden = !scope;
+  if (!scope) return;
+  const crumb = (label, id) => {
+    const button = document.createElement('button'); button.className = 'crumb'; button.textContent = label;
+    button.title = id ? `Pick within ${label}` : 'Leave the entered groups';
+    button.onclick = () => { scope = id; clickCycle = null; renderStatus(); };
+    trail.append(button);
+  };
+  crumb('Drawing', null);
+  for (const id of scopeChain(scope, parents(), state.root)) { trail.append(' › '); crumb(object(id)?.label || id, id); }
 }
 function draftPathData(points, closed=false) {
   if (!points.length) return '';
@@ -703,16 +818,18 @@ function drawKnife() {
   overlay.append(xmlElement('line',{...line,stroke:'#052b3a','stroke-width':4/zoom}),
     xmlElement('line',{...line,stroke:'#ff8a5c','stroke-width':2/zoom,'stroke-dasharray':`${6/zoom} ${4/zoom}`}));
 }
-// Snapping while dragging a node or handle: onto the on-curve points of every
-// visible path and the artboard's edges and corners, within a fixed screen
-// distance. Alt or Ctrl/⌘ drags freely.
-function snapTargets(element, exclude, start) {
+// Snapping while dragging points or a handle: onto the on-curve points of
+// every visible path and the artboard's edges and corners, within a fixed
+// screen distance. Alt or Ctrl/⌘ drags freely.
+function snapTargets(moving, start) {
   const points = [];
   for (const path of drawing.querySelectorAll('path')) {
     if (path.closest('defs, clipPath, mask, pattern, symbol, marker')) continue;
     if (path.checkVisibility && !path.checkVisibility({visibilityProperty: true})) continue;
     const matrix = localToOverlay(path); if (!matrix) continue;
-    const local = path === element ? allNodes().filter(n => n.id !== exclude).map(n => n.values.slice(-2)) : pathEndpoints(path.getAttribute('d') || '');
+    // The points being dragged are no targets; their paths' others are.
+    const id = path.dataset.objectId, shown = drag.saved.has(id) && geometries.get(id);
+    const local = shown ? geometryNodes(id).filter(n => !moving.has(pointKey(id, n.id))).map(n => drag.saved.get(id).get(n.id).slice(-2)) : pathEndpoints(path.getAttribute('d') || '');
     for (const [x, y] of local) {
       const p = new DOMPoint(x, y).matrixTransform(matrix);
       // Where the dragged point started is no target: it would hold it there.
@@ -721,21 +838,16 @@ function snapTargets(element, exclude, start) {
   }
   return snapIndex(points, SNAP_RADIUS / zoom);
 }
-function snappedDrag(event, node) {
-  const matrix = localToOverlay(drag.element);
-  if (!matrix) return point(event, drag.element);
+// Where the dragged point or handle goes, in the overlay's frame.
+function snappedDrag(event) {
   let p = point(event);
   drag.snap = null;
   if (!event.altKey && !event.ctrlKey && !event.metaKey) {
-    if (!drag.snaps) {
-      const offset = drag.part === 'endpoint' ? drag.before.length - 2 : Number(drag.part);
-      const start = new DOMPoint(drag.before[offset], drag.before[offset + 1]).matrixTransform(matrix);
-      drag.snaps = snapTargets(drag.element, drag.part === 'endpoint' ? node.id : null, start);
-    }
+    drag.snaps ??= snapTargets(new Set(drag.part === 'endpoint' ? drag.moving : []), drag.start);
     drag.snap = snapPoint(p.x, p.y, drag.snaps, state.bounds, SNAP_RADIUS / zoom);
     if (drag.snap) p = new DOMPoint(drag.snap.x, drag.snap.y);
   }
-  return p.matrixTransform(matrix.inverse());
+  return p;
 }
 function drawSnap() {
   const snap = drag?.kind === 'node' && drag.moved ? drag.snap : null;
@@ -756,22 +868,28 @@ async function cutWithKnife({start, end}) {
   if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y]},'Cutting…'))
     toast(`Cut into ${state.selection.objects.length} pieces. They meet exactly along the cut; Join paths merges them again.`);
 }
-// Redraw outline: the stroke, where its ends attach to the selected path's
+// Redraw outline: the stroke, where its ends attach to a selected path's
 // outline and the stretch it will replace, all in the overlay's frame.
 function redrawLines() {
-  const item = oneObject();
-  if (!geometry || item?.tag !== 'path' || geometryObject !== item.id) return null;
-  const matrix = localToOverlay(svgElement(geometryObject));
-  if (!matrix) return null;
-  return contourLines(geometry, ([x, y]) => { const p = new DOMPoint(x, y).matrixTransform(matrix); return [p.x, p.y]; });
+  const lines = [];
+  for (const id of pointPaths()) {
+    const matrix = geometries.has(id) && localToOverlay(svgElement(id));
+    if (!matrix) continue;
+    for (const line of contourLines(geometries.get(id), ([x, y]) => { const p = new DOMPoint(x, y).matrixTransform(matrix); return [p.x, p.y]; }))
+      lines.push({...line, object: id});
+  }
+  return lines.length ? lines : null;
 }
+// The stroke starts on whichever selected path it touches and ends on the
+// same contour.
 function redrawPlan(points, longWay) {
   const lines = points.length ? redrawLines() : null;
   if (!lines) return null;
   const start = attach(lines, ...points[0], 1/zoom);
-  const end = start && points.length > 1 ? attach(lines, ...points.at(-1), 1/zoom, start.contour) : null;
   const line = start && lines.find(l => l.id === start.contour);
-  return {start, end, replaced: end ? stretch(line, start, end, longWay) : null};
+  const own = line && lines.filter(l => l.object === line.object);
+  const end = start && points.length > 1 ? attach(own, ...points.at(-1), 1/zoom, start.contour) : null;
+  return {object: line?.object, start, end, replaced: end ? stretch(line, start, end, longWay) : null};
 }
 function drawRedraw() {
   if (tool !== 'redraw') return;
@@ -792,9 +910,9 @@ function drawRedraw() {
 }
 async function redrawOutline({points, longWay}) {
   const plan = redrawPlan(points, longWay);
-  if (!redrawLines()) {toast('Select one path, then draw along the edge it should follow.', true);return;}
-  if (!plan?.start || !plan.end) {toast('Start and end the stroke on the selected path\'s outline.', true);return;}
-  await action('redraw_outline', {object: geometryObject, points, pixel: 1/zoom, long_way: Boolean(longWay)}, state.reference ? 'Fitting to the reference…' : 'Redrawing outline…');
+  if (!redrawLines()) {toast('Select a path, then draw along the edge it should follow.', true);return;}
+  if (!plan?.start || !plan.end) {toast('Start and end the stroke on the same outline of a selected path.', true);return;}
+  await action('redraw_outline', {object: plan.object, points, pixel: 1/zoom, long_way: Boolean(longWay)}, state.reference ? 'Fitting to the reference…' : 'Redrawing outline…');
 }
 async function finishPath(closed) {
   if(pending||pathDraft.length<(closed?3:2))return;
@@ -827,19 +945,29 @@ function point(event, element = overlay) {
   if (!matrix) throw new Error('This object has no editable canvas position');
   return new DOMPoint(event.clientX,event.clientY).matrixTransform(matrix.inverse());
 }
+// Switching tools keeps the selected objects. Leaving a point tool hides the
+// points and remembers them; coming back shows them again if the objects are
+// the same.
 async function setTool(value) {
   if (!state || pending) return;
-  clickCycle = null; pathDraft=[]; pathHover=null; redrawHover=null; tool=value;
+  const from = tool;
+  const switched = switchTool({objects: state.selection.objects, points: selectedPoints(), memory: pointMemory}, from, value);
+  clickCycle = null; lastPick = null; pathDraft=[]; pathHover=null; redrawHover=null; hoverPath = null; tool=value; pointMemory = switched.memory;
   if (!['select','hand'].includes(value)) holePlan = null;
   document.querySelectorAll('[data-tool]').forEach(button => button.classList.toggle('active', button.dataset.tool === tool));
   $('tool-name').textContent=names[tool]; $('canvas-hint').textContent=hints[tool];
   stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife','redraw'].includes(tool) ? 'crosshair' : 'default';
   renderInspector();
-  if (['nodes','redraw'].includes(tool)) {
+  const nodes = [...new Set(switched.points.map(key => splitKey(key)[1]))];
+  if (level() === 'points') {
     setBusy('Loading path nodes…',1);
-    try { await loadNodes(); } catch(error) {toast(error.message,true);} finally {setBusy('',-1);}
+    try { await loadGeometries(); } catch(error) {toast(error.message,true);} finally {setBusy('',-1);}
   }
-  drawOverlay();
+  if (nodes.length || state.selection.nodes.length) {
+    focusPoint = switched.points.includes(focusPoint) ? focusPoint : switched.points.at(-1) ?? null;
+    await action('select', {objects: state.selection.objects, nodes}, 'Selecting…');
+  }
+  renderInspector(); drawOverlay();
 }
 function targetId(target) {
   if (!drawing.contains(target)) return null;
@@ -853,8 +981,8 @@ function topSelection() {
     return true;
   });
 }
-function pathData(g = geometry) { return g.subpaths.map(s => s.nodes.map(n => n.command+n.values.join(' ')).join(' ') + (s.closed ? ' Z' : '')).join(' '); }
-// A node drag previews what the server will do: the point's handles ride along.
+function pathData(g) { return g.subpaths.map(s => s.nodes.map(n => n.command+n.values.join(' ')).join(' ') + (s.closed ? ' Z' : '')).join(' '); }
+// A point drag previews what the server will do: the points' handles ride along.
 function valuesById(g) { return new Map(g.subpaths.flatMap(s => s.nodes.map(n => [n.id, [...n.values]]))); }
 function restoreValues(g, saved) { for (const s of g.subpaths) for (const n of s.nodes) n.values = [...saved.get(n.id)]; }
 function carryHandles(g, saved) {
@@ -880,11 +1008,73 @@ function carryHandles(g, saved) {
     }
   }
 }
-function previewNodeDrag(node, offset, pos) {
-  restoreValues(geometry, drag.saved);
-  node.values[offset] = pos.x; node.values[offset+1] = pos.y;
-  carryHandles(geometry, drag.saved);
-  drag.element.setAttribute('d', pathData());
+// Move the dragged points by the pointer's offset in the overlay, each in its
+// own path's frame, or the dragged handle to the pointer.
+function previewPointDrag(target) {
+  const [grabbedPath, grabbed] = splitKey(drag.key);
+  for (const [id, saved] of drag.saved) {
+    const g = geometries.get(id), element = svgElement(id), matrix = localToOverlay(element);
+    if (!g || !matrix) continue;
+    restoreValues(g, saved);
+    const inverse = matrix.inverse();
+    if (drag.part === 'endpoint') {
+      const from = drag.start.matrixTransform(inverse), to = target.matrixTransform(inverse), dx = to.x - from.x, dy = to.y - from.y;
+      for (const node of geometryNodes(id)) {
+        if (!drag.moving.includes(pointKey(id, node.id))) continue;
+        const v = node.values; v[v.length-2] += dx; v[v.length-1] += dy;
+      }
+    } else if (id === grabbedPath) {
+      const node = geometryNodes(id).find(n => n.id === grabbed), local = target.matrixTransform(inverse), offset = Number(drag.part);
+      node.values[offset] = local.x; node.values[offset+1] = local.y;
+    }
+    carryHandles(g, saved);
+    element.setAttribute('d', pathData(g));
+  }
+}
+// Press on a point: select it (with Shift, add or remove it), adding its path
+// when it is not selected, and start dragging the selected points.
+function pressPoint(event, common) {
+  const id = event.target.dataset.object, nodeId = event.target.dataset.node, part = event.target.dataset.part;
+  const key = pointKey(id, nodeId), current = selectedPoints();
+  const objects = state.selection.objects.includes(id) ? state.selection.objects : [...state.selection.objects, id];
+  let points = current;
+  if (part === 'endpoint') {
+    points = current.includes(key) && !common.shift ? current : clickPoint(current, key, common.shift);
+    if (points !== current || objects !== state.selection.objects) selectPoints(objects, points, key);
+    else focusPoint = key;
+  }
+  // A handle moves alone; a point moves with the other selected points.
+  const moving = part === 'endpoint' ? points.filter(k => nodeAt(k) && !nodeAt(k).pinned) : [key];
+  if (part === 'endpoint' && (!points.includes(key) || nodeAt(key)?.pinned)) { drag = {...common, kind: 'point-click'}; renderInspector(); drawOverlay(); return; }
+  const paths = new Set(moving.map(k => splitKey(k)[0]));
+  const saved = new Map([...paths].filter(p => geometries.has(p)).map(p => [p, valuesById(geometries.get(p))]));
+  const node = nodeAt(key), offset = part === 'endpoint' ? node.values.length - 2 : Number(part);
+  const start = new DOMPoint(node.values[offset], node.values[offset+1]).matrixTransform(localToOverlay(svgElement(id)));
+  drag = {...common, kind: 'node', key, part, moving, saved, start};
+  renderInspector(); drawOverlay();
+}
+// Box select: objects wholly inside the box at the entered group's level, or
+// in point tools the points of the selected paths.
+async function finishBox(finished) {
+  const box = dragBox({x: finished.x, y: finished.y}, finished.end);
+  if (level() === 'points') {
+    const found = [];
+    for (const id of pointPaths()) {
+      const screen = svgElement(id)?.getScreenCTM(); if (!screen) continue;
+      for (const node of geometryNodes(id)) {
+        const p = new DOMPoint(...node.values.slice(-2)).matrixTransform(screen);
+        if (pointInside(p.x, p.y, box)) found.push(pointKey(id, node.id));
+      }
+    }
+    return selectPoints(state.selection.objects, boxSelect(selectedPoints(), found, finished.shift));
+  }
+  const container = scope || state.root;
+  const found = state.objects.filter(item => item.parent === container && !item.resource && !['defs', 'clipPath'].includes(item.tag)).filter(item => {
+    const rect = svgElement(item.id)?.getBoundingClientRect();
+    return rect && rect.width + rect.height > 0 && rectInside(rect, box);
+  }).map(item => item.id);
+  focusPoint = null;
+  return action('select', {objects: boxSelect(state.selection.objects, found, finished.shift)}, 'Selecting…');
 }
 stage.addEventListener('pointerdown', event => {
   if (!state || pending || drag || ![0,1].includes(event.button)) return;
@@ -908,18 +1098,10 @@ stage.addEventListener('pointerdown', event => {
     const anchor={x:p.x,y:p.y}; pathDraft.push(anchor); pathHover=null;
     drag={...common,kind:'drawPath',anchor}; drawOverlay(); return;
   }
-  const nodeId = event.target.dataset?.node;
-  if (tool === 'nodes' && nodeId) {
-    const node=nodeById(nodeId), part=event.target.dataset.part;
-    if (part === 'endpoint') activeNode=nodeId;
-    drag={...common,kind:'node',nodeId,part,before:[...node.values],element:svgElement(geometryObject),object:geometryObject,saved:valuesById(geometry)};
-    renderNodeInspector(); drawOverlay(); return;
-  }
+  if (tool === 'nodes' && event.target.dataset?.node) { pressPoint(event, common); return; }
   const hits = hitStack(event.clientX, event.clientY);
   common.hits = hits;
   const id = hits[0] || null;
-  const selectedHit = id && (state.selection.objects.includes(id) ||
-    (sameClickSpot(event.clientX, event.clientY, hits) && state.selection.objects.includes(hits[clickCycle.index])));
   if (tool === 'knife') {
     const p=point(event);
     drag={...common,kind:'knife',id,start:{x:p.x,y:p.y},end:{x:p.x,y:p.y}}; return;
@@ -928,19 +1110,44 @@ stage.addEventListener('pointerdown', event => {
     const p=point(event);
     drag={...common,kind:'redraw',id,points:[[p.x,p.y]],longWay:event.shiftKey}; redrawHover=null; drawOverlay(); return;
   }
-  if (tool === 'select' && selectedHit && !common.shift) {
-    const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || ''})).filter(m=>m.element);
-    drag={...common,kind:'move',id,members}; return;
+  // Dragging a selected object moves the selection; a click picks what is
+  // under the pointer, and any other drag selects what lies inside its box.
+  if (level() === 'objects' && id) {
+    const targets = clickTargets(hits), picked = targets[0];
+    const selectedHit = state.selection.objects.includes(picked) ||
+      (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
+    if (selectedHit && !common.shift) {
+      const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || ''})).filter(m=>m.element);
+      drag={...common,kind:'move',id,members}; return;
+    }
   }
-  drag={...common,kind:'click',id};
+  drag = {...common, kind: 'box', id, end: {x: event.clientX, y: event.clientY}};
 });
+// In Nodes the unselected path under the pointer shows its points faintly.
+let hoverFrame = 0;
+function hoverPoints(event) {
+  if (hoverFrame) return;
+  const x = event.clientX, y = event.clientY;
+  hoverFrame = requestAnimationFrame(async () => {
+    hoverFrame = 0;
+    if (tool !== 'nodes' || drag || pending) return;
+    const hit = event.target.dataset?.object || hitStack(x, y).find(id => object(id)?.tag === 'path');
+    const next = hit && !state.selection.objects.includes(hit) ? hit : null;
+    if (next === hoverPath) return;
+    hoverPath = next;
+    if (next && !geometries.has(next)) { try { await loadGeometries(); } catch { return; } }
+    drawOverlay();
+  });
+}
 stage.addEventListener('pointermove', event => {
   if (!drag) {
     if (tool==='path' && pathDraft.length) {pathHover=point(event);drawOverlay();}
     if (tool==='redraw' && redrawLines()) {const p=point(event);redrawHover=[p.x,p.y];drawOverlay();}
+    if (tool==='nodes' && state) hoverPoints(event);
     return;
   }
   drag.moved ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>3;
+  if (drag.kind === 'box') { drag.end = {x: event.clientX, y: event.clientY}; if (drag.moved) drawOverlay(); }
   if (drag.kind === 'knife' && drag.moved) { drag.end=knifeEnd(event); drawOverlay(); }
   if (drag.kind === 'redraw') {
     const p=point(event), last=drag.points.at(-1);
@@ -953,12 +1160,7 @@ stage.addEventListener('pointermove', event => {
     const p=point(event), a=drag.anchor;
     a.out={x:p.x,y:p.y}; a.in={x:2*a.x-p.x,y:2*a.y-p.y}; drawOverlay();
   }
-  if (drag.kind === 'node' && drag.moved) {
-    const node=nodeById(drag.nodeId);
-    if (drag.part === 'endpoint' && node.pinned) return;
-    const pos=snappedDrag(event,node), offset=drag.part === 'endpoint' ? node.values.length-2 : Number(drag.part);
-    previewNodeDrag(node, offset, pos); drawOverlay(); renderNodeInspector();
-  }
+  if (drag.kind === 'node' && drag.moved) { previewPointDrag(snappedDrag(event)); drawOverlay(); renderNodeInspector(); }
   if (drag.kind === 'move' && drag.moved) {
     for (const member of drag.members) {
       const matrix=member.element.parentElement.getScreenCTM(); if (!matrix) continue;
@@ -969,28 +1171,73 @@ stage.addEventListener('pointermove', event => {
     drawOverlay();
   }
 });
+// A point drag sends the moved values: one point or handle as a node edit the
+// server carries the handles of, several points with their handles moved.
+async function finishPointDrag(finished) {
+  const changes = {};
+  for (const [id, saved] of finished.saved) {
+    const g = geometries.get(id); if (!g) continue;
+    for (const node of geometryNodes(id)) {
+      const before = saved.get(node.id);
+      if (node.values.some((v, i) => v !== before[i])) (changes[id] ||= {})[node.id] = [...node.values];
+    }
+    restoreValues(g, saved);
+  }
+  if (!Object.keys(changes).length) { renderDrawing(); drawOverlay(); return; }
+  const [id, nodeId] = splitKey(finished.key);
+  if (finished.part !== 'endpoint' || finished.moving.length === 1) {
+    const values = changes[id]?.[nodeId];
+    if (values) await action('node', {object: id, node: nodeId, values}, 'Updating contour…');
+    else { renderDrawing(); drawOverlay(); }
+  } else await action('move_nodes', {changes}, 'Moving points…');
+}
 stage.addEventListener('pointerup', async event => {
   if (!drag) return;
   const finished=drag; drag=null; stage.classList.remove('panning');
   if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
-  // A workspace click clears selection in every tool; dragging keeps its normal behavior.
-  if (finished.deselectOutside && !finished.moved) { await selectObject(null); return; }
-  if (['click','move','knife','redraw'].includes(finished.kind) && !finished.moved) await selectAtPoint(finished);
-  else if (finished.kind === 'click') await selectObject(finished.id,finished.shift);
+  if (finished.kind === 'box' && finished.moved) { drawOverlay(); await finishBox(finished); return; }
+  // A click outside the artboard clears the selection in every tool.
+  if (finished.deselectOutside && !finished.moved) { await clickEmpty(false); return; }
+  if (['move','knife','redraw','box'].includes(finished.kind) && !finished.moved) await selectAtPoint(finished);
   if (finished.moved) clickCycle = null;
   if (finished.kind === 'knife' && finished.moved) {drawOverlay();await cutWithKnife(finished);return;}
   if (finished.kind === 'redraw' && finished.moved) {drawOverlay();await redrawOutline(finished);return;}
   if (finished.kind === 'drawPath') {pathHover=null;drawOverlay();return;}
   if (finished.kind === 'closePath') {if (!finished.moved) await finishPath(true);return;}
-  if (finished.kind === 'node' && finished.moved) {
-    const node=nodeById(finished.nodeId), values=[...node.values];
-    node.values=finished.before;
-    if (values.some((v,i)=>v !== finished.before[i])) await action('node',{object:finished.object,node:finished.nodeId,values},'Updating contour…');
-    geometry=null; if (tool==='nodes') {try {await loadNodes(); drawOverlay();} catch(error){toast(error.message,true);}}
-  }
+  if (finished.kind === 'node' && finished.moved) await finishPointDrag(finished);
   if (finished.kind === 'move' && finished.moved) await action('move',{dx:0,dy:0,offsets:Object.fromEntries(finished.members.map(m=>[m.id,m.offset||[0,0]]))},'Moving selection…');
 });
-stage.addEventListener('pointercancel',()=>{if(drag?.kind==='drawPath')pathDraft.pop();stage.classList.remove('panning');clickCycle=null;drag=null;geometry=null;if(state)renderDrawing();drawOverlay();});
+// Double-click a group to pick within it, or a path to edit its points.
+stage.addEventListener('dblclick', async event => {
+  if (!state || level() !== 'objects' || space) return;
+  await queue;
+  const id = lastPick?.first, item = object(id);
+  if (!item || item.resource) return;
+  await enterObject(id, hitStack(event.clientX, event.clientY));
+});
+async function enterObject(id, hits = []) {
+  const item = object(id);
+  if (item?.tag === 'g') {
+    scope = id; clickCycle = null; lastPick = null;
+    const inner = hits.length ? pickTarget(hits[0], scope, parents(), state.root) : null;
+    await action('select', {objects: [inner?.scope === id ? inner.id : id]}, 'Selecting…');
+  } else if (item?.tag === 'path') {
+    if (state.selection.objects.length !== 1 || state.selection.objects[0] !== id) await action('select', {objects: [id]}, 'Selecting…');
+    await setTool('nodes');
+  } else if (item?.tag === 'use') toast('Detach this instance to edit its points (Detach in the Structure section).');
+}
+// Escape steps up one level: points to their paths, objects to their group,
+// then to nothing, and out of an entered group.
+async function stepUp() {
+  const hadPoints = selectedPoints().length > 0;
+  const next = escapeStep({objects: state.selection.objects, points: selectedPoints(), scope}, parents(), state.root);
+  scope = next.scope; clickCycle = null; focusPoint = null;
+  if (next.objects.join() !== state.selection.objects.join() || hadPoints) await action('select', {objects: next.objects}, 'Selecting…');
+  // A group has no points of its own: stepping up to it leaves the point tool.
+  if (!hadPoints && level() === 'points') await setTool('select');
+  renderStatus();
+}
+stage.addEventListener('pointercancel',()=>{if(drag?.kind==='drawPath')pathDraft.pop();stage.classList.remove('panning');clickCycle=null;drag=null;geometries=new Map();if(state){renderDrawing();loadGeometries().then(drawOverlay).catch(()=>{});}drawOverlay();});
 stage.addEventListener('auxclick',event=>{if(event.button===1)event.preventDefault();});
 stage.addEventListener('lostpointercapture',()=>{if(drag?.kind==='pan'){drag=null;stage.classList.remove('panning');}});
 stage.addEventListener('wheel',event=>{event.preventDefault();if(!state)return;const b=stage.getBoundingClientRect();zoomAt(Math.exp(-event.deltaY*.0015),event.clientX-b.left,event.clientY-b.top);},{passive:false});
@@ -1007,10 +1254,16 @@ for (const kind of ['fill','stroke']) {
 $('stroke-width').onchange=event=>action('paint',{changes:{'stroke-width':event.target.value||null}});
 $('opacity').onchange=event=>action('paint',{changes:{opacity:String(Number(event.target.value)/100)}});
 $('move-apply').onclick=async()=>{await action('move',{dx:Number($('move-x').value),dy:Number($('move-y').value)});$('move-x').value='0';$('move-y').value='0';};
-$('node-apply').onclick=()=>{const node=nodeById(activeNode);if(node)action('node',{object:geometryObject,node:activeNode,values:[...node.values.slice(0,-2),Number($('node-x').value),Number($('node-y').value)]});};
-$('node-pin').onchange=event=>action('pin',{object:geometryObject,node:activeNode,pinned:event.target.checked});
-$('node-split').onclick=()=>action('split',{object:geometryObject,node:activeNode});
-for(const count of [0,1,2]) $(`node-handles-${count}`).onclick=()=>action('node_handles',{object:geometryObject,node:activeNode,count},'Changing handles…');
+// Point commands act on every selected point, in however many paths.
+function movePointTo(x, y) {
+  const key = focusedPoint(), node = key && nodeAt(key); if (!node) return;
+  const [id, nodeId] = splitKey(key);
+  action('node', {object: id, node: nodeId, values: [...node.values.slice(0,-2), x, y]});
+}
+$('node-apply').onclick=()=>movePointTo(Number($('node-x').value), Number($('node-y').value));
+$('node-pin').onchange=event=>action('pin',{points:pointPairs(),pinned:event.target.checked});
+$('node-split').onclick=()=>action('split',{points:pointPairs()});
+for(const count of [0,1,2]) $(`node-handles-${count}`).onclick=()=>action('node_handles',{points:pointPairs(),count},'Changing handles…');
 function joinSelectionKey() { return JSON.stringify([state.epoch,state.revision,state.selection.objects]); }
 function joinCandidates() {
   const selected = new Set(state.selection.objects), candidates = [];
@@ -1195,8 +1448,8 @@ $('hole-shapes').onclick = async () => {
 $('cut_hole').onclick = async () => {
   if (await action('cut_hole', {}, 'Cutting out the hole…')) toast('Cut the shape out as a hole. Undo restores both paths.');
 };
-$('node-delete').onclick=()=>action('delete_node',{object:geometryObject,node:activeNode});
-$('node-delete-contour').onclick=()=>action('delete_contour',{object:geometryObject,node:activeNode});
+$('node-delete').onclick=()=>action('delete_node',{points:pointPairs()},'Deleting points…');
+$('node-delete-contour').onclick=()=>action('delete_contour',{points:pointPairs()},'Deleting contours…');
 document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});
 for (const command of ['group','ungroup','delete','detach']) $(command).onclick=()=>action(command);
 $('backward').onclick=()=>action('reorder',{step:-1});$('forward').onclick=()=>action('reorder',{step:1});
@@ -1370,11 +1623,17 @@ window.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();if(!pending)action(event.shiftKey?'redo':'undo');return;}
   if(event.code==='Space'){event.preventDefault();space=true;return;}
   if(event.key==='Escape'){
+    // Escape cancels what is under way, else steps the selection up a level.
+    const busy = drag || pathDraft.length || holePlan;
     pathDraft=[];pathHover=null;stage.classList.remove('panning');holePlan=null;
-    drag=null;activeNode=null;geometry=null;
-    if(state){renderDrawing();renderInspector();}
-    if(['nodes','redraw'].includes(tool))loadNodes().then(drawOverlay).catch(error=>toast(error.message,true));
-    drawOverlay();return;
+    if (drag) {
+      if (drag.saved) for (const [id, saved] of drag.saved) if (geometries.has(id)) restoreValues(geometries.get(id), saved);
+      drag = null; if (state) renderDrawing();
+    }
+    if (state) renderInspector();
+    drawOverlay();
+    if (!busy && state && !pending) stepUp();
+    return;
   }
   if((event.ctrlKey||event.metaKey)&&['BracketLeft','BracketRight'].includes(event.code)){
     // Ctrl/⌘ ] and [ step forward and backward; with Shift, to the front and back.
@@ -1390,15 +1649,15 @@ window.addEventListener('keydown',event=>{
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(tools[key])setTool(tools[key]);if(key==='f')fit();
   // 1, 2, 3: the selected point gets no handle, one or both.
-  if(tool==='nodes'&&['1','2','3'].includes(event.key)&&!pending&&nodeById(activeNode)){
+  if(tool==='nodes'&&['1','2','3'].includes(event.key)&&!pending&&selectedPoints().length){
     const button=$(`node-handles-${Number(event.key)-1}`);
     if(button&&!button.disabled){event.preventDefault();button.click();}
     return;
   }
   if((event.key==='Delete'||event.key==='Backspace')&&!pending&&state?.selection.objects.length){
     event.preventDefault();
-    if(tool==='nodes') {
-      if(geometryObject===oneObject()?.id && nodeById(activeNode) && !$('node-delete').disabled) $('node-delete').click();
+    if(level()==='points') {
+      if(selectedPoints().length && !$('node-delete').disabled) $('node-delete').click();
     } else action('delete');
   }
 });

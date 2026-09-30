@@ -625,3 +625,79 @@ def test_bring_to_front_and_send_to_back_move_the_selection_together():
     assert send(session, "reorder", to="back")["undo"][-1] == "Send to back"
     layer = session.editor.snapshot.document.element("layer")
     assert [c.id for c in layer.children] == ["b", "c", "a"]
+
+
+TWO_PATHS = """<svg width="100" height="100">
+<path id="p" d="M0 0 L20 0 L20 20 L0 20 Z"/>
+<g id="g"><path id="q" d="M50 50 L70 50 L70 70 L50 70 Z"/></g></svg>"""
+
+
+def node_ids(session, oid):
+    return [
+        n["id"] for s in session.nodes(oid)["geometry"]["subpaths"] for n in s["nodes"]
+    ]
+
+
+def test_points_selected_across_paths_are_edited_as_one_step():
+    session = Session(import_svg(TWO_PATHS))
+    p, q = node_ids(session, "p"), node_ids(session, "q")
+    state = send(session, "select", objects=["p", "q"], nodes=[p[1], q[2]])
+    assert state["selection"] == {"objects": ["p", "q"], "nodes": sorted([p[1], q[2]])}
+    assert set(session.geometries(["p", "q"])["geometries"]) == {"p", "q"}
+    points = [["p", p[1]], ["q", q[2]]]
+    send(session, "node_handles", points=points, count=2)
+    assert session.state()["undo"] == ["Change handles"]
+    send(session, "pin", points=points, pinned=True)
+    assert session.state()["undo"][-1] == "Pin nodes"
+    document = session.editor.snapshot.document
+    assert document.geometry_for("p").node(p[1]).pinned
+    assert document.geometry_for("q").node(q[2]).pinned
+    send(session, "pin", points=points, pinned=False)
+    p_values = document.geometry_for("p").node(p[1]).values
+    q_values = document.geometry_for("q").node(q[2]).values
+    moved = {
+        "p": {p[1]: [*p_values[:-2], 25, 0]},
+        "q": {q[2]: [*q_values[:-2], 75, 75]},
+    }
+    send(session, "move_nodes", changes=moved)
+    document = session.editor.snapshot.document
+    assert document.geometry_for("p").node(p[1]).endpoint == (25, 0)
+    assert document.geometry_for("q").node(q[2]).endpoint == (75, 75)
+    assert session.state()["undo"][-1] == "Move points"
+    # Whole-object edits still apply while points are selected, and keep them.
+    send(session, "paint", changes={"fill": "green"})
+    send(session, "move", dx=1, dy=0)
+    assert session.state()["selection"]["nodes"] == sorted([p[1], q[2]])
+
+
+def test_deleting_selected_points_in_two_paths_keeps_the_paths_selected():
+    session = Session(import_svg(TWO_PATHS))
+    p, q = node_ids(session, "p"), node_ids(session, "q")
+    send(session, "select", objects=["p", "q"], nodes=[p[1], q[1]])
+    send(session, "delete_node", points=[["p", p[1]], ["q", q[1]]])
+    assert len(node_ids(session, "p")) == len(p) - 1
+    assert len(node_ids(session, "q")) == len(q) - 1
+    assert session.state()["selection"] == {"objects": ["p", "q"], "nodes": []}
+    assert session.state()["undo"] == ["Delete node"]
+    send(session, "undo")
+    assert len(node_ids(session, "p")) == len(p)
+
+
+def test_deleting_the_contours_of_points_takes_each_contour_once():
+    session = Session(import_svg(TWO_PATHS))
+    p, q = node_ids(session, "p"), node_ids(session, "q")
+    send(session, "select", objects=["p", "q"])
+    # Two points of p's only contour delete it, and p with it, once.
+    send(session, "delete_contour", points=[["p", p[1]], ["p", p[2]], ["q", q[0]]])
+    assert {o["id"] for o in session.state()["objects"]} == {"g"}
+    assert session.state()["undo"] == ["Delete contour"]
+
+
+def test_point_commands_need_their_paths_selected():
+    session = Session(import_svg(TWO_PATHS))
+    q = node_ids(session, "q")
+    send(session, "select", objects=["p"])
+    with pytest.raises(DocumentError, match="Select the path"):
+        send(session, "delete_node", points=[["q", q[0]]])
+    with pytest.raises(DocumentError, match="Select the path"):
+        send(session, "move_nodes", changes={"q": {q[0]: [1, 1]}})

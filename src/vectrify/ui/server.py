@@ -72,7 +72,11 @@ class Backend:
                     result = session.holes(data)
                 elif path == "/api/nodes":
                     session.check_revision(data)
-                    result = session.nodes(data["object"])
+                    result = (
+                        session.geometries(data["objects"])
+                        if "objects" in data
+                        else session.nodes(data["object"])
+                    )
                 elif path == "/api/settings":
                     if {"api_keys", "local", "models"} & data.keys():
                         keys.save(
@@ -168,6 +172,7 @@ class Handler(BaseHTTPRequestHandler):
             "/snap.js": "snap.js",
             "/tree.js": "tree.js",
             "/redraw.js": "redraw.js",
+            "/selection.js": "selection.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }

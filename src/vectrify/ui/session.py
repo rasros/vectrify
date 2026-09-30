@@ -47,6 +47,25 @@ NODE_REACH = 6
 REACH = 10
 
 
+# Commands on points, possibly in several selected paths, and their undo labels.
+POINT_COMMANDS = {
+    "node": "Edit node",
+    "move_nodes": "Move points",
+    "split": "Split edge",
+    "node_handles": "Change handles",
+    "delete_node": "Delete node",
+    "delete_contour": "Delete contour",
+}
+
+
+def has_node(document: Document, object_id: str, node_id: str) -> bool:
+    try:
+        document.geometry_for(object_id).node(node_id)
+    except DocumentError:
+        return False
+    return True
+
+
 def number(value: Any) -> float:
     result = float(value)
     if not math.isfinite(result):
@@ -124,6 +143,10 @@ class Session:
     def _request(self, chosen: Method, payload: dict) -> OperationRequest:
         bounds = payload.get("bounds", self.state(svg=False)["bounds"])
         snapshot = self.editor.snapshot
+        # Operations act on whole paths, whichever of their points are selected.
+        snapshot = replace(
+            snapshot, selection=replace(snapshot.selection, node_ids=frozenset())
+        )
         if payload.get("scope") == "drawing":
             snapshot = replace(snapshot, selection=Selection(whole_document=True))
         elif payload.get("scope") not in {None, "selection"}:
@@ -229,6 +252,17 @@ class Session:
             "revision": self.editor.snapshot.revision,
             "object": object_id,
             "geometry": asdict(geometry),
+        }
+
+    def geometries(self, object_ids: list) -> dict:
+        """The geometry of each of several paths, for editing their points."""
+        document = self.editor.snapshot.document
+        return {
+            "epoch": self.epoch,
+            "revision": self.editor.snapshot.revision,
+            "geometries": {
+                str(oid): asdict(document.geometry_for(str(oid))) for oid in object_ids
+            },
         }
 
     def holes(self, payload: dict) -> dict:
@@ -361,11 +395,7 @@ class Session:
                 raise DocumentError("Select the object before changing its locks")
             self.editor.set_locks(object_id, frozenset(payload["locks"]))
         elif command == "pin":
-            if payload["object"] not in self.editor.snapshot.selection.object_ids:
-                raise DocumentError("Select the path before pinning a node")
-            self.editor.pin_node(
-                payload["object"], payload["node"], pinned=bool(payload["pinned"])
-            )
+            self.editor.pin_nodes(self._points(payload), pinned=bool(payload["pinned"]))
         elif command == "reference":
             reference = (
                 self.validate_reference(payload["reference"])
@@ -378,12 +408,107 @@ class Session:
                 # The embedding retraces reuse is of the old reference.
                 SAM_CACHE.release()
             self.reference = reference
+        elif command in POINT_COMMANDS:
+            chosen = self.editor.snapshot.selection
+            self._edit_points(command, payload)
+            # Deleting the last selected points keeps their paths selected.
+            if chosen.node_ids and self.editor.snapshot.selection == Selection():
+                existing = {e.id for e in self.editor.snapshot.document.elements()}
+                kept = chosen.object_ids & existing
+                if kept:
+                    self.editor.select(Selection(object_ids=kept))
         else:
             self._edit(command, payload)
         return self.state(svg=self.editor.snapshot.revision != before)
 
+    def _points(self, payload: dict) -> list[tuple[str, str]]:
+        """The (object, node) pairs a point command acts on, in selected paths.
+
+        *points* lists them, possibly across several paths; a single point
+        may be given as *object* and *node* instead.
+        """
+        raw = payload.get("points")
+        if raw is None:
+            raw = [[payload["object"], payload["node"]]]
+        if (
+            not isinstance(raw, list)
+            or not raw
+            or any(not isinstance(p, (list, tuple)) or len(p) != 2 for p in raw)
+        ):
+            raise DocumentError("Choose the points to edit")
+        points = list(dict.fromkeys((str(o), str(n)) for o, n in raw))
+        if not {o for o, _ in points} <= self.editor.snapshot.selection.object_ids:
+            raise DocumentError("Select the path before editing its points")
+        return points
+
+    def _edit_points(self, command: str, payload: dict) -> None:
+        """Edit points of one or more selected paths as one undoable step."""
+        document = self.editor.snapshot.document
+        changes: dict = {}
+        if command == "move_nodes":
+            changes = payload.get("changes") or {}
+            if (
+                not isinstance(changes, dict)
+                or not changes
+                or any(not isinstance(v, dict) for v in changes.values())
+            ):
+                raise DocumentError("Choose the points to move")
+            points = self._points(
+                {"points": [[o, n] for o, nodes in changes.items() for n in nodes]}
+            )
+        else:
+            points = self._points(payload)
+        if command == "node" and len(points) != 1:
+            raise DocumentError("Drag one point at a time, or move them together")
+        objects = frozenset(o for o, _ in points)
+        # Editing a path's nodes changes every object drawing its geometry.
+        scope = objects.union(
+            *(document.geometry_users(document.geometry_for(o).id) for o in objects)
+        )
+        with self.editor.transaction(
+            POINT_COMMANDS[command], selection=Selection(object_ids=scope)
+        ) as tx:
+            if command == "node":
+                oid, nid = points[0]
+                tx.update_node(oid, nid, tuple(number(v) for v in payload["values"]))
+            elif command == "move_nodes":
+                # The values already carry the handles each point takes along.
+                for oid, nodes in changes.items():
+                    tx.update_nodes(
+                        str(oid),
+                        {
+                            str(nid): tuple(number(v) for v in values)
+                            for nid, values in nodes.items()
+                        },
+                    )
+            elif command == "split":
+                for oid, nid in points:
+                    tx.split_edge(oid, nid)
+            elif command == "node_handles":
+                for oid, nid in points:
+                    tx.set_node_handles(oid, nid, int(payload["count"]))
+            elif command == "delete_node":
+                # Deleting one point can take its contour, or its path, along.
+                for oid, nid in points:
+                    if has_node(tx.preview, oid, nid):
+                        tx.delete_node(oid, nid)
+            elif command == "delete_contour":
+                contours = {}
+                for oid, nid in points:
+                    geometry = document.geometry_for(oid)
+                    subpath = next(
+                        s
+                        for s in geometry.subpaths
+                        if any(n.id == nid for n in s.nodes)
+                    )
+                    contours.setdefault((geometry.id, subpath.id), (oid, nid))
+                for oid, nid in contours.values():
+                    if has_node(tx.preview, oid, nid):
+                        tx.delete_contour(oid, nid)
+
     def _edit(self, command: str, payload: dict) -> None:
-        selection = self.editor.snapshot.selection
+        # Object commands act on whole objects, whichever points are selected.
+        selection = replace(self.editor.snapshot.selection, node_ids=frozenset())
         selected = selection.object_ids
         document = self.editor.snapshot.document
         if command == "add_path":
@@ -467,17 +592,6 @@ class Session:
                 outer = tx.cut_out_hole(selected)
             self.editor.select(Selection(object_ids=frozenset({outer})))
             return
-        if command in {"node", "split", "node_handles"}:
-            # Editing a path's nodes changes every object drawing its geometry.
-            gids = {
-                document.geometry_for(oid).id
-                for oid in selected
-                if document.element(oid).tag == "path"
-            }
-            scope = selected | frozenset(
-                oid for gid in gids for oid in document.geometry_users(gid)
-            )
-            selection = Selection(object_ids=scope)
         group_id = None
         pieces: tuple[str, ...] = ()
         if command == "reorder" and payload.get("to") in {"front", "back"}:
@@ -486,17 +600,12 @@ class Session:
             {
                 "paint": "Change paint",
                 "move": "Move selection",
-                "node": "Edit node",
                 "group": "Group objects",
                 "ungroup": "Ungroup objects",
                 "delete": "Delete selection",
                 "reorder": "Change stacking",
                 "to_front": "Bring to front",
                 "to_back": "Send to back",
-                "split": "Split edge",
-                "node_handles": "Change handles",
-                "delete_node": "Delete node",
-                "delete_contour": "Delete contour",
                 "detach": "Detach geometry",
                 "split_disconnected": "Split disconnected parts",
                 "join_paths": "Join outlines",
@@ -528,12 +637,6 @@ class Session:
                     previous = document.element(oid).get("transform", "") or ""
                     transform = f"translate({move_x} {move_y}) {previous}".strip()
                     tx.set_attributes(oid, {"transform": transform})
-            elif command == "node":
-                tx.update_node(
-                    payload["object"],
-                    payload["node"],
-                    tuple(number(v) for v in payload["values"]),
-                )
             elif command == "group":
                 group_id = tx.group_objects(selected)
             elif command == "ungroup":
@@ -568,16 +671,6 @@ class Session:
                 index = next(i for i, item in enumerate(siblings) if item.id == oid)
                 target = max(0, min(len(siblings) - 1, index + int(payload["step"])))
                 tx.reorder_object(oid, target)
-            elif command == "split":
-                tx.split_edge(payload["object"], payload["node"])
-            elif command == "node_handles":
-                tx.set_node_handles(
-                    payload["object"], payload["node"], int(payload["count"])
-                )
-            elif command == "delete_node":
-                tx.delete_node(payload["object"], payload["node"])
-            elif command == "delete_contour":
-                tx.delete_contour(payload["object"], payload["node"])
             elif command == "detach":
                 for oid in selected:
                     tx.detach_geometry(oid)
