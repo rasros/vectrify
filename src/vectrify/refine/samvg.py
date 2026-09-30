@@ -55,6 +55,10 @@ SAMVG_STABILITY_SCORE_THRESH = float(
 SAMVG_RESIDUAL_RADIUS_FRACTION = float(
     os.environ.get("VECTRIFY_SAMVG_RESIDUAL_RADIUS_FRACTION", "0.005")
 )
+# Outlines are smoothed over this many SAM pixels before curves are fitted,
+# so the fit does not follow the masks' raster steps.
+SAMVG_SMOOTH = float(os.environ.get("VECTRIFY_SAMVG_SMOOTH", "1.0"))
+SMOOTH = SAMVG_SMOOTH
 # The SAMVG seed only needs OCR once and does it after SAM has released its
 # automatic-mask pipeline. This is a real VLM pass, not a separate small OCR
 # detector: it can decide which visible labels deserve editable text and place
@@ -1290,16 +1294,39 @@ def _fit_cubic(
     return controls[0], controls[1]
 
 
+def _smoothed(loop: list[tuple[float, float]], sigma: float):
+    """*loop* smoothed along its length by a Gaussian of *sigma* pixels.
+
+    A pixel loop walks every step of a raster staircase, and with enough
+    curves the fit follows each one: a mask SAM made at a lower resolution
+    than the image comes out as steps a SAM pixel wide. Smoothing over about
+    that width takes the steps out and rounds a real corner by as much.
+    """
+    if sigma <= 0 or len(loop) < 3:
+        return loop
+    points = np.asarray(loop, dtype=np.float64)
+    reach = min(int(np.ceil(3 * sigma)), (len(points) - 1) // 2)
+    offsets = np.arange(-reach, reach + 1)
+    weights = np.exp(-0.5 * (offsets / sigma) ** 2)
+    weights /= weights.sum()
+    smooth = np.zeros_like(points)
+    for offset, weight in zip(offsets, weights, strict=True):
+        smooth += weight * np.roll(points, -offset, axis=0)
+    return [(float(x), float(y)) for x, y in smooth]
+
+
 def _cubic_loop(
     loop: list[tuple[float, float]],
     segments: int,
     *,
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
+    smooth: float = 0.0,
 ) -> str | None:
     size = len(loop)
     if size < 3:
         return None
+    loop = _smoothed(loop, smooth)
     corners = (
         _corners(loop, segments)
         if curvature_threshold is None
@@ -1336,8 +1363,10 @@ def mask_path(
     overlap_pixels: int = 0,
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
+    smooth: float = 0.0,
 ) -> str | None:
-    """Fit every mask contour as fixed-count or thresholded cubic Beziers."""
+    """Fit every mask contour as fixed-count or thresholded cubic Beziers,
+    each first smoothed over *smooth* pixels."""
     if overlap_pixels:
         mask = _binary_dilation(mask, overlap_pixels)
     parts = [
@@ -1349,6 +1378,7 @@ def mask_path(
                 segments,
                 curvature_threshold=curvature_threshold,
                 maximum_segments=maximum_segments,
+                smooth=smooth,
             )
         )
     ]
@@ -1395,11 +1425,52 @@ def arrange_layers(
         if not visible.any():
             continue
         if flatten:
-            if visible.sum() < min_pixels:
-                continue
             layer = replace(layer, mask=visible)
         kept.append(layer)
-    return kept[::-1]
+    kept = kept[::-1]
+    if flatten:
+        kept = _without_slivers(kept, max(1, min_width // 2), min_pixels, min_width)
+    return kept
+
+
+def _without_slivers(
+    layers: list[MaskLayer], radius: int, min_pixels: int, min_width: int
+) -> list[MaskLayer]:
+    """Flattened layers with the slivers between them given to a neighbour.
+
+    Cutting layers down to what shows leaves ragged strips along every edge a
+    layer above crosses, each traced as a region of its own. Opening every
+    layer by *radius* takes the strips off, a remnant smaller than
+    *min_pixels* or thinner than *min_width* goes too, and every pixel left
+    without a layer goes to the nearest one that kept it, so no gap opens.
+    """
+    if not layers:
+        return layers
+    owner = np.zeros(layers[0].mask.shape, dtype=np.int32)
+    covered = np.zeros(owner.shape, dtype=bool)
+    for index, layer in enumerate(layers, start=1):
+        covered |= layer.mask
+        eroded = ~_binary_dilation(~layer.mask, radius)
+        opened = _binary_dilation(eroded, radius) & layer.mask
+        if opened.sum() < min_pixels or (min_width and thinner_than(opened, min_width)):
+            continue
+        owner[opened] = index
+    # Grow the kept layers into the pixels they gave up, one step at a time.
+    for _ in range(4 * radius + 4):
+        orphans = covered & (owner == 0)
+        if not orphans.any():
+            break
+        grown = owner.copy()
+        for axis, shift in ((0, 1), (0, -1), (1, 1), (1, -1)):
+            neighbour = np.roll(owner, shift, axis=axis)
+            take = orphans & (grown == 0) & (neighbour > 0)
+            grown[take] = neighbour[take]
+        owner = grown
+    return [
+        replace(layer, mask=owner == index)
+        for index, layer in enumerate(layers, start=1)
+        if (owner == index).sum() >= min_pixels
+    ]
 
 
 def backdrop_colour(
@@ -1427,6 +1498,7 @@ def _layer_svg_attributes(
     min_width: int = 0,
     curvature_threshold: float | None = None,
     maximum_segments: int = 2048,
+    smooth: float = 0.0,
 ) -> list[dict[str, str]]:
     """Trace one SAM mask as a filled path, or nothing when it is too thin."""
     colour = f"#{layer.colour[0]:02x}{layer.colour[1]:02x}{layer.colour[2]:02x}"
@@ -1438,6 +1510,7 @@ def _layer_svg_attributes(
         overlap_pixels=layer.overlap_pixels,
         curvature_threshold=curvature_threshold,
         maximum_segments=maximum_segments,
+        smooth=smooth,
     )
     if data is None:
         return []
@@ -1501,6 +1574,9 @@ def generate_svg(
         min_pixels=min_pixels,
     )
     width, height = image.size
+    # SAM's masks have steps of one SAM pixel, which is more than one of the
+    # image's when SAM worked at a smaller size.
+    smooth = SMOOTH * max(1.0, max(width, height) / max_side) if max_side else SMOOTH
     paths = []
     if backdrop:
         red, green, blue = backdrop_colour(image, layers)
@@ -1514,6 +1590,7 @@ def generate_svg(
             segments,
             curvature_threshold=curvature_threshold,
             maximum_segments=maximum_segments,
+            smooth=smooth,
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")

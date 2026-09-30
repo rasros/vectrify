@@ -192,7 +192,10 @@ outlines and hairlines, are left out (0 keeps everything). Regions hidden entire
 those above are left out, and a backdrop rectangle beneath them all, in the
 colour of what no region claims (usually the drawn outlines), fills the gaps
 between regions. **Flatten overlaps** cuts every region down to its visible
-part, so none overlap. The result is placed over the
+part, so none overlap; the thin strips that cutting leaves along edges go to
+a neighbouring region instead of becoming shapes of their own. Outlines are
+smoothed over about one SAM pixel before curves are fitted, so they do not
+follow the masks' raster steps. The result is placed over the
 artboard exactly where the reference is shown, as one new group at the front of
 the whole drawing or of a selected group. With a group selected, only the
 reference around what it already paints is traced. Text is traced as shapes, since the editor
