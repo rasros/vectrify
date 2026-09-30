@@ -409,3 +409,50 @@ def test_contact_preview_apply_single_path_edit_and_unlink():
     assert not session.editor.snapshot.document.boundaries
     send(session, "undo")
     assert session.editor.snapshot.document.boundaries
+
+
+def test_knife_cuts_selected_paths_links_the_seam_and_undoes_in_one_step():
+    from vectrify.document.topology import edge
+
+    session = Session(
+        import_svg(
+            '<svg width="100" height="100"><g transform="translate(10 0)">'
+            '<path id="p" fill="red" d="M0 0H20V20H0Z"/></g></svg>'
+        )
+    )
+    with pytest.raises(DocumentError, match="Select"):
+        send(session, "knife", start=[15, -5], end=[15, 30])
+    send(session, "select", objects=["p"])
+    result = send(session, "knife", start=[15, -5], end=[15, 30])
+    pieces = result["selection"]["objects"]
+    assert result["undo"] == ["Cut with knife"]
+    assert len(pieces) == 2
+    assert "p" in pieces
+    doc = session.editor.snapshot.document
+    first, second = doc.boundaries[0].members
+    assert edge(doc, first).points == edge(doc, second).points
+    assert {p[0] for p in edge(doc, first).points} == {5.0}
+    # Moving a seam node in one piece moves the other piece's seam with it.
+    oid = pieces[1]
+    send(session, "select", objects=[oid])
+    member = first if doc.geometry_for(oid).id == first.geometry_id else second
+    node = edge(doc, member).end
+    send(session, "node", object=oid, node=node.id, values=[7, node.values[1]])
+    doc = session.editor.snapshot.document
+    assert edge(doc, first).points == edge(doc, second).points
+    assert (7, node.values[1]) in edge(doc, first).points
+    send(session, "unlink_boundaries")
+    assert not session.editor.snapshot.document.boundaries
+    send(session, "undo")
+    send(session, "undo")
+    assert send(session, "undo")["selection"]["objects"] == ["p"]
+    assert len(session.editor.snapshot.document.geometries) == 1
+
+
+def test_knife_line_that_ends_inside_changes_nothing():
+    session = Session(import_svg(SVG))
+    send(session, "select", objects=["a"])
+    before = session.editor.snapshot.document
+    with pytest.raises(DocumentError, match="Drag the knife across"):
+        send(session, "knife", start=[10, -5], end=[10, 5])
+    assert session.editor.snapshot.document == before

@@ -7,6 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
 from vectrify.document.components import disconnected_parts
+from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.holes import find_holes
 from vectrify.document.join import (
     bake_group_path,
@@ -15,6 +16,7 @@ from vectrify.document.join import (
     path_style,
     union_geometry,
 )
+from vectrify.document.knife import cut_geometry
 from vectrify.document.model import (
     Document,
     DocumentError,
@@ -28,7 +30,13 @@ from vectrify.document.model import (
     references,
 )
 from vectrify.document.svg import GEOMETRY, PAINT, validate_attributes
-from vectrify.document.topology import edge, propagate_node, split_edges
+from vectrify.document.topology import (
+    edge,
+    inverse_matrix,
+    mapped_point,
+    propagate_node,
+    split_edges,
+)
 
 
 def _on_chord(
@@ -987,6 +995,110 @@ class Transaction:
             self._ids = (self._ids - {object_id}) | {group.id, *ids}
             self._record_object_remap({object_id: set(ids)})
             return ids
+
+    def cut_paths(
+        self, start: tuple[float, float], end: tuple[float, float]
+    ) -> tuple[str, ...]:
+        """Cut the selected filled paths the line from *start* to *end* crosses.
+
+        The points are in root SVG user space. Each crossed path becomes two
+        paths, one per side of the line, each compound if that side has several
+        parts. Both keep the original's attributes, locks and stacking place;
+        the first keeps its ID and geometry ID. The seam is a linked boundary.
+        Paths the line only enters or misses, and stroke-only paths, are left
+        alone. Returns the IDs of the pieces.
+        """
+        with self._change():
+            self._whole_objects()
+            document = self._working
+            pieces: list[str] = []
+            for element in document.elements():
+                if element.id not in self._ids or element.tag != "path":
+                    continue
+                ancestry = document.ancestry(element.id)
+                if any(e.tag in {"defs", "clipPath"} for e in ancestry):
+                    continue
+                style = path_style(document, element)
+                if style["fill"] == "none":
+                    continue
+                matrix = IDENTITY
+                for ancestor in ancestry:
+                    matrix = multiply(matrix, transform(ancestor.get("transform")))
+                inverse = inverse_matrix(matrix)
+                geometry = document.geometry_for(element.id)
+                cut = cut_geometry(
+                    geometry,
+                    style["fill-rule"],
+                    mapped_point(start, inverse),
+                    mapped_point(end, inverse),
+                    geometry.id,
+                    new_id("geometry"),
+                )
+                if cut is None:
+                    continue
+                self._authorize(document.dependents({element.id}), EditKind.STRUCTURE)
+                self._authorize(document.dependents({element.id}), EditKind.GEOMETRY)
+                if any(element.id in references(e) for e in document.elements()):
+                    raise EditRejectedError(
+                        "This path is referenced; detach its instances before cutting"
+                    )
+                if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
+                    raise EditRejectedError("Detach shared geometry before cutting")
+                if any(n.pinned for s in geometry.subpaths for n in s.nodes):
+                    raise EditRejectedError("Unpin endpoints before cutting a path")
+                if any(
+                    m.geometry_id == geometry.id
+                    for b in document.boundaries
+                    for m in b.members
+                ):
+                    raise EditRejectedError("Unlink boundaries before cutting a path")
+                piece = replace(element, id=new_id("object"), geometry_id=cut.second.id)
+                parent = self._working.ancestry(element.id)[-2]
+                self._working = self._working.replace_element(
+                    replace(
+                        parent,
+                        children=tuple(
+                            child
+                            for c in parent.children
+                            for child in ((c, piece) if c.id == element.id else (c,))
+                        ),
+                    )
+                )
+                self._working = replace(
+                    self._working,
+                    geometries=(
+                        *(
+                            cut.first if g.id == geometry.id else g
+                            for g in self._working.geometries
+                        ),
+                        cut.second,
+                    ),
+                    boundaries=(
+                        *self._working.boundaries,
+                        *(
+                            SharedBoundary(
+                                new_id("boundary"),
+                                (
+                                    EdgeRef(cut.first.id, mine),
+                                    EdgeRef(cut.second.id, theirs, reversed=flipped),
+                                ),
+                            )
+                            for mine, theirs, flipped in cut.seam
+                        ),
+                    ),
+                )
+                self._record_remap(
+                    {n.id: set() for s in geometry.subpaths for n in s.nodes}
+                )
+                self._record_object_remap({element.id: {element.id, piece.id}})
+                self._ids |= {piece.id}
+                pieces.extend((element.id, piece.id))
+            if not pieces:
+                raise EditRejectedError(
+                    "Drag the knife across a selected filled shape, "
+                    "from outside it to outside it"
+                )
+            return tuple(pieces)
 
     def join_paths(
         self, object_ids: frozenset[str], *, color_source: str | None = None

@@ -174,6 +174,22 @@ geometry edits. They participate in the same preview/apply/abort transaction.
   that cannot be transferred safely return an explicit error. Group opacity
   cannot generally be distributed without changing overlapping children.
 
+- `cut_paths(start, end)` cuts every filled drawing path in scope that the
+  line from `start` to `end` (root SVG user space) crosses from outside to
+  outside. The line is mapped into each path's own coordinates, and the path
+  is intersected with the half-plane on each side using Skia's curved
+  booleans, so curves, holes and compound paths come through. Where the line
+  crosses an edge, a node is first inserted in double precision; Skia's
+  float32 output is then restored to those crossings and to the untouched
+  original coordinates. Each side becomes one geometry (compound if it has
+  several parts). The first keeps the object ID and geometry ID, the second is
+  a copy of the element with fresh IDs placed right after it. Both sides split
+  their cut lines at the same points, and each matching pair is linked as a
+  shared boundary. Every node of the original is remapped away; the object
+  remaps to both pieces. Needs structure and geometry permission; pins,
+  boundary links, shared geometry and references on a crossed path are
+  refused. Returns the piece IDs, and rejects the edit if nothing was cut.
+
 `object_remapping` records deletion and group-to-child replacement. Like node
 remapping, it composes through batches and applies to the current UI selection
 at commit. Grouping leaves existing child selections intact; ungrouping a

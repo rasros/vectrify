@@ -454,6 +454,7 @@ class Session:
                     "Unlink shared boundaries before moving these regions"
                 )
         group_id = None
+        pieces: tuple[str, ...] = ()
         with self.editor.transaction(
             {
                 "unlink_boundaries": "Unlink boundaries",
@@ -470,6 +471,7 @@ class Session:
                 "detach": "Detach geometry",
                 "split_disconnected": "Split disconnected parts",
                 "join_paths": "Join outlines",
+                "knife": "Cut with knife",
             }.get(command, command),
             selection=selection,
         ) as tx:
@@ -544,6 +546,13 @@ class Session:
             elif command == "split_disconnected":
                 for oid in sorted(selected):
                     tx.split_disconnected(oid)
+            elif command == "knife":
+                start, end = (
+                    tuple(number(v) for v in payload[key]) for key in ("start", "end")
+                )
+                if len(start) != 2 or len(end) != 2:
+                    raise DocumentError("A knife line needs two points")
+                pieces = tx.cut_paths((start[0], start[1]), (end[0], end[1]))
             elif command == "join_paths":
                 options = payload.get("options", {})
                 if not isinstance(options, dict) or set(options) - {
@@ -570,3 +579,5 @@ class Session:
 
         if group_id is not None:
             self.editor.select(Selection(object_ids=frozenset({group_id})))
+        if pieces:
+            self.editor.select(Selection(object_ids=frozenset(pieces)))
