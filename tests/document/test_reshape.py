@@ -160,3 +160,26 @@ def test_moving_a_point_keeps_its_retracted_handles_on_it(count):
     assert point.endpoint == (12.0, 2.0)
     after = (point.values[2:4] != point.endpoint) + (end.values[0:2] != point.endpoint)
     assert after == count
+
+
+def test_moving_a_point_takes_both_of_its_handles_along():
+    editor = Editor(import_svg(WAVE), selection=select("p"))
+    start, point, _ = middle(editor)
+    with editor.transaction("Move") as tx:
+        tx.update_node("p", point.id, (*point.values[:4], 13.0, 4.0))
+    after = middle(editor)
+    assert after[1].values == (0, 10, 13, 14, 13, 4)
+    assert after[2].values == (13, -6, 20, -10, 20, 0)
+    assert after[0] == start
+
+
+def test_moving_a_handle_moves_only_that_handle():
+    editor = Editor(import_svg(WAVE), selection=select("p"))
+    _, point, end = middle(editor)
+    with editor.transaction("Handle") as tx:
+        tx.update_node("p", end.id, (15.0, -12.0, *end.values[2:]))
+    with editor.transaction("Handle") as tx:
+        tx.update_node("p", point.id, (0, 10, 7.0, 11.0, *point.endpoint))
+    after = middle(editor)
+    assert after[1].values == (0, 10, 7, 11, 10, 0)
+    assert after[2].values == (15, -12, 20, -10, 20, 0)

@@ -54,6 +54,18 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   **No handles**, **One handle** and **Two handles** turn the selected point
   into a corner, a point curved on one side (click again to switch sides), or
   a smooth point with its handles in line.
+  Dragging a point (or typing its coordinates) moves both of its handles by
+  the same offset, so the curve keeps its shape around it; dragging a handle
+  moves only that handle. Linked boundaries follow, and pinned points stay put.
+  While dragging, a point or handle snaps to the points of every visible path
+  (other points of the same path included) and to the artboard's edges and
+  corners, within 8 screen pixels at any zoom; an orange diamond marks the
+  target and a dashed line the edge. Hold Alt or Ctrl/⌘ to drag without
+  snapping. Where a point started is never a target.
+  When the selected point is on a hole of the path, **Fill hole** removes that
+  hole (and islands inside it) and **Hole to shape** moves it out into a new
+  path with the path's paint, stacked just above it and selected afterwards.
+  Islands inside the hole go along as holes of the new shape.
 - **Draw path (P)**: click to add corners, drag to set mirrored Bézier handles.
   Click the first point or **Close shape** for a filled shape, or press Enter /
   **Finish** for an open stroked path. Backspace removes the last point; Escape
@@ -95,6 +107,18 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   detached first. **Detach to editable path** converts a path instance into a
   selected independent path ready to split, retaining its paint and transforms
   in wrapper groups. Other instances keep their shared definition.
+- **Cut out as hole** (Structure) takes two selected filled paths. When one
+  lies inside the other it becomes a hole in it; when they only partly overlap
+  the front one cuts the back one. The outer path keeps its paint and
+  stacking place, and the cutting path is deleted, as one undoable edit. The
+  cutter's contours are added to the outer path, reversed when needed so they
+  cut under its fill rule (nonzero or evenodd), and its own holes become
+  islands again; transforms of either path's groups are taken into account.
+  When added contours cannot reproduce the difference (a partial overlap), the
+  outer outline is recomputed as a curved boolean difference, which renumbers
+  its points and so is refused for pinned points or linked boundaries.
+  Locks, shared geometry, instances of the outer path and linked boundaries
+  on the cutting path are refused.
 - The **Knife** tool (`K`) cuts selected filled paths, or the paths inside
   selected groups, along a straight line: drag across them and release. Shift
   snaps the line to 15° steps. A path is cut only when the line runs through
@@ -117,8 +141,11 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   explicitly check any to delete. Partially overlapping objects stay out of
   this list. Filling and optional deletion are a single undoable action.
   Filling removes the chosen interior contours and their nested islands while
-  retaining all other curves exactly. Pins, locks and linked boundaries are
-  enforced. Ambiguous crossing/coincident contours are not offered as holes.
+  retaining all other curves exactly. **Turn selected holes into shapes**
+  instead moves each chosen hole out into its own path with the path's paint,
+  just above it (also available per hole from the node tool). Pins, locks and
+  linked boundaries are enforced. Ambiguous crossing/coincident contours are
+  not offered as holes.
 - Geometry/paint/position/structure locks and backend-enforced constraints.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
 

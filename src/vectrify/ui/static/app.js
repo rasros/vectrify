@@ -1,3 +1,4 @@
+import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
@@ -6,10 +7,12 @@ let clickCycle = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
+let nodeHoles = null;
+const SNAP_RADIUS = 8;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
 const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', hand: 'Pan'};
-const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', hand: 'Drag to pan · Scroll to zoom'};
+const hints = {select: 'Click to select · Click again to cycle · Ctrl/Shift to add · Drag to move', nodes: 'Drag points or blue handles · Alt or Ctrl/⌘ drags without snapping · Pin endpoints to keep them fixed', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -333,6 +336,7 @@ function renderInspector() {
   for (const id of ['backward', 'forward']) enable(id, !item && 'Select one object to restack');
   enable('join_paths', joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them');
   enable('split_disconnected', item?.tag === 'use' ? 'Detach this instance to an editable path first' : !paths && 'Only visible paths can be split');
+  enable('cut_hole', (selected.length !== 2 || !paths) && 'Select two visible paths, one inside or overlapping the other');
   enable('detach', (!item || !['path', 'use'].includes(item.tag)) && 'Select one path or instance');
   $('detach').textContent = item?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry';
   $('hole-section').hidden = !item || item.tag !== 'path' || item.resource;
@@ -431,7 +435,29 @@ function renderNodeInspector() {
     $('node-pin').checked = node.pinned; $('node-delete').disabled = node.command === 'M' || node.pinned;
     $('node-split').disabled = node.command === 'M' && !current.subpaths.find(s => s.nodes.includes(node))?.closed;
   }
+  // A point on a hole contour offers to fill the hole or make it a shape.
+  if (node && nodeHoles?.key !== holesKey()) loadNodeHoles();
+  $('node-hole').hidden = !node || !nodeHoles?.ids?.has(activeContour());
 }
+function holesKey() { return `${state.epoch}:${state.revision}:${geometryObject}`; }
+function activeContour() { return geometry?.subpaths.find(s => s.nodes.some(n => n.id === activeNode))?.id; }
+async function loadNodeHoles() {
+  const key = holesKey();
+  nodeHoles = {key, ids: null};
+  let ids = new Set();
+  try {
+    const result = await request('/api/holes', {object: geometryObject, epoch: state.epoch, revision: state.revision});
+    ids = new Set(result.holes.map(h => h.id));
+  } catch { /* A path whose holes cannot be read simply offers none. */ }
+  if (nodeHoles.key !== key) return;
+  nodeHoles.ids = ids; renderNodeInspector();
+}
+$('node-hole-fill').onclick=async()=>{
+  if (await action('fill_holes',{object:geometryObject,holes:[activeContour()]},'Filling hole…')) toast('Filled the hole. Undo restores it.');
+};
+$('node-hole-shape').onclick=async()=>{
+  if (await action('holes_to_shapes',{object:geometryObject,holes:[activeContour()]},'Making a shape…')) toast('The hole is now its own shape, just above the path. Undo restores the hole.');
+};
 $('node-select-tool').onclick=()=>setTool('select');
 $('node-detach').onclick=()=>action('detach');
 
@@ -532,6 +558,7 @@ function drawOverlay() {
   drawHoles();
   drawPathDraft();
   drawKnife();
+  drawSnap();
   if (holePlan || tool !== 'nodes' || !geometry || geometryObject !== oneObject()?.id) return;
   const element = svgElement(geometryObject), matrix = localToOverlay(element);
   if (!matrix) return;
@@ -603,6 +630,48 @@ function drawKnife() {
   const {start:a,end:b}=drag, line={x1:a.x,y1:a.y,x2:b.x,y2:b.y,'pointer-events':'none','aria-hidden':'true'};
   overlay.append(xmlElement('line',{...line,stroke:'#052b3a','stroke-width':4/zoom}),
     xmlElement('line',{...line,stroke:'#ff8a5c','stroke-width':2/zoom,'stroke-dasharray':`${6/zoom} ${4/zoom}`}));
+}
+// Snapping while dragging a node or handle: onto the on-curve points of every
+// visible path and the artboard's edges and corners, within a fixed screen
+// distance. Alt or Ctrl/⌘ drags freely.
+function snapTargets(element, exclude, start) {
+  const points = [];
+  for (const path of drawing.querySelectorAll('path')) {
+    if (path.closest('defs, clipPath, mask, pattern, symbol, marker')) continue;
+    if (path.checkVisibility && !path.checkVisibility({visibilityProperty: true})) continue;
+    const matrix = localToOverlay(path); if (!matrix) continue;
+    const local = path === element ? allNodes().filter(n => n.id !== exclude).map(n => n.values.slice(-2)) : pathEndpoints(path.getAttribute('d') || '');
+    for (const [x, y] of local) {
+      const p = new DOMPoint(x, y).matrixTransform(matrix);
+      // Where the dragged point started is no target: it would hold it there.
+      if (Math.hypot(p.x - start.x, p.y - start.y) > 1e-9) points.push([p.x, p.y]);
+    }
+  }
+  return snapIndex(points, SNAP_RADIUS / zoom);
+}
+function snappedDrag(event, node) {
+  const matrix = localToOverlay(drag.element);
+  if (!matrix) return point(event, drag.element);
+  let p = point(event);
+  drag.snap = null;
+  if (!event.altKey && !event.ctrlKey && !event.metaKey) {
+    if (!drag.snaps) {
+      const offset = drag.part === 'endpoint' ? drag.before.length - 2 : Number(drag.part);
+      const start = new DOMPoint(drag.before[offset], drag.before[offset + 1]).matrixTransform(matrix);
+      drag.snaps = snapTargets(drag.element, drag.part === 'endpoint' ? node.id : null, start);
+    }
+    drag.snap = snapPoint(p.x, p.y, drag.snaps, state.bounds, SNAP_RADIUS / zoom);
+    if (drag.snap) p = new DOMPoint(drag.snap.x, drag.snap.y);
+  }
+  return p.matrixTransform(matrix.inverse());
+}
+function drawSnap() {
+  const snap = drag?.kind === 'node' && drag.moved ? drag.snap : null;
+  if (!snap) return;
+  const [x, y, w, h] = state.bounds, r = 6 / zoom;
+  if (snap.target.x !== undefined) overlay.append(xmlElement('line', {x1: snap.target.x, y1: y, x2: snap.target.x, y2: y + h, class: 'snap-edge'}));
+  if (snap.target.y !== undefined) overlay.append(xmlElement('line', {x1: x, y1: snap.target.y, x2: x + w, y2: snap.target.y, class: 'snap-edge'}));
+  overlay.append(xmlElement('rect', {x: snap.x - r, y: snap.y - r, width: 2 * r, height: 2 * r, transform: `rotate(45 ${snap.x} ${snap.y})`, class: 'snap-target'}));
 }
 function knifeEnd(event) {
   const p=point(event), a=drag.start;
@@ -732,12 +801,12 @@ stage.addEventListener('pointermove', event => {
   if (drag.kind === 'node' && drag.moved) {
     const node=nodeById(drag.nodeId);
     if (drag.part === 'endpoint' && node.pinned) return;
-    const pos=point(event,drag.element), offset=drag.part === 'endpoint' ? node.values.length-2 : Number(drag.part);
+    const pos=snappedDrag(event,node), offset=drag.part === 'endpoint' ? node.values.length-2 : Number(drag.part);
     if (drag.part === 'endpoint') {
-      // Retracted handles ride along, as the server keeps them on the point.
-      const [x,y]=node.values.slice(-2), nodes=geometry.subpaths.find(s => s.nodes.includes(node)).nodes, next=nodes[nodes.indexOf(node)+1];
-      if (node.command === 'C' && node.values[2] === x && node.values[3] === y) {node.values[2]=pos.x; node.values[3]=pos.y;}
-      if (next?.command === 'C' && next.values[0] === x && next.values[1] === y) {next.values[0]=pos.x; next.values[1]=pos.y;}
+      // Both handles ride along, as the server moves them with the point.
+      const [x,y]=node.values.slice(-2), dx=pos.x-x, dy=pos.y-y, nodes=geometry.subpaths.find(s => s.nodes.includes(node)).nodes, next=nodes[nodes.indexOf(node)+1];
+      if (node.command === 'C') {node.values[2]+=dx; node.values[3]+=dy;}
+      if (next?.command === 'C') {next.values[0]+=dx; next.values[1]+=dy;}
     }
     node.values[offset]=pos.x; node.values[offset+1]=pos.y;
     drag.element.setAttribute('d',pathData()); drawOverlay(); renderNodeInspector();
@@ -873,6 +942,7 @@ function renderHoles() {
   $('hole-all').checked = holePlan.holes.length > 0 && chosenHoles.size === holePlan.holes.length;
   $('hole-all').indeterminate = chosenHoles.size > 0 && chosenHoles.size < holePlan.holes.length;
   $('hole-fill').disabled = !chosenHoles.size;
+  $('hole-shapes').disabled = !chosenHoles.size;
   $('hole-enclosed').disabled = !chosenHoles.size;
   $('hole-fill').textContent = chosenCleanup.size ? `Fill holes & delete ${chosenCleanup.size} ${chosenCleanup.size === 1 ? 'shape' : 'shapes'}` : 'Fill selected holes';
   const list = document.createDocumentFragment();
@@ -967,6 +1037,14 @@ $('hole-fill').onclick = async () => {
   const count = chosenHoles.size, deleted = chosenCleanup.size;
   if(await action('fill_holes',{object:holePlan.object,holes:[...chosenHoles],delete_objects:[...chosenCleanup]},'Filling holes…'))
     toast(`Filled ${count} chosen holes${deleted ? ` and deleted ${deleted} enclosed ${deleted === 1 ? 'shape' : 'shapes'}` : ''}. Undo restores both.`);
+};
+$('hole-shapes').onclick = async () => {
+  if(pending || !chosenHoles.size) return;
+  if(await action('holes_to_shapes',{object:holePlan.object,holes:[...chosenHoles]},'Making shapes…'))
+    toast(`Turned the chosen holes into ${state.selection.objects.length} ${state.selection.objects.length === 1 ? 'shape' : 'shapes'} above the path. Undo restores the holes.`);
+};
+$('cut_hole').onclick = async () => {
+  if (await action('cut_hole', {}, 'Cutting out the hole…')) toast('Cut the shape out as a hole. Undo restores both paths.');
 };
 $('node-delete').onclick=()=>action('delete_node',{object:geometryObject,node:activeNode});
 document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});

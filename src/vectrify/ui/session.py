@@ -418,6 +418,19 @@ class Session:
                 if cleanup:
                     tx.delete_objects(cleanup)
             return
+        if command == "holes_to_shapes":
+            oid = payload["object"]
+            if oid not in selected:
+                raise DocumentError("Select the path whose holes should become shapes")
+            with self.editor.transaction("Holes to shapes", selection=selection) as tx:
+                shapes = tx.holes_to_shapes(oid, frozenset(payload.get("holes", [])))
+            self.editor.select(Selection(object_ids=frozenset(shapes)))
+            return
+        if command == "cut_hole":
+            with self.editor.transaction("Cut out as hole", selection=selection) as tx:
+                outer = tx.cut_out_hole(selected)
+            self.editor.select(Selection(object_ids=frozenset({outer})))
+            return
         if command in {"node", "split", "node_handles"}:
             # The user explicitly linked these edges. Direct node edits include
             # linked peers, while their locks and pins remain authoritative.
