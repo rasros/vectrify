@@ -145,14 +145,16 @@ may use:
 
 - **Fit shape** moves points and curve handles by gradient descent, with a
   number of fitting steps and a maximum movement per fit in local SVG units.
-  It runs on the GPU when PyTorch CUDA and the Vectrify CUDA extension are
+  Straight segments are fitted as curves, so it can give them handles where
+  the reference curves; those it leaves straight stay lines. It runs on the GPU when PyTorch CUDA and the Vectrify CUDA extension are
   there, and on the CPU otherwise; outlined (stroked) fills need the GPU.
 - **Snap to reference** moves the points onto the reference's nearest edges.
   With **Add detail** it also adds points where the path misses a piece of the
   shape or covers too much: one point, two, or a spike of three whose base
   stays on the outline, reaching bit by bit along a strand that curls away.
 - **Simplify** removes the points the outline does not need, moving it no more
-  than the tolerance in reference pixels.
+  than the tolerance in reference pixels, and turns curves whose handles lie
+  on their line within the tolerance into straight segments.
 
 Each round tries every ticked step on the paths as they stand and keeps the one
 that brings them closest to the reference; when none helps, Simplify gets its

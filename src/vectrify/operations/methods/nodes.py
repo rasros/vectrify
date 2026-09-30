@@ -51,6 +51,9 @@ from vectrify.operations.settings import Setting, read_settings
 LABEL = "Optimize nodes"
 STEPS = ("shape", "snap", "simplify")
 DEFAULT_ROUNDS = 8
+# How far, in reference pixels, a fitted curve's handles may sit from its
+# line and still be drawn as the line.
+STRAIGHT = 0.25
 # A step has to lower the difference by this share to count as helping.
 GAIN = 0.005
 
@@ -155,8 +158,15 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
 
 
 def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
-    """Fit each path in turn by gradient descent."""
+    """Fit each path in turn by gradient descent.
+
+    Straight segments are fitted as curves, so the fit can bend one where
+    the reference needs; those it leaves straight go back to lines.
+    """
+    from vectrify.refine.frozen import frozen
     from vectrify.refine.selected import FitOptions, fit_selected_path
+    from vectrify.refine.simplify import curved, straightened
+    from vectrify.refine.snap import _frame
 
     document, settings = task.document, task.settings
     assert task.reference is not None
@@ -169,6 +179,9 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
     for oid in task.oids:
         if stop is not None and stop.is_set():
             break
+        original = document.geometry_for(oid)
+        fixed = frozen(document, _paths(document, (oid,)))
+        document = document.replace_geometry(curved(original, fixed))
         try:
             fit = fit_selected_path(
                 document,
@@ -180,27 +193,30 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
             )
         except DocumentError as exc:
             skipped[oid] = str(exc)
+            document = document.replace_geometry(original)
             continue
         if not fit.values:
+            document = document.replace_geometry(original)
             continue
         geometry = document.geometry_for(oid)
-        document = document.replace_geometry(
-            replace(
-                geometry,
-                subpaths=tuple(
-                    replace(
-                        s,
-                        nodes=tuple(
-                            replace(n, values=fit.values[n.id])
-                            if n.id in fit.values
-                            else n
-                            for n in s.nodes
-                        ),
-                    )
-                    for s in geometry.subpaths
-                ),
-            )
+        fitted = replace(
+            geometry,
+            subpaths=tuple(
+                replace(
+                    s,
+                    nodes=tuple(
+                        replace(n, values=fit.values[n.id]) if n.id in fit.values else n
+                        for n in s.nodes
+                    ),
+                )
+                for s in geometry.subpaths
+            ),
         )
+        # Lines the fit bent by less than it can tell apart go back to lines.
+        frame = _frame(document, oid, task.region, task.region.image.size)
+        if frame is not None:
+            fitted = straightened(fitted, fixed, STRAIGHT, frame)
+        document = document.replace_geometry(fitted)
     return document, skipped
 
 

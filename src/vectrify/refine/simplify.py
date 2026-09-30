@@ -38,8 +38,66 @@ def simplify(
         frame = _frame(document, oid, region, region.image.size)
         if frame is None:
             continue
-        geometries[oid] = _simplified(geometry, frame, fixed, tolerance)
+        # Points go first: a curve drawn as a line joins its neighbours worse.
+        geometry = _simplified(geometry, frame, fixed, tolerance)
+        geometries[oid] = straightened(geometry, fixed, tolerance, frame)
     return replace(paths, geometries=geometries)
+
+
+def curved(geometry: Geometry, fixed: Frozen) -> Geometry:
+    """*geometry* with its straight segments as curves, still straight, their
+    handles at the thirds, so a fit can bend them. Linked edges stay."""
+    subpaths = []
+    for subpath in geometry.subpaths:
+        nodes = list(subpath.nodes)
+        for i in range(1, len(nodes)):
+            node = nodes[i]
+            if node.command != "L" or node.id in fixed.nodes:
+                continue
+            a = np.asarray(nodes[i - 1].values[-2:], dtype=np.float64)
+            b = np.asarray(node.values[-2:], dtype=np.float64)
+            values = (*(a + (b - a) / 3), *(a + 2 * (b - a) / 3), *b)
+            nodes[i] = replace(
+                node, command="C", values=tuple(float(v) for v in values)
+            )
+        subpaths.append(replace(subpath, nodes=tuple(nodes)))
+    return replace(geometry, subpaths=tuple(subpaths))
+
+
+def straightened(
+    geometry: Geometry, fixed: Frozen, tolerance: float, frame: _Frame | None = None
+) -> Geometry:
+    """*geometry* with every curve whose handles lie within *tolerance* of the
+    line between its ends drawn as that line: the handles do nothing there.
+    In pixels through *frame*, else in the path's own units. Linked edges
+    stay."""
+    frame = frame or _Frame(np.eye(2), np.zeros(2))
+    subpaths = []
+    for subpath in geometry.subpaths:
+        nodes = list(subpath.nodes)
+        for i in range(1, len(nodes)):
+            node = nodes[i]
+            if node.command != "C" or node.id in fixed.nodes:
+                continue
+            start = frame.pixels(nodes[i - 1].values)[-1]
+            c1, c2, end = frame.pixels(node.values)
+            if (
+                _off_line(start, end, c1) <= tolerance
+                and _off_line(start, end, c2) <= tolerance
+            ):
+                nodes[i] = replace(node, command="L", values=node.values[-2:])
+        subpaths.append(replace(subpath, nodes=tuple(nodes)))
+    return replace(geometry, subpaths=tuple(subpaths))
+
+
+def _off_line(start: np.ndarray, end: np.ndarray, point: np.ndarray) -> float:
+    """How far *point* is from the segment between *start* and *end*."""
+    step = end - start
+    length = float(step @ step)
+    if length < 1e-12:
+        return float(np.linalg.norm(point - start))
+    along = np.clip(float((point - start) @ step) / length, 0.0, 1.0)
+    return float(np.linalg.norm(start + along * step - point))
 
 
 def simplified_geometry(
