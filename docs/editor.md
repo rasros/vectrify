@@ -49,15 +49,18 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 - **Edit nodes (N)** has its own right-hand panel: path/point counts, selected
   point coordinates, pinning, edge subdivision and point deletion. Paint,
   stacking and other element controls return with **Element properties (V)**.
-  Delete/Backspace in Nodes affects only the selected point. Select one path,
+  Delete/Backspace in Nodes affects only the selected point, a contour's start
+  point included: the next point then starts the contour. A contour left with
+  fewer than two points (three when closed) is deleted, and a path left without
+  contours is deleted too, so a stray speck can be removed point by point or
+  at once with **Delete contour**. Select one path,
   then click a point; drag blue handles for curves. Zoom in to reveal dense nodes.
   **No handles**, **One handle** and **Two handles** turn the selected point
   into a corner, a point curved on one side (click again to switch sides), or
   a smooth point with its handles in line. The keys 1, 2 and 3 do the same.
   Dragging a point (or typing its coordinates) moves both of its handles by
   the same offset, so the curve keeps its shape around it; dragging a handle
-  moves only that handle. Linked boundaries follow live, handles included, and
-  pinned points stay put. Shared edges of the edited path are outlined in orange.
+  moves only that handle. Pinned points stay put, and no other path moves.
   While dragging, a point or handle snaps to the points of every visible path
   (other points of the same path included) and to the artboard's edges and
   corners, within 8 screen pixels at any zoom; an orange diamond marks the
@@ -101,7 +104,9 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Cancel leaves the document untouched; stacking remains fixed at frontmost.
   Filled overlaps use a curved boolean union, preventing cancellation holes and
   internal seams. Disjoint contours keep exact nodes; boolean intersections
-  create new nodes and require affected pins/boundary links to be removed first.
+  create new nodes and require affected pins to be removed first. Two pieces
+  that abut, such as the halves of a knife cut or parts split apart, merge
+  back into one region this way.
   Empty selected group wrappers are removed after joining; groups containing
   non-path shapes must be converted or selected more narrowly first. Undo restores
   the original geometry, paint and stacking. Transforms and per-path clipping
@@ -115,7 +120,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   fallback; its curve tolerance is 0.01 SVG units (straight edges stay exact).
 - **Split disconnected parts** separates selected drawing paths into independent
   geometries. Holes and touching/overlapping contours stay together; original
-  curves, pins and boundary links are preserved. A group retains styling,
+  curves and pins are preserved. A group retains styling,
   transforms and clipping. Undo restores the compound path in one step.
   Only geometric contact or overlap connects contours; gaps are not bridged,
   regardless of stroke width, caps or joins. Cubic curves are approximated at
@@ -132,9 +137,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   islands again; transforms of either path's groups are taken into account.
   When added contours cannot reproduce the difference (a partial overlap), the
   outer outline is recomputed as a curved boolean difference, which renumbers
-  its points and so is refused for pinned points or linked boundaries.
-  Locks, shared geometry, instances of the outer path and linked boundaries
-  on the cutting path are refused.
+  its points and so is refused for pinned points.
+  Locks, shared geometry and instances of the outer path are refused.
 - The **Knife** tool (`K`) cuts selected filled paths, or the paths inside
   selected groups, along a straight line: drag across them and release. Shift
   snaps the line to 15° steps. A path is cut only when the line runs through
@@ -144,10 +148,10 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   other arm if the line's extension reaches it. Each cut path becomes one path
   per side of the line (compound when that side has several parts, holes
   kept), with the original's paint, transform, locks and stacking place; the
-  first piece keeps its ID. Curves stay curves. The cut edges of the two
-  pieces are a linked boundary, so dragging a seam point moves both sides;
-  **Unlink boundaries** separates them. Pinned points, existing boundary
-  links, shared geometry, instances and locks are refused. The pieces are
+  first piece keeps its ID. Curves stay curves. The two pieces meet exactly
+  on the same seam points but stay independent: dragging a seam point moves
+  only that piece, and **Join paths** merges them back into one. Pinned
+  points, shared geometry, instances and locks are refused. The pieces are
   selected afterwards, and the cut is one undoable edit. Without a selection
   the knife asks you to select shapes first; a plain click selects.
 - **Inspect holes** on a selected drawing path previews its holes. Pick holes
@@ -159,8 +163,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Filling removes the chosen interior contours and their nested islands while
   retaining all other curves exactly. **Turn selected holes into shapes**
   instead moves each chosen hole out into its own path with the path's paint,
-  just above it (also available per hole from the node tool). Pins, locks and
-  linked boundaries are enforced. Ambiguous crossing/coincident contours are
+  just above it (also available per hole from the node tool). Pins and locks
+  are enforced. Ambiguous crossing/coincident contours are
   not offered as holes.
 - Geometry/paint/position/structure locks and backend-enforced constraints.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
@@ -170,7 +174,7 @@ Keyboard shortcuts are available from the `?` button. `V`, `N`, `P`, `K`, and
 and drag, to pan. Use the scroll wheel to zoom, and press `F` to
 fit. Ctrl/Command-Z undoes; add Shift to redo. Ctrl/Command-S saves a project.
 
-Projects preserve object/node identities, shared boundaries, locks, pins,
+Projects preserve object/node identities, locks, pins,
 selection and the reference image. SVG exports contain the drawing. Downloads
 use the browser's download location and do not overwrite the original input.
 The server keeps sessions in memory; save a project before stopping it. Browser
@@ -215,7 +219,7 @@ shape fit pulls such folds back as it goes. Concave outlines are fine, and a
 path that already crossed itself may keep those crossings. With several
 parallel workers a round's steps run side by side, with one shape
 fit at a time. Without a reference only Simplify runs, keeping the paths'
-look. Pinned endpoints and linked boundary edges stay fixed, and surviving
+look. Pinned endpoints stay fixed, and surviving
 points keep their identity. Colour is left to Fit colours. The job runs in the
 background with progress, Stop & keep best, and reference/before/after
 previews; the result lists the steps it took. Apply is one undoable edit.
@@ -246,7 +250,7 @@ duplicate paths, and merges compatible neighbouring paths into compound paths,
 within the selection only. Paths referenced by instances or clips are kept.
 Coordinates are never rounded.
 
-Generate, Improve, Simplify and Share boundary run through the shared operation
+Generate, Improve, Simplify and Snap edges run through the shared operation
 contract in `vectrify.operations` (see `docs/operations.md`) via
 `POST /api/operation`.
 
@@ -279,9 +283,9 @@ leaves along edges or one region cut in pieces, and recolours the result.
 **Flatten overlaps** cuts every region down to its visible
 part, so none overlap; the thin strips that cutting leaves along edges go to
 a neighbouring region instead of becoming shapes of their own. The seams
-between flattened regions are then linked as shared boundaries, matching
-edges within about 1.5 traced pixels, so moving a node on a seam moves both
-regions; a trace whose seams cannot be linked is kept without links. Outlines are
+between flattened regions are then snapped together as **Snap edges** does,
+matching edges within about 1.5 traced pixels, so neighbouring regions meet
+exactly; a trace whose seams cannot be snapped is kept as traced. Outlines are
 smoothed over about one SAM pixel before curves are fitted, so they do not
 follow the masks' raster steps. The result is placed over the
 artboard exactly where the reference is shown, as one new group at the front of
@@ -313,30 +317,32 @@ reported instead of silently dropping content. The editor namespaces SVG IDs
 inside the page so artwork cannot collide with editor controls. The local server
 rejects external origins, unknown sessions and stale document revisions.
 
-## Names and shared boundaries
+## Names and snapped edges
 
 Select one object and edit **Object name** in the right panel (or press **F2**).
 Enter or leaving the field applies the name; Escape cancels. Clearing the field
 restores its automatic label. Names support undo/redo and survive project saves
 and SVG export/reimport, without changing object IDs or shared references.
 
-**Share boundary…** matches touching edges of two or more selected, closed
+**Snap edges…** matches touching edges of two or more selected, closed
 paths: every pair of them that comes within the contact distance. Adjust the
-distance, preview the cyan highlighted shared spans, then apply. Of each pair
-the front contour is the reference; the region behind snaps to it.
-Curves are subdivided to accommodate different node spacing without flattening.
-Shared endpoints and curve handles propagate direct node edits to the linked
-region, subject to every region's pins and locks. **Unlink boundaries** removes
-these constraints without changing the geometry; undo restores them.
+distance, preview the snapped spans highlighted in cyan, then apply. Of each
+pair the front contour is the reference: the edges of the region behind are
+split where the front's points project onto them, and its matched points and
+curve handles move onto the front's. Curves are subdivided to accommodate
+different node spacing without flattening. The result is ordinary geometry
+and one undoable edit; nothing links the paths afterwards, so editing,
+moving or deleting one never changes the other, and SVG export keeps the
+coincident contours as they are.
 
-The paths must be closed and unclipped and may not share geometry. Edges that
-are already linked stay as they are and are not matched again, and a span is
-left unlinked when snapping it would move a node of a linked edge, so a region
-linked to one neighbour can be linked to the next. It matches line-to-line and
-cubic-to-cubic spans, rather than rebuilding mismatched contour types. Moving a
-linked region separately requires unlinking first. Project files retain the
-editing links; exported SVG retains the coincident contours but not the links.
+The paths must be closed and unclipped and may not share geometry. Pins and
+locks are enforced. Within one run, an edge snapped for one pair is not
+matched or moved again for another, so a region can meet two neighbours at
+once. It matches line-to-line and cubic-to-cubic spans, rather than
+rebuilding mismatched contour types. Contact distance is measured in canvas
+SVG units, including paths in differently transformed groups; transforms,
+paint and stacking remain intact.
 
-Boundary matching measures contact distance in canvas SVG units, including
-paths in differently transformed groups. Linked edits convert between each
-path’s local coordinates; transforms, paint and stacking remain intact.
+Projects saved while the editor linked shared boundaries (version 2) still
+open; the links are dropped and the contours they joined are kept as they
+are.

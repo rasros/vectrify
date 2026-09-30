@@ -7,7 +7,7 @@ and picks its handle lengths to follow the old outline most closely. The
 point whose removal moves the outline least goes first, and it repeats
 until every remaining point would move it too far.
 
-Pinned points and linked edges stay, as does anything a contour needs to
+Pinned points stay, as does anything a contour needs to
 stay a shape: two points when open, three when closed.
 """
 
@@ -40,19 +40,19 @@ def simplify(
             continue
         # Points go first: a curve drawn as a line joins its neighbours worse.
         geometry = _simplified(geometry, frame, fixed, tolerance)
-        geometries[oid] = straightened(geometry, fixed, tolerance, frame)
+        geometries[oid] = straightened(geometry, tolerance, frame)
     return replace(paths, geometries=geometries)
 
 
-def curved(geometry: Geometry, fixed: Frozen) -> Geometry:
+def curved(geometry: Geometry) -> Geometry:
     """*geometry* with its straight segments as curves, still straight, their
-    handles at the thirds, so a fit can bend them. Linked edges stay."""
+    handles at the thirds, so a fit can bend them."""
     subpaths = []
     for subpath in geometry.subpaths:
         nodes = list(subpath.nodes)
         for i in range(1, len(nodes)):
             node = nodes[i]
-            if node.command != "L" or node.id in fixed.nodes:
+            if node.command != "L":
                 continue
             a = np.asarray(nodes[i - 1].values[-2:], dtype=np.float64)
             b = np.asarray(node.values[-2:], dtype=np.float64)
@@ -65,19 +65,18 @@ def curved(geometry: Geometry, fixed: Frozen) -> Geometry:
 
 
 def straightened(
-    geometry: Geometry, fixed: Frozen, tolerance: float, frame: _Frame | None = None
+    geometry: Geometry, tolerance: float, frame: _Frame | None = None
 ) -> Geometry:
     """*geometry* with every curve whose handles lie within *tolerance* of the
     line between its ends drawn as that line: the handles do nothing there.
-    In pixels through *frame*, else in the path's own units. Linked edges
-    stay."""
+    In pixels through *frame*, else in the path's own units."""
     frame = frame or _Frame(np.eye(2), np.zeros(2))
     subpaths = []
     for subpath in geometry.subpaths:
         nodes = list(subpath.nodes)
         for i in range(1, len(nodes)):
             node = nodes[i]
-            if node.command != "C" or node.id in fixed.nodes:
+            if node.command != "C":
                 continue
             start = frame.pixels(nodes[i - 1].values)[-1]
             c1, c2, end = frame.pixels(node.values)
@@ -191,7 +190,7 @@ def _closing(nodes, closed: bool, fixed: Frozen, frame: _Frame) -> float | None:
 
 
 def _stays(node: PathNode, fixed: Frozen) -> bool:
-    return node.id in fixed.nodes or node.id in fixed.endpoints
+    return node.id in fixed.endpoints
 
 
 def _controls(start: np.ndarray, node: PathNode, frame: _Frame) -> np.ndarray:

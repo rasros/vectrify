@@ -138,21 +138,8 @@ def test_locked_objects_and_groups_are_refused():
     move(editor, {"c"}, editor.snapshot.document.root.id, 0)
 
 
-def test_instances_and_shared_edges_block_a_changed_transform():
+def test_instances_block_a_changed_transform():
     source = SVG.replace("</svg>", '<use id="copy" href="#c" x="50"/></svg>')
     editor = Editor(import_svg(source), selection=select("c", "copy"))
     with pytest.raises(EditRejectedError, match="instances"):
         move(editor, {"c"}, "layer", 0)
-    shared = SVG.replace(
-        '<rect id="d" y="80" width="10" height="10"/>',
-        '<path id="p" d="M0 60 L10 60 L10 70 L0 70 Z"/>'
-        '<path id="q" d="M10 60 L20 60 L20 70 L10 70 Z"/>',
-    )
-    editor = Editor(import_svg(shared), selection=select("p", "q"))
-    with editor.transaction("Link") as tx:
-        assert tx.share_boundaries(0.01) == 1
-    with pytest.raises(EditRejectedError, match="Unlink"):
-        move(editor, {"p"}, "layer", 0)
-    root = editor.snapshot.document.root.id
-    move(editor, {"p"}, root, 0)
-    assert children(editor, root)[0] == "p"

@@ -167,7 +167,7 @@ def test_samvg_traces_a_small_reference_enlarged_and_places_it_the_same(
 
 
 @pytest.mark.parametrize("flatten", [True, False])
-def test_flattened_samvg_trace_links_the_seams_between_its_regions(
+def test_flattened_samvg_trace_snaps_the_seams_between_its_regions(
     monkeypatch, flatten
 ):
     # Two squares a traced pixel apart, over the backdrop, as traced
@@ -189,10 +189,17 @@ def test_flattened_samvg_trace_links_the_seams_between_its_regions(
     job.run()
     state = job.state()
     assert state["status"] == "ready", state
-    assert state["result"]["metrics"].get("linked", 0) == (1 if flatten else 0)
+    assert state["result"]["metrics"].get("snapped", 0) == (1 if flatten else 0)
     job.apply()
     doc = editor.snapshot.document
-    assert len(doc.boundaries) == (1 if flatten else 0)
+    left, right = (
+        {n.endpoint[0] for s in doc.geometry_for(e.id).subpaths for n in s.nodes}
+        for e in doc.elements()
+        if e.tag == "path" and e.get("fill") == "#c80000"
+    )
+    # The front square stays; the one behind closes the traced gap onto it.
+    assert right == {201, 300}
+    assert left == ({100, 201} if flatten else {100, 200})
     assert editor.undo_labels == ("Generate with SAMVG",)
 
 

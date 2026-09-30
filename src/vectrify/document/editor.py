@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Iterable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 
@@ -35,22 +34,20 @@ from vectrify.document.knife import cut_geometry
 from vectrify.document.model import (
     Document,
     DocumentError,
-    EdgeRef,
     EditKind,
     Element,
     Geometry,
+    PathNode,
     Selection,
-    SharedBoundary,
     Subpath,
     new_id,
     references,
 )
 from vectrify.document.svg import GEOMETRY, PAINT, validate_attributes
 from vectrify.document.topology import (
-    edge,
+    EdgeRef,
     inverse_matrix,
     mapped_point,
-    propagate_node,
     split_edges,
 )
 
@@ -99,8 +96,7 @@ def _carry_handles(before: Document, after: Document) -> Document:
     The curve keeps its shape around a moved point and a retracted handle
     stays a corner; a handle the edit already placed is left where it is.
     A closed contour ending on its moveto shows one point for two nodes, so
-    either drags the other. Carried coordinates propagate along shared
-    boundaries, whose far side then carries its own handles in turn.
+    either drags the other.
     """
     while True:
         changes: dict[tuple[str, str], list[float]] = {}
@@ -135,8 +131,9 @@ def _carry_handles(before: Document, after: Document) -> Document:
         if not changes:
             return after
         for (gid, nid), values in changes.items():
-            node = replace(after.geometry(gid).node(nid), values=tuple(values))
-            after = propagate_node(after, gid, node)
+            geometry = after.geometry(gid)
+            node = replace(geometry.node(nid), values=tuple(values))
+            after = after.replace_geometry(geometry.replace_node(node))
 
 
 class EditRejectedError(DocumentError):
@@ -380,9 +377,8 @@ class Transaction:
         if self._closed or self._failed:
             raise EditRejectedError("Transaction is closed or has a failed edit")
         self._failed = True
-        before = self._working
         yield
-        self._working.validate(since=before)
+        self._working.validate()
         self._failed = False
 
     def _check_locks(
@@ -462,7 +458,7 @@ class Transaction:
             updated = replace(node, values=tuple(values))
             if updated == node:
                 return
-            candidate = propagate_node(self._working, geometry.id, updated)
+            candidate = self._working.replace_geometry(geometry.replace_node(updated))
             candidate = _carry_handles(self._working, candidate)
             self._authorize_geometry_change(candidate)
             self._working = candidate
@@ -475,39 +471,26 @@ class Transaction:
             geometry = self._working.geometry_for(object_id)
             for node_id in values:
                 geometry.node(node_id)
-            if any(
-                m.geometry_id == geometry.id
-                for b in self._working.boundaries
-                for m in b.members
-            ):
-                candidate = self._working
-                for node_id, coordinates in values.items():
-                    candidate = propagate_node(
-                        candidate,
-                        geometry.id,
-                        replace(geometry.node(node_id), values=coordinates),
-                    )
-            else:
-                candidate = self._working.replace_geometry(
-                    replace(
-                        geometry,
-                        subpaths=tuple(
-                            replace(
-                                s,
-                                nodes=tuple(
-                                    replace(n, values=values.get(n.id, n.values))
-                                    for n in s.nodes
-                                ),
-                            )
-                            for s in geometry.subpaths
-                        ),
-                    )
+            candidate = self._working.replace_geometry(
+                replace(
+                    geometry,
+                    subpaths=tuple(
+                        replace(
+                            s,
+                            nodes=tuple(
+                                replace(n, values=values.get(n.id, n.values))
+                                for n in s.nodes
+                            ),
+                        )
+                        for s in geometry.subpaths
+                    ),
                 )
+            )
             self._authorize_geometry_change(candidate)
             self._working = candidate
 
     def _authorize_geometry_change(self, candidate: Document) -> None:
-        """Check all propagated edits before exposing any changed geometry.
+        """Check every changed geometry before exposing any of it.
 
         Geometry this transaction added is its own to shape: a trace can be
         snapped together before it lands without leave to edit geometry.
@@ -536,84 +519,35 @@ class Transaction:
                     if old.pinned and old.endpoint != node.endpoint:
                         raise EditRejectedError("Endpoint is pinned")
 
-    def share_boundaries(
+    def snap_edges(
         self, tolerance: float = 1.0, object_ids: frozenset[str] | None = None
-    ) -> int:
-        """Link the touching edges of the selected paths, or of *object_ids*.
+    ) -> tuple[EdgeRef, ...]:
+        """Snap the touching edges of the selected paths, or of *object_ids*.
 
-        Nothing changes before every check has passed, so a refusal leaves
-        the transaction usable for other edits.
+        The result is ordinary geometry: nothing links the paths afterwards.
+        Returns the front edge of each matched span, in root user space.
+        Nothing changes before every check has passed, so a refusal leaves the
+        transaction usable for other edits.
         """
-        from vectrify.document.contact import match_boundaries
+        from vectrify.document.contact import snap_edges
 
         if self._closed or self._failed:
             raise EditRejectedError("Transaction is closed or has a failed edit")
         if self._selection.node_ids:
-            raise EditRejectedError("Select whole paths to share boundaries")
+            raise EditRejectedError("Select whole paths to snap their edges")
         object_ids = self._selection.object_ids if object_ids is None else object_ids
-        candidate, count = match_boundaries(self._working, object_ids, tolerance)
+        candidate, spans = snap_edges(self._working, object_ids, tolerance)
         for oid in object_ids:
             self._authorize(frozenset({oid}), EditKind.STRUCTURE)
         self._authorize_geometry_change(candidate)
         with self._change():
             self._working = candidate
-        return count
-
-    def link_boundary(self, members: tuple[EdgeRef, ...]) -> str:
-        """Link exactly coincident local edges; no inference or coordinate snapping."""
-        with self._change():
-            if self._selection.node_ids:
-                raise EditRejectedError("Linking requires a whole object selection")
-            boundary = SharedBoundary(new_id("boundary"), members)
-            for member in members:
-                edge(self._working, member)
-                self._authorize(
-                    self._working.geometry_users(member.geometry_id), EditKind.STRUCTURE
-                )
-            self._working = replace(
-                self._working, boundaries=(*self._working.boundaries, boundary)
-            )
-            return boundary.id
-
-    def detach_boundary(self, member: EdgeRef) -> None:
-        """Unlink an edge without changing coordinates or any node identity."""
-        self.detach_boundaries((member,))
-
-    def detach_boundaries(self, members: Iterable[EdgeRef]) -> None:
-        """Unlink edges without changing coordinates or any node identity.
-
-        All in one pass: a traced drawing links thousands of edges, and
-        unlinking them one at a time rebuilt and validated everything for each.
-        """
-        with self._change():
-            if self._selection.node_ids:
-                raise EditRejectedError("Detaching requires a whole object selection")
-            gone = set()
-            checked: set[str] = set()
-            for member in members:
-                edge(self._working, member)
-                if member.geometry_id not in checked:
-                    self._authorize(
-                        self._working.geometry_users(member.geometry_id),
-                        EditKind.STRUCTURE,
-                    )
-                    checked.add(member.geometry_id)
-                gone.add((member.geometry_id, member.node_id))
-            boundaries = []
-            for boundary in self._working.boundaries:
-                kept = tuple(
-                    m
-                    for m in boundary.members
-                    if (m.geometry_id, m.node_id) not in gone
-                )
-                if len(kept) >= 2:
-                    boundaries.append(replace(boundary, members=kept))
-            self._working = replace(self._working, boundaries=tuple(boundaries))
+        return spans
 
     def split_edge(
         self, object_id: str, node_id: str, t: float = 0.5
     ) -> tuple[str, ...]:
-        """Insert a node on a line/cubic/closing edge, subdividing linked edges too.
+        """Insert a node on a line/cubic/closing edge.
 
         t follows this object's SVG edge direction. All existing endpoints retain
         their identities and pins. Returns the newly inserted node IDs.
@@ -624,75 +558,104 @@ class Transaction:
                     "Split parameter must lie strictly between 0 and 1"
                 )
             geometry = self._working.geometry_for(object_id)
-            ref = EdgeRef(geometry.id, node_id)
-            boundary = next(
-                (
-                    b
-                    for b in self._working.boundaries
-                    if any(
-                        m.geometry_id == geometry.id and m.node_id == node_id
-                        for m in b.members
-                    )
-                ),
-                None,
+            affected = self._working.geometry_users(geometry.id)
+            self._authorize(affected, EditKind.STRUCTURE)
+            self._authorize(affected, EditKind.GEOMETRY)
+            if self._selection.node_ids and node_id not in self._selection.node_ids:
+                raise EditRejectedError("Edge is outside the selected nodes")
+            candidate, added = split_edges(
+                self._working, EdgeRef(geometry.id, node_id), t
             )
-            members = boundary.members if boundary else (ref,)
-            for member in members:
-                affected = self._working.geometry_users(member.geometry_id)
-                self._authorize(affected, EditKind.STRUCTURE)
-                self._authorize(affected, EditKind.GEOMETRY)
-                if (
-                    self._selection.node_ids
-                    and member.node_id not in self._selection.node_ids
-                ):
-                    raise EditRejectedError("Edge is outside the selected nodes")
-            candidate, added = split_edges(self._working, ref, t)
             self._authorize_geometry_change(candidate)
             self._working = candidate
             return added
 
     def delete_node(self, object_id: str, node_id: str) -> None:
-        """Remove a non-moveto node; linked adjacent edges must first be detached."""
+        """Remove a point, the contour's start point included.
+
+        The next point then starts the contour; a closed one still closes
+        through the old start's neighbours. A contour left with fewer than
+        two points (three when closed) is deleted, and a path left without
+        contours is deleted too. A closed contour ending on its moveto shows
+        one point for the two nodes, so either deletes both.
+        """
         with self._change():
             geometry = self._working.geometry_for(object_id)
             node = geometry.node(node_id)
-            if node.command == "M":
-                raise EditRejectedError("Delete the subpath to remove its moveto")
-            if node.pinned:
+            subpath = next(s for s in geometry.subpaths if node in s.nodes)
+            nodes = subpath.nodes
+            last = len(nodes) - 1
+            twins = (
+                subpath.closed
+                and last > 1
+                and nodes[last].endpoint == nodes[0].endpoint
+            )
+            removed = {node_id}
+            if twins and node_id in {nodes[0].id, nodes[last].id}:
+                removed = {nodes[0].id, nodes[last].id}
+            if any(geometry.node(n).pinned for n in removed):
                 raise EditRejectedError("Endpoint is pinned")
             if self._selection.node_ids and node_id not in self._selection.node_ids:
                 raise EditRejectedError("Node is outside the selected nodes")
+            if len(nodes) - int(twins) - 1 < (3 if subpath.closed else 2):
+                self._delete_contour(object_id, subpath)
+                return
             affected = self._working.geometry_users(geometry.id)
             self._authorize(affected, EditKind.STRUCTURE)
             self._authorize(affected, EditKind.GEOMETRY)
-            for boundary in self._working.boundaries:
-                for member in boundary.members:
-                    linked = edge(self._working, member)
-                    if member.geometry_id == geometry.id and node_id in {
-                        linked.start.id,
-                        linked.end.id,
-                    }:
-                        raise EditRejectedError(
-                            "Detach adjacent shared edges before deleting a node"
-                        )
+            kept = [n for n in nodes if n.id not in removed]
+            if nodes[0].id in removed:
+                start = kept[0]
+                kept[0] = replace(start, command="M", values=start.endpoint)
+                # The curve into the new start closes the contour: it keeps
+                # its handles as an explicit segment back to the start.
+                if subpath.closed and start.command == "C":
+                    kept.append(PathNode(new_id("node"), "C", start.values))
             updated = replace(
                 geometry,
                 subpaths=tuple(
-                    replace(s, nodes=tuple(n for n in s.nodes if n.id != node_id))
+                    replace(s, nodes=tuple(kept)) if s.id == subpath.id else s
                     for s in geometry.subpaths
                 ),
             )
             self._working = self._working.replace_geometry(updated)
-            self._record_remap({node_id: set()})
+            self._record_remap({n: set() for n in removed})
 
-    def _drop_unused_boundary_members(self) -> None:
-        owned = {e.geometry_id for e in self._working.elements()}
-        boundaries = []
-        for boundary in self._working.boundaries:
-            members = tuple(m for m in boundary.members if m.geometry_id in owned)
-            if len(members) >= 2:
-                boundaries.append(replace(boundary, members=members))
-        self._working = replace(self._working, boundaries=tuple(boundaries))
+    def delete_contour(self, object_id: str, node_id: str) -> None:
+        """Remove the contour holding a point; a path left without contours
+        is deleted."""
+        with self._change():
+            geometry = self._working.geometry_for(object_id)
+            node = geometry.node(node_id)
+            if self._selection.node_ids and node_id not in self._selection.node_ids:
+                raise EditRejectedError("Node is outside the selected nodes")
+            subpath = next(s for s in geometry.subpaths if node in s.nodes)
+            self._delete_contour(object_id, subpath)
+
+    def _delete_contour(self, object_id: str, subpath: Subpath) -> None:
+        if any(n.pinned for n in subpath.nodes):
+            raise EditRejectedError("Unpin the contour's endpoints to delete it")
+        geometry = self._working.geometry_for(object_id)
+        affected = self._working.geometry_users(geometry.id)
+        self._authorize(affected, EditKind.STRUCTURE)
+        self._authorize(affected, EditKind.GEOMETRY)
+        if len(geometry.subpaths) == 1:
+            owners = {
+                e.id for e in self._working.elements() if e.geometry_id == geometry.id
+            }
+            if owners != {object_id}:
+                raise EditRejectedError(
+                    "Detach shared geometry before deleting its last contour"
+                )
+            self._remove_objects(frozenset({object_id}))
+        else:
+            self._working = self._working.replace_geometry(
+                replace(
+                    geometry,
+                    subpaths=tuple(s for s in geometry.subpaths if s.id != subpath.id),
+                )
+            )
+        self._record_remap({n.id: set() for n in subpath.nodes})
 
     def share_geometry(self, object_id: str, source_id: str) -> None:
         """Explicitly replace a path's geometry with another path's asset."""
@@ -712,7 +675,6 @@ class Transaction:
             self._working = self._working.replace_element(
                 replace(target, geometry_id=source.id)
             )
-            self._drop_unused_boundary_members()
 
     def detach_geometry(self, object_id: str) -> str:
         """Copy an asset while preserving the selected object's identity.
@@ -783,7 +745,6 @@ class Transaction:
                 )
             else:
                 raise EditRejectedError("Object has no detachable path geometry")
-            self._drop_unused_boundary_members()
             self._record_remap(
                 {
                     old.id: {new.id}
@@ -799,8 +760,8 @@ class Transaction:
         """Give a path new contours, which may change its node structure.
 
         Needs geometry and structure permission for every user of the asset.
-        Pinned endpoints and linked boundaries must be released first, since
-        new contours cannot keep them. The asset keeps its ID; its nodes do not.
+        Pinned endpoints must be released first, since new contours cannot
+        keep them. The asset keeps its ID; its nodes do not.
         """
         with self._change():
             self._whole_objects()
@@ -810,14 +771,6 @@ class Transaction:
             self._authorize(affected, EditKind.GEOMETRY)
             if any(n.pinned for s in original.subpaths for n in s.nodes):
                 raise EditRejectedError("Unpin endpoints before replacing a contour")
-            if any(
-                m.geometry_id == original.id
-                for b in self._working.boundaries
-                for m in b.members
-            ):
-                raise EditRejectedError(
-                    "Detach linked boundaries before replacing a contour"
-                )
             updated = replace(geometry, id=original.id)
             self._working = self._working.replace_geometry(updated)
             retained = {n.id for sub in updated.subpaths for n in sub.nodes}
@@ -954,9 +907,8 @@ class Transaction:
 
         Nodes whose ID the new geometry repeats are the same nodes, moved or
         not; IDs it lacks are removed and new IDs are inserted. Pinned
-        endpoints must survive where they are, and linked boundary edges must
-        come through unchanged. Only moving nodes needs geometry permission;
-        adding or removing them needs structure too.
+        endpoints must survive where they are. Only moving nodes needs
+        geometry permission; adding or removing them needs structure too.
         """
         with self._change():
             self._whole_objects()
@@ -972,21 +924,7 @@ class Transaction:
                 kept = new.get(node_id)
                 if node.pinned and (kept is None or kept.endpoint != node.endpoint):
                     raise EditRejectedError("Endpoint is pinned")
-            candidate = self._working.replace_geometry(updated)
-            for boundary in self._working.boundaries:
-                for member in boundary.members:
-                    if member.geometry_id != original.id:
-                        continue
-                    before = edge(self._working, member)
-                    try:
-                        after = edge(candidate, member)
-                    except DocumentError:
-                        after = None
-                    if after is None or after.points != before.points:
-                        raise EditRejectedError(
-                            "Linked boundary edges must stay as they are"
-                        )
-            self._working = candidate
+            self._working = self._working.replace_geometry(updated)
             self._record_remap({n: set() for n in old.keys() - new.keys()})
 
     def split_disconnected(self, object_id: str) -> tuple[str, ...]:
@@ -1046,25 +984,10 @@ class Transaction:
                     ),
                 )
             )
-            node_geometry = {
-                n.id: g.id for g in geometries for s in g.subpaths for n in s.nodes
-            }
             self._working = replace(
                 updated,
                 geometries=tuple(g for g in document.geometries if g.id != geometry.id)
                 + geometries,
-                boundaries=tuple(
-                    replace(
-                        b,
-                        members=tuple(
-                            replace(m, geometry_id=node_geometry[m.node_id])
-                            if m.geometry_id == geometry.id
-                            else m
-                            for m in b.members
-                        ),
-                    )
-                    for b in document.boundaries
-                ),
             )
             ids = tuple(child.id for child in children)
             self._ids = (self._ids - {object_id}) | {group.id, *ids}
@@ -1079,7 +1002,8 @@ class Transaction:
         The points are in root SVG user space. Each crossed path becomes two
         paths, one per side of the line, each compound if that side has several
         parts. Both keep the original's attributes, locks and stacking place;
-        the first keeps its ID and geometry ID. The seam is a linked boundary.
+        the first keeps its ID and geometry ID. Both pieces meet on the same
+        seam nodes, so they fit exactly without being linked.
         Paths the line only enters or misses, and stroke-only paths, are left
         alone. Returns the IDs of the pieces.
         """
@@ -1121,12 +1045,6 @@ class Transaction:
                     raise EditRejectedError("Detach shared geometry before cutting")
                 if any(n.pinned for s in geometry.subpaths for n in s.nodes):
                     raise EditRejectedError("Unpin endpoints before cutting a path")
-                if any(
-                    m.geometry_id == geometry.id
-                    for b in document.boundaries
-                    for m in b.members
-                ):
-                    raise EditRejectedError("Unlink boundaries before cutting a path")
                 piece = replace(element, id=new_id("object"), geometry_id=cut.second.id)
                 parent = self._working.ancestry(element.id)[-2]
                 self._working = self._working.replace_element(
@@ -1147,19 +1065,6 @@ class Transaction:
                             for g in self._working.geometries
                         ),
                         cut.second,
-                    ),
-                    boundaries=(
-                        *self._working.boundaries,
-                        *(
-                            SharedBoundary(
-                                new_id("boundary"),
-                                (
-                                    EdgeRef(cut.first.id, mine),
-                                    EdgeRef(cut.second.id, theirs, reversed=flipped),
-                                ),
-                            )
-                            for mine, theirs, flipped in cut.seam
-                        ),
                     ),
                 )
                 self._record_remap(
@@ -1302,14 +1207,6 @@ class Transaction:
                     raise EditRejectedError(
                         "Unpin selected regions before joining overlapping contours"
                     )
-                if any(
-                    m.geometry_id in old_ids
-                    for b in document.boundaries
-                    for m in b.members
-                ):
-                    raise EditRejectedError(
-                        "Detach boundaries before joining overlapping regions"
-                    )
                 geometry = union_geometry(originals, styles)
                 for path, style in zip(paths, styles, strict=True):
                     if style["fill-rule"] != "nonzero":
@@ -1379,18 +1276,6 @@ class Transaction:
                 *(g for g in document.geometries if g.id not in old_ids),
                 geometry,
             ),
-            boundaries=tuple(
-                replace(
-                    b,
-                    members=tuple(
-                        replace(m, geometry_id=geometry.id)
-                        if m.geometry_id in old_ids
-                        else m
-                        for m in b.members
-                    ),
-                )
-                for b in document.boundaries
-            ),
         )
         self._ids = (self._ids - removed) | {joined.id}
         self._record_object_remap({oid: {joined.id} for oid in removed})
@@ -1442,15 +1327,6 @@ class Transaction:
                 if any(n.pinned for s in original.subpaths for n in s.nodes):
                     raise EditRejectedError(
                         "Unpin selected paths before resolving "
-                        "group transforms or clipping"
-                    )
-                if any(
-                    m.geometry_id == original.id
-                    for b in document.boundaries
-                    for m in b.members
-                ):
-                    raise EditRejectedError(
-                        "Detach shared boundaries before resolving "
                         "group transforms or clipping"
                     )
                 surviving = {n.id for s in geometry.subpaths for n in s.nodes}
@@ -1650,14 +1526,6 @@ class Transaction:
         nodes = {n.id for s in geometry.subpaths if s.id in removed for n in s.nodes}
         if any(n.pinned for s in geometry.subpaths if s.id in removed for n in s.nodes):
             raise EditRejectedError(f"Unpin the selected hole contours to {verb}")
-        if any(
-            m.geometry_id == geometry.id and m.node_id in nodes
-            for b in document.boundaries
-            for m in b.members
-        ):
-            raise EditRejectedError(
-                "Detach shared boundaries on the selected holes first"
-            )
         self._working = document.replace_geometry(
             replace(
                 geometry,
@@ -1719,14 +1587,6 @@ class Transaction:
             )
         if sum(e.geometry_id == outer_geometry.id for e in document.elements()) != 1:
             raise EditRejectedError("Detach shared geometry before cutting a hole")
-        if any(
-            m.geometry_id == inner_geometry.id
-            for b in document.boundaries
-            for m in b.members
-        ):
-            raise EditRejectedError(
-                "Unlink the shared boundaries of the path to cut out first"
-            )
         rule, cutter_rule = styles[outer]["fill-rule"], styles[inner]["fill-rule"]
         cutter = transformed_geometry(
             inner_geometry,
@@ -1814,54 +1674,54 @@ class Transaction:
         """Delete explicit subtrees; surviving references must never dangle."""
         with self._change():
             self._whole_objects()
-            removed = set()
-            for object_id in object_ids:
-                if object_id == self._working.root.id:
-                    raise EditRejectedError("Cannot delete the document root")
-                removed.update(
-                    e.id for e in Document(self._working.element(object_id)).elements()
-                )
-            self._authorize(self._working.dependents(removed), EditKind.STRUCTURE)
-            for element in self._working.elements():
-                if element.id not in removed and set(references(element)) & removed:
-                    raise EditRejectedError(
-                        "Delete or retarget dependent references first"
-                    )
-                if element.id in removed:
-                    # A pinned definition reached through a use is protected too.
-                    pending = [element]
-                    seen = set()
-                    while pending:
-                        item = pending.pop()
-                        if item.id in seen:
-                            continue
-                        seen.add(item.id)
-                        pending.extend(item.children)
-                        if item.tag == "use":
-                            pending.append(
-                                self._working.element((item.get("href") or "")[1:])
-                            )
-                        if item.geometry_id and any(
-                            n.pinned
-                            for sub in self._working.geometry(item.geometry_id).subpaths
-                            for n in sub.nodes
-                        ):
-                            raise EditRejectedError(
-                                "Cannot delete an object with pinned endpoints"
-                            )
+            self._remove_objects(object_ids)
 
-            def prune(element: Element) -> Element:
-                return replace(
-                    element,
-                    children=tuple(
-                        prune(c) for c in element.children if c.id not in removed
-                    ),
-                )
+    def _remove_objects(self, object_ids: frozenset[str]) -> None:
+        removed = set()
+        for object_id in object_ids:
+            if object_id == self._working.root.id:
+                raise EditRejectedError("Cannot delete the document root")
+            removed.update(
+                e.id for e in Document(self._working.element(object_id)).elements()
+            )
+        self._authorize(self._working.dependents(removed), EditKind.STRUCTURE)
+        for element in self._working.elements():
+            if element.id not in removed and set(references(element)) & removed:
+                raise EditRejectedError("Delete or retarget dependent references first")
+            if element.id in removed:
+                # A pinned definition reached through a use is protected too.
+                pending = [element]
+                seen = set()
+                while pending:
+                    item = pending.pop()
+                    if item.id in seen:
+                        continue
+                    seen.add(item.id)
+                    pending.extend(item.children)
+                    if item.tag == "use":
+                        pending.append(
+                            self._working.element((item.get("href") or "")[1:])
+                        )
+                    if item.geometry_id and any(
+                        n.pinned
+                        for sub in self._working.geometry(item.geometry_id).subpaths
+                        for n in sub.nodes
+                    ):
+                        raise EditRejectedError(
+                            "Cannot delete an object with pinned endpoints"
+                        )
 
-            self._working = replace(self._working, root=prune(self._working.root))
-            self._drop_unused_boundary_members()
-            self._record_object_remap({old: set() for old in removed})
-            self._ids -= removed
+        def prune(element: Element) -> Element:
+            return replace(
+                element,
+                children=tuple(
+                    prune(c) for c in element.children if c.id not in removed
+                ),
+            )
+
+        self._working = replace(self._working, root=prune(self._working.root))
+        self._record_object_remap({old: set() for old in removed})
+        self._ids -= removed
 
     def reorder_object(self, object_id: str, index: int) -> None:
         """Move one selected object to a final sibling index (zero is back)."""
@@ -2011,16 +1871,6 @@ class Transaction:
             math.isclose(a, b, abs_tol=1e-12)
             for a, b in zip(delta, IDENTITY, strict=True)
         ):
-            geometries = {e.geometry_id for e in subtree if e.geometry_id}
-            if any(
-                m.geometry_id in geometries
-                for b in self._working.boundaries
-                for m in b.members
-            ):
-                raise EditRejectedError(
-                    "Unlink its shared edges first: moving it to this group "
-                    "changes its transform"
-                )
             a, b, c, d, e, f = delta
             local = (
                 f"translate({e:.15g} {f:.15g})"

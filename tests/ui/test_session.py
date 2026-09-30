@@ -363,9 +363,57 @@ def test_rename_rejects_invalid_names_and_unselected_targets():
     assert session.editor.snapshot == before
 
 
-def test_contact_preview_apply_single_path_edit_and_unlink():
-    from vectrify.document.topology import edge
+def snap_job(session, tolerance):
+    return session.operation(
+        {
+            "command": "start",
+            "action": "snap",
+            "method": "edges",
+            "epoch": session.epoch,
+            "revision": session.editor.snapshot.revision,
+            "permissions": {"geometry": True, "structure": True},
+            "settings": {"tolerance": tolerance},
+        }
+    )
 
+
+def test_snap_edges_preview_apply_and_independent_edits():
+    session = Session(
+        import_svg(
+            '<svg width="30" height="30">'
+            '<path id="a" d="M0 0L10 0L10 20L0 20Z"/>'
+            '<path id="b" d="M10.2 0L20 0L20 20L10.2 20Z"/></svg>'
+        )
+    )
+    send(session, "select", objects=["a", "b"])
+    before = session.editor.snapshot.document
+    job = snap_job(session, 0.5)
+    assert job["status"] == "ready"
+    assert job["result"]["changed"]
+    assert job["result"]["metrics"]["edges"] == 1
+    assert job["result"]["previews"]["after"].startswith("data:image/png;base64,")
+    assert session.editor.snapshot.document == before
+    session.operation({"command": "apply", "job": job["id"]})
+    assert session.state()["undo"] == ["Snap edges"]
+    doc = session.editor.snapshot.document
+    assert {n.endpoint[0] for n in doc.geometry_for("a").subpaths[0].nodes} == {
+        0,
+        10.2,
+    }
+    assert "shared_edges" not in session.state()["objects"][0]
+    # The paths stay independent: an edit or a move of one leaves the other.
+    send(session, "select", objects=["b"])
+    node = doc.geometry_for("b").subpaths[0].nodes[0]
+    send(session, "node", object="b", node=node.id, values=[11, 0])
+    send(session, "move", dx=1, dy=0)
+    assert session.editor.snapshot.document.geometry_for("a") == doc.geometry_for("a")
+    send(session, "undo")
+    send(session, "undo")
+    send(session, "undo")
+    assert session.editor.snapshot.document == before
+
+
+def test_snapping_edges_that_already_meet_proposes_no_change():
     session = Session(
         import_svg(
             '<svg width="30" height="30">'
@@ -374,51 +422,12 @@ def test_contact_preview_apply_single_path_edit_and_unlink():
         )
     )
     send(session, "select", objects=["a", "b"])
-    before = session.editor.snapshot.document
-    job = session.operation(
-        {
-            "command": "start",
-            "action": "link",
-            "method": "boundaries",
-            "epoch": session.epoch,
-            "revision": session.editor.snapshot.revision,
-            "permissions": {"geometry": True, "structure": True},
-            "settings": {"tolerance": 0.01},
-        }
-    )
-    assert job["status"] == "ready"
+    job = snap_job(session, 0.01)
     assert job["result"]["metrics"]["edges"] == 1
-    assert job["result"]["previews"]["after"].startswith("data:image/png;base64,")
-    assert session.editor.snapshot.document == before
-    session.operation({"command": "apply", "job": job["id"]})
-    send(session, "select", objects=["b"])
-    doc = session.editor.snapshot.document
-    member = doc.boundaries[0].members[0]
-    node = doc.geometry(member.geometry_id).node(member.node_id)
-    send(
-        session,
-        "node",
-        object="b",
-        node=node.id,
-        values=[node.values[0] + 1, node.values[1]],
-    )
-    doc = session.editor.snapshot.document
-    assert (
-        edge(doc, doc.boundaries[0].members[0]).points
-        == edge(doc, doc.boundaries[0].members[1]).points
-    )
-    assert session.editor.snapshot.selection.object_ids == {"b"}
-    with pytest.raises(DocumentError, match="Unlink"):
-        send(session, "move", dx=1, dy=0)
-    send(session, "unlink_boundaries")
-    assert not session.editor.snapshot.document.boundaries
-    send(session, "undo")
-    assert session.editor.snapshot.document.boundaries
+    assert not job["result"]["changed"]
 
 
-def test_knife_cuts_selected_paths_links_the_seam_and_undoes_in_one_step():
-    from vectrify.document.topology import edge
-
+def test_knife_cuts_selected_paths_into_pieces_that_meet_and_undoes_in_one_step():
     session = Session(
         import_svg(
             '<svg width="100" height="100"><g transform="translate(10 0)">'
@@ -434,21 +443,24 @@ def test_knife_cuts_selected_paths_links_the_seam_and_undoes_in_one_step():
     assert len(pieces) == 2
     assert "p" in pieces
     doc = session.editor.snapshot.document
-    first, second = doc.boundaries[0].members
-    assert edge(doc, first).points == edge(doc, second).points
-    assert {p[0] for p in edge(doc, first).points} == {5.0}
-    # Moving a seam node in one piece moves the other piece's seam with it.
-    oid = pieces[1]
+    seams = [
+        {n.endpoint for s in doc.geometry_for(oid).subpaths for n in s.nodes}
+        & {(5.0, 0.0), (5.0, 20.0)}
+        for oid in pieces
+    ]
+    assert seams == [{(5.0, 0.0), (5.0, 20.0)}] * 2
+    # Moving a seam node in one piece leaves the other piece alone.
+    oid, other = pieces[1], pieces[0]
     send(session, "select", objects=[oid])
-    member = first if doc.geometry_for(oid).id == first.geometry_id else second
-    node = edge(doc, member).end
-    send(session, "node", object=oid, node=node.id, values=[7, node.values[1]])
-    doc = session.editor.snapshot.document
-    assert edge(doc, first).points == edge(doc, second).points
-    assert (7, node.values[1]) in edge(doc, first).points
-    send(session, "unlink_boundaries")
-    assert not session.editor.snapshot.document.boundaries
-    send(session, "undo")
+    node = next(
+        n
+        for s in doc.geometry_for(oid).subpaths
+        for n in s.nodes
+        if n.endpoint == (5.0, 0.0)
+    )
+    send(session, "node", object=oid, node=node.id, values=[7, 0])
+    after = session.editor.snapshot.document
+    assert after.geometry_for(other) == doc.geometry_for(other)
     send(session, "undo")
     assert send(session, "undo")["selection"]["objects"] == ["p"]
     assert len(session.editor.snapshot.document.geometries) == 1
@@ -482,87 +494,34 @@ def test_dragging_a_node_moves_both_handles_and_a_handle_drag_only_itself():
     assert end["values"] == (14, -9, 20, -10, 20, 0)
 
 
-def shared_curve_session():
-    # The right region's contour closes with a curve that ends on its moveto,
-    # so its top seam vertex is two nodes: the moveto and the closing node.
+def test_nodes_payload_is_the_geometry_alone():
+    session = Session(import_svg(SVG))
+    send(session, "select", objects=["a"])
+    payload = session.nodes("a")
+    assert set(payload) == {"epoch", "revision", "object", "geometry"}
+    json.dumps(payload)
+
+
+def test_deleting_a_start_point_and_a_contour_from_the_editor():
     session = Session(
         import_svg(
-            '<svg width="40" height="40">'
-            '<path id="a" d="M0 0 C5 -3 15 -3 20 0 C22 5 22 15 20 20 L0 20Z"/>'
-            '<path id="b" d="M20 0 C25 -3 35 -3 40 0 L40 20 L20 20 '
-            'C22 15 22 5 20 0Z"/></svg>'
+            '<svg width="40" height="40"><path id="p" '
+            'd="M0 0L30 0L30 30L0 30Z M10 10L11 10L11 11Z"/></svg>'
         )
     )
-    send(session, "select", objects=["a", "b"])
-    session.operation(
-        {
-            "command": "apply",
-            "job": session.operation(
-                {
-                    "command": "start",
-                    "action": "link",
-                    "method": "boundaries",
-                    "epoch": session.epoch,
-                    "revision": session.editor.snapshot.revision,
-                    "permissions": {"geometry": True, "structure": True},
-                    "settings": {"tolerance": 0.01},
-                }
-            )["id"],
-        }
-    )
-    assert len(session.editor.snapshot.document.boundaries) == 1
-    return session
-
-
-def contour(session, oid):
-    return [n["values"] for n in session.nodes(oid)["geometry"]["subpaths"][0]["nodes"]]
-
-
-@pytest.mark.parametrize("index", [0, 4])
-def test_dragging_a_shared_seam_vertex_moves_both_regions_with_their_handles(index):
-    from vectrify.document.topology import validate_boundaries
-
-    session = shared_curve_session()
-    send(session, "select", objects=["b"])
-    node = session.nodes("b")["geometry"]["subpaths"][0]["nodes"][index]
-    values = [*node["values"][:-2], 23, 2]
-    send(session, "node", object="b", node=node["id"], values=values)
-    assert contour(session, "b") == [
-        (23, 2),
-        (28, -1, 35, -3, 40, 0),
-        (40, 20),
-        (20, 20),
-        (22, 15, 25, 7, 23, 2),
-    ]
-    assert contour(session, "a") == [
-        (0, 0),
-        (5, -3, 18, -1, 23, 2),
-        (25, 7, 22, 15, 20, 20),
-        (0, 20),
-    ]
-    document = session.editor.snapshot.document
-    document.validate()
-    validate_boundaries(document)
-
-
-def test_nodes_payload_names_shared_edges_and_the_peers_a_drag_moves():
-    session = shared_curve_session()
-    send(session, "select", objects=["b"])
-    payload = session.nodes("b")
-    seam = payload["geometry"]["subpaths"][0]["nodes"][4]["id"]
-    assert payload["shared"] == [seam]
-    (peer,) = payload["peers"].values()
-    assert peer["objects"] == ["a"]
-    top = peer["geometry"]["subpaths"][0]["nodes"][1]["id"]
-    assert payload["links"][f"{seam}/4"] == [
-        [
-            session.editor.snapshot.document.geometry_for("a").id,
-            top,
-            4,
-            [1, 0, 0, 1, 0, 0],
-        ]
-    ]
-    json.dumps(payload)
+    send(session, "select", objects=["p"])
+    subpaths = session.nodes("p")["geometry"]["subpaths"]
+    start = subpaths[0]["nodes"][0]
+    send(session, "delete_node", object="p", node=start["id"])
+    subpaths = session.nodes("p")["geometry"]["subpaths"]
+    assert [n["values"] for n in subpaths[0]["nodes"]] == [(30, 0), (30, 30), (0, 30)]
+    speck = subpaths[1]["nodes"][1]
+    result = send(session, "delete_contour", object="p", node=speck["id"])
+    assert result["undo"][-1] == "Delete contour"
+    assert len(session.nodes("p")["geometry"]["subpaths"]) == 1
+    last = session.nodes("p")["geometry"]["subpaths"][0]["nodes"][0]
+    send(session, "delete_contour", object="p", node=last["id"])
+    assert "p" not in {o["id"] for o in session.state()["objects"]}
 
 
 HOLES = (
@@ -610,8 +569,7 @@ def test_fill_hole_and_hole_to_shape_commands():
     assert not hole_ids(session, "outer")
 
 
-def test_unlinking_a_grid_of_shared_edges_is_one_undoable_edit():
-    # A traced drawing links thousands of edges; they all go in one pass.
+def test_snapping_a_grid_of_touching_squares_is_one_undoable_edit():
     squares = "".join(
         f'<path id="p{i}{j}" d="M{i * 10} {j * 10} h10 v10 h-10 Z"/>'
         for i in range(5)
@@ -622,15 +580,13 @@ def test_unlinking_a_grid_of_shared_edges_is_one_undoable_edit():
         e.id for e in session.editor.snapshot.document.elements() if e.tag == "path"
     )
     session.editor.select(Selection(object_ids=everything))
+    before = session.editor.snapshot.document
     with session.editor.transaction(
-        "share", selection=Selection(object_ids=everything)
+        "Snap edges", selection=Selection(object_ids=everything)
     ) as tx:
-        linked = tx.share_boundaries(0.5)
-    assert linked == 40
-    send(session, "unlink_boundaries")
-    assert not session.editor.snapshot.document.boundaries
+        assert len(tx.snap_edges(0.5)) == 40
     send(session, "undo")
-    assert len(session.editor.snapshot.document.boundaries) == 40
+    assert session.editor.snapshot.document == before
 
 
 def test_tree_drag_moves_objects_into_a_group_as_one_undoable_edit():

@@ -39,7 +39,7 @@ REGION = Region(0, 0, 100, 100, Image.new("RGB", (100, 100)))
 
 def simplified(doc, tolerance):
     start = Paths({"p": doc.geometry_for("p")})
-    result = simplify(doc, start, REGION, frozen(doc, start), tolerance)
+    result = simplify(doc, start, REGION, frozen(start), tolerance)
     return result.geometries["p"].subpaths[0].nodes
 
 
@@ -71,13 +71,17 @@ def test_pinned_points_stay():
     assert middle in ids
 
 
-def test_linked_edges_keep_their_nodes_through_snap_and_simplify():
-    from tests.document.test_topology import linked_editor
+def test_pinned_endpoints_stay_through_snap_and_simplify():
+    from tests.document.test_topology import contour_editor
     from vectrify.refine.snap import snap
 
-    document = linked_editor().snapshot.document
+    editor = contour_editor()
+    for node in editor.snapshot.document.geometry_for("fill").subpaths[0].nodes[1:3]:
+        editor.pin_node("fill", node.id)
+    document = editor.snapshot.document
     paths = Paths({"fill": document.geometry_for("fill")})
-    fixed = frozen(document, paths)
+    fixed = frozen(paths)
+    assert len(fixed.endpoints) == 2
     before = {n.id: n for s in paths.geometries["fill"].subpaths for n in s.nodes}
     x0, y0, x1, y1 = 0, 0, *document.artboard()[2:]
     region = Region(x0, y0, x1, y1, Image.new("RGB", (100, 100), "white"))
@@ -86,26 +90,20 @@ def test_linked_edges_keep_their_nodes_through_snap_and_simplify():
         snap(document, paths, region, fixed, detail=True),
     ):
         after = {n.id: n for s in changed.geometries["fill"].subpaths for n in s.nodes}
-        for node_id in fixed.nodes:
-            assert after[node_id] == before[node_id]
         for node_id in fixed.endpoints:
             assert after[node_id].endpoint == before[node_id].endpoint
 
 
 def test_a_curve_with_its_handles_on_its_line_becomes_the_line():
     doc = document("M10 10 C20 10 30 10 40 10 C40 20 60 30 40 40 Z")
-    geometry = straightened(
-        doc.geometry_for("p"), frozen(doc, Paths({"p": doc.geometry_for("p")})), 0.5
-    )
+    geometry = straightened(doc.geometry_for("p"), 0.5)
     commands = [n.command for n in geometry.subpaths[0].nodes]
     assert commands == ["M", "L", "C"]
 
 
 def test_lines_are_curved_with_their_handles_at_the_thirds():
     doc = document("M10 10 L40 10 L40 40 Z")
-    geometry = curved(
-        doc.geometry_for("p"), frozen(doc, Paths({"p": doc.geometry_for("p")}))
-    )
+    geometry = curved(doc.geometry_for("p"))
     nodes = geometry.subpaths[0].nodes
     assert [n.command for n in nodes] == ["M", "C", "C"]
     assert nodes[1].values == (20.0, 10.0, 30.0, 10.0, 40.0, 10.0)

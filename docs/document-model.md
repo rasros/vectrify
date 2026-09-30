@@ -83,64 +83,49 @@ and retargets only that instance. This preserves inherited styles, transforms,
 and clipping. Detaching group instances or references outside `defs` is not
 implemented and returns a clear error.
 
-`EdgeRef(geometry_id, node_id, reversed=False)` identifies the incoming edge of
-an endpoint. Referencing a moveto identifies the implicit closing line of a
-closed subpath. `link_boundary(members)` records an explicit shared boundary
-between coincident lines or cubics, including reversed traversals. Existing
-coordinates must match exactly after orientation; linking never snaps geometry
-or guesses adjacency. An edge belongs to at most one boundary.
+## Snapping touching edges
 
-```python
-from vectrify.document import EdgeRef
-
-fill = editor.snapshot.document.geometry_for("fill")
-outline = editor.snapshot.document.geometry_for("outline")
-editor.select(Selection(object_ids=frozenset({"fill", "outline"})))
-with editor.transaction("Link contour") as edit:
-    edit.link_boundary((
-        EdgeRef(fill.id, fill.subpaths[0].nodes[1].id),
-        EdgeRef(outline.id, outline.subpaths[0].nodes[1].id, reversed=True),
-    ))
-```
-
-Editing an endpoint or handle propagates to equivalent coordinates, including
-junctions connected through several boundaries. Every changed node must pass
-selection and pin checks, and all consumers must pass geometry permissions and
-inherited locks. A rejected propagated edit rejects the whole transaction.
-`detach_boundary(member)` explicitly unlinks one traversal without changing its
-coordinates or IDs. Remaining members stay linked when at least two remain.
-Detaching a whole geometry asset also drops its boundary membership if the old
-asset no longer has any consumers.
-
-Boundary members are compared in a common frame: each `EdgeRef` carries a
-`matrix` that maps its local geometry coordinates into it, so paths under
-different transforms can share a boundary. `link_boundary` itself never finds
-or snaps edges; `Transaction.share_boundaries(tolerance)` (the `link/boundaries`
-method, in `vectrify.document.contact`) finds the touching spans of every
-pair of two or more selected paths whose bounds come within the tolerance,
-subdivides them, snaps the rear contour of each pair to the front one and links
-them. Edges already in a boundary are never matched again, and a span whose
-snapping would move a slot of a linked edge is skipped, so existing links stay
-valid. It checks everything before changing the transaction, so a caller can
-catch a refusal and carry on; SAMVG's Generate does that to link the seams of a
-flattened trace (`object_ids` names the inserted paths, and geometry the
-transaction added itself needs no geometry permission to snap).
+Paths are never linked to one another: editing, moving or deleting one path
+changes no other. Where neighbouring regions should meet exactly,
+`Transaction.snap_edges(tolerance, object_ids=None)` (the `snap/edges`
+method, in `vectrify.document.contact`) makes them meet as plain geometry. It
+finds the touching spans of every pair of two or more selected paths whose
+bounds come within the tolerance, measured in root SVG user space, so paths
+under different transforms can meet. Of each pair the front path is the
+reference: the rear path's edges are split where the front's nodes project
+onto them (De Casteljau, so curves keep their shape), and the rear's matched
+nodes and curve handles move onto the front's. Within one call, an edge
+snapped for one pair is neither split nor matched again, and a span whose
+snapping would move a slot of such an edge is skipped, so a region can meet
+several neighbours. Pins, locks and permissions apply as for any geometry
+edit. It checks everything before changing the transaction, so a caller can
+catch a refusal and carry on; SAMVG's Generate does that to snap the seams of
+a flattened trace (`object_ids` names the inserted paths, and geometry the
+transaction added itself needs no geometry permission to snap). It returns an
+`EdgeRef` (in `vectrify.document.topology`) for the front edge of each
+matched span, mapped into root user space, which previews highlight.
 
 ## Node topology and selection remapping
 
 `split_edge(object_id, node_id, t=0.5)` inserts a node on a line, cubic, or closing
 edge. Cubics use De Casteljau subdivision, preserving the curve to floating-point
-precision. Every linked traversal splits at the corresponding point, including
-opposite directions. Existing endpoints, pins, subpaths, and geometry IDs remain
+precision. Only this path changes. Existing endpoints, pins, subpaths, and geometry IDs remain
 stable. The method returns the inserted node IDs. Splitting needs both geometry
 and structure permission; with a node filter, every affected incoming edge's
 endpoint must be selected. Existing node selections stay on their original IDs.
 
-`delete_node(object_id, node_id)` removes a non-moveto node and joins the remaining
+`delete_node(object_id, node_id)` removes a node and joins the remaining
 sequence, retaining the next segment's command and controls. This intentionally
 changes the curve; it is a manual deletion command, not an approximation or
-simplification algorithm. Pinned nodes cannot be deleted. Adjacent shared edges
-must first be detached explicitly.
+simplification algorithm. Deleting a moveto makes the next node the start (as
+a moveto at its endpoint); in a closed subpath a curve into that node becomes
+an explicit segment back to the start, so the contour still closes through
+the old start's neighbours. A closed subpath ending on its moveto draws one
+point with two nodes, and deleting either removes both. A subpath left with
+fewer than two points (three when closed) is removed instead, as by
+`delete_contour(object_id, node_id)`, which removes the subpath holding the
+node; a path left without subpaths is deleted like `delete_objects`. Pinned
+nodes cannot be deleted, nor a contour holding one.
 
 `Transaction.preview_selection` previews remapping of the captured selection.
 `node_remapping` exposes old IDs and their replacement IDs (empty for deletion).
@@ -190,11 +175,11 @@ geometry edits. They participate in the same preview/apply/abort transaction.
   original coordinates. Each side becomes one geometry (compound if it has
   several parts). The first keeps the object ID and geometry ID, the second is
   a copy of the element with fresh IDs placed right after it. Both sides split
-  their cut lines at the same points, and each matching pair is linked as a
-  shared boundary. Every node of the original is remapped away; the object
-  remaps to both pieces. Needs structure and geometry permission; pins,
-  boundary links, shared geometry and references on a crossed path are
-  refused. Returns the piece IDs, and rejects the edit if nothing was cut.
+  their cut lines at the same points, so they meet exactly, and `join_paths`
+  merges them back with a curved union. Every node of the original is
+  remapped away; the object remaps to both pieces. Needs structure and
+  geometry permission; pins, shared geometry and references on a crossed path
+  are refused. Returns the piece IDs, and rejects the edit if nothing was cut.
 
 `object_remapping` records deletion and group-to-child replacement. Like node
 remapping, it composes through batches and applies to the current UI selection
@@ -237,6 +222,7 @@ of entities or document types are rejected.
 encode editor node identities, locks, pins, or explicit asset-sharing metadata.
 Use `save_project(document, selection)` and `load_project(json_text)` for a
 versioned project snapshot retaining those identities, constraints, and current
-selection. Version 2 adds explicit boundary links and still reads version 1
-projects. Plain SVG export retains the appearance but not boundary metadata.
+selection. Version 3 is written; versions 1 and 2 still load. Version 2 also
+stored shared boundary links between edges, from when the editor linked
+paths; those are dropped on load, keeping the contours as they are.
 Project loading validates references and the supported subset.

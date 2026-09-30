@@ -12,7 +12,9 @@ from vectrify.document import DocumentError, export_svg
 from vectrify.operations.generate import frame
 
 
-def render_previews(before, after, bounds, *, highlight=False):
+def render_previews(before, after, bounds, *, highlight=()):
+    """Both documents over *bounds*; *highlight*'s edges, which map into root
+    user space, are outlined on the after image."""
     if not isinstance(bounds, list | tuple) or len(bounds) != 4:
         raise DocumentError("Expected preview bounds")
     x, y, width, height = (float(v) for v in bounds)
@@ -28,18 +30,11 @@ def render_previews(before, after, bounds, *, highlight=False):
         root = ET.fromstring(export_svg(document))
         size = (max(1, round(width * scale)), max(1, round(height * scale)))
         frame(root, (x, y, width, height), size)
-        if highlight and document is after:
-            from vectrify.document.hit_test import IDENTITY, multiply, transform
-            from vectrify.document.topology import edge, inverse_matrix
+        if document is after:
+            from vectrify.document.topology import edge
 
-            for boundary in document.boundaries:
-                ref = boundary.members[0]
-                owner = next(iter(document.geometry_users(ref.geometry_id)))
-                matrix = IDENTITY
-                for ancestor in document.ancestry(owner):
-                    matrix = multiply(matrix, transform(ancestor.get("transform")))
+            for ref in highlight:
                 points = edge(document, ref).points
-                matrix = multiply(matrix, inverse_matrix(ref.matrix))
                 data = f"M{points[0][0]} {points[0][1]} "
                 data += "C" if len(points) == 4 else "L"
                 data += " ".join(str(v) for point in points[1:] for v in point)
@@ -48,7 +43,6 @@ def render_previews(before, after, bounds, *, highlight=False):
                     "{http://www.w3.org/2000/svg}path",
                     {
                         "d": data,
-                        "transform": "matrix(" + " ".join(map(str, matrix)) + ")",
                         "fill": "none",
                         "stroke": "#00c8ff",
                         "stroke-width": str(2 / scale),

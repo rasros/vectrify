@@ -1,4 +1,4 @@
-"""Cut filled geometry along a straight line into two linked pieces."""
+"""Cut filled geometry along a straight line into two pieces that meet exactly."""
 
 from __future__ import annotations
 
@@ -26,12 +26,10 @@ Segment = tuple[tuple[Point, ...], Point]
 
 @dataclass(frozen=True)
 class Cut:
-    """The two sides of a cut and their seam, as (node on first, node on second,
-    whether the second traverses it the other way) incoming edges."""
+    """The two sides of a cut."""
 
     first: Geometry
     second: Geometry
-    seam: tuple[tuple[str, str, bool], ...]
 
 
 class _Line:
@@ -184,19 +182,6 @@ def _geometry(rings: list[list[Segment]], geometry_id: str) -> Geometry:
     return Geometry(geometry_id, tuple(subpaths))
 
 
-def _seam_edges(geometry: Geometry, line: _Line) -> dict[tuple[Point, Point], str]:
-    """Straight edges along the line, keyed by their endpoints, to their node."""
-    found = {}
-    for subpath in geometry.subpaths:
-        for i, node in enumerate(subpath.nodes):
-            if node.command == "C":
-                continue
-            start = subpath.nodes[i - 1].endpoint
-            if line.holds(start, ((), node.endpoint)):
-                found[start, node.endpoint] = node.id
-    return found
-
-
 def cut_geometry(
     geometry: Geometry,
     rule: str,
@@ -292,12 +277,4 @@ def cut_geometry(
         geometries.append(_geometry(snapped, geometry_id))
     if not crossed:
         return None
-    first, second = geometries
-    theirs = _seam_edges(second, line)
-    seam = []
-    for (a, b), node in _seam_edges(first, line).items():
-        if (b, a) in theirs:
-            seam.append((node, theirs[b, a], True))
-        elif (a, b) in theirs:
-            seam.append((node, theirs[a, b], False))
-    return Cut(first, second, tuple(seam))
+    return Cut(*geometries)

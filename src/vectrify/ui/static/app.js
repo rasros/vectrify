@@ -4,8 +4,6 @@ const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
 let geometry = null, geometryObject = null, activeNode = null, reference = null;
-// The loaded path's shared edges and what dragging its coordinates moves elsewhere.
-let nodeLinks = {shared: new Set(), links: {}, peers: {}};
 let clickCycle = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
@@ -369,10 +367,7 @@ function renderInspector() {
   renderNodeInspector();
   const paths = selected.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
   const noReference = !state.reference && 'Add a reference image first (Reference, left panel)';
-  enable('share-boundaries', selected.length < 2 ? 'Select two or more paths' : !paths && 'Every object must be a visible path');
-  const shared = selected.reduce((sum,id)=>sum+(object(id)?.shared_edges || 0),0);
-  $('contact-hint').textContent = shared ? 'Linked nodes move both regions. Unlink before moving a region separately.' : 'Shift-click two or more paths to snap their touching edges together.';
-  $('unlink-boundaries').hidden = !shared;
+  enable('snap-edges', selected.length < 2 ? 'Select two or more paths' : !paths && 'Every object must be a visible path');
   $('empty-reference-hint').hidden = !!state.reference;
   if (editingNodes) return;
   renderRelationships(item);
@@ -483,7 +478,6 @@ async function loadNodes() {
   if (geometry && geometryObject === item.id) return;
   const result = await request('/api/nodes', {object: item.id, epoch: state.epoch, revision: state.revision});
   geometry = result.geometry; geometryObject = item.id;
-  nodeLinks = {shared: new Set(result.shared), links: result.links, peers: result.peers};
   if (!nodeById(activeNode)) activeNode = null;
   renderNodeInspector();
 }
@@ -496,7 +490,6 @@ function renderNodeInspector() {
   const node = nodes.find(n=>n.id===activeNode);
   $('node-path-name').textContent = item?.label || (state?.selection.objects.length ? 'Multiple objects selected' : 'No path selected');
   $('node-path-stats').textContent = current ? `${nodes.length.toLocaleString()} points · ${current.subpaths.length.toLocaleString()} ${current.subpaths.length===1?'contour':'contours'}` : '';
-  if (item?.shared_edges) $('node-path-stats').textContent += ` · ${item.shared_edges} shared edges, outlined in orange (edits also move linked regions)`;
   $('node-detach').hidden = item?.tag !== 'use';
   $('node-properties').hidden = !node;
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
@@ -505,8 +498,10 @@ function renderNodeInspector() {
     $('node-type').textContent = node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
     $('node-x').value = +node.values.at(-2).toFixed(4); $('node-y').value = +node.values.at(-1).toFixed(4);
     $('node-x').disabled = node.pinned; $('node-y').disabled = node.pinned; $('node-apply').disabled = node.pinned;
-    $('node-pin').checked = node.pinned; $('node-delete').disabled = node.command === 'M' || node.pinned;
-    $('node-split').disabled = node.command === 'M' && !current.subpaths.find(s => s.nodes.includes(node))?.closed;
+    const contour = current.subpaths.find(s => s.nodes.includes(node));
+    $('node-pin').checked = node.pinned; $('node-delete').disabled = node.pinned;
+    $('node-delete-contour').disabled = contour.nodes.some(n => n.pinned);
+    $('node-split').disabled = node.command === 'M' && !contour.closed;
   }
   // A point on a hole contour offers to fill the hole or make it a shape.
   if (node && nodeHoles?.key !== holesKey()) loadNodeHoles();
@@ -637,7 +632,6 @@ function drawOverlay() {
   if (!matrix) return;
   const stageBox = stage.getBoundingClientRect(), screen = element.getScreenCTM();
   if (!screen) return;
-  drawSharedEdges(matrix);
   // Limit handles in dense drawings by screen-space spacing, without dropping
   // geometry. Zooming in exposes the original nodes at their full resolution.
   const occupied = new Set(); let shown = 0;
@@ -668,18 +662,6 @@ function drawOverlay() {
     }
   }
   $('node-count').textContent = `${shown.toLocaleString()} / ${allNodes().length.toLocaleString()}`;
-}
-function drawSharedEdges(matrix) {
-  let d = '';
-  for (const subpath of geometry.subpaths) subpath.nodes.forEach((node, i) => {
-    if (!nodeLinks.shared.has(node.id)) return;
-    // An edge runs into its node; a moveto's is the contour's closing edge.
-    const start = (i ? subpath.nodes[i-1] : subpath.nodes.at(-1)).values.slice(-2);
-    const controls = node.command === 'C' ? [node.values.slice(0,2), node.values.slice(2,4)] : [];
-    const [a, ...rest] = [start, ...controls, node.values.slice(-2)].map(([x,y]) => new DOMPoint(x,y).matrixTransform(matrix));
-    d += `M${a.x} ${a.y}${rest.length === 3 ? 'C' : 'L'}${rest.map(p => `${p.x} ${p.y}`).join(' ')}`;
-  });
-  if (d) overlay.append(xmlElement('path', {d, class:'shared-edge-halo'}), xmlElement('path', {d, class:'shared-edge'}));
 }
 function draftPathData(points, closed=false) {
   if (!points.length) return '';
@@ -768,7 +750,7 @@ function knifeEnd(event) {
 async function cutWithKnife({start, end}) {
   if(!state.selection.objects.length){toast('Select the shapes to cut, then drag the knife across them.',true);return;}
   if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y]},'Cutting…'))
-    toast(`Cut into ${state.selection.objects.length} pieces. Their cut edges are linked; Unlink boundaries separates them.`);
+    toast(`Cut into ${state.selection.objects.length} pieces. They meet exactly along the cut; Join paths merges them again.`);
 }
 async function finishPath(closed) {
   if(pending||pathDraft.length<(closed?3:2))return;
@@ -828,12 +810,8 @@ function topSelection() {
   });
 }
 function pathData(g = geometry) { return g.subpaths.map(s => s.nodes.map(n => n.command+n.values.join(' ')).join(' ') + (s.closed ? ' Z' : '')).join(' '); }
-// A node drag previews what the server will do: the point's handles ride
-// along, and linked coordinates on shared edges move in the other paths.
+// A node drag previews what the server will do: the point's handles ride along.
 function valuesById(g) { return new Map(g.subpaths.flatMap(s => s.nodes.map(n => [n.id, [...n.values]]))); }
-function savedDragValues() {
-  return {own: valuesById(geometry), peers: Object.fromEntries(Object.entries(nodeLinks.peers).map(([gid, peer]) => [gid, valuesById(peer.geometry)]))};
-}
 function restoreValues(g, saved) { for (const s of g.subpaths) for (const n of s.nodes) n.values = [...saved.get(n.id)]; }
 function carryHandles(g, saved) {
   // Mirrors the server: a moved point takes along the handles the edit left
@@ -858,31 +836,11 @@ function carryHandles(g, saved) {
     }
   }
 }
-function propagatePreview(saved) {
-  const own = new Map(allNodes().map(n => [n.id, n]));
-  const target = gid => gid === geometry.id ? geometry : nodeLinks.peers[gid].geometry;
-  for (const [key, peers] of Object.entries(nodeLinks.links)) {
-    const cut = key.lastIndexOf('/'), node = own.get(key.slice(0, cut)), i = Number(key.slice(cut+1));
-    const [x, y] = node.values.slice(i, i+2), [bx, by] = saved.get(node.id).slice(i, i+2);
-    if (x === bx && y === by) continue;
-    for (const [gid, peerId, j, [a,b,c,d,e,f]] of peers) {
-      const peer = target(gid).subpaths.flatMap(s => s.nodes).find(n => n.id === peerId);
-      peer.values[j] = a*x + c*y + e; peer.values[j+1] = b*x + d*y + f;
-    }
-  }
-}
 function previewNodeDrag(node, offset, pos) {
-  const {own, peers} = drag.saved;
-  restoreValues(geometry, own);
-  for (const [gid, saved] of Object.entries(peers)) restoreValues(nodeLinks.peers[gid].geometry, saved);
+  restoreValues(geometry, drag.saved);
   node.values[offset] = pos.x; node.values[offset+1] = pos.y;
-  carryHandles(geometry, own);
-  propagatePreview(own);
+  carryHandles(geometry, drag.saved);
   drag.element.setAttribute('d', pathData());
-  for (const [gid, peer] of Object.entries(nodeLinks.peers)) {
-    carryHandles(peer.geometry, peers[gid]);
-    for (const oid of peer.objects) svgElement(oid)?.setAttribute('d', pathData(peer.geometry));
-  }
 }
 stage.addEventListener('pointerdown', event => {
   if (!state || pending || drag || ![0,1].includes(event.button)) return;
@@ -910,7 +868,7 @@ stage.addEventListener('pointerdown', event => {
   if (tool === 'nodes' && nodeId) {
     const node=nodeById(nodeId), part=event.target.dataset.part;
     if (part === 'endpoint') activeNode=nodeId;
-    drag={...common,kind:'node',nodeId,part,before:[...node.values],element:svgElement(geometryObject),object:geometryObject,saved:savedDragValues()};
+    drag={...common,kind:'node',nodeId,part,before:[...node.values],element:svgElement(geometryObject),object:geometryObject,saved:valuesById(geometry)};
     renderNodeInspector(); drawOverlay(); return;
   }
   const hits = hitStack(event.clientX, event.clientY);
@@ -1182,6 +1140,7 @@ $('cut_hole').onclick = async () => {
   if (await action('cut_hole', {}, 'Cutting out the hole…')) toast('Cut the shape out as a hole. Undo restores both paths.');
 };
 $('node-delete').onclick=()=>action('delete_node',{object:geometryObject,node:activeNode});
+$('node-delete-contour').onclick=()=>action('delete_contour',{object:geometryObject,node:activeNode});
 document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});
 for (const command of ['group','ungroup','delete','detach']) $(command).onclick=()=>action(command);
 $('backward').onclick=()=>action('reorder',{step:-1});$('forward').onclick=()=>action('reorder',{step:1});
@@ -1478,15 +1437,14 @@ function simplifyBounds() {
   return [left-padding,top-padding,Math.max(1,right-left)+2*padding,Math.max(1,bottom-top)+2*padding];
 }
 const contactDialog = jobDialog('contact', {
-  start: () => ({action:'link', method:'boundaries', bounds:simplifyBounds(), permissions:{geometry:true, structure:true},
+  start: () => ({action:'snap', method:'edges', bounds:simplifyBounds(), permissions:{geometry:true, structure:true},
     settings:{tolerance:Number($('contact-distance').value)}}),
   describe: ({changed, metrics}) => changed
-    ? `${metrics.edges} shared edge spans. Apply links their nodes and curve handles as one undoable edit.`
-    : 'No touching edges within this distance. Try a larger contact distance.',
-  applied: 'Shared boundaries linked. Editing a shared node moves both regions.',
+    ? `${metrics.edges} touching edge spans. Apply snaps their nodes and curve handles together as one undoable edit.`
+    : metrics.edges ? 'These edges already meet exactly.' : 'No touching edges within this distance. Try a larger contact distance.',
+  applied: 'Edges snapped. The paths stay independent: editing one no longer moves the other.',
 }).wire();
-$('share-boundaries').onclick = async () => { await queue; contactDialog.open(); };
-$('unlink-boundaries').onclick=()=>action('unlink_boundaries');
+$('snap-edges').onclick = async () => { await queue; contactDialog.open(); };
 // Changing a setting invalidates the preview shown for the old one.
 for (const [prefix, ids] of [['contact', ['contact-distance']]]) {
   for (const id of ids) $(id).addEventListener('input', () => {

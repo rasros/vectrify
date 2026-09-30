@@ -20,7 +20,7 @@ from PIL import Image
 from vectrify.document import DocumentError, EditKind, Editor, Snapshot
 from vectrify.document.editor import Transaction
 
-ACTIONS = ("generate", "improve", "simplify", "link")
+ACTIONS = ("generate", "improve", "simplify", "snap")
 
 
 @dataclass(frozen=True)

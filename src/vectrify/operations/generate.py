@@ -210,21 +210,21 @@ def insert_svg(tx, request: OperationRequest, svg: str, region: Region, name: st
     return group.id, shapes
 
 
-# Largest contact distance boundary matching accepts, in document units.
+# Largest contact distance edge snapping accepts, in document units.
 SEAM_LIMIT = 20.0
 
 
-def link_seams(tx, paths: frozenset[str], distance: float) -> int:
-    """Share the touching edges of freshly inserted *paths*; 0 when none match.
+def snap_seams(tx, paths: frozenset[str], distance: float) -> int:
+    """Snap the touching edges of freshly inserted *paths*; the spans matched.
 
-    A trace is worth keeping without its links, so a refusal only logs.
+    A trace is worth keeping with its seams as traced, so a refusal only logs.
     """
     if len(paths) < 2:
         return 0
     try:
-        return tx.share_boundaries(min(max(distance, 1e-3), SEAM_LIMIT), paths)
+        return len(tx.snap_edges(min(max(distance, 1e-3), SEAM_LIMIT), paths))
     except DocumentError as exc:
-        log.info("Kept the trace without shared boundaries: %s", exc)
+        log.info("Kept the trace without snapping its seams: %s", exc)
         return 0
 
 
@@ -271,7 +271,7 @@ def generated_result(
     *svg* is in the pixels of *traced*, the same area as *region* at another
     size, when it was traced from an enlarged crop. With *seams*, a contact
     distance in those pixels, the touching edges of the inserted paths are
-    linked into shared boundaries.
+    snapped together so neighbouring regions meet exactly.
     """
     tx = request.transaction(label)
     traced = traced or region
@@ -281,7 +281,7 @@ def generated_result(
         scale = traced.width / traced.image.width
         metrics = {
             **(metrics or {}),
-            "linked": link_seams(tx, paths, seams * scale),
+            "snapped": snap_seams(tx, paths, seams * scale),
         }
     before = render_region(request.snapshot.document, region)
     after = render_region(tx.preview, region) if group else before

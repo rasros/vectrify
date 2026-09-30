@@ -62,7 +62,7 @@ SETTINGS = {
 }
 
 # Flattened regions are traced one by one, so neighbours' outlines stray from
-# the common seam by up to about a traced pixel; link edges within this many.
+# the common seam by up to about a traced pixel; snap edges within this many.
 SEAM_PIXELS = 1.5
 
 

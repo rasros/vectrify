@@ -1,4 +1,8 @@
-"""Match nearby boundary spans, preserving curves and explicit edge adjacency."""
+"""Snap nearby edges of different paths together, preserving curves.
+
+Snapping is plain geometry: the edges end up coincident, but nothing links
+them, so later edits to one path never move the other.
+"""
 
 import math
 from dataclasses import replace
@@ -10,8 +14,14 @@ from shapely import STRtree
 from shapely.geometry import LineString, Point
 
 from vectrify.document.hit_test import IDENTITY, multiply, transform
-from vectrify.document.model import DocumentError, EdgeRef, SharedBoundary, new_id
-from vectrify.document.topology import edge, inverse_matrix, mapped_point, split_edges
+from vectrify.document.model import DocumentError
+from vectrify.document.topology import (
+    EdgeRef,
+    edge,
+    inverse_matrix,
+    mapped_point,
+    split_edges,
+)
 
 
 def edges(document, gid, matrix=IDENTITY):
@@ -92,7 +102,7 @@ def meets(first, second):
     )
 
 
-def split_at_contacts(document, first, second, tolerance, matrices, linked=()):
+def split_at_contacts(document, first, second, tolerance, matrices, snapped=()):
     originals = {gid: edges(document, gid, matrices[gid]) for gid in (first, second)}
     bounds = {
         gid: box([p for e in found for p in e.points], tolerance)
@@ -100,13 +110,12 @@ def split_at_contacts(document, first, second, tolerance, matrices, linked=()):
     }
     cuts = {}
     for source, target in ((first, second), (second, first)):
-        # Only the parts within reach of the other path can touch it. Linked
-        # edges are never split: that would split their partners too, and
-        # those may belong to paths outside this pair.
+        # Only the parts within reach of the other path can touch it. Edges
+        # an earlier pair snapped are left whole, so they stay one span each.
         targets = [
             e
             for e in originals[target]
-            if (e.ref.geometry_id, e.ref.node_id) not in linked
+            if (e.ref.geometry_id, e.ref.node_id) not in snapped
             and meets(box(e.points), bounds[source])
         ]
         points = {
@@ -125,9 +134,6 @@ def split_at_contacts(document, first, second, tolerance, matrices, linked=()):
                 t, distance = projection(point, e.points)
                 if distance <= tolerance and 1e-6 < t < 1 - 1e-6:
                     cuts.setdefault(e.ref, set()).add(t)
-    # No cut edge is linked, so splitting can skip the search for partners.
-    boundaries = document.boundaries
-    document = replace(document, boundaries=())
     # All projections refer to original curves; split the remaining suffix at
     # an adjusted parameter so subdivision introduces no flattening error.
     for ref, parameters in cuts.items():
@@ -137,13 +143,13 @@ def split_at_contacts(document, first, second, tolerance, matrices, linked=()):
                 continue
             document, _ = split_edges(document, ref, (t - previous) / (1 - previous))
             previous = t
-    return replace(document, boundaries=boundaries)
+    return document
 
 
 def regions(document, object_ids):
     """The selected paths' geometry IDs and root frames, back to front."""
     if len(object_ids) < 2:
-        raise DocumentError("Select two or more paths to share boundaries")
+        raise DocumentError("Select two or more paths to snap their edges")
     frames = {}
     for element in (e for e in document.elements() if e.id in object_ids):
         if element.tag != "path":
@@ -152,14 +158,14 @@ def regions(document, object_ids):
             )
         geometry = document.geometry_for(element.id)
         if document.geometry_users(geometry.id) != frozenset({element.id}):
-            raise DocumentError("Detach shared geometry before matching boundaries")
+            raise DocumentError("Detach shared geometry before snapping edges")
         if any(not s.closed for s in geometry.subpaths):
-            raise DocumentError("Shared regions must have closed contours")
+            raise DocumentError("Snap edges of closed contours only")
         matrix = IDENTITY
         for ancestor in document.ancestry(element.id):
             if ancestor.get("clip-path"):
                 raise DocumentError(
-                    "Clipped paths are not supported by boundary matching yet"
+                    "Clipped paths are not supported by edge snapping yet"
                 )
             matrix = multiply(matrix, transform(ancestor.get("transform")))
         inverse_matrix(matrix)
@@ -190,22 +196,23 @@ def touching(document, frames, tolerance):
     ]
 
 
-def match_pair(candidate, front, rear, tolerance, frames, linked, locked):
-    """Link the touching, still unlinked edges of one pair, snapping *rear*.
+def match_pair(candidate, front, rear, tolerance, frames, snapped, locked):
+    """Snap *rear*'s touching edges onto *front*'s; returns the matched pairs.
 
-    A span is skipped when snapping it would move a slot of an edge linked
-    before, so every existing boundary stays coincident.
+    Edges an earlier pair snapped are not matched again, and a span is
+    skipped when snapping it would move a slot of such an edge, so the
+    edges snapped earlier in the same pass stay coincident.
     """
-    candidate = split_at_contacts(candidate, front, rear, tolerance, frames, linked)
+    candidate = split_at_contacts(candidate, front, rear, tolerance, frames, snapped)
     sources = [
         e
         for e in edges(candidate, front, frames[front])
-        if (front, e.ref.node_id) not in linked
+        if (front, e.ref.node_id) not in snapped
     ]
     targets = [
         e
         for e in edges(candidate, rear, frames[rear])
-        if (rear, e.ref.node_id) not in linked
+        if (rear, e.ref.node_id) not in snapped
     ]
     if len(sources) + len(targets) > 30000:
         raise DocumentError(
@@ -249,7 +256,7 @@ def match_pair(candidate, front, rear, tolerance, frames, linked, locked):
         for n in s.nodes
         for i, v in enumerate(n.values)
     }
-    used_source, used_target, updates, boundaries = set(), set(), {}, []
+    used_source, used_target, updates, matched = set(), set(), {}, []
     for _, s, t, reverse in sorted(proposals, key=lambda p: p[0]):
         if s.ref in used_source or t.ref in used_target:
             continue
@@ -264,14 +271,10 @@ def match_pair(candidate, front, rear, tolerance, frames, linked, locked):
         ):
             continue
         updates.update(zip(slots, values, strict=True))
-        boundaries.append(
-            SharedBoundary(
-                new_id("boundary"), (s.ref, replace(t.ref, reversed=reverse))
-            )
-        )
+        matched.append((s.ref, replace(t.ref, reversed=reverse)))
         used_source.add(s.ref)
         used_target.add(t.ref)
-    if not boundaries:
+    if not matched:
         return candidate, []
     # Only the rear region snaps; the front contour remains the reference.
     geometry = candidate.geometry(rear)
@@ -294,15 +297,16 @@ def match_pair(candidate, front, rear, tolerance, frames, linked, locked):
             for s in geometry.subpaths
         ),
     )
-    candidate = candidate.replace_geometry(geometry)
-    candidate = replace(candidate, boundaries=(*candidate.boundaries, *boundaries))
-    return candidate, boundaries
+    return candidate.replace_geometry(geometry), matched
 
 
-def match_boundaries(document, object_ids, tolerance):
-    """Link the touching edges of every pair of the selected paths.
+def snap_edges(document, object_ids, tolerance):
+    """Snap the touching edges of every pair of the selected paths together.
 
-    Edges already in a boundary are kept as they are and never matched again.
+    Of each pair the front path stays in place: the rear one's edges are
+    split where the front's nodes project onto them, then its matched nodes
+    and handles move onto the front's. Returns the document and the front
+    path's edge of each matched span, mapped into root user space.
     """
     if not math.isfinite(tolerance) or not 0 < tolerance <= 20:
         raise DocumentError(
@@ -310,29 +314,22 @@ def match_boundaries(document, object_ids, tolerance):
         )
     frames = regions(document, object_ids)
     if len(frames) < 2:
-        raise DocumentError("Select two or more paths to share boundaries")
-    candidate, count = document, 0
-    linked = {
-        (m.geometry_id, m.node_id) for b in document.boundaries for m in b.members
-    }
-    locked = {
-        slot
-        for b in document.boundaries
-        for m in b.members
-        for slot in edge(document, m).slots
-    }
+        raise DocumentError("Select two or more paths to snap their edges")
+    candidate, spans = document, []
+    snapped: set[tuple[str, str]] = set()
+    locked: set = set()
     for front, rear in touching(document, frames, tolerance):
-        candidate, boundaries = match_pair(
-            candidate, front, rear, tolerance, frames, linked, locked
+        candidate, matched = match_pair(
+            candidate, front, rear, tolerance, frames, snapped, locked
         )
-        for boundary in boundaries:
-            for member in boundary.members:
-                linked.add((member.geometry_id, member.node_id))
-                locked.update(edge(candidate, member).slots)
-        count += len(boundaries)
-    if not count:
+        for pair in matched:
+            for ref in pair:
+                snapped.add((ref.geometry_id, ref.node_id))
+                locked.update(edge(candidate, ref).slots)
+        spans.extend(ref for ref, _ in matched)
+    if not spans:
         raise DocumentError(
-            "No matching boundary spans found. Try a slightly larger contact distance."
+            "No touching edges found. Try a slightly larger contact distance."
         )
     candidate.validate()
-    return candidate, count
+    return candidate, tuple(spans)
