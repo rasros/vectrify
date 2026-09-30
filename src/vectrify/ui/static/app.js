@@ -710,6 +710,12 @@ stage.addEventListener('pointermove', event => {
     const node=nodeById(drag.nodeId);
     if (drag.part === 'endpoint' && node.pinned) return;
     const pos=point(event,drag.element), offset=drag.part === 'endpoint' ? node.values.length-2 : Number(drag.part);
+    if (drag.part === 'endpoint') {
+      // Retracted handles ride along, as the server keeps them on the point.
+      const [x,y]=node.values.slice(-2), nodes=geometry.subpaths.find(s => s.nodes.includes(node)).nodes, next=nodes[nodes.indexOf(node)+1];
+      if (node.command === 'C' && node.values[2] === x && node.values[3] === y) {node.values[2]=pos.x; node.values[3]=pos.y;}
+      if (next?.command === 'C' && next.values[0] === x && next.values[1] === y) {next.values[0]=pos.x; next.values[1]=pos.y;}
+    }
     node.values[offset]=pos.x; node.values[offset+1]=pos.y;
     drag.element.setAttribute('d',pathData()); drawOverlay(); renderNodeInspector();
   }
