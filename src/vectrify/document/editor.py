@@ -77,6 +77,52 @@ def _toward(
     return a[0] + (b[0] - a[0]) * share, a[1] + (b[1] - a[1]) * share
 
 
+def _carry_handles(before: Document, after: Document) -> Document:
+    """Take the handles of every point an edit moved along with it.
+
+    The curve keeps its shape around a moved point and a retracted handle
+    stays a corner; a handle the edit already placed is left where it is.
+    A closed contour ending on its moveto shows one point for two nodes, so
+    either drags the other. Carried coordinates propagate along shared
+    boundaries, whose far side then carries its own handles in turn.
+    """
+    while True:
+        changes: dict[tuple[str, str], list[float]] = {}
+        for geometry in after.geometries:
+            old = before.geometry(geometry.id)
+            if geometry == old:
+                continue
+            for subpath, previous in zip(geometry.subpaths, old.subpaths, strict=True):
+                nodes, olds = subpath.nodes, previous.nodes
+                last = len(nodes) - 1
+                twins = (
+                    subpath.closed
+                    and last > 1
+                    and olds[last].endpoint == olds[0].endpoint
+                )
+                for i, (node, was) in enumerate(zip(nodes, olds, strict=True)):
+                    if node.endpoint == was.endpoint:
+                        continue
+                    dx = node.endpoint[0] - was.endpoint[0]
+                    dy = node.endpoint[1] - was.endpoint[1]
+                    slots = [(i, 2)] if node.command == "C" else []
+                    if i < last and nodes[i + 1].command == "C":
+                        slots.append((i + 1, 0))
+                    if twins and i in {0, last}:
+                        slots.append((last - i, len(nodes[last - i].values) - 2))
+                    for j, k in slots:
+                        if nodes[j].values[k : k + 2] != olds[j].values[k : k + 2]:
+                            continue
+                        key = geometry.id, nodes[j].id
+                        values = changes.setdefault(key, list(nodes[j].values))
+                        values[k : k + 2] = (values[k] + dx, values[k + 1] + dy)
+        if not changes:
+            return after
+        for (gid, nid), values in changes.items():
+            node = replace(after.geometry(gid).node(nid), values=tuple(values))
+            after = propagate_node(after, gid, node)
+
+
 class EditRejectedError(DocumentError):
     """An edit violates scope, locks, or node constraints."""
 
@@ -399,30 +445,8 @@ class Transaction:
             updated = replace(node, values=tuple(values))
             if updated == node:
                 return
-            # A moved point takes both of its handles along, so the curve
-            # keeps its shape around it and a retracted handle stays a corner.
-            # An incoming handle the edit already placed is left where it is.
-            point, moved = node.endpoint, updated.endpoint
-            dx, dy = moved[0] - point[0], moved[1] - point[1]
-            following = []
-            if moved != point:
-                if updated.command == "C" and updated.values[2:4] == node.values[2:4]:
-                    c2 = (node.values[2] + dx, node.values[3] + dy)
-                    updated = replace(
-                        updated, values=(*updated.values[:2], *c2, *moved)
-                    )
-                nodes = next(s.nodes for s in geometry.subpaths if node in s.nodes)
-                after = nodes[nodes.index(node) + 1 :][:1]
-                following = [
-                    replace(
-                        n, values=(n.values[0] + dx, n.values[1] + dy, *n.values[2:])
-                    )
-                    for n in after
-                    if n.command == "C"
-                ]
-            candidate = self._working
-            for change in (updated, *following):
-                candidate = propagate_node(candidate, geometry.id, change)
+            candidate = propagate_node(self._working, geometry.id, updated)
+            candidate = _carry_handles(self._working, candidate)
             self._authorize_geometry_change(candidate)
             self._working = candidate
 

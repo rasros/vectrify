@@ -56,7 +56,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   a smooth point with its handles in line.
   Dragging a point (or typing its coordinates) moves both of its handles by
   the same offset, so the curve keeps its shape around it; dragging a handle
-  moves only that handle. Linked boundaries follow, and pinned points stay put.
+  moves only that handle. Linked boundaries follow live, handles included, and
+  pinned points stay put. Shared edges of the edited path are outlined in orange.
   While dragging, a point or handle snaps to the points of every visible path
   (other points of the same path included) and to the artboard's edges and
   corners, within 8 screen pixels at any zoom; an orange diamond marks the

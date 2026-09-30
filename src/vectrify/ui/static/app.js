@@ -3,6 +3,8 @@ const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
 let geometry = null, geometryObject = null, activeNode = null, reference = null;
+// The loaded path's shared edges and what dragging its coordinates moves elsewhere.
+let nodeLinks = {shared: new Set(), links: {}, peers: {}};
 let clickCycle = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
@@ -411,6 +413,7 @@ async function loadNodes() {
   if (geometry && geometryObject === item.id) return;
   const result = await request('/api/nodes', {object: item.id, epoch: state.epoch, revision: state.revision});
   geometry = result.geometry; geometryObject = item.id;
+  nodeLinks = {shared: new Set(result.shared), links: result.links, peers: result.peers};
   if (!nodeById(activeNode)) activeNode = null;
   renderNodeInspector();
 }
@@ -423,7 +426,7 @@ function renderNodeInspector() {
   const node = nodes.find(n=>n.id===activeNode);
   $('node-path-name').textContent = item?.label || (state?.selection.objects.length ? 'Multiple objects selected' : 'No path selected');
   $('node-path-stats').textContent = current ? `${nodes.length.toLocaleString()} points · ${current.subpaths.length.toLocaleString()} ${current.subpaths.length===1?'contour':'contours'}` : '';
-  if (item?.shared_edges) $('node-path-stats').textContent += ` · ${item.shared_edges} shared edges (edits also move linked regions)`;
+  if (item?.shared_edges) $('node-path-stats').textContent += ` · ${item.shared_edges} shared edges, outlined in orange (edits also move linked regions)`;
   $('node-detach').hidden = item?.tag !== 'use';
   $('node-properties').hidden = !node;
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
@@ -564,6 +567,7 @@ function drawOverlay() {
   if (!matrix) return;
   const stageBox = stage.getBoundingClientRect(), screen = element.getScreenCTM();
   if (!screen) return;
+  drawSharedEdges(matrix);
   // Limit handles in dense drawings by screen-space spacing, without dropping
   // geometry. Zooming in exposes the original nodes at their full resolution.
   const occupied = new Set(); let shown = 0;
@@ -594,6 +598,18 @@ function drawOverlay() {
     }
   }
   $('node-count').textContent = `${shown.toLocaleString()} / ${allNodes().length.toLocaleString()}`;
+}
+function drawSharedEdges(matrix) {
+  let d = '';
+  for (const subpath of geometry.subpaths) subpath.nodes.forEach((node, i) => {
+    if (!nodeLinks.shared.has(node.id)) return;
+    // An edge runs into its node; a moveto's is the contour's closing edge.
+    const start = (i ? subpath.nodes[i-1] : subpath.nodes.at(-1)).values.slice(-2);
+    const controls = node.command === 'C' ? [node.values.slice(0,2), node.values.slice(2,4)] : [];
+    const [a, ...rest] = [start, ...controls, node.values.slice(-2)].map(([x,y]) => new DOMPoint(x,y).matrixTransform(matrix));
+    d += `M${a.x} ${a.y}${rest.length === 3 ? 'C' : 'L'}${rest.map(p => `${p.x} ${p.y}`).join(' ')}`;
+  });
+  if (d) overlay.append(xmlElement('path', {d, class:'shared-edge-halo'}), xmlElement('path', {d, class:'shared-edge'}));
 }
 function draftPathData(points, closed=false) {
   if (!points.length) return '';
@@ -741,7 +757,63 @@ function topSelection() {
     return true;
   });
 }
-function pathData() { return geometry.subpaths.map(s => s.nodes.map(n => n.command+n.values.join(' ')).join(' ') + (s.closed ? ' Z' : '')).join(' '); }
+function pathData(g = geometry) { return g.subpaths.map(s => s.nodes.map(n => n.command+n.values.join(' ')).join(' ') + (s.closed ? ' Z' : '')).join(' '); }
+// A node drag previews what the server will do: the point's handles ride
+// along, and linked coordinates on shared edges move in the other paths.
+function valuesById(g) { return new Map(g.subpaths.flatMap(s => s.nodes.map(n => [n.id, [...n.values]]))); }
+function savedDragValues() {
+  return {own: valuesById(geometry), peers: Object.fromEntries(Object.entries(nodeLinks.peers).map(([gid, peer]) => [gid, valuesById(peer.geometry)]))};
+}
+function restoreValues(g, saved) { for (const s of g.subpaths) for (const n of s.nodes) n.values = [...saved.get(n.id)]; }
+function carryHandles(g, saved) {
+  // Mirrors the server: a moved point takes along the handles the edit left
+  // alone, and a closed contour ending on its moveto moves as one point.
+  for (let changed = true; changed;) {
+    changed = false;
+    for (const s of g.subpaths) {
+      const nodes = s.nodes, olds = nodes.map(n => saved.get(n.id)), last = nodes.length - 1;
+      const twins = s.closed && last > 1 && olds[last].at(-2) === olds[0].at(-2) && olds[last].at(-1) === olds[0].at(-1);
+      nodes.forEach((node, i) => {
+        const dx = node.values.at(-2) - olds[i].at(-2), dy = node.values.at(-1) - olds[i].at(-1);
+        if (!dx && !dy) return;
+        const slots = node.command === 'C' ? [[i, 2]] : [];
+        if (i < last && nodes[i+1].command === 'C') slots.push([i+1, 0]);
+        if (twins && (i === 0 || i === last)) slots.push([last-i, nodes[last-i].values.length-2]);
+        for (const [j, k] of slots) {
+          const v = nodes[j].values;
+          if (v[k] !== olds[j][k] || v[k+1] !== olds[j][k+1]) continue;
+          v[k] += dx; v[k+1] += dy; changed = true;
+        }
+      });
+    }
+  }
+}
+function propagatePreview(saved) {
+  const own = new Map(allNodes().map(n => [n.id, n]));
+  const target = gid => gid === geometry.id ? geometry : nodeLinks.peers[gid].geometry;
+  for (const [key, peers] of Object.entries(nodeLinks.links)) {
+    const cut = key.lastIndexOf('/'), node = own.get(key.slice(0, cut)), i = Number(key.slice(cut+1));
+    const [x, y] = node.values.slice(i, i+2), [bx, by] = saved.get(node.id).slice(i, i+2);
+    if (x === bx && y === by) continue;
+    for (const [gid, peerId, j, [a,b,c,d,e,f]] of peers) {
+      const peer = target(gid).subpaths.flatMap(s => s.nodes).find(n => n.id === peerId);
+      peer.values[j] = a*x + c*y + e; peer.values[j+1] = b*x + d*y + f;
+    }
+  }
+}
+function previewNodeDrag(node, offset, pos) {
+  const {own, peers} = drag.saved;
+  restoreValues(geometry, own);
+  for (const [gid, saved] of Object.entries(peers)) restoreValues(nodeLinks.peers[gid].geometry, saved);
+  node.values[offset] = pos.x; node.values[offset+1] = pos.y;
+  carryHandles(geometry, own);
+  propagatePreview(own);
+  drag.element.setAttribute('d', pathData());
+  for (const [gid, peer] of Object.entries(nodeLinks.peers)) {
+    carryHandles(peer.geometry, peers[gid]);
+    for (const oid of peer.objects) svgElement(oid)?.setAttribute('d', pathData(peer.geometry));
+  }
+}
 stage.addEventListener('pointerdown', event => {
   if (!state || pending || drag || ![0,1].includes(event.button)) return;
   const middle = event.button === 1;
@@ -768,7 +840,7 @@ stage.addEventListener('pointerdown', event => {
   if (tool === 'nodes' && nodeId) {
     const node=nodeById(nodeId), part=event.target.dataset.part;
     if (part === 'endpoint') activeNode=nodeId;
-    drag={...common,kind:'node',nodeId,part,before:[...node.values],element:svgElement(geometryObject),object:geometryObject};
+    drag={...common,kind:'node',nodeId,part,before:[...node.values],element:svgElement(geometryObject),object:geometryObject,saved:savedDragValues()};
     renderNodeInspector(); drawOverlay(); return;
   }
   const hits = hitStack(event.clientX, event.clientY);
@@ -802,14 +874,7 @@ stage.addEventListener('pointermove', event => {
     const node=nodeById(drag.nodeId);
     if (drag.part === 'endpoint' && node.pinned) return;
     const pos=snappedDrag(event,node), offset=drag.part === 'endpoint' ? node.values.length-2 : Number(drag.part);
-    if (drag.part === 'endpoint') {
-      // Both handles ride along, as the server moves them with the point.
-      const [x,y]=node.values.slice(-2), dx=pos.x-x, dy=pos.y-y, nodes=geometry.subpaths.find(s => s.nodes.includes(node)).nodes, next=nodes[nodes.indexOf(node)+1];
-      if (node.command === 'C') {node.values[2]+=dx; node.values[3]+=dy;}
-      if (next?.command === 'C') {next.values[0]+=dx; next.values[1]+=dy;}
-    }
-    node.values[offset]=pos.x; node.values[offset+1]=pos.y;
-    drag.element.setAttribute('d',pathData()); drawOverlay(); renderNodeInspector();
+    previewNodeDrag(node, offset, pos); drawOverlay(); renderNodeInspector();
   }
   if (drag.kind === 'move' && drag.moved) {
     for (const member of drag.members) {

@@ -6,6 +6,7 @@ import math
 from dataclasses import dataclass, replace
 from itertools import pairwise
 
+from vectrify.document.hit_test import IDENTITY, multiply
 from vectrify.document.model import (
     Document,
     DocumentError,
@@ -115,8 +116,8 @@ def validate_boundaries(document: Document) -> None:
                 )
 
 
-def propagate_node(document: Document, geometry_id: str, node: PathNode) -> Document:
-    """Apply a node edit to every equivalent endpoint/control coordinate."""
+def slot_graph(document: Document) -> dict:
+    """Map each shared coordinate pair to its peers and the transforms between."""
     # Pair coordinates, rather than individual x/y slots: rotation and skew
     # couple both axes when an endpoint or control handle moves.
     graph = {}
@@ -131,6 +132,36 @@ def propagate_node(document: Document, geometry_id: str, node: PathNode) -> Docu
                 graph.setdefault(b, []).append(
                     (a, member.matrix, inverse_matrix(first.matrix))
                 )
+    return graph
+
+
+def linked_slots(document: Document, geometry_id: str) -> dict:
+    """Every coordinate one geometry shares, with the peers an edit moves.
+
+    Each peer is (geometry, node, index, matrix): the matrix maps this
+    geometry's local point to the peer's, through all links on the way.
+    """
+    graph = slot_graph(document)
+    links = {}
+    for start in graph:
+        if start[0] != geometry_id:
+            continue
+        seen, stack = {start}, [(start, IDENTITY)]
+        while stack:
+            slot, matrix = stack.pop()
+            for peer, forward, inverse in graph[slot]:
+                if peer in seen:
+                    continue
+                seen.add(peer)
+                mapped = multiply(inverse, multiply(forward, matrix))
+                links.setdefault(start[1:], []).append((*peer, mapped))
+                stack.append((peer, mapped))
+    return links
+
+
+def propagate_node(document: Document, geometry_id: str, node: PathNode) -> Document:
+    """Apply a node edit to every equivalent endpoint/control coordinate."""
+    graph = slot_graph(document)
     original = document.geometry(geometry_id).node(node.id)
     assignments = {}
     pending = []
