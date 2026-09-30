@@ -1,8 +1,10 @@
-"""Fixed-topology, single-path GPU fitting in its frozen SVG context.
+"""Fixed-topology, single-path gradient fitting in its frozen SVG context.
 
 Cairo supplies the exact clipping, group opacity and painter-order context.
 Only selected path coverage is differentiable. Candidates are accepted using
 Cairo again, so renderer approximation cannot turn a worse fit into a result.
+The fit runs on CUDA with the native analytic kernel when it can, and otherwise
+on the CPU with the portable polyline coverage; outlines still need CUDA.
 """
 
 from __future__ import annotations
@@ -91,6 +93,21 @@ def gpu_problem() -> str | None:
     return None
 
 
+@functools.cache
+def fit_problem() -> str | None:
+    """Why path fitting cannot run at all here, or None when it can."""
+    try:
+        import torch  # noqa: F401
+    except ImportError:
+        return "Path fitting needs PyTorch"
+    return None
+
+
+def fit_device() -> str:
+    """CUDA when the native kernel can run there, otherwise the CPU."""
+    return "cuda" if gpu_problem() is None else "cpu"
+
+
 def validate_selection(document: Document, selection: Selection, options: FitOptions):
     if len(selection.object_ids) != 1 or selection.whole_document:
         raise DocumentError("Select one path to optimize")
@@ -115,9 +132,11 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
             "Outlined fills need closed contours, round or miter joins, "
             "and matching opaque fill/stroke colors"
         )
+    if style["stroke"] != "none" and gpu_problem():
+        raise DocumentError("Fitting an outlined shape needs an NVIDIA GPU")
     rgba = color(style["fill"])
     if rgba[3] != 1:
-        raise DocumentError("Use a solid fill with fill opacity for GPU fitting")
+        raise DocumentError("Use a solid fill with fill opacity for path fitting")
     geometry = document.geometry_for(oid)
     if document.dependents({oid}) != {oid}:
         raise DocumentError(
@@ -302,7 +321,7 @@ def fit_selected_path(
     progress: Callable[[int, str], None] | None = None,
 ) -> FitResult:
     """Expose the path-fit mutator's filled-path optimizer for an explicit selection."""
-    problem = gpu_problem()
+    problem = fit_problem()
     if problem:
         raise DocumentError(problem)
     import torch
@@ -313,7 +332,8 @@ def fit_selected_path(
     report = progress or (lambda _step, _message: None)
     report(0, "Preparing clipping and surrounding artwork…")
     context = FitContext(document, selection, target, options)
-    original = torch.tensor(context.local, dtype=torch.float32, device="cuda")
+    device = fit_device()
+    original = torch.tensor(context.local, dtype=torch.float32, device=device)
     linear = original.new_tensor(context.linear)
     inverse = torch.linalg.inv(linear)
     offset = original.new_tensor(context.offset)
@@ -410,7 +430,7 @@ def fit_selected_path(
     def observe(step, paths, colors):
         nonlocal completed, best, best_values, best_fill, best_image
         completed = step
-        report(step, f"Path-fit mutator · {step}/{options.steps} GPU steps")
+        report(step, f"Fitting path · step {step}/{options.steps}")
         if step and (step % 10 == 0 or step == options.steps or stop.is_set()):
             with torch.no_grad():
                 shifts = (local_from_controls(paths) - original) * movable
@@ -450,8 +470,8 @@ def fit_selected_path(
                 height = min(context.size[1], math.ceil((bottom - top) / 32) * 32)
                 left = min(left, context.size[0] - width)
                 top = min(top, context.size[1] - height)
-                rows = torch.arange(height, device="cuda")[:, None] + int(top)
-                cols = torch.arange(width, device="cuda")[None, :] + int(left)
+                rows = torch.arange(height, device=device)[:, None] + int(top)
+                cols = torch.arange(width, device=device)[None, :] + int(left)
                 pixels = (rows * context.size[0] + cols).reshape(-1)
                 stroke_tiles.setdefault((width, height), []).append(
                     (contour_index, start, int(left), int(top), pixels)
@@ -523,6 +543,7 @@ def fit_selected_path(
         coverage_transform=include_stroke
         if context.style["stroke"] != "none"
         else None,
+        device=device,
     )
     return FitResult(
         context.oid,

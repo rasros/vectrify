@@ -60,7 +60,7 @@ commands `start`, `check` (validate a request without running it), `status`,
 | generate | `samvg` | Traces SAM segments of the reference into a new group |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | generate | `llm` | Asks an LLM to draw the reference region as SVG |
-| improve | `path-fit` | GPU fitting of one selected path's nodes, handles and colour |
+| improve | `path-fit` | Gradient fitting of one selected path's nodes, handles and colour (CUDA, or the CPU for unstroked fills) |
 | improve | `nodes` | CPU search over the selected paths' points: move, split, remove, shift, stroke |
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |

@@ -14,8 +14,8 @@ from vectrify.operations.contract import (
 )
 from vectrify.refine.selected import (
     FitOptions,
+    fit_problem,
     fit_selected_path,
-    gpu_problem,
     validate_selection,
 )
 
@@ -46,9 +46,10 @@ class PathFit:
     def validate(self, request: OperationRequest) -> None:
         if request.reference is None:
             raise DocumentError("Add a reference image before optimizing a path")
-        problem = gpu_problem()
+        problem = fit_problem()
         if problem:
             raise DocumentError(problem)
+        # Unstroked fills fit on the CPU too; outlines raise here without CUDA.
         validate_selection(
             request.snapshot.document, request.snapshot.selection, fit_options(request)
         )

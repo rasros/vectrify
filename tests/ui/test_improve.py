@@ -38,10 +38,10 @@ SELECTION = Selection(object_ids=frozenset({"a"}))
 
 
 @pytest.fixture(autouse=True)
-def gpu_ready(monkeypatch):
-    """These tests stub the fit itself, so they need no GPU to pass the check."""
+def fit_ready(monkeypatch):
+    """These tests stub the fit itself, so they need no PyTorch to pass the check."""
     monkeypatch.setattr(
-        "vectrify.operations.methods.path_fit.gpu_problem", lambda: None
+        "vectrify.operations.methods.path_fit.fit_problem", lambda: None
     )
 
 
@@ -434,3 +434,94 @@ def test_closed_contours_of_any_length_move(curves):
     )
     assert result.values
     assert result.after < result.before
+
+
+@pytest.fixture
+def cpu_only(monkeypatch):
+    """Hide CUDA from the path fitter, as on a machine without a GPU."""
+    pytest.importorskip("torch")
+    monkeypatch.setattr(
+        "vectrify.refine.selected.gpu_problem",
+        lambda: "GPU fitting needs an NVIDIA GPU with CUDA",
+    )
+
+
+@pytest.mark.parametrize("curves", [4, 40])
+@pytest.mark.usefixtures("cpu_only")
+def test_cpu_fit_moves_an_offset_fill_toward_the_reference(curves):
+    svg = _ring(curves)
+    result = fit_selected_path(
+        import_svg(svg),
+        SELECTION,
+        target(svg.replace('id="a"', 'id="a" transform="translate(3 2)"')),
+        FitOptions(color=False, steps=20, resolution=64, displacement=4),
+    )
+    assert result.values
+    assert result.after < result.before * 0.7
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_cpu_fit_refuses_outlined_shapes_clearly():
+    outlined = SVG.replace(
+        'fill="#800000"', 'fill="#800000" stroke="#800000" stroke-width="3"'
+    )
+    with pytest.raises(DocumentError, match="outlined shape needs an NVIDIA GPU"):
+        validate_selection(import_svg(outlined), SELECTION, FitOptions())
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_path_fit_check_accepts_unstroked_fills_without_a_gpu():
+    session = Session(import_svg(SVG), reference=reference(target()))
+    session.editor.select(SELECTION)
+
+    def check(checked):
+        return checked.operation(
+            {
+                "command": "check",
+                "action": "improve",
+                "method": "path-fit",
+                "epoch": checked.epoch,
+                "revision": checked.editor.snapshot.revision,
+                "permissions": {"geometry": True},
+                "settings": {"nodes": True, "handles": True, "color": False},
+            }
+        )
+
+    assert check(session) == {"ok": True}
+    outlined = Session(
+        import_svg(
+            SVG.replace(
+                'fill="#800000"', 'fill="#800000" stroke="#800000" stroke-width="3"'
+            )
+        ),
+        reference=reference(target()),
+    )
+    outlined.editor.select(SELECTION)
+    assert check(outlined) == {
+        "ok": False,
+        "error": "Fitting an outlined shape needs an NVIDIA GPU",
+    }
+
+
+@pytest.mark.parametrize("curves", [4, 40])
+def test_cpu_coverage_matches_the_native_kernel(curves):
+    require_gpu()
+    import torch
+
+    from vectrify.refine.cuda_renderer import multi_coverage
+    from vectrify.refine.paths import _fused_chunks, parse_filled_cubics
+    from vectrify.refine.soft_coverage import soft_coverage
+
+    d = import_svg(_ring(curves)).geometry_for("a").path_data()
+    contours = [torch.tensor(c, dtype=torch.float32) for c in parse_filled_cubics(d)]
+    box = (0, 0, 64, 64)
+    soft = soft_coverage(contours, box)
+    packed = torch.cat([_fused_chunks(c.cuda()) for c in contours])
+    native = multi_coverage(
+        packed, [0, len(packed)], box, subpixels=2, fill_rule="nonzero"
+    )
+    assert native is not None
+    difference = (soft - native[0].cpu()).abs()
+    assert float(difference.mean()) < 0.01
+    assert float(difference.max()) < 0.4
+    assert abs(float(soft.sum() - native[0].sum())) < 5
