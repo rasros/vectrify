@@ -67,6 +67,11 @@ LINE_WIDTH = 4
 # With a fitting tolerance, outlines are first traced with one curve per this
 # many pixels and then simplified down to the tolerance.
 DENSITY = 6
+# What a pixel pays, in squared RGB (0-1), for each neighbour of another
+# region when edges are moved onto the image's; see ``refine_edges``.
+EDGE_SMOOTHNESS = float(os.environ.get("VECTRIFY_SAMVG_EDGE_SMOOTHNESS", "0.01"))
+# How far, in SAM pixels, an edge may move.
+EDGE_BAND = float(os.environ.get("VECTRIFY_SAMVG_EDGE_BAND", "6"))
 # Outlines are smoothed over this many SAM pixels before curves are fitted,
 # so the fit does not follow the masks' raster steps.
 SAMVG_SMOOTH = float(os.environ.get("VECTRIFY_SAMVG_SMOOTH", "1.0"))
@@ -1487,6 +1492,71 @@ def _without_slivers(
     ]
 
 
+def refine_edges(
+    layers: list[MaskLayer],
+    image: Image.Image,
+    *,
+    band: int,
+    smoothness: float = EDGE_SMOOTHNESS,
+) -> list[MaskLayer]:
+    """Move region edges onto the image's own edges, at its full resolution.
+
+    SAM decodes a mask on a coarse grid, a few image pixels a cell, so a thin
+    spike or notch narrower than that is smoothed away. Here every pixel
+    within *band* of an edge between regions may change to a neighbouring
+    region whose colour it matches better, paying *smoothness* (squared RGB,
+    0-1) for each neighbour it then differs from; repeating that grows a
+    region back into the spikes it lost, one pixel a round. A pixel only
+    changes to a region it touches, and only which region shows where
+    changes: a pixel that changed belongs to its new region alone.
+    """
+    if not layers or band <= 0:
+        return layers
+    target = np.asarray(image.convert("RGB"), dtype=np.float64) / 255
+    owner = np.zeros(layers[0].mask.shape, dtype=np.int32)
+    for index, layer in enumerate(layers, start=1):
+        owner[layer.mask] = index
+    start = owner.copy()
+    count = len(layers) + 1
+    sums = np.zeros((count, 3))
+    for channel in range(3):
+        sums[:, channel] = np.bincount(
+            owner.ravel(), weights=target[..., channel].ravel(), minlength=count
+        )
+    sizes = np.bincount(owner.ravel(), minlength=count)
+    colours = sums / np.maximum(sizes, 1)[:, None]
+    edge = np.zeros(owner.shape, dtype=bool)
+    edge[1:] |= owner[1:] != owner[:-1]
+    edge[:-1] |= owner[1:] != owner[:-1]
+    edge[:, 1:] |= owner[:, 1:] != owner[:, :-1]
+    edge[:, :-1] |= owner[:, 1:] != owner[:, :-1]
+    near = _binary_dilation(edge, band) & (owner > 0)
+    shifts = ((0, 1), (0, -1), (1, 1), (1, -1))
+    for _ in range(band):
+        neighbours = [np.roll(owner, shift, axis=axis) for axis, shift in shifts]
+        best = owner.copy()
+        best_cost = np.full(owner.shape, np.inf)
+        for candidate in [owner, *neighbours]:
+            data = np.sum((target - colours[candidate]) ** 2, axis=2)
+            differing = sum((n != candidate).astype(np.float64) for n in neighbours)
+            cost = data + smoothness * differing
+            take = near & (candidate > 0) & (cost < best_cost)
+            best[take] = candidate[take]
+            best_cost[take] = cost[take]
+        if np.array_equal(best, owner):
+            break
+        owner = best
+    changed = owner != start
+    if not changed.any():
+        return layers
+    result = []
+    for index, layer in enumerate(layers, start=1):
+        # A pixel that changed region belongs to that region alone.
+        mask = layer.mask & ~changed | (changed & (owner == index))
+        result.append(replace(layer, mask=mask))
+    return result
+
+
 def merge_patches(
     layers: list[MaskLayer], image: Image.Image, *, min_impact: float
 ) -> list[MaskLayer]:
@@ -1719,6 +1789,7 @@ def generate_svg(
     merge: bool = False,
     outlines: int = 0,
     tolerance: float = 0.0,
+    refine: bool = False,
     backdrop: bool = False,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
@@ -1761,6 +1832,10 @@ def generate_svg(
         flatten=flatten,
         min_pixels=min_pixels,
     )
+    width, height = image.size
+    scale = max(1.0, max(width, height) / max_side) if max_side else 1.0
+    if refine:
+        layers = refine_edges(layers, image, band=round(EDGE_BAND * scale))
     if merge:
         layers = merge_patches(layers, image, min_impact=min_impact)
     lines: list[MaskLayer] = []

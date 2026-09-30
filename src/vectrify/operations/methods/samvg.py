@@ -46,6 +46,8 @@ SETTINGS = {
     "merge": Setting(bool, True),
     # Trace the reference's drawn lines as a layer of their own on top.
     "outlines": Setting(bool, True),
+    # Move region edges onto the reference's own, finer than SAM's masks.
+    "refine": Setting(bool, True),
     "max_side": Setting(int, SAMVG_MAX_SIDE, minimum=64, maximum=4096),
     "model": Setting(
         str,

@@ -208,7 +208,10 @@ thinnest region to keep: regions narrower than that everywhere, such as
 outlines and hairlines, are left out (0 keeps everything). Regions hidden entirely by
 those above are left out, and a backdrop rectangle beneath them all, in the
 colour of what no region claims (usually the drawn outlines), fills the gaps
-between regions. **Trace drawn outlines** (on by default) finds the dark lines drawn in the
+between regions. **Snap edges to the reference** (on by default) moves each region's edge onto
+the reference's own edges nearby, since SAM's masks are coarser than the image
+and smooth away thin spikes and notches.
+**Trace drawn outlines** (on by default) finds the dark lines drawn in the
 reference, traces them as one layer on top in their own colour, and fills the
 regions in beneath them, since SAM gives an outline to neither side.
 **Merge small patches** (on by default) joins neighbouring regions whose
