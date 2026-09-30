@@ -33,6 +33,9 @@ SETTINGS = {
     "min_impact": Setting(float, 3e-6, minimum=0, label="minimum impact"),
     "max_layers": Setting(int, 512, minimum=1, maximum=4096, label="maximum layers"),
     "segments": Setting(int, 16, minimum=4, maximum=256, label="curve segments"),
+    # How far an outline may stray from its region, in reference pixels: each
+    # is traced densely and simplified to it. 0 traces *segments* curves each.
+    "tolerance": Setting(float, 0.5, minimum=0.0, maximum=10.0, label="tolerance"),
     "fill_holes": Setting(bool, True),
     # Regions narrower than this everywhere, in reference pixels, are left
     # out: SAM returns outlines and hairlines as regions of their own.
@@ -82,6 +85,7 @@ def _enlarged(region: Region, settings: dict) -> tuple[Region, dict]:
     return replace(region, image=image), {
         **settings,
         "min_width": round(settings["min_width"] * scale),
+        "tolerance": settings["tolerance"] * scale,
         "min_pixels": round(settings["min_pixels"] * scale * scale),
     }
 

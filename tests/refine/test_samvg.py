@@ -1,8 +1,10 @@
+import io
 import sys
 import xml.etree.ElementTree as ET
 from contextlib import nullcontext
 from types import SimpleNamespace
 
+import cairosvg
 import numpy as np
 from PIL import Image
 
@@ -536,6 +538,28 @@ def test_smoothing_takes_the_steps_out_of_an_enlarged_raster_edge():
         return float(np.std(near[:, 1] - near[:, 0]))
 
     assert spread(3.0) < 0.5 * spread(0.0)
+
+
+def test_a_tolerance_traces_each_outline_with_the_curves_it_needs():
+    yy, xx = np.mgrid[0:120, 0:120]
+    circle = (xx - 60) ** 2 + (yy - 60) ** 2 < 45**2
+    image = Image.fromarray(
+        np.where(circle[..., None], 40, 220).astype(np.uint8).repeat(3, axis=2)
+    )
+    layer = MaskLayer(circle, (40, 40, 40), 1.0)
+    fixed = samvg._layer_svg_attributes(layer, 64, smooth=1.0)[0]["d"]
+    fitted = samvg._layer_svg_attributes(layer, 64, smooth=1.0, tolerance=0.5)[0]["d"]
+
+    assert fitted.count("C") < fixed.count("C") / 3
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">'
+        f'<rect width="120" height="120" fill="#dcdcdc"/><path d="{fitted}" '
+        'fill="#282828"/></svg>'
+    )
+    png = cairosvg.svg2png(bytestring=svg.encode())
+    assert png is not None
+    rendered = np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=float)
+    assert np.abs(rendered - np.asarray(image.convert("L"), dtype=float)).mean() < 2
 
 
 def test_mask_path_supports_the_variable_segment_tracing_variation():
