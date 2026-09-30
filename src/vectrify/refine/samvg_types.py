@@ -15,6 +15,8 @@ class MaskLayer:
     colour: tuple[int, int, int]
     impact: float
     overlap_pixels: int = 0
+    # The colour and width it is outlined with, where its edge is drawn.
+    stroke: tuple[tuple[int, int, int], float] | None = None
 
 
 @dataclass(frozen=True)

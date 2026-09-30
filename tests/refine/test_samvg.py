@@ -32,8 +32,8 @@ from vectrify.refine.samvg import (
     recolour_visible_layers,
     refine_edges,
     residual_prompt_points,
+    stroked_regions,
     thinner_than,
-    with_line_art,
 )
 from vectrify.refine.samvg_runtime import device_name, pipeline_options
 
@@ -854,27 +854,46 @@ def test_merging_folds_what_is_not_worth_a_shape_into_a_neighbour():
     assert orange.colour[2] < 100
 
 
-def test_drawn_lines_are_found_and_regions_fill_in_beneath_them():
+def test_drawn_lines_are_found_but_not_wide_dark_areas():
     pixels = np.full((80, 80, 3), 220, dtype=np.uint8)
-    # Two light regions with a dark three-pixel line between them, and a
-    # dark block far too wide to be a line.
-    pixels[:, 40:] = (200, 210, 120)
     pixels[:, 39:42] = (30, 30, 30)
     pixels[60:78, 2:30] = (30, 30, 30)
-    image = Image.fromarray(pixels)
-    ink = line_art(image, 6)
+    ink = line_art(Image.fromarray(pixels), 6)
     assert ink[:, 39:42].mean() > 0.9
     assert not ink[65:72, 8:24].any()
 
-    left = np.zeros((80, 80), dtype=bool)
-    left[:, :39] = True
-    right = np.zeros((80, 80), dtype=bool)
-    right[:, 42:] = True
-    layers, lines = with_line_art([_layer(left), _layer(right)], image, 6)
-    assert len(lines) == 1
-    assert lines[0].colour == (30, 30, 30)
-    # Nothing beneath the line is left for the backdrop.
-    assert (layers[0].mask | layers[1].mask)[:, 39:42].all()
+
+def test_a_drawn_outline_becomes_the_stroke_of_the_region_it_bounds():
+    yy, xx = np.mgrid[0:100, 0:100]
+    distance = np.hypot(xx - 50, yy - 50)
+    pixels = np.full((100, 100, 3), (220, 170, 90), dtype=np.uint8)
+    inside = distance < 30
+    pixels[inside] = (170, 160, 70)
+    # A patch of shading inside the drawn outline, with no line around it.
+    shade = inside & (xx > 55)
+    pixels[shade] = (160, 150, 64)
+    pixels[np.abs(distance - 30) < 1.5] = (40, 40, 30)
+    image = Image.fromarray(pixels)
+    # SAM gave the line to the outer region and split the shading off.
+    outer = _layer(distance >= 28.5)
+    tuft = _layer(inside & ~shade & (distance < 28.5))
+    shading = _layer(shade & (distance < 28.5))
+
+    layers = stroked_regions([outer, tuft, shading], image, 6)
+
+    # The shading is part of the drawn area; the background is not stroked
+    # (it lies along the image's border), the area inside the outline is.
+    assert len(layers) == 2
+    background, drawn = layers
+    assert background.stroke is None
+    assert drawn.stroke is not None
+    (red, green, blue), width = drawn.stroke
+    assert max(red, green, blue) < 80
+    assert 1.5 < width < 5
+    # The regions meet at the middle of the line.
+    assert drawn.mask[50, 50 - 29]
+    assert not drawn.mask[50, 50 - 31]
+    assert drawn.mask[shade & (distance < 27)].all()
 
 
 def test_a_flattened_layer_cut_in_two_becomes_two_regions():
