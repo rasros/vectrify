@@ -365,8 +365,9 @@ class Transaction:
         if self._closed or self._failed:
             raise EditRejectedError("Transaction is closed or has a failed edit")
         self._failed = True
+        before = self._working
         yield
-        self._working.validate()
+        self._working.validate(since=before)
         self._failed = False
 
     def _check_locks(

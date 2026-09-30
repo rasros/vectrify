@@ -90,26 +90,42 @@ class Edge:
 
 
 def edge(document: Document, ref: EdgeRef) -> Edge:
-    geometry = document.geometry(ref.geometry_id)
-    for subpath in geometry.subpaths:
-        for i, node in enumerate(subpath.nodes):
-            if node.id != ref.node_id:
-                continue
-            if i == 0 and (not subpath.closed or len(subpath.nodes) < 2):
-                raise DocumentError("Moveto has no incoming edge in an open subpath")
-            return Edge(ref, subpath.nodes[i - 1], node, subpath.id, i == 0)
-    raise DocumentError(f"Unknown edge node: {ref.node_id}")
+    position = document.node_position(ref.geometry_id, ref.node_id)
+    if position is None:
+        raise DocumentError(f"Unknown edge node: {ref.node_id}")
+    subpath, i = position
+    if i == 0 and (not subpath.closed or len(subpath.nodes) < 2):
+        raise DocumentError("Moveto has no incoming edge in an open subpath")
+    node = subpath.nodes[i]
+    return Edge(ref, subpath.nodes[i - 1], node, subpath.id, i == 0)
 
 
-def validate_boundaries(document: Document) -> None:
+def validate_boundaries(document: Document, since: Document | None = None) -> None:
+    """Check every edge belongs to one link at most and linked edges match.
+
+    With *since*, a valid document this one was edited from, the coordinates
+    are compared only for links that are new or touch a changed geometry.
+    """
+    unchanged: set[str] = set()
+    known: set[int] = set()
+    if since is not None:
+        unchanged = {
+            g.id for g in document.geometries if since._index()[0].get(g.id) is g
+        }
+        known = {id(boundary) for boundary in since.boundaries}
     seen = set()
     for boundary in document.boundaries:
-        points = edge(document, boundary.members[0]).points
         for member in boundary.members:
             key = member.geometry_id, member.node_id
             if key in seen:
                 raise DocumentError("An edge may belong to only one shared boundary")
             seen.add(key)
+        if id(boundary) in known and all(
+            member.geometry_id in unchanged for member in boundary.members
+        ):
+            continue
+        points = edge(document, boundary.members[0]).points
+        for member in boundary.members:
             if not close_points(edge(document, member).points, points):
                 raise DocumentError(
                     "Shared edges must have identical oriented coordinates"
