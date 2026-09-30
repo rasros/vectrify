@@ -22,7 +22,7 @@ const SNAP_RADIUS = 8;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
 const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
-const hints = {select: 'Click to select · Double-click a group to enter it, a path to edit its points · Drag elsewhere to box select, a selected object to move it', nodes: 'Click or box select points, Shift to add · Drag to move them · Alt or Ctrl/⌘ drags without snapping', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
+const hints = {select: 'Click to select · Double-click a group to enter it, a path to edit its points · Drag elsewhere to box select, a selected object to move it', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from the selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -385,38 +385,112 @@ function renderRelationships(item) {
   }
   for (const consumer of consumers) link(objectContext(consumer).inClip ? 'Used for clipping by' : consumer.tag === 'use' ? 'Drawn by' : 'Clips', consumer);
 }
-// Disable a button with the reason as its tooltip, or enable it with its own.
-function enable(id, reason) {
-  const button = $(id);
+// Disable a control with the reason as its tooltip, or enable it with its own.
+function enable(element, reason) {
+  const button = typeof element === 'string' ? $(element) : element;
   button.dataset.title ??= button.title;
   button.disabled = !!reason;
   button.title = reason || button.dataset.title;
 }
+// Every command the selection offers, the tool strip, the Actions list, the
+// context menu and the command palette run. *disabled* gives the reason it
+// cannot run now, or ''; *level* limits it to object or point tools.
+const noSelection = () => !state?.selection.objects.length && 'Select objects first';
+const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (N) first');
+const visiblePaths = () => state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
+const noReference = () => !state.reference && 'Add a reference image first (Trace tool, T)';
+const COMMANDS = [
+  {id: 'to-back', name: 'Send to back', group: 'Arrange', keys: 'Ctrl/⌘ Shift [', run: () => action('reorder', {to: 'back'}),
+    disabled: () => noSelection() || (state.selection.objects.some(id => object(id)?.resource) && 'Definitions and clipping boundaries keep their place')},
+  {id: 'backward', name: 'Send backward', group: 'Arrange', keys: 'Ctrl/⌘ [', run: () => action('reorder', {step: -1}), disabled: () => !oneObject() && 'Select one object to restack'},
+  {id: 'forward', name: 'Bring forward', group: 'Arrange', keys: 'Ctrl/⌘ ]', run: () => action('reorder', {step: 1}), disabled: () => !oneObject() && 'Select one object to restack'},
+  {id: 'to-front', name: 'Bring to front', group: 'Arrange', keys: 'Ctrl/⌘ Shift ]', run: () => action('reorder', {to: 'front'}),
+    disabled: () => noSelection() || (state.selection.objects.some(id => object(id)?.resource) && 'Definitions and clipping boundaries keep their place')},
+  {id: 'enter-group', name: 'Enter group', group: 'Select', keys: 'Double-click', run: () => enterObject(oneObject().id), disabled: () => oneObject()?.tag !== 'g' && 'Select one group'},
+  {id: 'edit-points', name: 'Edit points', group: 'Select', keys: 'Double-click', run: () => enterObject(oneObject().id), disabled: () => (oneObject()?.tag !== 'path' || oneObject().resource) && 'Select one visible path'},
+  {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', run: stepUp, disabled: () => !state.selection.objects.length && !scope && 'Nothing to step up from'},
+  {id: 'rename', name: 'Rename…', group: 'Object', keys: 'F2', run: renameObject, disabled: () => !oneObject() && 'Select one object to rename'},
+  {id: 'group', name: 'Group', group: 'Actions', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
+  {id: 'ungroup', name: 'Ungroup', group: 'Actions', run: () => action('ungroup'),
+    disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
+  {id: 'join', name: 'Join paths…', group: 'Actions', run: openJoin, disabled: () => joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them'},
+  {id: 'split-parts', name: 'Split parts', group: 'Actions', run: splitParts,
+    disabled: () => noSelection() || (oneObject()?.tag === 'use' ? 'Detach this instance to an editable path first' : !visiblePaths() && 'Only visible paths can be split')},
+  {id: 'cut-hole', name: 'Cut out as hole', group: 'Actions', run: cutHole,
+    disabled: () => (state.selection.objects.length !== 2 || !visiblePaths()) && 'Select two visible paths, one inside or overlapping the other'},
+  {id: 'holes', name: 'Holes…', group: 'Actions', run: inspectHoles, disabled: () => (oneObject()?.tag !== 'path' || oneObject().resource) && 'Select one visible path'},
+  {id: 'snap-edges', name: 'Snap edges…', group: 'Actions', run: openSnapEdges,
+    disabled: () => state.selection.objects.length < 2 ? 'Select two or more paths' : !visiblePaths() && 'Every object must be a visible path'},
+  {id: 'cleanup', name: 'Clean up…', group: 'Actions', run: openCleanup, disabled: noSelection},
+  {id: 'detach', name: 'Detach', label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Actions', run: () => action('detach'),
+    disabled: () => !['path', 'use'].includes(oneObject()?.tag) && 'Select one path or instance'},
+  {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', level: 'objects', run: () => action('delete'), disabled: noSelection},
+  {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
+  {id: 'handles-0', name: 'No handles', group: 'Points', keys: '1', run: () => pointHandles(0), disabled: noPoints},
+  {id: 'handles-1', name: 'One handle', group: 'Points', keys: '2', run: () => pointHandles(1), disabled: noPoints},
+  {id: 'handles-2', name: 'Two handles', group: 'Points', keys: '3', run: () => pointHandles(2), disabled: noPoints},
+  {id: 'pin', name: 'Pin points', label: () => selectedPoints().length && selectedPoints().every(key => nodeAt(key)?.pinned) ? 'Unpin points' : 'Pin points', group: 'Points',
+    run: () => action('pin', {points: pointPairs(), pinned: !selectedPoints().every(key => nodeAt(key)?.pinned)}), disabled: noPoints},
+  {id: 'split-edge', name: 'Split edge', group: 'Points', run: () => action('split', {points: pointPairs()}),
+    disabled: () => noPoints() || (selectedPoints().every(key => nodeAt(key)?.command === 'M' && !contourAt(key)?.closed) && 'A start point has no edge leading into it')},
+  {id: 'delete-points', name: 'Delete points', group: 'Points', keys: 'Delete', run: () => action('delete_node', {points: pointPairs()}, 'Deleting points…'),
+    disabled: () => noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them')},
+  {id: 'delete-contour', name: 'Delete contour', group: 'Points', run: () => action('delete_contour', {points: pointPairs()}, 'Deleting contours…'),
+    disabled: () => noPoints() || (selectedPoints().some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it')},
+  {id: 'fill-hole', name: 'Fill hole', group: 'Points', run: fillPointHoles, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes of one path')},
+  {id: 'hole-to-shape', name: 'Hole to shape', group: 'Points', run: pointHolesToShapes, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes of one path')},
+];
+const commandById = new Map(COMMANDS.map(command => [command.id, command]));
+const commandName = command => command.label?.() || command.name;
+function commandRefusal(command) {
+  if (!state) return 'The drawing is still opening';
+  if (pending) return 'Wait for the current edit to finish';
+  return command.disabled?.() || '';
+}
+function runCommand(id) {
+  const command = commandById.get(id), reason = command && commandRefusal(command);
+  if (!command) return;
+  if (reason) { toast(reason, true); return; }
+  return command.run();
+}
+function pointHandles(count) { return action('node_handles', {points: pointPairs(), count}, 'Changing handles…'); }
+function renameObject() { $('object-name').focus(); $('object-name').select(); }
+// Buttons naming a command in data-command take its state and run it.
+function renderCommands() {
+  for (const button of document.querySelectorAll('[data-command]')) {
+    const command = commandById.get(button.dataset.command); if (!command) continue;
+    if (!button.dataset.title) button.dataset.title = button.title || `${commandName(command)}${command.keys ? ` (${command.keys})` : ''}`;
+    enable(button, command.disabled?.() || '');
+    if (button.dataset.label === 'command') button.firstChild.textContent = commandName(command);
+  }
+}
+document.addEventListener('click', event => {
+  const button = event.target.closest('[data-command]');
+  if (button && !button.closest('#context-menu')) runCommand(button.dataset.command);
+});
+// The right panel shows the selection's properties: with points selected their
+// coordinates and handles first, then the objects' name, paint and locks, and
+// the actions on them.
 function renderInspector() {
   const selected = state.selection.objects, item = oneObject();
   $('object-name-section').hidden = !item;
   $('object-name').value = item?.name || '';
   $('object-name').placeholder = item?.label || 'Automatic name';
   $('object-name').dataset.objectId = item?.id || '';
-  const editingNodes = tool === 'nodes';
-  $('inspector-title').textContent = editingNodes ? 'Edit nodes' : 'Inspector';
-  $('node-inspector').hidden = !editingNodes;
-  $('empty-inspector').hidden = editingNodes || !!selected.length;
-  $('object-inspector').hidden = editingNodes || !selected.length;
+  $('inspector-title').textContent = holePlan ? 'Holes' : 'Properties';
+  $('hole-inspector').hidden = !holePlan;
+  $('empty-inspector').hidden = !!holePlan || !!selected.length;
+  $('properties').hidden = !!holePlan || !selected.length;
   $('selection-kind').textContent = item?.tag || (selected.length ? 'Multiple' : 'Drawing');
-  $('selected-id').textContent = item?.label || `${selected.length} objects`;
-  $('selection-status').textContent = selected.length ? `${selected.length} selected` : 'Nothing selected';
+  for (const controls of document.querySelectorAll('[data-tools]')) controls.hidden = !controls.dataset.tools.split(' ').includes(tool);
   renderNodeInspector();
-  const paths = selected.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
-  const noReference = !state.reference && 'Add a reference image first (Reference, left panel)';
-  enable('snap-edges', selected.length < 2 ? 'Select two or more paths' : !paths && 'Every object must be a visible path');
   $('empty-reference-hint').hidden = !!state.reference;
-  if (editingNodes) return;
   renderRelationships(item);
+  const noRef = noReference();
   enable('nodes-open', !selected.some(id => ['path','g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them');
-  enable('llm-open', noReference);
-  enable('colours-open', noReference);
-  enable('retrace', noReference || ((!selected.length || !paths) && 'Select one or more visible paths'));
+  enable('llm-open', noRef);
+  enable('colours-open', noRef);
+  enable('retrace', noRef || ((!selected.length || !visiblePaths()) && 'Select one or more visible paths'));
   $('optimize-hint').textContent = state.reference ? 'Compare with the reference image. Retrace applies at once as one undoable edit; the other tools show a preview first.' :'These tools compare the drawing with a reference image. Add one under Reference on the left to use them.';
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
@@ -431,7 +505,6 @@ function renderInspector() {
     const sources = [...new Set(selected.map(id=>paintSource(id,kind)))];
     $(`${kind}-source`).textContent = !value ? 'Mixed colors' : sources.length === 1 ? sources[0] : 'Different paint sources';
     picker.title = `${kind === 'fill' ? 'Fill' : 'Stroke'}: ${hex || value || 'mixed'} · ${$(`${kind}-source`).textContent}`;
-
   }
   const strokeWidth = paintValue('stroke-width', '1');
   $('stroke-width').value = strokeWidth ? parseFloat(strokeWidth) : '';
@@ -440,18 +513,69 @@ function renderInspector() {
     input.disabled = !item; input.checked = item?.locks.includes(input.dataset.lock) || false;
     input.parentElement.title = item ? '' : 'Select one object to change its locks';
   });
-  enable('group', selected.length < 2 && 'Select two or more objects to group');
-  enable('ungroup', !selected.every(id => object(id)?.tag === 'g') && 'Select one or more groups');
-  for (const id of ['backward', 'forward']) enable(id, !item && 'Select one object to restack');
-  for (const id of ['to-back', 'to-front']) enable(id, selected.some(id => object(id)?.resource) && 'Definitions and clipping boundaries keep their place');
-  enable('join_paths', joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them');
-  enable('split_disconnected', item?.tag === 'use' ? 'Detach this instance to an editable path first' : !paths && 'Only visible paths can be split');
-  enable('cut_hole', (selected.length !== 2 || !paths) && 'Select two visible paths, one inside or overlapping the other');
-  enable('detach', (!item || !['path', 'use'].includes(item.tag)) && 'Select one path or instance');
-  $('detach').textContent = item?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry';
-  $('hole-section').hidden = !item || item.tag !== 'path' || item.resource;
+  renderCommands();
   renderHoles();
 }
+// The context menu offers the selection's commands where the pointer is.
+const MENU_GROUPS = {objects: ['Select', 'Arrange', 'Object', 'Actions'], points: ['Points', 'Actions']};
+function openContextMenu(x, y) {
+  const menu = $('context-menu'), groups = MENU_GROUPS[level() === 'points' ? 'points' : 'objects'];
+  menu.replaceChildren();
+  for (const group of groups) {
+    const commands = COMMANDS.filter(command => command.group === group && (!command.level || command.level === level()) && !(command.id === 'delete' && level() === 'points'));
+    // Only what applies here: the palette lists the rest, with the reason.
+    const shown = commands.filter(command => command.id !== 'step-up' && !command.disabled?.());
+    if (!shown.length) continue;
+    if (menu.children.length) menu.append(Object.assign(document.createElement('div'), {className: 'menu-divider', role: 'separator'}));
+    for (const command of shown) {
+      const item = document.createElement('button');
+      item.className = 'menu-item'; item.setAttribute('role', 'menuitem'); item.dataset.command = command.id;
+      const reason = commandRefusal(command);
+      item.disabled = !!reason; item.title = reason;
+      const name = document.createElement('span'); name.textContent = commandName(command);
+      const keys = document.createElement('kbd'); keys.textContent = command.keys || '';
+      item.append(name, keys);
+      item.onclick = () => { closeContextMenu(); runCommand(command.id); };
+      menu.append(item);
+    }
+  }
+  if (!menu.children.length) return;
+  menu.hidden = false;
+  const box = menu.getBoundingClientRect();
+  menu.style.left = `${Math.min(x, innerWidth - box.width - 8)}px`;
+  menu.style.top = `${Math.min(y, innerHeight - box.height - 8)}px`;
+  menu.querySelector('.menu-item:not(:disabled)')?.focus();
+}
+function closeContextMenu() { $('context-menu').hidden = true; }
+window.addEventListener('pointerdown', event => { if (!event.target.closest('#context-menu')) closeContextMenu(); }, true);
+window.addEventListener('blur', closeContextMenu);
+$('context-menu').addEventListener('keydown', event => {
+  const items = [...$('context-menu').querySelectorAll('.menu-item:not(:disabled)')], i = items.indexOf(document.activeElement);
+  if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeContextMenu(); stage.focus(); }
+  if (['ArrowDown', 'ArrowUp'].includes(event.key) && items.length) { event.preventDefault(); items[(i + (event.key === 'ArrowDown' ? 1 : items.length - 1)) % items.length].focus(); }
+});
+// Right-clicking something unselected selects it first, as a click would.
+stage.addEventListener('contextmenu', async event => {
+  event.preventDefault();
+  if (!state || pending || drag) return;
+  const x = event.clientX, y = event.clientY;
+  if (level() === 'objects' || level() === 'points') {
+    const hits = hitStack(x, y), targets = hits.length ? clickTargets(hits) : [];
+    const node = event.target.dataset?.node && pointKey(event.target.dataset.object, event.target.dataset.node);
+    if (node && level() === 'points' && !selectedPoints().includes(node)) await selectPoints([...new Set([...state.selection.objects, splitKey(node)[0]])], [node]);
+    else if (!node && targets.length && !targets.some(id => state.selection.objects.includes(id))) await selectObject(targets[0]);
+  }
+  await queue;
+  openContextMenu(x, y);
+});
+$('objects').addEventListener('contextmenu', async event => {
+  const row = event.target.closest('.object-row'); if (!row) return;
+  event.preventDefault();
+  if (!state || pending) return;
+  if (!state.selection.objects.includes(row.dataset.object)) await selectObject(row.dataset.object);
+  await queue;
+  openContextMenu(event.clientX, event.clientY);
+});
 async function selectObject(id, additive = false, focus = false) {
   clickCycle = null;
   if (pending) return;
@@ -546,33 +670,46 @@ function focusedPoint() {
   const points = selectedPoints();
   return points.includes(focusPoint) ? focusPoint : points.length === 1 ? points[0] : null;
 }
+// How many handles a point has: its incoming one and the next segment's
+// outgoing one, where they are not retracted onto it.
+function handleCount(key) {
+  const node = nodeAt(key), contour = contourAt(key); if (!node) return 0;
+  const point = node.values.slice(-2), next = contour.nodes[contour.nodes.indexOf(node) + 1];
+  const apart = handle => handle[0] !== point[0] || handle[1] !== point[1];
+  return Number(node.command === 'C' && apart(node.values.slice(2, 4))) + Number(next?.command === 'C' && apart(next.values.slice(0, 2)));
+}
+// The point section of the right panel and the Nodes strip.
 function renderNodeInspector() {
-  const item = oneObject(), paths = pointPaths(), points = selectedPoints();
+  const paths = pointPaths(), points = selectedPoints(), onPoints = level() === 'points';
   const nodes = paths.flatMap(geometryNodes), loaded = paths.every(id => geometries.has(id));
-  const single = points.length === 1 ? points[0] : null, node = single && nodeAt(single);
-  const chosen = points.map(nodeAt).filter(Boolean);
-  $('node-path-name').textContent = paths.length > 1 ? `${paths.length} paths` : item?.label || (state?.selection.objects.length ? 'Multiple objects selected' : 'No path selected');
-  const contours = paths.reduce((total, id) => total + (geometries.get(id)?.subpaths.length || 0), 0);
-  $('node-path-stats').textContent = paths.length && loaded ? `${nodes.length.toLocaleString()} points · ${contours.toLocaleString()} ${contours===1?'contour':'contours'}` : '';
-  $('node-detach').hidden = item?.tag !== 'use';
-  $('node-properties').hidden = !chosen.length;
+  const node = points.length === 1 && nodeAt(points[0]);
+  const chosen = points.map(nodeAt).filter(Boolean), count = new Set(points.map(key => splitKey(key)[0])).size;
+  $('point-section').hidden = !onPoints || !paths.length;
+  $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
-  $('node-hint').textContent = item?.tag === 'use' ? 'This is a shared instance. Detach it to edit its points independently.' : !paths.length ? 'Select one or more paths on the canvas or in the object tree.' : !loaded ? 'Loading path nodes…' : chosen.length > 1 ? `${chosen.length} points in ${new Set(points.map(key => splitKey(key)[0])).size} paths. Drag one to move them together.` : node ? (node.pinned ? 'This endpoint is pinned. Unpin it to move or delete it.' : node.command === 'C' ? 'Drag the blue handles to adjust this curve.' : 'Drag this point or enter its coordinates below.') : 'Click a point, or drag a box around several.';
-  if (chosen.length) {
-    $('node-type').textContent = !node ? `${chosen.length} points` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
-    $('node-coordinates').hidden = !node;
-    if (node) { $('node-x').value = +node.values.at(-2).toFixed(4); $('node-y').value = +node.values.at(-1).toFixed(4); }
-    for (const id of ['node-x', 'node-y', 'node-apply']) $(id).disabled = !node || node.pinned;
-    const pinned = chosen.filter(n => n.pinned).length;
-    $('node-pin').checked = pinned === chosen.length; $('node-pin').indeterminate = pinned > 0 && pinned < chosen.length;
-    enable('node-delete', pinned && 'Unpin the points to delete them');
-    enable('node-delete-contour', points.some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it');
-    enable('node-split', points.every(key => nodeAt(key)?.command === 'M' && !contourAt(key)?.closed) && 'A start point has no edge leading into it');
+  $('node-hint').textContent = !loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (N) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : '';
+  $('node-hint').hidden = !$('node-hint').textContent;
+  $('point-properties').hidden = !chosen.length;
+  // Coordinates are shown for one point, in its path's own frame.
+  for (const row of document.querySelectorAll('.point-coordinates')) {
+    row.hidden = !node;
+    if (!node) continue;
+    for (const [selector, value] of [['.point-x', node.values.at(-2)], ['.point-y', node.values.at(-1)]]) {
+      const input = row.querySelector(selector);
+      if (document.activeElement !== input) input.value = +value.toFixed(4);
+      input.disabled = node.pinned;
+    }
   }
+  const handles = node ? handleCount(points[0]) : null;
+  for (const button of document.querySelectorAll('[data-command^="handles-"]')) button.setAttribute('aria-pressed', String(handles === Number(button.dataset.command.slice(-1))));
+  const pinned = chosen.filter(n => n.pinned).length;
+  $('node-pin').checked = chosen.length > 0 && pinned === chosen.length; $('node-pin').indeterminate = pinned > 0 && pinned < chosen.length;
+  $('strip-pin').setAttribute('aria-pressed', String($('node-pin').checked));
   // Points on holes of one path offer to fill the holes or make them shapes.
   const holes = holeContours(points);
   if (holes === undefined) loadNodeHoles(points);
-  $('node-hole').hidden = !holes;
+  $('strip-hole').hidden = !holes;
+  renderCommands();
 }
 // The hole contours the selected points are on, when they are all on holes of
 // one path: null when they are not, undefined while that is being found out.
@@ -597,16 +734,14 @@ async function loadNodeHoles(points) {
   if (nodeHoles.key !== key) return;
   nodeHoles.ids = ids; renderNodeInspector();
 }
-$('node-hole-fill').onclick=async()=>{
+async function fillPointHoles() {
   const holes = holeContours(selectedPoints()); if (!holes) return;
   if (await action('fill_holes',{object:holes.object,holes:holes.holes},'Filling hole…')) toast(`Filled the ${holes.holes.length === 1 ? 'hole' : 'holes'}. Undo restores ${holes.holes.length === 1 ? 'it' : 'them'}.`);
-};
-$('node-hole-shape').onclick=async()=>{
+}
+async function pointHolesToShapes() {
   const holes = holeContours(selectedPoints()); if (!holes) return;
   if (await action('holes_to_shapes',{object:holes.object,holes:holes.holes},'Making a shape…')) toast('The hole is now its own shape, just above the path. Undo restores the hole.');
-};
-$('node-select-tool').onclick=()=>setTool('select');
-$('node-detach').onclick=()=>action('detach');
+}
 
 function localToOverlay(element) {
   const from = element?.getScreenCTM(), to = overlay.getScreenCTM();
@@ -697,6 +832,8 @@ function drawOverlay() {
         const halo = group.cloneNode(true); halo.setAttribute('class', 'selection-halo');
         overlay.append(halo, group);
       }
+      // Point tools show the points instead of the bounds.
+      if (level() === 'points') continue;
       const b = element.getBBox();
       const pts = [[b.x,b.y], [b.x+b.width,b.y], [b.x+b.width,b.y+b.height], [b.x,b.y+b.height]].map(([x,y]) => new DOMPoint(x,y).matrixTransform(matrix));
       overlay.append(xmlElement('polygon', {points: pts.map(p => `${p.x},${p.y}`).join(' '), class: 'selection-box'}));
@@ -1050,7 +1187,9 @@ function pressPoint(event, common) {
   const saved = new Map([...paths].filter(p => geometries.has(p)).map(p => [p, valuesById(geometries.get(p))]));
   const node = nodeAt(key), offset = part === 'endpoint' ? node.values.length - 2 : Number(part);
   const start = new DOMPoint(node.values[offset], node.values[offset+1]).matrixTransform(localToOverlay(svgElement(id)));
-  drag = {...common, kind: 'node', key, part, moving, saved, start};
+  // A click on one of several selected points, without dragging, selects it alone.
+  const collapse = part === 'endpoint' && !common.shift && current.includes(key) && current.length > 1;
+  drag = {...common, kind: 'node', key, part, moving, saved, start, collapse, objects};
   renderInspector(); drawOverlay();
 }
 // Box select: objects wholly inside the box at the entered group's level, or
@@ -1205,6 +1344,7 @@ stage.addEventListener('pointerup', async event => {
   if (finished.kind === 'drawPath') {pathHover=null;drawOverlay();return;}
   if (finished.kind === 'closePath') {if (!finished.moved) await finishPath(true);return;}
   if (finished.kind === 'node' && finished.moved) await finishPointDrag(finished);
+  else if (finished.kind === 'node' && finished.collapse) await selectPoints(finished.objects, [finished.key]);
   if (finished.kind === 'move' && finished.moved) await action('move',{dx:0,dy:0,offsets:Object.fromEntries(finished.members.map(m=>[m.id,m.offset||[0,0]]))},'Moving selection…');
 });
 // Double-click a group to pick within it, or a path to edit its points.
@@ -1224,7 +1364,7 @@ async function enterObject(id, hits = []) {
   } else if (item?.tag === 'path') {
     if (state.selection.objects.length !== 1 || state.selection.objects[0] !== id) await action('select', {objects: [id]}, 'Selecting…');
     await setTool('nodes');
-  } else if (item?.tag === 'use') toast('Detach this instance to edit its points (Detach in the Structure section).');
+  } else if (item?.tag === 'use') toast('Detach this instance to edit its points (Detach, under Actions).');
 }
 // Escape steps up one level: points to their paths, objects to their group,
 // then to nothing, and out of an entered group.
@@ -1260,10 +1400,15 @@ function movePointTo(x, y) {
   const [id, nodeId] = splitKey(key);
   action('node', {object: id, node: nodeId, values: [...node.values.slice(0,-2), x, y]});
 }
-$('node-apply').onclick=()=>movePointTo(Number($('node-x').value), Number($('node-y').value));
-$('node-pin').onchange=event=>action('pin',{points:pointPairs(),pinned:event.target.checked});
-$('node-split').onclick=()=>action('split',{points:pointPairs()});
-for(const count of [0,1,2]) $(`node-handles-${count}`).onclick=()=>action('node_handles',{points:pointPairs(),count},'Changing handles…');
+// The point's coordinates, in the right panel and the Nodes strip.
+for (const input of document.querySelectorAll('.point-x, .point-y')) {
+  input.onchange = () => {
+    const row = input.closest('.point-coordinates');
+    movePointTo(Number(row.querySelector('.point-x').value), Number(row.querySelector('.point-y').value));
+  };
+  input.onkeydown = event => { if (event.key === 'Enter') { event.preventDefault(); input.blur(); } };
+}
+$('node-pin').onchange=()=>runCommand('pin');
 function joinSelectionKey() { return JSON.stringify([state.epoch,state.revision,state.selection.objects]); }
 function joinCandidates() {
   const selected = new Set(state.selection.objects), candidates = [];
@@ -1276,7 +1421,7 @@ function joinCandidates() {
   }
   return candidates;
 }
-$('join_paths').onclick = () => {
+function openJoin() {
   if (pending) return;
   const candidates = joinCandidates();
   if (candidates.length < 2) {
@@ -1311,7 +1456,7 @@ $('join_paths').onclick = () => {
   }
   $('join-color-options').replaceChildren(options);
   $('join-dialog').showModal();
-};
+}
 $('join-cancel').onclick = () => $('join-dialog').close();
 $('join-dialog').addEventListener('close',()=>joinContext=null);
 $('join-dialog').addEventListener('cancel',event=>{if(pending)event.preventDefault();});
@@ -1330,16 +1475,15 @@ $('join-confirm').onclick = async () => {
     } else { $('join-error').textContent = $('toast-message').textContent; $('join-error').hidden = false; }
   } finally { $('join-confirm').disabled = false; $('join-cancel').disabled = false; }
 };
-$('split_disconnected').onclick = async () => {
+async function splitParts() {
   const before = state.selection.objects.length;
   if (await action('split_disconnected', {}, 'Splitting disconnected parts…')) {
     toast(state.selection.objects.length > before ? `Split into ${state.selection.objects.length} independently editable paths.` : 'No disconnected parts found. Holes and touching contours stay together.');
   }
-};
+}
 function renderHoles() {
-  $('inspect-holes').hidden = !!holePlan;
-  $('hole-controls').hidden = !holePlan;
   if (!holePlan) return;
+  $('hole-path').textContent = object(holePlan.object)?.label || '';
   $('hole-total').textContent = `(${chosenHoles.size} / ${holePlan.holes.length})`;
   $('hole-all').checked = holePlan.holes.length > 0 && chosenHoles.size === holePlan.holes.length;
   $('hole-all').indeterminate = chosenHoles.size > 0 && chosenHoles.size < holePlan.holes.length;
@@ -1410,14 +1554,14 @@ function focusHole(hole) {
          y:bounds.height/2-((Math.min(...ys)+Math.max(...ys))/2-state.bounds[1])*zoom};
   updateView();
 }
-$('inspect-holes').onclick = async () => {
+async function inspectHoles() {
   if (pending || !oneObject()) return;
   const id = oneObject().id; await setTool('select'); setBusy('Finding holes…',1);
   try {
     holePlan = await request('/api/holes',{object:id,epoch:state.epoch,revision:state.revision});
-    chosenHoles.clear(); chosenCleanup.clear(); renderHoles(); drawOverlay();
+    chosenHoles.clear(); chosenCleanup.clear(); renderInspector(); drawOverlay();
   } catch(error) {toast(error.message,true);} finally {setBusy('',-1);}
-};
+}
 $('hole-all').onchange = event => {chosenHoles = new Set(event.target.checked ? holePlan.holes.map(h=>h.id) : []); holesChanged();};
 $('hole-clear').onclick = () => {chosenHoles.clear(); holesChanged();};
 $('hole-small').onclick = () => {
@@ -1425,7 +1569,7 @@ $('hole-small').onclick = () => {
   if (!Number.isFinite(max) || max < 0) {toast('Enter a non-negative area.',true);return;}
   chosenHoles = new Set(holePlan.holes.filter(h=>h.area <= max).map(h=>h.id)); holesChanged();
 };
-$('hole-close').onclick = () => {holePlan = null; renderHoles(); drawOverlay();};
+$('hole-close').onclick = () => {holePlan = null; renderInspector(); drawOverlay();};
 $('hole-enclosed').onclick = async () => {
   if(pending || !chosenHoles.size) return;
   setBusy('Finding enclosed shapes…',1);
@@ -1445,15 +1589,10 @@ $('hole-shapes').onclick = async () => {
   if(await action('holes_to_shapes',{object:holePlan.object,holes:[...chosenHoles]},'Making shapes…'))
     toast(`Turned the chosen holes into ${state.selection.objects.length} ${state.selection.objects.length === 1 ? 'shape' : 'shapes'} above the path. Undo restores the holes.`);
 };
-$('cut_hole').onclick = async () => {
+async function cutHole() {
   if (await action('cut_hole', {}, 'Cutting out the hole…')) toast('Cut the shape out as a hole. Undo restores both paths.');
-};
-$('node-delete').onclick=()=>action('delete_node',{points:pointPairs()},'Deleting points…');
-$('node-delete-contour').onclick=()=>action('delete_contour',{points:pointPairs()},'Deleting contours…');
+}
 document.querySelectorAll('[data-lock]').forEach(input=>input.onchange=()=>{const item=oneObject();if(item)action('locks',{object:item.id,locks:[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock)});});
-for (const command of ['group','ungroup','delete','detach']) $(command).onclick=()=>action(command);
-$('backward').onclick=()=>action('reorder',{step:-1});$('forward').onclick=()=>action('reorder',{step:1});
-$('to-back').onclick=()=>action('reorder',{to:'back'});$('to-front').onclick=()=>action('reorder',{to:'front'});
 const KEY_PROVIDERS=['openai','anthropic','gemini','local'];
 const keyRemovals=new Set();
 const HOSTED=['openai','anthropic','gemini'];
@@ -1610,7 +1749,7 @@ $('object-name').onkeydown = event => {
   if (event.key === 'Escape') {event.preventDefault();event.target.value=oneObject()?.name || '';event.target.blur();}
 };
 window.addEventListener('keydown',event=>{
-  if(event.key==='F2' && oneObject() && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.querySelector('dialog[open]')) {event.preventDefault();$('object-name').focus();$('object-name').select();return;}
+  if(event.key==='F2' && oneObject() && !['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName) && !document.querySelector('dialog[open]')) {event.preventDefault();renameObject();return;}
   if(event.key==='Escape'&&treeDrag){event.preventDefault();endTreeDrag(false);return;}
   if(['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.querySelector('dialog[open]'))return;
   if (tool==='path' && pathDraft.length && !pending) {
@@ -1638,8 +1777,8 @@ window.addEventListener('keydown',event=>{
   if((event.ctrlKey||event.metaKey)&&['BracketLeft','BracketRight'].includes(event.code)){
     // Ctrl/⌘ ] and [ step forward and backward; with Shift, to the front and back.
     event.preventDefault();
-    const button=$(event.shiftKey?(event.code==='BracketRight'?'to-front':'to-back'):(event.code==='BracketRight'?'forward':'backward'));
-    if(!pending&&state?.selection.objects.length&&!button.disabled)button.click();return;
+    const command=event.shiftKey?(event.code==='BracketRight'?'to-front':'to-back'):(event.code==='BracketRight'?'forward':'backward');
+    if(!pending&&state?.selection.objects.length)runCommand(command);return;
   }
   if(event.ctrlKey||event.metaKey||event.altKey)return;
   // Shift+R retraces the selected paths; R alone is the Redraw tool.
@@ -1650,15 +1789,13 @@ window.addEventListener('keydown',event=>{
   if(tools[key])setTool(tools[key]);if(key==='f')fit();
   // 1, 2, 3: the selected point gets no handle, one or both.
   if(tool==='nodes'&&['1','2','3'].includes(event.key)&&!pending&&selectedPoints().length){
-    const button=$(`node-handles-${Number(event.key)-1}`);
-    if(button&&!button.disabled){event.preventDefault();button.click();}
+    event.preventDefault();runCommand(`handles-${Number(event.key)-1}`);
     return;
   }
   if((event.key==='Delete'||event.key==='Backspace')&&!pending&&state?.selection.objects.length){
     event.preventDefault();
-    if(level()==='points') {
-      if(selectedPoints().length && !$('node-delete').disabled) $('node-delete').click();
-    } else action('delete');
+    if(level()==='points') { if(selectedPoints().length) runCommand('delete-points'); }
+    else runCommand('delete');
   }
 });
 window.addEventListener('keyup',event=>{if(event.code==='Space')space=false;});
@@ -1729,7 +1866,7 @@ const nodesDialog = jobDialog('nodes', {
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
 for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
-$('nodes-open').onclick = async () => {
+async function openOptimize() {
   await queue;
   const reference = Boolean(state.reference);
   // Snap comes back on with the reference, as it is by default.
@@ -1742,7 +1879,7 @@ $('nodes-open').onclick = async () => {
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
   syncNodeSteps();
   nodesDialog.open(selectionSummary());
-};
+}
 
 // Retrace: a quick job applied as soon as it is ready, as one undoable edit.
 async function retraceShapes() {
@@ -1797,7 +1934,7 @@ const contactDialog = jobDialog('contact', {
     : metrics.edges ? 'These edges already meet exactly.' : 'No touching edges within this distance. Try a larger contact distance.',
   applied: 'Edges snapped. The paths stay independent: editing one no longer moves the other.',
 }).wire();
-$('snap-edges').onclick = async () => { await queue; contactDialog.open(); };
+async function openSnapEdges() { await queue; contactDialog.open(); }
 // Changing a setting invalidates the preview shown for the old one.
 for (const [prefix, ids] of [['contact', ['contact-distance']]]) {
   for (const id of ids) $(id).addEventListener('input', () => {
@@ -1830,13 +1967,13 @@ const generateDialog = jobDialog('generate', {
   applied: 'Generated shapes added. Undo removes them.',
   choiceLabel: (result, index) => `Drawing ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
 }).wire();
-$('generate-open').onclick = async () => {
+async function openGenerate() {
   await queue;
   const group = oneObject()?.tag === 'g';
   $('generate-scope').value = group ? 'selection' : 'drawing';
   $('generate-scope').options[1].disabled = !group;
   showGenerateMethod(); generateDialog.open('');
-};
+}
 
 // Improve dialogs that search or ask a model over the selection or drawing.
 function openOnScope(dialog, prefix) {
@@ -1959,7 +2096,8 @@ const coloursDialog = jobDialog('colours', {
   describe: result => result.changed ? `${result.metrics.objects} of ${result.metrics.considered} fills changed · reference error ${errorChange(result.metrics)}. Apply keeps it as one undoable edit.` : 'The colours already fit the reference.',
   applied: 'Colours fitted. Undo restores the previous fills.',
 }).wire();
-$('colours-open').onclick = async () => { await queue; coloursDialog.open(selectionSummary()); };
+async function openColours() { await queue; coloursDialog.open(selectionSummary()); }
+$('colours-open').onclick = openColours; $('nodes-open').onclick = openOptimize;
 const cleanupDialog = jobDialog('cleanup', {
   start: () => ({action:'simplify', method:'cleanup', bounds:simplifyBounds(), permissions:{geometry:true, structure:true}}),
   describe: result => {
@@ -1968,4 +2106,4 @@ const cleanupDialog = jobDialog('cleanup', {
   },
   applied: 'Geometry cleaned up. Undo restores the original paths.',
 }).wire();
-$('cleanup-open').onclick = async () => { await queue; cleanupDialog.open(selectionSummary()); };
+async function openCleanup() { await queue; cleanupDialog.open(selectionSummary()); }
