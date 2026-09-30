@@ -1294,6 +1294,12 @@ window.addEventListener('keydown',event=>{
   if(key==='o'){event.preventDefault();if(!event.repeat)toggleReference();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(tools[key])setTool(tools[key]);if(key==='f')fit();
+  // 1, 2, 3: the selected point gets no handle, one or both.
+  if(tool==='nodes'&&['1','2','3'].includes(event.key)&&!pending&&nodeById(activeNode)){
+    const button=$(`node-handles-${Number(event.key)-1}`);
+    if(button&&!button.disabled){event.preventDefault();button.click();}
+    return;
+  }
   if((event.key==='Delete'||event.key==='Backspace')&&!pending&&state?.selection.objects.length){
     event.preventDefault();
     if(tool==='nodes') {
