@@ -13,8 +13,10 @@ Every round tries each chosen step on the paths as they stand and keeps the
 one that lowers the difference to the reference most. When none does,
 Simplify gets its turn, and once nothing changes the run ends. So a rough
 shape can be snapped, fitted, thinned and fitted again, in whatever order
-works. With several workers a round's steps run side by side, but only one
-path fit runs at a time.
+works. A step that leaves an outline crossing itself more than before, a
+twist or a curve looped over itself, is never kept, however close it gets;
+concave outlines are fine. With several workers a round's steps run side
+by side, but only one path fit runs at a time.
 
 Without a reference only Simplify runs, judged against the drawing itself.
 Colour is left to Fit colours.
@@ -263,6 +265,8 @@ class OptimizeNodes:
         points = _count(document, oids)
         taken: list[str] = []
         skipped: dict[str, str] = {}
+        # How often each step's result crossed itself more and was not kept.
+        folded: dict[str, int] = {}
         workers = min(settings["workers"], len(steps))
         pool = (
             ProcessPoolExecutor(
@@ -286,6 +290,9 @@ class OptimizeNodes:
                 results = _round(steps, task, pool, context.stop, report)
                 for _doc, _diff, why in results.values():
                     skipped.update(why)
+                for step in _folding(results, _crossings(document, oids), oids):
+                    del results[step]
+                    folded[step] = folded.get(step, 0) + 1
                 chosen = _choose(results, current, points, oids)
                 if chosen is None:
                     break
@@ -304,7 +311,12 @@ class OptimizeNodes:
         changed = bool(taken)
         message = None
         if not changed:
-            message = next(iter(skipped.values()), "No step improved the paths")
+            message = next(
+                iter(skipped.values()),
+                "Every step that helped made a path cross itself"
+                if folded
+                else "No step improved the paths",
+            )
         return OperationResult(
             Proposal(
                 tx,
@@ -314,6 +326,7 @@ class OptimizeNodes:
                     "after": {"difference": current, "nodes": points},
                     "steps": taken,
                     "skipped": skipped,
+                    "folded": folded,
                     "reference": request.reference is not None,
                 },
                 previews=preview_urls(
@@ -330,6 +343,26 @@ def _count(document: Document, oids) -> int:
     return sum(
         len(s.nodes) for oid in oids for s in document.geometry_for(oid).subpaths
     )
+
+
+def _crossings(document: Document, oids) -> dict[str, int]:
+    """How many times each path's outline crosses itself."""
+    from vectrify.refine.crossings import crossings
+
+    return {oid: crossings(document.geometry_for(oid)) for oid in oids}
+
+
+def _folding(results, before: dict[str, int], oids) -> list[str]:
+    """The steps whose result has a path crossing itself more than *before*.
+
+    However much closer it looks, an outline folded over itself is no
+    improvement; one that already crossed itself may keep its crossings.
+    """
+    return [
+        step
+        for step, (document, _difference, _why) in results.items()
+        if any(n > before[oid] for oid, n in _crossings(document, oids).items())
+    ]
 
 
 def _round(steps, task: _Task, pool, stop, report):

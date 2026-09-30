@@ -113,7 +113,12 @@ own render of the region (`generate.drawing_region`) and only `simplify` runs.
 Every round runs each chosen step on the paths as they stand and measures the
 region's mean squared difference to the target (`generate.error`). The step
 that lowers it most, by at least 0.5%, is kept; if none does, Simplify is kept
-when it removed points, and otherwise the run ends. With more than one worker,
+when it removed points, and otherwise the run ends. A step's result is not
+eligible when any path crosses itself more than before the step
+(`refine.crossings.crossings`: each contour drawn as a polyline, cubics at 8
+points, every pair of non-neighbouring lines that properly cross counting once,
+so a bow-tie counts 1, a looped cubic 1 and a concave outline 0); such steps
+are counted under `folded` in the metrics. With more than one worker,
 Snap and Simplify run in spawned processes while the path fit runs in the job's
 thread, so only one fit runs at a time.
 
@@ -122,7 +127,14 @@ path's `Geometry`), which leave `refine.frozen.Frozen` nodes alone: pinned
 endpoints and the nodes of linked boundary edges.
 
 - Shape is `refine.selected.fit_selected_path`, one path at a time; paths it
-  refuses are skipped and reported under `skipped` in the metrics.
+  refuses are skipped and reported under `skipped` in the metrics. Every
+  tenth step, before Cairo scores the candidate, the fit checks it for new
+  self-crossings; the nodes at the ends of the crossing segments move halfway
+  back to where they last did not cross (twice), then all the way, then the
+  whole outline does, and the fit carries on from there. SAMVG's Xing
+  penalty stays off: it sees only a cubic's own handles crossing, while the
+  fit's folds are mostly neighbouring segments crossing at a node, and in
+  single runs it did not reduce them.
 - Snap is `refine.snap.snap`: points and segment middles move along the
   outline's normal to the nearest edge within a few pixels, and with `detail`
   the largest blobs of wrongly covered or missed pixels get new points on the

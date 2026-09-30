@@ -1,10 +1,13 @@
 """Optimize nodes reshapes only the selected paths and proposes one ordinary edit."""
 
+from dataclasses import replace
+
 import pytest
 from PIL import Image, ImageDraw
 
 from vectrify.document import DocumentError, Editor, Selection, import_svg
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
+from vectrify.operations.methods import nodes as nodes_method
 
 # The square is drawn with more points than it needs and a little off target.
 SVG = (
@@ -161,3 +164,45 @@ def test_the_fit_gives_straight_segments_handles_where_the_reference_curves():
         n.command for n in ed.snapshot.document.geometry_for("p").subpaths[0].nodes
     ]
     assert "C" in commands
+
+
+def bow_tie(document):
+    """*document* with the square turned into a bow-tie."""
+    twisted = import_svg(
+        '<svg width="64" height="64"><path id="p" fill="#000000" '
+        'd="M16 16 L48 16 L16 48 L48 48 Z"/></svg>'
+    ).geometry_for("p")
+    return document.replace_geometry(replace(twisted, id=document.geometry_for("p").id))
+
+
+@pytest.fixture
+def snap_twists(monkeypatch):
+    """Snap turns the square into a bow-tie and claims a perfect match."""
+    run_step = nodes_method._run_step
+
+    def twisting(step, task, stop=None, progress=None):
+        if step == "snap":
+            return bow_tie(task.document), 0.0, {}
+        return run_step(step, task, stop, progress)
+
+    monkeypatch.setattr(nodes_method, "_run_step", twisting)
+
+
+@pytest.mark.usefixtures("snap_twists")
+def test_a_step_that_makes_a_path_cross_itself_is_not_kept():
+    job = Job(method("improve", "nodes"), request(editor("p"), steps=2, snap=True))
+    job.run()
+    metrics = job.state()["result"]["metrics"]
+    assert metrics["steps"] == ["shape", "shape"]
+    assert metrics["folded"] == {"snap": 2}
+    assert metrics["after"]["difference"] < metrics["before"]["difference"]
+
+
+@pytest.mark.usefixtures("snap_twists")
+def test_only_crossing_results_leave_the_paths_as_they_were():
+    job = Job(method("improve", "nodes"), request(editor("p"), shape=False, snap=True))
+    job.run()
+    state = job.state()
+    assert not state["result"]["changed"]
+    assert state["result"]["metrics"]["folded"] == {"snap": 1}
+    assert "cross itself" in state["message"]

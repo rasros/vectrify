@@ -3,6 +3,8 @@
 Cairo supplies the exact clipping, group opacity and painter-order context.
 Only selected path coverage is differentiable. Candidates are accepted using
 Cairo again, so renderer approximation cannot turn a worse fit into a result.
+No candidate crosses itself more than the path did: where the fit folds the
+outline, the nodes of the crossing segments are pulled back and it goes on.
 The fit runs on CUDA with the native analytic kernel when it can, and otherwise
 on the CPU with the portable polyline coverage; outlines still need CUDA.
 """
@@ -22,11 +24,22 @@ import numpy as np
 from cairosvg.colors import color
 from PIL import Image
 
-from vectrify.document import Document, DocumentError, Selection, export_svg
+from vectrify.document import (
+    Document,
+    DocumentError,
+    Geometry,
+    Selection,
+    export_svg,
+)
 from vectrify.document.editor import Transaction
 from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.join import path_style
 from vectrify.image_utils import on_white, preview_urls
+from vectrify.refine.crossings import crossed_nodes, crossings
+
+# How many times the nodes of crossing segments are moved halfway back before
+# they go all the way back, and then the whole outline does.
+HALVINGS = 2
 
 
 @dataclass(frozen=True)
@@ -62,6 +75,9 @@ class FitResult:
     steps: int
     size: tuple[int, int]
     stroke: str | None = None
+    # How many times the outline had crossed itself more than it started and
+    # the fit pulled it back.
+    folded: int = 0
 
     @property
     def changed(self) -> bool:
@@ -275,7 +291,8 @@ class FitContext:
         assert data is not None
         return Image.open(io.BytesIO(data)).convert("RGB")
 
-    def candidate(self, coordinates: np.ndarray, rgb: np.ndarray, options: FitOptions):
+    def reshaped(self, coordinates: np.ndarray):
+        """(the changed node values, the whole geometry) for *coordinates*."""
         changes = {}
         start = 0
         for node in self.nodes:
@@ -298,6 +315,9 @@ class FitContext:
                 for s in self.geometry.subpaths
             ),
         )
+        return changes, geometry
+
+    def candidate(self, geometry: Geometry, rgb: np.ndarray, options: FitOptions):
         self.path.set("d", geometry.path_data())
         fill = (
             "#" + "".join(f"{round(float(v) * 255):02x}" for v in rgb)
@@ -308,7 +328,7 @@ class FitContext:
             self.path.set("fill", fill)
             if self.style["stroke"] != "none":
                 self.path.set("stroke", fill)
-        return changes, fill, self.render()
+        return fill, self.render()
 
 
 def fit_selected_path(
@@ -425,19 +445,57 @@ def fit_selected_path(
 
     before = best = score(context.before_image)
     best_values, best_fill, best_image = {}, None, context.before_image
-    completed = 0
+    completed = folded = 0
+    folds = crossings(context.geometry)
+    node_index = {node.id: i for i, node in enumerate(context.nodes)}
+    # The node each row of coordinates belongs to.
+    owners = np.repeat(
+        np.arange(len(context.nodes)), [len(n.values) // 2 for n in context.nodes]
+    )
+    # Where the outline last stood without crossing itself more than at first.
+    unfolded = context.local
+
+    def unfold(coordinates):
+        """*coordinates* with the nodes of any new crossing moved back towards
+        where they last were without it; (coordinates, values, geometry)."""
+        values, geometry = context.reshaped(coordinates)
+        for attempt in range(HALVINGS + 2):
+            count, crossed = crossed_nodes(geometry) if values else (0, set())
+            if count <= folds:
+                break
+            back = np.isin(owners, [node_index[i] for i in crossed])
+            if attempt > HALVINGS:
+                back[:] = True
+            share = 0.5 if attempt < HALVINGS else 1.0
+            coordinates = coordinates.copy()
+            coordinates[back] += (unfolded[back] - coordinates[back]) * share
+            values, geometry = context.reshaped(coordinates)
+        return coordinates, values, geometry
 
     def observe(step, paths, colors):
-        nonlocal completed, best, best_values, best_fill, best_image
+        nonlocal completed, folded, best, best_values, best_fill, best_image
+        nonlocal unfolded
         completed = step
         report(step, f"Fitting path · step {step}/{options.steps}")
         if step and (step % 10 == 0 or step == options.steps or stop.is_set()):
             with torch.no_grad():
                 shifts = (local_from_controls(paths) - original) * movable
                 # Avoid float32 round-tripping untouched or pinned coordinates.
-                coordinates = context.local + shifts.cpu().numpy()
-            values, fill, image = context.candidate(
-                coordinates, colors[0].detach().clamp(0, 1).cpu().numpy(), options
+                reached = context.local + shifts.cpu().numpy()
+            # An outline folding over itself more than it started is no fit,
+            # however well it covers the reference. The nodes of the segments
+            # that cross go back, and the fit carries on from there with the
+            # rest of the outline where it got to.
+            coordinates, values, geometry = unfold(reached)
+            if coordinates is not reached:
+                folded += 1
+                with torch.no_grad():
+                    back = controls_from_local(original.new_tensor(coordinates))
+                    for dest, source in zip(paths[0], back, strict=True):
+                        dest.copy_(source)
+            unfolded = coordinates
+            fill, image = context.candidate(
+                geometry, colors[0].detach().clamp(0, 1).cpu().numpy(), options
             )
             actual = score(image)
             if actual < best:
@@ -535,6 +593,9 @@ def fit_selected_path(
         steps=options.steps,
         point_learning_rate=0.25 if options.nodes or options.handles else 0,
         color_learning_rate=0.01 if options.color else 0,
+        # SAMVG's Xing term only sees a cubic's own handles crossing; the
+        # folds a fit makes are mostly neighbouring segments crossing at a
+        # node, which observe undoes, and the term did not reduce them.
         xing_weight=0,
         monolithic=True,
         fit_context=(context.base, context.delta, context.transmission),
@@ -555,4 +616,5 @@ def fit_selected_path(
         completed,
         context.size,
         stroke=best_fill if context.style["stroke"] != "none" else None,
+        folded=folded,
     )
