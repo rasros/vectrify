@@ -12,13 +12,12 @@ midway are not missed for crossing exactly at a sample.
 from __future__ import annotations
 
 import numpy as np
+import shapely
 
 from vectrify.document import Geometry
 
 # How many points each segment is drawn with.
 SAMPLES = 8
-# How many lines are tested against all the others at once.
-_BLOCK = 512
 
 
 def bezier(control: np.ndarray, t: np.ndarray):
@@ -45,36 +44,32 @@ def crossing_pairs(points: np.ndarray, closed: bool) -> np.ndarray:
     a, b = p[:-1], p[1:]
     n = len(a)
     low, high = np.minimum(a, b), np.maximum(a, b)
-    index = np.arange(n)
+    # Lines whose boxes miss each other cannot cross: a tree of the boxes,
+    # a hair larger so flat ones stay boxes, finds the pairs whose meet.
+    boxes = shapely.box(*(low - 1e-9).T, *(high + 1e-9).T)
+    i, j = shapely.STRtree(boxes).query(boxes)
+    # Only lines after this one and not next to it, so each pair counts
+    # once and neighbours, which always meet, not at all.
+    later = j > i + 1
+    if closed:
+        later &= ~((i == 0) & (j == n - 1))
+    later &= np.all(low[i] <= high[j], axis=-1) & np.all(low[j] <= high[i], axis=-1)
+    i, j = i[later], j[later]
+    order = np.lexsort((j, i))
+    i, j = i[order], j[order]
 
     # Orientation of r against the line from p to q.
     def side(px, py, qx, qy, rx, ry):
         return (qx - px) * (ry - py) - (qy - py) * (rx - px)
 
-    found = [np.zeros((0, 2), dtype=int)]
-    for start in range(0, n, _BLOCK):
-        rows = slice(start, min(n, start + _BLOCK))
-        # Only lines after this one and not next to it, so each pair counts
-        # once and neighbours, which always meet, not at all.
-        later = index[None] > index[rows, None] + 1
-        if closed:
-            later &= ~((index[rows, None] == 0) & (index[None] == n - 1))
-        # Lines whose boxes miss each other cannot cross.
-        later &= np.all(low[rows, None] <= high[None], axis=-1)
-        later &= np.all(low[None] <= high[rows, None], axis=-1)
-        i, j = np.nonzero(later)
-        if not len(i):
-            continue
-        i += start
-        ax, ay, bx, by = a[i, 0], a[i, 1], b[i, 0], b[i, 1]
-        cx, cy, dx, dy = a[j, 0], a[j, 1], b[j, 0], b[j, 1]
-        d1 = side(ax, ay, bx, by, cx, cy)
-        d2 = side(ax, ay, bx, by, dx, dy)
-        d3 = side(cx, cy, dx, dy, ax, ay)
-        d4 = side(cx, cy, dx, dy, bx, by)
-        hit = (d1 * d2 < 0) & (d3 * d4 < 0)
-        found.append(np.column_stack([i[hit], j[hit]]))
-    return np.vstack(found)
+    ax, ay, bx, by = a[i, 0], a[i, 1], b[i, 0], b[i, 1]
+    cx, cy, dx, dy = a[j, 0], a[j, 1], b[j, 0], b[j, 1]
+    d1 = side(ax, ay, bx, by, cx, cy)
+    d2 = side(ax, ay, bx, by, dx, dy)
+    d3 = side(cx, cy, dx, dy, ax, ay)
+    d4 = side(cx, cy, dx, dy, bx, by)
+    hit = (d1 * d2 < 0) & (d3 * d4 < 0)
+    return np.column_stack([i[hit], j[hit]]).astype(int)
 
 
 def polyline_crossings(points: np.ndarray, closed: bool) -> int:
@@ -85,17 +80,34 @@ def polyline_crossings(points: np.ndarray, closed: bool) -> int:
 def contour_line(controls: list[np.ndarray], samples: int = SAMPLES):
     """The polyline a contour's segments (each 2 or 4 controls) are drawn as,
     and the segment each of its lines is part of."""
-    t = np.linspace(0, 1, samples + 1)[1:]
-    line = [np.asarray(controls[0][0], dtype=np.float64)[None]] if controls else []
-    owners = []
-    for segment, control in enumerate(controls):
-        control = np.asarray(control, dtype=np.float64)
-        points = control[1:] if len(control) == 2 else bezier(control, t)[0]
-        line.append(points)
-        owners.extend([segment] * len(points))
-    if not line:
+    if not controls:
         return np.zeros((0, 2)), np.zeros(0, dtype=int)
-    return np.vstack(line), np.array(owners, dtype=int)
+    curve = np.array([len(control) == 4 for control in controls])
+    counts = np.where(curve, samples, 1)
+    owners = np.repeat(np.arange(len(controls)), counts)
+    line = np.empty((1 + len(owners), 2))
+    line[0] = np.asarray(controls[0][0], dtype=np.float64)
+    # Where each segment's points start in the line, after the first point.
+    starts = 1 + np.cumsum(counts) - counts
+    ends = [
+        np.asarray(c[-1], dtype=np.float64)
+        for c, bent in zip(controls, curve, strict=True)
+        if not bent
+    ]
+    if ends:
+        line[starts[~curve]] = ends
+    if curve.any():
+        control = np.asarray(
+            [c for c, bent in zip(controls, curve, strict=True) if bent],
+            dtype=np.float64,
+        )
+        t = np.linspace(0, 1, samples + 1)[1:, None]
+        u = 1 - t
+        basis = np.hstack([u**3, 3 * u**2 * t, 3 * u * t**2, t**3])
+        points = np.einsum("sk,nkc->nsc", basis, control)
+        at = starts[curve][:, None] + np.arange(samples)[None]
+        line[at.ravel()] = points.reshape(-1, 2)
+    return line, owners
 
 
 def crossed_nodes(geometry: Geometry, samples: int = SAMPLES) -> tuple[int, set[str]]:

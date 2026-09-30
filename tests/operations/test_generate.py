@@ -9,11 +9,13 @@ from PIL import Image
 from vectrify.document import (
     DocumentError,
     Editor,
+    HitIndex,
     Selection,
     import_svg,
 )
 from vectrify.operations import Job, OperationRequest, Permissions, method
 from vectrify.operations.generate import (
+    _holding,
     generated_result,
     render_region,
     target_region,
@@ -93,6 +95,22 @@ def test_the_region_is_the_selection_with_a_margin_or_else_the_artboard():
     ):
         region = target_region(request(editor, selection))
         assert (region.x, region.y, region.width, region.height) == (10, 20, 200, 100)
+
+
+def test_the_selection_is_measured_as_it_sits_in_the_whole_drawing():
+    doc = DOC.replace(
+        '<g id="layer"/>',
+        '<g id="layer" transform="translate(20 10)"><rect id="a" x="10" y="20" '
+        'width="30" height="20"/><g id="inner" transform="scale(2)"><circle '
+        'id="b" cx="30" cy="20" r="5"/></g></g><rect id="c" x="150" y="80" '
+        'width="40" height="30"/>',
+    )
+    document = import_svg(doc)
+    for ids in ({"a"}, {"b"}, {"inner"}, {"a", "c"}, {"layer"}):
+        selection = frozenset(ids)
+        assert HitIndex(_holding(document, selection)).bounds(selection) == HitIndex(
+            document
+        ).bounds(selection)
 
 
 def test_generation_goes_into_a_selected_group_or_needs_the_whole_drawing():
