@@ -5,7 +5,6 @@ from dataclasses import replace
 import pytest
 
 from tests.document.test_document import select
-from tests.document.test_topology import linked_editor
 from vectrify.document import Editor, EditRejectedError, PathNode, import_svg
 
 SQUARE = (
@@ -59,28 +58,6 @@ def test_pinned_endpoints_can_neither_move_nor_go():
         tx = editor.transaction("Reshape")
         with pytest.raises(EditRejectedError, match="pinned"):
             tx.reshape_path("p", with_nodes(geometry, nodes))
-
-
-def test_linked_boundary_edges_must_come_through_unchanged():
-    editor = linked_editor()
-    editor.select(select("fill"))
-    geometry = editor.snapshot.document.geometry_for("fill")
-    m, curve, down, left = geometry.subpaths[0].nodes
-    # The linked edge ends at the curve node: moving its end breaks the link,
-    # moving a node elsewhere does not.
-    tx = editor.transaction("Reshape")
-    with pytest.raises(EditRejectedError, match="Linked boundary"):
-        tx.reshape_path(
-            "fill",
-            with_nodes(
-                geometry, [m, replace(curve, values=(16, 4, 40, 4, 50, 8)), down, left]
-            ),
-        )
-    with editor.transaction("Reshape") as tx:
-        tx.reshape_path(
-            "fill",
-            with_nodes(geometry, [m, curve, down, replace(left, values=(6.0, 42.0))]),
-        )
 
 
 LINE = (

@@ -1,7 +1,7 @@
 # Operations
 
 `vectrify.operations` is the contract every automated action implements. An
-action (Generate, Improve, Simplify, Link) is carried out by a named method,
+action (Generate, Improve, Simplify, Snap) is carried out by a named method,
 for example `improve/nodes` or `simplify/cleanup`. The editor and scripts
 call methods the same way.
 
@@ -65,7 +65,7 @@ commands `start`, `check` (validate a request without running it), `status`,
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
-| link | `boundaries` | Matches touching edges into shared boundaries |
+| snap | `edges` | Snaps touching edges of the selected paths together, as plain geometry |
 
 Generate methods use `vectrify.operations.generate`: `target_region` crops the
 reference to the selected objects' painted bounds plus a 10% margin (or takes
@@ -126,8 +126,8 @@ Snap and Simplify run in spawned processes while the path fit runs in the job's
 thread, so only one fit runs at a time.
 
 The steps are separate functions over `refine.frozen.Paths` (each selected
-path's `Geometry`), which leave `refine.frozen.Frozen` nodes alone: pinned
-endpoints and the nodes of linked boundary edges.
+path's `Geometry`), which leave `refine.frozen.Frozen` endpoints alone: the
+pinned ones.
 
 - Shape is `refine.selected.fit_selected_path`, one path at a time; paths it
   refuses are skipped and reported under `skipped` in the metrics. Every
@@ -149,8 +149,7 @@ endpoints and the nodes of linked boundary edges.
   the tolerance.
 
 The result is applied with `Transaction.reshape_path`, which keeps surviving
-node IDs, refuses to move or remove pinned endpoints, and leaves linked
-boundary edges as they are.
+node IDs and refuses to move or remove pinned endpoints.
 
 ## LLM methods
 

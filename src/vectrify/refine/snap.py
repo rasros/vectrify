@@ -18,7 +18,7 @@ one, two or a spike of three, kept when they pay for themselves, and the
 passes run again.
 
 All of it works in the reference's pixels, so steps and tolerances are the
-same for a transformed or tiny path. Pinned endpoints and linked edges stay.
+same for a transformed or tiny path. Pinned endpoints stay.
 """
 
 from __future__ import annotations
@@ -110,8 +110,7 @@ class _Node:
     command: str
     # Pixel coordinates: one row for M and L, three (c1, c2, end) for C.
     points: np.ndarray
-    # The whole node stays (a linked edge's end) or only its endpoint does.
-    fixed: bool
+    # A pinned endpoint stays; its handles may still move.
     pinned: bool
     original: PathNode | None
     # Where the endpoint started, which it never leaves by more than REACH.
@@ -204,7 +203,6 @@ class _Snapper:
                         n.id,
                         n.command,
                         self.frame.pixels(n.values),
-                        n.id in self.fixed.nodes,
                         n.id in self.fixed.endpoints,
                         n,
                     )
@@ -365,7 +363,7 @@ class _Snapper:
         ring = count - 1 if repeats else count
         offsets: dict[int, tuple[np.ndarray, float]] = {}
         for i, node in enumerate(nodes[:ring]):
-            if node.fixed or node.pinned:
+            if node.pinned:
                 continue
             if not closed and i in (0, count - 1):
                 continue
@@ -417,14 +415,14 @@ class _Snapper:
         following = (i + 1) % len(nodes)
         if (i + 1 < len(nodes) or contour.closed) and following != i:
             nxt = nodes[following]
-            if nxt.command == "C" and not nxt.fixed:
+            if nxt.command == "C":
                 shifted = nxt.points.copy()
                 shifted[0] += delta
                 nxt.points = shifted
         # A closed contour whose last node repeats its first moves them as one.
         if contour.closed and i == 0 and len(nodes) > 1:
             last = nodes[-1]
-            if np.linalg.norm(last.end - (node.end - delta)) < 1e-6 and not last.fixed:
+            if np.linalg.norm(last.end - (node.end - delta)) < 1e-6:
                 shifted = last.points.copy()
                 shifted[-1] += delta
                 last.points = shifted
@@ -443,7 +441,7 @@ class _Snapper:
     def _move_middles(self, contour: _Contour, coverage, colour_in) -> None:
         for end, control in _segments(contour):
             node = contour.nodes[end]
-            if node.command != "C" or node.fixed or len(control) != 4:
+            if node.command != "C" or len(control) != 4:
                 continue
             found, normal = self._middle(control, coverage, colour_in)
             if found is None or normal is None or abs(found) < 0.25:
@@ -528,8 +526,6 @@ class _Snapper:
         rows = []
         for c, contour in enumerate(contours):
             for end, control in _segments(contour):
-                if contour.nodes[end].fixed:
-                    continue
                 points, _ = _bezier(control, t)
                 rows.append((c, end, control, t, points))
         return rows
@@ -610,7 +606,7 @@ class _Snapper:
             and np.linalg.norm(nodes[-1].end - nodes[0].end) < 1e-6
         ):
             node = 0
-        if nodes[node].fixed or nodes[node].pinned:
+        if nodes[node].pinned:
             return
         contour = _copy(contour)
         # Lines either side become curves the passes can bend.
@@ -626,14 +622,14 @@ class _Snapper:
                 held = _copy(contour)
                 at = node
                 incoming = dict(_segments(held)).get(node)
-                if incoming is not None and not held.nodes[node].fixed:
+                if incoming is not None:
                     held = _split_segment(
                         held, node, incoming, [(1 - hold, np.zeros(2))]
                     )
                     at = node + 1 if node > 0 else node
                 following = (at + 1) % len(held.nodes)
                 outgoing = dict(_segments(held)).get(following)
-                if outgoing is not None and not held.nodes[following].fixed:
+                if outgoing is not None:
                     held = _split_segment(
                         held, following, outgoing, [(hold, np.zeros(2))]
                     )
@@ -753,8 +749,7 @@ def _split_segment(
             pieces[k][0], pieces[k][1] = begin, pieces[k][-1]
     command = "C" if len(control) == 4 else "L"
     added = [
-        _Node(new_id("node"), command, piece, False, False, None)
-        for piece in pieces[:-1]
+        _Node(new_id("node"), command, piece, False, None) for piece in pieces[:-1]
     ]
     if end > 0:
         if command == "C":
@@ -764,7 +759,7 @@ def _split_segment(
         # The closing line ends at node 0, so its new points go last; as a
         # curve its last piece needs a node of its own, back on the first.
         if command == "C":
-            added.append(_Node(new_id("node"), "C", pieces[-1], False, False, None))
+            added.append(_Node(new_id("node"), "C", pieces[-1], False, None))
         nodes.extend(added)
     return _Contour(nodes, contour.closed)
 
@@ -778,7 +773,7 @@ def _curve(line: np.ndarray) -> np.ndarray:
 def _curved(contour: _Contour, i: int) -> None:
     """Make the line ending at node *i* a straight cubic, in place."""
     node = contour.nodes[i]
-    if i == 0 or node.command != "L" or node.fixed:
+    if i == 0 or node.command != "L":
         return
     start = contour.nodes[i - 1].end
     node.command, node.points = "C", _curve(np.vstack([start, node.end]))[1:]

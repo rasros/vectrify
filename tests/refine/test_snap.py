@@ -92,7 +92,7 @@ def snapped(svg, oid, ref, *, detail=False):
     region = target_region(req)
     document = ed.snapshot.document
     start = Paths({oid: document.geometry_for(oid)})
-    result = snap(document, start, region, frozen(document, start), detail=detail)
+    result = snap(document, start, region, frozen(start), detail=detail)
     tx = req.transaction("snap")
     tx.reshape_path(oid, result.geometries[oid])
     before = error(render_region(document, region), region.image)
@@ -118,7 +118,7 @@ def test_pinned_points_stay_put():
     svg = ed.snapshot.document
     region = target_region(request(ed, reference()))
     start = Paths({"p": svg.geometry_for("p")})
-    result = snap(svg, start, region, frozen(svg, start))
+    result = snap(svg, start, region, frozen(start))
     before, after = start.geometries["p"], result.geometries["p"]
     assert after.subpaths[0].nodes[0] == before.subpaths[0].nodes[0]
     assert after != before
@@ -129,7 +129,7 @@ def test_stroke_only_paths_are_left_alone():
     document = ed.snapshot.document
     region = target_region(request(ed, reference()))
     start = Paths({"line": document.geometry_for("line")})
-    assert snap(document, start, region, frozen(document, start)) == start
+    assert snap(document, start, region, frozen(start)) == start
 
 
 def test_detail_splits_where_one_curve_cannot_follow_the_edge():
@@ -192,8 +192,8 @@ def test_detail_creeps_along_a_curling_strand():
     region = target_region(request(ed, reference("strand")))
     document = ed.snapshot.document
     start = Paths({"p": document.geometry_for("p")})
-    plain = snap(document, start, region, frozen(document, start))
-    result = snap(document, start, region, frozen(document, start), detail=True)
+    plain = snap(document, start, region, frozen(start))
+    result = snap(document, start, region, frozen(start), detail=True)
 
     def difference(paths):
         tx = request(ed, reference("strand")).transaction("snap")

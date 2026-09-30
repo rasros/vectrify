@@ -1,12 +1,12 @@
-"""Cut filled paths along a straight line into linked pieces."""
+"""Cut filled paths along a straight line into pieces that meet exactly."""
 
 import pathops
 import pytest
 
 from tests.document.test_document import select
 from vectrify.document import Editor, EditRejectedError, import_svg
+from vectrify.document.contact import edges
 from vectrify.document.join import curve_path
-from vectrify.document.topology import edge
 
 CIRCLE = (
     "M10 0C15.5 0 20 4.5 20 10C20 15.5 15.5 20 10 20"
@@ -121,28 +121,51 @@ def test_path_with_a_hole_keeps_the_hole_open(rule):
         assert not path.contains((4.5, 5))
 
 
-def test_cut_edge_is_a_linked_boundary():
+def seam(doc, oid, x):
+    """The piece's straight edges along the vertical line at *x*."""
+    return {
+        tuple(sorted(e.points))
+        for e in edges(doc, doc.geometry_for(oid).id)
+        if len(e.points) == 2
+        and e.points[0] != e.points[1]
+        and all(p[0] == x for p in e.points)
+    }
+
+
+def test_both_pieces_meet_on_the_same_seam_nodes():
     editor, pieces = cut(drawing(CIRCLE), (10, -5), (10, 25))
     doc = editor.snapshot.document
-    assert len(doc.boundaries) == 1
-    first, second = doc.boundaries[0].members
-    assert {first.geometry_id, second.geometry_id} == {
-        doc.geometry_for(oid).id for oid in pieces
-    }
-    assert edge(doc, first).points == edge(doc, second).points
-    assert edge(doc, first).points in (((10, 0), (10, 20)), ((10, 20), (10, 0)))
+    assert seam(doc, pieces[0], 10) == seam(doc, pieces[1], 10) == {((10, 0), (10, 20))}
 
 
-def test_cut_edge_follows_node_edits_in_either_piece():
+def test_editing_a_seam_point_moves_only_its_piece():
     editor, pieces = cut(drawing(), (4, -5), (4, 15))
     doc = editor.snapshot.document
-    first, second = doc.boundaries[0].members
-    node = edge(doc, first).end
+    other = doc.geometry_for(pieces[1])
+    node = next(
+        n
+        for s in doc.geometry_for(pieces[0]).subpaths
+        for n in s.nodes
+        if n.endpoint[0] == 4
+    )
     with editor.transaction("Edit seam") as tx:
         tx.update_node(pieces[0], node.id, (5, node.endpoint[1]))
+    assert editor.snapshot.document.geometry_for(pieces[1]) == other
+
+
+@pytest.mark.parametrize("data", ["M0 0H10V10H0Z", CIRCLE])
+def test_join_merges_the_pieces_back_into_one_path(data):
+    document = drawing(data)
+    whole = abs(curve_path(document.geometry_for("p")).area)
+    editor, pieces = cut(document, (4, -5), (4, 25))
+    with editor.transaction("Join outlines") as tx:
+        joined = tx.join_paths(frozenset(pieces))
     doc = editor.snapshot.document
-    assert edge(doc, first).points == edge(doc, second).points
-    assert (5, node.endpoint[1]) in edge(doc, second).points
+    assert [e.id for e in doc.elements() if e.tag == "path"] == [joined]
+    geometry = doc.geometry_for(joined)
+    assert len(geometry.subpaths) == 1
+    assert abs(curve_path(geometry).area) == pytest.approx(whole, rel=1e-6)
+    assert dict(doc.element(joined).attributes)["fill"] == "red"
 
 
 def test_undo_restores_the_original_path():
@@ -177,7 +200,7 @@ def test_locked_or_pinned_paths_are_refused(change, message):
     assert editor.snapshot.document == before
 
 
-def test_shared_and_linked_geometry_is_refused():
+def test_shared_geometry_is_refused_but_pieces_cut_again():
     shared = import_svg(
         '<svg width="100" height="100"><path id="p" d="M0 0H10V10H0Z"/>'
         '<path id="q" d="M50 0H60V10H50Z"/></svg>'
@@ -191,11 +214,8 @@ def test_shared_and_linked_geometry_is_refused():
     ):
         tx.cut_paths((5, -5), (5, 15))
     editor, _ = cut(drawing(), (5, -5), (5, 15))
-    with (
-        pytest.raises(EditRejectedError, match="Unlink boundaries"),
-        editor.transaction("Cut with knife") as tx,
-    ):
-        tx.cut_paths((2, -5), (2, 15))
+    with editor.transaction("Cut with knife") as tx:
+        assert len(tx.cut_paths((2, -5), (2, 15))) == 2
 
 
 def test_pieces_render_like_the_original():

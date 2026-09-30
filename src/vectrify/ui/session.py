@@ -6,7 +6,6 @@ import base64
 import io
 import json
 import math
-from collections import Counter
 from dataclasses import asdict, replace
 from threading import RLock
 from typing import Any
@@ -29,7 +28,6 @@ from vectrify.document import (
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.model import new_id
 from vectrify.document.svg import parse_path
-from vectrify.document.topology import linked_slots
 from vectrify.operations import (
     Budget,
     Job,
@@ -155,9 +153,6 @@ class Session:
         snapshot = self.editor.snapshot
         objects = []
         counters: dict[str, int] = {}
-        shared = Counter(
-            m.geometry_id for b in snapshot.document.boundaries for m in b.members
-        )
         for element in snapshot.document.elements():
             if element.tag == "svg":
                 continue
@@ -167,9 +162,6 @@ class Session:
                 {
                     "id": element.id,
                     "tag": element.tag,
-                    "shared_edges": shared[element.geometry_id]
-                    if element.geometry_id
-                    else 0,
                     "name": element.name,
                     "label": element.name
                     or (
@@ -221,36 +213,11 @@ class Session:
     def nodes(self, object_id: str) -> dict:
         document = self.editor.snapshot.document
         geometry = document.geometry_for(object_id)
-        # What a drag moves elsewhere, so the editor can show it moving live:
-        # "node/index" coordinate -> [geometry, node, index, local matrix].
-        links = linked_slots(document, geometry.id)
-        peers = {gid for entries in links.values() for gid, *_ in entries}
         return {
             "epoch": self.epoch,
             "revision": self.editor.snapshot.revision,
             "object": object_id,
             "geometry": asdict(geometry),
-            "shared": [
-                m.node_id
-                for b in document.boundaries
-                for m in b.members
-                if m.geometry_id == geometry.id
-            ],
-            "links": {
-                f"{node}/{index}": [[*peer[:3], list(peer[3])] for peer in entries]
-                for (node, index), entries in links.items()
-            },
-            "peers": {
-                gid: {
-                    "objects": [
-                        e.id
-                        for e in document.elements()
-                        if e.tag == "path" and e.geometry_id == gid
-                    ],
-                    "geometry": asdict(document.geometry(gid)),
-                }
-                for gid in peers - {geometry.id}
-            },
         }
 
     def holes(self, payload: dict) -> dict:
@@ -481,47 +448,22 @@ class Session:
             self.editor.select(Selection(object_ids=frozenset({outer})))
             return
         if command in {"node", "split", "node_handles"}:
-            # The user explicitly linked these edges. Direct node edits include
-            # linked peers, while their locks and pins remain authoritative.
+            # Editing a path's nodes changes every object drawing its geometry.
             gids = {
                 document.geometry_for(oid).id
                 for oid in selected
                 if document.element(oid).tag == "path"
             }
-            while True:
-                linked = {
-                    m.geometry_id
-                    for b in document.boundaries
-                    if any(m.geometry_id in gids for m in b.members)
-                    for m in b.members
-                }
-                if linked <= gids:
-                    break
-                gids |= linked
             scope = selected | frozenset(
                 oid for gid in gids for oid in document.geometry_users(gid)
             )
             selection = Selection(object_ids=scope)
-        if command == "move":
-            gids = {
-                document.geometry_for(e.id).id
-                for e in document.elements()
-                if e.tag == "path"
-                and any(a.id in selected for a in document.ancestry(e.id))
-            }
-            if any(
-                m.geometry_id in gids for b in document.boundaries for m in b.members
-            ):
-                raise DocumentError(
-                    "Unlink shared boundaries before moving these regions"
-                )
         group_id = None
         pieces: tuple[str, ...] = ()
         if command == "reorder" and payload.get("to") in {"front", "back"}:
             command = f"to_{payload['to']}"
         with self.editor.transaction(
             {
-                "unlink_boundaries": "Unlink boundaries",
                 "paint": "Change paint",
                 "move": "Move selection",
                 "node": "Edit node",
@@ -534,6 +476,7 @@ class Session:
                 "split": "Split edge",
                 "node_handles": "Change handles",
                 "delete_node": "Delete node",
+                "delete_contour": "Delete contour",
                 "detach": "Detach geometry",
                 "split_disconnected": "Split disconnected parts",
                 "join_paths": "Join outlines",
@@ -541,19 +484,7 @@ class Session:
             }.get(command, command),
             selection=selection,
         ) as tx:
-            if command == "unlink_boundaries":
-                gids = {
-                    document.geometry_for(oid).id
-                    for oid in selected
-                    if document.element(oid).tag == "path"
-                }
-                tx.detach_boundaries(
-                    member
-                    for boundary in document.boundaries
-                    for member in boundary.members
-                    if member.geometry_id in gids
-                )
-            elif command == "paint":
+            if command == "paint":
                 changes = payload["changes"]
                 if not isinstance(changes, dict) or not changes.keys() <= {
                     "fill",
@@ -625,6 +556,8 @@ class Session:
                 )
             elif command == "delete_node":
                 tx.delete_node(payload["object"], payload["node"])
+            elif command == "delete_contour":
+                tx.delete_contour(payload["object"], payload["node"])
             elif command == "detach":
                 for oid in selected:
                     tx.detach_geometry(oid)

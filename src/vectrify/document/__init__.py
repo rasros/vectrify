@@ -10,13 +10,11 @@ from vectrify.document.hit_test import HitIndex
 from vectrify.document.model import (
     Document,
     DocumentError,
-    EdgeRef,
     EditKind,
     Element,
     Geometry,
     PathNode,
     Selection,
-    SharedBoundary,
     Subpath,
 )
 from vectrify.document.project import load_project, save_project
@@ -25,7 +23,6 @@ from vectrify.document.svg import UnsupportedSvgError, export_svg, import_svg
 __all__ = [
     "Document",
     "DocumentError",
-    "EdgeRef",
     "EditKind",
     "EditRejectedError",
     "Editor",
@@ -34,7 +31,6 @@ __all__ = [
     "HitIndex",
     "PathNode",
     "Selection",
-    "SharedBoundary",
     "Snapshot",
     "StaleRevisionError",
     "Subpath",

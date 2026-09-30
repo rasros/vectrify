@@ -123,9 +123,7 @@ def test_touching_opaque_stroked_outlines_can_join():
     assert len(editor.snapshot.document.geometry_for(joined).subpaths) == 2
 
 
-def test_join_keeps_shared_boundaries_and_locks():
-    from vectrify.document import EdgeRef
-
+def test_join_keeps_locks():
     doc = pair(second="M10 10H0V20H10Z")
     # Use strokes so two shapes sharing an edge can combine without fill changes.
     for oid in ("a", "b"):
@@ -135,22 +133,11 @@ def test_join_keeps_shared_boundaries_and_locks():
             )
         )
     editor = Editor(doc, selection=select("a", "b"))
-    a, b = doc.geometry_for("a"), doc.geometry_for("b")
-    with editor.transaction("Link") as tx:
-        tx.link_boundary(
-            (
-                EdgeRef(a.id, a.subpaths[0].nodes[3].id),
-                EdgeRef(b.id, b.subpaths[0].nodes[1].id),
-            )
-        )
     editor.set_locks("a", frozenset({"paint"}))
     with editor.transaction("Join") as tx:
         joined = tx.join_paths(frozenset({"a", "b"}))
     result = editor.snapshot.document
     assert result.element(joined).locks == {"paint"}
-    assert {m.geometry_id for m in result.boundaries[0].members} == {
-        result.geometry_for(joined).id
-    }
     result.validate()
 
 

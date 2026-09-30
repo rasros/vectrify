@@ -147,7 +147,7 @@ def test_built_in_methods_are_registered():
     assert {
         ("improve", "path-fit"),
         ("improve", "nodes"),
-        ("link", "boundaries"),
+        ("snap", "edges"),
     } <= names
 
 

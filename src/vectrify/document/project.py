@@ -9,12 +9,10 @@ from typing import Any
 from vectrify.document.model import (
     Document,
     DocumentError,
-    EdgeRef,
     Element,
     Geometry,
     PathNode,
     Selection,
-    SharedBoundary,
     Subpath,
 )
 from vectrify.document.svg import export_svg
@@ -38,8 +36,7 @@ def save_project(document: Document, selection: Selection | None = None) -> str:
 
     return json.dumps(
         {
-            "version": 2,
-            "boundaries": [asdict(b) for b in document.boundaries],
+            "version": 3,
             "root": element_data(document.root),
             "geometries": [asdict(geometry) for geometry in document.geometries],
             "selection": {
@@ -56,7 +53,10 @@ def save_project(document: Document, selection: Selection | None = None) -> str:
 def load_project(source: str) -> tuple[Document, Selection]:
     try:
         data = json.loads(source)
-        if data["version"] not in {1, 2}:
+        # Version 2 also stored shared boundary links between edges. Editing
+        # no longer links paths, so those are dropped: the contours they
+        # joined already meet exactly.
+        if data["version"] not in {1, 2, 3}:
             raise DocumentError("Unsupported project version")
 
         def element_data(item: Any) -> Element:
@@ -92,13 +92,7 @@ def load_project(source: str) -> tuple[Document, Selection]:
             )
             for item in data["geometries"]
         )
-        boundaries = tuple(
-            SharedBoundary(
-                item["id"], tuple(EdgeRef(**member) for member in item["members"])
-            )
-            for item in (data["boundaries"] if data["version"] == 2 else [])
-        )
-        document = Document(element_data(data["root"]), geometries, boundaries)
+        document = Document(element_data(data["root"]), geometries)
         selection_data = data["selection"]
         selection = Selection(
             object_ids=frozenset(selection_data["object_ids"]),

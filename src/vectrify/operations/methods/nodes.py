@@ -153,7 +153,7 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
         from vectrify.refine.frozen import frozen
 
         paths = _paths(document, task.oids)
-        fixed = frozen(document, paths)
+        fixed = frozen(paths)
         if step == "snap":
             from vectrify.refine.snap import snap
 
@@ -179,7 +179,6 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
     Straight segments are fitted as curves, so the fit can bend one where
     the reference needs; those it leaves straight go back to lines.
     """
-    from vectrify.refine.frozen import frozen
     from vectrify.refine.selected import FitOptions, fit_selected_path
     from vectrify.refine.simplify import curved, straightened
     from vectrify.refine.snap import _frame
@@ -196,8 +195,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         if stop is not None and stop.is_set():
             break
         original = document.geometry_for(oid)
-        fixed = frozen(document, _paths(document, (oid,)))
-        document = document.replace_geometry(curved(original, fixed))
+        document = document.replace_geometry(curved(original))
         try:
             fit = fit_selected_path(
                 document,
@@ -231,7 +229,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         # Lines the fit bent by less than it can tell apart go back to lines.
         frame = _frame(document, oid, task.region, task.region.image.size)
         if frame is not None:
-            fitted = straightened(fitted, fixed, STRAIGHT, frame)
+            fitted = straightened(fitted, STRAIGHT, frame)
         document = document.replace_geometry(fitted)
     return document, skipped
 

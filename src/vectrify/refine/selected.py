@@ -158,15 +158,10 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
         raise DocumentError(
             "This path is referenced elsewhere; detach it before fitting"
         )
-    if options.nodes or options.handles:
-        if document.geometry_users(geometry.id) != {oid}:
-            raise DocumentError("Detach shared geometry before fitting its nodes")
-        if any(
-            m.geometry_id == geometry.id for b in document.boundaries for m in b.members
-        ):
-            raise DocumentError(
-                "Linked boundaries must stay fixed; enable only fill color"
-            )
+    if (options.nodes or options.handles) and document.geometry_users(geometry.id) != {
+        oid
+    }:
+        raise DocumentError("Detach shared geometry before fitting its nodes")
     for ancestor in ancestry:
         if (options.nodes or options.handles) and "geometry" in ancestor.locks:
             raise DocumentError("Geometry is locked; enable only fill color")

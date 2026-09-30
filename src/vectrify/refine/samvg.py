@@ -1952,9 +1952,7 @@ def _simplified_data(data: str, tolerance: float) -> str:
     from vectrify.refine.frozen import Frozen
     from vectrify.refine.simplify import simplified_geometry
 
-    geometry = simplified_geometry(
-        parse_path(data), Frozen(frozenset(), frozenset()), tolerance
-    )
+    geometry = simplified_geometry(parse_path(data), Frozen(frozenset()), tolerance)
     # Hundredths of a pixel, as the tracer writes them.
     return re.sub(
         r"-?\d+\.\d+(?:e-?\d+)?",

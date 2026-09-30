@@ -163,47 +163,12 @@ class Selection:
 
 
 @dataclass(frozen=True)
-class EdgeRef:
-    """An edge ending at a node, oriented along a shared boundary.
-
-    A moveto identifies the implicit closing line of a closed subpath.
-    The matrix maps local coordinates into the boundary's common frame.
-    """
-
-    geometry_id: str
-    node_id: str
-    reversed: bool = False
-    matrix: tuple[float, ...] = (1, 0, 0, 1, 0, 0)
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "matrix", tuple(self.matrix))
-        if len(self.matrix) != 6 or not all(math.isfinite(v) for v in self.matrix):
-            raise DocumentError("Shared edge transform must be finite")
-        a, b, c, d, _, _ = self.matrix
-        if not math.isfinite(a * d - b * c) or a * d - b * c == 0:
-            raise DocumentError("Shared edge transform must be invertible")
-
-
-@dataclass(frozen=True)
-class SharedBoundary:
-    id: str
-    members: tuple[EdgeRef, ...]
-
-    def __post_init__(self) -> None:
-        object.__setattr__(self, "members", tuple(self.members))
-        if len(self.members) < 2:
-            raise DocumentError("A shared boundary needs at least two edges")
-
-
-@dataclass(frozen=True)
 class Document:
     root: Element
     geometries: tuple[Geometry, ...] = ()
-    boundaries: tuple[SharedBoundary, ...] = ()
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "geometries", tuple(self.geometries))
-        object.__setattr__(self, "boundaries", tuple(self.boundaries))
 
     def artboard(self) -> tuple[float, float, float, float]:
         """The root's viewBox as x, y, width, height, or its size at the origin.
@@ -363,18 +328,14 @@ class Document:
             {e.id for e in self.elements() if e.geometry_id == geometry_id}
         )
 
-    def validate(self, since: Document | None = None) -> None:
-        """Check the document, once: it never changes. With *since*, a valid
-        document it was edited from, only the links the edit touched are
-        compared again, since a drawing may link thousands of edges."""
+    def validate(self) -> None:
+        """Check the document, once: it never changes."""
         if self.__dict__.get("_valid"):
             return
-        self._validate(
-            since if since is not None and since.__dict__.get("_valid") else None
-        )
+        self._validate()
         object.__setattr__(self, "_valid", True)
 
-    def _validate(self, since: Document | None = None) -> None:
+    def _validate(self) -> None:
         from vectrify.document.svg import (
             CONTAINERS,
             GEOMETRY,
@@ -392,7 +353,6 @@ class Document:
             *geometry_ids,
             *path_ids,
             *node_ids,
-            *(boundary.id for boundary in self.boundaries),
         ]
         if any(not value for value in identifiers) or len(identifiers) != len(
             set(identifiers)
@@ -452,10 +412,6 @@ class Document:
 
         for element_id in object_ids:
             visit(element_id, set())
-
-        from vectrify.document.topology import validate_boundaries
-
-        validate_boundaries(self, since)
 
 
 def references(element: Element) -> tuple[str, ...]:

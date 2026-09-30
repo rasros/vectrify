@@ -146,29 +146,6 @@ def test_split_checks_scope_and_shared_geometry():
         tx.split_disconnected("p")
 
 
-def test_shared_boundary_references_follow_split_geometries():
-    from vectrify.document import EdgeRef
-
-    doc = import_svg(
-        '<svg width="100" height="100">'
-        '<path id="p" d="M0 0H10V10H0Z M60 0H90V30H60Z"/>'
-        '<path id="q" d="M60 0H90V-10H60Z"/></svg>'
-    )
-    editor = Editor(doc, selection=select("p", "q"))
-    p, q = doc.geometry_for("p"), doc.geometry_for("q")
-    end = p.subpaths[1].nodes[1].id
-    with editor.transaction("Link") as tx:
-        tx.link_boundary((EdgeRef(p.id, end), EdgeRef(q.id, q.subpaths[0].nodes[1].id)))
-    editor.select(select("p"))
-    with editor.transaction("Split") as tx:
-        ids = tx.split_disconnected("p")
-    after = editor.snapshot.document
-    member = next(m for m in after.boundaries[0].members if m.node_id == end)
-    assert member.geometry_id in {after.geometry_for(oid).id for oid in ids}
-    assert after.geometry(member.geometry_id).node(end).endpoint == (90, 0)
-    after.validate()
-
-
 def test_object_bounding_box_clip_keeps_original_combined_bounds():
     doc = import_svg(
         '<svg width="100" height="100"><defs><clipPath id="c" '
