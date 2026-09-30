@@ -422,17 +422,10 @@ def _ring(curves: int) -> str:
     )
 
 
-def test_gpu_fit_refuses_contours_longer_than_the_native_renderer():
-    options = FitOptions(steps=4, resolution=64)
-    doc = import_svg(_ring(17))
-    with pytest.raises(DocumentError, match="up to 16 curves"):
-        validate_selection(doc, SELECTION, options)
-    validate_selection(import_svg(_ring(16)), SELECTION, options)
-
-
-def test_a_closed_sixteen_curve_contour_moves():
+@pytest.mark.parametrize("curves", [16, 17, 40])
+def test_closed_contours_of_any_length_move(curves):
     require_gpu()
-    svg = _ring(16)
+    svg = _ring(curves)
     result = fit_selected_path(
         import_svg(svg),
         SELECTION,
