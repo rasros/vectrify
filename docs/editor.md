@@ -212,8 +212,11 @@ between regions. **Snap edges to the reference** (on by default) moves each regi
 the reference's own edges nearby, since SAM's masks are coarser than the image
 and smooth away thin spikes and notches.
 **Trace drawn outlines** (on by default) finds the dark lines drawn in the
-reference, traces them as one layer on top in their own colour, and fills the
-regions in beneath them, since SAM gives an outline to neither side.
+reference and draws them on top as strokes along their centres: each line is
+thinned to its centreline, split where lines meet, and every piece becomes an
+open path (closed for a ring) stroked in the lines' colour, about as wide as
+the line, with round ends. The regions are filled in beneath them, since SAM
+gives an outline to neither side.
 **Merge small patches** (on by default) joins neighbouring regions whose
 difference is not worth a shape of its own, such as the small patches SAM
 leaves along edges or one region cut in pieces, and recolours the result.

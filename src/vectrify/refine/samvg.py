@@ -19,6 +19,7 @@ from collections import defaultdict
 from collections.abc import Callable
 from contextlib import nullcontext
 from dataclasses import dataclass, replace
+from itertools import pairwise
 from typing import Any, cast
 
 import numpy as np
@@ -64,6 +65,9 @@ LINE_CONTRAST = float(os.environ.get("VECTRIFY_SAMVG_LINE_CONTRAST", "0.12"))
 LINE_LENGTH = float(os.environ.get("VECTRIFY_SAMVG_LINE_LENGTH", "4"))
 # The narrowest a line looked for may be, in pixels.
 LINE_WIDTH = 4
+# Drawn lines are stroked along centrelines found in the image itself, whose
+# steps are one of its pixels: they are smoothed over this many.
+LINE_SMOOTH = 1.0
 # With a fitting tolerance, outlines are first traced with one curve per this
 # many pixels and then simplified down to the tolerance.
 DENSITY = 6
@@ -1311,13 +1315,15 @@ def _fit_cubic(
     return controls[0], controls[1]
 
 
-def _smoothed(loop: list[tuple[float, float]], sigma: float):
+def _smoothed(loop: list[tuple[float, float]], sigma: float, *, closed: bool = True):
     """*loop* smoothed along its length by a Gaussian of *sigma* pixels.
 
     A pixel loop walks every step of a raster staircase, and with enough
     curves the fit follows each one: a mask SAM made at a lower resolution
     than the image comes out as steps a SAM pixel wide. Smoothing over about
     that width takes the steps out and rounds a real corner by as much.
+    An open line is smoothed as if it went on straight past its ends, and
+    keeps them where they were.
     """
     if sigma <= 0 or len(loop) < 3:
         return loop
@@ -1327,8 +1333,16 @@ def _smoothed(loop: list[tuple[float, float]], sigma: float):
     weights = np.exp(-0.5 * (offsets / sigma) ** 2)
     weights /= weights.sum()
     smooth = np.zeros_like(points)
-    for offset, weight in zip(offsets, weights, strict=True):
-        smooth += weight * np.roll(points, -offset, axis=0)
+    if closed:
+        for offset, weight in zip(offsets, weights, strict=True):
+            smooth += weight * np.roll(points, -offset, axis=0)
+    else:
+        # Mirrored through each end, which the average then leaves in place.
+        padded = np.pad(
+            points, ((reach, reach), (0, 0)), mode="reflect", reflect_type="odd"
+        )
+        for offset, weight in zip(offsets, weights, strict=True):
+            smooth += weight * padded[reach + offset : reach + offset + len(points)]
     return [(float(x), float(y)) for x, y in smooth]
 
 
@@ -1650,12 +1664,12 @@ def _grown(owner: np.ndarray, into: np.ndarray, steps: int) -> np.ndarray:
     return owner
 
 
-def line_art(image: Image.Image, width: int) -> np.ndarray:
-    """The drawn lines in *image*: dark strokes up to *width* pixels across.
+def _darkness(image: Image.Image, width: int) -> np.ndarray:
+    """How much darker (0-1) each pixel is than its surroundings, counting
+    only dark structures up to *width* pixels across.
 
-    A grey closing fills in every dark structure narrower than its footprint,
-    so where the image is much darker than its closing there is a line. Specks
-    too small to be part of one are left out.
+    A grey closing fills in every dark structure narrower than its
+    footprint, so the difference is the lines.
     """
     from scipy import ndimage
 
@@ -1663,7 +1677,18 @@ def line_art(image: Image.Image, width: int) -> np.ndarray:
     radius = max(1, width // 2 + 1)
     yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
     footprint = xx * xx + yy * yy <= radius * radius
-    darker = ndimage.grey_closing(grey, footprint=footprint) - grey
+    return ndimage.grey_closing(grey, footprint=footprint) - grey
+
+
+def line_art(image: Image.Image, width: int) -> np.ndarray:
+    """The drawn lines in *image*: dark strokes up to *width* pixels across.
+
+    Where the image is much darker than its surroundings there is a line.
+    Specks too small to be part of one are left out.
+    """
+    from scipy import ndimage
+
+    darker = _darkness(image, width)
     # Antialiasing breaks a line into pieces at any one threshold: keep the
     # faint pixels joined to a clearly dark one, then judge whole lines.
     faint = darker > LINE_CONTRAST / 2
@@ -1680,18 +1705,18 @@ def line_art(image: Image.Image, width: int) -> np.ndarray:
 
 def with_line_art(
     layers: list[MaskLayer], image: Image.Image, width: int
-) -> tuple[list[MaskLayer], list[MaskLayer]]:
+) -> tuple[list[MaskLayer], np.ndarray]:
     """*layers* filled in beneath the image's drawn lines, and the lines.
 
     SAM gives a drawn outline to neither region beside it, or makes it a thin
     region of its own that is then left out. Here the lines are found in the
-    image itself and traced on top, one path per connected line, in their
-    colour, and the regions beside a line grow under it so nothing shows
-    through.
+    image itself, to be stroked on top along their centres, and the regions
+    beside a line grow under it so nothing shows through where a stroke is
+    thinner than the line.
     """
     ink = line_art(image, width)
     if not ink.any() or not layers:
-        return layers, []
+        return layers, np.zeros_like(ink)
     owner = np.zeros(ink.shape, dtype=np.int32)
     for index, layer in enumerate(layers, start=1):
         owner[layer.mask] = index
@@ -1700,11 +1725,289 @@ def with_line_art(
         replace(layer, mask=layer.mask | (owner == index))
         for index, layer in enumerate(layers, start=1)
     ]
-    pixels = np.asarray(image.convert("RGB"))[ink]
-    colour = cast(
-        tuple[int, int, int], tuple(int(v) for v in np.median(pixels, axis=0))
+    return grown, ink
+
+
+def _neighbours(mask: np.ndarray) -> list[np.ndarray]:
+    """Each pixel's eight neighbours in *mask*, clockwise from above."""
+    padded = np.pad(mask, 1)
+    height, width = mask.shape
+    return [
+        padded[1 + dy : 1 + dy + height, 1 + dx : 1 + dx + width]
+        for dy, dx in (
+            (-1, 0),
+            (-1, 1),
+            (0, 1),
+            (1, 1),
+            (1, 0),
+            (1, -1),
+            (0, -1),
+            (-1, -1),
+        )
+    ]
+
+
+def thinned(mask: np.ndarray) -> np.ndarray:
+    """*mask* thinned to a centreline one pixel wide (Zhang and Suen, 1984).
+
+    Each pass peels the pixels off one side of every shape that it can lose
+    without coming apart or getting shorter, until none can go. The corner of
+    each staircase the peeling leaves is then taken out too, so a line is one
+    pixel across in the eight-connected sense as well.
+    """
+    skeleton = np.asarray(mask, dtype=bool).copy()
+    while True:
+        changed = False
+        for first in (True, False):
+            n, ne, e, se, s, sw, w, nw = _neighbours(skeleton)
+            ring = [n, ne, e, se, s, sw, w, nw]
+            count = np.sum(ring, axis=0)
+            # How many times the ring steps from background onto the shape.
+            crossings = np.sum(
+                [~a & b for a, b in zip(ring, [*ring[1:], ring[0]], strict=True)],
+                axis=0,
+            )
+            side = (
+                (~(n & e & s) & ~(e & s & w))
+                if first
+                else (~(n & e & w) & ~(n & s & w))
+            )
+            peeled = skeleton & (count >= 2) & (count <= 6) & (crossings == 1) & side
+            if peeled.any():
+                skeleton &= ~peeled
+                changed = True
+        if not changed:
+            break
+    for turn in range(4):
+        n, ne, e, se, s, sw, w, nw = _neighbours(skeleton)
+        ring = [n, ne, e, se, s, sw, w, nw]
+        # Two neighbours at a right angle that touch each other diagonally,
+        # and nothing on the far side: the pixel only turns the corner.
+        a, b = ring[2 * turn], ring[(2 * turn + 2) % 8]
+        far = (
+            ring[(2 * turn + 4) % 8]
+            | ring[(2 * turn + 5) % 8]
+            | ring[(2 * turn + 6) % 8]
+        )
+        skeleton &= ~(a & b & ~far)
+    return skeleton
+
+
+@dataclass(frozen=True)
+class _Chain:
+    """A run of centreline pixels, (x, y), between ends or junctions."""
+
+    points: np.ndarray
+    closed: bool
+    # Whether each end stops free, rather than at a junction.
+    free: tuple[bool, bool]
+
+
+def _chains(skeleton: np.ndarray) -> list[_Chain]:
+    """*skeleton* split at its ends and junctions into chains of pixels.
+
+    Neighbouring junction pixels are one junction, and the chains meeting
+    there end at its centre so their strokes join. A ring with no junction
+    is one closed chain.
+    """
+    from scipy import ndimage
+
+    count = np.sum(_neighbours(skeleton), axis=0)
+    junction = skeleton & (count >= 3)
+    junctions, _ = ndimage.label(junction, structure=np.ones((3, 3)))
+    centres = ndimage.center_of_mass(junction, junctions, range(1, junctions.max() + 1))
+    runs = skeleton & ~junction
+    labels, _ = ndimage.label(runs, structure=np.ones((3, 3)))
+    height, width = skeleton.shape
+
+    def around(pixel):
+        y, x = pixel
+        return [
+            (y + dy, x + dx)
+            for dy in (-1, 0, 1)
+            for dx in (-1, 0, 1)
+            if (dy or dx) and 0 <= y + dy < height and 0 <= x + dx < width
+        ]
+
+    chains = []
+    for index, where in enumerate(ndimage.find_objects(labels), start=1):
+        if where is None:
+            continue
+        ys, xs = np.nonzero(labels[where] == index)
+        pixels = {
+            (int(y) + where[0].start, int(x) + where[1].start)
+            for y, x in zip(ys, xs, strict=True)
+        }
+        ends = [p for p in pixels if sum(q in pixels for q in around(p)) < 2]
+        start = min(ends or pixels)
+        path, seen = [start], {start}
+        while True:
+            following = [q for q in around(path[-1]) if q in pixels and q not in seen]
+            if not following:
+                break
+            # A 4-neighbour before a diagonal one, so no corner is cut.
+            following.sort(
+                key=lambda q: abs(q[0] - path[-1][0]) + abs(q[1] - path[-1][1])
+            )
+            path.append(following[0])
+            seen.add(following[0])
+        closed = not ends and len(path) > 2
+        points = [(float(x), float(y)) for y, x in path]
+        free = [True, True]
+        if not closed:
+            first = sorted({junctions[q] for q in around(path[0]) if junctions[q]})
+            last = sorted({junctions[q] for q in around(path[-1]) if junctions[q]})
+            if len(path) == 1:
+                # One pixel between two junctions touches both at once.
+                last = [j for j in last if j not in first[:1]]
+            if first:
+                cy, cx = centres[first[0] - 1]
+                points.insert(0, (float(cx), float(cy)))
+                free[0] = False
+            if last:
+                cy, cx = centres[last[0] - 1]
+                points.append((float(cx), float(cy)))
+                free[1] = False
+            # A ring that meets a junction goes out from it and back.
+            closed = bool(first and last and first[0] == last[0] and len(path) > 2)
+            if closed:
+                points.pop()
+        chains.append(_Chain(np.asarray(points), closed, (free[0], free[1])))
+    return chains
+
+
+def line_strokes(
+    ink: np.ndarray,
+    image: Image.Image,
+    width: int,
+    *,
+    smooth: float = LINE_SMOOTH,
+    tolerance: float = 0.0,
+) -> list[dict[str, str]]:
+    """The drawn lines in *ink* as strokes along their centres.
+
+    The lines are thinned to their centrelines and split at ends and
+    junctions; each piece becomes an open path (closed for a ring), stroked
+    in the lines' colour about as wide as the line is there. A spur no
+    longer than the line is wide is the thinning's, not the drawing's, and
+    is left out.
+    """
+    if not ink.any():
+        return []
+    depth = _distance_transform_edt(ink)
+    darkness = np.where(ink, _darkness(image, width), 0.0)
+
+    def across(chain: _Chain) -> float:
+        # The centre is about half a line from either edge.
+        xs, ys = chain.points.round().astype(int).T
+        return max(1.0, 2 * float(np.median(depth[ys, xs])))
+
+    skeleton = thinned(ink)
+    chains = _chains(skeleton)
+    for _ in range(3):
+        spurs = [
+            chain
+            for chain in chains
+            if not chain.closed
+            and sum(chain.free) == 1
+            and len(chain.points) <= across(chain) + 1
+        ]
+        if not spurs:
+            break
+        for chain in spurs:
+            # The chain's own pixels; the junction it ends at stays.
+            pixels = chain.points[1:] if not chain.free[0] else chain.points[:-1]
+            skeleton[pixels[:, 1].astype(int), pixels[:, 0].astype(int)] = False
+        chains = _chains(skeleton)
+    pixels = np.asarray(image.convert("RGB"))
+    colour = "#{:02x}{:02x}{:02x}".format(
+        *(int(v) for v in np.median(pixels[ink], axis=0))
     )
-    return grown, _pieces(MaskLayer(ink, colour, 1.0))
+    strokes = []
+    for chain in chains:
+        if len(chain.points) < 2:
+            continue
+        # A pixel's centre is half a pixel into it.
+        centre = _centred(chain, darkness, across(chain)) + 0.5
+        data = _cubic_line(centre, chain.closed, smooth)
+        if tolerance:
+            data = _simplified_data(data, tolerance)
+        strokes.append(
+            {
+                "d": data,
+                "fill": "none",
+                "stroke": colour,
+                "stroke-width": f"{across(chain):.2f}",
+                "stroke-linecap": "round",
+                "stroke-linejoin": "round",
+            }
+        )
+    return strokes
+
+
+def _centred(chain: _Chain, darkness: np.ndarray, reach: float) -> np.ndarray:
+    """*chain*'s points moved across the line onto the middle of its ink.
+
+    A centreline pixel of a line an even number of pixels wide is half a
+    pixel off to one side, and antialiasing moves the middle between pixels:
+    each point goes to the darkness-weighted mean along the line's normal
+    there. Points at a junction stay, so the chains meeting there still do.
+    """
+    points = chain.points
+    if len(points) < 3:
+        return points
+    tangent = np.gradient(
+        np.asarray(_smoothed([(x, y) for x, y in points], 2.0, closed=chain.closed)),
+        axis=0,
+    )
+    if chain.closed:
+        tangent[0] = points[1] - points[-1]
+        tangent[-1] = points[0] - points[-2]
+    length = np.linalg.norm(tangent, axis=1, keepdims=True)
+    normal = np.divide(
+        tangent[:, ::-1] * (1, -1), length, out=np.zeros_like(tangent), where=length > 0
+    )
+    offsets = np.arange(-reach, reach + 0.25, 0.5)
+    samples = points[:, None, :] + offsets[None, :, None] * normal[:, None, :]
+    height, width = darkness.shape
+    xs = np.clip(samples[..., 0].round().astype(int), 0, width - 1)
+    ys = np.clip(samples[..., 1].round().astype(int), 0, height - 1)
+    weights = darkness[ys, xs]
+    total = weights.sum(axis=1)
+    shift = np.divide(
+        (weights * offsets).sum(axis=1),
+        total,
+        out=np.zeros(len(points)),
+        where=total > 0,
+    )
+    centred = points + shift[:, None] * normal
+    if not chain.free[0]:
+        centred[0] = points[0]
+    if not chain.free[1]:
+        centred[-1] = points[-1]
+    return centred
+
+
+def _cubic_line(points: np.ndarray, closed: bool, smooth: float) -> str:
+    """Path data through *points*, one cubic per ``DENSITY`` pixels of them."""
+    points = np.asarray(_smoothed([(x, y) for x, y in points], smooth, closed=closed))
+    if closed:
+        points = np.vstack([points, points[:1]])
+    size = len(points)
+    count = max(1, (size - 1) // DENSITY)
+    ends = np.linspace(0, size - 1, count + 1).round().astype(int)
+    parts = [f"M {points[0, 0]:.2f} {points[0, 1]:.2f}"]
+    for first, second in pairwise(ends):
+        end = points[second]
+        if second - first < 2:
+            parts.append(f"L {end[0]:.2f} {end[1]:.2f}")
+            continue
+        control_a, control_b = _fit_cubic(points[first : second + 1])
+        parts.append(
+            f"C {control_a[0]:.2f} {control_a[1]:.2f} "
+            f"{control_b[0]:.2f} {control_b[1]:.2f} {end[0]:.2f} {end[1]:.2f}"
+        )
+    return " ".join(parts) + (" Z" if closed else "")
 
 
 def backdrop_colour(
@@ -1838,9 +2141,9 @@ def generate_svg(
         layers = refine_edges(layers, image, band=round(EDGE_BAND * scale))
     if merge:
         layers = merge_patches(layers, image, min_impact=min_impact)
-    lines: list[MaskLayer] = []
+    ink = None
     if outlines:
-        layers, lines = with_line_art(layers, image, outlines)
+        layers, ink = with_line_art(layers, image, outlines)
     width, height = image.size
     # SAM's masks have steps of one SAM pixel, which is more than one of the
     # image's when SAM worked at a smaller size.
@@ -1863,14 +2166,8 @@ def generate_svg(
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
-    for line in lines:
-        for attributes in _layer_svg_attributes(
-            line,
-            segments * 4,
-            maximum_segments=maximum_segments,
-            smooth=smooth,
-            tolerance=tolerance,
-        ):
+    if ink is not None:
+        for attributes in line_strokes(ink, image, outlines, tolerance=tolerance):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
     svg = (

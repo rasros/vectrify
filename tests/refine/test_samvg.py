@@ -6,9 +6,10 @@ from types import SimpleNamespace
 
 import cairosvg
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 
 import vectrify.refine.samvg as samvg
+from vectrify.document.svg import parse_path
 from vectrify.refine.samvg import (
     MaskLayer,
     TextLayer,
@@ -27,11 +28,13 @@ from vectrify.refine.samvg import (
     filter_by_impact,
     generate_svg,
     line_art,
+    line_strokes,
     mask_path,
     merge_patches,
     recolour_visible_layers,
     refine_edges,
     residual_prompt_points,
+    thinned,
     thinner_than,
     with_line_art,
 )
@@ -871,10 +874,94 @@ def test_drawn_lines_are_found_and_regions_fill_in_beneath_them():
     right = np.zeros((80, 80), dtype=bool)
     right[:, 42:] = True
     layers, lines = with_line_art([_layer(left), _layer(right)], image, 6)
-    assert len(lines) == 1
-    assert lines[0].colour == (30, 30, 30)
+    assert (lines == ink).all()
     # Nothing beneath the line is left for the backdrop.
     assert (layers[0].mask | layers[1].mask)[:, 39:42].all()
+
+    svg = generate_svg(
+        image, [left, right], min_pixels=1, min_impact=0, outlines=6, tolerance=0.5
+    )
+    strokes = [e for e in ET.fromstring(svg) if e.get("stroke")]
+    assert len(strokes) == 1
+    assert strokes[0].get("stroke") == "#1e1e1e"
+    assert strokes[0].get("fill") == "none"
+
+
+def test_thinning_leaves_a_centreline_one_pixel_wide():
+    mask = np.zeros((40, 80), dtype=bool)
+    mask[15:24, 10:70] = True
+    skeleton = thinned(mask)
+
+    # One pixel in each column along the middle, on the centre row.
+    assert (skeleton[:, 20:60].sum(axis=0) == 1).all()
+    assert (np.nonzero(skeleton[:, 20:60])[0] == 19).all()
+    assert not (skeleton & ~mask).any()
+    # Thin in the eight-connected sense too: along a thick diagonal, no
+    # pixel has three neighbours.
+    diagonal = np.eye(60, dtype=bool)
+    diagonal |= np.roll(diagonal, 1, axis=1) | np.roll(diagonal, 2, axis=1)
+    diagonal[:, :2] = diagonal[:, -2:] = False
+    thin = thinned(diagonal)
+    padded = np.pad(thin, 1)
+    neighbours = sum(
+        padded[1 + dy : 61 + dy, 1 + dx : 61 + dx]
+        for dy in (-1, 0, 1)
+        for dx in (-1, 0, 1)
+        if dy or dx
+    )
+    assert thin.sum() > 40
+    assert (neighbours[thin] <= 2).all()
+
+
+def test_a_drawn_line_is_stroked_along_its_centre_as_one_open_path():
+    image = Image.new("RGB", (100, 60), (230, 230, 230))
+    # A dark line three pixels wide, from (15, 30) to (84, 40), bending once.
+    ImageDraw.Draw(image).line(
+        [(15, 30), (50, 30), (84, 40)], fill=(40, 30, 20), width=3, joint="curve"
+    )
+    pixels = np.asarray(image)
+    ink = line_art(image, 6)
+    strokes = line_strokes(ink, image, 6, smooth=1.0, tolerance=0.5)
+
+    assert len(strokes) == 1
+    stroke = strokes[0]
+    assert stroke["fill"] == "none"
+    assert stroke["stroke-linecap"] == "round"
+    assert 2 <= float(stroke["stroke-width"]) <= 4.5
+    (subpath,) = parse_path(stroke["d"]).subpaths
+    assert not subpath.closed
+    ends = sorted([subpath.nodes[0].values[-2:], subpath.nodes[-1].values[-2:]])
+    assert np.allclose(ends, [(16, 30), (83, 40)], atol=2)
+    # Simplified: a handful of curves, not one per pixel.
+    assert len(subpath.nodes) <= 6
+
+    # Drawn, it covers the line and little else.
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="60">'
+        f'<path d="{stroke["d"]}" fill="none" stroke="#000" '
+        f'stroke-width="{stroke["stroke-width"]}" stroke-linecap="round"/></svg>'
+    )
+    png = cairosvg.svg2png(bytestring=svg.encode())
+    assert png is not None
+    drawn = np.asarray(Image.open(io.BytesIO(png)).split()[-1]) > 127
+    line = pixels[..., 0] < 100
+    assert (drawn & line).sum() / line.sum() > 0.9
+    assert (drawn & ~line).sum() / line.sum() < 0.3
+
+
+def test_a_drawn_ring_is_one_closed_stroked_path():
+    yy, xx = np.mgrid[:80, :80]
+    radius = np.hypot(yy - 40, xx - 40)
+    pixels = np.full((80, 80, 3), 230, dtype=np.uint8)
+    pixels[abs(radius - 25) <= 1.5] = (40, 30, 20)
+    image = Image.fromarray(pixels)
+    strokes = line_strokes(line_art(image, 6), image, 6, smooth=1.0, tolerance=0.5)
+
+    assert len(strokes) == 1
+    (subpath,) = parse_path(strokes[0]["d"]).subpaths
+    assert subpath.closed
+    points = np.array([node.values[-2:] for node in subpath.nodes])
+    assert np.allclose(np.hypot(points[:, 0] - 40, points[:, 1] - 40), 25, atol=1.5)
 
 
 def test_a_flattened_layer_cut_in_two_becomes_two_regions():

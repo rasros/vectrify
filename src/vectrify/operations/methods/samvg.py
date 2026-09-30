@@ -44,7 +44,7 @@ SETTINGS = {
     "flatten": Setting(bool, False),
     # Fold small patches into a neighbour of a similar colour.
     "merge": Setting(bool, True),
-    # Trace the reference's drawn lines as a layer of their own on top.
+    # Stroke the reference's drawn lines along their centres, on top.
     "outlines": Setting(bool, True),
     # Move region edges onto the reference's own, finer than SAM's masks.
     "refine": Setting(bool, True),

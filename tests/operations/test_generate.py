@@ -196,6 +196,41 @@ def test_flattened_samvg_trace_links_the_seams_between_its_regions(
     assert editor.undo_labels == ("Generate with SAMVG",)
 
 
+def test_samvg_inserts_a_stroked_open_line_intact(monkeypatch):
+    seen = {}
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
+        '<path d="M100 50H300V150H100Z" fill="#c80000"/>'
+        '<path d="M 100.00 50.00 C 150.00 20.00 250.00 80.00 300.00 50.00" '
+        'fill="none" stroke="#281e14" stroke-width="3.00" '
+        'stroke-linecap="round" stroke-linejoin="round"/></svg>'
+    )
+
+    def fake(_image, **kwargs):
+        seen.update(kwargs)
+        return svg
+
+    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", fake)
+    editor = Editor(import_svg(DOC))
+    job = Job(
+        method("generate", "samvg"),
+        request(editor, Selection.all(), settings={"max_side": 400}),
+    )
+    job.run()
+    assert job.state()["status"] == "ready"
+    job.apply()
+    # Drawn outlines are on by default, as the widest line looked for.
+    assert seen["outlines"] >= 4
+    doc = editor.snapshot.document
+    (line,) = [e for e in doc.elements() if e.get("stroke") == "#281e14"]
+    assert line.get("fill") == "none"
+    assert line.get("stroke-width") == "3.00"
+    assert line.get("stroke-linecap") == "round"
+    (subpath,) = doc.geometry_for(line.id).subpaths
+    assert not subpath.closed
+    assert [node.command for node in subpath.nodes] == ["M", "C"]
+
+
 def test_samvg_rejects_bad_settings_and_missing_permission():
     editor = Editor(import_svg(DOC))
     samvg = method("generate", "samvg")
