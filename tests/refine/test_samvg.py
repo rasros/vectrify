@@ -503,6 +503,38 @@ def test_mask_path_keeps_a_hole_as_a_second_even_odd_subpath():
     assert path.count(" Z") == 2
 
 
+def test_smoothing_takes_the_steps_out_of_an_enlarged_raster_edge():
+    import re
+
+    # A diagonal edge made at a third of the size and enlarged, as a mask SAM
+    # made at a lower resolution than the image is: steps three pixels wide.
+    small = np.tril(np.ones((40, 40), dtype=bool), -1)
+    small[:, 30:] = False
+    mask = (
+        np.asarray(
+            Image.fromarray(small.astype(np.uint8) * 255).resize(
+                (120, 120), Image.Resampling.NEAREST
+            )
+        )
+        > 0
+    )
+
+    def spread(smooth):
+        path = mask_path(mask, segments=64, smooth=smooth)
+        assert path is not None
+        values = np.array([float(v) for v in re.findall(r"-?\d+\.?\d*", path)])
+        points = values.reshape(-1, 2)
+        near = points[
+            (points[:, 0] > 10)
+            & (points[:, 0] < 80)
+            & (points[:, 1] > 10)
+            & (np.abs(points[:, 1] - points[:, 0]) < 8)
+        ]
+        return float(np.std(near[:, 1] - near[:, 0]))
+
+    assert spread(3.0) < 0.5 * spread(0.0)
+
+
 def test_mask_path_supports_the_variable_segment_tracing_variation():
     mask = np.zeros((48, 48), dtype=bool)
     mask[8:40, 8:40] = True
@@ -749,6 +781,20 @@ def test_hidden_layers_are_dropped_and_flattening_removes_overlap():
     assert np.all(np.sum([layer.mask for layer in flat], axis=0) <= 1)
     assert np.any(flat[0].mask)
     assert not np.any(flat[0].mask & top)
+
+
+def test_flattening_gives_a_sliver_to_its_neighbour_without_a_gap():
+    below = np.zeros((20, 20), dtype=bool)
+    below[0:20, 0:20] = True
+    top = np.zeros((20, 20), dtype=bool)
+    # Covers all of the layer below but one row, which would be a sliver.
+    top[1:20, 0:20] = True
+    flat = arrange_layers(
+        [_layer(below), _layer(top)], flatten=True, min_width=3, min_pixels=4
+    )
+
+    assert len(flat) == 1
+    assert flat[0].mask.all()
 
 
 def test_the_backdrop_takes_the_colour_of_what_no_layer_claims():
