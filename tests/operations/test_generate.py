@@ -166,6 +166,36 @@ def test_samvg_traces_a_small_reference_enlarged_and_places_it_the_same(
     assert state["result"]["metrics"]["after"]["error"] < 1e-3
 
 
+@pytest.mark.parametrize("flatten", [True, False])
+def test_flattened_samvg_trace_links_the_seams_between_its_regions(
+    monkeypatch, flatten
+):
+    # Two squares a traced pixel apart, over the backdrop, as traced
+    # separately from flattened masks.
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200">'
+        '<rect width="400" height="200" fill="#ffffff"/>'
+        '<path d="M100 50H200V150H100Z" fill="#c80000"/>'
+        '<path d="M201 50H300V150H201Z" fill="#c80000"/></svg>'
+    )
+    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", lambda *_a, **_k: svg)
+    editor = Editor(import_svg(DOC))
+    job = Job(
+        method("generate", "samvg"),
+        request(
+            editor, Selection.all(), settings={"flatten": flatten, "max_side": 400}
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["metrics"].get("linked", 0) == (1 if flatten else 0)
+    job.apply()
+    doc = editor.snapshot.document
+    assert len(doc.boundaries) == (1 if flatten else 0)
+    assert editor.undo_labels == ("Generate with SAMVG",)
+
+
 def test_samvg_rejects_bad_settings_and_missing_permission():
     editor = Editor(import_svg(DOC))
     samvg = method("generate", "samvg")

@@ -52,33 +52,82 @@ def projection(point, points):
     i = int(np.argmin(distances))
     t = ts[i] + fractions[i] * (ts[i + 1] - ts[i])
     if len(points) == 4:
+        (x0, y0), (x1, y1), (x2, y2), (x3, y3) = points
+        px, py = point
+
+        # Plain floats: the search evaluates the curve dozens of times.
+        def squared(u):
+            v = 1 - u
+            a, b, c, d = v * v * v, 3 * v * v * u, 3 * v * u * u, u * u * u
+            x = a * x0 + b * x1 + c * x2 + d * x3 - px
+            y = a * y0 + b * y1 + c * y2 + d * y3 - py
+            return x * x + y * y
+
         fit = minimize_scalar(
-            lambda u: float(np.sum((sample(points, [u])[0] - p) ** 2)),
+            squared,
             bounds=(ts[i], ts[i + 1]),
             method="bounded",
             options={"xatol": 1e-12},
         )
-        t = min(
-            (0.0, 1.0, float(fit.x)),
-            key=lambda u: float(np.sum((sample(points, [u])[0] - p) ** 2)),
-        )
+        t = min((0.0, 1.0, float(fit.x)), key=squared)
     return float(t), float(np.linalg.norm(sample(points, [t])[0] - p))
 
 
-def split_at_contacts(document, first, second, tolerance, matrices):
+def box(points, margin=0.0):
+    """Bounds of *points*, widened by *margin*: (left, top, right, bottom)."""
+    p = np.asarray(points).reshape(-1, 2)
+    return (*(p.min(axis=0) - margin), *(p.max(axis=0) + margin))
+
+
+def inside(point, bounds):
+    return bounds[0] <= point[0] <= bounds[2] and bounds[1] <= point[1] <= bounds[3]
+
+
+def meets(first, second):
+    return (
+        first[0] <= second[2]
+        and second[0] <= first[2]
+        and first[1] <= second[3]
+        and second[1] <= first[3]
+    )
+
+
+def split_at_contacts(document, first, second, tolerance, matrices, linked=()):
     originals = {gid: edges(document, gid, matrices[gid]) for gid in (first, second)}
+    bounds = {
+        gid: box([p for e in found for p in e.points], tolerance)
+        for gid, found in originals.items()
+    }
     cuts = {}
     for source, target in ((first, second), (second, first)):
-        targets = originals[target]
+        # Only the parts within reach of the other path can touch it. Linked
+        # edges are never split: that would split their partners too, and
+        # those may belong to paths outside this pair.
+        targets = [
+            e
+            for e in originals[target]
+            if (e.ref.geometry_id, e.ref.node_id) not in linked
+            and meets(box(e.points), bounds[source])
+        ]
+        points = {
+            p
+            for e in originals[source]
+            for p in (e.points[0], e.points[-1])
+            if inside(p, bounds[target])
+        }
+        if not targets or not points:
+            continue
         lines = [LineString(sample(e.points, np.linspace(0, 1, 33))) for e in targets]
         tree = STRtree(lines)
-        points = {p for e in originals[source] for p in (e.points[0], e.points[-1])}
         for point in points:
             for index in tree.query(Point(point).buffer(tolerance)):
                 e = targets[int(index)]
                 t, distance = projection(point, e.points)
                 if distance <= tolerance and 1e-6 < t < 1 - 1e-6:
                     cuts.setdefault(e.ref, set()).add(t)
+    # No cut edge is linked, so splitting can skip the search for partners.
+    boundaries = document.boundaries
+    document = replace(document, boundaries=())
     # All projections refer to original curves; split the remaining suffix at
     # an adjusted parameter so subdivision introduces no flattening error.
     for ref, parameters in cuts.items():
@@ -88,34 +137,24 @@ def split_at_contacts(document, first, second, tolerance, matrices):
                 continue
             document, _ = split_edges(document, ref, (t - previous) / (1 - previous))
             previous = t
-    return document
+    return replace(document, boundaries=boundaries)
 
 
-def match_boundaries(document, object_ids, tolerance):
-    if len(object_ids) != 2:
-        raise DocumentError("Select exactly two paths to share a boundary")
-    if not math.isfinite(tolerance) or not 0 < tolerance <= 20:
-        raise DocumentError(
-            "Contact distance must be greater than zero and at most 20 SVG units"
-        )
-    ordered = [e for e in document.elements() if e.id in object_ids]
-    matrices = []
-    for element in ordered:
+def regions(document, object_ids):
+    """The selected paths' geometry IDs and root frames, back to front."""
+    if len(object_ids) < 2:
+        raise DocumentError("Select two or more paths to share boundaries")
+    frames = {}
+    for element in (e for e in document.elements() if e.id in object_ids):
         if element.tag != "path":
             raise DocumentError(
-                "Select two editable paths; detach instances or select group children."
+                "Select editable paths; detach instances or select group children."
             )
         geometry = document.geometry_for(element.id)
         if document.geometry_users(geometry.id) != frozenset({element.id}):
             raise DocumentError("Detach shared geometry before matching boundaries")
         if any(not s.closed for s in geometry.subpaths):
             raise DocumentError("Shared regions must have closed contours")
-        if any(
-            m.geometry_id == geometry.id for b in document.boundaries for m in b.members
-        ):
-            raise DocumentError(
-                "Unlink the existing shared boundaries before rematching these paths."
-            )
         matrix = IDENTITY
         for ancestor in document.ancestry(element.id):
             if ancestor.get("clip-path"):
@@ -123,21 +162,57 @@ def match_boundaries(document, object_ids, tolerance):
                     "Clipped paths are not supported by boundary matching yet"
                 )
             matrix = multiply(matrix, transform(ancestor.get("transform")))
-        matrices.append(matrix)
-    for matrix in matrices:
         inverse_matrix(matrix)
-    target, source = [document.geometry_for(e.id).id for e in ordered]
-    frames = {
-        document.geometry_for(e.id).id: matrix
-        for e, matrix in zip(ordered, matrices, strict=True)
-    }
-    candidate = split_at_contacts(document, source, target, tolerance, frames)
-    sources = edges(candidate, source, frames[source])
-    targets = edges(candidate, target, frames[target])
+        frames[geometry.id] = matrix
+    return frames
+
+
+def touching(document, frames, tolerance):
+    """(front, rear) pairs whose root-space bounds come within *tolerance*,
+    frontmost fronts first so the front contour is always the reference."""
+    ids = list(frames)
+    # Control points bound their curves, so their extremes bound each path.
+    boxes = np.asarray(
+        [
+            box([p for e in edges(document, gid, frames[gid]) for p in e.points])
+            for gid in ids
+        ]
+    ).reshape(-1, 4)
+    low, high = boxes[:, :2], boxes[:, 2:] + tolerance
+    near = np.all(low[:, None] <= high[None], axis=2) & np.all(
+        low[None] <= high[:, None], axis=2
+    )
+    return [
+        (ids[front], ids[rear])
+        for front in reversed(range(len(ids)))
+        for rear in reversed(range(front))
+        if near[front, rear]
+    ]
+
+
+def match_pair(candidate, front, rear, tolerance, frames, linked, locked):
+    """Link the touching, still unlinked edges of one pair, snapping *rear*.
+
+    A span is skipped when snapping it would move a slot of an edge linked
+    before, so every existing boundary stays coincident.
+    """
+    candidate = split_at_contacts(candidate, front, rear, tolerance, frames, linked)
+    sources = [
+        e
+        for e in edges(candidate, front, frames[front])
+        if (front, e.ref.node_id) not in linked
+    ]
+    targets = [
+        e
+        for e in edges(candidate, rear, frames[rear])
+        if (rear, e.ref.node_id) not in linked
+    ]
     if len(sources) + len(targets) > 30000:
         raise DocumentError(
             "Too many contact candidates; simplify the paths or reduce contact distance"
         )
+    if not sources or not targets:
+        return candidate, []
     tree = KDTree([e.points[0] for e in targets] + [e.points[-1] for e in targets])
     proposals = []
     for s in sources:
@@ -168,6 +243,12 @@ def match_boundaries(document, object_ids, tolerance):
             )
             if float(max(distances)) <= tolerance:
                 proposals.append((float(sum(distances)), s, t, reverse))
+    current = {
+        (rear, n.id, i): v
+        for s in candidate.geometry(rear).subpaths
+        for n in s.nodes
+        for i, v in enumerate(n.values)
+    }
     used_source, used_target, updates, boundaries = set(), set(), {}, []
     for _, s, t, reverse in sorted(proposals, key=lambda p: p[0]):
         if s.ref in used_source or t.ref in used_target:
@@ -177,7 +258,8 @@ def match_boundaries(document, object_ids, tolerance):
             v for p in s.points for v in mapped_point(p, inverse_matrix(t.ref.matrix))
         )
         if any(
-            slot in updates and abs(updates[slot] - v) > 1e-8
+            (slot in updates and abs(updates[slot] - v) > 1e-8)
+            or (slot in locked and abs(current[slot] - v) > 1e-8)
             for slot, v in zip(slots, values, strict=True)
         ):
             continue
@@ -190,11 +272,9 @@ def match_boundaries(document, object_ids, tolerance):
         used_source.add(s.ref)
         used_target.add(t.ref)
     if not boundaries:
-        raise DocumentError(
-            "No matching boundary spans found. Try a slightly larger contact distance."
-        )
-    # Only the rear region snaps; the frontmost contour remains the reference.
-    geometry = candidate.geometry(target)
+        return candidate, []
+    # Only the rear region snaps; the front contour remains the reference.
+    geometry = candidate.geometry(rear)
     geometry = replace(
         geometry,
         subpaths=tuple(
@@ -204,7 +284,7 @@ def match_boundaries(document, object_ids, tolerance):
                     replace(
                         n,
                         values=tuple(
-                            updates.get((target, n.id, i), v)
+                            updates.get((rear, n.id, i), v)
                             for i, v in enumerate(n.values)
                         ),
                     )
@@ -216,5 +296,43 @@ def match_boundaries(document, object_ids, tolerance):
     )
     candidate = candidate.replace_geometry(geometry)
     candidate = replace(candidate, boundaries=(*candidate.boundaries, *boundaries))
+    return candidate, boundaries
+
+
+def match_boundaries(document, object_ids, tolerance):
+    """Link the touching edges of every pair of the selected paths.
+
+    Edges already in a boundary are kept as they are and never matched again.
+    """
+    if not math.isfinite(tolerance) or not 0 < tolerance <= 20:
+        raise DocumentError(
+            "Contact distance must be greater than zero and at most 20 SVG units"
+        )
+    frames = regions(document, object_ids)
+    if len(frames) < 2:
+        raise DocumentError("Select two or more paths to share boundaries")
+    candidate, count = document, 0
+    linked = {
+        (m.geometry_id, m.node_id) for b in document.boundaries for m in b.members
+    }
+    locked = {
+        slot
+        for b in document.boundaries
+        for m in b.members
+        for slot in edge(document, m).slots
+    }
+    for front, rear in touching(document, frames, tolerance):
+        candidate, boundaries = match_pair(
+            candidate, front, rear, tolerance, frames, linked, locked
+        )
+        for boundary in boundaries:
+            for member in boundary.members:
+                linked.add((member.geometry_id, member.node_id))
+                locked.update(edge(candidate, member).slots)
+        count += len(boundaries)
+    if not count:
+        raise DocumentError(
+            "No matching boundary spans found. Try a slightly larger contact distance."
+        )
     candidate.validate()
-    return candidate, len(boundaries)
+    return candidate, count

@@ -4,7 +4,7 @@ import pytest
 
 from vectrify.document import DocumentError, Editor, Selection, import_svg
 from vectrify.document.project import load_project, save_project
-from vectrify.document.topology import edge
+from vectrify.document.topology import close_points, edge
 
 
 def editor(a="M0 0 L10 0 L10 20 L0 20Z", b="M10 0 L20 0 L20 20 L10 20 L10 10Z"):
@@ -191,4 +191,68 @@ def test_singular_transform_fails_without_modifying_drawing():
     before = e.snapshot
     with pytest.raises(DocumentError, match="collapsed"), e.transaction("Share") as tx:
         tx.share_boundaries(1)
+    assert e.snapshot == before
+
+
+def row(*extra):
+    """Three squares in a row, left at the back, plus any *extra* paths."""
+    paths = "".join(
+        f'<path id="{i}" d="{d}"/>'
+        for i, d in (
+            ("left", "M0 0L10 0L10 10L0 10Z"),
+            ("middle", "M10.2 0L20 0L20 10L10.2 10Z"),
+            ("right", "M20.1 0L30 0L30 10L20.1 10Z"),
+            *extra,
+        )
+    )
+    return Editor(import_svg(f'<svg width="40" height="40">{paths}</svg>'))
+
+
+def owners(doc, boundary):
+    return {next(iter(doc.geometry_users(m.geometry_id))) for m in boundary.members}
+
+
+def test_many_regions_link_every_seam_and_snap_to_the_front():
+    e = row()
+    right = e.snapshot.document.geometry_for("right")
+    e.select(Selection(object_ids=frozenset({"left", "middle", "right"})))
+    with e.transaction("Share") as tx:
+        assert tx.share_boundaries(0.5) == 2
+    doc = e.snapshot.document
+    assert [owners(doc, b) for b in doc.boundaries] == [
+        {"middle", "right"},
+        {"left", "middle"},
+    ]
+    # The frontmost region is the reference; the regions behind it snap.
+    assert doc.geometry_for("right") == right
+    for boundary in doc.boundaries:
+        assert close_points(
+            edge(doc, boundary.members[0]).points,
+            edge(doc, boundary.members[1]).points,
+        )
+
+
+def test_a_linked_region_keeps_its_link_and_gains_another_neighbour():
+    e = row()
+    e.select(Selection(object_ids=frozenset({"middle", "right"})))
+    with e.transaction("Share") as tx:
+        assert tx.share_boundaries(0.5) == 1
+    first = e.snapshot.document.boundaries[0]
+    e.select(Selection(object_ids=frozenset({"left", "middle", "right"})))
+    with e.transaction("Share again") as tx:
+        assert tx.share_boundaries(0.5) == 1
+    doc = e.snapshot.document
+    assert doc.boundaries[0] == first
+    assert owners(doc, doc.boundaries[1]) == {"left", "middle"}
+
+
+def test_many_regions_with_nothing_touching_refuse_without_changes():
+    e = row(("far", "M0 30L5 30L5 35L0 35Z"))
+    e.select(Selection(object_ids=frozenset({"left", "right", "far"})))
+    before = e.snapshot
+    with (
+        pytest.raises(DocumentError, match="No matching"),
+        e.transaction("Share") as tx,
+    ):
+        tx.share_boundaries(0.5)
     assert e.snapshot == before

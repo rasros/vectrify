@@ -53,6 +53,10 @@ SETTINGS = {
     "points_per_batch": Setting(int, SAMVG_POINTS_PER_BATCH, minimum=1, maximum=1024),
 }
 
+# Flattened regions are traced one by one, so neighbours' outlines stray from
+# the common seam by up to about a traced pixel; link edges within this many.
+SEAM_PIXELS = 1.5
+
 
 def _enlarged(region: Region, settings: dict) -> tuple[Region, dict]:
     """*region* smoothly enlarged to SAM's working size, if it is smaller.
@@ -116,6 +120,7 @@ class Samvg:
             label="Generate with SAMVG",
             name="SAMVG trace",
             traced=traced,
+            seams=SEAM_PIXELS if settings["flatten"] else None,
         )
         context.progress(2, "Preview ready")
         return result
