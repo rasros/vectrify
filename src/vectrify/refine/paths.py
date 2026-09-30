@@ -1022,6 +1022,7 @@ def fit_filled_svg(
     project_controls: Any = None,
     observe: Any = None,
     coverage_transform: Any = None,
+    device: str | None = None,
 ) -> str:
     """Optimise filled cubic SVG paths against an RGB target.
 
@@ -1051,6 +1052,10 @@ def fit_filled_svg(
     ``project_controls`` enforces editor coordinate constraints after each Adam
     update; ``observe`` reports/retains candidates and returns False to stop.
     These optional hooks leave the automatic path-fit mutation unchanged.
+    ``device`` overrides the default of CUDA whenever Torch sees a GPU.
+    Without CUDA or the native extension, coverage comes from the portable
+    polyline renderer in :mod:`vectrify.refine.soft_coverage`, whose gradient
+    moves the geometry where the sampled winding numbers barely do.
     """
     import xml.etree.ElementTree as ET
 
@@ -1090,7 +1095,12 @@ def fit_filled_svg(
     if not entries:
         raise UnsupportedPathError("no opaque filled cubic paths to optimise")
 
-    device = "cuda" if torch.cuda.is_available() else "cpu"
+    from vectrify.refine.cuda_renderer import available as native_available
+    from vectrify.refine.soft_coverage import soft_coverage
+
+    if device is None:
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+    soft = device != "cuda" or not native_available()
     width, height = target.size
     scale = (
         1.0
@@ -1321,6 +1331,20 @@ def fit_filled_svg(
         tile_height: int,
         items: list[tuple[int, int, int]],
     ) -> list[tuple[int, Any, int, int]]:
+        if soft:
+            return [
+                (
+                    index,
+                    soft_coverage(
+                        controls[index],
+                        (left, top, left + tile_width, top + tile_height),
+                        fill_rule=fill_rule,
+                    ),
+                    left,
+                    top,
+                )
+                for index, left, top in items
+            ]
         # SAMVG+var can emit a contour longer than the fixed-width coverage
         # primitive.  Route those through the chunked native winding path;
         # packing them into the old batched coverage call would force eager
@@ -1413,7 +1437,19 @@ def fit_filled_svg(
         """
         return max(1, min(16, (1 << 20) // max(1, tile_width * tile_height)))
 
+    def soft_multi(index: int, path: list[Any]) -> Any:
+        # The tile follows the current controls, so movement never clips it.
+        left, top, tile_width, tile_height = tile_for(path)
+        alpha = soft_coverage(
+            path,
+            (left, top, left + tile_width, top + tile_height),
+            fill_rule=entries[index][3],
+        )
+        return restore_tile(alpha, left, top)
+
     def rasterise_multi(index: int, path: list[Any]) -> Any:
+        if soft:
+            return soft_multi(index, path)
         # Large paths use fixed conservative candidate tiles.  Every tile
         # sees all contours that can cross one of its horizontal rays, while
         # avoiding the old all-contours-at-every-pixel winding fallback.
@@ -1511,6 +1547,11 @@ def fit_filled_svg(
         items: list[tuple[int, int, int]],
     ) -> list[tuple[int, Any]]:
         """Rasterise equal-sized multi-contour paths in one contour batch."""
+        if soft:
+            return [
+                (index, soft_multi(index, controls[index]))
+                for index, _left, _top in items
+            ]
         chunks = []
         spans = []
         for index, left, top in items:
