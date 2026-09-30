@@ -46,8 +46,7 @@ at once.
 Gradient fitting has one core, `refine.paths.fit_filled_svg`, which
 `improve/path-fit` wraps with exact compositing (clipping, group opacity and
 objects in front), pins and permissions. `fit_filled_svg_bounded` fits one
-spatial group at a time; `scripts/bench_samvg_two_phase.py` uses it for SAMVG's
-recovery fit.
+spatial group at a time.
 
 The editor exposes jobs through one endpoint, `POST /api/operation`, with the
 commands `start`, `check` (validate a request without running it), `status`,

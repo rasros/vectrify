@@ -1,8 +1,10 @@
 # SAMVG algorithm reference
 
 This is a pseudocode reference for the two-phase method described in Chapter 3
-of Yiding Zhu's *SAMVG* dissertation.  It is a behavioural specification for
-Vectrify's SAMVG-inspired path, not a copy of unreleased research code.
+of Yiding Zhu's *SAMVG* dissertation, not a copy of unreleased research code.
+Vectrify's `samvg.py` follows its phase 1 segmentation (automatic masks, the
+impact filter and coverage prompts) and then traces the regions its own way;
+phase 2 and the representation variations are not implemented.
 
 The ordering below matters.  In particular, impact is scored for a complete
 cleaned SAM mask before that mask is split into connected components for path

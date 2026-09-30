@@ -7,7 +7,6 @@ from typing import ClassVar
 
 from PIL import Image
 
-from vectrify.image_utils import rasterize_svg
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -21,49 +20,18 @@ from vectrify.operations.generate import (
     validate_generate,
 )
 from vectrify.operations.settings import Setting, read_settings
-from vectrify.refine.samvg import (
-    LINE_WIDTH,
-    SAMVG_MODEL,
-    SAMVG_POINTS_PER_BATCH,
-)
+from vectrify.refine.samvg import MIN_PIXELS, MIN_WIDTH, SAMVG_MODEL, TOLERANCE
 
 SETTINGS = {
-    "min_pixels": Setting(int, 32, minimum=1, label="minimum region pixels"),
-    "min_impact": Setting(float, 3e-6, minimum=0, label="minimum impact"),
-    "max_layers": Setting(int, 512, minimum=1, maximum=4096, label="maximum layers"),
-    "segments": Setting(int, 16, minimum=4, maximum=256, label="curve segments"),
-    # How far an outline may stray from its region, in reference pixels: each
-    # is traced densely and simplified to it. 0 traces *segments* curves each.
-    "tolerance": Setting(float, 0.5, minimum=0.0, maximum=10.0, label="tolerance"),
-    "fill_holes": Setting(bool, True),
-    # Regions narrower than this everywhere, in reference pixels, are left
-    # out: SAM returns outlines and hairlines as regions of their own.
-    "min_width": Setting(int, 3, minimum=0, maximum=64, label="minimum width"),
-    # Cut every region down to its visible part, so none overlap.
-    "flatten": Setting(bool, False),
-    # Fold small patches into a neighbour of a similar colour.
-    "merge": Setting(bool, True),
-    # Make the reference's drawn lines the strokes of the regions they bound.
-    "outlines": Setting(bool, True),
-    # Move region edges onto the reference's own, finer than SAM's masks.
-    "refine": Setting(bool, True),
+    "max_layers": Setting(int, 512, minimum=1, maximum=4096, label="maximum shapes"),
     # The longest side SAM segments at; 0 segments at the reference's own size.
     "max_side": Setting(int, 0, minimum=0, maximum=4096),
     "model": Setting(
         str,
         SAMVG_MODEL,
-        choices=tuple(
-            dict.fromkeys(
-                (SAMVG_MODEL, "facebook/sam-vit-huge", "facebook/sam-vit-base")
-            )
-        ),
+        choices=(SAMVG_MODEL, "facebook/sam-vit-base"),
     ),
-    "points_per_batch": Setting(int, SAMVG_POINTS_PER_BATCH, minimum=1, maximum=1024),
 }
-
-# Flattened regions are traced one by one, so neighbours' outlines stray from
-# the common seam by up to about a traced pixel; snap edges within this many.
-SEAM_PIXELS = 1.5
 
 
 def _enlarged(region: Region, settings: dict) -> tuple[Region, dict]:
@@ -73,22 +41,21 @@ def _enlarged(region: Region, settings: dict) -> tuple[Region, dict]:
     pixel grid, and tracing those follows every pixel's edge: outlines turn
     into staircases one reference pixel a step. Enlarged first, SAM's masks
     are interpolated between the pixels and the outlines come out smooth.
-    The pixel sizes in the settings are scaled with it, so they still count
+    The tracer's pixel sizes are scaled with it, so they still count
     reference pixels.
     """
-    longest = max(region.image.size)
-    if longest >= settings["max_side"]:
-        return region, settings
-    scale = settings["max_side"] / longest
-    width, height = region.image.size
-    image = region.image.resize(
-        (round(width * scale), round(height * scale)), Image.Resampling.BICUBIC
-    )
-    return replace(region, image=image), {
+    scale = max(1.0, settings["max_side"] / max(region.image.size))
+    if scale > 1:
+        width, height = region.image.size
+        image = region.image.resize(
+            (round(width * scale), round(height * scale)), Image.Resampling.BICUBIC
+        )
+        region = replace(region, image=image)
+    return region, {
         **settings,
-        "min_width": round(settings["min_width"] * scale),
-        "tolerance": settings["tolerance"] * scale,
-        "min_pixels": round(settings["min_pixels"] * scale * scale),
+        "min_width": round(MIN_WIDTH * scale),
+        "tolerance": TOLERANCE * scale,
+        "min_pixels": round(MIN_PIXELS * scale * scale),
     }
 
 
@@ -111,24 +78,8 @@ class Samvg:
         if not settings["max_side"]:
             settings["max_side"] = max(region.image.size)
         traced, settings = _enlarged(region, settings)
-        # The widest line looked for grows with the image.
-        settings["outlines"] = (
-            max(LINE_WIDTH, round(max(traced.image.size) / 200))
-            if settings["outlines"]
-            else 0
-        )
         context.progress(0, "Segmenting the reference with SAM…", total=2)
-        svg = generate_svg(
-            traced.image,
-            # Text layers need the unsupported <text> element in the editor.
-            ocr=False,
-            rasterize=rasterize_svg,
-            # Regions hidden by those above paint nothing, and SAM leaves drawn
-            # outlines to neither neighbour: drop the one, fill beneath the other.
-            drop_hidden=True,
-            backdrop=True,
-            **settings,
-        )
+        svg = generate_svg(traced.image, **settings)
         context.progress(1, "Placing traced shapes…")
         result = generated_result(
             request,
@@ -137,7 +88,6 @@ class Samvg:
             label="Generate with SAMVG",
             name="SAMVG trace",
             traced=traced,
-            seams=SEAM_PIXELS if settings["flatten"] else None,
         )
         context.progress(2, "Preview ready")
         return result

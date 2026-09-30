@@ -1,7 +1,6 @@
 import io
 import sys
 import xml.etree.ElementTree as ET
-from contextlib import nullcontext
 from types import SimpleNamespace
 
 import cairosvg
@@ -11,28 +10,21 @@ from PIL import Image
 import vectrify.refine.samvg as samvg
 from vectrify.refine.samvg import (
     MaskLayer,
-    TextLayer,
     _binary_dilation,
     _components,
     _distance_transform_edt,
     _fit_cubic,
     _is_crop_edge_mask,
-    _label,
-    _text_svg_attributes,
     arrange_layers,
     automatic_masks,
     backdrop_colour,
     coverage_prompt_points,
-    detect_text,
     filter_by_impact,
     generate_svg,
-    line_art,
     mask_path,
     merge_patches,
     recolour_visible_layers,
     refine_edges,
-    residual_prompt_points,
-    stroked_regions,
     thinner_than,
 )
 from vectrify.refine.samvg_runtime import device_name, pipeline_options
@@ -80,140 +72,6 @@ def test_sam_runtime_loads_transformers_on_cpu(monkeypatch):
 
     assert samvg._sam_runtime(model="example/sam").generator is generator
     assert calls == [("mask-generation", {"model": "example/sam", "device": -1})]
-
-
-def test_detect_text_retains_high_confidence_editable_words(monkeypatch):
-    class Inputs(dict):
-        input_ids = SimpleNamespace(shape=(1, 4))
-
-        def to(self, device):
-            assert device == "cuda"
-            return self
-
-    class Processor:
-        def apply_chat_template(self, messages, **kwargs):
-            assert messages[0]["content"][0]["image"].size == (32, 16)
-            assert kwargs == {"tokenize": False, "add_generation_prompt": True}
-            return "prompt"
-
-        def __call__(self, **kwargs):
-            assert kwargs["text"] == ["prompt"]
-            assert kwargs["images"][0].size == (32, 16)
-            return Inputs()
-
-        def batch_decode(self, generated, **kwargs):
-            assert generated.shape == (1, 1)
-            assert kwargs == {
-                "skip_special_tokens": True,
-                "clean_up_tokenization_spaces": False,
-            }
-            return [
-                '[{"text":"Cats & dogs","box":[2,3,20,11],"confidence":0.94},'
-                '{"text":"I","box":[2,12,4,14],"confidence":0.99},'
-                '{"text":"blur","box":[2,3,20,11],"confidence":0.2}]'
-            ]
-
-    class Model:
-        def to(self, device):
-            assert device == "cuda"
-            return self
-
-        def generate(self, **kwargs):
-            assert kwargs == {"max_new_tokens": 768, "do_sample": False}
-            return np.zeros((1, 5), dtype=int)
-
-    monkeypatch.setitem(
-        sys.modules,
-        "transformers",
-        SimpleNamespace(
-            AutoProcessor=SimpleNamespace(from_pretrained=lambda _model: Processor()),
-            Qwen2_5_VLForConditionalGeneration=SimpleNamespace(
-                from_pretrained=lambda _model, **_kwargs: Model()
-            ),
-        ),
-    )
-    monkeypatch.setitem(
-        sys.modules,
-        "torch",
-        SimpleNamespace(
-            bfloat16="bf16",
-            float32="float32",
-            cuda=SimpleNamespace(is_available=lambda: True, empty_cache=lambda: None),
-            inference_mode=nullcontext,
-        ),
-    )
-
-    layers = detect_text(Image.new("RGB", (32, 16), "white"))
-
-    assert layers == [TextLayer("Cats & dogs", 2.0, 3.0, 18.0, 8.0, (255, 255, 255))]
-    assert _text_svg_attributes(layers[0])["font-family"] == "sans-serif"
-
-
-def test_generate_svg_writes_detected_words_as_editable_text(monkeypatch):
-    monkeypatch.setattr(samvg, "retrieve_layers", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(
-        samvg,
-        "detect_text",
-        lambda _image: [TextLayer("Cats & dogs", 2, 3, 18, 8, (20, 30, 40))],
-    )
-
-    root = ET.fromstring(generate_svg(Image.new("RGB", (32, 16))))
-    text = root.find("{http://www.w3.org/2000/svg}text")
-
-    assert text is not None
-    assert text.text == "Cats & dogs"
-    assert text.get("font-size") == "8.00"
-
-
-def test_generate_svg_keeps_only_pixel_improving_text(monkeypatch):
-    target = Image.new("RGB", (32, 16), "black")
-    monkeypatch.setattr(samvg, "retrieve_layers", lambda *_args, **_kwargs: [])
-    monkeypatch.setattr(
-        samvg,
-        "detect_text",
-        lambda _image: [
-            TextLayer("keep", 2, 3, 18, 8, (20, 30, 40)),
-            TextLayer("discard", 2, 3, 18, 8, (20, 30, 40)),
-        ],
-    )
-    monkeypatch.setattr(
-        samvg,
-        "_render_svg",
-        lambda svg, _image, _rasterize: (
-            Image.new("RGB", (32, 16), "white")
-            if "discard" in svg
-            else target
-            if "keep" in svg
-            else Image.new("RGB", (32, 16), "white")
-        ),
-    )
-
-    root = ET.fromstring(generate_svg(target, rasterize=lambda *_args: b""))
-    labels = [
-        element.text for element in root.findall("{http://www.w3.org/2000/svg}text")
-    ]
-
-    assert labels == ["keep"]
-
-
-def test_pixel_gate_allows_a_small_font_or_placement_mismatch(monkeypatch):
-    target = Image.new("RGB", (32, 16), "black")
-    monkeypatch.setattr(
-        samvg,
-        "_render_svg",
-        lambda svg, _image, _rasterize: (
-            Image.new("RGB", (32, 16), (2, 2, 2)) if "near" in svg else target
-        ),
-    )
-
-    result = samvg._accept_text_layers(
-        '<svg xmlns="http://www.w3.org/2000/svg" />',
-        target,
-        [TextLayer("near", 2, 3, 18, 8, (20, 30, 40))],
-        lambda *_args: b"",
-    )
-
-    assert "near" in result
 
 
 def test_automatic_masks_uses_source_sized_first_layer_crops(monkeypatch):
@@ -344,24 +202,6 @@ def test_filter_by_impact_scores_a_disconnected_mask_before_emitting_components(
     assert layers[0].impact == layers[1].impact
 
 
-def test_filter_by_impact_residual_canvas_does_not_charge_covered_pixels_as_blank():
-    image = Image.new("RGB", (8, 8), (128, 128, 128))
-    mask = np.zeros((8, 8), dtype=bool)
-    mask[2:6, 2:6] = True
-    fitted = np.full((8, 8, 3), 128, dtype=np.uint8)
-
-    layers = filter_by_impact(
-        image,
-        [mask],
-        initial_canvas=fitted,
-        initial_coverage=np.ones((8, 8), dtype=bool),
-        min_pixels=1,
-        min_impact=1e-6,
-    )
-
-    assert layers == []
-
-
 def test_incremental_impact_scoring_matches_full_canvas_recomputation():
     pixels = np.full((16, 16, 3), 255, dtype=np.uint8)
     pixels[2:12, 2:12] = (180, 60, 30)
@@ -419,15 +259,6 @@ def test_recolour_uses_only_each_layers_visible_pixels():
 
     assert recoloured[0].colour == (220, 30, 30)
     assert recoloured[1].colour == (20, 40, 230)
-
-
-def test_recolour_preserves_texture_overlap_metadata():
-    image = Image.new("RGB", (4, 4), "white")
-    layer = MaskLayer(np.ones((4, 4), dtype=bool), (0, 0, 0), 1.0, 1)
-
-    recoloured = recolour_visible_layers(image, [layer])
-
-    assert recoloured[0].overlap_pixels == 1
 
 
 def test_components_are_separate_and_do_not_fill_meaningful_holes():
@@ -495,12 +326,9 @@ def test_internal_morphology_matches_scipy_default_connectivity():
         [[False, True, True], [True, True, True], [True, True, True]], dtype=bool
     )
 
-    labels, count = _label(np.array([[True, False], [False, True]], dtype=bool))
     distance = _distance_transform_edt(mask)
     dilated = _binary_dilation(np.array([[False, True, False]], dtype=bool), 1)
 
-    assert count == 2
-    assert labels.tolist() == [[1, 0], [0, 2]]
     assert np.allclose(distance, [[0, 1, 2], [1, 2**0.5, 5**0.5], [2, 5**0.5, 8**0.5]])
     assert dilated.tolist() == [[True, True, True]]
 
@@ -542,7 +370,7 @@ def test_smoothing_takes_the_steps_out_of_an_enlarged_raster_edge():
     )
 
     def spread(smooth):
-        path = mask_path(mask, segments=64, smooth=smooth)
+        path = mask_path(mask, smooth=smooth)
         assert path is not None
         values = np.array([float(v) for v in re.findall(r"-?\d+\.?\d*", path)])
         points = values.reshape(-1, 2)
@@ -564,10 +392,13 @@ def test_a_tolerance_traces_each_outline_with_the_curves_it_needs():
         np.where(circle[..., None], 40, 220).astype(np.uint8).repeat(3, axis=2)
     )
     layer = MaskLayer(circle, (40, 40, 40), 1.0)
-    fixed = samvg._layer_svg_attributes(layer, 64, smooth=1.0)[0]["d"]
-    fitted = samvg._layer_svg_attributes(layer, 64, smooth=1.0, tolerance=0.5)[0]["d"]
+    dense = mask_path(circle, smooth=1.0)
+    attributes = samvg._layer_svg_attributes(layer, smooth=1.0, tolerance=0.5)
+    assert dense is not None
+    assert attributes is not None
+    fitted = attributes["d"]
 
-    assert fitted.count("C") < fixed.count("C") / 3
+    assert fitted.count("C") < dense.count("C") / 3
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="120">'
         f'<rect width="120" height="120" fill="#dcdcdc"/><path d="{fitted}" '
@@ -577,30 +408,6 @@ def test_a_tolerance_traces_each_outline_with_the_curves_it_needs():
     assert png is not None
     rendered = np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=float)
     assert np.abs(rendered - np.asarray(image.convert("L"), dtype=float)).mean() < 2
-
-
-def test_mask_path_supports_the_variable_segment_tracing_variation():
-    mask = np.zeros((48, 48), dtype=bool)
-    mask[8:40, 8:40] = True
-    mask[16:32, 16:32] = False
-
-    path = mask_path(mask, curvature_threshold=0.8, maximum_segments=6)
-
-    assert path is not None
-    assert path.count("M ") == 2
-    assert 6 <= path.count("C ") <= 12
-
-
-def test_variable_corners_retains_nearby_local_extrema(monkeypatch):
-    monkeypatch.setattr(
-        samvg,
-        "_curvature_scores",
-        lambda _loop: np.array((1.0, -0.9, 1.0, -0.8, 1.0, -0.7, 1.0, -0.6)),
-    )
-
-    corners = samvg._variable_corners([(0.0, 0.0)] * 8, threshold=0, maximum=16)
-
-    assert corners == [1, 3, 5, 7]
 
 
 def test_generate_svg_creates_editable_layered_paths_from_supplied_masks():
@@ -634,7 +441,6 @@ def test_generate_svg_refits_each_visible_fill_colour_after_mask_selection():
             [outer, inner],
             min_pixels=1,
             min_impact=0,
-            ocr=False,
         )
     )
     paths = list(root.findall("{http://www.w3.org/2000/svg}path"))
@@ -680,11 +486,9 @@ def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():
         [MaskLayer(occupied, (10, 20, 30), 1.0)],
         (32, 32),
         radius_fraction=0.15,
-        max_points=10,
     )
 
-    assert points
-    assert points == [
+    assert points[:10] == [
         (27, 20),
         (27, 10),
         (25, 25),
@@ -696,17 +500,6 @@ def test_coverage_prompt_points_selects_the_centre_of_a_large_empty_region():
         (20, 10),
         (20, 4),
     ]
-
-
-def test_residual_points_use_summed_rgb_difference_at_the_paper_threshold():
-    target = Image.new("RGB", (32, 32), (255, 255, 255))
-    rendered = Image.new("RGB", (32, 32), (0, 0, 0))
-
-    points = residual_prompt_points(
-        target, rendered, radius_fraction=0.15, threshold=0.784
-    )
-
-    assert points
 
 
 def test_cubic_fit_reparameterises_nonuniform_curve_samples():
@@ -784,7 +577,7 @@ def test_generate_svg_forwards_the_optional_sam_size_cap(monkeypatch):
         retrieve,
     )
 
-    generate_svg(Image.new("RGB", (80, 40)), max_side=32, ocr=False)
+    generate_svg(Image.new("RGB", (80, 40)), max_side=32)
 
     assert seen == {"max_side": 32}
 
@@ -798,7 +591,7 @@ def test_generate_svg_defaults_to_sam_native_input_size(monkeypatch):
 
     monkeypatch.setattr(samvg, "retrieve_layers", retrieve)
 
-    generate_svg(Image.new("RGB", (80, 40)), ocr=False)
+    generate_svg(Image.new("RGB", (80, 40)))
 
     assert seen == {"max_side": samvg.SAMVG_MAX_SIDE}
 
@@ -807,7 +600,7 @@ def _layer(mask, colour=(0, 0, 0)):
     return MaskLayer(mask, colour, 1.0)
 
 
-def test_hidden_layers_are_dropped_and_flattening_removes_overlap():
+def test_hidden_layers_are_dropped():
     below = np.zeros((10, 10), dtype=bool)
     below[2:6, 2:6] = True
     hidden = np.zeros((10, 10), dtype=bool)
@@ -818,27 +611,8 @@ def test_hidden_layers_are_dropped_and_flattening_removes_overlap():
     beside[0:10, 7:10] = True
     layers = [_layer(below), _layer(hidden), _layer(beside), _layer(top)]
 
-    kept = arrange_layers(layers, drop_hidden=True)
+    kept = arrange_layers(layers, min_width=0)
     assert [id(layer.mask) for layer in kept] == [id(below), id(beside), id(top)]
-
-    flat = arrange_layers(layers, flatten=True)
-    assert np.all(np.sum([layer.mask for layer in flat], axis=0) <= 1)
-    assert np.any(flat[0].mask)
-    assert not np.any(flat[0].mask & top)
-
-
-def test_flattening_gives_a_sliver_to_its_neighbour_without_a_gap():
-    below = np.zeros((20, 20), dtype=bool)
-    below[0:20, 0:20] = True
-    top = np.zeros((20, 20), dtype=bool)
-    # Covers all of the layer below but one row, which would be a sliver.
-    top[1:20, 0:20] = True
-    flat = arrange_layers(
-        [_layer(below), _layer(top)], flatten=True, min_width=3, min_pixels=4
-    )
-
-    assert len(flat) == 1
-    assert flat[0].mask.all()
 
 
 def test_merging_folds_what_is_not_worth_a_shape_into_a_neighbour():
@@ -870,59 +644,6 @@ def test_merging_folds_what_is_not_worth_a_shape_into_a_neighbour():
     assert orange.colour[2] < 100
 
 
-def test_drawn_lines_are_found_but_not_wide_dark_areas():
-    pixels = np.full((80, 80, 3), 220, dtype=np.uint8)
-    pixels[:, 39:42] = (30, 30, 30)
-    pixels[60:78, 2:30] = (30, 30, 30)
-    ink = line_art(Image.fromarray(pixels), 6)
-    assert ink[:, 39:42].mean() > 0.9
-    assert not ink[65:72, 8:24].any()
-
-
-def test_a_drawn_outline_becomes_the_stroke_of_the_region_it_bounds():
-    yy, xx = np.mgrid[0:100, 0:100]
-    distance = np.hypot(xx - 50, yy - 50)
-    pixels = np.full((100, 100, 3), (220, 170, 90), dtype=np.uint8)
-    inside = distance < 30
-    pixels[inside] = (170, 160, 70)
-    # A patch of shading inside the drawn outline, with no line around it.
-    shade = inside & (xx > 55)
-    pixels[shade] = (160, 150, 64)
-    pixels[np.abs(distance - 30) < 1.5] = (40, 40, 30)
-    image = Image.fromarray(pixels)
-    # SAM gave the line to the outer region and split the shading off.
-    outer = _layer(distance >= 28.5)
-    tuft = _layer(inside & ~shade & (distance < 28.5))
-    shading = _layer(shade & (distance < 28.5))
-
-    layers = stroked_regions([outer, tuft, shading], image, 6)
-
-    # The shading is part of the drawn area; the background is not stroked
-    # (it lies along the image's border), the area inside the outline is.
-    assert len(layers) == 2
-    background, drawn = layers
-    assert background.stroke is None
-    assert drawn.stroke is not None
-    (red, green, blue), width = drawn.stroke
-    assert max(red, green, blue) < 80
-    assert 1.5 < width < 5
-    # The regions meet at the middle of the line.
-    assert drawn.mask[50, 50 - 29]
-    assert not drawn.mask[50, 50 - 31]
-    assert drawn.mask[shade & (distance < 27)].all()
-
-
-def test_a_flattened_layer_cut_in_two_becomes_two_regions():
-    below = np.zeros((20, 20), dtype=bool)
-    below[5:15, 0:20] = True
-    across = np.zeros((20, 20), dtype=bool)
-    across[0:20, 8:12] = True
-    flat = arrange_layers([_layer(below), _layer(across)], flatten=True)
-
-    assert len(flat) == 3
-    assert all(len(np.unique(_label(layer.mask)[0])) == 2 for layer in flat)
-
-
 def test_refining_grows_a_region_back_into_a_spike_its_mask_missed():
     pixels = np.full((40, 40, 3), (160, 150, 60), dtype=np.uint8)
     pixels[20:, :] = (220, 190, 90)
@@ -951,7 +672,7 @@ def test_the_backdrop_takes_the_colour_of_what_no_layer_claims():
     right[:, 5:] = True
     assert backdrop_colour(image, [_layer(left), _layer(right)]) == (30, 40, 50)
 
-    svg = generate_svg(image, [left, right], min_pixels=1, min_impact=0, backdrop=True)
+    svg = generate_svg(image, [left, right], min_pixels=1, min_impact=0, min_width=0)
     first = next(iter(ET.fromstring(svg)))
     assert first.tag.endswith("rect")
     assert first.get("fill") == "#1e2832"
