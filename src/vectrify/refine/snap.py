@@ -37,7 +37,7 @@ from vectrify.document.join import path_style
 from vectrify.document.model import new_id
 from vectrify.image_utils import resize_long_side
 from vectrify.operations.generate import Region
-from vectrify.vector.nodes import Frozen, Paths
+from vectrify.refine.frozen import Frozen, Paths
 
 # How far a point looks for the edge either way, in reference pixels, and
 # the share of the path's size that caps it for small paths.
@@ -55,12 +55,19 @@ SETTLED = 0.2
 CONTRAST = 0.08
 # Detail: how many pixels each added point has to fix, how many of the
 # largest wrong blobs each round looks at, and how finely each segment is
-# sampled to find the one a blob sits on. The path never grows past
-# SPLIT_GROWTH times its points.
+# sampled to find the one a blob sits on. The path grows to at most
+# SPLIT_GROWTH times its points, or SPLIT_LEAST more if that is more.
 SPLIT_GAIN = 12
 SPLIT_BLOBS = 8
 SAMPLES = 32
+# How far out, in reaches, detail also aims into a blob, besides its far end.
+CREEP = (1.0, 2.0, 4.0)
+# How close to a segment's end, in t, a blob is taken to sit at that point.
+AT_NODE = 0.05
+# Where, in t along the segments either side, a moved point is held.
+HOLD = (0.1, 0.4)
 SPLIT_GROWTH = 2.0
+SPLIT_LEAST = 16
 # How finely the normal is read, in pixels.
 STEP = 0.5
 # How many points each segment is drawn with when checking for crossings.
@@ -223,8 +230,9 @@ class _Snapper:
             if self._pass(contours) < SETTLED:
                 break
         if self.detail:
-            while sum(len(c.nodes) for c in contours) < SPLIT_GROWTH * start:
-                if not self._split(contours, SPLIT_GROWTH * start):
+            limit = max(SPLIT_GROWTH * start, start + SPLIT_LEAST)
+            while sum(len(c.nodes) for c in contours) < limit:
+                if not self._split(contours, limit):
                     break
                 self._pass(contours)
         return self._geometry(geometry, contours)
@@ -486,41 +494,40 @@ class _Snapper:
                 break
             ys, xs = np.nonzero(labels == index + 1)
             blob = np.column_stack([xs, ys]) + 0.5
-            target = self._target(blob, samples, done)
-            if target is None:
-                continue
-            c, end, control, low, tip, high, depth, normal = target
-            contour = contours[c]
-            window = self._window(np.vstack([control, blob]))
+            depth = np.asarray(ndimage.distance_transform_edt(labels == index + 1))
+            centre = depth[ys, xs]
+            window = self._window(blob)
             if window is None:
                 continue
             truth = _crop(inside, window)
             base = int(
                 (_coverage(contours, self.size, self.rule, window) != truth).sum()
             )
-            best: tuple[float, int, _Contour] | None = None
-            for added, trial in _targeted(
-                contour, end, control, low, tip, high, depth, normal
-            ):
-                if points_now + added > limit:
-                    continue
-                trying = [
-                    trial if k == c else other for k, other in enumerate(contours)
-                ]
-                error = int(
-                    (_coverage(trying, self.size, self.rule, window) != truth).sum()
-                )
-                # Each new point has to pay for itself.
-                gain = (base - error) / added
-                if gain >= SPLIT_GAIN and (best is None or gain > best[0]):
-                    best = (gain, added, trial)
+            best: tuple[float, int, int, _Contour] | None = None
+            for c, trials in self._targets(blob, centre, samples, contours, done):
+                for added, trial in trials:
+                    if points_now + added > limit:
+                        continue
+                    trying = [
+                        trial if k == c else other for k, other in enumerate(contours)
+                    ]
+                    error = int(
+                        (_coverage(trying, self.size, self.rule, window) != truth).sum()
+                    )
+                    # Each new point has to pay for itself.
+                    gain = (base - error) / max(added, 1)
+                    # Moving a point adds none, so it only has to help.
+                    needed = SPLIT_GAIN if added else SPLIT_GAIN / 4
+                    if gain >= needed and (best is None or gain > best[0]):
+                        best = (gain, added, c, trial)
             if best is None:
                 continue
             # One split per contour per round: a split renumbers its nodes,
             # and the passes after settle the rest.
-            contours[c] = best[2]
+            _gain, added, c, trial = best
+            contours[c] = trial
             done.add(c)
-            points_now += best[1]
+            points_now += added
         return bool(done)
 
     def _samples(self, contours):
@@ -535,10 +542,19 @@ class _Snapper:
                 rows.append((c, end, control, t, points))
         return rows
 
-    def _target(self, blob, samples, done):
-        """Where on the outline a blob sits, and how far it reaches from it."""
+    def _targets(self, blob, centre, samples, contours, done):
+        """(contour, its tries) for each way of reaching into a blob.
+
+        Each aim is a pixel of the blob, reached from the nearest point of the
+        outline: by splitting the segment there, or, where that point is one
+        of the path's, by moving it out and holding the outline either side.
+        The blob's furthest pixel is one aim. A strand that curls away is not
+        reached by a straight spike to its end, so the others creep up on it:
+        the middle of the blob a few reaches out, from where the next round
+        can reach further.
+        """
         if not samples:
-            return None
+            return
         every = np.vstack([points for *_rest, points in samples])
         owner = np.concatenate(
             [np.full(len(points), k) for k, (*_rest, points) in enumerate(samples)]
@@ -548,29 +564,91 @@ class _Snapper:
         nearest = gaps.argmin(axis=1)
         distance = gaps[np.arange(len(blob)), nearest]
         far = int(distance.argmax())
-        k = int(owner[nearest[far]])
-        c, end, control, _t, _points = samples[k]
-        if c in done:
-            return None
-        # The blob's footprint on that segment: where its near pixels touch it.
-        mine = owner[nearest] == k
-        touching = mine & (distance <= max(2.0, 0.25 * distance[far]))
-        if not touching.any():
-            touching = mine
-        at = spots[nearest[touching]]
-        tip = float(spots[nearest[far]])
-        low, high = float(at.min()), float(at.max())
-        low, high = min(low, tip - 0.02), max(high, tip + 0.02)
-        if low <= 0.0 or high >= 1.0 or distance[far] < 1.0:
-            low, high = max(low, 0.01), min(high, 0.99)
-        point, tangent = _bezier(control, np.array([tip]))
-        unit = _unit(tangent[0])
-        if unit is None:
-            return None
-        normal = _unit(blob[far] - point[0])
-        if normal is None:
-            return None
-        return c, end, control, low, tip, high, float(distance[far]), normal
+        aims = [far]
+        for steps in CREEP:
+            out = steps * self.reach
+            band = np.abs(distance - out) <= 1.0
+            if out < distance[far] - self.reach and band.any():
+                aims.append(int(np.flatnonzero(band)[centre[band].argmax()]))
+        for aim in aims:
+            k = int(owner[nearest[aim]])
+            c, end, control, _t, _points = samples[k]
+            if c in done:
+                continue
+            # The blob's footprint on that segment: where its near pixels touch.
+            mine = owner[nearest] == k
+            touching = mine & (distance <= max(2.0, 0.25 * distance[aim]))
+            if not touching.any():
+                touching = mine
+            at = spots[nearest[touching]]
+            tip = float(spots[nearest[aim]])
+            point, _tangent = _bezier(control, np.array([tip]))
+            delta = blob[aim] - point[0]
+            if tip >= 1 - AT_NODE or tip <= AT_NODE:
+                count = len(contours[c].nodes)
+                node = end if tip >= 1 - AT_NODE else (end - 1) % count
+                yield c, self._extended(contours[c], node, delta)
+                continue
+            normal = _unit(delta)
+            if normal is None:
+                continue
+            low = max(min(float(at.min()), tip - 0.02), 0.01)
+            high = min(max(float(at.max()), tip + 0.02), 0.99)
+            yield (
+                c,
+                _targeted(
+                    contours[c],
+                    end,
+                    control,
+                    low,
+                    tip,
+                    high,
+                    float(distance[aim]),
+                    normal,
+                ),
+            )
+
+    def _extended(self, contour: _Contour, node: int, delta):
+        """(points added, *contour* with point *node* moved by *delta*), alone
+        and with new points either side keeping the outline beside it."""
+        nodes = contour.nodes
+        if (
+            contour.closed
+            and node == len(nodes) - 1
+            and np.linalg.norm(nodes[-1].end - nodes[0].end) < 1e-6
+        ):
+            node = 0
+        if nodes[node].fixed or nodes[node].pinned:
+            return
+        contour = _copy(contour)
+        # Lines either side become curves the passes can bend.
+        _curved(contour, node)
+        _curved(contour, (node + 1) % len(nodes))
+        for share in (0.5, 1.0):
+            moved = _copy(contour)
+            self._shift_point(moved, node, delta * share)
+            yield 0, moved
+            # Held far back the whole spike swings; held close, a thin
+            # extension grows from its tip.
+            for hold in HOLD:
+                held = _copy(contour)
+                at = node
+                incoming = dict(_segments(held)).get(node)
+                if incoming is not None and not held.nodes[node].fixed:
+                    held = _split_segment(
+                        held, node, incoming, [(1 - hold, np.zeros(2))]
+                    )
+                    at = node + 1 if node > 0 else node
+                following = (at + 1) % len(held.nodes)
+                outgoing = dict(_segments(held)).get(following)
+                if outgoing is not None and not held.nodes[following].fixed:
+                    held = _split_segment(
+                        held, following, outgoing, [(hold, np.zeros(2))]
+                    )
+                added = len(held.nodes) - len(nodes)
+                if added:
+                    self._shift_point(held, at, delta * share)
+                    yield added, held
 
     def _inside(self, coverage, colour_in) -> np.ndarray | None:
         """Where the reference looks like the path's inside rather than around it."""
@@ -632,6 +710,13 @@ def _crop(image: np.ndarray, window) -> np.ndarray:
     return image[y0:y1, x0:x1]
 
 
+def _copy(contour: _Contour) -> _Contour:
+    nodes = [replace(n, points=n.points.copy()) for n in contour.nodes]
+    for new, old in zip(nodes, contour.nodes, strict=True):
+        new.origin = old.origin
+    return _Contour(nodes, contour.closed)
+
+
 def _split_segment(
     contour: _Contour,
     end: int,
@@ -644,10 +729,12 @@ def _split_segment(
     *at* lists (t, delta) in order: each new point sits at t on the segment
     and moves by delta, taking the handles beside it along. *sharp* draws the
     two segments beside each moved point straight, for a spike's tip.
+    A line that gets a moved point becomes curves, still straight, so the
+    passes after can bend them onto the edge.
     """
-    nodes = [replace(n, points=n.points.copy()) for n in contour.nodes]
-    for new, old in zip(nodes, contour.nodes, strict=True):
-        new.origin = old.origin
+    nodes = _copy(contour).nodes
+    if len(control) == 2 and any(np.any(delta) for _t, delta in at):
+        control = _curve(control)
     pieces: list[np.ndarray] = []
     rest, done = control, 0.0
     for t, _delta in at:
@@ -673,15 +760,36 @@ def _split_segment(
             begin = control[0] if k == 0 else pieces[k - 1][-1]
             pieces[k][0], pieces[k][1] = begin, pieces[k][-1]
     command = "C" if len(control) == 4 else "L"
-    nodes[end].points = pieces[-1] if command == "C" else nodes[end].points
     added = [
         _Node(new_id("node"), command, piece, False, False, None)
         for piece in pieces[:-1]
     ]
-    # The closing line ends at node 0, so its new points go last.
-    where = end if end > 0 else len(nodes)
-    nodes[where:where] = added
+    if end > 0:
+        if command == "C":
+            nodes[end].command, nodes[end].points = "C", pieces[-1]
+        nodes[end:end] = added
+    else:
+        # The closing line ends at node 0, so its new points go last; as a
+        # curve its last piece needs a node of its own, back on the first.
+        if command == "C":
+            added.append(_Node(new_id("node"), "C", pieces[-1], False, False, None))
+        nodes.extend(added)
     return _Contour(nodes, contour.closed)
+
+
+def _curve(line: np.ndarray) -> np.ndarray:
+    """A straight cubic along *line*, its handles at the thirds."""
+    a, b = line
+    return np.vstack([a, a + (b - a) / 3, a + 2 * (b - a) / 3, b])
+
+
+def _curved(contour: _Contour, i: int) -> None:
+    """Make the line ending at node *i* a straight cubic, in place."""
+    node = contour.nodes[i]
+    if i == 0 or node.command != "L" or node.fixed:
+        return
+    start = contour.nodes[i - 1].end
+    node.command, node.points = "C", _curve(np.vstack([start, node.end]))[1:]
 
 
 def _targeted(contour, end, control, low, tip, high, depth, normal):
