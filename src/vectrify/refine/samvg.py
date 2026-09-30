@@ -58,6 +58,12 @@ SAMVG_RESIDUAL_RADIUS_FRACTION = float(
 # The share of the impact filter's threshold one merge of neighbouring
 # regions may cost; see ``merge_patches``.
 MERGE_SHARE = float(os.environ.get("VECTRIFY_SAMVG_MERGE_SHARE", "0.1"))
+# Drawn lines: how much darker than their surroundings (0-1) a line is, and
+# how many times its width squared a line has to cover to be kept.
+LINE_CONTRAST = float(os.environ.get("VECTRIFY_SAMVG_LINE_CONTRAST", "0.12"))
+LINE_LENGTH = float(os.environ.get("VECTRIFY_SAMVG_LINE_LENGTH", "4"))
+# The narrowest a line looked for may be, in pixels.
+LINE_WIDTH = 4
 # Outlines are smoothed over this many SAM pixels before curves are fitted,
 # so the fit does not follow the masks' raster steps.
 SAMVG_SMOOTH = float(os.environ.get("VECTRIFY_SAMVG_SMOOTH", "1.0"))
@@ -1458,17 +1464,7 @@ def _without_slivers(
         if opened.sum() < min_pixels or (min_width and thinner_than(opened, min_width)):
             continue
         owner[opened] = index
-    # Grow the kept layers into the pixels they gave up, one step at a time.
-    for _ in range(4 * radius + 4):
-        orphans = covered & (owner == 0)
-        if not orphans.any():
-            break
-        grown = owner.copy()
-        for axis, shift in ((0, 1), (0, -1), (1, 1), (1, -1)):
-            neighbour = np.roll(owner, shift, axis=axis)
-            take = orphans & (grown == 0) & (neighbour > 0)
-            grown[take] = neighbour[take]
-        owner = grown
+    owner = _grown(owner, covered, 4 * radius + 4)
     return [
         replace(layer, mask=owner == index)
         for index, layer in enumerate(layers, start=1)
@@ -1553,6 +1549,78 @@ def merge_patches(
     ]
 
 
+def _grown(owner: np.ndarray, into: np.ndarray, steps: int) -> np.ndarray:
+    """*owner*'s labels grown into the unlabelled pixels of *into*, one pixel
+    a step, each taking the label of a neighbour already labelled."""
+    for _ in range(steps):
+        orphans = into & (owner == 0)
+        if not orphans.any():
+            break
+        grown = owner.copy()
+        for axis, shift in ((0, 1), (0, -1), (1, 1), (1, -1)):
+            neighbour = np.roll(owner, shift, axis=axis)
+            take = orphans & (grown == 0) & (neighbour > 0)
+            grown[take] = neighbour[take]
+        owner = grown
+    return owner
+
+
+def line_art(image: Image.Image, width: int) -> np.ndarray:
+    """The drawn lines in *image*: dark strokes up to *width* pixels across.
+
+    A grey closing fills in every dark structure narrower than its footprint,
+    so where the image is much darker than its closing there is a line. Specks
+    too small to be part of one are left out.
+    """
+    from scipy import ndimage
+
+    grey = np.asarray(image.convert("L"), dtype=np.float64) / 255
+    radius = max(1, width // 2 + 1)
+    yy, xx = np.ogrid[-radius : radius + 1, -radius : radius + 1]
+    footprint = xx * xx + yy * yy <= radius * radius
+    darker = ndimage.grey_closing(grey, footprint=footprint) - grey
+    # Antialiasing breaks a line into pieces at any one threshold: keep the
+    # faint pixels joined to a clearly dark one, then judge whole lines.
+    faint = darker > LINE_CONTRAST / 2
+    labels, count = ndimage.label(faint, structure=np.ones((3, 3)))
+    if not count:
+        return faint
+    strong = np.zeros(count + 1, dtype=bool)
+    strong[np.unique(labels[darker > LINE_CONTRAST])] = True
+    strong[0] = False
+    sizes = np.bincount(labels.ravel(), minlength=count + 1)
+    kept = strong & (sizes >= LINE_LENGTH * width * width)
+    return kept[labels]
+
+
+def with_line_art(
+    layers: list[MaskLayer], image: Image.Image, width: int
+) -> tuple[list[MaskLayer], MaskLayer | None]:
+    """*layers* filled in beneath the image's drawn lines, and the lines.
+
+    SAM gives a drawn outline to neither region beside it, or makes it a thin
+    region of its own that is then left out. Here the lines are found in the
+    image itself and traced as one layer on top, in their own colour, and the
+    regions beside a line grow under it so nothing shows through.
+    """
+    ink = line_art(image, width)
+    if not ink.any() or not layers:
+        return layers, None
+    owner = np.zeros(ink.shape, dtype=np.int32)
+    for index, layer in enumerate(layers, start=1):
+        owner[layer.mask] = index
+    owner = _grown(owner, ink, 2 * width + 2)
+    grown = [
+        replace(layer, mask=layer.mask | (owner == index))
+        for index, layer in enumerate(layers, start=1)
+    ]
+    pixels = np.asarray(image.convert("RGB"))[ink]
+    colour = cast(
+        tuple[int, int, int], tuple(int(v) for v in np.median(pixels, axis=0))
+    )
+    return grown, MaskLayer(ink, colour, 1.0)
+
+
 def backdrop_colour(
     image: Image.Image, layers: list[MaskLayer]
 ) -> tuple[int, int, int]:
@@ -1612,6 +1680,7 @@ def generate_svg(
     drop_hidden: bool = False,
     flatten: bool = False,
     merge: bool = False,
+    outlines: int = 0,
     backdrop: bool = False,
     ocr: bool = True,
     max_side: int | None = SAMVG_MAX_SIDE,
@@ -1656,6 +1725,9 @@ def generate_svg(
     )
     if merge:
         layers = merge_patches(layers, image, min_impact=min_impact)
+    lines = None
+    if outlines:
+        layers, lines = with_line_art(layers, image, outlines)
     width, height = image.size
     # SAM's masks have steps of one SAM pixel, which is more than one of the
     # image's when SAM worked at a smaller size.
@@ -1674,6 +1746,12 @@ def generate_svg(
             curvature_threshold=curvature_threshold,
             maximum_segments=maximum_segments,
             smooth=smooth,
+        ):
+            markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
+            paths.append(f"<path {markup} />")
+    if lines is not None:
+        for attributes in _layer_svg_attributes(
+            lines, segments * 4, maximum_segments=maximum_segments, smooth=smooth
         ):
             markup = " ".join(f'{key}="{value}"' for key, value in attributes.items())
             paths.append(f"<path {markup} />")
