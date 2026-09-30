@@ -2,6 +2,7 @@
 
 import time
 
+import numpy as np
 import pytest
 from PIL import Image
 
@@ -304,4 +305,46 @@ def test_colour_regions_job_inserts_generated_regions(monkeypatch):
     with pytest.raises(DocumentError, match="Choose a supported outline style"):
         method("generate", "colour-regions").validate(
             request(editor, Selection.all(), settings={"outline_style": "wavy"})
+        )
+
+
+def test_cel_job_inserts_filled_regions_and_a_stroked_line():
+    # Two flat regions and their black outline, over a 200x100 artboard.
+    pixels = np.full((200, 400, 3), 255, dtype=np.uint8)
+    pixels[40:160, 40:200] = (220, 60, 50)
+    pixels[40:160, 200:360] = (60, 90, 210)
+    pixels[38:42, 38:362] = pixels[158:162, 38:362] = 20
+    pixels[38:162, 38:42] = pixels[38:162, 358:362] = pixels[38:162, 198:202] = 20
+    editor = Editor(import_svg(DOC))
+    snapshot = editor.snapshot
+    job = Job(
+        method("generate", "cel"),
+        OperationRequest(
+            action="generate",
+            method="cel",
+            snapshot=type(snapshot)(
+                snapshot.revision, snapshot.document, Selection.all()
+            ),
+            editor=editor,
+            permissions=Permissions(structure=True),
+            reference=Image.fromarray(pixels),
+            settings={"regions": 3},
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    metrics = state["result"]["metrics"]
+    assert (metrics["regions"], metrics["line_style"]) == (3, "strokes")
+    assert metrics["after"]["error"] < metrics["before"]["error"] / 4
+    job.apply()
+    assert editor.undo_labels == ("Generate cel trace",)
+    paths = [e for e in editor.snapshot.document.elements() if e.tag == "path"]
+    assert {"#dc3c32", "#3c5ad2"} <= {e.get("fill") for e in paths}
+    lines = [e for e in paths if e.get("fill") == "none"]
+    assert lines
+    assert all(e.get("stroke") for e in lines)
+    with pytest.raises(DocumentError, match="Regions must be at least 1"):
+        method("generate", "cel").validate(
+            request(editor, Selection.all(), method="cel", settings={"regions": 0})
         )
