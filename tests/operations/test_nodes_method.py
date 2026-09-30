@@ -135,3 +135,29 @@ def test_workers_run_the_steps_side_by_side_to_the_same_result():
     first, second = alone.state()["result"], together.state()["result"]
     assert first["metrics"]["steps"] == second["metrics"]["steps"]
     assert first["metrics"]["after"] == second["metrics"]["after"]
+
+
+def test_the_fit_gives_straight_segments_handles_where_the_reference_curves():
+    ed = editor("p")
+    disc = Image.new("RGB", (64, 64), "white")
+    ImageDraw.Draw(disc).ellipse((12, 12, 52, 52), fill="black")
+    req = OperationRequest(
+        action="improve",
+        method="nodes",
+        snapshot=ed.snapshot,
+        editor=ed,
+        permissions=Permissions(geometry=True, structure=True, paint=True),
+        settings={"workers": 1, "resolution": 64, "steps": 40, "movement": 6.0},
+        budget=Budget(steps=3),
+        reference=disc,
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    result = job.state()["result"]
+    metrics = result["metrics"]
+    assert metrics["after"]["difference"] < metrics["before"]["difference"]
+    job.apply()
+    commands = [
+        n.command for n in ed.snapshot.document.geometry_for("p").subpaths[0].nodes
+    ]
+    assert "C" in commands
