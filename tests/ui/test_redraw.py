@@ -199,3 +199,21 @@ def test_the_editor_attaches_strokes_and_picks_the_stretch_as_the_server_does():
         ["node", str(script)], capture_output=True, text=True, check=False
     )
     assert result.returncode == 0, result.stderr
+
+
+def test_redrawing_one_of_several_selected_paths_keeps_them_selected():
+    s = Session(
+        import_svg(
+            '<svg width="100" height="100" viewBox="0 0 100 100"><g id="g">'
+            f'<path id="p" fill="black" d="{SQUARE}"/>'
+            '<path id="q" fill="red" d="M85 85 L95 85 L95 95 Z"/></g></svg>'
+        )
+    )
+    send(s, "select", objects=["p", "q"])
+    send(s, "redraw_outline", object="p", points=[(30, 20), (50, 5), (70, 20)], pixel=1)
+    assert s.state()["selection"]["objects"] == ["p", "q"]
+    # With the group selected, its paths' outlines can be redrawn too.
+    send(s, "select", objects=["g"])
+    send(s, "redraw_outline", object="p", points=[(20, 30), (5, 50), (20, 70)], pixel=1)
+    assert s.state()["selection"]["objects"] == ["g"]
+    assert min(n.endpoint[0] for n in nodes(s)) == pytest.approx(5, abs=1)
