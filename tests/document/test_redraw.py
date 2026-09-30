@@ -123,7 +123,7 @@ def test_an_open_contour_is_redrawn_between_its_places_in_either_direction():
         if not forward:
             places.reverse()
             stretch = [("L", (100, -30)), ("L", (50, 0))]
-        redraw(e, *places, stretch)
+        redraw(e, places[0], places[1], stretch)
         assert points(e) == [(0, 0), (50, 0), (100, -30), (150, 0), (200, 0)]
         assert not contour(e).closed
         assert (
