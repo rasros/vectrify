@@ -6,6 +6,7 @@ import base64
 import io
 import json
 import math
+from collections import Counter
 from dataclasses import asdict, replace
 from threading import RLock
 from typing import Any
@@ -154,6 +155,9 @@ class Session:
         snapshot = self.editor.snapshot
         objects = []
         counters: dict[str, int] = {}
+        shared = Counter(
+            m.geometry_id for b in snapshot.document.boundaries for m in b.members
+        )
         for element in snapshot.document.elements():
             if element.tag == "svg":
                 continue
@@ -163,11 +167,9 @@ class Session:
                 {
                     "id": element.id,
                     "tag": element.tag,
-                    "shared_edges": sum(
-                        m.geometry_id == element.geometry_id
-                        for b in snapshot.document.boundaries
-                        for m in b.members
-                    ),
+                    "shared_edges": shared[element.geometry_id]
+                    if element.geometry_id
+                    else 0,
                     "name": element.name,
                     "label": element.name
                     or (

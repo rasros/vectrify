@@ -237,10 +237,31 @@ class Document:
         raise DocumentError(f"Unknown object: {element_id}")
 
     def geometry(self, geometry_id: str) -> Geometry:
-        for geometry in self.geometries:
-            if geometry.id == geometry_id:
-                return geometry
-        raise DocumentError(f"Unknown geometry: {geometry_id}")
+        geometry = self._index()[0].get(geometry_id)
+        if geometry is None:
+            raise DocumentError(f"Unknown geometry: {geometry_id}")
+        return geometry
+
+    def node_position(self, geometry_id: str, node_id: str):
+        """(subpath, index) of a geometry's node, or None if it has none."""
+        self.geometry(geometry_id)
+        return self._index()[1].get((geometry_id, node_id))
+
+    def _index(self):
+        # A document never changes, so its lookups are built once, when first
+        # needed: edges are looked up thousands of times per edit.
+        index = self.__dict__.get("_lookup")
+        if index is None:
+            geometries = {g.id: g for g in self.geometries}
+            nodes = {
+                (g.id, node.id): (subpath, i)
+                for g in self.geometries
+                for subpath in g.subpaths
+                for i, node in enumerate(subpath.nodes)
+            }
+            index = geometries, nodes
+            object.__setattr__(self, "_lookup", index)
+        return index
 
     def geometry_for(self, element_id: str) -> Geometry:
         element = self.element(element_id)
@@ -342,7 +363,18 @@ class Document:
             {e.id for e in self.elements() if e.geometry_id == geometry_id}
         )
 
-    def validate(self) -> None:
+    def validate(self, since: Document | None = None) -> None:
+        """Check the document, once: it never changes. With *since*, a valid
+        document it was edited from, only the links the edit touched are
+        compared again, since a drawing may link thousands of edges."""
+        if self.__dict__.get("_valid"):
+            return
+        self._validate(
+            since if since is not None and since.__dict__.get("_valid") else None
+        )
+        object.__setattr__(self, "_valid", True)
+
+    def _validate(self, since: Document | None = None) -> None:
         from vectrify.document.svg import (
             CONTAINERS,
             GEOMETRY,
@@ -423,7 +455,7 @@ class Document:
 
         from vectrify.document.topology import validate_boundaries
 
-        validate_boundaries(self)
+        validate_boundaries(self, since)
 
 
 def references(element: Element) -> tuple[str, ...]:

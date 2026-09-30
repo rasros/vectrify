@@ -511,3 +511,30 @@ def test_shared_boundary_definition_users_and_ancestor_locks_are_checked():
     ):
         tx.update_node("b", ref(doc, "b", 1).node_id, (9, 9))
     assert editor.snapshot == before
+
+
+def test_checking_only_what_an_edit_changed_still_catches_a_torn_link():
+    from dataclasses import replace
+
+    doc = linked_editor().snapshot.document
+    doc.validate()
+    fill = doc.geometry_for("fill")
+    member = doc.boundaries[0].members[0]
+    moved = replace(
+        fill,
+        subpaths=tuple(
+            replace(
+                s,
+                nodes=tuple(
+                    replace(n, values=(*n.values[:-2], n.values[-2] + 5, n.values[-1]))
+                    if n.id == member.node_id
+                    else n
+                    for n in s.nodes
+                ),
+            )
+            for s in fill.subpaths
+        ),
+    )
+    torn = doc.replace_geometry(moved)
+    with pytest.raises(DocumentError, match="identical"):
+        torn.validate(since=doc)
