@@ -31,6 +31,8 @@ from pathlib import Path
 
 from PIL import Image
 
+from vectrify.image_utils import on_white
+
 ROOT = Path(__file__).resolve().parents[1]
 REFERENCES = (
     "ChatGPT Image Sep 29, 2026, 10_40_22 PM.png",
@@ -97,7 +99,8 @@ def main() -> None:
     references = args.references or [ROOT / name for name in REFERENCES]
     rows = []
     for path in references:
-        image = Image.open(path).convert("RGB")
+        # As the editor shows it: transparency over white, not black.
+        image = on_white(Image.open(path))
         for preset in args.preset or list(presets):
             settings = {**presets[preset], **overrides}
             for _ in range(args.repeat):
