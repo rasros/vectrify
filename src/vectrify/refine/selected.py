@@ -75,20 +75,6 @@ class FitResult:
             tx.set_attributes(self.object_id, {"stroke": self.stroke})
 
 
-# The native renderer's contour width. Longer contours fall back to a winding
-# rasteriser whose coverage has no gradient, so their points would not move.
-GPU_CONTOUR_CURVES = 16
-
-
-def contour_curves(subpath) -> int:
-    """Segments the GPU fit draws for *subpath*, its closing line included."""
-    nodes = subpath.nodes
-    closing = (
-        subpath.closed and len(nodes) > 1 and nodes[-1].endpoint != nodes[0].endpoint
-    )
-    return len(nodes) - 1 + int(closing)
-
-
 @functools.cache
 def gpu_problem() -> str | None:
     """Why GPU fitting cannot run on this machine, or None when it can."""
@@ -133,14 +119,6 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
     if rgba[3] != 1:
         raise DocumentError("Use a solid fill with fill opacity for GPU fitting")
     geometry = document.geometry_for(oid)
-    if options.nodes or options.handles:
-        for subpath in geometry.subpaths:
-            curves = contour_curves(subpath)
-            if curves > GPU_CONTOUR_CURVES:
-                raise DocumentError(
-                    f"GPU fitting moves contours of up to {GPU_CONTOUR_CURVES} "
-                    f"curves; this path has one of {curves}"
-                )
     if document.dependents({oid}) != {oid}:
         raise DocumentError(
             "This path is referenced elsewhere; detach it before fitting"

@@ -370,6 +370,25 @@ def _pad_fused_cubics(controls: Any) -> Any:
     return torch.cat((controls, point), dim=1)
 
 
+def _fused_chunks(control: Any) -> Any:
+    """One contour's cubics as padded 16-cubic ranges, shape (k, 16, 4, 2).
+
+    The analytic kernel sums signed ray crossings per cubic, with no closing
+    edge of its own, so a contour's winding is the sum over any split of its
+    cubics; a zero-length padding cubic crosses nothing. Chunking this way
+    gives long contours the same exact, differentiable coverage as short ones,
+    where the sampled-winding fallback has no gradient to speak of.
+    """
+    import torch
+
+    count = control.shape[0]
+    chunks = max(1, math.ceil(count / _FUSED_CUBICS))
+    missing = chunks * _FUSED_CUBICS - count
+    if missing:
+        control = torch.cat((control, control[:1, :1].expand(missing, 4, -1)))
+    return control.reshape(chunks, _FUSED_CUBICS, 4, 2)
+
+
 def _fill_batched_windings(
     controls: Any,
     box: tuple[int, int, int, int],
@@ -1307,6 +1326,29 @@ def fit_filled_svg(
         # packing them into the old batched coverage call would force eager
         # Torch broadcasting over every cubic and pixel.
         if controls[items[0][0]][0].shape[0] > _FUSED_CUBICS:
+            from vectrify.refine.cuda_renderer import multi_coverage
+
+            chunked = [
+                _fused_chunks(
+                    controls[index][0] - controls[index][0].new_tensor((left, top))
+                )
+                for index, left, top in items
+            ]
+            offsets = [0]
+            for chunks in chunked:
+                offsets.append(offsets[-1] + len(chunks))
+            analytic = multi_coverage(
+                torch.cat(chunked),
+                offsets,
+                (0, 0, tile_width, tile_height),
+                subpixels=subpixels,
+                fill_rule=fill_rule,
+            )
+            if analytic is not None:
+                return [
+                    (index, alpha, left, top)
+                    for (index, left, top), alpha in zip(items, analytic, strict=True)
+                ]
             output = []
             for index, left, top in items:
                 offset = controls[index][0].new_tensor((left, top))
@@ -1442,12 +1484,10 @@ def fit_filled_svg(
         offset = path[0].new_tensor((left, top))
         from vectrify.refine.cuda_renderer import multi_coverage
 
-        packed = torch.cat(
-            [_pad_fused_cubics((control - offset)[None]) for control in path]
-        )
+        packed = torch.cat([_fused_chunks(control - offset) for control in path])
         analytic = multi_coverage(
             packed,
-            [0, len(path)],
+            [0, len(packed)],
             (0, 0, tile_width, tile_height),
             subpixels=subpixels,
             fill_rule=entries[index][3],
@@ -1471,18 +1511,21 @@ def fit_filled_svg(
         items: list[tuple[int, int, int]],
     ) -> list[tuple[int, Any]]:
         """Rasterise equal-sized multi-contour paths in one contour batch."""
-        translated = []
+        chunks = []
         spans = []
         for index, left, top in items:
             offset = controls[index][0].new_tensor((left, top))
-            start = len(translated)
-            translated.extend(control - offset for control in controls[index])
-            spans.append((start, len(translated)))
-        # Native winding uses one CUDA block per contour.  Combining contours
-        # from otherwise independent paths lets its blocks occupy the GPU at
-        # once, while summing each recorded span before the fill nonlinearity
-        # preserves SVG path semantics (including holes).
-        packed = torch.cat([_pad_fused_cubics(control[None]) for control in translated])
+            start = sum(len(c) for c in chunks)
+            chunks.extend(
+                _fused_chunks(control - offset) for control in controls[index]
+            )
+            spans.append((start, sum(len(c) for c in chunks)))
+        # Native winding uses one CUDA block per contour chunk.  Combining
+        # contours from otherwise independent paths lets its blocks occupy the
+        # GPU at once, while summing each recorded span before the fill
+        # nonlinearity preserves SVG path semantics (including holes); long
+        # contours are split into 16-cubic chunks, whose windings add up.
+        packed = torch.cat(chunks)
         from vectrify.refine.cuda_renderer import multi_coverage
 
         analytic = multi_coverage(
