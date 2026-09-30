@@ -70,14 +70,30 @@
 <dialog id="nodes-dialog" class="job-dialog" aria-labelledby="nodes-title">
   <h2 id="nodes-title">Optimize nodes</h2>
   <p id="nodes-summary"></p><p class="muted">Fits the selected paths to the reference around them. Each round tries every chosen step and keeps the one that brings the paths closest to the reference; Simplify runs when nothing else helps. Without a reference, Simplify removes points while keeping the paths looking the same.</p>
-  <fieldset id="nodes-settings" class="job-settings">
-    <legend>Steps</legend>
-    <div class="button-row"><label class="toggle" title="Fit points and curve handles to the reference by gradient descent, on the GPU when there is one"><input id="nodes-shape" type="checkbox" checked> Fit shape</label><label class="toggle" title="Move the points onto the reference's nearest edges"><input id="nodes-snap" type="checkbox"> Snap to reference</label><label class="toggle" title="With Snap, add points where the path misses a piece of the shape or covers too much"><input id="nodes-detail" type="checkbox"> Add detail</label><label class="toggle" title="Remove the points the outline does not need"><input id="nodes-simplify" type="checkbox"> Simplify</label></div>
-    <div id="nodes-tolerance-row" class="two-fields" hidden><label title="How far removing points may move an outline, in reference pixels">Simplify tolerance (px)<input id="nodes-tolerance" type="number" min="0" max="20" step="0.25" value="1"></label></div>
-    <div id="nodes-fit-row" class="two-fields"><label title="Gradient steps in each fit. More fit more closely but take longer.">Fitting steps<input id="nodes-steps" type="number" min="1" max="1000" value="40"></label><label title="How far one fit may move any point">Maximum movement (SVG units)<input id="nodes-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
-    <div class="two-fields"><label title="The most rounds to run. It stops sooner once no step helps.">Rounds<input id="nodes-rounds" type="number" min="1" max="100" value="8"></label><label title="How many steps of a round run at the same time. Only one shape fit runs at once.">Parallel workers<input id="nodes-workers" type="number" min="1" max="64" value="2"></label></div>
-    <p class="muted">Pinned points and linked boundary edges stay fixed. Colour is left to Fit colours.</p>
-  </fieldset>
+  <div id="nodes-settings" class="step-cards">
+    <fieldset class="step-card" data-step="shape">
+      <legend><label class="toggle"><input id="nodes-shape" type="checkbox" checked> Fit shape</label></legend>
+      <p class="muted">Fits points and curve handles to the reference by gradient descent, on the GPU when there is one. Straight segments can gain handles where the reference curves.</p>
+      <div class="two-fields"><label title="Gradient steps in each fit. More fit more closely but take longer.">Fitting steps<input id="nodes-steps" type="number" min="1" max="1000" value="40"></label><label title="How far one fit may move any point">Maximum movement (SVG units)<input id="nodes-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
+    </fieldset>
+    <fieldset class="step-card" data-step="snap">
+      <legend><label class="toggle"><input id="nodes-snap" type="checkbox"> Snap to reference</label></legend>
+      <p class="muted">Moves the points onto the reference's nearest edges.</p>
+      <div class="two-fields"><label class="toggle" title="Add points where the path misses a piece of the shape or covers too much"><input id="nodes-detail" type="checkbox"> Add detail</label><label title="How many reference pixels each added point has to fix to be kept. Lower adds more points.">Pixels per added point<input id="nodes-detail-gain" type="number" min="1" max="500" step="1" value="12"></label></div>
+      <div class="two-fields"><label title="How far past the selected paths the reference is read, as a share of their size. Points can only be snapped or added within it, so raise it for a strand or spike that sticks out further.">Search beyond the path (%)<input id="nodes-margin" type="number" min="0" max="200" step="5" value="10"></label></div>
+    </fieldset>
+    <fieldset class="step-card" data-step="simplify">
+      <legend><label class="toggle"><input id="nodes-simplify" type="checkbox"> Simplify</label></legend>
+      <p class="muted">Removes the points the outline does not need, and the handles that lie on their line. Runs when no other step helps.</p>
+      <div class="two-fields"><label title="How far removing points may move an outline, in reference pixels">Tolerance (px)<input id="nodes-tolerance" type="number" min="0" max="20" step="0.25" value="1"></label></div>
+    </fieldset>
+    <fieldset class="step-card">
+      <legend>Run</legend>
+      <div class="two-fields"><label title="The most rounds to run. It stops sooner once no step helps.">Rounds<input id="nodes-rounds" type="number" min="1" max="100" value="8"></label><label title="How many steps of a round run at the same time. Only one shape fit runs at once.">Parallel workers<input id="nodes-workers" type="number" min="1" max="64" value="2"></label></div>
+      <div class="two-fields"><label title="How much a step has to lower the difference to the reference to be kept, in percent. Lower keeps smaller gains; on a large selection a small fix is a small share.">Minimum improvement (%)<input id="nodes-gain" type="number" min="0" max="50" step="0.05" value="0.1"></label></div>
+      <p class="muted">Pinned points and linked boundary edges stay fixed. Colour is left to Fit colours.</p>
+    </fieldset>
+  </div>
   <div id="nodes-progress" class="job-progress" hidden><progress id="nodes-meter" max="1" value="0"></progress><p id="nodes-status" role="status" aria-live="polite"></p></div>
   <div id="nodes-previews" hidden><div class="fit-previews"><figure><figcaption id="nodes-reference-caption">Reference</figcaption><img id="nodes-reference" alt="Reference around the selection"></figure><figure><figcaption>Before</figcaption><img id="nodes-before" alt="Paths before optimizing"></figure><figure><figcaption>After</figcaption><img id="nodes-after" alt="Optimized paths"></figure></div><p id="nodes-metrics"></p></div>
   <p id="nodes-error" class="job-error" role="alert" hidden></p>

@@ -36,6 +36,10 @@ def reference(shape="circle"):
         # right side and curling up.
         draw.rectangle((50, 50, 140, 140), fill="#203050")
         draw.polygon(strand(), fill="#203050")
+    elif shape == "spike":
+        # A square with a long thin spike out of its right side.
+        draw.rectangle((50, 50, 140, 140), fill="#203050")
+        draw.polygon([(140, 85), (185, 95), (140, 105)], fill="#203050")
     elif shape == "notch":
         # A square with a thin notch cut into its right side.
         draw.rectangle((50, 50, 140, 140), fill="#203050")
@@ -202,3 +206,24 @@ def test_detail_creeps_along_a_curling_strand():
     assert any(x > 85 and y < 38 for x, y in points)
     for corner in [(25, 25), (70, 25), (25, 70)]:
         assert min(abs(x - corner[0]) + abs(y - corner[1]) for x, y in points) < 1.5
+
+
+def test_a_wider_search_reaches_a_spike_beyond_the_default_margin():
+    square = SVG.replace(CIRCLE, "M25 25 L70 25 L70 70 L25 70 Z")
+
+    def furthest(**settings):
+        ed = editor(square, "p")
+        job = Job(
+            method("improve", "nodes"),
+            request(
+                ed, reference("spike"), shape=False, snap=True, detail=True, **settings
+            ),
+        )
+        job.run()
+        job.apply()
+        geometry = ed.snapshot.document.geometry_for("p")
+        return max(n.values[-2] for n in geometry.subpaths[0].nodes)
+
+    # The spike ends at x = 92; the default crop stops about 5 units past 70.
+    assert furthest() < 78
+    assert furthest(margin=60) > 82

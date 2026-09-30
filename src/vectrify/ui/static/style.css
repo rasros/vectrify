@@ -100,3 +100,9 @@
 
 #overlay .snap-target { fill: none; stroke: #ff8a5c; stroke-width: calc(1.75px * var(--selection-scale,1)); pointer-events: none; }
 #overlay .snap-edge { stroke: #ff8a5c; stroke-width: calc(1px * var(--selection-scale,1)); stroke-dasharray: calc(4px * var(--selection-scale,1)) calc(3px * var(--selection-scale,1)); pointer-events: none; }
+.step-cards { display:grid; gap:10px; margin:18px 0; }
+.step-card { border:1px solid var(--line); border-radius:8px; padding:10px 14px 14px; margin:0; }
+.step-card legend { padding:0 6px; font-weight:600; color:#d5e6db; }
+.step-card legend .toggle { margin:0; font-size:12px; color:#d5e6db; }
+.step-card .muted { margin:4px 0 0; }
+.step-card.off > :not(legend) { opacity:.45; }
