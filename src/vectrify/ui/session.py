@@ -38,6 +38,7 @@ from vectrify.operations import (
     method,
 )
 from vectrify.refine.redraw import redraw_stretch
+from vectrify.refine.retrace import SAM_CACHE
 
 MAX_SOURCE = 128 * 1024 * 1024
 # How near, in screen pixels, a redraw stroke's ends attach to a point of the
@@ -89,6 +90,10 @@ class Session:
                 for j in self.jobs.values()
             ):
                 raise DocumentError("Another operation is already running")
+            if "gpu" in chosen.resources and chosen.name != "retrace":
+                # Retrace keeps SAM loaded between runs; another GPU job
+                # needs that memory, and the next retrace loads it again.
+                SAM_CACHE.release()
             job = Job(chosen, request, context_key=self._job_key(chosen))
             job.start()
             self.jobs = {k: v for k, v in self.jobs.items() if v.status == "running"}
@@ -281,6 +286,7 @@ class Session:
             job.stop.set()
         self.jobs = {}
         self.editor, self.name, self.reference = editor, name, reference
+        SAM_CACHE.release()
         self.epoch = uuid4().hex
         self._svg_revision = -1
 
@@ -366,6 +372,11 @@ class Session:
                 if payload.get("reference")
                 else None
             )
+            if (reference or {}).get("data_url") != (self.reference or {}).get(
+                "data_url"
+            ):
+                # The embedding retraces reuse is of the old reference.
+                SAM_CACHE.release()
             self.reference = reference
         else:
             self._edit(command, payload)

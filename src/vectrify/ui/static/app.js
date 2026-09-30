@@ -376,7 +376,8 @@ function renderInspector() {
   enable('nodes-open', !selected.some(id => ['path','g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them');
   enable('llm-open', noReference);
   enable('colours-open', noReference);
-  $('optimize-hint').textContent = state.reference ? 'Compare with the reference image. Each tool shows a preview before anything changes.' :'These tools compare the drawing with a reference image. Add one under Reference on the left to use them.';
+  enable('retrace', noReference || ((!selected.length || !paths) && 'Select one or more visible paths'));
+  $('optimize-hint').textContent = state.reference ? 'Compare with the reference image. Retrace applies at once as one undoable edit; the other tools show a preview first.' :'These tools compare the drawing with a reference image. Add one under Reference on the left to use them.';
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
     const value = paintValue(kind, kind === 'fill' ? 'black' : 'none');
@@ -1382,6 +1383,8 @@ window.addEventListener('keydown',event=>{
     if(!pending&&state?.selection.objects.length&&!button.disabled)button.click();return;
   }
   if(event.ctrlKey||event.metaKey||event.altKey)return;
+  // Shift+R retraces the selected paths; R alone is the Redraw tool.
+  if(event.shiftKey&&event.key.toLowerCase()==='r'){event.preventDefault();if(!event.repeat)retraceShapes();return;}
   const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',h:'hand'};const key=event.key.toLowerCase();
   if(key==='o'){event.preventDefault();if(!event.repeat)toggleReference();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
@@ -1477,6 +1480,38 @@ $('nodes-open').onclick = async () => {
   syncNodeSteps();
   nodesDialog.open(selectionSummary());
 };
+
+// Retrace: a quick job applied as soon as it is ready, as one undoable edit.
+async function retraceShapes() {
+  await queue;
+  if ($('retrace').disabled) { toast($('retrace').title, true); return; }
+  const count = state.selection.objects.length;
+  setBusy(`Retracing ${count === 1 ? 'the shape' : `${count} shapes`}…`, 1);
+  let job = null;
+  try {
+    job = await operation('start', {epoch:state.epoch, revision:state.revision, action:'improve', method:'retrace',
+      permissions:{geometry:true, structure:true}, settings:{mode:$('retrace-mode').value}});
+    while (job.status === 'running') {
+      await new Promise(resolve => setTimeout(resolve, 200));
+      job = await operation('status', {job:job.id});
+      $('busy-label').textContent = job.message;
+    }
+    if (job.status === 'failed') throw new Error(job.error);
+    if (job.status !== 'ready') return;
+    const {metrics} = job.result;
+    if (!job.result.changed) { toast(job.message, true); return; }
+    const result = await operation('apply', {job:job.id}); job = null; dirty = true;
+    await applyState(result);
+    const skipped = Object.keys(metrics.skipped).length;
+    const colour = metrics.mode === 'colour' && $('retrace-mode').value === 'sam' ? ' by colour, since SAM needs a GPU' : metrics.mode === 'colour' ? ' by colour' : '';
+    toast(`Retraced ${metrics.paths === 1 ? 'the shape' : `${metrics.paths} shapes`}${colour} · reference error ${errorChange(metrics)}${skipped ? ` · ${skipped} left as they were: ${[...new Set(Object.values(metrics.skipped))].join('; ')}` : ''}. Undo restores the outline.`);
+  } catch (error) { toast(error.message, true); }
+  finally {
+    if (job) operation('discard', {job:job.id}).catch(() => {});
+    setBusy('', -1);
+  }
+}
+$('retrace').onclick = retraceShapes;
 
 function simplifyBounds() {
   const points = [];

@@ -9,6 +9,7 @@ from vectrify.operations.methods import (
     llm,
     nodes,
     path_fit,
+    retrace,
     samvg,
 )
 
@@ -21,5 +22,6 @@ __all__ = [
     "llm",
     "nodes",
     "path_fit",
+    "retrace",
     "samvg",
 ]
