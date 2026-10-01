@@ -61,8 +61,12 @@ desktop = [
     "pywebview>=5; sys_platform != 'linux'",
     "pywebview[qt]>=5; sys_platform == 'linux'",
 ]
+# The MCP server (vectrify-mcp), through which an agent edits a drawing.
+mcp = [
+    "mcp>=2.2",
+]
 all = [
-    "vectrify[vision,samvg,desktop]",
+    "vectrify[vision,samvg,desktop,mcp]",
 ]
 dev = [
     "pytest",
@@ -71,6 +75,8 @@ dev = [
     "pyrefly",
     "py-spy",
     "matplotlib>=3.10.8",
+    # CI installs dev, and the MCP server's tests need the SDK.
+    "mcp>=2.2",
 ]
 
 [project.urls]
@@ -81,6 +87,7 @@ Issues = "https://github.com/rasros/vectrify/issues"
 [project.scripts]
 vectrify = "vectrify.ui.server:main"
 vectrify-ui = "vectrify.ui.server:main"
+vectrify-mcp = "vectrify.mcp.server:main"
 
 [build-system]
 requires = ["setuptools>=77", "setuptools-scm>=8", "wheel"]
