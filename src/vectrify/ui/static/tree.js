@@ -41,6 +41,24 @@ export function dropRefusal(target, dragged, parents, resources) {
   return '';
 }
 
+// A drop made on an earlier tree, while an edit ran, checked against the
+// tree the edit left: it lands by the rows it was next to, not where the
+// pointer was, or is refused if those are gone or have moved. *objects* are
+// the current {id, parent, resource}. Returns {ids, target, refusal}.
+export function replayDrop(target, dragged, objects) {
+  const byId = new Map(objects.map(item => [item.id, item]));
+  const ids = new Set([...dragged].filter(id => byId.has(id)));
+  const refuse = refusal => ({ids, target, refusal});
+  if (!ids.size) return refuse('The dragged objects were removed meanwhile');
+  if (!target) return refuse(dropRefusal(target, ids, new Map(), new Set()));
+  const parents = new Map(objects.map(item => [item.id, item.parent]));
+  if (!byId.has(target.parent) && !objects.some(item => item.parent === target.parent)) return refuse('The group they were dropped into was removed meanwhile');
+  const anchor = target.after || target.before;
+  if (anchor && parents.get(anchor) !== target.parent) return refuse('The tree changed where they were dropped; drag them again');
+  const resources = new Set(objects.filter(item => item.resource).map(item => item.id));
+  return refuse(dropRefusal(target, ids, parents, resources));
+}
+
 // The target's index among the parent's children that are not dragged,
 // from the parent's children in paint order: what move_objects expects.
 export function dropIndex(target, children, dragged) {

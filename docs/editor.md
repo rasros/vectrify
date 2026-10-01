@@ -250,7 +250,11 @@ and saved projects restore it.
   group with opacity or clipping, a changed transform on a path with shared
   edges, and objects with instances that would change too. Locked objects and
   groups, definitions, clipping contours and a group into itself are refused
-  as well. Each drop is one undoable edit.
+  as well. Each drop is one undoable edit. A drag can start while an edit is
+  running: dropped before the edit is done, the objects land next to the rows
+  they were dropped by, on the tree the edit leaves, and the drop is refused
+  with a reason if those rows are gone or have moved to another group. A drag
+  still held when the edit finishes follows the new rows under the pointer.
 - **Join** (Actions, and the Nodes strip) does what fits the selection: two
   selected points join each other, as above; lines join at their ends, below;
   and filled paths merge by area, through a dialog (**Join…**). In a point

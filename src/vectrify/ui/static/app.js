@@ -1,5 +1,5 @@
 import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
-import {dropIndex, dropRefusal, dropTarget} from './tree.js';
+import {dropIndex, dropRefusal, dropTarget, replayDrop} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
 import {matchCommands, moveHighlight} from './palette.js';
 import {TOOL_LEVEL, boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
@@ -362,7 +362,13 @@ function renderObjects() {
     fragment.append(row);
   }
   $('objects').replaceChildren(fragment, treeDropLine); $('object-count').textContent = count;
-  if (treeDrag?.active) showTreeDrop();
+  // A drag held across an edit drops where the pointer is on the new rows.
+  if (treeDrag?.active) {
+    treeDrag.ids = new Set([...treeDrag.ids].filter(id => object(id)));
+    treeDrag.revision = `${state.epoch}:${state.revision}`;
+    if (treeDrag.point) Object.assign(treeDrag, treeDropAt(treeDrag.point, treeDrag.ids));
+    showTreeDrop();
+  }
 }
 // Dragging rows in the tree restacks them, or moves them into a group. The
 // drag carries the whole selection when it starts on a selected row.
@@ -427,12 +433,10 @@ function endTreeDrag(drop) {
   // The pointer is released over a row: that is not a click on it.
   treeDragEnded = true; setTimeout(() => treeDragEnded = false);
   if (!drop) return;
-  // Dropped while an edit runs, it lands once the edit is done, where the
-  // rows then are.
+  // Dropped while an edit runs, it lands once the edit is done, next to the
+  // rows it was dropped by, if they are still there.
   later(() => {
-    const ids = new Set([...finished.ids].filter(id => object(id)));
-    const {target, refusal} = finished.revision !== `${state.epoch}:${state.revision}` ? treeDropAt(finished.point, ids) : finished;
-    if (!ids.size) return;
+    const {ids, target, refusal} = finished.refusal || finished.revision === `${state.epoch}:${state.revision}` ? finished : replayDrop(finished.target, finished.ids, state.objects);
     if (refusal) { toast(refusal, true); return; }
     const children = state.objects.filter(item => item.parent === target.parent).map(item => item.id);
     return action('move_objects', {objects: [...ids], parent: target.parent, index: dropIndex(target, children, ids)}, 'Moving objects…');
