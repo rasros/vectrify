@@ -1,14 +1,19 @@
 """Cel tracer: flat regions bounded by the drawn lines, with the lines on top.
 
 Cel and anime art is flat colour inside drawn outlines. The tracer finds the
-lines first, fills the space between them with a shrinking ball so a small
-gap in a line does not join the regions either side, splits each region by
-colour where a shade edge has no line, and merges regions down to a target
-count, sparing the boundaries a line runs along. The line pixels go to the
-regions either side, so neighbours meet at the line's middle and share one
-traced edge, smoothed between its corners before it is fitted. The lines
-are thinned to centrelines and drawn over the fills as strokes, one path per
-line colour (two when some are much bolder), a line cut where its width
+lines first, as marks darker in their brightest channel than the surface
+around them (so a black line on a navy fill counts), in a grainy image after
+a median smooths the grain away; dark shapes much wider than a line are left
+to the fills. It fills the space between the lines with a shrinking ball so
+a small gap in a line does not join the regions either side, splits each
+region by colour where a shade edge has no line, and merges regions down to
+a target count, keeping apart regions of different colours a line runs
+between. The line pixels go to the regions either side, so neighbours meet
+at the line's middle and share one traced edge, smoothed between its corners
+before it is fitted. The lines are thinned to centrelines and drawn over the
+fills as strokes in their ink: a thin line's antialiased middle is a mix of
+ink and surface, so it is drawn darker and thinner than its pixels look.
+There is one path per line colour and width, a line cut where its width
 steps so each part has its own.
 
 CPU only, with numpy and scipy.
@@ -34,6 +39,7 @@ from scipy.ndimage import (
     grey_closing,
     label,
     median,
+    median_filter,
     minimum_filter,
 )
 
@@ -42,6 +48,7 @@ from vectrify.document.model import Geometry, PathNode, Subpath
 from vectrify.refine.colour_regions import (
     boundary_chains,
     colour,
+    distance_transform_edt,
     fit_palette,
     nearest_indices,
     remove_fragments,
@@ -56,26 +63,44 @@ from vectrify.refine.simplify import simplified_geometry
 
 LUMINANCE = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 # A line is darker than the surface either side by this much at its core, in
-# 0-255 luminance, and its antialiased edge by a third of it.
+# 0-255 of the brightest channel, and its antialiased edge by a third of it.
 LINE_CONTRAST = 12
 # Line pieces smaller than this many pixels are specks, not lines, and holes
 # in a line this small are closed.
 LINE_SPECK = 20
 LINE_HOLE = 12
-# A piece taking less than this share of the light that the image's lines
+# A pixel taking less than this share of the light that the image's lines
 # typically take is shading, not a line.
 LINE_INK = 0.5
+# A mark as dark as ink, at most this share of the surface's light, is a
+# line up to twice as wide as other marks: a bold outline.
+BOLD_INK = 0.3
 # How far, in pixels, a surface is followed into the notches it opens into.
+# A notch is within NOTCH_BAND above to LINE_CONTRAST / 2 below the surface,
+# that margin shrinking on a surface darker than NOTCH_DARK down to a
+# quarter: a line on a dark fill is darker than it by less.
 NOTCH_REACH = 32
+NOTCH_BAND = 6
+NOTCH_DARK = 128
+# Above this much grain (see noise_level), lines are found in the image
+# with a 3 x 3 median taken.
+NOISE = 1.5
+# Dark shapes deeper than this many times the typical line's half width, and
+# than SHAPE_LEAST pixels (so bold strokes of lettering stay lines), are
+# filled, not stroked.
+SHAPE_DEPTH = 3.0
+SHAPE_LEAST = 4.5
 # The balls the free space is filled with, largest first, in pixels. A gap in
 # a line narrower than a ball keeps it out: the largest closes the most.
 BALLS = (6, 4, 2, 1)
 # Colours the regions are split by, and the smallest split-off piece kept.
 PALETTE = 12
 PIECE = 24
-# What merging across a drawn line costs, as a colour difference in 0-255 RGB
-# along a boundary that a line runs all the way along.
-LINE_PENALTY = 60.0
+# Merging across a drawn line costs this many times more for the share of
+# the boundary a line runs along: regions a line separates and that differ
+# stay apart, while regions of one colour either side of a line merge
+# freely, since the line is drawn over them anyway.
+LINE_PENALTY = 2.0
 # Curves per this many traced pixels of a filled line shape before it is
 # simplified, and the smoothing that takes the pixel staircase out of any
 # traced run first, in pixels.
@@ -93,11 +118,19 @@ FILL_CUT = 1.0
 CORNER = 50.0
 CORNER_SPAN = 4
 # A line whose width varies more than this along it, its 90th percentile
-# over its 10th, is tapered (reported only: it is still a stroke). The
-# strokes of one colour are split into thin and bold paths when their widths
-# differ by more than this ratio.
+# over its 10th, is tapered (reported only: it is still a stroke).
 WIDTH_SPREAD = 2.5
 WIDTH_STEP = 1.6
+# The strokes of one colour are grouped into paths of about one width, the
+# widest of a group at most WIDTH_GROUP times its narrowest, at most
+# WIDTH_GROUPS of them; no stroke is thinner than THINNEST pixels.
+WIDTH_GROUP = 1.4
+WIDTH_GROUPS = 4
+THINNEST = 0.4
+# A thin line's middle mixes its ink with the surface: of the inks that
+# explain its colour within this distance, in 0-255 RGB, of the best, the
+# one covering the least is its ink.
+INK_SLACK = 12.0
 # A line is cut where its width steps by WIDTH_STEP, into pieces at least
 # this many points long, or this many of the typical line's widths.
 LINE_PIECE = 12
@@ -116,38 +149,51 @@ def _disk(radius: int) -> np.ndarray:
     return x * x + y * y <= radius * radius
 
 
+def lightness(target: np.ndarray) -> np.ndarray:
+    """How far each pixel is from black ink: its brightest channel, so a
+    neutral line on a navy fill of the same luminance is still darker."""
+    return target.max(-1)
+
+
 def line_darkness(target: np.ndarray, radius: int) -> np.ndarray:
     """How much darker each pixel is than the surface around it: a black
     top-hat, which answers only on dark marks narrower than *radius* * 2."""
-    luminance = target @ LUMINANCE
-    return grey_closing(luminance, size=2 * radius + 1) - luminance
+    light = lightness(target)
+    return grey_closing(light, size=2 * radius + 1) - light
 
 
 def detect_lines(target: np.ndarray, radius: int) -> tuple[np.ndarray, np.ndarray]:
     """The drawn lines, with their antialiased edges, and each pixel's
     darkness against the surface around it.
 
-    Hysteresis keeps a faint pixel only when it joins a clearly dark one.
-    Shading can be as narrow as a line, but it takes away less of the light
-    beneath: a piece much fainter than the image's lines is left to the fills.
-    A dark notch between two light spikes is as narrow as a line too, but it
-    opens into a surface as dark as itself; it is given back to that surface.
+    Darkness is measured in the brightest channel, against the surface
+    within *radius*, or twice that for a mark as dark as ink. Hysteresis
+    keeps a faint pixel only when it joins a clearly dark one. Shading can
+    be as narrow as a line, but it takes away less of the light beneath: a
+    pixel much fainter than the image's lines is left to the fills, so a line
+    keeps going where shading runs into it. A dark notch between two light
+    spikes is as narrow as a line too, but it opens into a surface as dark as
+    itself; it is given back to that surface.
     """
+    light = lightness(target)
     darkness = line_darkness(target, radius)
+    bold = line_darkness(target, 2 * radius)
+    darkness = np.maximum(
+        darkness, np.where(light <= BOLD_INK * (bold + light), bold, 0)
+    )
     core = darkness >= LINE_CONTRAST
-    mask = binary_propagation(core, mask=darkness >= LINE_CONTRAST / 3)
-    mask = _without_notches(target @ LUMINANCE, mask)
-    core &= mask
-    pieces, count = label(mask, np.ones((3, 3)))
-    if not count:
-        return mask, darkness
+    if not core.any():
+        return core, darkness
     # How much of the surface's light a line takes: 1 for black on white.
-    share = darkness / np.maximum(darkness + target @ LUMINANCE, 1)
-    typical = float(np.percentile(share[core], 75))
-    shares = np.zeros(count + 1)
-    shares[1:] = median(share, np.where(core, pieces, 0), np.arange(1, count + 1))
-    sizes = np.bincount(pieces.ravel(), minlength=count + 1)
-    keep = (sizes >= LINE_SPECK) & (shares >= LINE_INK * typical)
+    share = darkness / np.maximum(darkness + light, 1)
+    inked = share >= LINE_INK * float(np.percentile(share[core], 75))
+    faint = darkness >= LINE_CONTRAST / 3
+    mask = binary_propagation(core & inked, mask=faint & inked)
+    # With the antialiased rim either side.
+    mask |= binary_dilation(mask, np.ones((3, 3))) & faint
+    mask = _without_notches(light, mask)
+    pieces, count = label(mask, np.ones((3, 3)))
+    keep = np.bincount(pieces.ravel(), minlength=count + 1) >= LINE_SPECK
     keep[0] = False
     mask = keep[pieces]
     # Pinholes in a line would thin into loops.
@@ -159,19 +205,49 @@ def detect_lines(target: np.ndarray, radius: int) -> tuple[np.ndarray, np.ndarra
     return mask, darkness
 
 
+def noise_level(target: np.ndarray) -> float:
+    """How grainy *target* is: the mean step between neighbouring pixels'
+    brightest channels, leaving out the edges. Flat cel art steps by under
+    one; noise and JPEG, by two or more."""
+    light = target.max(-1)
+    steps = np.abs(np.diff(light, axis=1)).ravel()
+    small = steps[steps < 24]
+    return float(small.mean()) if small.size else 0.0
+
+
+def without_shapes(line: np.ndarray, times: float = SHAPE_DEPTH) -> np.ndarray:
+    """*line* less its dark shapes, the parts deeper than *times* the
+    typical line's half width, which are filled, not stroked: each such
+    pixel's disk, as far as the shape is deep there."""
+    skeleton = thin(line)
+    if not skeleton.any():
+        return line
+    depth = distance_transform_edt(line)
+    inside = depth > max(SHAPE_LEAST, times * float(np.median(depth[skeleton])))
+    if not inside.any():
+        return line
+    y, x = nearest_indices(~inside)
+    return line & ~(distance_transform_edt(~inside) <= depth[y, x] + 0.5)
+
+
 def _without_notches(luminance: np.ndarray, mask: np.ndarray) -> np.ndarray:
     """*mask* less the pixels no darker than the surface they join.
 
-    The surface grows into the marks pixel by pixel, taking each that is at
-    most a little darker than the surface it grew from, and carrying that
+    The surface grows into the marks pixel by pixel, taking each that is
+    about as bright as the surface it grew from, at most a little darker
+    (less so on a dark surface) and not much lighter, and carrying that
     surface's brightness on: down a notch as dark as the surface it opens
-    into, but only onto the faint rim of a line darker than both its sides.
+    into, but not along a line darker than its light side that runs into
+    a dark fill.
     """
     mask = mask.copy()
     surface = np.where(mask, np.inf, luminance)
     for _ in range(NOTCH_REACH):
         beside = minimum_filter(surface, size=3)
-        joined = mask & (luminance >= beside - LINE_CONTRAST / 2)
+        margin = LINE_CONTRAST / 2 * np.clip(beside / NOTCH_DARK, 0.25, 1)
+        joined = (
+            mask & (luminance >= beside - margin) & (luminance <= beside + NOTCH_BAND)
+        )
         if not joined.any():
             break
         surface[joined] = beside[joined]
@@ -301,9 +377,10 @@ def merge_regions(
     """*labels* merged greedily down to *count* regions, renumbered from 0.
 
     Merging two regions costs their colour difference squared, weighted by
-    the smaller region's size (Ward), plus *penalty* squared for the share
-    of their boundary a drawn line runs along: regions a line separates stay
-    apart unless they are small or there is nothing else left to merge.
+    the smaller region's size (Ward), and *penalty* times more for the share
+    of their boundary a drawn line runs along: different regions a line
+    separates stay apart unless they are small or there is nothing else
+    left to merge.
     """
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
@@ -356,7 +433,9 @@ def merge_regions(
         total, along = edges[a][b]
         difference = sums[a] / area[a] - sums[b] / area[b]
         weight = area[a] * area[b] / (area[a] + area[b])
-        return weight * (float(difference @ difference) + penalty**2 * along / total)
+        lined = along / total
+        # Between merges that cost nothing, the one across no line first.
+        return weight * (float(difference @ difference) * (1 + penalty * lined) + lined)
 
     version = [0] * n
     heap = [(cost(a, b), a, b, 0, 0) for a in range(n) for b in edges[a] if a < b]
@@ -698,6 +777,26 @@ def line_colours(target: np.ndarray, skeleton: np.ndarray) -> np.ndarray:
     return np.array(merged)
 
 
+def _ink_of(palette: np.ndarray, middle: np.ndarray, surface: np.ndarray) -> int:
+    """Which of the *palette* inks, covering some of the pixel, mixes with
+    *surface* into the colour *middle* down a line."""
+    fits = []
+    for index, ink in enumerate(palette):
+        away = surface - ink
+        span = float(away @ away)
+        if span < 1:
+            continue
+        cover = float(np.clip((surface - middle) @ away / span, 0.05, 1))
+        miss = float(np.linalg.norm(surface - cover * away - middle))
+        fits.append((miss, cover, index))
+    if not fits:
+        return int(np.square(palette - middle).sum(1).argmin())
+    least = min(f[0] for f in fits)
+    # Of the inks that explain it about as well, the one covering least: a
+    # thin line of dark ink, not a grey one as wide as its antialiasing.
+    return min((f for f in fits if f[0] <= least + INK_SLACK), key=lambda f: f[1])[2]
+
+
 def vectorize(
     image: Image.Image,
     *,
@@ -717,7 +816,12 @@ def vectorize(
     target = np.asarray(image.convert("RGB"), dtype=np.float32)
     height, width = target.shape[:2]
     radius = max(3, int(np.ceil(line_width)))
-    line, darkness = detect_lines(target, radius)
+    # Grain and JPEG noise read as faint marks everywhere: the lines are
+    # found in the image with it smoothed away first.
+    grainy = noise_level(target) > NOISE
+    found = median_filter(target, size=(3, 3, 1)) if grainy else target
+    line, darkness = detect_lines(found, radius)
+    line = without_shapes(line)
     # 1. Regions the lines bound, then split where only the colour changes.
     filled = trapped_ball_fill(~line)
     split = split_by_colour(target, filled, line)
@@ -756,7 +860,7 @@ def vectorize(
     }
     if line.any():
         line_parts, line_details = _line_paths(
-            target, line, darkness, line_width, tolerance, strokes
+            target, line, darkness, line_width, tolerance, strokes, medians[labels]
         )
         parts.extend(line_parts)
         details.update(line_details)
@@ -775,6 +879,7 @@ def _line_paths(
     line_width: float,
     tolerance: float,
     strokes: bool,
+    surface: np.ndarray | None = None,
 ) -> tuple[list[str], dict]:
     """The lines as stroked paths, one per colour and width, or as filled
     shapes."""
@@ -788,7 +893,24 @@ def _line_paths(
     ink = np.clip(darkness / np.maximum(darkness[nearest], 1e-6), 0, 1) * line
     flat = np.ravel_multi_index(nearest, line.shape).ravel()
     across = np.bincount(flat, ink.ravel(), minlength=line.size).reshape(line.shape)
-    palette = line_colours(target, skeleton)
+    # Down the middle of a line at least three pixels wide the ink covers
+    # the pixel whole: the inks are those colours.
+    solid = skeleton & (distance_transform_edt(line) >= 1.5)
+    palette = line_colours(target, solid if solid.sum() >= 50 else skeleton)
+    if surface is None:
+        surface = target
+    # Each line pixel's share covered by each ink, over the surface of the
+    # region it lies in, summed across the line: its width in that ink.
+    widths_by_ink = []
+    for value in palette:
+        away = surface - value
+        span = (away * away).sum(-1)
+        cover = ((surface - target) * away).sum(-1) / np.maximum(span, 1)
+        # On a surface as dark as the ink, the line pixel is all ink.
+        cover = np.where(span < 30**2, 1.0, np.clip(cover, 0, 1)) * line
+        widths_by_ink.append(
+            np.bincount(flat, cover.ravel(), minlength=line.size).reshape(line.shape)
+        )
     typical = float(np.median(across[skeleton]))
     runs = line_runs(skeleton, spur=2 * typical + 2)
     if not line_width and strokes:
@@ -806,12 +928,17 @@ def _line_paths(
         ys = np.clip(run[:, 1].astype(int), 0, line.shape[0] - 1)
         # The ends sit in junctions, where the ink of several lines meets.
         inner = slice(1, -1) if len(run) > 4 else slice(None)
-        widths = across[ys[inner], xs[inner]]
-        middle = np.median(target[ys, xs], axis=0)
+        index = _ink_of(
+            palette,
+            np.median(target[ys, xs], axis=0),
+            np.median(surface[ys, xs], axis=0),
+        )
+        widths = widths_by_ink[index][ys[inner], xs[inner]]
+        width = float(np.median(widths))
         measured.append(
             (
-                int(np.square(palette - middle).sum(1).argmin()),
-                float(np.median(widths)),
+                index,
+                width,
                 float(np.percentile(widths, 90) / max(np.percentile(widths, 10), 0.5)),
                 len(run),
             )
@@ -838,17 +965,17 @@ def _line_paths(
                 f'fill="{colour(value)}" fill-rule="nonzero"/>'
             )
         return paths, {**details, "line_style": "filled", "line_paths": len(paths)}
-    # The runs of one colour share a path, or two when some are much bolder.
-    widths = np.array([max(1.0, m[1]) for m in measured])
+    # The runs of one colour and about one width share a path.
+    widths = np.array([max(THINNEST, m[1]) for m in measured])
     colours = np.array([m[0] for m in measured])
-    bold = np.zeros(len(runs), dtype=bool)
-    for index in np.unique(colours):
-        own = colours == index
-        low, high = _weighted_percentiles(widths[own], lengths[own], (25, 75))
-        if not line_width and high > WIDTH_STEP * low:
-            bold[own] = widths[own] > np.sqrt(low * high)
-    grouped: dict[tuple[int, bool], list[tuple[Subpath, float, int]]] = {}
-    for run, index, width, step in zip(runs, colours, widths, bold, strict=True):
+    group = np.zeros(len(runs), dtype=np.int64)
+    if not line_width:
+        for index in np.unique(colours):
+            own = np.flatnonzero(colours == index)
+            for number, members in enumerate(width_groups(widths[own], lengths[own])):
+                group[own[members]] = number
+    grouped: dict[tuple[int, int], list[tuple[Subpath, float, int]]] = {}
+    for run, index, width, step in zip(runs, colours, widths, group, strict=True):
         width = line_width or width
         closed = np.array_equal(run[0], run[-1])
         nodes = curve_nodes(run, tolerance)
@@ -864,7 +991,7 @@ def _line_paths(
         )
         # Each run counts toward its path's width by the size of its data.
         size = len(_data(run[0], nodes, closed))
-        grouped.setdefault((int(index), bool(step)), []).append((contour, width, size))
+        grouped.setdefault((int(index), int(step)), []).append((contour, width, size))
     paths = []
     pieces_before = pieces_after = 0
     for index, step in sorted(grouped):
@@ -897,6 +1024,44 @@ def _line_paths(
         "line_pieces": pieces_after,
         "line_runs_joined": pieces_before - pieces_after,
     }
+
+
+def width_groups(
+    widths: np.ndarray,
+    lengths: np.ndarray,
+    spread: float = WIDTH_GROUP,
+    most: int = WIDTH_GROUPS,
+) -> list[np.ndarray]:
+    """The runs *widths* wide and *lengths* long in groups of about one
+    width, by index: each widest at most *spread* times its narrowest, then
+    the least used merged into a neighbour until there are at most *most*
+    and each holds a twentieth of the length."""
+    order = np.argsort(widths)
+    groups: list[list[int]] = []
+    for i in order:
+        if groups and widths[i] <= spread * widths[groups[-1][0]]:
+            groups[-1].append(int(i))
+        else:
+            groups.append([int(i)])
+    total = float(lengths.sum())
+
+    def used(group: list[int]) -> float:
+        return float(lengths[group].sum())
+
+    while len(groups) > 1:
+        least = min(range(len(groups)), key=lambda g: used(groups[g]))
+        if len(groups) <= most and used(groups[least]) >= total / 20:
+            break
+        # Into the neighbour nearest its width.
+        middle = float(np.median(widths[groups[least]]))
+        sides = [g for g in (least - 1, least + 1) if 0 <= g < len(groups)]
+        into = min(
+            sides,
+            key=lambda g: abs(np.log(np.median(widths[groups[g]]) / middle)),
+        )
+        groups[into] = sorted(groups[into] + groups[least], key=lambda i: widths[i])
+        del groups[least]
+    return [np.array(g) for g in groups]
 
 
 def _widths_along(across: np.ndarray, run: np.ndarray) -> np.ndarray:
