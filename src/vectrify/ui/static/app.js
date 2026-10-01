@@ -2,7 +2,7 @@ import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 import {dropIndex, dropRefusal, dropTarget} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
 import {matchCommands, moveHighlight} from './palette.js';
-import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
+import {TOOL_LEVEL, boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
 import {HeldGesture, inputQueue} from './input.js';
 import {overflowLayout} from './strip.js';
 import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
@@ -1586,13 +1586,13 @@ function previewPointDrag(target) {
     for (const other of sharingPaths(id)) if (!drag.saved.has(other)) svgElement(other)?.setAttribute('d', pathData(g));
   }
 }
-// Press on a point: select it (with Shift, add or remove it), adding its path
-// when it is not selected, and start dragging the selected points.
+// Press on a point: select it (with Shift, add or remove it), selecting its
+// path when it is not (with Shift, adding it), and start dragging the selected
+// points.
 function pressPoint(event, common) {
   const id = event.target.dataset.object, nodeId = event.target.dataset.node, part = event.target.dataset.part;
   const key = pointKey(id, nodeId), current = selectedPoints();
-  // A path inside a selected group is selected with it.
-  const objects = pointPaths().includes(id) ? state.selection.objects : [...state.selection.objects, id];
+  const objects = clickPointPath(state.selection.objects, pointPaths(), id, common.shift);
   let points = current;
   if (part === 'endpoint') {
     points = current.includes(key) && !common.shift ? current : clickPoint(current, key, common.shift);

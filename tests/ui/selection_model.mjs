@@ -1,6 +1,6 @@
 // Checks the two-level selection's transitions; run by test_selection_model.py.
 import assert from 'node:assert/strict';
-import {boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
+import {boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
 
 // The drawing holds group trees (group pines (a, b), c) and d.
 const parents = new Map([['trees', 'root'], ['pines', 'trees'], ['a', 'pines'], ['b', 'pines'], ['c', 'trees'], ['d', 'root']]);
@@ -43,6 +43,13 @@ assert.deepEqual(up({objects: [], points: [], scope: 'trees'}), {objects: [], po
 assert.deepEqual(clickPoint(['a n1', 'b n2'], 'a n3', false), ['a n3']);
 assert.deepEqual(clickPoint(['a n1'], 'b n2', true), ['a n1', 'b n2']);
 assert.deepEqual(clickPoint(['a n1', 'b n2'], 'a n1', true), ['b n2']);
+
+// A point of another path selects that path instead; Shift adds it, and a
+// path shown through its selected group keeps the selection.
+assert.deepEqual(clickPointPath(['c', 'd'], ['c', 'd'], 'a', false), ['a']);
+assert.deepEqual(clickPointPath(['c'], ['c'], 'a', true), ['c', 'a']);
+const group = ['pines'];
+assert.equal(clickPointPath(group, ['a', 'b'], 'a', false), group);
 
 // Box select takes what lies wholly inside; Shift toggles it.
 const box = dragBox({x: 50, y: 40}, {x: 10, y: 0});
