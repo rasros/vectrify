@@ -18,6 +18,7 @@ from vectrify.document.hit_test import (
     transform,
 )
 from vectrify.document.model import Document, DocumentError, Element, Geometry
+from vectrify.document.paint import solid_paint
 from vectrify.document.svg import PAINT, parse_path
 
 
@@ -41,8 +42,15 @@ def path_style(document: Document, element: Element) -> dict[str, str]:
     return style
 
 
-def average_paint(styles: list[dict[str, str]], areas: list[float]) -> dict[str, str]:
-    """Average channels by painted area; missing paint contributes zero alpha."""
+def average_paint(
+    styles: list[dict[str, str]],
+    areas: list[float],
+    document: Document | None = None,
+) -> dict[str, str]:
+    """Average channels by painted area; missing paint contributes zero alpha.
+
+    With *document*, a gradient counts as its mean colour.
+    """
     weights = areas if sum(areas) > 0 else [1.0] * len(styles)
     total = sum(weights)
     result = dict(styles[-1])
@@ -56,7 +64,11 @@ def average_paint(styles: list[dict[str, str]], areas: list[float]) -> dict[str,
         opacity = kind + "-opacity"
         if len({(s[kind], s[opacity]) for s in styles}) == 1:
             continue
-        rgba = [color(s[kind]) if s[kind] != "none" else (0, 0, 0, 0) for s in styles]
+        paints = [
+            solid_paint(document, s[kind]) if document is not None else s[kind]
+            for s in styles
+        ]
+        rgba = [color(p) if p != "none" else (0, 0, 0, 0) for p in paints]
         alpha_weights = [
             w * c[3] * float(s[opacity])
             for w, c, s in zip(weights, rgba, styles, strict=True)
@@ -79,10 +91,13 @@ def average_paint(styles: list[dict[str, str]], areas: list[float]) -> dict[str,
 
 
 def join_paint(
-    styles: list[dict[str, str]], areas: list[float], color_index: int | None = None
+    styles: list[dict[str, str]],
+    areas: list[float],
+    color_index: int | None = None,
+    document: Document | None = None,
 ) -> dict[str, str]:
     """Keep numeric paint area-weighted, optionally taking one source's colors."""
-    paint = average_paint(styles, areas)
+    paint = average_paint(styles, areas, document)
     if color_index is not None:
         source = styles[color_index]
         for key in ("fill", "stroke", "fill-opacity", "stroke-opacity"):

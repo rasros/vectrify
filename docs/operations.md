@@ -64,7 +64,7 @@ commands `start`, `check` (validate a request without running it), `status`,
 | improve | `nodes` | Fits the selected paths to the reference by mixing the path fit, snapping and simplifying |
 | improve | `retrace` | Replaces each selected path's outline with its object's, found by SAM or by colour |
 | improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
-| improve | `colours` | Closed-form flat fill colours for the selected objects, geometry locked |
+| improve | `colours` | Closed-form flat fills or linear gradients for the selected objects, geometry locked |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
 | snap | `edges` | Snaps touching edges of the selected paths together, as plain geometry |
 
@@ -76,6 +76,35 @@ that places it over the artboard, measuring reference error before and after.
 The target container is the whole drawing (`scope: "drawing"` in the editor
 request) or one selected group. Element IDs in generated SVG are renamed, with
 their references, so repeated generations never collide.
+
+## Fit colours and gradients (improve/colours)
+
+Compositing is linear in an object's fill: each pixel of the region is
+`dark + coverage * fill`, where rendering the object with its fill black and
+then white measures `dark` and `coverage` exactly, including antialiasing,
+opacity, clipping and whatever is painted in front. Objects are fitted back
+to front, each against the drawing as already refitted, for `passes` rounds,
+at a comparison size of `resolution` pixels on the long side.
+
+`fill` picks what is fitted. `flat` (the default) is the least-squares colour
+per channel. `linear` fits each channel as an affine field `a + b·x + c·y`
+over root user space by the same weighted least squares, takes the first
+singular vector of the 3×2 matrix of their slopes as the gradient's axis,
+and refits `a + k·t` along it. The gradient's ends sit at the extremes of the
+covered pixels' projection on that axis, so no covered pixel is painted by
+padding, and the two stop colours are clipped to 0-1. The axis is mapped
+from root space through the inverse of the object's ancestry transforms and
+its own `transform`, into a `userSpaceOnUse` gradient whose level lines are
+the fitted ones even under skew or uneven scale. A ramp whose ends differ by
+less than 2/255 in every channel stays a flat fill, and instances (`use`)
+always get a flat one, as their user space is their source's.
+
+The method owns each object's gradient through `Transaction.set_fill`, so it
+needs only paint permission. Objects whose fill is already a gradient can be
+refitted either way: a gradient only they use is updated in place, and a
+flat refit removes it. An outline painted like the fill follows it. Metrics
+give the region's error `before` and `after`, `objects` changed,
+`gradients` among them and the objects `considered`.
 
 ## Replaying edited SVG
 

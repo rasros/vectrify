@@ -1,4 +1,4 @@
-"""Improve: fit flat fill colours of the selected objects, geometry locked.
+"""Improve: fit the fills of the selected objects, geometry locked.
 
 Compositing is linear in an object's fill colour: every pixel of the rendered
 region equals ``backdrop + coverage * fill``, where coverage already includes
@@ -7,17 +7,27 @@ Rendering the region twice, once with the fill black and once white, measures
 both terms exactly, so the fill that best matches the reference is a closed-form
 least-squares solution per channel. Objects are fitted back to front, each
 against the drawing as already refitted. No GPU and no search are involved.
+
+With ``fill: "linear"`` the fill may vary across the object: each channel is
+fitted as an affine field ``a + b x + c y`` by the same weighted least squares,
+the fields' common direction (the first singular vector of their 3x2 gradient)
+becomes the gradient's axis, and ``a + k t`` is refitted along it. The ends
+of the gradient sit at the covered pixels' extremes along that axis, so none
+of the object is painted by padding. A ramp that changes by less than about
+two levels of 255 stays a flat fill.
 """
 
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from typing import ClassVar
 
 import numpy as np
 
 from vectrify.document import Document, DocumentError
 from vectrify.document.join import path_style
+from vectrify.document.paint import GradientStop, LinearGradient, hex_colour
+from vectrify.document.redraw import root_matrix
 from vectrify.image_utils import preview_urls
 from vectrify.operations.contract import (
     OperationRequest,
@@ -30,14 +40,21 @@ from vectrify.operations.generate import Region, error, render_region, target_re
 from vectrify.operations.settings import Setting, read_settings
 
 DRAWABLE = {"path", "rect", "circle", "ellipse", "use"}
+# What can take a gradient: an instance's user space is its source's.
+GRADIENT_DRAWABLE = {"path", "rect", "circle", "ellipse"}
 SETTINGS = {
     "passes": Setting(int, 1, minimum=1, maximum=5),
     "resolution": Setting(int, 256, minimum=32, maximum=1024, label="resolution"),
+    "fill": Setting(str, "flat", choices=("flat", "linear"), label="fill kind"),
 }
+# A gradient whose ends differ by less than this, per channel, is flat.
+FLAT = 2 / 255
+# Pixels that count as covered when placing a gradient's ends.
+COVERED = 0.05
 
 
 def targets(document: Document, request: OperationRequest) -> list[str]:
-    """Selected drawables with a solid fill, in paint order (back to front)."""
+    """Selected drawables with a fill, in paint order (back to front)."""
     selected = document.selection_ids(request.snapshot.selection)
     found = []
     for element in document.elements():
@@ -45,8 +62,7 @@ def targets(document: Document, request: OperationRequest) -> list[str]:
             continue
         if any(a.tag in {"defs", "clipPath"} for a in document.ancestry(element.id)):
             continue
-        fill = path_style(document, element)["fill"]
-        if fill != "none" and not fill.startswith("url("):
+        if path_style(document, element)["fill"] != "none":
             found.append(element.id)
     return found
 
@@ -64,21 +80,121 @@ def _array(document: Document, region: Region) -> np.ndarray:
     return np.asarray(render_region(document, region), dtype=np.float64) / 255
 
 
+def _terms(
+    document: Document, oid: str, region: Region
+) -> tuple[np.ndarray, np.ndarray] | None:
+    """The backdrop and coverage of *oid* in the region, or None if hidden."""
+    dark = _array(_with_fill(document, oid, "#000000"), region)
+    light = _array(_with_fill(document, oid, "#ffffff"), region)
+    coverage = light - dark
+    if float(np.sum(coverage * coverage)) < 1e-6:
+        return None
+    return dark, coverage
+
+
+def _flat(dark: np.ndarray, coverage: np.ndarray, target: np.ndarray) -> str:
+    channels = np.sum(coverage * (target - dark), axis=(0, 1)) / np.sum(
+        coverage * coverage, axis=(0, 1)
+    ).clip(1e-12)
+    return hex_colour(tuple(float(c) for c in np.clip(channels, 0, 1)))
+
+
 def best_fill(
     document: Document, oid: str, region: Region, target: np.ndarray
 ) -> str | None:
     """The flat fill minimizing squared error in the region, or None if hidden."""
-    dark = _array(_with_fill(document, oid, "#000000"), region)
-    light = _array(_with_fill(document, oid, "#ffffff"), region)
-    coverage = light - dark
-    weight = float(np.sum(coverage * coverage))
-    if weight < 1e-6:
+    terms = _terms(document, oid, region)
+    return None if terms is None else _flat(*terms, target)
+
+
+def _solve(design: np.ndarray, values: np.ndarray) -> np.ndarray:
+    """Least squares of *values* (n,) on *design* (n, k), robust to rank loss."""
+    return np.linalg.lstsq(design, values, rcond=None)[0]
+
+
+def _pixel_points(region: Region) -> tuple[np.ndarray, np.ndarray]:
+    """Root user-space coordinates of every pixel centre of the region."""
+    width, height = region.image.size
+    xs = region.x + (np.arange(width) + 0.5) * region.width / width
+    ys = region.y + (np.arange(height) + 0.5) * region.height / height
+    return np.meshgrid(xs, ys)
+
+
+@dataclass(frozen=True)
+class Ramp:
+    """A fitted linear ramp in root user space: colours at *start* and *end*."""
+
+    start: tuple[float, float]
+    end: tuple[float, float]
+    colours: tuple[tuple[float, ...], tuple[float, ...]]
+
+    def flat(self) -> bool:
+        a, b = self.colours
+        return max(abs(x - y) for x, y in zip(a, b, strict=True)) < FLAT
+
+
+def fit_ramp(
+    dark: np.ndarray, coverage: np.ndarray, target: np.ndarray, region: Region
+) -> Ramp | None:
+    """The linear ramp that best fits the region, or None if it has no extent."""
+    xs, ys = _pixel_points(region)
+    weight = coverage.mean(axis=2)
+    covered = weight > COVERED
+    if covered.sum() < 3:
         return None
-    channels = np.sum(coverage * (target - dark), axis=(0, 1)) / np.sum(
-        coverage * coverage, axis=(0, 1)
-    ).clip(1e-12)
-    r, g, b = (round(float(c) * 255) for c in np.clip(channels, 0, 1))
-    return f"#{r:02x}{g:02x}{b:02x}"
+    # Centre the coordinates so the normal equations are well conditioned.
+    cx, cy = float(xs[covered].mean()), float(ys[covered].mean())
+    x, y = (xs - cx).ravel(), (ys - cy).ravel()
+    slopes = np.zeros((3, 2))
+    for c in range(3):
+        cov = coverage[..., c].ravel()
+        design = np.stack([cov, cov * x, cov * y], axis=1)
+        slopes[c] = _solve(design, (target - dark)[..., c].ravel())[1:]
+    _, singular, vt = np.linalg.svd(slopes)
+    if singular[0] < 1e-12:
+        return None
+    direction = vt[0]
+    s = direction[0] * x + direction[1] * y
+    colours = []
+    low, high = float(s[covered.ravel()].min()), float(s[covered.ravel()].max())
+    if high - low < 1e-9:
+        return None
+    for c in range(3):
+        cov = coverage[..., c].ravel()
+        a, k = _solve(np.stack([cov, cov * s], axis=1), (target - dark)[..., c].ravel())
+        colours.append((a + k * low, a + k * high))
+    ends = tuple((cx + direction[0] * t, cy + direction[1] * t) for t in (low, high))
+    clipped = tuple(
+        tuple(float(np.clip(colours[c][i], 0, 1)) for c in range(3)) for i in (0, 1)
+    )
+    return Ramp(ends[0], ends[1], (clipped[0], clipped[1]))
+
+
+def local_gradient(document: Document, oid: str, ramp: Ramp) -> LinearGradient:
+    """*ramp*, as a gradient in *oid*'s own user space.
+
+    The ramp's parameter is affine in root coordinates, so it is affine in the
+    object's too, but under a skew or uneven scale its level lines are no
+    longer perpendicular to the axis there. The ends are chosen so the
+    gradient's own perpendicular level lines are exactly the ramp's.
+    """
+    a, b, c, d, e, f = root_matrix(document, oid)
+    (x0, y0), (x1, y1) = ramp.start, ramp.end
+    dx, dy = x1 - x0, y1 - y0
+    length = dx * dx + dy * dy
+    # t = beta . p + alpha in root space, mapped through p = M q + m.
+    beta = (dx / length, dy / length)
+    alpha = -(beta[0] * x0 + beta[1] * y0)
+    local = (a * beta[0] + b * beta[1], c * beta[0] + d * beta[1])
+    alpha += beta[0] * e + beta[1] * f
+    norm = local[0] ** 2 + local[1] ** 2
+    start = (-alpha * local[0] / norm, -alpha * local[1] / norm)
+    end = (start[0] + local[0] / norm, start[1] + local[1] / norm)
+    stops = tuple(
+        GradientStop(offset, hex_colour(colour))
+        for offset, colour in zip((0.0, 1.0), ramp.colours, strict=True)
+    )
+    return LinearGradient(start, end, stops)
 
 
 class ColourFit:
@@ -93,11 +209,12 @@ class ColourFit:
         if not request.permissions.paint:
             raise DocumentError("Allow paint changes to fit colours")
         if not targets(request.snapshot.document, request):
-            raise DocumentError("Select objects with a solid fill")
+            raise DocumentError("Select objects with a solid fill or a gradient")
         target_region(request)
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
         settings = read_settings(request.settings, SETTINGS, "colour-fit")
+        linear = settings["fill"] == "linear"
         full = target_region(request)
         scale = min(1, settings["resolution"] / max(full.image.size))
         size = (
@@ -109,27 +226,30 @@ class ColourFit:
         document = request.snapshot.document
         ids = targets(document, request)
         total = len(ids) * settings["passes"]
-        tx = request.transaction("Fit colours")
-        fitted: dict[str, str] = {}
+        tx = request.transaction("Fit gradients" if linear else "Fit colours")
+        fitted: set[str] = set()
+        gradients: set[str] = set()
         step = 0
         for _ in range(settings["passes"]):
             for oid in ids:
                 if context.stop.is_set():
                     break
                 context.progress(step, f"Fitting {step + 1} of {total}…", total=total)
-                fill = best_fill(tx.preview, oid, region, target)
                 step += 1
-                if fill is None:
+                terms = _terms(tx.preview, oid, region)
+                if terms is None:
                     continue
-                element = tx.preview.element(oid)
-                style = path_style(tx.preview, element)
-                changes: dict[str, str | None] = {"fill": fill}
-                # An outline painted in the fill colour belongs to the shape.
-                if style["stroke"] != "none" and style["stroke"] == style["fill"]:
-                    changes["stroke"] = fill
-                if any(element.get(k) != v for k, v in changes.items()):
-                    tx.set_attributes(oid, changes)
-                    fitted[oid] = fill
+                fill: str | LinearGradient = _flat(*terms, target)
+                if linear and tx.preview.element(oid).tag in GRADIENT_DRAWABLE:
+                    ramp = fit_ramp(*terms, target, region)
+                    if ramp is not None and not ramp.flat():
+                        fill = local_gradient(tx.preview, oid, ramp)
+                if self._apply(tx, oid, fill):
+                    fitted.add(oid)
+                if isinstance(fill, LinearGradient):
+                    gradients.add(oid)
+                else:
+                    gradients.discard(oid)
         before_image = render_region(document, full)
         after_image = render_region(tx.preview, full)
         reference = full.image.convert("RGB")
@@ -141,12 +261,31 @@ class ColourFit:
                     "before": {"error": error(before_image, reference)},
                     "after": {"error": error(after_image, reference)},
                     "objects": len(fitted),
+                    "gradients": len(gradients & fitted),
                     "considered": len(ids),
                 },
                 previews=preview_urls(full.image, before_image, after_image),
             ),
             message=None if fitted else "The colours already fit the reference",
         )
+
+    @staticmethod
+    def _apply(tx, oid: str, fill: str | LinearGradient) -> bool:
+        """Set *oid*'s fill (and a stroke painted like it); whether it changed."""
+        before = tx.preview
+        element = before.element(oid)
+        style = path_style(before, element)
+        # An outline painted in the fill colour belongs to the shape.
+        outlined = style["stroke"] != "none" and style["stroke"] == style["fill"]
+        if isinstance(fill, LinearGradient):
+            tx.set_fill(oid, fill)
+            if outlined:
+                tx.set_attributes(oid, {"stroke": tx.preview.element(oid).get("fill")})
+        else:
+            if outlined:
+                tx.set_attributes(oid, {"stroke": fill})
+            tx.set_fill(oid, fill)
+        return tx.preview != before
 
 
 register(ColourFit())

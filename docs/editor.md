@@ -70,7 +70,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Reference panel picks the same three views.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
-reference, Tidy, Fit colours, Join (for filled paths), Clean up, Snap edges, Settings,
+reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges, Settings,
 Restore saved project and Keyboard shortcuts, each titled as the command that
 opens it. They open from the Reference panel, the Actions, the context menu or
 the palette.
@@ -179,6 +179,10 @@ and saved projects restore it.
   group swatches preview their contents. The right panel shows effective hex
   colors and names the parent they come from. No-paint and mixed selections
   have distinct indicators. Editing inherited paint sets an object override.
+  A gradient fill shows as its ramp, in the tree's swatch and the right
+  panel's picker, with "Linear gradient" in place of a colour value; picking
+  a colour or typing one makes the fill flat again and removes the object's
+  own gradient. Gradients and their stops are listed under Definitions.
 - Fill/stroke/opacity, dragging and resizing the selected objects, and
   numeric offsets (**Move by**).
 - **Nodes (N)** edits the points of every selected path. Delete/Backspace
@@ -398,8 +402,8 @@ a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
 it. With a reference loaded the panel picks the view (**Drawing**,
 **Overlay** or **Reference** alone, as `O` cycles them) and the overlay's
 opacity; its heading gives the state. Below are the tools that compare the
-drawing with it: **Generate…**, **Retrace** with its mode, **Tidy…** and
-**Fit colours…**, acting on the selection made with any tool. A tool that
+drawing with it: **Generate…**, **Retrace** with its mode, **Tidy…**,
+**Fit colours…** and **Fit gradient…**, acting on the selection made with any tool. A tool that
 cannot run is dimmed, with the reason as its tooltip. Each is also in the
 command palette.
 
@@ -483,7 +487,12 @@ its fill black and white, which measures its exact coverage (including
 antialiasing, opacity, clipping and objects in front), so the best colour has
 a closed form; outlines painted in the fill colour follow it. Objects are
 fitted back to front; more passes help where fitted objects overlap. No GPU is
-needed.
+needed. Its **Fill** setting chooses a flat colour or a linear gradient.
+**Fit gradient…** opens the same dialog with Linear gradient chosen: each
+selected shape gets the two-stop gradient, along the direction the reference
+changes most, that best matches it, ending where the shape does. A shape the
+reference paints evenly keeps a flat colour. Apply keeps it as one undoable
+edit.
 
 **Clean up…** removes duplicate and collinear vertices and empty or
 duplicate paths, and merges compatible neighbouring paths into compound paths,

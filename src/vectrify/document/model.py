@@ -340,6 +340,7 @@ class Document:
             CONTAINERS,
             GEOMETRY,
             PAINT,
+            gradient_placement,
             validate_attributes,
         )
 
@@ -361,10 +362,16 @@ class Document:
         if self.root.tag != "svg":
             raise DocumentError("Document root must be svg")
         edges = {}
+        parents = {c.id: e.tag for e in elements for c in e.children}
         for element in elements:
             validate_attributes(element.tag, dict(element.attributes))
-            if element.children and element.tag not in CONTAINERS:
+            if element.children and element.tag not in CONTAINERS | {"linearGradient"}:
                 raise DocumentError(f"{element.tag} cannot contain children")
+            problem = gradient_placement(
+                element.tag, parents.get(element.id), [c.tag for c in element.children]
+            )
+            if problem:
+                raise DocumentError(problem.capitalize())
             if element.tag == "svg" and element is not self.root:
                 raise DocumentError("Nested SVG viewports are unsupported")
             if not element.locks <= set(EditKind) | PAINT | GEOMETRY[element.tag] | {
@@ -387,6 +394,12 @@ class Document:
             clip = element.get("clip-path")
             if clip and clip != "none" and self.element(clip[5:-1]).tag != "clipPath":
                 raise DocumentError("Clipping must reference a clipPath")
+            for kind in ("fill", "stroke"):
+                server = paint_server(element.get(kind))
+                if server and self.element(server).tag != "linearGradient":
+                    raise DocumentError(
+                        f"{kind.capitalize()} must reference a gradient"
+                    )
             if element.tag == "use":
                 href = element.get("href")
                 if not href or self.element(href[1:]).tag not in {
@@ -426,4 +439,17 @@ def references(element: Element) -> tuple[str, ...]:
         if not clip.startswith("url(#") or not clip.endswith(")"):
             raise DocumentError("Only local clip references are supported")
         refs.append(clip[5:-1])
+    for kind in ("fill", "stroke"):
+        server = paint_server(element.get(kind))
+        if server:
+            refs.append(server)
     return tuple(refs)
+
+
+def paint_server(value: str | None) -> str | None:
+    """The ID a fill or stroke of ``url(#id)`` references, or None."""
+    if value and value.startswith("url("):
+        if not value.startswith("url(#") or not value.endswith(")"):
+            raise DocumentError("Only local paint references are supported")
+        return value[5:-1]
+    return None

@@ -17,6 +17,8 @@
 .paint-row input.no-paint::-webkit-color-swatch, .paint-row input.mixed-paint::-webkit-color-swatch { background: transparent !important; border: 0; }
 .paint-row input.no-paint::-moz-color-swatch, .paint-row input.mixed-paint::-moz-color-swatch { background: transparent !important; border: 0; }
 .paint-row input.mixed-paint { background: conic-gradient(#ddd 0 25%, #555 25% 50%, #ddd 50% 75%, #555 75%); }
+.paint-row input.gradient-paint::-webkit-color-swatch { background: transparent !important; border: 0; }
+.paint-row input.gradient-paint::-moz-color-swatch { background: transparent !important; border: 0; }
 
 #join-dialog { width: min(520px, calc(100vw - 48px)); max-height: calc(100vh - 64px); overflow: auto; }
 .join-section { border: 1px solid #405448; border-radius: 8px; padding: 12px; margin: 20px 0 12px; }
