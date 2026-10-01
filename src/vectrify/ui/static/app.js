@@ -1477,6 +1477,8 @@ $('path-cancel').onclick=()=>{pathDraft=[];pathHover=null;drawOverlay();};
 function updateView() {
   clickCycle = null;
   $('artboard').style.transform = `translate(${pan.x}px,${pan.y}px) scale(${zoom})`;
+  // Transparency shows as a checkerboard of 8px squares at any zoom.
+  $('artboard').style.setProperty('--checker', `${16/zoom}px`);
   $('zoom-percent').textContent = `${Math.round(zoom*100)}%`;
   $('canvas-label').style.left = `${pan.x}px`; $('canvas-label').style.top = `${pan.y-22}px`;
   drawOverlay();
