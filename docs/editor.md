@@ -529,21 +529,31 @@ SAMVG needs the `samvg` extra and holds the GPU while it runs.
 
 The Cel art method is for flat, outlined illustrations such as cel and anime
 art, and is the dialog's default. It follows their drawn lines: it finds the
-lines (marks narrower and darker than the surface either side; faint narrow
-shading, and dark notches as dark as the surface they open into, are left to
-the fills), fills the space between them with a shrinking ball so a small gap in
-a line does not join the regions either side, splits each region where its
-colour changes with no line, and merges neighbours down to the chosen number
-of **Regions**, those of a similar colour first and those a drawn line
-separates last. The line pixels go to the regions either side, so neighbours
+lines (marks narrower than the surface either side and darker than it in
+their brightest channel, so a black line still counts against a navy fill of
+the same brightness, or only a little darker than a dark fill beside it; bold
+outlines as dark as ink up to twice as wide; faint narrow shading, and dark
+notches as dark as the surface they open into, are left to the fills, as are
+dark shapes much wider than the lines). In a grainy or JPEG-compressed
+picture the lines are found after a small median filter smooths the grain
+away. It fills the space between the lines with a shrinking ball so a small
+gap in a line does not join the regions either side, splits each region where
+its colour changes with no line, and merges neighbours down to the chosen
+number of **Regions**, those of a similar colour first, and regions of
+different colours a drawn line separates last (the same colour either side of
+a line merges freely, since the line is drawn over it). The line pixels go to
+the regions either side, so neighbours
 meet at the line's middle; each edge between two regions is traced once and
 used by both, so they meet exactly with no gap or overlap. Before an edge
 is fitted, its pixel staircase is smoothed away between its corners, which
 stay sharp, so the outlines come out smooth and with few points. Each region is
 coloured from its own pixels, not the lines'. The lines are thinned to
-centrelines and drawn over the regions as round-capped strokes, one path per
-line colour (two when some lines of a colour are much bolder), each at its
-lines' measured width; a line whose width changes a lot along it is cut
+centrelines and drawn over the regions as round-capped strokes in their ink:
+a thin line's antialiased middle mixes its ink with the surface, so it is
+drawn in the darker ink at the width of ink it holds, not in grey. There is
+one path per line colour and width (up to four widths a colour, each path's
+lines within about 40% of its width), each at its lines' measured width;
+a line whose width changes a lot along it is cut
 where it changes, so each part gets the width it has, and the parts still
 meet end to end. Thinning's whiskers and the tiny loops it leaves round
 a pinhole where lines meet are dropped, the lines of one path run on through
