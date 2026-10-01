@@ -268,21 +268,21 @@ and saved projects restore it.
   non-uniformly scaled strokes, and group-opacity cases where splitting would
   change unselected artwork. Degenerate clip intersections use a winding-aware
   fallback; its curve tolerance is 0.01 SVG units (straight edges stay exact).
-- **Join ends** (Actions) joins the two selected points when exactly two are
-  selected, as in Nodes. Otherwise it joins the open ends of the selected
-  stroked lines (paths with no fill, or the paths in selected groups) where
-  one line carries on from another: ends at most 12 screen pixels apart, so
-  zooming out reaches wider gaps, and in line with each other, the line
-  turning at most 60° across the gap and at each end. The nearest and
-  straightest pairs go first, each end once; ends at one spot pair however
-  sharp the corner when they are the only two there. A dashed outline becomes
-  one line, and a ring of dashes closes. Ends that meet become one point; a
-  gap is bridged by a curve that leaves each end along its line. The joined
-  line lands in the frontmost of its paths and keeps that path's paint; a path
-  left without lines is deleted, and the paths holding joined lines are
-  selected. Side-by-side ends of parallel lines do not join. **Join paths** on
-  lines alone does the same, since lines join at their ends rather than by
-  area.
+- **Join ends** (Actions, and the Nodes strip) joins the two selected points
+  when exactly two are selected, as above; in a point tool it needs them.
+  Otherwise it joins the open ends of the selected stroked lines (paths with
+  no fill, or the paths in selected groups) where one line carries on from
+  another: ends at most 12 screen pixels apart, so zooming out reaches wider
+  gaps, and in line with each other, the line turning at most 60° across the
+  gap and at each end. The nearest and straightest pairs go first, each end
+  once; ends at one spot pair however sharp the corner when they are the only
+  two there. A dashed outline becomes one line, and a ring of dashes closes.
+  Ends that meet become one point; a gap is bridged by a curve that leaves
+  each end along its line. The joined line lands in the frontmost of its paths
+  and keeps that path's paint; a path left without lines is deleted, and the
+  paths holding joined lines are selected. Side-by-side ends of parallel lines
+  do not join. **Join paths** on lines alone does the same, since lines join
+  at their ends rather than by area.
 - **Fill to line** (Actions) turns each selected thin filled shape, such as a
   part of an outline that a trace drew as a fill, into a stroked line down
   its middle: the shape is rasterised about 12 pixels across its thickness,
