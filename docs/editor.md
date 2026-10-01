@@ -565,20 +565,24 @@ lines rather than many short ones; **Line width** fixes the width instead. Lines
 however much they taper; only with **Trace lines as strokes** off are they
 filled shapes. **Continuous outer outline** (off by default) draws one
 unbroken stroke round the whole drawing in place of its traced outer line,
-so the outline has no gaps or breaks. The drawing is everything the
-background does not cover: the background is the commonest colour along the
-canvas border (when at least half the border has it and it is plain, not
-textured), reaching in from the border, and a drawing filling the canvas has
-no outer outline; holes inside the drawing, even background-coloured ones such as a
-gap between an arm and the body, are not part of the outer outline and keep
-their own traced lines. The stroke is always a stroke, also with **Trace
-lines as strokes** off, in the outer line's ink, at its median width and as
-far in from the background as its middle typically lies; a drawing with no
-outer ink gets the lines' typical width in their darkest ink, or a 2 px
-black line with no lines at all. It is smoothed and simplified like the
-region edges, stops where the drawing runs off the canvas, and closes across
-a straight cut edge such as a cropped hem, where it adds a line the
-picture did not have. Traced line pieces along it are dropped, inner
+so the outline has no gaps or breaks where the drawing has outer ink. The
+drawing is everything the background does not cover: the background is the
+commonest colour along the canvas border (when at least half the border has
+it and it is plain, not textured), reaching in from the border, and a
+drawing filling the canvas has no outer outline; holes inside the drawing,
+even background-coloured ones such as a gap between an arm and the body, are
+not part of the outer outline and keep their own traced lines. The stroke is
+always a stroke, also with **Trace lines as strokes** off, in the outer
+line's ink. Across the edge at each point the ink there is measured, from
+just outside the drawing in to where it clears, and the stroke runs down its
+middle at its width, cut into pieces where the width steps by a quarter and
+grouped into a few widths, like the inner lines. Where the edge has no ink,
+as along a cropped hem, the outline stops and leaves the edge open; breaks
+in the ink up to six stroke widths long are bridged. A drawing with no outer
+ink at all gets one closed stroke at the lines' typical width in their
+darkest ink, or a 2 px black line with no lines at all. It is smoothed and
+simplified like the region edges and stops where the drawing runs off the
+canvas. Traced line pieces along it are dropped, inner
 lines that reach it are carried on to it, so they join, and the drawing's
 regions meet the background beneath its middle. **Outline
 tolerance** is how far a traced edge or line may
