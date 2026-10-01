@@ -163,3 +163,46 @@ def test_an_even_fill_stays_flat():
     job.apply()
     fill = editor.snapshot.document.element("a").get("fill")
     assert fill == flat.element("a").get("fill")
+
+
+def test_linear_fit_finds_a_ramp_that_starts_and_ends_inside_the_shape():
+    # The reference ramps only across the middle of the square, x 40 to 60,
+    # flat either side: the fitted ends land there, not at the square's edges.
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="100" '
+        'viewBox="0 0 100 100"><defs><linearGradient id="r" '
+        'gradientUnits="userSpaceOnUse" x1="40" y1="0" x2="60" y2="0">'
+        '<stop offset="0" stop-color="#b22626"/>'
+        '<stop offset="1" stop-color="#408ce6"/></linearGradient></defs>'
+        '<rect width="100" height="100" fill="#ffffff"/>'
+        '<rect x="10" y="10" width="80" height="80" fill="url(#r)"/></svg>'
+    )
+    editor = Editor(
+        import_svg(
+            '<svg width="100" height="100" viewBox="0 0 100 100">'
+            '<rect id="bg" width="100" height="100" fill="#ffffff"/>'
+            '<path id="a" d="M10 10 L90 10 L90 90 L10 90 Z" fill="#808080"/></svg>'
+        )
+    )
+    job = Job(
+        method("improve", "colours"),
+        request(
+            editor,
+            "colours",
+            Selection(object_ids=frozenset({"a"})),
+            Permissions(paint=True),
+            render(svg),
+            resolution=100,
+            fill="linear",
+        ),
+    )
+    job.run()
+    job.apply()
+    document = editor.snapshot.document
+    fill = document.element("a").get("fill") or ""
+    gradient = document.element(fill[5:-1])
+    xs = sorted(float(gradient.get(k) or 0) for k in ("x1", "x2"))
+    ys = [float(gradient.get(k) or 0) for k in ("y1", "y2")]
+    assert abs(xs[0] - 40) < 1.5
+    assert abs(xs[1] - 60) < 1.5
+    assert abs(ys[0] - ys[1]) < 1
