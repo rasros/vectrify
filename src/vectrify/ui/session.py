@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import math
+from collections import Counter
 from dataclasses import asdict, replace
 from threading import RLock
 from typing import Any
@@ -200,6 +201,12 @@ class Session:
         snapshot = self.editor.snapshot
         objects = []
         counters: dict[str, int] = {}
+        # How many elements draw each geometry: more than one shares it.
+        users = Counter(
+            e.geometry_id
+            for e in snapshot.document.elements()
+            if e.geometry_id is not None
+        )
         for element in snapshot.document.elements():
             if element.tag == "svg":
                 continue
@@ -221,6 +228,8 @@ class Session:
                     "parent": ancestors[-2].id,
                     "depth": len(ancestors) - 2,
                     "resource": any(e.tag in {"defs", "clipPath"} for e in ancestors),
+                    "shared": element.geometry_id is not None
+                    and users[element.geometry_id] > 1,
                     "attributes": dict(element.attributes),
                     "locks": sorted(element.locks),
                     "inherited_locks": sorted(
@@ -624,7 +633,7 @@ class Session:
             return
         if not selected:
             raise DocumentError("Select an object first")
-        if command in {"join_ends", "fill_to_line", "line_to_fill"}:
+        if command in {"join_ends", "fill_to_line", "line_to_fill", "convert_lines"}:
             self._lines(command, payload, selected)
             return
         if command == "fill_holes":
@@ -838,25 +847,39 @@ class Session:
                 )
             self.editor.select(Selection(object_ids=frozenset(joined)))
             return
-        filled = command == "fill_to_line"
-        chosen = [
-            p
-            for p in paths
-            if (path_style(document, p)["fill"] != "none") == filled
-            and path_style(document, p)["stroke" if not filled else "fill"] != "none"
-        ]
+        # Convert flips each path: a fill becomes a line and a line a fill.
+        wanted = {
+            "fill_to_line": {True},
+            "line_to_fill": {False},
+            "convert_lines": {True, False},
+        }[command]
+
+        def is_fill(path) -> bool | None:
+            style = path_style(document, path)
+            if style["fill"] != "none":
+                return True
+            return False if style["stroke"] != "none" else None
+
+        chosen = [p for p in paths if is_fill(p) in wanted]
         if not chosen:
             raise DocumentError(
-                "Select filled paths to turn into lines"
-                if filled
-                else "Select stroked paths without a fill to turn into fills"
+                {
+                    "fill_to_line": "Select filled paths to turn into lines",
+                    "line_to_fill": "Select stroked paths without a fill to turn "
+                    "into fills",
+                    "convert_lines": "Select filled paths or stroked lines",
+                }[command]
             )
-        label = "Fill to line" if filled else "Line to fill"
+        label = {
+            "fill_to_line": "Fill to line",
+            "line_to_fill": "Line to fill",
+            "convert_lines": "Convert line/fill",
+        }[command]
         with self.editor.transaction(label, selection=selection) as tx:
             for path in chosen:
                 style = path_style(document, path)
                 geometry = document.geometry_for(path.id)
-                if filled:
+                if is_fill(path):
                     line, width = centreline(geometry, style["fill-rule"])
                     changes = {
                         "fill": "none",
