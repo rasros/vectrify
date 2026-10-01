@@ -521,7 +521,7 @@ const COMMANDS = [
   {id: 'ungroup', name: 'Ungroup', group: 'Actions', run: () => action('ungroup'),
     disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
   {id: 'join', name: 'Join paths…', group: 'Actions', keywords: 'merge union combine', run: openJoin, disabled: () => joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them'},
-  {id: 'join-ends', name: 'Join ends', group: 'Actions', keywords: 'connect merge dashed broken lines strokes gaps close', run: joinEnds, disabled: noLines},
+  {id: 'join-ends', name: 'Join ends', group: 'Actions', keywords: 'connect merge dashed broken lines strokes gaps close', run: joinEnds, disabled: () => !twoEnds() && noLines()},
   {id: 'fill-to-line', name: 'Fill to line', group: 'Actions', keywords: 'centreline centerline stroke convert skeleton thin', run: () => action('fill_to_line', {}, 'Finding the centrelines…'),
     disabled: () => !fillPaths().length && 'Select filled paths that are thin lines'},
   {id: 'line-to-fill', name: 'Line to fill', group: 'Actions', keywords: 'outline stroke convert expand', run: () => action('line_to_fill', {}, 'Outlining strokes…'), disabled: noLines},
@@ -561,7 +561,7 @@ const COMMANDS = [
     disabled: () => noPoints() || (!selectedPoints().some(key => breakable(contourAt(key), splitKey(key)[1])) && 'A line\'s ends are free already: pick a point between them, or on a closed contour')},
   {id: 'delete-segment', name: 'Delete segment', group: 'Points', keywords: 'remove edge gap loop disconnect', run: () => action('delete_segment', {points: pointPairs()}, 'Deleting segments…'),
     disabled: () => noPoints() || (!pointContours().some(({contour, ids}) => segmentAmong(contour, ids)) && 'Select the two points at the ends of the segment')},
-  {id: 'join-two-ends', name: 'Join two ends', group: 'Points', keywords: 'connect close gap merge lines', run: () => action('join_two_ends', {points: pointPairs()}, 'Joining ends…'),
+  {id: 'join-two-ends', name: 'Join two ends', group: 'Points', keywords: 'connect close gap merge lines', run: joinTwoEnds,
     disabled: () => noPoints() || (!twoEnds() && 'Select the two points to join')},
   {id: 'fill-hole', name: 'Fill hole', group: 'Points', keywords: 'holes remove', run: fillPointHoles, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
   {id: 'hole-to-shape', name: 'Hole to shape', group: 'Points', keywords: 'holes shapes', run: pointHolesToShapes, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
@@ -748,7 +748,7 @@ stage.addEventListener('contextmenu', event => {
       const hits = hitStack(x, y), targets = hits.length ? clickTargets(hits) : [];
       const at = document.elementFromPoint(x, y);
       const node = at?.dataset?.node && pointKey(at.dataset.object, at.dataset.node);
-      if (node && level() === 'points' && !selectedPoints().includes(node)) await selectPoints(pointPaths().includes(splitKey(node)[0]) ? state.selection.objects : [...state.selection.objects, splitKey(node)[0]], [node]);
+      if (node && level() === 'points' && !selectedPoints().includes(node)) await selectPoints(clickPointPath(state.selection.objects, pointPaths(), splitKey(node)[0], false), [node]);
       else if (!node && targets.length && !targets.some(id => state.selection.objects.includes(id) || pointPaths().includes(id))) await selectObject(targets[0]);
     }
     await queue;
@@ -1971,7 +1971,11 @@ $('join-confirm').onclick = async () => {
     } else { $('join-error').textContent = $('toast-message').textContent; $('join-error').hidden = false; }
   } finally { $('join-confirm').disabled = false; $('join-cancel').disabled = false; }
 };
+function joinTwoEnds() { return action('join_two_ends', {points: pointPairs()}, 'Joining ends…'); }
+// Two selected points join each other; otherwise every selected line joins
+// the ends that continue it nearby.
 async function joinEnds() {
+  if (twoEnds()) return joinTwoEnds();
   const lines = linePaths().length;
   if (await action('join_ends', {reach: JOIN_REACH / zoom}, 'Joining line ends…')) toast(`Joined the ends of ${plural(lines, 'line path')} that continue each other within ${JOIN_REACH} screen pixels; zoom out to reach wider gaps.`);
 }
