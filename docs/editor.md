@@ -22,10 +22,13 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 
 ## Layout
 
-- **Left**: the tool rail and the **Objects** tree. The rail holds the object
-  tools **Select** (`V`), **Knife** (`K`) and **Trace** (`T`), the point tools
-  **Nodes** (`N`) and **Redraw outline** (`R`), **Draw path** (`P`), which
-  creates and ignores the selection, and **Pan** (`H`).
+- **Left**: the tool rail, the **Objects** tree and, below it, the
+  **Reference** panel. The rail holds the object tools **Select** (`V`) and
+  **Knife** (`K`), the point tools **Nodes** (`N`) and **Redraw outline**
+  (`R`), **Draw path** (`P`), which creates and ignores the selection, and
+  **Pan** (`H`). The Reference panel holds the reference image and the tools
+  that match the drawing to it (see Operations); its heading folds it away,
+  and loading a reference opens it again.
 - **Tool strip**, above the canvas: undo and redo, then only the active tool's
   controls, and on the right the selection's level and count, such as
   "Objects · 3 selected" or "Points · 5 points in 3 paths". Select has the
@@ -34,9 +37,8 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   buttons (None / One / Two), **Pin points**, **Split edge**, **Delete**,
   **Delete contour**, X / Y for a single point, and **Fill hole** / **Hole to
   shape** when the points are on holes. Draw path has Finish, Close shape and
-  Cancel. Knife, Redraw outline, Draw path and Pan show a one-line hint. Trace
-  holds the reference image and the tools that match the drawing to it
-  (below). The strip keeps to one row: when the window is too narrow for the
+  Cancel. Knife, Redraw outline, Draw path and Pan show a one-line hint. The
+  strip keeps to one row: when the window is too narrow for the
   tool's controls, the least important of them (Delete contour first, then
   Split edge and the coordinates, and so on) move into a **⋯** menu at the
   end of the controls, which holds them until there is room again; the status
@@ -62,13 +64,14 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   with its opacity and an amber canvas border while it is visible, and zoom.
   `O` cycles the view: the drawing, the reference over it, and the reference
   alone at full strength in place of the drawing, to compare by flipping
-  between them; `Shift+O` always goes straight back to the drawing.
+  between them; `Shift+O` always goes straight back to the drawing. The
+  Reference panel picks the same three views.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
 reference, Tidy, Fit colours, Join paths, Clean up, Snap edges, Settings,
 Restore saved project and Keyboard shortcuts, each titled as the command that
-opens it. They open from the tool strip, the Actions, the context menu or the
-palette.
+opens it. They open from the Reference panel, the Actions, the context menu or
+the palette.
 
 Input never gets lost while an edit is running. Keys, clicks, commands, tree
 clicks and drops, and canvas drags made meanwhile wait for it, then apply in
@@ -85,9 +88,9 @@ The selection always has objects, and optionally points inside them. Points
 may span several paths, say five points in three paths; point commands act on
 all of them as one undoable edit.
 
-- In an object tool (Select, Knife, Trace) a click picks the outermost group
-  under the pointer, as in most editors. Only Select moves objects by
-  dragging; in Knife a drag cuts and in Trace it box selects. **Double-click** a group to enter it:
+- In an object tool (Select, Knife) a click picks the outermost group
+  under the pointer, as in most editors. Only Select moves and resizes
+  objects by dragging; in Knife a drag cuts. **Double-click** a group to enter it:
   clicks then pick within it, and the breadcrumb shows where you are. A click
   outside the entered group leaves it. Double-click a path to switch to Nodes
   on it. Picking an object in the tree enters the group it is in.
@@ -163,8 +166,8 @@ and saved projects restore it.
 ## What works
 
 - Open SVGs and Vectrify project files; export SVG or download an editable project.
-- Pan/zoom/fit, reference image overlay and opacity adjustment (Trace tool).
-  Press `O` to hide/show the reference, or click its toggle in the footer.
+- Pan/zoom/fit, reference image overlay and opacity adjustment (Reference
+  panel). Press `O` to cycle the view, or click its toggle in the footer.
 - The object list shows definition and clipping containers in their actual
   hierarchy. Shared geometry and clipping contours have neutral symbols and
   role labels; instances name their source. The right panel explains these
@@ -322,8 +325,8 @@ and saved projects restore it.
 - Geometry/paint/position/structure locks and backend-enforced constraints.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
 
-Keyboard shortcuts are available from the `?` button. `V`, `N`, `P`, `K`, `R`,
-`T` and `H` switch tools, and Ctrl/Command-K opens the command palette. Drag with the middle mouse button (in any tool), or hold Space
+Keyboard shortcuts are available from the `?` button. `V`, `N`, `P`, `K`, `R`
+and `H` switch tools, and Ctrl/Command-K opens the command palette. Drag with the middle mouse button (in any tool), or hold Space
 and drag, to pan. Use the scroll wheel to zoom, and press `F` to
 fit. Ctrl/Command-Z undoes; add Shift to redo. Ctrl/Command-S saves a project.
 
@@ -339,13 +342,16 @@ you choose a saved browser recovery copy from a new tab.
 
 ## Operations
 
-The **Trace** tool (`T`) is where the reference lives: **Load reference…**
-(or **Replace…**) takes a PNG, JPEG or WebP image, × removes it, and the strip
-shows the overlay toggle (`O`) and its opacity. Beside them are the tools that
-compare the drawing with it: **Generate…**, **Retrace** with its mode,
-**Tidy…** and **Fit colours…**. Trace selects like Select (click, box select,
-double-click into groups) but never moves objects, so pick the shapes to work
-on without switching tools or nudging them. Each tool is also in the command palette.
+The **Reference** panel, below the objects on the left, is where the
+reference lives, whichever tool is active: **Load…** (or **Replace…**) takes
+a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
+it. With a reference loaded the panel picks the view (**Drawing**,
+**Overlay** or **Reference** alone, as `O` cycles them) and the overlay's
+opacity; its heading gives the state. Below are the tools that compare the
+drawing with it: **Generate…**, **Retrace** with its mode, **Tidy…** and
+**Fit colours…**, acting on the selection made with any tool. A tool that
+cannot run is dimmed, with the reason as its tooltip. Each is also in the
+command palette.
 
 **Retrace** (Shift+R) replaces the outline of each selected
 path with a fresh trace of its object in the reference, keeping the path's ID,
@@ -438,7 +444,7 @@ Generate, Improve, Simplify and Snap edges run through the shared operation
 contract in `vectrify.operations` (see `docs/operations.md`) via
 `POST /api/operation`.
 
-**Generate from reference…** (Trace tool) traces the reference into
+**Generate from reference…** (Reference panel) traces the reference into
 new shapes. The SAMVG method, a general-purpose tracer for photos and painterly
 images, segments the image with SAM and traces each region into filled paths.
 Choose the model (ViT-H is best, ViT-B is faster), the resolution SAM segments

@@ -35,9 +35,9 @@ let selectionBox = null;
 const DOUBLE_CLICK = 400;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
-const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', trace: 'Trace', hand: 'Pan'};
+const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
 // A one-line hint for the tools with few controls of their own.
-const hints = {select: '', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from a selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', trace: '', hand: 'Drag to pan · Scroll to zoom'};
+const hints = {select: '', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from a selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -457,14 +457,13 @@ function enable(element, reason) {
 const noSelection = () => !state?.selection.objects.length && 'Select objects first';
 const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (N) first');
 const visiblePaths = () => state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
-const noReference = () => !state.reference && 'Add a reference image first (Trace tool, T)';
+const noReference = () => !state.reference && 'Load a reference image first, under Reference below the objects';
 const COMMANDS = [
   {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
   {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'N', keywords: 'edit points handles', run: () => setTool('nodes')},
   {id: 'tool-path', name: 'Draw path tool', group: 'Tools', keys: 'P', keywords: 'pen draw path shape', run: () => setTool('path')},
   {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'K', keywords: 'cut slice', run: () => setTool('knife')},
   {id: 'tool-redraw', name: 'Redraw outline tool', group: 'Tools', keys: 'R', keywords: 'lasso outline fix', run: () => setTool('redraw')},
-  {id: 'tool-trace', name: 'Trace tool', group: 'Tools', keys: 'T', keywords: 'reference image generate retrace tidy', run: () => setTool('trace')},
   {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'H', keywords: 'hand scroll', run: () => setTool('hand')},
   {id: 'open', name: 'Open…', group: 'File', keywords: 'svg project load', run: () => $('open-file').click()},
   {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
@@ -2165,52 +2164,62 @@ $('svg-file').onchange=async event=>{
   const success=await action('open',{name:file.name,source:await file.text()},'Opening drawing…');
   if(success){dirty=false;$('dirty').textContent='';await loadReference();fit();}
 };
-// Reference only: the reference at full strength in place of the drawing.
-let referenceOnly = false;
+// The Reference panel, below the objects, holds the reference image, the
+// view and the tools that match the drawing to it. The view is the drawing
+// alone, the reference over it, or the reference alone at full strength in
+// place of the drawing.
+const VIEWS = ['drawing', 'overlay', 'reference'];
+let referenceView = 'overlay';
 function showReference() {
-  if (!reference) referenceOnly = false;
   $('reference-controls').hidden=!reference; $('remove-reference').hidden=!reference;
   $('reference-name').textContent=reference?.name || 'No reference';
-  $('add-reference').textContent=reference ? 'Replace…' : 'Load reference…';
-  const enabled = !!reference && ($('reference-visible').checked || referenceOnly);
-  const visible = enabled && (referenceOnly || reference.opacity > 0);
+  $('reference-name').title=reference?.name || '';
+  $('add-reference').textContent=reference ? 'Replace…' : 'Load…';
+  $('reference-thumb').hidden=!reference; $('reference-thumb-empty').hidden=!!reference;
+  const only = !!reference && referenceView === 'reference', enabled = !!reference && referenceView !== 'drawing';
+  const visible = enabled && (only || reference.opacity > 0);
   $('reference-image').hidden=!enabled;
-  $('drawing').style.visibility = referenceOnly ? 'hidden' : '';
+  $('drawing').style.visibility = only ? 'hidden' : '';
   const toggle = $('reference-toggle');
   toggle.hidden=!reference;
   toggle.setAttribute('aria-pressed', String(enabled));
-  toggle.title=referenceOnly ? 'Show the drawing only (O)' : enabled ? 'Show the reference only (O)' : 'Show the reference overlay (O)';
-  $('reference-status').textContent=referenceOnly ? 'Reference only' : enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Drawing only';
+  toggle.title=only ? 'Show the drawing only (O)' : enabled ? 'Show the reference only (O)' : 'Show the reference overlay (O)';
+  const status = only ? 'Reference only' : enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Drawing only';
+  $('reference-status').textContent=status;
+  $('reference-state').textContent=reference ? {drawing: 'Hidden', overlay: `${Math.round(reference.opacity*100)}%`, reference: 'Alone'}[referenceView] : 'None';
+  for (const button of document.querySelectorAll('[data-view]')) button.setAttribute('aria-pressed', String(button.dataset.view === referenceView));
   stage.classList.toggle('reference-visible', visible);
-  if(reference){$('reference-image').src=reference.data_url;$('reference-image').style.opacity=referenceOnly ? 1 : reference.opacity;$('reference-opacity').value=Math.round(reference.opacity*100);$('reference-percent').textContent=`${Math.round(reference.opacity*100)}%`;}
-  else{$('reference-image').removeAttribute('src');}
+  if(reference){$('reference-image').src=reference.data_url;$('reference-thumb').src=reference.data_url;$('reference-image').style.opacity=only ? 1 : reference.opacity;$('reference-opacity').value=Math.round(reference.opacity*100);$('reference-percent').textContent=`${Math.round(reference.opacity*100)}%`;}
+  else{$('reference-image').removeAttribute('src');$('reference-thumb').removeAttribute('src');}
   scheduleStrip();
 }
+function setView(view) { referenceView = view; showReference(); }
 // O cycles the view: the drawing, the reference over it, the reference alone.
 function toggleReference() {
-  if (!reference) return;
-  if (referenceOnly) { referenceOnly = false; $('reference-visible').checked = false; }
-  else if ($('reference-visible').checked) referenceOnly = true;
-  else $('reference-visible').checked = true;
-  showReference();
+  if (reference) setView(VIEWS[(VIEWS.indexOf(referenceView) + 1) % VIEWS.length]);
 }
 // Shift+O: straight back to the drawing alone.
-function showDrawingOnly() {
-  referenceOnly = false;
-  $('reference-visible').checked = false;
-  showReference();
+function showDrawingOnly() { setView('drawing'); }
+for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => setView(button.dataset.view);
+// The panel folds to its heading; a newly loaded reference opens it again.
+function foldReference(folded) {
+  $('reference-panel').classList.toggle('folded', folded);
+  $('reference-body').hidden = folded;
+  $('reference-fold').setAttribute('aria-expanded', String(!folded));
+  try { localStorage.setItem('vectrify-reference-folded', folded ? '1' : ''); } catch { /* Folding is only remembered where storage works. */ }
 }
+try { if (localStorage.getItem('vectrify-reference-folded')) foldReference(true); } catch { /* Open by default. */ }
+$('reference-fold').onclick = () => foldReference(!$('reference-body').hidden);
 $('reference-toggle').onclick=toggleReference;
 async function loadReference(){const result=await request('/api/reference');reference=result.reference;showReference();}
 $('add-reference').onclick=()=>$('reference-file').click();
 $('reference-file').onchange=async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
-  const reader=new FileReader();reader.onload=async()=>{const value={name:file.name,data_url:reader.result,opacity:.5};if(await action('reference',{reference:value},'Loading reference…')){reference=value;$('reference-visible').checked=true;showReference();}};reader.readAsDataURL(file);
+  const reader=new FileReader();reader.onload=async()=>{const value={name:file.name,data_url:reader.result,opacity:.5};if(await action('reference',{reference:value},'Loading reference…')){reference=value;referenceView='overlay';foldReference(false);showReference();}};reader.readAsDataURL(file);
 };
 async function removeReference(){if(await action('reference',{reference:null})){reference=null;showReference();renderInspector();}}
 $('remove-reference').onclick=removeReference;
-$('reference-visible').onchange=()=>{if(!$('reference-visible').checked)referenceOnly=false;showReference();};
-$('reference-opacity').oninput=event=>{if(reference){reference.opacity=Number(event.target.value)/100;showReference();}};
+$('reference-opacity').oninput=event=>{if(reference){reference.opacity=Number(event.target.value)/100;if(referenceView==='drawing')referenceView='overlay';showReference();}};
 $('reference-opacity').onchange=()=>{if(reference)action('reference',{reference});};
 $('object-name').onchange = event => {
   const input = event.target, item = object(input.dataset.objectId);
@@ -2265,7 +2274,7 @@ window.addEventListener('keydown',event=>{
   if(mod||event.altKey)return;
   // Shift+R retraces the selected paths; R alone is the Redraw tool.
   if(event.shiftKey&&key==='r'){event.preventDefault();if(!event.repeat)later(()=>runCommand('retrace'));return;}
-  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',t:'trace',h:'hand'};
+  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',h:'hand'};
   if(key==='o'){event.preventDefault();if(!event.repeat)(event.shiftKey?showDrawingOnly:toggleReference)();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(key==='f'){fit();return;}
