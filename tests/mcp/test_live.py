@@ -13,7 +13,7 @@ import anyio
 import pytest
 from mcp import Client
 
-from tests.mcp.helpers import data, error, images, png_size
+from tests.mcp.helpers import data, error, free_port, images, png_size
 from vectrify.mcp.server import Vectrify, build_server
 from vectrify.mcp.target import LiveTarget, TargetError, read_discovery
 from vectrify.ui.agent import discovery_file
@@ -25,9 +25,11 @@ SAMPLE = (Path(__file__).parents[1] / "ui" / "sample.svg").read_text()
 @pytest.fixture
 def server():
     server = EditorServer(("127.0.0.1", 0), SAMPLE)
+    server.backend.agents.mcp_port = free_port()
     thread = Thread(target=server.serve_forever, daemon=True)
     thread.start()
     yield server
+    server.backend.agents.close()
     server.shutdown()
     server.server_close()
     thread.join(timeout=2)
@@ -151,6 +153,7 @@ def test_an_mcp_client_edits_live_and_the_window_sees_it(server):
 
 def test_the_desktop_window_opens_a_port_of_its_own_while_allowed():
     backend = Backend(SAMPLE, "sample.svg")
+    backend.agents.mcp_port = free_port()
     _, state = backend.handle("/api/session", {}, None)
     session = state["session"]
     status, allowed = backend.handle("/api/agent", {"enabled": True}, session)

@@ -27,11 +27,27 @@ for every control.
 
 ## Agents
 
-`vectrify-mcp` is an MCP server through which an agent (Claude Code, Claude
+Vectrify is an MCP server through which an agent (Claude Code, Claude
 Desktop or any MCP client) looks at a drawing and its reference and edits it
-with the editor's own commands, one undoable step per call. It edits a file
-headlessly, or the drawing open in the editor once **Agents** is turned on in
-its footer, so you watch the edits happen. Add it to Claude Code with:
+with the editor's own commands, one undoable step per call.
+
+**From the editor.** Turn on **Agents** in the editor's footer (installed
+with `[mcp]` or `[all]`): the editor itself hosts the MCP server over
+Streamable HTTP at `http://127.0.0.1:8770/mcp` (the next free port if that
+one is taken), and the footer's popover shows the command that adds it to
+Claude Code, with a Copy button:
+
+```bash
+claude mcp add --transport http --scope user vectrify http://127.0.0.1:8770/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Add it once: the token is kept across restarts (regenerate it from the same
+popover), and the client reaches that window whenever Agents is on, so you
+watch each edit happen.
+
+**Headless, over stdio.** `vectrify-mcp` edits a file with no window, or
+`connect()`s to a running editor that allows agents:
 
 ```bash
 claude mcp add vectrify -- vectrify-mcp                 # installed with [mcp] or [all]

@@ -1,8 +1,9 @@
 """What the MCP server edits: a file it opened, or the running editor's window.
 
-Both answer the same calls with the same ``Agent``; a file's lives in this
-process, the editor's in the editor, reached over HTTP on localhost with the
-token it wrote to its discovery file.
+All answer the same calls with the same ``Agent``. A file's lives in this
+process; the editor's lives in the editor, reached over HTTP on localhost with
+the token it wrote to its discovery file (``LiveTarget``), or, when the editor
+hosts the MCP server itself, called in its own process (``WindowTarget``).
 """
 
 from __future__ import annotations
@@ -15,8 +16,10 @@ from typing import Any
 
 from vectrify.document import StaleRevisionError
 from vectrify.ui.agent import (
+    OFF,
     REFUSALS,
     Agent,
+    AgentChannel,
     RefusedError,
     Reply,
     discovery_file,
@@ -54,17 +57,51 @@ class FileTarget:
         self.agent = Agent(self.session)
 
     def call(self, tool: str, args: dict[str, Any]) -> Reply:
-        try:
-            return self.agent.call(tool, args)
-        except StaleRevisionError as exc:
-            raise TargetError(str(exc)) from None
-        except RefusedError as exc:
-            raise TargetError(str(exc), exc.where) from None
-        except REFUSALS as exc:
-            raise TargetError(reason(exc)) from None
+        return call_agent(self.agent, tool, args)
 
     def describe(self) -> str:
         return f"the file {self.path}"
+
+
+def call_agent(agent: Agent, tool: str, args: dict[str, Any]) -> Reply:
+    """One call on an Agent in this process, its refusals as TargetError."""
+    try:
+        return agent.call(tool, args)
+    except StaleRevisionError as exc:
+        raise TargetError(str(exc)) from None
+    except RefusedError as exc:
+        raise TargetError(str(exc), exc.where) from None
+    except REFUSALS as exc:
+        raise TargetError(reason(exc)) from None
+
+
+class WindowTarget:
+    """The window that allows agents, in the editor hosting the MCP server.
+
+    Its ``AgentChannel`` names the window; when Agents moves to another
+    window the agent must look again before it edits.
+    """
+
+    kind = "window"
+
+    def __init__(self, channel: AgentChannel, url: str):
+        self.channel = channel
+        self.url = url
+        self._agent: Agent | None = None
+
+    def call(self, tool: str, args: dict[str, Any]) -> Reply:
+        agent = self.channel.agent
+        if agent is None:
+            raise TargetError(OFF)
+        if agent is not self._agent:
+            # Another window (or the same one allowed afresh): what the agent
+            # saw was another drawing.
+            self._agent = agent
+            args = {**args, "seen": None}
+        return call_agent(agent, tool, args)
+
+    def describe(self) -> str:
+        return f"the editor window, which hosts this server at {self.url}"
 
 
 def read_discovery() -> dict[str, str] | None:
