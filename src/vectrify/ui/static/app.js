@@ -466,6 +466,26 @@ const noLines = () => !linePaths().length && 'Select stroked lines (paths withou
 // How far apart, in screen pixels, two line ends may be for Join ends: zoom
 // out to join wider gaps.
 const JOIN_REACH = 12;
+// The deepest zoom, 25600%, enough to place points within a hundredth of a
+// pixel.
+const MAX_ZOOM = 256;
+// How near, in screen pixels, a press in Nodes must be to a point or handle
+// to take it: the nearest one within reach wins, so a point need not be hit
+// exactly. *nearPoint* is the one under the pointer, drawn larger.
+const POINT_REACH = 10;
+// The least length, in screen pixels, a handle is drawn at.
+const HANDLE_SPREAD = 16;
+let nearPoint = null, nearAnchor = null;
+const nearKey = target => target && `${target.dataset.object} ${target.dataset.node} ${target.dataset.part}`;
+function nearestPoint(x, y) {
+  let best = null, distance = POINT_REACH;
+  for (const circle of overlay.querySelectorAll('.node:not(.passive), .handle')) {
+    const box = circle.getBoundingClientRect(), d = Math.hypot(box.x + box.width/2 - x, box.y + box.height/2 - y);
+    // Handles come after points, so they win a tie with their own point.
+    if (d <= distance) { best = circle; distance = d; }
+  }
+  return best;
+}
 // The selected points, by the contour they are on, for the line edits.
 function pointContours() {
   const contours = new Map();
@@ -796,7 +816,7 @@ function focusSelection() {
   const left = Math.min(...xs), right = Math.max(...xs), top = Math.min(...ys), bottom = Math.max(...ys);
   const w = stage.clientWidth, h = stage.clientHeight;
   // Keep context around small details and frame the whole additive selection.
-  zoom = Math.max(.005, Math.min(32, Math.max(1,w-80)/Math.max(60,(right-left)*1.2), Math.max(1,h-80)/Math.max(60,(bottom-top)*1.2)));
+  zoom = Math.max(.005, Math.min(MAX_ZOOM, Math.max(1,w-80)/Math.max(60,(right-left)*1.2), Math.max(1,h-80)/Math.max(60,(bottom-top)*1.2)));
   pan = {x:w/2-((left+right)/2-state.bounds[0])*zoom,
          y:h/2-((top+bottom)/2-state.bounds[1])*zoom};
   updateView();
@@ -1209,13 +1229,15 @@ function drawPoints() {
       if (!picked && !mirrored && (occupied.has(cell) || count >= 1200)) continue;
       occupied.add(cell); count++;
       const p = new DOMPoint(x,y).matrixTransform(matrix);
-      const circle = xmlElement('circle', {cx:p.x, cy:p.y, r: (picked ? 4.8 : mirrored ? 4.2 : 3.3)/zoom, class:`node${picked ? ' selected' : ''}${mirrored ? ' twin' : ''}${node.pinned ? ' pinned' : ''}${ghost ? ' ghost' : ''}${editable ? '' : ' passive'}`});
+      const near = editable && nearPoint === `${id} ${node.id} endpoint`;
+      const circle = xmlElement('circle', {cx:p.x, cy:p.y, r: (picked ? 4.8 : mirrored ? 4.2 : 3.3)*(near ? 1.5 : 1)/zoom, class:`node${picked ? ' selected' : ''}${mirrored ? ' twin' : ''}${node.pinned ? ' pinned' : ''}${ghost ? ' ghost' : ''}${near ? ' near' : ''}${editable ? '' : ' passive'}`});
       circle.dataset.object = id; circle.dataset.node = node.id; circle.dataset.part = 'endpoint';
       overlay.append(circle);
     }
   }
-  // The handles of the selected points, up to a few hundred of them.
-  if (editable) for (const key of [...chosen].slice(0, 300)) drawHandles(key);
+  // The handles of the selected points, up to a few hundred of them, and of
+  // the point under the pointer, to show what it has before it is picked.
+  if (editable) for (const key of new Set([...[...chosen].slice(0, 300), ...(nearAnchor ? [nearAnchor] : [])])) drawHandles(key);
   $('node-count').textContent = `${count.toLocaleString()} / ${total.toLocaleString()}`;
 }
 function drawHandles(key) {
@@ -1226,10 +1248,18 @@ function drawHandles(key) {
   const next = subpath.nodes[i+1];
   if (next?.command === 'C') handles.push({node:next, offset:0, anchor:node.values.slice(-2)});
   for (const handle of handles) {
-    const p = new DOMPoint(...handle.node.values.slice(handle.offset, handle.offset+2)).matrixTransform(matrix);
+    let p = new DOMPoint(...handle.node.values.slice(handle.offset, handle.offset+2)).matrixTransform(matrix);
     const anchor = new DOMPoint(...handle.anchor).matrixTransform(matrix);
-    overlay.append(xmlElement('line', {x1:anchor.x,y1:anchor.y,x2:p.x,y2:p.y,class:'handle-line'}));
-    const circle = xmlElement('circle', {cx:p.x,cy:p.y,r:3.8/zoom,class:'handle'});
+    // A handle on its point is retracted: none. One closer than
+    // HANDLE_SPREAD is drawn that far out along its direction, on a dashed
+    // line, so it shows clear of the point; a drag puts it at the pointer.
+    const length = Math.hypot(p.x - anchor.x, p.y - anchor.y) * zoom;
+    if (length < 1e-6) continue;
+    const short = length < HANDLE_SPREAD;
+    if (short) p = new DOMPoint(anchor.x + (p.x - anchor.x) * HANDLE_SPREAD / length, anchor.y + (p.y - anchor.y) * HANDLE_SPREAD / length);
+    overlay.append(xmlElement('line', {x1:anchor.x,y1:anchor.y,x2:p.x,y2:p.y,class:`handle-line${short ? ' short' : ''}`}));
+    const near = nearPoint === `${id} ${handle.node.id} ${handle.offset}`;
+    const circle = xmlElement('circle', {cx:p.x,cy:p.y,r:3.8*(near ? 1.5 : 1)/zoom,class:`handle${near ? ' near' : ''}`});
     circle.dataset.object = id; circle.dataset.node = handle.node.id; circle.dataset.part = String(handle.offset); overlay.append(circle);
   }
 }
@@ -1483,7 +1513,7 @@ function fit() {
   pan = {x:(w-state.bounds[2]*zoom)/2,y:(h-state.bounds[3]*zoom)/2}; updateView();
 }
 function zoomAt(factor, x=stage.clientWidth/2, y=stage.clientHeight/2) {
-  const next = Math.max(.005, Math.min(32, zoom*factor)), ratio = next/zoom;
+  const next = Math.max(.005, Math.min(MAX_ZOOM, zoom*factor)), ratio = next/zoom;
   pan = {x:x-(x-pan.x)*ratio, y:y-(y-pan.y)*ratio}; zoom = next; updateView();
 }
 function point(event, element = overlay) {
@@ -1678,7 +1708,8 @@ function pressStage(event) {
     const anchor={x:p.x,y:p.y}; pathDraft.push(anchor); pathHover=null;
     drag={...common,kind:'drawPath',anchor}; drawOverlay(); return;
   }
-  if (tool === 'nodes' && event.target.dataset?.node) { pressPoint(event, common); return; }
+  const near = tool === 'nodes' && !middle && !space ? nearestPoint(event.clientX, event.clientY) : null;
+  if (near) { pressPoint({target: near}, common); return; }
   const handle = tool === 'select' ? frameAt(event.clientX, event.clientY) : null;
   if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
   const hits = hitStack(event.clientX, event.clientY);
@@ -1722,8 +1753,16 @@ function hoverPoints(event) {
       if (state.selection.objects.length) return;
       next = pointerTarget(hitStack(x, y), state.objects, [], scope) ?? hoverPath;
     } else {
-      const hit = event.target.dataset?.object || hitStack(x, y).find(id => object(id)?.tag === 'path');
+      // Near one of the hovered path's points, it stays hovered off its body.
+      const near = nearestPoint(x, y), key = nearKey(near) ?? null;
+      const hit = near?.dataset.object || hitStack(x, y).find(id => object(id)?.tag === 'path');
       next = hit && !pointPaths().includes(hit) ? hit : null;
+      // The point under the pointer shows its handles, kept on its handles.
+      const anchor = near?.dataset.part === 'endpoint' ? pointKey(near.dataset.object, near.dataset.node) : near ? nearAnchor : null;
+      if (key !== nearPoint || anchor !== nearAnchor) {
+        nearPoint = key; nearAnchor = anchor;
+        if (next === hoverPath) { drawOverlay(); return; }
+      }
     }
     if (next === hoverPath) return;
     hoverPath = next;
@@ -1731,6 +1770,10 @@ function hoverPoints(event) {
     drawOverlay();
   });
 }
+stage.addEventListener('pointerleave', () => {
+  if (!nearPoint && !nearAnchor) return;
+  nearPoint = nearAnchor = null; if (!drag) drawOverlay();
+});
 stage.addEventListener('pointermove', event => {
   if (holding && !holding.released) { holding.record(event); return; }
   moveStage(event);
