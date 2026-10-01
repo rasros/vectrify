@@ -127,19 +127,81 @@ def test_a_gap_in_a_line_is_bridged_only_within_reach():
     assert len(cel._joined_runs(runs, 1)) == 2
 
 
-def test_a_short_loop_back_to_its_junction_is_a_thinning_artefact():
-    # A ring standing on a line thins to a tiny loop where the two meet.
+def covered(skeleton, runs) -> bool:
+    """Whether every pixel of *skeleton* but its junctions lies on a run."""
+    on = np.zeros_like(skeleton)
+    for r in runs:
+        xs, ys = np.floor(r).astype(int).T
+        on[ys, xs] = True
+    missed = skeleton & ~on
+    return int(missed.sum()) <= 2
+
+
+def test_a_line_leaving_a_junction_along_a_staircase_is_followed_on():
+    # A ring standing on a line: the line leaves the junction where they
+    # meet by a step beside it, and is followed on, not back into it.
     y, x = np.mgrid[:40, :60]
     mask = np.zeros((40, 60), dtype=bool)
     mask[20:23, 2:58] = True
     distance = np.hypot(x - 30, y - 16)
     mask |= (distance <= 5) & (distance > 3)
     skeleton = cel.thin(mask)
-    assert any(np.array_equal(r[0], r[-1]) for r in cel.line_runs(skeleton, 0.1))
-    runs = cel.line_runs(skeleton, spur=6)
+    runs = cel.line_runs(skeleton, 0.1)
     assert all(not np.array_equal(r[0], r[-1]) for r in runs)
+    assert covered(skeleton, runs)
+    lengths = sorted(len(r) for r in runs)
+    # The ring, and the line either side of it: no short pieces.
+    assert len(runs) == 4
+    assert lengths[0] > 5
 
 
 def test_the_outlines_runs_join_through_their_junctions():
     _, details = cel.vectorize(cel_image(), regions=3)
     assert details["line_pieces"] < details["line_runs"]
+
+
+def test_a_square_region_keeps_its_corners_with_few_points():
+    labels = np.zeros((40, 40), dtype=int)
+    labels[10:30, 10:30] = 1
+    data = cel.region_outlines(labels, 0.75)[1]
+    points = re.findall(r"(-?\d+\.\d+) (-?\d+\.\d+)", data)
+    ends = {(float(x), float(y)) for x, y in points}
+    assert {(10.0, 10.0), (30.0, 10.0), (30.0, 30.0), (10.0, 30.0)} <= ends
+    assert len(re.findall(r"[MLC]", data)) <= 5
+
+
+def test_a_round_region_comes_out_smooth_with_few_points():
+    y, x = np.mgrid[:80, :80]
+    labels = (np.hypot(x - 39.5, y - 39.5) <= 25).astype(int)
+    data = cel.region_outlines(labels, 0.75)[1]
+    assert len(re.findall(r"[MLC]", data)) <= 10
+    svg = (
+        '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80">'
+        f'<path d="{data}" fill="#000"/></svg>'
+    )
+    png = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
+    assert png is not None
+    drawn = np.asarray(Image.open(io.BytesIO(png)).convert("L")) < 128
+    assert (drawn != labels.astype(bool)).sum() < 0.03 * labels.sum()
+
+
+def test_a_line_is_cut_where_its_width_steps():
+    widths = np.concatenate((np.full(30, 2.0), np.full(30, 6.0)))
+    pieces = cel.width_pieces(widths, 8)
+    assert pieces == [(0, 30), (30, 59)]
+    assert cel.width_pieces(np.full(60, 3.0) + np.sin(np.arange(60)), 8) == [(0, 59)]
+    # A step too short to stand on its own is no cut.
+    widths = np.concatenate((np.full(40, 2.0), np.full(5, 6.0), np.full(15, 2.0)))
+    assert cel.width_pieces(widths, 8) == [(0, 59)]
+
+
+def test_a_tapering_line_stays_a_stroke():
+    pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
+    # Two pixels wide, then five.
+    pixels[29:31, 10:100] = 20
+    pixels[28:33, 100:190] = 20
+    svg, details = cel.vectorize(Image.fromarray(pixels), regions=1)
+    assert details["line_style"] == "strokes"
+    widths = sorted(float(w) for w in re.findall(r'stroke-width="([\d.]+)"', svg))
+    assert len(widths) == 2
+    assert widths[1] > 2 * widths[0]

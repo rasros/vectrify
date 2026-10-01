@@ -25,7 +25,7 @@ SETTINGS = {
     "line_width": Setting(float, 0.0, minimum=0.0, maximum=32.0, label="line width"),
     # How far an outline or line may stray from the traced pixels.
     "tolerance": Setting(float, 0.75, minimum=0.1, maximum=10.0, label="tolerance"),
-    # Draw the lines as strokes; off, or tapered, they are filled shapes.
+    # Draw the lines as strokes, tapered ones too; off, they are filled shapes.
     "strokes": Setting(bool, True),
 }
 
