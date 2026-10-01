@@ -541,7 +541,12 @@ gap in a line does not join the regions either side, splits each region where
 its colour changes with no line, and merges neighbours down to the chosen
 number of **Regions**, those of a similar colour first, and regions of
 different colours a drawn line separates last (the same colour either side of
-a line merges freely, since the line is drawn over it). The line pixels go to
+a line merges freely, since the line is drawn over it). Lightness counts
+more than hue in how alike two colours are, and two regions of some size a
+clear step apart in lightness, a shadow or highlight and the surface it lies
+on, are never merged; the shadows kept this way do not count toward Regions,
+so a shaded drawing can come out with more regions than asked for (a few
+dozen more on the benchmark drawings). The line pixels go to
 the regions either side, so neighbours
 meet at the line's middle; each edge between two regions is traced once and
 used by both, so they meet exactly with no gap or overlap. Before an edge

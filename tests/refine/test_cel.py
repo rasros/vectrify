@@ -62,6 +62,21 @@ def test_merging_spares_the_boundary_a_line_runs_along():
     assert len(np.unique(merged)) == 1
 
 
+def test_merging_keeps_a_shadow_past_the_region_count():
+    # A lit surface in two shades too close to tell, and a shadow on it.
+    labels = np.repeat(np.repeat(np.arange(3), 20)[None], 20, axis=0)
+    target = np.full((*labels.shape, 3), 150, dtype=np.float32)
+    target[:, 20:40] = 146
+    target[:, 40:] = 120
+    line = np.zeros(labels.shape, dtype=bool)
+    merged = cel.merge_regions(labels, target, line, 1)
+    assert merged[0, 0] == merged[0, 25]
+    assert merged[0, 0] != merged[0, 50]
+    # Too small to be a shadow, it merges like any region.
+    merged = cel.merge_regions(labels, target, line, 1, shadow_least=500)
+    assert len(np.unique(merged)) == 1
+
+
 def test_shared_edges_meet_exactly():
     labels = np.zeros((30, 40), dtype=int)
     labels[5:25, 8:30] = 1
