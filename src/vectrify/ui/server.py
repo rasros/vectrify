@@ -18,6 +18,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
+from vectrify.ui.agent import AgentChannel, answer
 from vectrify.ui.session import MAX_SOURCE, Session
 
 STATIC = Path(__file__).with_name("static")
@@ -41,6 +42,8 @@ class Backend:
         self.name = name
         self.reference = reference
         self.sessions: dict[str, Session] = {}
+        # The door agents edit a window's session through, once it allows it.
+        self.agents = AgentChannel(self)
 
     def handle(self, path: str, data: Any, session_id: str | None) -> tuple[int, dict]:
         """Answer one request as (status, body), whatever carried it."""
@@ -75,6 +78,19 @@ class Backend:
                         session.geometries(data["objects"])
                         if "objects" in data
                         else session.nodes(data["object"])
+                    )
+                elif path == "/api/poll":
+                    # What the page checks for agents' edits, and the footer.
+                    result = {
+                        "epoch": session.epoch,
+                        "revision": session.editor.snapshot.revision,
+                        "agent": self.agents.status(session_id),
+                    }
+                elif path == "/api/agent":
+                    result = (
+                        self.agents.enable(session_id or "")
+                        if data.get("enabled")
+                        else self.agents.disable(session_id or "")
                     )
                 elif path == "/api/reference":
                     result = {"reference": session.reference}
@@ -115,6 +131,8 @@ class EditorServer(ThreadingHTTPServer):
     ):
         super().__init__(address, Handler)
         self.backend = backend or Backend(initial, name, reference)
+        # Agents reach a window served here on this same port.
+        self.backend.agents.url = f"http://127.0.0.1:{self.server_port}"
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -153,6 +171,9 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_GET(self) -> None:
+        if self.path.startswith("/agent/"):
+            answer(self, self.server.backend.agents, self.server.server_port)
+            return
         if not self.same_origin():
             self.json(
                 403, {"error": "This editor accepts local same-origin requests only"}
@@ -183,6 +204,10 @@ class Handler(BaseHTTPRequestHandler):
         )
 
     def do_POST(self) -> None:
+        # Agents carry a token rather than the page's origin.
+        if self.path.startswith("/agent/"):
+            answer(self, self.server.backend.agents, self.server.server_port)
+            return
         if (
             not self.same_origin()
             or self.headers.get_content_type() != "application/json"

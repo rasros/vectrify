@@ -545,6 +545,45 @@ function pointContours() {
   return [...contours.values()];
 }
 const twoEnds = () => selectedPoints().length === 2;
+// Agents (an MCP client running vectrify-mcp) may edit this drawing once the
+// footer allows them. Their edits land in this session, so while allowed the
+// page polls for them, redraws, and says in the footer what the agent did.
+let agentStatus = {enabled: false, connected: false, last_action: null, changes: 0}, agentSeen = 0, agentPoll = null;
+function showAgent() {
+  const s = agentStatus, button = $('agent-toggle');
+  button.setAttribute('aria-pressed', String(s.enabled));
+  button.classList.toggle('connected', s.enabled && s.connected);
+  $('agent-status').textContent = !s.enabled ? 'Agents off' : s.connected ? `Agent connected${s.last_action ? ' · ' + s.last_action : ''}` : 'Agents allowed';
+  button.title = s.enabled ? 'Agents may edit this drawing; click to stop them' : 'Allow agents to edit this drawing';
+}
+async function pollAgent() {
+  clearTimeout(agentPoll);
+  try {
+    const result = await request('/api/poll');
+    agentStatus = result.agent; showAgent();
+    // An edit the page did not make: take the session's state as it is now,
+    // once the person is not mid-gesture.
+    const behind = agentStatus.changes !== agentSeen || result.epoch !== state.epoch || result.revision !== state.revision;
+    if (behind && !drag && pending === 0) {
+      agentSeen = agentStatus.changes;
+      queue = queue.then(async () => {
+        const previous = JSON.stringify(state.reference);
+        await applyState(await request('/api/session', {session}));
+        if (JSON.stringify(state.reference) !== previous) await loadReference();
+      }).catch(error => toast(error.message, true));
+      await queue;
+    }
+  } catch { /* The next poll tries again. */ }
+  if (agentStatus.enabled) agentPoll = setTimeout(pollAgent, 700);
+}
+async function toggleAgents() {
+  try {
+    agentStatus = await request('/api/agent', {enabled: !agentStatus.enabled});
+    agentSeen = agentStatus.changes; showAgent();
+    if (agentStatus.enabled) { toast('Agents may now edit this drawing. An agent running vectrify-mcp finds this window by itself.'); pollAgent(); }
+  } catch (error) { toast(error.message, true); }
+}
+$('agent-toggle').onclick = () => toggleAgents();
 const COMMANDS = [
   {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
   {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'A', keywords: 'edit points handles', run: () => setTool('nodes')},
@@ -556,6 +595,7 @@ const COMMANDS = [
   {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
   {id: 'save', name: 'Save project', group: 'File', keys: 'Ctrl/⌘ S', keywords: 'download vectrify', run: () => download(true)},
   {id: 'export', name: 'Export SVG', group: 'File', keywords: 'download save', run: () => download(false)},
+  {id: 'agents', name: 'Allow agents to edit', label: () => agentStatus.enabled ? 'Stop agents editing' : 'Allow agents to edit', group: 'File', keywords: 'mcp claude ai assistant agent live', run: toggleAgents},
   {id: 'help', name: 'Keyboard shortcuts', group: 'Help', keys: '?', keywords: 'help keys', run: () => $('help-dialog').showModal()},
   {id: 'undo', name: 'Undo', label: () => state?.undo.length ? `Undo ${state.undo.at(-1).toLowerCase()}` : 'Undo', group: 'Edit', keys: 'Ctrl/⌘ Z', run: () => action('undo', {}, 'Undoing…'), disabled: () => !state.undo.length && 'Nothing to undo'},
   {id: 'redo', name: 'Redo', label: () => state?.redo.length ? `Redo ${state.redo[0].toLowerCase()}` : 'Redo', group: 'Edit', keys: 'Ctrl/⌘ Shift Z', run: () => action('redo', {}, 'Redoing…'), disabled: () => !state.redo.length && 'Nothing to redo'},
@@ -2377,6 +2417,7 @@ async function start(){
     }
     sessionStorage.setItem('vectrify-session',session);
     await applyState(result);await loadReference();fit();
+    pollAgent();
   }
   catch(error){toast(error.message,true);}finally{setBusy('',-1);}
 }

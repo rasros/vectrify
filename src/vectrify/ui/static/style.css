@@ -139,6 +139,13 @@
 .menu-item kbd { background: none; border: 0; padding: 0; min-width: 0; color: var(--muted); font-size: 10px; }
 .menu-divider { height: 1px; background: var(--line); margin: 4px 6px; }
 .canvas-footer #reference-toggle { padding: 3px 8px; }
+/* Agents: off, allowed, or connected with their last edit. */
+#agent-toggle { display: flex; align-items: center; gap: 7px; min-width: 0; max-width: 46%; padding: 3px 8px; font-size: 10px; color: #a7b5ad; background: #242d28; margin-left: auto; }
+#agent-toggle #agent-status { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.agent-dot { width: 7px; height: 7px; border-radius: 50%; background: #56645c; flex-shrink: 0; }
+#agent-toggle[aria-pressed=true] { color: #cfe6ff; background: #22344a; border-color: #4f78a6; }
+#agent-toggle[aria-pressed=true] .agent-dot { background: #7fb2e8; }
+#agent-toggle.connected .agent-dot { background: #8fe0a8; box-shadow: 0 0 6px #8fe0a880; }
 .strip-group { display: flex; align-items: center; gap: 5px; }
 .strip-group + .strip-group { padding-left: 8px; border-left: 1px solid var(--line); }
 .palette-button { display: flex; align-items: center; gap: 8px; color: #b9c7bd; }
