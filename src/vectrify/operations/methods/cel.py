@@ -28,6 +28,9 @@ SETTINGS = {
     "tolerance": Setting(float, 0.75, minimum=0.1, maximum=10.0, label="tolerance"),
     # Draw the lines as strokes, tapered ones too; off, they are filled shapes.
     "strokes": Setting(bool, True),
+    # One unbroken stroke round the drawing's silhouette, in place of the
+    # traced outer line.
+    "outline": Setting(bool, False, label="continuous outer outline"),
 }
 
 
@@ -72,7 +75,7 @@ class Cel:
             name="Cel trace",
             metrics={
                 key: details[key]
-                for key in ("regions", "line_paths", "line_style", "seconds")
+                for key in ("regions", "line_paths", "line_style", "outline", "seconds")
                 if key in details
             },
         )

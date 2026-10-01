@@ -334,3 +334,72 @@ def test_regions_of_one_colour_merge_across_a_line_before_different_ones():
     merged = cel.merge_regions(labels, target, line, 2)
     assert merged[0, 0] == merged[0, 15]
     assert merged[0, 15] != merged[0, 25]
+
+
+def broken_disc() -> Image.Image:
+    """A red disc on white, its black outline 4 px wide broken in two
+    places, with a line across its middle."""
+    y, x = np.mgrid[:160, :200]
+    r = np.hypot(x - 100, y - 80)
+    pixels = np.full((160, 200, 3), 255, dtype=np.uint8)
+    pixels[r <= 60] = (220, 60, 50)
+    ring = (r > 56) & (r <= 60)
+    ring &= ~((x > 150) & (abs(y - 80) < 5)) & ~((y < 30) & (abs(x - 100) < 4))
+    pixels[ring] = 20
+    pixels[78:81, 42:158] = 20
+    return Image.fromarray(pixels)
+
+
+def stroke_paths(svg: str) -> list[tuple[str, str, float]]:
+    return [
+        (d, paint, float(width))
+        for d, paint, width in re.findall(
+            r'<path d="([^"]+)" fill="none" stroke="(#[0-9a-f]{6})" '
+            r'stroke-width="([\d.]+)"',
+            svg,
+        )
+    ]
+
+
+def test_the_outer_outline_is_one_closed_stroke_through_the_gaps():
+    svg, details = cel.vectorize(broken_disc(), regions=3, outline=True)
+    assert details["outline"] == 1
+    assert details["outline_inked"]
+    d, paint, width = stroke_paths(svg)[0]
+    assert d.count("M") == 1
+    assert d.endswith("Z")
+    assert int(paint[1:3], 16) < 80
+    assert 3 <= width <= 5.5
+    png = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
+    assert png is not None
+    drawn = np.asarray(Image.open(io.BytesIO(png)).convert("L"))
+    # Dark where the outline was broken, and on the drawn ring's middle.
+    assert drawn[80, 158] < 100
+    assert drawn[22, 100] < 100
+    assert drawn[80, 42] < 100
+    # Not drawn twice: the only other line is the one across, and it runs
+    # on to the outline at both ends.
+    others = " ".join(d for d, _, _ in stroke_paths(svg)[1:])
+    assert others.count("M") == 1
+    points = np.array(re.findall(r"(-?\d+\.\d+) (-?\d+\.\d+)", others), dtype=float)
+    radii = np.hypot(points[:, 0] - 100, points[:, 1] - 80)
+    assert abs(radii[0] - 58) < 2.5
+    assert abs(radii[-1] - 58) < 2.5
+
+
+def test_the_outer_outline_is_off_by_default_and_needs_a_background():
+    _, details = cel.vectorize(broken_disc(), regions=3)
+    assert "outline" not in details
+    full = np.full((60, 80, 3), (220, 60, 50), dtype=np.uint8)
+    full[:, 38:42] = 20
+    assert cel.silhouette(full.astype(np.float32)) is None
+    _, details = cel.vectorize(Image.fromarray(full), regions=2, outline=True)
+    assert details.get("outline", 0) == 0
+
+
+def test_the_outer_outline_is_a_stroke_with_filled_lines_too():
+    svg, details = cel.vectorize(broken_disc(), regions=3, outline=True, strokes=False)
+    assert details["line_style"] == "filled"
+    strokes = stroke_paths(svg)
+    assert len(strokes) == 1
+    assert strokes[0][0].endswith("Z")

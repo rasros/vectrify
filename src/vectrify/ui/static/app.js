@@ -2475,7 +2475,7 @@ for (const [prefix, ids] of [['contact', ['contact-distance']]]) {
 // Generate: new shapes from the reference, placed as one group.
 const generateSettings = {
   samvg: () => ({max_layers:Number($('samvg-max-layers').value), max_side:Number($('samvg-max-side').value), model:$('samvg-model').value}),
-  cel: () => ({regions:Number($('cel-regions').value), tolerance:Number($('cel-tolerance').value), line_width:Number($('cel-line-width').value), strokes:$('cel-strokes').checked}),
+  cel: () => ({regions:Number($('cel-regions').value), tolerance:Number($('cel-tolerance').value), line_width:Number($('cel-line-width').value), strokes:$('cel-strokes').checked, outline:$('cel-outline').checked}),
   'colour-regions': () => {
     const outlines = $('regions-outlines').value;
     return {colours:Number($('regions-colours').value), min_pixels:Number($('regions-min-pixels').value), tolerance:Number($('regions-tolerance').value),

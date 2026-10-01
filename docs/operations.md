@@ -57,7 +57,7 @@ commands `start`, `check` (validate a request without running it), `status`,
 | Action | Method | What it does |
 | --- | --- | --- |
 | generate | `samvg` | Traces SAM segments of the reference into a new group |
-| generate | `cel` | Traces cel art as flat regions bounded by its drawn lines, with the lines as strokes on top (CPU); `regions` 0 (the default) keeps one per 10,000 pixels, 50-2,000 |
+| generate | `cel` | Traces cel art as flat regions bounded by its drawn lines, with the lines as strokes on top (CPU); `regions` 0 (the default) keeps one per 10,000 pixels, 50-2,000; `outline` draws one unbroken stroke round the drawing's silhouette |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | improve | `path-fit` | Gradient fitting of one selected path's nodes, handles and colour (CUDA, or the CPU for unstroked fills) |
 | improve | `nodes` | Fits the selected paths to the reference by mixing the path fit, snapping and simplifying |
