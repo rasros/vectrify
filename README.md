@@ -25,6 +25,21 @@ prints the address to open in a browser. Neither needs a Node build step. From
 a source checkout, run `uv run vectrify`. See [the editor guide](docs/editor.md)
 for every control.
 
+## Agents
+
+`vectrify-mcp` is an MCP server through which an agent (Claude Code, Claude
+Desktop or any MCP client) looks at a drawing and its reference and edits it
+with the editor's own commands, one undoable step per call. It edits a file
+headlessly, or the drawing open in the editor once **Agents** is turned on in
+its footer, so you watch the edits happen. Add it to Claude Code with:
+
+```bash
+claude mcp add vectrify -- vectrify-mcp                 # installed with [mcp] or [all]
+claude mcp add vectrify -- uvx --from "vectrify[mcp]" vectrify-mcp
+```
+
+[docs/mcp.md](docs/mcp.md) lists the tools and how the live channel works.
+
 ## Operations
 
 | Action | Method | What it does |
