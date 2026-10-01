@@ -204,10 +204,15 @@ def trace(
     data = " ".join(
         e.get("d") or "" for e in _parse(export_svg(document)) if e.tag.endswith("path")
     )
+    drawn = [e for e in document.elements() if e.tag == "path"]
     row = {
         "error": round(metrics["after"]["error"] * 255**2, 2),
-        "paths": sum(1 for e in document.elements() if e.tag == "path"),
+        "paths": len(drawn),
         "curves": data.count("C"),
+        # Every node, the moves that start each contour included.
+        "points": sum(
+            len(s.nodes) for e in drawn for s in document.geometry_for(e.id).subpaths
+        ),
         # Seams Generate snapped together; SAMVG snaps none.
         "snapped": metrics.get("snapped", 0),
         "total_s": round(total, 1),
@@ -390,7 +395,8 @@ def _line(row: dict) -> str:
         return f"{case}: failed: {row['failed']}"
     text = (
         f"{case}: error {row['error']}, "
-        f"{row['paths']} paths, {row['curves']} curves, {row['snapped']} snapped, "
+        f"{row['paths']} paths, {row.get('points')} points, {row['curves']} curves, "
+        f"{row['snapped']} snapped, "
         f"{row['total_s']} s"
     )
     if "after_sam_s" in row:
@@ -431,13 +437,21 @@ def compare(before: Path, after: Path) -> None:
 
     old = {case(r): r for r in old_rows}
     new = {case(r): r for r in new_rows}
-    print("| case | error | paths | curves | total s | optimize error left |")
-    print("|---|---|---|---|---|---|")
+    print(
+        "| case | error | paths | points | points/path | curves | total s "
+        "| optimize error left |"
+    )
+    print("|---|---|---|---|---|---|---|---|")
     for key in sorted(old.keys() & new.keys()):
         a, b = old[key], new[key]
 
         def pair(field, a=a, b=b):
             return f"{a.get(field)} → {b.get(field)}"
+
+        def per_path(row):
+            if row.get("points") is None or not row.get("paths"):
+                return None
+            return round(row["points"] / row["paths"], 1)
 
         left = (
             (a.get("optimize") or {}).get("error_left"),
@@ -445,6 +459,7 @@ def compare(before: Path, after: Path) -> None:
         )
         print(
             f"| {key[0]} [{key[1]}] | {pair('error')} | {pair('paths')} | "
+            f"{pair('points')} | {per_path(a)} → {per_path(b)} | "
             f"{pair('curves')} | {pair('total_s')} | {left[0]} → {left[1]} |"
         )
 

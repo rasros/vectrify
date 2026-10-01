@@ -6,8 +6,10 @@ gap in a line does not join the regions either side, splits each region by
 colour where a shade edge has no line, and merges regions down to a target
 count, sparing the boundaries a line runs along. The line pixels go to the
 regions either side, so neighbours meet at the line's middle and share one
-traced edge. The lines are thinned to centrelines and drawn over the fills as
-strokes, one path per line colour (two when some are much bolder).
+traced edge, smoothed between its corners before it is fitted. The lines
+are thinned to centrelines and drawn over the fills as strokes, one path per
+line colour (two when some are much bolder), a line cut where its width
+steps so each part has its own.
 
 CPU only, with numpy and scipy.
 """
@@ -47,6 +49,8 @@ from vectrify.refine.colour_regions import (
     simplify,
 )
 from vectrify.refine.frozen import Frozen
+from vectrify.refine.redraw import _corners
+from vectrify.refine.redraw import _smoothed as _smoothed_between
 from vectrify.refine.samvg import _fit_cubic, _simplified_data, mask_path
 from vectrify.refine.simplify import simplified_geometry
 
@@ -77,13 +81,27 @@ LINE_PENALTY = 60.0
 # traced run first, in pixels.
 DENSITY = 6
 SMOOTH = 1.0
+# A region boundary is smoothed more than a line before it is fitted, and
+# cut into curves at the points a polyline within this share of the
+# tolerance needs (a line's within half): a fill's edge has only the pixel
+# staircase to lose, where a line's centreline wavers with its ink.
+FILL_SMOOTH = 2.0
+FILL_CUT = 1.0
+# A run turning more than CORNER degrees over CORNER_SPAN points either side
+# has a corner there: each stretch between corners is smoothed on its own
+# and a curve ends at each, so the corner stays sharp.
+CORNER = 50.0
+CORNER_SPAN = 4
 # A line whose width varies more than this along it, its 90th percentile
-# over its 10th, is tapered; when this share of the lines is, they are drawn
-# as filled shapes rather than strokes. The strokes of one colour are split
-# into thin and bold paths when their widths differ by more than this ratio.
+# over its 10th, is tapered (reported only: it is still a stroke). The
+# strokes of one colour are split into thin and bold paths when their widths
+# differ by more than this ratio.
 WIDTH_SPREAD = 2.5
-TAPERED_SHARE = 0.5
 WIDTH_STEP = 1.6
+# A line is cut where its width steps by WIDTH_STEP, into pieces at least
+# this many points long, or this many of the typical line's widths.
+LINE_PIECE = 12
+LINE_PIECE_WIDTHS = 4.0
 # At most this many line colours, one stroked path each; closer colours, in
 # 0-255 RGB, are one.
 LINE_COLOURS = 3
@@ -382,33 +400,61 @@ def _root(parent: list[int], index: int) -> int:
     return index
 
 
-def _smoothed(points: np.ndarray, sigma: float, closed: bool) -> np.ndarray:
-    """*points* smoothed along their length, the ends of an open run kept."""
+def run_corners(points: np.ndarray, closed: bool) -> list[int]:
+    """Where the run *points* turns sharply, by index; a closed run's turns
+    are found across its start too."""
+    span = CORNER_SPAN
+    if not closed:
+        return _corners(points, span, CORNER)
+    loop = points[:-1]
+    if len(loop) < 2 * span + 1:
+        return []
+    around = np.concatenate((loop[-span:], loop, loop[:span]))
+    found = {(i - span) % len(loop) for i in _corners(around, span, CORNER)}
+    return sorted(found)
+
+
+def _smoothed(
+    points: np.ndarray, sigma: float, closed: bool, corners: list[int]
+) -> np.ndarray:
+    """*points* smoothed along their length, each piece between *corners* on
+    its own so they stay sharp; the ends of an open run, and the start of a
+    closed one, are kept."""
     if sigma <= 0 or len(points) < 5:
         return points
-    if closed:
-        return np.concatenate(
-            (gaussian_filter1d(points[:-1], sigma, axis=0, mode="wrap"), points[:1])
-        )
-    smooth = gaussian_filter1d(points, sigma, axis=0, mode="nearest")
-    smooth[[0, -1]] = points[[0, -1]]
-    return smooth
+    if not closed:
+        return _smoothed_between(points, sigma, corners)
+    loop = points[:-1]
+    if not corners:
+        smooth = gaussian_filter1d(loop, sigma, axis=0, mode="wrap")
+    else:
+        # From the first corner round to it again, as an open run.
+        first = corners[0]
+        rolled = np.roll(loop, -first, axis=0)
+        rolled = np.concatenate((rolled, rolled[:1]))
+        inner = [c - first for c in corners[1:]]
+        smooth = np.roll(_smoothed_between(rolled, sigma, inner)[:-1], first, axis=0)
+    return np.concatenate((points[:1], smooth[1:], points[:1]))
 
 
 def curve_nodes(
-    points: np.ndarray, tolerance: float, *, smooth: float = SMOOTH
+    points: np.ndarray, tolerance: float, *, smooth: float = SMOOTH, cut: float = 0.5
 ) -> list[tuple[str, tuple[float, ...]]]:
     """The run *points* as curves within *tolerance* pixels, after the start.
 
-    The run is smoothed and cut at the points a polyline within half the
+    The run is smoothed over *smooth* points between its corners, and cut
+    at its corners and at the points a polyline within *cut* of the
     tolerance needs; a cubic fitted to the run between each two follows it,
     so a corner stays sharp. Then it is simplified: each curve goes as far
     as it can without moving the outline more than the tolerance. The ends
     stay where they are, so runs that meet keep meeting.
     """
     closed = len(points) > 3 and np.array_equal(points[0], points[-1])
-    points = _smoothed(np.asarray(points, dtype=np.float64), smooth, closed)
-    kept = simplified_indices(points, tolerance / 2) if len(points) > 2 else [0, 1]
+    points = np.asarray(points, dtype=np.float64)
+    corners = run_corners(points, closed) if smooth > 0 else []
+    points = _smoothed(points, smooth, closed, corners)
+    kept = simplified_indices(points, tolerance * cut) if len(points) > 2 else [0, 1]
+    kept = sorted({*kept, *corners})
     if len(kept) <= 2 and len(points) <= 3:
         return [("L", tuple(float(v) for v in points[i])) for i in kept[1:]]
     nodes = [PathNode("n0", "M", tuple(float(v) for v in points[0]))]
@@ -475,7 +521,7 @@ def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
                 ("L", (float(x), float(y))) for x, y in simplify(points, 0)[1:]
             ]
         else:
-            nodes = curve_nodes(points, tolerance)
+            nodes = curve_nodes(points, tolerance, smooth=FILL_SMOOTH, cut=FILL_CUT)
         end = (float(points[-1, 0]), float(points[-1, 1]))
         if left >= 0:
             pieces.setdefault(left, []).append((start, nodes))
@@ -540,6 +586,9 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
             if 0 <= u < width and 0 <= v < height and skeleton[v, u]:
                 yield u, v
 
+    def beside(x: int, y: int, junction: int) -> bool:
+        return any(junctions[v, u] == junction for u, v in neighbours(x, y))
+
     def point(x: int, y: int) -> tuple[float, float]:
         junction = int(junctions[y, x])
         return centres[junction] if junction else (x + 0.5, y + 0.5)
@@ -554,6 +603,7 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
         run = [point(x, y)]
         previous = (x, y)
         ended = 0
+        away = False
         while True:
             if node[v, u]:
                 run.append(point(u, v))
@@ -561,6 +611,7 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
                 break
             visited[v, u] = True
             run.append((u + 0.5, v + 0.5))
+            away = away or not beside(u, v, start)
             following = [
                 p
                 for p in neighbours(u, v)
@@ -569,6 +620,12 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
                 # Leaving a junction passes beside its other pixels.
                 and not (len(run) <= 2 and start and junctions[p[1], p[0]] == start)
             ]
+            if start and not away:
+                # Still beside the junction it left, the run goes back into
+                # it only when there is no other way on: a line leaving it
+                # along a staircase passes by it once more.
+                onward = [p for p in following if junctions[p[1], p[0]] != start]
+                following = onward or following
             if not following:
                 break
             # A node next to it ends the run; else straight on before
@@ -584,25 +641,31 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
             if node[v, u] or visited[v, u]:
                 continue
             walk(int(x), int(y), u, v)
+
+    def onward(x: int, y: int) -> list[tuple[float, float]]:
+        """The unvisited pixels on from (x, y), straight on before diagonally."""
+        found = []
+        while True:
+            unvisited = [p for p in neighbours(x, y) if not visited[p[1], p[0]]]
+            if not unvisited:
+                return found
+            ahead = [p for p in unvisited if abs(p[0] - x) + abs(p[1] - y) == 1]
+            x, y = (ahead or unvisited)[0]
+            visited[y, x] = True
+            found.append((x + 0.5, y + 0.5))
+
     # What is left are loops with no node on them.
     for y, x in zip(*np.nonzero(skeleton & ~node), strict=True):
         if visited[y, x]:
             continue
         visited[y, x] = True
-        run = [(x + 0.5, y + 0.5)]
-        previous = u, v = int(x), int(y)
-        while True:
-            unvisited = [p for p in neighbours(u, v) if not visited[p[1], p[0]]]
-            if not unvisited:
-                break
-            ahead = [p for p in unvisited if abs(p[0] - u) + abs(p[1] - v) == 1]
-            previous = (u, v)
-            u, v = (ahead or unvisited)[0]
-            visited[v, u] = True
-            run.append((u + 0.5, v + 0.5))
-        del previous
-        if len(run) > 2:
+        run = [(x + 0.5, y + 0.5), *onward(int(x), int(y))]
+        end = np.subtract(run[-1], run[0])
+        if len(run) > 2 and np.abs(end).max() <= 1:
             run.append(run[0])
+        else:
+            # Not round to its start: an open stretch, followed both ways.
+            run = [*reversed(onward(int(x), int(y))), *run]
         runs.append((np.array(run), 0, False))
     kept = []
     for run, at_junctions, returns in runs:
@@ -646,8 +709,7 @@ def vectorize(
     """Trace *image* as flat regions and drawn lines, as SVG in its pixels.
 
     *line_width* 0 measures the lines; any other fixes their stroke width.
-    Without *strokes*, or when the widths vary too much for one, the lines
-    are filled shapes instead.
+    Without *strokes* the lines are filled shapes instead.
     """
     if regions < 1 or not np.isfinite(tolerance) or tolerance < 0:
         raise ValueError("invalid region count or tolerance")
@@ -727,7 +789,17 @@ def _line_paths(
     flat = np.ravel_multi_index(nearest, line.shape).ravel()
     across = np.bincount(flat, ink.ravel(), minlength=line.size).reshape(line.shape)
     palette = line_colours(target, skeleton)
-    runs = line_runs(skeleton, spur=2 * float(np.median(across[skeleton])) + 2)
+    typical = float(np.median(across[skeleton]))
+    runs = line_runs(skeleton, spur=2 * typical + 2)
+    if not line_width and strokes:
+        # A line whose width changes a lot is drawn as a stroke per width.
+        runs = [
+            run[first : last + 1]
+            for run in runs
+            for first, last in width_pieces(
+                _widths_along(across, run), max(LINE_PIECE, LINE_PIECE_WIDTHS * typical)
+            )
+        ]
     measured = []
     for run in runs:
         xs = np.clip(run[:, 0].astype(int), 0, line.shape[1] - 1)
@@ -752,7 +824,7 @@ def _line_paths(
         "line_runs": len(runs),
         "tapered_share": round(share, 3),
     }
-    if not strokes or (not line_width and share > TAPERED_SHARE):
+    if not strokes:
         # Filled shapes: where the ink is at least half a line's darkness.
         shape = ink >= 0.5
         colours = np.square(target[..., None, :] - palette).sum(-1).argmin(-1)
@@ -825,6 +897,45 @@ def _line_paths(
         "line_pieces": pieces_after,
         "line_runs_joined": pieces_before - pieces_after,
     }
+
+
+def _widths_along(across: np.ndarray, run: np.ndarray) -> np.ndarray:
+    """The width of the line at each point of *run*."""
+    xs = np.clip(run[:, 0].astype(int), 0, across.shape[1] - 1)
+    ys = np.clip(run[:, 1].astype(int), 0, across.shape[0] - 1)
+    return across[ys, xs]
+
+
+def width_pieces(widths: np.ndarray, shortest: float) -> list[tuple[int, int]]:
+    """The run whose points are *widths* wide, as (first, last) pieces cut
+    where its width steps by more than WIDTH_STEP, each at least *shortest*
+    points long; adjacent pieces share the point between them.
+
+    Each cut is where the typical widths either side differ the most, and
+    the pieces are cut again until no step that large is left.
+    """
+    logs = np.log(np.maximum(np.asarray(widths, dtype=np.float64), 0.5))
+    # The run's ends sit in junctions, where the ink of several lines meets.
+    if len(logs) > 4:
+        logs[[0, -1]] = logs[[1, -2]]
+    minimum = max(2, int(np.ceil(shortest)))
+
+    def cut(first: int, last: int) -> list[tuple[int, int]]:
+        count = last - first + 1
+        if count < 2 * minimum:
+            return [(first, last)]
+        sums = np.concatenate(([0.0], np.cumsum(logs[first : last + 1])))
+        at = np.arange(minimum, count - minimum + 1)
+        before = sums[at] / at
+        after = (sums[-1] - sums[at]) / (count - at)
+        step = np.abs(before - after)
+        best = int(step.argmax())
+        if step[best] <= np.log(WIDTH_STEP):
+            return [(first, last)]
+        middle = first + int(at[best])
+        return [*cut(first, middle), *cut(middle, last)]
+
+    return cut(0, len(logs) - 1)
 
 
 def _joined_runs(contours: list[Subpath], reach: float) -> list[Subpath]:

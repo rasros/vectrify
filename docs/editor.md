@@ -528,17 +528,21 @@ colour changes with no line, and merges neighbours down to the chosen number
 of **Regions**, those of a similar colour first and those a drawn line
 separates last. The line pixels go to the regions either side, so neighbours
 meet at the line's middle; each edge between two regions is traced once and
-used by both, so they meet exactly with no gap or overlap. Each region is
+used by both, so they meet exactly with no gap or overlap. Before an edge
+is fitted, its pixel staircase is smoothed away between its corners, which
+stay sharp, so the outlines come out smooth and with few points. Each region is
 coloured from its own pixels, not the lines'. The lines are thinned to
 centrelines and drawn over the regions as round-capped strokes, one path per
 line colour (two when some lines of a colour are much bolder), each at its
-lines' measured width. Thinning's whiskers and the tiny loops it leaves round
+lines' measured width; a line whose width changes a lot along it is cut
+where it changes, so each part gets the width it has, and the parts still
+meet end to end. Thinning's whiskers and the tiny loops it leaves round
 a pinhole where lines meet are dropped, the lines of one path run on through
 the junctions where they meet the straightest way rather than stopping
 there, and a gap of up to one and a half line widths between two lines that
 carry on from each other is bridged, so an outline comes out as a few long
-lines rather than many short ones; **Line width** fixes the width instead. With **Trace
-lines as strokes** off, or when most lines taper along their length, they are
+lines rather than many short ones; **Line width** fixes the width instead. Lines stay strokes
+however much they taper; only with **Trace lines as strokes** off are they
 filled shapes. **Outline tolerance** is how far a traced edge or line may
 stray from the reference, in reference pixels. It runs on the CPU and needs
 no extra.

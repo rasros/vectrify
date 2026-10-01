@@ -225,10 +225,13 @@ def _smoothed(line: np.ndarray, sigma: float, kept: list[int]) -> np.ndarray:
     return smooth
 
 
-def _corners(line: np.ndarray) -> list[int]:
-    """Where *line* turns sharply, the sharpest point of each turn."""
+def _corners(
+    line: np.ndarray, span: int = TURN_SPAN, corner: float = CORNER
+) -> list[int]:
+    """Where *line* turns sharply, more than *corner* degrees over *span*
+    points either side, the sharpest point of each turn."""
     count = len(line)
-    k = TURN_SPAN
+    k = span
     if count < 2 * k + 1:
         return []
     before = line[k:-k] - line[: -2 * k]
@@ -239,7 +242,7 @@ def _corners(line: np.ndarray) -> list[int]:
     turn = np.degrees(np.arccos(np.clip(cosine, -1, 1)))
     found: list[int] = []
     for i in np.argsort(-turn):
-        if turn[i] < CORNER:
+        if turn[i] < corner:
             break
         if all(abs(i + k - j) > k for j in found):
             found.append(int(i + k))
