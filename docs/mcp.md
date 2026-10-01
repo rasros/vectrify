@@ -1,123 +1,192 @@
-# MCP server (sketch)
+# MCP server
 
-Status: design agreed, nothing built yet. It replaces the removed LLM
-features: instead of Vectrify calling a model, an agent (Claude Code, Claude
-Desktop or any MCP client) calls Vectrify.
+`vectrify-mcp` lets an agent (Claude Code, Claude Desktop or any MCP client)
+look at a drawing and its reference and edit the drawing with the same
+commands a person has, at the same granularity. It replaces the removed LLM
+features: instead of Vectrify calling a model, the agent calls Vectrify.
 
-## Goals
+## Install and add it to a client
 
-- An agent can look at the drawing and the reference, and edit the drawing
-  with the same commands a person has, at the same granularity.
-- Every edit goes through `Session.action` / `Session.operation`, so
-  selection scope, locks, pins, permissions and revision checks hold exactly
-  as in the editor, and each tool call is one undoable step.
-- The agent can work on a drawing the user has open and is watching, or on a
-  file headlessly.
+```bash
+uv tool install "vectrify[mcp]"          # or [all]; pipx works too
+claude mcp add vectrify -- vectrify-mcp
+# without installing:
+claude mcp add vectrify -- uvx --from "vectrify[mcp]" vectrify-mcp
+# from a source checkout:
+claude mcp add vectrify -- uv run --directory /path/to/vectrify --extra mcp vectrify-mcp
+```
 
-Not goals: a second editing model, free-form SVG replacement (lenient replay
-is gone), or running models inside Vectrify.
+`vectrify-mcp drawing.svg` opens that file at start. It is a stdio server
+built on the official `mcp` Python SDK (`MCPServer`); the client starts it.
 
-## Shape
+## Targets
 
-`vectrify-mcp` is a stdio MCP server (Python, the `mcp` SDK), started by the
-client. It holds a *target*, one of:
+The server edits one target at a time, with the same tools for both:
 
-1. **A file, headless.** `open(path)` loads an `.svg` or `.vectrify` into its
-   own `Backend`/`Session` in process; `save()` writes it back. No UI.
-2. **The running editor, live.** The editor opens a local channel for it, and
-   the MCP server joins the same `Session` the window shows, so edits appear
-   as they happen and land in the window's undo history.
+1. **A file, headless.** `open(path)` loads an `.svg` or `.vectrify` project
+   into its own `Backend`/`Session` in the server's process. `save()` writes
+   it back (a `.vectrify` path keeps locks, pins, the reference and the
+   selection; any other is plain SVG), `save(path)` and `export_svg(path)`
+   write elsewhere.
+2. **The running editor, live.** When the person turns on **Agents** in the
+   editor's footer (or *Allow agents to edit* in the command palette), the
+   server joins the session that window shows: each edit appears as it is
+   made and lands in the window's undo history. With no target yet, the
+   first tool call attaches to such an editor by itself; `connect()` does so
+   explicitly, and `open(path)` switches to a file.
 
-Live is the useful one for "fix this part while I watch", so it is the
-default when an editor is running.
+`describe()` says which target is in use.
 
 ### The live channel
 
-The desktop app has no port today (pywebview calls `Backend` in process).
-The editor serves an agent endpoint over HTTP on localhost: in `--serve`
-mode on its own port, and in the desktop app on a port it opens when
-"Allow agents to edit" is turned on for the window. It writes
-`{url, token}` to `~/.local/state/vectrify/editor.json`, owner-only; every
-request carries the token. The calls are the existing
-`Backend.handle(path, data, session)` plus one to find the window's session
-id. The footer shows when an agent is connected and what it last did.
+`vectrify/ui/agent.py` holds both ends that live in the editor:
 
-Images are the bulk of the traffic (an agent renders after most edits), so
-renders are PNG bytes in the HTTP response body, not base64 inside JSON, and
-the MCP server passes them on as image content. Renders are capped in size
-and can be cropped to a region, so a close look at one part does not cost a
-full-size image; a render of an unchanged revision and region is cached.
-
-## Tools
-
-Grouped; each is a thin wrapper over existing session calls. Ids are object
-ids as in the tree; points are `[object, node]` pairs.
-
-**Looking**
-- `describe()`: document size, reference loaded or not, selection, and the
-  object tree (id, name, tag, parent, paint, bounds, locks), paged.
-- `render(region?, overlay?)`: PNG of the drawing (optionally a region in
-  document units, optionally side by side with or over the reference), as an
-  MCP image. The main way the agent sees results.
-- `reference(region?)`: PNG of the reference.
-- `compare(region?)`: reference error (MSE) of the region and a diff heat map.
-- `get_svg(ids?)`: SVG of objects, for exact geometry.
-- `points(id)`: the path's nodes, handles and pins.
-
-**Selecting**
-- `select(objects?, points?)`.
-
-**History**
-- `history()`: the undo and redo stacks, each entry with its label, who made
-  it (the person or the agent) and the revision after it.
-- `undo(steps?)`, `redo(steps?)`; the agent's own edits are labelled
-  "Agent: …" in the editor's history too.
-
-**Editing** (one undo step each; refusals come back as tool errors with the
-editor's message)
-- `paint(ids, fill?, stroke?, stroke_width?, opacity?)`, `rename`, `locks`.
-- `move(ids, dx, dy)`, `resize(ids, box)`, `reorder(ids, to)`.
-- `group`, `ungroup`, `join`, `split_parts`, `cut_hole`, `delete`.
-- `add_path(d, paint, parent?, index?)`, `set_points(id, changes)`,
-  `handles(points, count)`, `break`, `join_points`, `split_edge`,
-  `delete_points`.
-- `knife(line)`, `redraw_outline(id, stroke)`.
-
-**Operations** (jobs: start, then poll or wait; the agent decides to apply)
-- `generate(method, settings, scope)`, `tidy(ids, settings)`,
-  `fit_colours(ids, fill)`, `snap_edges(ids)`, `cleanup(ids)`.
-- `job_status(id)`, `apply(id)`, `discard(id)`.
-
-**Files** (headless target only, or with the user's consent live)
-- `open(path)`, `save(path?)`, `export_svg(path)`, `load_reference(path)`.
+- `Agent` answers the agent's calls on one `Session`. Rendering, comparing
+  and describing happen here, in the editor's process, so the live and the
+  headless target give identical answers (the headless target holds an
+  `Agent` in the MCP server's process).
+- `AgentChannel` is the door. Turning **Agents** on (`/api/agent`) makes a
+  token, binds the window's session, and writes `{url, token, pid}` to
+  `$XDG_STATE_HOME/vectrify/editor.json` (default
+  `~/.local/state/vectrify/editor.json`), owner-only (0600, in a 0700
+  directory). Turning it off, or quitting, removes the file and the token.
+  - In `--serve` mode the editor's own server carries the channel on its
+    port, under `/agent/`.
+  - The desktop app (pywebview, which has no port) opens a localhost port
+    of its own when Agents is turned on, and closes it when turned off.
+- Requests: `POST /agent/call` with `{tool, args}` and
+  `Authorization: Bearer <token>`, answered with `{data, images}`; each image
+  is fetched as a raw PNG body from `GET /agent/image/<key>`, never as base64
+  inside JSON. Requests must be addressed to `127.0.0.1` or `localhost`. Off:
+  403; a missing or wrong token: 401; an edit of a drawing that changed since
+  the agent looked: 409; a refusal: 400 with the editor's message.
+- The page polls `/api/poll` every 0.7 s while Agents is on. When the agent
+  changed something (or the revision moved), it fetches the session's state
+  and redraws, unless the person is mid-gesture, and marks the drawing
+  unsaved. The footer reads *Agents off*, *Agents allowed*, or *Agent
+  connected · <last action>* (connected means a call in the last two
+  minutes).
 
 ## Safety
 
-- The session is the enforcement: an agent can do nothing a person couldn't.
-- Revisions: every edit carries the revision the agent last saw; a stale one
-  is refused, so it never overwrites a person's concurrent edit. The agent
-  re-reads with `describe()`.
-- Live editing only when the window allows it; the token keeps other local
-  processes out; file writes outside the opened file need consent.
-- Budgets: renders are capped in size; `describe` pages large trees.
+- Every edit goes through `Session.action` or `Session.operation`, so
+  selection scope, locks, pins, permissions and revision checks hold exactly
+  as in the editor: an agent can do nothing a person couldn't.
+- Revisions: the server remembers the epoch and revision of the last answer
+  (describe, render, an edit…) and sends it with each edit. If the drawing
+  changed since, the edit is refused with a message telling the agent to
+  `describe()` again, so it never overwrites a person's concurrent edit it
+  has not seen. `undo()` is checked the same way, so the agent never undoes a
+  step it has not seen.
+- One undo step per call. A tool that needs several session commands (say
+  `add_path` with a fill, a parent and a name, or `resize` to a box) runs
+  them under the session lock and squashes them into one history entry; if a
+  later command is refused, the earlier ones are rolled back (no redo is left
+  behind) and the refusal reports the new revision as seen.
+- History labels: while an agent's call runs the editor puts "Agent: " before
+  each new history label (`Editor.label_prefix`), so the window's undo
+  history and `history()` say who made each step.
+- Live editing only while the window allows it; the token keeps other local
+  processes out. File writes happen in the MCP server's process, so the
+  client's tool approval is the consent for each path.
+- Budgets: renders are PNG, 1024 px on the long side by default and at most
+  2048; `describe` pages large trees (100 objects a page, at most 500).
 
-## Decisions
+## Tools
 
-1. Both targets: headless files and the live editor, with the same tools.
-2. The live channel is HTTP on localhost with a token; images travel as
-   PNG bodies.
-3. The agent's edits are labelled in the history, and it can inspect the
-   history and undo or redo.
-4. Typed tools only, no generic `action(command, payload)`; together they
-   cover nearly everything the UI can do. A test checks every editor command
-   is reachable from some tool, or listed as deliberately left out.
-5. A `vectrify://guide` resource (and the server's instructions) explains the
-   workflow: describe, render and compare, edit, render again, undo what
-   made it worse.
+Ids are object ids as `describe()` lists them; points are `[object, node]`
+pairs from `points()`. Tools that take `ids` select them first; without them
+they act on the current selection (in the live editor this is the person's
+selection too). Unset arguments take the editor's defaults. Every answer is
+JSON text, followed by `Image: <name>` and the PNG for each image.
 
-## First prototype
+**Targets**: `open(path)`, `connect(url?, token?)`, `save(path?)`,
+`export_svg(path)`, `load_reference(path)` (PNG, JPEG or WebP, stretched over
+the artboard as the editor shows it), `remove_reference()`.
 
-Headless target only: `open`, `describe`, `render`, `reference`, `compare`,
-`select`, `paint`, `add_path`, `set_points`, `delete`, `undo`, `generate` +
-`apply`, `save`. Tested with an in-process MCP client and from Claude Code.
-Then the live channel.
+**Looking**
+- `describe(page?, page_size?, within?)`: target, artboard, reference (name
+  and pixel size), selection, and objects (id, label, name, tag, parent,
+  depth, paint, painted bounds `[x, y, w, h]`, transform, locks), a page at a
+  time, or one group's contents.
+- `render(region?, overlay?, max_side?)`: the drawing; `region` in document
+  units; `overlay="side"` puts the reference beside it, `"over"` blends them.
+- `reference(region?, max_side?)`: the reference alone.
+- `compare(region?, max_side?)`: mean squared error against the reference
+  (RGB in 0..1, on white), the worst four cells of a 4 x 4 grid as regions,
+  and a heat map (black agrees, through red and yellow to white).
+- `get_svg(ids?)`: the SVG of the drawing or of some objects.
+- `points(id)`: a path's geometry: contours, nodes (id, command, values,
+  pinned) and the paths sharing it.
+- `holes(id)`: a path's holes, with areas and bounds.
+
+Renders of the drawing and the reference are cached per (epoch, revision,
+region, size), so looking again at an unchanged drawing costs no rendering.
+
+**History**: `history(limit?)` (undo and redo stacks, newest first: label,
+author `agent` or `person`, revision), `undo(steps?)`, `redo(steps?)`.
+
+**Selecting and objects**: `select(objects?, points?)`,
+`paint(ids?, fill?, stroke?, stroke_width?, opacity?, fill_opacity?,
+stroke_opacity?)`, `rename(id, name)`, `locks(id, locks)`,
+`move(dx, dy, ids?)`, `resize(ids?, scale?, anchor?, box?)`,
+`reorder(to, ids?)` (front, back, forward, backward),
+`move_into(ids, parent, index)`, `group`, `ungroup`, `join(ids?,
+color_source?)`, `join_ends(ids?, reach?, bridge?)`, `split_parts`,
+`cut_hole`, `fill_holes(contours, delete_enclosed?)`,
+`holes_to_shapes(contours)`, `detach`, `convert(ids?, to?)` (line, fill or
+either), `delete`, `add_path(d, fill?, stroke?, stroke_width?, parent?,
+index?, name?)`, `knife(start, end, ids?, within?)`,
+`redraw_outline(id, points, long_way?, pixel?)`.
+
+**Points**: `set_points({object: {node: values}})`, `handles(points,
+count)`, `pin(points, pinned?)`, `break_points`, `delete_segment`,
+`split_edge`, `delete_points`, `delete_contours`, `join_points(a, b)`.
+
+**Operations** (jobs): `generate(method?, settings?, scope?, group?)` (`cel`,
+`colour-regions`, or `samvg` with a GPU), `tidy(ids?, settings?, rounds?)`,
+`fit_colours(ids?, fill?, passes?, resolution?)` (flat or linear gradients),
+`snap_edges(ids?, tolerance?)`, `cleanup(ids?)`. Each starts a job with the
+permissions the editor's dialog would give it; `job_status(id,
+wait_seconds?)` waits (at most 120 s, without holding the session) and
+returns the metrics and the recommended result's previews (reference, before,
+after) as images; `apply(id, choice?)` keeps a result as one undo step,
+`discard(id)` drops it, `stop(id)` stops it early.
+
+**Guide**: the `vectrify://guide` resource and the server's instructions
+explain the loop: describe, render and compare, edit, render again, undo what
+made it worse.
+
+### Coverage
+
+`tests/mcp/test_coverage.py` reads the commands `Session.action` and
+`Session.operation` handle from the session's source, drives every tool
+through an MCP client, and fails unless each command arrives from some tool
+or is listed in `LEFT_OUT` / `OPERATIONS_LEFT_OUT` (`vectrify/ui/agent.py`)
+with a reason. Left out:
+
+- `open`: an agent opens a file as its own headless target; it never
+  replaces the drawing in the person's window.
+- `node`: the one-point drag; `set_points` sends `move_nodes`, which moves
+  one point or many.
+- `to_front`, `to_back`: internal names `reorder` is rewritten to.
+- operation `check`: the dialog's probe; the agent starts the job and reads
+  the refusal instead.
+
+Not exposed either: `improve/path-fit` (no dialog in the editor uses it),
+setting a gradient fill directly (the session's paint takes colours only;
+`fit_colours(fill="linear")` makes gradients), and the editor's view
+controls (zoom, overlay view, tools), which have no effect on the drawing.
+
+## Limits
+
+- One window per editor process takes agents at a time: turning Agents on in
+  another window of the same `--serve` server moves the channel there. The
+  discovery file names the most recent editor to allow agents.
+- In the live editor the agent's selection is the person's selection; an
+  agent's `select` or an edit with `ids` changes what the person sees
+  selected.
+- The page notices agent edits by polling, so they show within about a
+  second, not instantly, and not while the person is mid-drag.
+- Renders use the editor's export and Cairo; they match the page's SVG
+  rendering closely but not pixel for pixel.

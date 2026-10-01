@@ -76,6 +76,11 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   alone at full strength in place of the drawing, to compare by flipping
   between them; `Shift+W` always goes straight back to the drawing. The
   Reference panel picks the same three views.
+- The footer's **Agents** toggle (also *Allow agents to edit* in the command
+  palette) lets an agent edit this window's drawing through `vectrify-mcp`
+  ([the MCP server](mcp.md)). While it is on, the agent's edits appear as it
+  makes them and land in the undo history labelled "Agent: …", and the
+  footer reads *Agent connected* with the agent's last action.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
 reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges,
