@@ -8,8 +8,9 @@ to the fills. It fills the space between the lines with a shrinking ball so
 a small gap in a line does not join the regions either side, splits each
 region by colour where a shade edge has no line, and merges regions down to
 a target count, keeping apart regions of different colours a line runs
-between. The line pixels go to the regions either side, so neighbours meet
-at the line's middle and share one traced edge, smoothed between its corners
+between and, past the count, shadows a step darker than their surface. The
+line pixels go to the regions either side, so neighbours meet at the line's
+middle and share one traced edge, smoothed between its corners
 before it is fitted. The lines are thinned to centrelines and drawn over the
 fills as strokes in their ink: a thin line's antialiased middle is a mix of
 ink and surface, so it is drawn darker and thinner than its pixels look.
@@ -94,13 +95,21 @@ SHAPE_LEAST = 4.5
 # a line narrower than a ball keeps it out: the largest closes the most.
 BALLS = (6, 4, 2, 1)
 # Colours the regions are split by, and the smallest split-off piece kept.
-PALETTE = 12
+PALETTE = 16
 PIECE = 24
 # Merging across a drawn line costs this many times more for the share of
 # the boundary a line runs along: regions a line separates and that differ
 # stay apart, while regions of one colour either side of a line merge
 # freely, since the line is drawn over them anyway.
 LINE_PENALTY = 2.0
+# Lightness counts this many times more than the rest of a colour difference
+# when regions merge: a shadow is a step in value more than in hue.
+SHADE = 2.0
+# Two regions a step of SHADOW_STEP apart in luminance, each with at least
+# SHADOW_LEAST pixels of paint, are a shadow and the surface it falls on: they
+# are kept apart, and the shadow does not count toward the target count.
+SHADOW_STEP = 8.0
+SHADOW_LEAST = 150
 # Curves per this many traced pixels of a filled line shape before it is
 # simplified, and the smoothing that takes the pixel staircase out of any
 # traced run first, in pixels.
@@ -373,14 +382,23 @@ def merge_regions(
     line: np.ndarray,
     count: int,
     penalty: float = LINE_PENALTY,
+    *,
+    shade: float = SHADE,
+    shadow_step: float = SHADOW_STEP,
+    shadow_least: int = SHADOW_LEAST,
 ) -> np.ndarray:
     """*labels* merged greedily down to *count* regions, renumbered from 0.
 
-    Merging two regions costs their colour difference squared, weighted by
-    the smaller region's size (Ward), and *penalty* times more for the share
-    of their boundary a drawn line runs along: different regions a line
-    separates stay apart unless they are small or there is nothing else
-    left to merge.
+    Merging two regions costs their colour difference squared, the step in
+    lightness counted *shade* times more, weighted by the smaller region's
+    size (Ward), and *penalty* times more for the share of their boundary a
+    drawn line runs along: different regions a line separates stay apart
+    unless they are small or there is nothing else left to merge.
+
+    Two regions with at least *shadow_least* pixels of paint each and
+    *shadow_step* or more apart in luminance are never merged: a shadow and
+    the surface it falls on. The darker of each pair kept apart this way
+    does not count toward *count*, so more regions may be left.
     """
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
@@ -397,7 +415,8 @@ def merge_regions(
         ],
         1,
     )
-    # A region all line has no paint of its own; its pixels stand in.
+    # Paint of its own: a region all line has none, and its pixels stand in.
+    own = list(area)
     bare = area == 0
     if bare.any():
         area_all = np.bincount(flat, minlength=n).astype(np.float64)
@@ -434,23 +453,44 @@ def merge_regions(
         difference = sums[a] / area[a] - sums[b] / area[b]
         weight = area[a] * area[b] / (area[a] + area[b])
         lined = along / total
+        step = float(difference @ LUMINANCE)
+        spread = float(difference @ difference) + shade * step * step
         # Between merges that cost nothing, the one across no line first.
-        return weight * (float(difference @ difference) * (1 + penalty * lined) + lined)
+        return weight * (spread * (1 + penalty * lined) + lined)
+
+    def shadow(a: int, b: int) -> int | None:
+        """The shadow merging *a* and *b* would wash out, if any: the darker
+        of two regions with enough paint of their own (not lines) a step of
+        *shadow_step* in lightness apart."""
+        if min(own[a], own[b]) < shadow_least:
+            return None
+        light = [float(sums[i] / area[i] @ LUMINANCE) for i in (a, b)]
+        if abs(light[0] - light[1]) < shadow_step:
+            return None
+        return a if light[0] < light[1] else b
 
     version = [0] * n
     heap = [(cost(a, b), a, b, 0, 0) for a in range(n) for b in edges[a] if a < b]
     heapq.heapify(heap)
     parent = list(range(n))
     regions = n
-    while regions > count and heap:
+    # Shadows a merge was refused for: they do not count toward *count*.
+    shadows: set[int] = set()
+    while regions - len(shadows) > count and heap:
         _, a, b, va, vb = heapq.heappop(heap)
         if version[a] != va or version[b] != vb:
             continue
+        kept = shadow(a, b)
+        if kept is not None:
+            shadows.add(kept)
+            continue
+        shadows.difference_update((a, b))
         # The larger keeps its number; the smaller's neighbours join it.
         if len(edges[a]) < len(edges[b]):
             a, b = b, a
         parent[b] = a
         area[a] += area[b]
+        own[a] += own[b]
         sums[a] = sums[a] + sums[b]
         del edges[a][b]
         for c, (total, along) in edges[b].items():
@@ -834,15 +874,7 @@ def vectorize(
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
     count = int(labels.max()) + 1
-    # Each region's colour is the median of its own paint, not of the lines.
-    paint = np.where(line, 0, labels + 1)
-    bare = np.bincount(paint.ravel(), minlength=count + 1)[1:] == 0
-    indices = np.arange(1, count + 1)
-    medians = np.stack([median(target[..., c], paint, indices) for c in range(3)], 1)
-    if bare.any():
-        medians[bare] = np.stack(
-            [median(target[..., c], labels + 1, indices[bare]) for c in range(3)], 1
-        )
+    medians = region_medians(target, labels, line)
     fills = {index: colour(medians[index]) for index in range(count)}
     outlines = region_outlines(labels, tolerance)
     order = np.argsort(-np.bincount(labels.ravel(), minlength=count))
@@ -870,6 +902,23 @@ def vectorize(
     )
     details["seconds"] = time.monotonic() - started
     return svg, details
+
+
+def region_medians(
+    target: np.ndarray, labels: np.ndarray, line: np.ndarray
+) -> np.ndarray:
+    """Each region's colour, by label from 0: the median of its own paint,
+    not of the lines, or of all its pixels when it is all line."""
+    count = int(labels.max()) + 1
+    paint = np.where(line, 0, labels + 1)
+    bare = np.bincount(paint.ravel(), minlength=count + 1)[1:] == 0
+    indices = np.arange(1, count + 1)
+    medians = np.stack([median(target[..., c], paint, indices) for c in range(3)], 1)
+    if bare.any():
+        medians[bare] = np.stack(
+            [median(target[..., c], labels + 1, indices[bare]) for c in range(3)], 1
+        )
+    return medians
 
 
 def _line_paths(
