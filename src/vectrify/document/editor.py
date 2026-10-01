@@ -1005,10 +1005,13 @@ class Transaction:
             self._working = self._working.replace_geometry(updated)
             self._record_remap({n: set() for n in old.keys() - new.keys()})
 
-    def break_points(self, object_id: str, node_ids: Iterable[str]) -> None:
+    def break_points(
+        self, object_id: str, node_ids: Iterable[str]
+    ) -> dict[str, set[str]]:
         """Cut a path's contours at points: an open line comes apart there,
         each piece ending on its own copy of the point, and a closed contour
-        opens. Both copies stay selected."""
+        opens. Both copies stay selected. Returns the points' IDs, old to new:
+        a closed contour's start may come out under other IDs."""
         geometry = self._working.geometry_for(object_id)
         copies: dict[str, set[str]] = {}
         for node_id in node_ids:
@@ -1021,6 +1024,7 @@ class Transaction:
             )
         self.reshape_path(object_id, geometry)
         self._record_remap(copies)
+        return copies
 
     def delete_segments(self, object_id: str, node_ids: frozenset[str]) -> None:
         """Take out the segments between neighbouring points among

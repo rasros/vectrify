@@ -558,10 +558,22 @@ class Session:
                 # Any two points join: one that is not a free end yet is
                 # cut there first, opening a closed contour or splitting a
                 # line, so it becomes one.
+                ends = []
                 for oid, nid in points:
+                    copies: dict[str, set[str]] = {}
                     with contextlib.suppress(EditRejectedError):
-                        tx.break_points(oid, [nid])
-                tx.join_ends(objects, ends=points)
+                        copies = tx.break_points(oid, [nid])
+                    # A closed contour's start opens under other IDs.
+                    found: set[str] = set()
+                    grown = {nid}
+                    while grown != found:
+                        found = grown
+                        grown = found.union(*(copies.get(i, ()) for i in found))
+                    geometry = tx.preview.geometry_for(oid)
+                    present = {n.id for sp in geometry.subpaths for n in sp.nodes}
+                    alive = sorted(found & present)
+                    ends.append((oid, nid if nid in present or not alive else alive[0]))
+                tx.join_ends(objects, ends=ends)
             elif command == "delete_contour":
                 contours = {}
                 for oid, nid in points:
