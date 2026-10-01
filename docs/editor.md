@@ -551,7 +551,10 @@ stay sharp, so the outlines come out smooth and with few points. Each region is
 coloured from its own pixels, not the lines'. The lines are thinned to
 centrelines and drawn over the regions as round-capped strokes in their ink:
 a thin line's antialiased middle mixes its ink with the surface, so it is
-drawn in the darker ink at the width of ink it holds, not in grey. There is
+drawn in the darker ink at the width of ink it holds, not in grey. A dark
+mark wider than its stroke but too small to be a filled shape, such as an
+eye or an eyebrow, is filled in its ink beneath the stroke where the stroke
+leaves it out, so it keeps its shape. There is
 one path per line colour and width (up to four widths a colour, each path's
 lines within about 40% of its width), each at its lines' measured width;
 a line whose width changes a lot along it is cut

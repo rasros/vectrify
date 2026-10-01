@@ -334,3 +334,29 @@ def test_regions_of_one_colour_merge_across_a_line_before_different_ones():
     merged = cel.merge_regions(labels, target, line, 2)
     assert merged[0, 0] == merged[0, 15]
     assert merged[0, 15] != merged[0, 25]
+
+
+def small_face() -> Image.Image:
+    """A skin-coloured face outlined thinly in black, with an eyelid line
+    and below it a dark eye too wide to be a line and too small to be
+    filled, as in a character's face, and a thin mouth."""
+    y, x = np.mgrid[:120, :140]
+    pixels = np.full((120, 140, 3), 255, dtype=np.uint8)
+    r = np.hypot(x - 70, y - 60)
+    pixels[r <= 50] = (245, 200, 165)
+    pixels[(r > 48) & (r <= 50)] = 25
+    pixels[45:47, 45:68] = 25
+    pixels[np.hypot((x - 55) / 4.5, (y - 50) / 3.5) <= 1] = (20, 18, 15)
+    pixels[80:82, 60:80] = 25
+    return Image.fromarray(pixels)
+
+
+def test_a_small_dark_mark_wider_than_a_line_stays_dark():
+    svg, _ = cel.vectorize(small_face(), regions=4)
+    png = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
+    assert png is not None
+    drawn = np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=float)
+    y, x = np.mgrid[:120, :140]
+    eye = np.hypot((x - 55) / 3.5, (y - 51) / 2.5) <= 1
+    assert drawn[eye].mean() < 80
+    assert drawn[80:82, 70].min() < 120

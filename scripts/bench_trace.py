@@ -14,6 +14,10 @@ run only the steps after SAM are timed and tuning them takes seconds;
     uv run python scripts/bench_trace.py --method cel --paths 0 --out runs/cel.jsonl
     uv run python scripts/bench_trace.py --nodes shape=true --nodes seconds=60
 
+Small dark features a trace can lose, such as earth-hybrid-v2's eye, are
+reported as the trace's mean luminance where the reference is dark there
+(see FEATURES): near the reference's own when the feature was kept.
+
 The error is the mean squared difference to the reference in 0-255 RGB. SAM
 and the steps after it are deterministic, so one run per case compares
 settings; repeat with `--repeat` only to judge timings. Keep the machine
@@ -40,6 +44,14 @@ REFERENCES = (
     "chest-clothing-bold-v2.png",
     "earth-hybrid-v2.png",
 )
+# Small dark features a trace can lose, by reference: each a box (x0, y0,
+# x1, y1) in which the reference's pixels darker than FEATURE_DARK (0-255
+# luminance) are the feature. Each is reported as the trace's mean luminance
+# there, after the reference's own.
+FEATURES = {
+    "earth-hybrid-v2.png": {"eye": (1196, 174, 1215, 187)},
+}
+FEATURE_DARK = 60
 # Generate settings on top of each method's defaults, by method and preset.
 PRESETS: dict[str, dict[str, dict]] = {
     "samvg": {
@@ -126,6 +138,7 @@ def main() -> None:
                         args.paths,
                         nodes=nodes,
                         cache=not args.no_cache,
+                        features=FEATURES.get(path.name),
                         render=(
                             args.renders / f"{path.stem}-{args.method}-{preset}.png"
                             if args.renders
@@ -151,10 +164,11 @@ def trace(
     nodes: dict | None = None,
     cache: bool,
     render: Path | None = None,
+    features: dict[str, tuple[int, int, int, int]] | None = None,
 ) -> dict:
     """Generate from *image* with method *name* and *settings*, then Optimize
     its largest paths with the settings *nodes*. With *render*, the traced
-    drawing is saved there."""
+    drawing is saved there; *features* are reported as FEATURES says."""
     from vectrify.document import Editor, Selection, export_svg, import_svg
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
@@ -224,9 +238,42 @@ def trace(
             "cached": timing["cached"],
             "after_sam_s": round(total - timing["spent"], 1),
         }
+    if features:
+        row["features"] = feature_darkness(image, export_svg(document), features)
     if paths:
         row["optimize"] = optimize(editor, image, paths, nodes or OPTIMIZE)
     return row
+
+
+def feature_darkness(
+    image: Image.Image, svg: str, features: dict[str, tuple[int, int, int, int]]
+) -> dict[str, list[float]]:
+    """Each of *features*' mean luminance in *image* and in the trace *svg*,
+    over the reference's pixels darker than FEATURE_DARK in its box."""
+    import io
+
+    import cairosvg
+    import numpy as np
+
+    width, height = image.size
+    png = cairosvg.svg2png(
+        bytestring=svg.encode(),
+        output_width=width,
+        output_height=height,
+        background_color="white",
+    )
+    assert png is not None
+    traced = np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=float)
+    reference = np.asarray(image.convert("L"), dtype=float)
+    found = {}
+    for name, (x0, y0, x1, y1) in features.items():
+        box = (slice(y0, y1), slice(x0, x1))
+        dark = reference[box] < FEATURE_DARK
+        found[name] = [
+            round(float(reference[box][dark].mean()), 1),
+            round(float(traced[box][dark].mean()), 1),
+        ]
+    return found
 
 
 def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
@@ -400,6 +447,8 @@ def _line(row: dict) -> str:
         f"{row['snapped']} snapped, "
         f"{row['total_s']} s"
     )
+    for feature, (reference, traced) in row.get("features", {}).items():
+        text += f", {feature} {traced} (reference {reference})"
     if "after_sam_s" in row:
         text += (
             f" ({row['after_sam_s']} s after SAM"
@@ -463,6 +512,14 @@ def compare(before: Path, after: Path) -> None:
             f"{pair('points')} | {per_path(a)} → {per_path(b)} | "
             f"{pair('curves')} | {pair('total_s')} | {left[0]} → {left[1]} |"
         )
+    # The small features, as luminance where the reference is dark there.
+    for key in sorted(old.keys() & new.keys()):
+        before, after = old[key].get("features", {}), new[key].get("features", {})
+        for feature in sorted(before.keys() & after.keys()):
+            print(
+                f"{key[0]} [{key[1]}] {feature}: {before[feature][1]} → "
+                f"{after[feature][1]} (reference {after[feature][0]})"
+            )
 
 
 if __name__ == "__main__":

@@ -33,6 +33,7 @@ from scipy.ndimage import (
     binary_dilation,
     binary_erosion,
     binary_fill_holes,
+    binary_opening,
     binary_propagation,
     center_of_mass,
     gaussian_filter,
@@ -151,6 +152,10 @@ LINE_COLOUR_DIFFERENCE = 40.0
 # The longest gap, in line widths, bridged between two runs of one stroke
 # that carry on from each other: a line the detection broke.
 LINE_GAP = 1.5
+# Ink beyond the strokes' reach, mostly one ink's colour, in pieces at least
+# this many pixels across, is filled beneath them.
+UNCOVERED_WIDE = 3
+UNCOVERED_LEAST = 8
 
 
 def _disk(radius: int) -> np.ndarray:
@@ -951,12 +956,14 @@ def _line_paths(
     # Each line pixel's share covered by each ink, over the surface of the
     # region it lies in, summed across the line: its width in that ink.
     widths_by_ink = []
+    covers = []
     for value in palette:
         away = surface - value
         span = (away * away).sum(-1)
         cover = ((surface - target) * away).sum(-1) / np.maximum(span, 1)
         # On a surface as dark as the ink, the line pixel is all ink.
         cover = np.where(span < 30**2, 1.0, np.clip(cover, 0, 1)) * line
+        covers.append(cover)
         widths_by_ink.append(
             np.bincount(flat, cover.ravel(), minlength=line.size).reshape(line.shape)
         )
@@ -1024,6 +1031,7 @@ def _line_paths(
             for number, members in enumerate(width_groups(widths[own], lengths[own])):
                 group[own[members]] = number
     grouped: dict[tuple[int, int], list[tuple[Subpath, float, int]]] = {}
+    group_runs: dict[tuple[int, int], list[np.ndarray]] = {}
     for run, index, width, step in zip(runs, colours, widths, group, strict=True):
         width = line_width or width
         closed = np.array_equal(run[0], run[-1])
@@ -1041,8 +1049,11 @@ def _line_paths(
         # Each run counts toward its path's width by the size of its data.
         size = len(_data(run[0], nodes, closed))
         grouped.setdefault((int(index), int(step)), []).append((contour, width, size))
+        group_runs.setdefault((int(index), int(step)), []).append(run)
     paths = []
     pieces_before = pieces_after = 0
+    # How far each centreline pixel's stroke reaches either side of it.
+    reaches = np.full(line.shape, -1.0)
     for index, step in sorted(grouped):
         pieces = grouped[index, step]
         width = _weighted_percentiles(
@@ -1050,6 +1061,10 @@ def _line_paths(
             np.array([size for _, _, size in pieces], dtype=float),
             (50,),
         )[0]
+        for run in group_runs[index, step]:
+            xs = np.clip(run[:, 0].astype(int), 0, line.shape[1] - 1)
+            ys = np.clip(run[:, 1].astype(int), 0, line.shape[0] - 1)
+            reaches[ys, xs] = np.maximum(reaches[ys, xs], width / 2)
         contours = _joined_runs([c for c, _, _ in pieces], LINE_GAP * width)
         pieces_before += len(pieces)
         pieces_after += len(contours)
@@ -1066,13 +1081,63 @@ def _line_paths(
             f'stroke="{colour(palette[index])}" stroke-width="{width:.2f}" '
             'stroke-linecap="round" stroke-linejoin="round"/>'
         )
-    return paths, {
+    filled = _uncovered_ink(target, line, palette, covers, reaches, tolerance)
+    return filled + paths, {
         **details,
+        "ink_fills": len(filled),
         "line_style": "strokes",
         "line_paths": len(paths),
         "line_pieces": pieces_after,
         "line_runs_joined": pieces_before - pieces_after,
     }
+
+
+def _uncovered_ink(
+    target: np.ndarray,
+    line: np.ndarray,
+    palette: np.ndarray,
+    covers: list[np.ndarray],
+    reaches: np.ndarray,
+    tolerance: float,
+) -> list[str]:
+    """The ink the strokes leave out, as filled shapes beneath them.
+
+    A dark mark wider than its stroke but too small to be a filled shape,
+    such as an eye or an eyebrow, would otherwise keep only the stroke down
+    its middle, its other pixels going to the region around it. Where line
+    pixels beyond every stroke's reach (*reaches*, half its width at each
+    centreline pixel) are mostly one of the *palette* inks, by *covers*,
+    the mark of that ink around them, where it is at least UNCOVERED_WIDE
+    across, is filled, in pieces of at least UNCOVERED_LEAST pixels.
+    """
+    drawn = reaches >= 0
+    if not drawn.any():
+        return []
+    y, x = nearest_indices(~drawn)
+    rows, columns = np.indices(line.shape)
+    distance = np.hypot(rows - y, columns - x)
+    uncovered = line & (distance > reaches[y, x] + 0.5)
+    colours = np.square(target[..., None, :] - palette).sum(-1).argmin(-1)
+    paths = []
+    for index, value in enumerate(palette):
+        # The marks of this ink wide enough to fill, where the strokes leave
+        # some of them out.
+        inked = line & (colours == index) & (covers[index] >= 0.5)
+        wide = binary_opening(inked, _disk(UNCOVERED_WIDE // 2))
+        mask = wide & binary_dilation(uncovered & inked, np.ones((3, 3)))
+        pieces, count = label(mask, np.ones((3, 3)))
+        if not count:
+            continue
+        keep = np.bincount(pieces.ravel(), minlength=count + 1) >= UNCOVERED_LEAST
+        keep[0] = False
+        data = mask_path(keep[pieces], density=DENSITY, smooth=SMOOTH)
+        if data is None:
+            continue
+        paths.append(
+            f'<path d="{_simplified_data(data, tolerance)}" '
+            f'fill="{colour(value)}" fill-rule="nonzero"/>'
+        )
+    return paths
 
 
 def width_groups(
