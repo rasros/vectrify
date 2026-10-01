@@ -13,7 +13,9 @@ A distorted input is scored against the original warped the same way.
 
 Truth ink is the original with its near-black, neutral paint (brightest
 channel below 60, channel spread below 25) black and every other colour
-white; the trace's ink is picked by the same rule. The scores:
+white; the trace's ink is picked by the same rule, each rendered and kept
+where darker than 128 (192 for bent truth, since resampling spreads a
+one-pixel line over two at half its darkness). The scores:
 
 - line_p / line_r / line_f: precision, recall and F of the ink's centrelines
   (thinned as cel thins), each within 2 px of the other's;
@@ -30,6 +32,7 @@ white; the trace's ink is picked by the same rule. The scores:
     uv run python scripts/bench_lines.py --inputs clean --renders runs/r
     uv run python scripts/bench_lines.py --set regions=80 --out runs/b.jsonl
     uv run python scripts/bench_lines.py --compare runs/lines.jsonl runs/b.jsonl
+    uv run python scripts/bench_lines.py --rescore runs/r --out runs/r.jsonl
 
 The distortions are seeded, so one run per case compares settings. Keep the
 machine cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
@@ -109,7 +112,13 @@ def main() -> None:
     parser.add_argument(
         "--renders",
         type=Path,
-        help="Save each case's input, trace (SVG and PNG) and truth ink here",
+        help="Save each case's input, truth (bent like it) and trace here",
+    )
+    parser.add_argument(
+        "--rescore",
+        type=Path,
+        metavar="DIR",
+        help="Score the traces a run saved with --renders DIR, without tracing",
     )
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("BEFORE", "AFTER"))
     args = parser.parse_args()
@@ -123,21 +132,28 @@ def main() -> None:
         width, height = size(truth)
         clean = Image.fromarray(render(truth, width, height))
         for kind in args.inputs:
-            image = {"clean": lambda i: i, "noisy": distort, "stretched": stretch}[
-                kind
-            ](clean)
-            svg, seconds = trace(image, settings)
-            if args.renders:
-                args.renders.mkdir(parents=True, exist_ok=True)
-                stem = args.renders / f"{name}-{kind}"
-                image.save(f"{stem}-input.png")
-                Path(f"{stem}-cel.svg").write_text(svg)
-                Image.fromarray(render(svg, width, height)).save(f"{stem}-cel.png")
+            seconds = None
+            if args.rescore:
+                svg = (args.rescore / f"{name}-{kind}-cel.svg").read_text()
+            else:
+                image = {"clean": lambda i: i, "noisy": distort, "stretched": stretch}[
+                    kind
+                ](clean)
+                svg, seconds = trace(image, settings)
+                if args.renders:
+                    args.renders.mkdir(parents=True, exist_ok=True)
+                    stem = args.renders / f"{name}-{kind}"
+                    image.save(f"{stem}-input.png")
+                    Image.fromarray(bent(kind)(np.asarray(clean))).save(
+                        f"{stem}-truth.png"
+                    )
+                    Path(f"{stem}-cel.svg").write_text(svg)
+                    Image.fromarray(render(svg, width, height)).save(f"{stem}-cel.png")
             row = {
                 "reference": name,
                 "input": kind,
                 "settings": settings,
-                "seconds": round(seconds, 1),
+                "seconds": None if seconds is None else round(seconds, 1),
                 **structure(svg),
                 **score(truth, svg, width, height, kind),
             }
@@ -321,23 +337,33 @@ def structure(svg: str) -> dict:
     }
 
 
+def bent(kind: str) -> Callable[[np.ndarray], np.ndarray]:
+    """What input *kind* does to a drawing's geometry, on an RGB array."""
+    return {
+        "noisy": lambda a: np.asarray(warp(Image.fromarray(a))),
+        "stretched": lambda a: np.asarray(stretch(Image.fromarray(a))),
+    }.get(kind, lambda a: a)
+
+
 def score(truth: str, svg: str, width: int, height: int, kind: str) -> dict:
     """The trace *svg* of input *kind* scored against the original *truth*."""
     from vectrify.refine.cel import thin
     from vectrify.refine.colour_regions import distance_transform_edt, nearest_indices
 
-    bend: Callable[[np.ndarray], np.ndarray] = {
-        "noisy": lambda a: np.asarray(warp(Image.fromarray(a))),
-        "stretched": lambda a: np.asarray(stretch(Image.fromarray(a))),
-    }.get(kind, lambda a: a)
+    bend = bent(kind)
     full_truth = bend(render(truth, width, height))
     full_trace = render(svg, width, height)
-    ink_truth = bend(render(ink_only(truth), width, height)).min(-1) < 128
+    # Resampling spreads a one-pixel line over two at half its darkness, so
+    # bent truth counts as ink at a lighter level, or its thin lines go.
+    ink_truth = bend(render(ink_only(truth), width, height)).min(-1) < (
+        128 if kind == "clean" else 192
+    )
     ink_trace = render(ink_only(svg), width, height).min(-1) < 128
     line_truth, line_trace = thin(ink_truth), thin(ink_trace)
     precision = _near(line_trace, line_truth)
     recall = _near(line_truth, line_trace)
-    stroked = render(strokes_only(svg), width, height).min(-1) < 128
+    # Found at all: a hairline stroke drawn black renders grey.
+    stroked = render(strokes_only(svg), width, height).min(-1) < 192
     stroke_recall = _near(line_truth, thin(stroked))
     # Widths along the true centrelines the trace found, each against the
     # traced width at the traced centreline nearest it.
