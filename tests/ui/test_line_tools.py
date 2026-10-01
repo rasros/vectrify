@@ -190,6 +190,22 @@ def test_join_two_ends_joins_any_two_points_as_one_edit():
     assert points(session, "a") == [[(0, 0), (10, 0), (20, 0)]]
 
 
+def test_join_two_ends_takes_a_closed_contours_start_point():
+    # The contour draws its closing edge back to its start, so opening it at
+    # the start gives both ends new IDs.
+    body = (
+        f'<path id="a" d="M10 10L50 10L50 50L10 10Z" {LINE}/>'
+        f'<path id="b" d="M80 80L90 90" {LINE}/>'
+    )
+    session = session_with(body)
+    start, end = ids(session, "a")[0][0], ids(session, "b")[0][0]
+    send(session, "select", objects=["a", "b"], nodes=[start, end])
+    send(session, "join_two_ends", points=[["a", start], ["b", end]])
+    left = {e.id for e in session.editor.snapshot.document.elements()}
+    contours = [c for oid in ("a", "b") if oid in left for c in points(session, oid)]
+    assert any((10, 10) in c and (80, 80) in c for c in contours)
+
+
 def test_join_two_ends_refuses_one_point():
     session = session_with(f'<path id="a" d="M0 0L10 0L20 0" {LINE}/>')
     end = ids(session, "a")[0][0]
