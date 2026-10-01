@@ -519,7 +519,9 @@ picture the lines are found after a small median filter smooths the grain
 away. It fills the space between the lines with a shrinking ball so a small
 gap in a line does not join the regions either side, splits each region where
 its colour changes with no line, and merges neighbours down to the chosen
-number of **Regions**, those of a similar colour first, and regions of
+number of **Regions** (0, the default, keeps one per 10,000 pixels of the
+traced area, at least 50 and at most 2,000), those of a similar colour first,
+and regions of
 different colours a drawn line separates last (the same colour either side of
 a line merges freely, since the line is drawn over it). The line pixels go to
 the regions either side, so neighbours

@@ -362,7 +362,16 @@ def test_cel_job_inserts_filled_regions_and_a_stroked_line():
     lines = [e for e in paths if e.get("fill") == "none"]
     assert lines
     assert all(e.get("stroke") for e in lines)
-    with pytest.raises(DocumentError, match="Regions must be at least 1"):
+    with pytest.raises(DocumentError, match="Regions must be at least 0"):
         method("generate", "cel").validate(
-            request(editor, Selection.all(), method="cel", settings={"regions": 0})
+            request(editor, Selection.all(), method="cel", settings={"regions": -1})
         )
+
+
+def test_cel_keeps_more_regions_in_a_larger_trace_by_default():
+    from vectrify.operations.methods.cel import auto_regions
+
+    assert auto_regions((200, 150)) == 50
+    assert auto_regions((1600, 1000)) == 160
+    assert auto_regions((3840, 2160)) == 829
+    assert auto_regions((20000, 20000)) == 2000
