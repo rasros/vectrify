@@ -67,7 +67,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   first. In a point tool the menu offers the point commands.
 - **Command palette** (Ctrl/⌘ K, or **Commands** in the top bar): type to find
   any command by name, group or a keyword (tools, actions, points, reference
-  tools, open, save, export, settings, view), with its shortcut. ↑ / ↓ choose,
+  tools, open, save, export, view), with its shortcut. ↑ / ↓ choose,
   Enter runs, Escape closes. A command that cannot run now shows why instead.
 - The footer shows the artboard size, the reference overlay toggle (`O`),
   with its opacity and an amber canvas border while it is visible, and zoom.
@@ -77,7 +77,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Reference panel picks the same three views.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
-reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges, Settings,
+reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges,
 Restore saved project and Keyboard shortcuts, each titled as the command that
 opens it. They open from the Reference panel, the Actions, the context menu or
 the palette.
@@ -464,13 +464,6 @@ endpoints stay fixed, and surviving points keep their identity. Colour is left
 to Fit colours. The job runs in the background with progress, Stop & keep
 best, and reference/before/after previews; the result lists the steps it
 took. Apply is one undoable edit.
-
-Generate's language model method draws the reference from scratch with a
-multimodal model. It needs an API key or a local server, set up under
-**Settings** in the top bar. A local server is any OpenAI-compatible
-endpoint, such as `http://localhost:11434/v1` for Ollama, with a model that
-accepts images. Settings also holds each provider's model and reasoning
-effort. The editor shows only the last four characters of a saved key.
 
 **Fit colours…** solves the flat fill colour of every selected object that
 best matches the reference, with geometry locked. Each object is rendered with

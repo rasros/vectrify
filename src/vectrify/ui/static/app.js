@@ -556,7 +556,6 @@ const COMMANDS = [
   {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
   {id: 'save', name: 'Save project', group: 'File', keys: 'Ctrl/⌘ S', keywords: 'download vectrify', run: () => download(true)},
   {id: 'export', name: 'Export SVG', group: 'File', keywords: 'download save', run: () => download(false)},
-  {id: 'settings', name: 'Settings…', group: 'File', keywords: 'api keys models', run: openSettings},
   {id: 'help', name: 'Keyboard shortcuts', group: 'Help', keys: '?', keywords: 'help keys', run: () => $('help-dialog').showModal()},
   {id: 'undo', name: 'Undo', label: () => state?.undo.length ? `Undo ${state.undo.at(-1).toLowerCase()}` : 'Undo', group: 'Edit', keys: 'Ctrl/⌘ Z', run: () => action('undo', {}, 'Undoing…'), disabled: () => !state.undo.length && 'Nothing to undo'},
   {id: 'redo', name: 'Redo', label: () => state?.redo.length ? `Redo ${state.redo[0].toLowerCase()}` : 'Redo', group: 'Edit', keys: 'Ctrl/⌘ Shift Z', run: () => action('redo', {}, 'Redoing…'), disabled: () => !state.redo.length && 'Nothing to redo'},
@@ -2127,55 +2126,7 @@ document.querySelectorAll('[data-lock]').forEach(box=>box.onchange=()=>{
   const item=oneObject(), locks=[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock);
   if(item)later(()=>object(item.id)&&action('locks',{object:item.id,locks}));
 });
-const KEY_PROVIDERS=['openai','anthropic','gemini','local'];
-const keyRemovals=new Set();
-const HOSTED=['openai','anthropic','gemini'];
-function showKeys({api_keys, local, models, defaults}){
-  keyRemovals.clear();
-  $('local-url').value=local.base_url;
-  $('local-model').value=local.model;
-  for(const name of HOSTED){
-    $(`model-${name}`).value=models[name].model;
-    $(`model-${name}`).placeholder=defaults.models[name];
-    $(`reasoning-${name}`).value=models[name].reasoning;
-    $(`reasoning-${name}`).options[0].textContent=`Default (${defaults.reasoning})`;
-  }
-  for(const name of KEY_PROVIDERS){
-    const tail=api_keys[name];
-    $(`key-${name}`).value='';
-    $(`key-${name}`).placeholder=tail?`Saved (…${tail}) · type to replace`:'Not set';
-    $(`key-${name}-remove`).hidden=!tail;
-  }
-}
-async function openSettings(){
-  try{
-    showKeys(await request('/api/settings'));
-    $('settings-error').hidden=true;
-    $('settings-dialog').showModal();
-  }catch(error){toast(error.message,true);}
-}
-$('settings-open').onclick=openSettings;
 $('palette-open').onclick=openPalette;
-document.querySelectorAll('[data-open-settings]').forEach(button=>button.onclick=openSettings);
-for(const name of KEY_PROVIDERS) $(`key-${name}-remove`).onclick=()=>{
-  keyRemovals.add(name);
-  $(`key-${name}`).value='';
-  $(`key-${name}`).placeholder='Removed when you save';
-  $(`key-${name}-remove`).hidden=true;
-};
-$('settings-save').onclick=async()=>{
-  const api_keys={};
-  for(const name of keyRemovals) api_keys[name]='';
-  for(const name of KEY_PROVIDERS){const key=$(`key-${name}`).value.trim(); if(key) api_keys[name]=key;}
-  const local={base_url:$('local-url').value.trim(), model:$('local-model').value.trim()};
-  const models=Object.fromEntries(HOSTED.map(name=>[name,{model:$(`model-${name}`).value.trim(), reasoning:$(`reasoning-${name}`).value}]));
-  try{
-    showKeys(await request('/api/settings',{api_keys, local, models}));
-    $('settings-dialog').close();
-    toast('Settings saved');
-  }catch(error){$('settings-error').textContent=error.message;$('settings-error').hidden=false;}
-};
-$('settings-close').onclick=()=>$('settings-dialog').close();
 $('help').onclick=()=>$('help-dialog').showModal();$('help-close').onclick=()=>$('help-dialog').close();
 // Keep a local copy of saved projects so a backend restart can restore this tab.
 function recoveryStore(mode, key, value) {
@@ -2489,8 +2440,6 @@ for (const [prefix, ids] of [['contact', ['contact-distance']]]) {
 const generateSettings = {
   samvg: () => ({max_layers:Number($('samvg-max-layers').value), max_side:Number($('samvg-max-side').value), model:$('samvg-model').value}),
   cel: () => ({regions:Number($('cel-regions').value), tolerance:Number($('cel-tolerance').value), line_width:Number($('cel-line-width').value), strokes:$('cel-strokes').checked}),
-  llm: () => ({provider:$('gen-llm-provider').value,
-    candidates:Number($('gen-llm-candidates').value), instruction:$('gen-llm-instruction').value}),
   'colour-regions': () => {
     const outlines = $('regions-outlines').value;
     return {colours:Number($('regions-colours').value), min_pixels:Number($('regions-min-pixels').value), tolerance:Number($('regions-tolerance').value),
@@ -2517,25 +2466,6 @@ async function openGenerate() {
   $('generate-scope').options[1].disabled = !group;
   showGenerateMethod(); generateDialog.open('');
 }
-
-// Improve dialogs that search or ask a model over the selection or drawing.
-function openOnScope(dialog, prefix) {
-  const count = state.selection.objects.length;
-  $(prefix+'-scope').value = count ? 'selection' : 'drawing';
-  $(prefix+'-scope').options[0].disabled = !count;
-  dialog.open(count ? selectionSummary() : 'Whole drawing');
-}
-const llmDialog = jobDialog('llm', {
-  start: () => ({action:'improve', method:'llm', scope:$('llm-scope').value,
-    permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},
-    settings:{instruction:$('llm-instruction').value, provider:$('llm-provider').value, candidates:Number($('llm-candidates').value)}}),
-  describe: ({changed, metrics: {edits, skipped, ...metrics}}) => {
-    const left = skipped ? ` · ${skipped} change(s) outside the scope were left out` : '';
-    return changed ? `${edits} edit(s) · reference error ${errorChange(metrics)}${left}. Apply keeps it as one undoable edit.` : `The reply changed nothing that is allowed${left}.`;
-  },
-  applied: 'LLM edit applied. Undo restores the previous drawing.',
-  choiceLabel: (result, index) => `Reply ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
-}).wire();
 
 // A dialog around one operation job: start, poll, stop, preview, choose, apply.
 // Elements are found by id as `${prefix}-name`; missing optional ones are skipped.

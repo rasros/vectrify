@@ -174,19 +174,12 @@ class Session:
             budget=Budget.parse(payload.get("budget")),
             reference=self.reference_image() if chosen.needs_reference else None,
             bounds=tuple(bounds) if isinstance(bounds, list) else bounds,
-            source_name=self.source_name(),
         )
 
     def _job_key(self, method: Method) -> tuple:
         """What a result depends on besides the revision the commit checks."""
         reference = self.reference["data_url"] if self.reference else None
         return (self.epoch, reference if method.needs_reference else None)
-
-    def source_name(self) -> str | None:
-        """The reference's file name, else the drawing's, unless a placeholder."""
-        names = [self.reference["name"] if self.reference else None, self.name]
-        generic = {"Reference", "Untitled.svg"}
-        return next((n for n in names if n and n not in generic), None)
 
     def reference_image(self) -> Image.Image | None:
         if not self.reference:
