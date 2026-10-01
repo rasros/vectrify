@@ -185,38 +185,42 @@ and saved projects restore it.
   deletes the selected points, a contour's start point included: the next
   point then starts the contour. A contour left with fewer than two points
   (three when closed) is deleted, and a path left without contours is deleted
-  too, so a stray speck can be removed point by point or at once with
-  **Delete contour**. Drag blue handles for curves; zoom in to reveal dense
-  points. **None**, **One** and **Two** handles turn the selected points into
-  corners, points curved on one side (again to switch sides), or smooth points
-  with their handles in line. The keys 1, 2 and 3 do the same. **Pin points**
-  keeps them in place (again to unpin); **Split edge** adds a point on the
-  edge leading into each selected point.
-  For drawn lines the strip also has **Break**, **Delete segment** and **Join
-  ends**. **Break** cuts a line at the selected points: an open line comes
-  apart there, each piece ending on its own copy of the point (both copies
-  stay selected, so a drag moves them together; click one to move it alone),
-  and a closed contour opens at the point. A line's ends are free already.
-  **Delete segment** takes out the segment between two selected neighbouring
-  points, splitting the line there (a closed contour opens); with more
-  points selected, every segment between two of them goes, and a piece left
-  as a lone point is dropped. **Join** joins any two selected points, in one
-  path or two, filled or not, into one line however far apart they are; a
-  point that is not a free end yet is broken there first: ends that meet become one point, others are bridged by a curve leaving
-  each end along its line. Two ends of one line close it. A small loop in a
-  line comes out by selecting the points on it and pressing Delete, which
-  reconnects the line past them, or by cutting it off with the knife.
-  Dragging a point moves every selected point by the same offset, each in its
-  own path's frame, and each takes both of its handles along, so the curve
-  keeps its shape around it; dragging a handle moves only that handle. Typing
-  a single point's coordinates does the same for it. Pinned points stay put,
-  and no other path moves. While dragging, the point or handle under the
-  pointer snaps to the points of every visible path (the other points of the
-  dragged paths included) and to the artboard's edges and corners, within 8
-  screen pixels at any zoom; an orange diamond marks the target and a dashed
-  line the edge. Hold Alt or Ctrl/⌘ to drag without snapping. Where a point
-  started is never a target.
-  When the selected points are all on holes, in one path or several,
+  too, so a stray speck can be removed point by point or at once with **Delete
+  contour**. A press takes the nearest point or handle within 10 screen
+  pixels, so a point need not be hit exactly; the one under the pointer is
+  drawn larger, with its handles. Drag blue handles for curves; a handle
+  shorter than 16 screen pixels is drawn that far out along its direction on a
+  dashed line, so it shows clear of its point, and a handle on its point
+  counts as none. Zoom in (up to 25600%) to reveal dense points. **None**,
+  **One** and **Two** handles turn the selected points into corners, points
+  curved on one side (again to switch sides), or smooth points with their
+  handles in line. The keys 1, 2 and 3 do the same. **Pin points** keeps them
+  in place (again to unpin); **Split edge** adds a point on the edge leading
+  into each selected point. For drawn lines the strip also has **Break**,
+  **Delete segment** and **Join ends**. **Break** cuts a line at the selected
+  points: an open line comes apart there, each piece ending on its own copy of
+  the point (both copies stay selected, so a drag moves them together; click
+  one to move it alone), and a closed contour opens at the point. A line's
+  ends are free already. **Delete segment** takes out the segment between two
+  selected neighbouring points, splitting the line there (a closed contour
+  opens); with more points selected, every segment between two of them goes,
+  and a piece left as a lone point is dropped. **Join** joins any two selected
+  points, in one path or two, filled or not, into one line however far apart
+  they are; a point that is not a free end yet is broken there first: ends
+  that meet become one point, others are bridged by a curve leaving each end
+  along its line. Two ends of one line close it. A small loop in a line comes
+  out by selecting the points on it and pressing Delete, which reconnects the
+  line past them, or by cutting it off with the knife. Dragging a point moves
+  every selected point by the same offset, each in its own path's frame, and
+  each takes both of its handles along, so the curve keeps its shape around
+  it; dragging a handle moves only that handle. Typing a single point's
+  coordinates does the same for it. Pinned points stay put, and no other path
+  moves. While dragging, the point or handle under the pointer snaps to the
+  points of every visible path (the other points of the dragged paths
+  included) and to the artboard's edges and corners, within 8 screen pixels at
+  any zoom; an orange diamond marks the target and a dashed line the edge.
+  Hold Alt or Ctrl/⌘ to drag without snapping. Where a point started is never
+  a target. When the selected points are all on holes, in one path or several,
   **Fill hole** removes those holes (and islands inside them) and **Hole to
   shape** moves them out into new paths, each with its path's paint, stacked
   just above it and selected afterwards, as one undoable edit. Islands inside
