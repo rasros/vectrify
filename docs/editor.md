@@ -189,6 +189,20 @@ and saved projects restore it.
   with their handles in line. The keys 1, 2 and 3 do the same. **Pin points**
   keeps them in place (again to unpin); **Split edge** adds a point on the
   edge leading into each selected point.
+  For drawn lines the strip also has **Break**, **Delete segment** and **Join
+  ends**. **Break** cuts a line at the selected points: an open line comes
+  apart there, each piece ending on its own copy of the point (both copies
+  stay selected, so a drag moves them together; click one to move it alone),
+  and a closed contour opens at the point. A line's ends are free already.
+  **Delete segment** takes out the segment between two selected neighbouring
+  points, splitting the line there (a closed contour opens); with more
+  points selected, every segment between two of them goes, and a piece left
+  as a lone point is dropped. **Join ends** joins the two selected free ends
+  of stroked lines, in one path or two, into one line however far apart they
+  are: ends that meet become one point, others are bridged by a curve leaving
+  each end along its line. Two ends of one line close it. A small loop in a
+  line comes out by selecting the points on it and pressing Delete, which
+  reconnects the line past them, or by cutting it off with the knife.
   Dragging a point moves every selected point by the same offset, each in its
   own path's frame, and each takes both of its handles along, so the curve
   keeps its shape around it; dragging a handle moves only that handle. Typing
@@ -253,6 +267,32 @@ and saved projects restore it.
   non-uniformly scaled strokes, and group-opacity cases where splitting would
   change unselected artwork. Degenerate clip intersections use a winding-aware
   fallback; its curve tolerance is 0.01 SVG units (straight edges stay exact).
+- **Join ends** (Actions) joins the open ends of the selected stroked lines
+  (paths with no fill, or the paths in selected groups) where one line carries
+  on from another: ends at most 12 screen pixels apart, so zooming out reaches
+  wider gaps, and in line with each other, the line turning at most 60°
+  across the gap and at each end. The nearest and straightest pairs go first,
+  each end once; ends at one spot pair however sharp the corner when they are
+  the only two there. A dashed outline becomes one line, and a ring of dashes
+  closes. Ends that meet become one point; a gap is bridged by a curve that
+  leaves each end along its line. The joined line lands in the frontmost of
+  its paths and keeps that path's paint; a path left without lines is
+  deleted, and the paths holding joined lines are selected. Side-by-side ends
+  of parallel lines do not join. **Join paths** on lines alone does the same,
+  since lines join at their ends rather than by area.
+- **Fill to line** (Actions) turns each selected thin filled shape, such as a
+  part of an outline that a trace drew as a fill, into a stroked line down
+  its middle: the shape is rasterised about 12 pixels across its thickness,
+  thinned to a centreline as the Cel art tracer does, and fitted with curves.
+  Lines meeting at a junction run on through it the straightest way. The
+  stroke width is the shape's thickness measured along the centreline, its
+  colour and opacity the fill's, with round caps and joins, so the stroke
+  covers about what the fill did. The path keeps its ID, place in the stack
+  and group; its points are new, so pinned points are refused. A shape about
+  as wide as it is long is not a line and is refused.
+  **Line to fill** does the reverse for stroked paths without a fill: each
+  becomes the filled shape its stroke paints, with its width, caps and joins,
+  in the stroke's colour.
 - **Split disconnected parts** separates selected drawing paths into independent
   geometries. Holes and touching/overlapping contours stay together; original
   curves and pins are preserved. A group retains styling,
@@ -274,11 +314,17 @@ and saved projects restore it.
   outer outline is recomputed as a curved boolean difference, which renumbers
   its points and so is refused for pinned points.
   Locks, shared geometry and instances of the outer path are refused.
-- The **Knife** tool (`K`) cuts selected filled paths, or the paths inside
+- The **Knife** tool (`K`) cuts selected paths, or the paths inside
   selected groups, along a straight line: drag across them and release. Shift
-  snaps the line to 15° steps. A path is cut only when the line runs through
-  it from outside to outside; a line that ends inside a shape or misses it
-  leaves it alone, and stroke-only paths are skipped. The cut runs along the
+  snaps the line to 15° steps. A stroked line without a fill comes apart
+  wherever the dragged line crosses it, each piece ending on its own copy of
+  the crossing, and a closed one opens up. The pieces on the side of the knife
+  with less of the cut lines become a new path just above, so cutting across
+  a loop in a line takes the loop away whole to be deleted; two cuts across
+  its neck do the same. Lines the knife misses stay where they are, and
+  **Join ends** joins pieces again. A filled path is cut only when the line
+  runs through it from outside to outside; a line that ends inside a shape or
+  misses it leaves it alone. The cut runs along the
   whole line through that path, so a line across one arm of a U also cuts the
   other arm if the line's extension reaches it. Each cut path becomes one path
   per side of the line (compound when that side has several parts, holes
@@ -482,7 +528,12 @@ used by both, so they meet exactly with no gap or overlap. Each region is
 coloured from its own pixels, not the lines'. The lines are thinned to
 centrelines and drawn over the regions as round-capped strokes, one path per
 line colour (two when some lines of a colour are much bolder), each at its
-lines' measured width; **Line width** fixes the width instead. With **Trace
+lines' measured width. Thinning's whiskers and the tiny loops it leaves round
+a pinhole where lines meet are dropped, the lines of one path run on through
+the junctions where they meet the straightest way rather than stopping
+there, and a gap of up to one and a half line widths between two lines that
+carry on from each other is bridged, so an outline comes out as a few long
+lines rather than many short ones; **Line width** fixes the width instead. With **Trace
 lines as strokes** off, or when most lines taper along their length, they are
 filled shapes. **Outline tolerance** is how far a traced edge or line may
 stray from the reference, in reference pixels. It runs on the CPU and needs

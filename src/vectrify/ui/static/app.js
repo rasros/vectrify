@@ -6,6 +6,7 @@ import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, instancePoints, 
 import {HeldGesture, inputQueue} from './input.js';
 import {overflowLayout} from './strip.js';
 import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
+import {breakable, freeEnd, segmentAmong} from './lines.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
@@ -458,6 +459,28 @@ const noSelection = () => !state?.selection.objects.length && 'Select objects fi
 const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (N) first');
 const visiblePaths = () => state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
 const noReference = () => !state.reference && 'Load a reference image first, under Reference below the objects';
+// Lines are paths that paint no fill; fills are paths that do.
+const filledPath = id => resolvedPaint(id, 'fill', 'black') !== 'none';
+const strokedPath = id => resolvedPaint(id, 'stroke', 'none') !== 'none';
+const linePaths = () => joinCandidates().filter(item => !filledPath(item.id) && strokedPath(item.id));
+const fillPaths = () => joinCandidates().filter(item => filledPath(item.id));
+const noLines = () => !linePaths().length && 'Select stroked lines (paths without a fill)';
+// How far apart, in screen pixels, two line ends may be for Join ends: zoom
+// out to join wider gaps.
+const JOIN_REACH = 12;
+// The selected points, by the contour they are on, for the line edits.
+function pointContours() {
+  const contours = new Map();
+  for (const key of selectedPoints()) {
+    const contour = contourAt(key);
+    if (!contour) continue;
+    const id = `${splitKey(key)[0]} ${contour.id}`;
+    if (!contours.has(id)) contours.set(id, {contour, ids: new Set()});
+    contours.get(id).ids.add(splitKey(key)[1]);
+  }
+  return [...contours.values()];
+}
+const twoEnds = () => selectedPoints().length === 2 && selectedPoints().every(key => freeEnd(contourAt(key), splitKey(key)[1]) && !filledPath(splitKey(key)[0]));
 const COMMANDS = [
   {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
   {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'N', keywords: 'edit points handles', run: () => setTool('nodes')},
@@ -498,6 +521,10 @@ const COMMANDS = [
   {id: 'ungroup', name: 'Ungroup', group: 'Actions', run: () => action('ungroup'),
     disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
   {id: 'join', name: 'Join paths…', group: 'Actions', keywords: 'merge union combine', run: openJoin, disabled: () => joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them'},
+  {id: 'join-ends', name: 'Join ends', group: 'Actions', keywords: 'connect merge dashed broken lines strokes gaps close', run: joinEnds, disabled: noLines},
+  {id: 'fill-to-line', name: 'Fill to line', group: 'Actions', keywords: 'centreline centerline stroke convert skeleton thin', run: () => action('fill_to_line', {}, 'Finding the centrelines…'),
+    disabled: () => !fillPaths().length && 'Select filled paths that are thin lines'},
+  {id: 'line-to-fill', name: 'Line to fill', group: 'Actions', keywords: 'outline stroke convert expand', run: () => action('line_to_fill', {}, 'Outlining strokes…'), disabled: noLines},
   {id: 'split-parts', name: 'Split parts', group: 'Actions', run: splitParts,
     disabled: () => noSelection() || (oneObject()?.tag === 'use' ? 'Detach this instance to an editable path first' : !visiblePaths() && 'Only visible paths can be split')},
   {id: 'cut-hole', name: 'Cut out as hole', group: 'Actions', run: cutHole,
@@ -530,6 +557,12 @@ const COMMANDS = [
     disabled: () => noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them')},
   {id: 'delete-contour', name: 'Delete contour', group: 'Points', run: () => action('delete_contour', {points: pointPairs()}, 'Deleting contours…'),
     disabled: () => noPoints() || (selectedPoints().some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it')},
+  {id: 'break-points', name: 'Break at point', group: 'Points', keywords: 'cut split disconnect open loop', run: () => action('break_points', {points: pointPairs()}, 'Breaking lines…'),
+    disabled: () => noPoints() || (!selectedPoints().some(key => breakable(contourAt(key), splitKey(key)[1])) && 'A line\'s ends are free already: pick a point between them, or on a closed contour')},
+  {id: 'delete-segment', name: 'Delete segment', group: 'Points', keywords: 'remove edge gap loop disconnect', run: () => action('delete_segment', {points: pointPairs()}, 'Deleting segments…'),
+    disabled: () => noPoints() || (!pointContours().some(({contour, ids}) => segmentAmong(contour, ids)) && 'Select the two points at the ends of the segment')},
+  {id: 'join-two-ends', name: 'Join two ends', group: 'Points', keywords: 'connect close gap merge lines', run: () => action('join_two_ends', {points: pointPairs()}, 'Joining ends…'),
+    disabled: () => noPoints() || (!twoEnds() && 'Select two free ends of stroked lines')},
   {id: 'fill-hole', name: 'Fill hole', group: 'Points', keywords: 'holes remove', run: fillPointHoles, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
   {id: 'hole-to-shape', name: 'Hole to shape', group: 'Points', keywords: 'holes shapes', run: pointHolesToShapes, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
 ];
@@ -1380,8 +1413,10 @@ function knifeEnd(event) {
 }
 async function cutWithKnife({start, end}) {
   if(!state.selection.objects.length){toast('Select the shapes to cut, then drag the knife across them.',true);return;}
-  if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y]},'Cutting…'))
-    toast(`Cut into ${state.selection.objects.length} pieces. They meet exactly along the cut; Join paths merges them again.`);
+  if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y]},'Cutting…')) {
+    const pieces = state.selection.objects.length, lines = state.selection.objects.every(id => !filledPath(id));
+    toast(lines ? `Cut the line${pieces > 1 ? ` into ${pieces} paths` : ' open'} where the knife crosses it; Join ends joins it again.` : `Cut into ${pieces} pieces. They meet exactly along the cut; Join paths merges them again.`);
+  }
 }
 // Redraw outline: the stroke, where its ends attach to a selected path's
 // outline and the stretch it will replace, all in the overlay's frame.
@@ -1874,6 +1909,8 @@ function joinCandidates() {
 function openJoin() {
   if (pending) return;
   const candidates = joinCandidates();
+  // Lines join at their ends, not by area.
+  if (candidates.length > 1 && linePaths().length === candidates.length) return joinEnds();
   if (candidates.length < 2) {
     toast('Select paths or groups containing at least two paths in total.',true); return;
   }
@@ -1925,6 +1962,10 @@ $('join-confirm').onclick = async () => {
     } else { $('join-error').textContent = $('toast-message').textContent; $('join-error').hidden = false; }
   } finally { $('join-confirm').disabled = false; $('join-cancel').disabled = false; }
 };
+async function joinEnds() {
+  const lines = linePaths().length;
+  if (await action('join_ends', {reach: JOIN_REACH / zoom}, 'Joining line ends…')) toast(`Joined the ends of ${plural(lines, 'line path')} that continue each other within ${JOIN_REACH} screen pixels; zoom out to reach wider gaps.`);
+}
 async function splitParts() {
   const before = state.selection.objects.length;
   if (await action('split_disconnected', {}, 'Splitting disconnected parts…')) {

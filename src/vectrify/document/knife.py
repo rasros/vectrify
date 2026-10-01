@@ -1,9 +1,10 @@
-"""Cut filled geometry along a straight line into two pieces that meet exactly."""
+"""Cut geometry along a straight line: filled regions into two pieces that
+meet exactly, stroked lines apart where the line crosses them."""
 
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import pairwise
 
 import numpy as np
@@ -278,3 +279,102 @@ def cut_geometry(
     if not crossed:
         return None
     return Cut(*geometries)
+
+
+def cut_strokes(
+    geometry: Geometry, start: Point, end: Point, second_id: str
+) -> Cut | None:
+    """Cut a stroked path's contours where the segment from *start* to *end*
+    crosses them.
+
+    Each crossed contour comes apart at the crossings, a closed one opening
+    up, and both pieces end on their own copy of the crossing point. The
+    pieces on the side of the line where less of the cut contours lies go to
+    a second geometry, so a loop cut across comes away whole; the rest, and
+    every contour the segment misses, stay. Untouched points keep their IDs.
+    """
+    if math.dist(start, end) == 0:
+        raise DocumentError("Drag a longer knife line")
+    scale = max(
+        1.0,
+        *(abs(v) for s in geometry.subpaths for n in s.nodes for v in n.values),
+        *map(abs, (*start, *end)),
+    )
+    line = _Line(start, end, 1e-9 * scale)
+    kept: list[Subpath] = []
+    pieces: list[tuple[list[PathNode], float]] = []
+    for subpath in geometry.subpaths:
+        nodes = list(subpath.nodes)
+        if subpath.closed:
+            # Open the contour at its start; its first and last pieces meet
+            # there again.
+            segments = list(nodes[1:])
+            if len(nodes) < 3 or segments[-1].endpoint != nodes[0].endpoint:
+                segments.append(PathNode(new_id("node"), "L", nodes[0].endpoint))
+            nodes = [nodes[0], *segments]
+        split = _cut_open(nodes, line)
+        if len(split) == 1:
+            kept.append(subpath)
+            continue
+        if subpath.closed:
+            first, last = split[0], split.pop()
+            split[0] = [*last, *first[1:]]
+        for piece in split:
+            pieces.append((piece, _side(piece, line)))
+    if not pieces:
+        return None
+    lengths = {1.0: 0.0, -1.0: 0.0}
+    for piece, side in pieces:
+        lengths[side] += sum(
+            math.dist(a.endpoint, b.endpoint) for a, b in pairwise(piece)
+        )
+    away = 1.0 if lengths[1.0] < lengths[-1.0] else -1.0
+
+    def contours(side: float) -> list[Subpath]:
+        return [
+            Subpath(new_id("subpath"), tuple(piece), False)
+            for piece, s in pieces
+            if s == side
+        ]
+
+    second = contours(away)
+    first = [*kept, *contours(-away)]
+    return Cut(
+        replace(geometry, subpaths=tuple(first)), Geometry(second_id, tuple(second))
+    )
+
+
+def _cut_open(nodes: list[PathNode], line: _Line) -> list[list[PathNode]]:
+    """An open contour's pieces between the places the knife segment
+    crosses it."""
+    pieces = [[nodes[0]]]
+    for node in nodes[1:]:
+        start = pieces[-1][-1].endpoint
+        controls = tuple(
+            (node.values[i], node.values[i + 1])
+            for i in range(0, len(node.values) - 2, 2)
+        )
+        points = (start, *controls, node.endpoint)
+        previous = 0.0
+        for t in _crossings(line, start, (controls, node.endpoint)):
+            head, tail = subdivide(points, (t - previous) / (1 - previous))
+            if not 0 <= line.along(head[-1]) <= line.length:
+                continue
+            values = tuple(v for p in head[1:] for v in p)
+            pieces[-1].append(PathNode(new_id("node"), node.command, values))
+            pieces.append([PathNode(new_id("node"), "M", head[-1])])
+            points, previous = tail, t
+        values = tuple(v for p in points[1:] for v in p)
+        pieces[-1].append(replace(node, values=values))
+    return pieces
+
+
+def _side(piece: list[PathNode], line: _Line) -> float:
+    """Which side of the line a piece lies on, next to its cut end."""
+    if abs(line.off(piece[0].endpoint)) <= line.tolerance:
+        before, node = piece[0], piece[1]
+    else:
+        before, node = piece[-2], piece[-1]
+    points = (before.endpoint, *zip(node.values[::2], node.values[1::2], strict=True))
+    middle = subdivide(points, 0.5)[0][-1]
+    return 1.0 if line.off(middle) > 0 else -1.0

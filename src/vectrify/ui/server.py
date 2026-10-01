@@ -177,6 +177,7 @@ class Handler(BaseHTTPRequestHandler):
             "/input.js": "input.js",
             "/strip.js": "strip.js",
             "/resize.js": "resize.js",
+            "/lines.js": "lines.js",
             "/style.css": "style.css",
             "/favicon.svg": "favicon.svg",
         }
