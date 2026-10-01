@@ -22,6 +22,13 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 
 ## Layout
 
+- **Top bar**: the name, the drawing's title and the file actions
+  (**Commands**, **Open…**, **Restore saved…**, **Save project**, **Export
+  SVG**). It keeps to one row at any width down to a phone's: the badge, the
+  Ctrl K hint and then the title make room first, and the actions that still
+  do not fit move into a **⋯** menu at its end, the least important first
+  (**Restore saved…**, then **Open…**, then **Save project**), so
+  **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`V`) and
   **Knife** (`K`), the point tools **Nodes** (`N`) and **Redraw outline**
