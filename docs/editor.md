@@ -103,7 +103,32 @@ all of them as one undoable edit.
   object, to select what lies wholly inside the box: objects at the entered
   group's level in an object tool, points of the selected paths in a point
   tool. Shift toggles what the box finds. In Select, dragging a selected
-  object moves the selection instead.
+  object, or empty canvas inside the selection's frame, moves the selection
+  instead.
+- **Resize** in Select works like resizing a window. The selection's frame is
+  the bounding box of the selected objects on the page, with small ticks at
+  its corners; the tool strip gives its size. Within 6 screen pixels of an
+  edge the cursor shows ↔ or ↕, and dragging resizes along that axis only; at
+  a corner it shows a diagonal arrow and resizes both. Inside the frame it
+  shows the move cursor (over an unselected object, which a press picks
+  instead, the plain one). Shift keeps the aspect ratio (at an edge, about the
+  middle of the other axis), Alt resizes from the centre, and the dragged
+  edge or corner snaps to other objects' bounds and the artboard's edges
+  within 8 screen pixels; hold Ctrl/⌘ to drag without snapping. The canvas
+  previews the new size, the tool strip shows it as W × H, and releasing
+  applies it as one undoable **Resize**; Escape cancels. Each object keeps its
+  geometry: the scale is composed onto its own `transform`, in its parent
+  group's frame, so an object inside a rotated or scaled group resizes on the
+  page exactly as the frame shows, and a selected group takes its selected
+  children along once. Strokes keep their width: the stroke widths in a
+  resized object are divided by the scale's mean (√(sx·sy)), written on the
+  object where it inherited one, except where paint is locked. SVG strokes
+  follow their transform, so a non-uniform resize still makes a stroke a
+  little wider along the stretched axis, and resizing an object in a rotated
+  frame along one page axis skews it; the editor does not use
+  `vector-effect`, which exporters and renderers do not all support. Locked
+  position or geometry refuses the resize, and the cursor over the frame says
+  so before you drag.
 - In a point tool, the points of every selected path show, and those of
   every path inside a selected group, however deep; box select and the point
   commands span all of them. Selected instances (`use`) have no points of
@@ -148,8 +173,8 @@ and saved projects restore it.
   group swatches preview their contents. The right panel shows effective hex
   colors and names the parent they come from. No-paint and mixed selections
   have distinct indicators. Editing inherited paint sets an object override.
-- Fill/stroke/opacity, selected-object dragging and numeric offsets
-  (**Move by**).
+- Fill/stroke/opacity, dragging and resizing the selected objects, and
+  numeric offsets (**Move by**).
 - **Nodes (N)** edits the points of every selected path. Delete/Backspace
   deletes the selected points, a contour's start point included: the next
   point then starts the contour. A contour left with fewer than two points

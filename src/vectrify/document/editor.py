@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import re
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
@@ -67,6 +68,20 @@ INITIAL_PAINT = {
     "stroke-linejoin": "miter",
     "stroke-miterlimit": "4",
 }
+
+# A stroke width in user units, as resizing can divide it.
+LENGTH = re.compile(r"\s*([-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?)(?:px)?\s*")
+
+
+def _transform_text(matrix: tuple[float, ...]) -> str | None:
+    """*matrix* as a translate and a scale where it is one, else as a matrix."""
+    a, b, c, d, e, f = (round(v, 12) + 0.0 for v in matrix)
+    if b or c:
+        return f"matrix({' '.join(f'{v:.12g}' for v in (a, b, c, d, e, f))})"
+    parts = [f"translate({e:.12g} {f:.12g})"] if e or f else []
+    if (a, d) != (1, 1):
+        parts.append(f"scale({a:.12g} {d:.12g})")
+    return " ".join(parts) or None
 
 
 def _on_chord(
@@ -1872,6 +1887,110 @@ class Transaction:
             )
             # Groups that now contain the objects, and their instances, change too.
             self._authorize(self._working.dependents(moved_ids), EditKind.STRUCTURE)
+
+    def scale_objects(
+        self,
+        object_ids: frozenset[str],
+        anchor: tuple[float, float],
+        scale: tuple[float, float],
+    ) -> None:
+        """Scale objects by *scale* about *anchor*, both in root user space.
+
+        Each object's geometry stays as it is: the scale is composed onto its
+        own transform, in its parent's frame, so it lands where the scale puts
+        it whatever transforms its groups have. A selected object inside
+        another selected one scales with it, once. Strokes keep their width:
+        stroke widths in the scaled objects are divided by the scale's mean,
+        except where paint is locked. A non-uniform scale still stretches a
+        stroke along its longer axis, as SVG strokes follow their transform.
+        Locked position or geometry refuses the edit.
+        """
+        sx, sy = scale
+        if not all(math.isfinite(v) for v in (*anchor, sx, sy)) or min(sx, sy) <= 0:
+            raise EditRejectedError("Resize needs a positive, finite scale")
+        document = self._working
+        if not object_ids:
+            raise EditRejectedError("Choose objects to resize")
+        if document.root.id in object_ids:
+            raise EditRejectedError("Cannot resize the document root")
+        ax, ay = anchor
+        page = (sx, 0.0, 0.0, sy, ax - sx * ax, ay - sy * ay)
+        changes: list[tuple[str, dict[str, str | None]]] = []
+        for object_id in sorted(object_ids):
+            ancestry = document.ancestry(object_id)
+            if any(a.id in object_ids for a in ancestry[:-1]):
+                continue
+            if any(a.tag in {"defs", "clipPath"} for a in ancestry):
+                raise EditRejectedError(
+                    "Definitions and clipping boundaries cannot be resized"
+                )
+            for kind, name in (
+                (EditKind.TRANSFORM, "position"),
+                (EditKind.GEOMETRY, "geometry"),
+            ):
+                if any(kind in a.locks for a in ancestry):
+                    raise EditRejectedError(
+                        f"{object_id}: {name} is locked; unlock it to resize"
+                    )
+            frame = IDENTITY
+            for ancestor in ancestry[:-1]:
+                frame = multiply(frame, transform(ancestor.get("transform")))
+            local = multiply(inverse_matrix(frame), multiply(page, frame))
+            element = ancestry[-1]
+            changes.append(
+                (
+                    object_id,
+                    {
+                        "transform": _transform_text(
+                            multiply(local, transform(element.get("transform")))
+                        )
+                    },
+                )
+            )
+            changes.extend(self._stroke_widths(ancestry, math.sqrt(sx * sy)))
+        for object_id, attributes in changes:
+            self.set_attributes(object_id, attributes)
+
+    def _stroke_widths(
+        self, ancestry: tuple[Element, ...], factor: float
+    ) -> list[tuple[str, dict[str, str | None]]]:
+        """Stroke widths that keep the strokes of a scaled object as wide.
+
+        The object takes its effective width and its descendants their own;
+        nothing changes unless something in it paints a stroke.
+        """
+        element = ancestry[-1]
+        stroke, width = INITIAL_PAINT["stroke"], INITIAL_PAINT["stroke-width"]
+        for ancestor in ancestry:
+            stroke = ancestor.get("stroke", stroke) or stroke
+            width = ancestor.get("stroke-width", width) or width
+        stroked = stroke != "none"
+        widths: dict[str, str] = {element.id: width}
+
+        def walk(item: Element, painted: str) -> None:
+            nonlocal stroked
+            painted = item.get("stroke", painted) or painted
+            stroked = stroked or painted != "none"
+            for child in item.children:
+                if child.get("stroke-width"):
+                    widths[child.id] = str(child.get("stroke-width"))
+                walk(child, painted)
+
+        walk(element, stroke)
+        if not stroked:
+            return []
+        found: list[tuple[str, dict[str, str | None]]] = []
+        for object_id, value in widths.items():
+            match = LENGTH.fullmatch(value)
+            locked = any(
+                EditKind.PAINT in a.locks or "stroke-width" in a.locks
+                for a in self._working.ancestry(object_id)
+            )
+            if match and not locked:
+                found.append(
+                    (object_id, {"stroke-width": f"{float(match[1]) / factor:.6g}"})
+                )
+        return found
 
     def _carry_context(
         self,

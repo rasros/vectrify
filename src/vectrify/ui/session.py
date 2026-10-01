@@ -630,6 +630,7 @@ class Session:
             {
                 "paint": "Change paint",
                 "move": "Move selection",
+                "resize": "Resize",
                 "group": "Group objects",
                 "ungroup": "Ungroup objects",
                 "delete": "Delete selection",
@@ -667,6 +668,12 @@ class Session:
                     previous = document.element(oid).get("transform", "") or ""
                     transform = f"translate({move_x} {move_y}) {previous}".strip()
                     tx.set_attributes(oid, {"transform": transform})
+            elif command == "resize":
+                anchor = tuple(number(v) for v in payload["anchor"])
+                scale = tuple(number(v) for v in payload["scale"])
+                if len(anchor) != 2 or len(scale) != 2:
+                    raise DocumentError("A resize needs an anchor and two scales")
+                tx.scale_objects(selected, (anchor[0], anchor[1]), (scale[0], scale[1]))
             elif command == "group":
                 group_id = tx.group_objects(selected)
             elif command == "ungroup":
