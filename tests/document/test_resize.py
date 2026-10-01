@@ -28,7 +28,9 @@ def resize(editor, ids, anchor, scale):
 
 
 def bounds(editor, *ids):
-    return HitIndex(editor.snapshot.document).bounds(frozenset(ids))
+    box = HitIndex(editor.snapshot.document).bounds(frozenset(ids))
+    assert box is not None
+    return box
 
 
 def scaled(box, anchor, scale):
