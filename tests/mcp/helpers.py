@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import json
+import socket
 from typing import Any
 
 import numpy as np
@@ -61,3 +62,10 @@ def png_size(png: bytes) -> tuple[int, int]:
 
     with Image.open(BytesIO(png)) as image:
         return image.size
+
+
+def free_port() -> int:
+    """A port nothing listens on now, so tests never take a running editor's."""
+    with socket.socket() as sock:
+        sock.bind(("127.0.0.1", 0))
+        return sock.getsockname()[1]

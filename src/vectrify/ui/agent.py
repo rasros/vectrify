@@ -1394,11 +1394,55 @@ class Agent:
 
 # The live channel ------------------------------------------------------
 
+# Where the editor hosts the MCP server while a window allows agents, and how
+# many ports after it to try when it is taken.
+MCP_PORT = 8770
+MCP_PORTS = 20
+OFF = (
+    "Agent editing is off in this editor. Turn on 'Allow agents to edit' "
+    "('Agents') in its footer."
+)
+
+
+def state_dir() -> Path:
+    """Where the editor keeps what agents need to find it."""
+    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
+    return Path(state) / "vectrify"
+
 
 def discovery_file() -> Path:
     """Where a running editor tells agents how to reach it."""
-    state = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local" / "state")
-    return Path(state) / "vectrify" / "editor.json"
+    return state_dir() / "editor.json"
+
+
+def token_file() -> Path:
+    """The agent token, kept across runs so a client is added only once."""
+    return state_dir() / "agent-token"
+
+
+def _write_private(path: Path, text: str) -> None:
+    """Write *path* owner-only (0600 in a 0700 directory), atomically."""
+    path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+    temporary = path.with_suffix(".tmp")
+    with contextlib.suppress(FileNotFoundError):
+        temporary.unlink()
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w") as file:
+        file.write(text)
+    temporary.replace(path)
+
+
+def agent_token(regenerate: bool = False) -> str:
+    """The stable agent token: read, or made once (or anew) and kept."""
+    path = token_file()
+    if not regenerate:
+        with contextlib.suppress(OSError, UnicodeDecodeError):
+            token = path.read_text().strip()
+            if len(token) >= 32:
+                return token
+    token = secrets.token_urlsafe(32)
+    _write_private(path, token + "\n")
+    return token
 
 
 def local_host(headers: Any, port: int) -> bool:
@@ -1406,24 +1450,38 @@ def local_host(headers: Any, port: int) -> bool:
     return headers.get("Host", "") in {f"127.0.0.1:{port}", f"localhost:{port}"}
 
 
+def claude_command(url: str, token: str) -> str:
+    """The Claude Code command that adds the editor's MCP server."""
+    return (
+        f"claude mcp add --transport http --scope user vectrify {url} "
+        f'--header "Authorization: Bearer {token}"'
+    )
+
+
 class AgentChannel:
     """One window's door for agents: HTTP on localhost, with a token.
 
-    Off until the window allows agents to edit. In ``--serve`` mode the
-    editor's own server carries it (*url* is that server's); in the desktop
-    app it opens a port of its own when allowed.
+    Off until the window allows agents to edit. Then the editor hosts the MCP
+    server itself (Streamable HTTP at ``/mcp`` on *mcp_port*, or the next
+    free port), and keeps the JSON channel ``vectrify-mcp``'s ``connect()``
+    uses: in ``--serve`` mode the editor's own server carries it (*url* is
+    that server's); in the desktop app it opens a port of its own.
     """
 
-    def __init__(self, backend):
+    def __init__(self, backend, mcp_port: int = MCP_PORT):
         self.backend = backend
         self.url: str | None = None
+        self.mcp_port = mcp_port
+        self.mcp_url: str | None = None
+        self.mcp_error: str | None = None
         self.session_id: str | None = None
         self.token: str | None = None
         self.agent: Agent | None = None
         self._server: ThreadingHTTPServer | None = None
+        self._hosted: Any = None
         self._images: OrderedDict[str, bytes] = OrderedDict()
         self._lock = threading.Lock()
-        atexit.register(self._forget)
+        atexit.register(self.close)
 
     def status(self, session_id: str | None) -> dict[str, Any]:
         enabled = session_id is not None and session_id == self.session_id
@@ -1431,23 +1489,31 @@ class AgentChannel:
         connected = bool(
             agent and agent.last_time and time.monotonic() - agent.last_time < CONNECTED
         )
-        return {
+        result: dict[str, Any] = {
             "enabled": enabled,
             "connected": connected,
             "last_action": agent.last_action if agent else None,
             "changes": agent.changes if agent else 0,
         }
+        if enabled and self.token is not None:
+            if self.mcp_url is not None:
+                result["mcp"] = {
+                    "url": self.mcp_url,
+                    "command": claude_command(self.mcp_url, self.token),
+                }
+            elif self.mcp_error is not None:
+                result["mcp_error"] = self.mcp_error
+        return result
 
     def enable(self, session_id: str) -> dict[str, Any]:
         session = self.backend.sessions[session_id]
         with self._lock:
-            # One window of this editor at a time; allowing it again keeps
-            # the token an agent may already hold.
-            if self.session_id != session_id or self.token is None:
+            # One window of this editor at a time.
+            if self.session_id != session_id or self.agent is None:
                 self._forget()
                 self.agent = Agent(session)
                 self.session_id = session_id
-                self.token = secrets.token_urlsafe(32)
+            self.token = agent_token()
             url = self.url
             if url is None:
                 if self._server is None:
@@ -1458,7 +1524,44 @@ class AgentChannel:
                         name="vectrify-agents",
                     ).start()
                 url = f"http://127.0.0.1:{self._server.server_port}"
+            self._host()
             self._write(url, self.token)
+        return self.status(session_id)
+
+    def _host(self) -> None:
+        """Serve MCP over HTTP from this editor, if the SDK is installed."""
+        if self._hosted is not None:
+            return
+        try:
+            from vectrify.mcp.hosted import HostedMCP
+        except ImportError:
+            self.mcp_error = (
+                "Install vectrify[mcp] to host the MCP server in the editor; "
+                "vectrify-mcp can still connect()."
+            )
+            return
+        hosted = HostedMCP(self)
+        try:
+            self.mcp_url = hosted.start(self.mcp_port, MCP_PORTS)
+        except OSError as exc:
+            self.mcp_error = f"Could not host the MCP server: {exc}"
+            return
+        self._hosted, self.mcp_error = hosted, None
+
+    def regenerate(self, session_id: str) -> dict[str, Any]:
+        """Make a new token; clients holding the old one are refused."""
+        with self._lock:
+            self._forget()
+            token = agent_token(regenerate=True)
+            if self.token is not None:
+                self.token = token
+                url = self.url or (
+                    f"http://127.0.0.1:{self._server.server_port}"
+                    if self._server is not None
+                    else None
+                )
+                if url is not None:
+                    self._write(url, token)
         return self.status(session_id)
 
     def disable(self, session_id: str) -> dict[str, Any]:
@@ -1466,6 +1569,7 @@ class AgentChannel:
             if self.session_id == session_id:
                 self._forget()
                 self.session_id = self.token = self.agent = None
+                self._unhost()
                 if self._server is not None:
                     server, self._server = self._server, None
 
@@ -1476,22 +1580,27 @@ class AgentChannel:
                     threading.Thread(target=close, daemon=True).start()
         return self.status(session_id)
 
+    def _unhost(self) -> None:
+        hosted, self._hosted, self.mcp_url = self._hosted, None, None
+        if hosted is not None:
+            hosted.stop()
+
+    def close(self) -> None:
+        """At quit: forget the discovery file and stop hosting MCP."""
+        self._forget()
+        self._unhost()
+
     def _write(self, url: str, token: str) -> None:
-        path = discovery_file()
-        path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
-        temporary = path.with_suffix(".tmp")
-        with contextlib.suppress(FileNotFoundError):
-            temporary.unlink()
-        descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        with os.fdopen(descriptor, "w") as file:
-            json.dump({"url": url, "token": token, "pid": os.getpid()}, file)
-        temporary.replace(path)
+        info = {"url": url, "token": token, "pid": os.getpid()}
+        if self.mcp_url is not None:
+            info["mcp"] = self.mcp_url
+        _write_private(discovery_file(), json.dumps(info))
 
     def _forget(self) -> None:
-        """Remove the discovery file, if it still names this window."""
+        """Remove the discovery file, if it still names this editor."""
         path = discovery_file()
         with contextlib.suppress(OSError, ValueError):
-            if json.loads(path.read_text()).get("token") == self.token:
+            if json.loads(path.read_text()).get("pid") == os.getpid():
                 path.unlink()
 
     def http(self, method: str, path: str, headers: Any, body: bytes) -> tuple:
@@ -1503,11 +1612,7 @@ class AgentChannel:
         token = self.token
         given = headers.get("Authorization", "")
         if token is None or self.agent is None:
-            return error(
-                403,
-                "Agent editing is off in this editor. Turn on 'Allow agents to "
-                "edit' in its footer.",
-            )
+            return error(403, OFF)
         if not hmac.compare_digest(given.encode(), f"Bearer {token}".encode()):
             return error(401, "Wrong agent token; read editor.json again")
         agent = self.agent

@@ -545,16 +545,28 @@ function pointContours() {
   return [...contours.values()];
 }
 const twoEnds = () => selectedPoints().length === 2;
-// Agents (an MCP client running vectrify-mcp) may edit this drawing once the
-// footer allows them. Their edits land in this session, so while allowed the
-// page polls for them, redraws, and says in the footer what the agent did.
+// Agents (an MCP client) may edit this drawing once the footer allows them.
+// The editor then hosts the MCP server itself; the footer's popover shows its
+// URL and the command that adds it to Claude Code. Agents' edits land in this
+// session, so while allowed the page polls for them, redraws, and says in the
+// footer what the agent did.
 let agentStatus = {enabled: false, connected: false, last_action: null, changes: 0}, agentSeen = 0, agentPoll = null;
 function showAgent() {
   const s = agentStatus, button = $('agent-toggle');
   button.setAttribute('aria-pressed', String(s.enabled));
   button.classList.toggle('connected', s.enabled && s.connected);
-  $('agent-status').textContent = !s.enabled ? 'Agents off' : s.connected ? `Agent connected${s.last_action ? ' · ' + s.last_action.replace(/^Agent: /, '') : ''}` : 'Agents allowed';
-  button.title = s.enabled ? 'Agents may edit this drawing; click to stop them' : 'Allow agents to edit this drawing';
+  const text = !s.enabled ? 'Agents off' : s.connected ? `Agent connected${s.last_action ? ' · ' + s.last_action.replace(/^Agent: /, '') : ''}` : 'Agents allowed';
+  $('agent-status').textContent = text;
+  button.title = s.enabled ? 'Agents may edit this drawing: the MCP server and how to add it' : 'Allow agents to edit this drawing';
+  $('agent-enabled').checked = s.enabled;
+  $('agent-popover-status').textContent = !s.enabled ? 'Turn this on to let an MCP client such as Claude Code look at and edit this drawing. Each edit shows here and is one undo step.' : text + '.';
+  $('agent-mcp').hidden = !(s.enabled && s.mcp);
+  const url = s.mcp?.url || '', command = s.mcp?.command || '';
+  // Keep a selection the person is making.
+  if ($('agent-url').value !== url) $('agent-url').value = url;
+  if ($('agent-command').value !== command) $('agent-command').value = command;
+  $('agent-mcp-error').hidden = !(s.enabled && s.mcp_error);
+  $('agent-mcp-error').textContent = s.mcp_error || '';
 }
 async function pollAgent() {
   clearTimeout(agentPoll);
@@ -579,14 +591,46 @@ async function pollAgent() {
   } catch { /* The next poll tries again. */ }
   if (agentStatus.enabled) agentPoll = setTimeout(pollAgent, 700);
 }
-async function toggleAgents() {
+async function setAgents(body) {
   try {
-    agentStatus = await request('/api/agent', {enabled: !agentStatus.enabled});
+    agentStatus = await request('/api/agent', body);
     agentSeen = agentStatus.changes; showAgent();
-    if (agentStatus.enabled) { toast('Agents may now edit this drawing. An agent running vectrify-mcp finds this window by itself.'); pollAgent(); }
+    if (agentStatus.enabled) pollAgent();
   } catch (error) { toast(error.message, true); }
 }
-$('agent-toggle').onclick = () => toggleAgents();
+async function toggleAgents() {
+  await setAgents({enabled: !agentStatus.enabled});
+  if (agentStatus.enabled) openAgentPopover();
+}
+function openAgentPopover() {
+  const popover = $('agent-popover'), rect = $('agent-toggle').getBoundingClientRect();
+  popover.hidden = false;
+  $('agent-toggle').setAttribute('aria-expanded', 'true');
+  const width = popover.offsetWidth;
+  popover.style.left = `${Math.max(16, Math.min(window.innerWidth - width - 16, rect.right - width))}px`;
+  popover.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+  $(agentStatus.enabled && agentStatus.mcp ? 'agent-copy' : 'agent-enabled').focus();
+}
+function closeAgentPopover() {
+  $('agent-popover').hidden = true;
+  $('agent-toggle').setAttribute('aria-expanded', 'false');
+}
+$('agent-toggle').onclick = async () => {
+  if (!$('agent-popover').hidden) { closeAgentPopover(); return; }
+  if (!agentStatus.enabled) await setAgents({enabled: true});
+  openAgentPopover();
+};
+$('agent-enabled').onchange = () => setAgents({enabled: $('agent-enabled').checked});
+$('agent-copy').onclick = async () => {
+  const field = $('agent-command');
+  try { await navigator.clipboard.writeText(field.value); }
+  catch { field.select(); document.execCommand('copy'); }
+  toast('Copied. Run it in a terminal once; Claude Code then reaches this window whenever Agents is on.');
+};
+$('agent-regenerate').onclick = () => setAgents({regenerate: true}).then(() => toast('New token. Clients added with the old one are refused: copy the command again.'));
+for (const id of ['agent-url', 'agent-command']) $(id).onfocus = () => $(id).select();
+$('agent-popover').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAgentPopover(); $('agent-toggle').focus(); } });
+document.addEventListener('pointerdown', event => { if (!$('agent-popover').hidden && !event.target.closest('#agent-popover, #agent-toggle')) closeAgentPopover(); });
 const COMMANDS = [
   {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
   {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'A', keywords: 'edit points handles', run: () => setTool('nodes')},

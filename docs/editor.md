@@ -77,10 +77,16 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   between them; `Shift+W` always goes straight back to the drawing. The
   Reference panel picks the same three views.
 - The footer's **Agents** toggle (also *Allow agents to edit* in the command
-  palette) lets an agent edit this window's drawing through `vectrify-mcp`
-  ([the MCP server](mcp.md)). While it is on, the agent's edits appear as it
-  makes them and land in the undo history labelled "Agent: …", and the
-  footer reads *Agent connected* with the agent's last action.
+  palette) lets an agent edit this window's drawing ([the MCP server](mcp.md)).
+  Turning it on makes the editor host the MCP server at
+  `http://127.0.0.1:8770/mcp` (or the next free port; `--mcp-port` picks
+  another) and opens a popover with that URL, the `claude mcp add` command
+  that adds it to Claude Code (Copy), and *Regenerate token*. Clicking the
+  footer button again opens or closes the popover; its checkbox turns agents
+  off, which stops the server. `vectrify-mcp`'s `connect()` reaches the
+  window too. While it is on, the agent's edits appear as it makes them and
+  land in the undo history labelled "Agent: …", and the footer reads *Agent
+  connected* with the agent's last action.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
 reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges,

@@ -1,6 +1,6 @@
 """How an agent works with Vectrify: the server's instructions and its guide."""
 
-INSTRUCTIONS = """\
+_LOOP = """\
 Vectrify edits SVG drawings, usually traced from a reference image. Work in a
 loop: describe() the drawing, look with render() (overlay="side" to set it
 beside the reference) and compare() (error and a heat map of where it
@@ -8,10 +8,24 @@ differs), make one edit, render or compare again, and undo() an edit that
 made it worse. Every edit is one undo step labelled "Agent: ..." in the
 editor's history. Ids are object ids from describe(); points are
 [object id, node id] pairs from points(). If an edit is refused because the
-drawing changed, describe() again: someone else edited it. open(path) edits
+drawing changed, describe() again: someone else edited it."""
+
+INSTRUCTIONS = (
+    _LOOP
+    + """ open(path) edits
 a file headlessly; with the editor running and "Agents" allowed in its
 footer, the server attaches to that window (or call connect()). Read the
 vectrify://guide resource for the details."""
+)
+
+# The server the editor hosts: always on the window that allows agents.
+WINDOW_INSTRUCTIONS = (
+    _LOOP
+    + """ This server is the
+editor itself: every tool works on the drawing in the window that allows
+agents, and the person sees each edit as you make it. Read the
+vectrify://guide resource for the details."""
+)
 
 GUIDE = """\
 # Working on a drawing with Vectrify
@@ -24,9 +38,12 @@ GUIDE = """\
   `save(path)` or `export_svg(path)` write elsewhere.
 - **The editor window.** When the person has the editor open and has turned
   on *Agents* in its footer, the server attaches to that window by itself
-  (or call `connect()`). Every edit shows in the window as you make it and
-  lands in its undo history. Selecting there selects for the person too.
-- Both have the same tools. `describe()` says which one you are on.
+  (or call `connect()`). The editor also hosts this server itself, at the
+  URL its Agents popover shows; a client added there is always on that
+  window, and has no `open` or `connect`. Every edit shows in the window
+  as you make it and lands in its undo history. Selecting there selects for
+  the person too.
+- Both have the same drawing tools. `describe()` says which one you are on.
 
 ## The loop
 

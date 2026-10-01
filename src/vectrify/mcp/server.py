@@ -2,6 +2,9 @@
 
 Every tool is a thin wrapper over one ``vectrify.ui.agent.Agent`` call, so a
 file opened here and the drawing in a running editor window answer alike.
+``register_tools`` adds them to a server against one ``Vectrify`` state: the
+stdio server's (``build_server``, which can also open files and connect), or
+the one the editor hosts over HTTP on its window (``build_window_server``).
 The server remembers the revision the agent last saw and sends it with each
 edit; the session refuses an edit of a drawing that changed since.
 """
@@ -20,13 +23,16 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
 
-from vectrify.mcp.guide import GUIDE, INSTRUCTIONS
+from vectrify.mcp.guide import GUIDE, INSTRUCTIONS, WINDOW_INSTRUCTIONS
 from vectrify.mcp.target import (
     FileTarget,
     LiveTarget,
     TargetError,
+    WindowTarget,
     read_discovery,
 )
+
+Target = FileTarget | LiveTarget | WindowTarget
 
 Point = list[str]
 Region = list[float]
@@ -40,11 +46,11 @@ NO_TARGET = (
 class Vectrify:
     """The server's one target and the revision the agent last saw there."""
 
-    def __init__(self) -> None:
-        self.target: FileTarget | LiveTarget | None = None
+    def __init__(self, target: Target | None = None) -> None:
+        self.target: Target | None = target
         self.seen: list | None = None
 
-    def require(self) -> FileTarget | LiveTarget:
+    def require(self) -> Target:
         if self.target is None:
             # A running editor that allows agents is the default target.
             found = read_discovery()
@@ -57,7 +63,7 @@ class Vectrify:
         assert self.target is not None
         return self.target
 
-    def attach(self, target: FileTarget | LiveTarget) -> dict[str, Any]:
+    def attach(self, target: Target) -> dict[str, Any]:
         reply = target.call("hello", {})
         self.target = target
         self.seen = [reply.data["epoch"], reply.data["revision"]]
@@ -99,17 +105,10 @@ def result(
 
 
 def build_server(state: Vectrify | None = None) -> MCPServer:
+    """The stdio server: a file it opens, or a running editor's window."""
     state = state or Vectrify()
     server = MCPServer("vectrify", instructions=INSTRUCTIONS)
     tool = server.tool
-    look = server.tool(annotations=LOOK, structured_output=False)
-
-    @server.resource("vectrify://guide", mime_type="text/markdown")
-    def guide() -> str:
-        """How to work on a drawing: the look, edit, look again loop."""
-        return GUIDE
-
-    # Targets -----------------------------------------------------------
 
     @tool(structured_output=False)
     def open(path: str) -> CallToolResult:  # noqa: A001
@@ -148,6 +147,32 @@ def build_server(state: Vectrify | None = None) -> MCPServer:
         except TargetError as exc:
             raise ToolError(str(exc)) from None
         return state.call("describe", {"page_size": 50})
+
+    register_tools(server, state)
+    return server
+
+
+def build_window_server(state: Vectrify) -> MCPServer:
+    """The server the editor hosts, on the window that allows agents."""
+    # Quiet: it runs inside the editor, whose terminal is the person's.
+    server = MCPServer(
+        "vectrify", instructions=WINDOW_INSTRUCTIONS, log_level="WARNING"
+    )
+    register_tools(server, state)
+    return server
+
+
+def register_tools(server: MCPServer, state: Vectrify) -> None:
+    """Add the guide and every drawing tool to *server*, acting on *state*."""
+    tool = server.tool
+    look = server.tool(annotations=LOOK, structured_output=False)
+
+    @server.resource("vectrify://guide", mime_type="text/markdown")
+    def guide() -> str:
+        """How to work on a drawing: the look, edit, look again loop."""
+        return GUIDE
+
+    # Files -------------------------------------------------------------
 
     def write(path: Path, project: bool) -> CallToolResult:
         reply = state.call("export", {"project": project})
@@ -643,8 +668,6 @@ def build_server(state: Vectrify | None = None) -> MCPServer:
     def stop(id: str) -> CallToolResult:  # noqa: A002
         """Stop a running job early, keeping its best result so far."""
         return state.call("stop", {"id": id})
-
-    return server
 
 
 def main() -> None:

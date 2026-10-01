@@ -1,11 +1,59 @@
 # MCP server
 
-`vectrify-mcp` lets an agent (Claude Code, Claude Desktop or any MCP client)
-look at a drawing and its reference and edit the drawing with the same
-commands a person has, at the same granularity. It replaces the removed LLM
-features: instead of Vectrify calling a model, the agent calls Vectrify.
+Vectrify's MCP server lets an agent (Claude Code, Claude Desktop or any MCP
+client) look at a drawing and its reference and edit the drawing with the
+same commands a person has, at the same granularity. It replaces the removed
+LLM features: instead of Vectrify calling a model, the agent calls Vectrify.
 
-## Install and add it to a client
+It runs two ways, with the same drawing tools:
+
+- **Hosted by the editor** over Streamable HTTP, while **Agents** is on in
+  a window's footer: always on that window. Added to a client once.
+- **`vectrify-mcp`** over stdio, started by the client: a file headlessly,
+  or a running editor's window through `connect()`.
+
+## The editor hosts it
+
+Turning on **Agents** (installed with `vectrify[mcp]`) starts the MCP
+server inside the editor, at `http://127.0.0.1:8770/mcp`: uvicorn running
+the SDK's Streamable HTTP ASGI app (`MCPServer.streamable_http_app`) in a
+background thread. If 8770 is taken it takes the next free port of the
+following 20 and the popover shows which; `vectrify --mcp-port N` picks
+another start. It works the same in the desktop app and in `--serve`.
+Turning Agents off stops the server, and so does quitting.
+
+The footer's popover shows the URL and the command, with a Copy button:
+
+```bash
+claude mcp add --transport http --scope user vectrify http://127.0.0.1:8770/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+(`--scope user` makes it available in every project; leave it out for the
+current one only.) The tools act on the window's session in the editor's
+own process, as `connect()` does, so edits show live and land in the
+window's history as "Agent: …", and the footer's *Agent connected · <last
+action>* counts these clients too. There are no `open` or `connect` tools
+here; everything else is as listed below.
+
+- **Token.** One stable token, made once and kept in
+  `$XDG_STATE_HOME/vectrify/agent-token` (default
+  `~/.local/state/vectrify/agent-token`; 0600 in a 0700 directory), so the
+  client is added once. *Regenerate token* in the popover replaces it;
+  clients holding the old one are refused. Every request needs
+  `Authorization: Bearer <token>`; a missing or wrong one gets 401.
+- **Only this machine.** It binds 127.0.0.1. Requests whose `Host` is not
+  `127.0.0.1:<port>` or `localhost:<port>` get 403, and the SDK's transport
+  security (`TransportSecuritySettings`) refuses a browser `Origin` other
+  than those, against DNS rebinding.
+- **Only while allowed.** With Agents off nothing listens; a request that
+  arrives as it turns off gets 403.
+- In the code: `vectrify/mcp/hosted.py` (`HostedMCP`, the guard),
+  `build_window_server` and `register_tools` in `vectrify/mcp/server.py`
+  (one function registers every drawing tool against a target, for both
+  servers), and `WindowTarget` in `vectrify/mcp/target.py`.
+
+## `vectrify-mcp` over stdio
 
 ```bash
 uv tool install "vectrify[mcp]"          # or [all]; pipx works too
@@ -30,7 +78,7 @@ The server edits one target at a time, with the same tools for both:
    write elsewhere.
 2. **The running editor, live.** When the person turns on **Agents** in the
    editor's footer (or *Allow agents to edit* in the command palette), the
-   server joins the session that window shows: each edit appears as it is
+   stdio server can also join the session that window shows: each edit appears as it is
    made and lands in the window's undo history. With no target yet, the
    first tool call attaches to such an editor by itself; `connect()` does so
    explicitly, and `open(path)` switches to a file.
@@ -45,11 +93,15 @@ The server edits one target at a time, with the same tools for both:
   and describing happen here, in the editor's process, so the live and the
   headless target give identical answers (the headless target holds an
   `Agent` in the MCP server's process).
-- `AgentChannel` is the door. Turning **Agents** on (`/api/agent`) makes a
-  token, binds the window's session, and writes `{url, token, pid}` to
-  `$XDG_STATE_HOME/vectrify/editor.json` (default
-  `~/.local/state/vectrify/editor.json`), owner-only (0600, in a 0700
-  directory). Turning it off, or quitting, removes the file and the token.
+- `AgentChannel` is the door. Turning **Agents** on (`/api/agent`) binds
+  the window's session, starts the hosted MCP server, and writes
+  `{url, token, pid, mcp}` to `$XDG_STATE_HOME/vectrify/editor.json`
+  (default `~/.local/state/vectrify/editor.json`), owner-only (0600, in a
+  0700 directory). The token is the stable one the hosted server uses.
+  Turning it off, or quitting, removes the file and stops the server.
+- `/agent/call` stays: it is what the stdio `vectrify-mcp`'s `connect()`
+  (`LiveTarget`) talks to, from its own process. A client that adds the
+  hosted URL never uses it.
   - In `--serve` mode the editor's own server carries the channel on its
     port, under `/agent/`.
   - The desktop app (pywebview, which has no port) opens a localhost port
@@ -181,8 +233,17 @@ controls (zoom, overlay view, tools), which have no effect on the drawing.
 ## Limits
 
 - One window per editor process takes agents at a time: turning Agents on in
-  another window of the same `--serve` server moves the channel there. The
-  discovery file names the most recent editor to allow agents.
+  another window of the same `--serve` server moves the channel (and the
+  hosted server's target) there; the agent must `describe()` again before it
+  edits. The discovery file names the most recent editor to allow agents.
+- Two editors both allowing agents host on 8770 and 8771; a client added
+  with 8770 reaches whichever got it first.
+- Clients of the hosted server share one record of the revision last seen,
+  so with two clients at once, one's `describe()` counts as the other's
+  look too. Use one client at a time.
+- The hosted server needs the `mcp` extra in the editor's own environment;
+  without it the popover says so and `vectrify-mcp`'s `connect()` still
+  works.
 - In the live editor the agent's selection is the person's selection; an
   agent's `select` or an edit with `ids` changes what the person sees
   selected.

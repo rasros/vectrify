@@ -18,7 +18,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
-from vectrify.ui.agent import AgentChannel, answer
+from vectrify.ui.agent import MCP_PORT, AgentChannel, answer
 from vectrify.ui.session import MAX_SOURCE, Session
 
 STATIC = Path(__file__).with_name("static")
@@ -87,11 +87,12 @@ class Backend:
                         "agent": self.agents.status(session_id),
                     }
                 elif path == "/api/agent":
-                    result = (
-                        self.agents.enable(session_id or "")
-                        if data.get("enabled")
-                        else self.agents.disable(session_id or "")
-                    )
+                    if data.get("regenerate"):
+                        result = self.agents.regenerate(session_id or "")
+                    elif data.get("enabled"):
+                        result = self.agents.enable(session_id or "")
+                    else:
+                        result = self.agents.disable(session_id or "")
                 elif path == "/api/reference":
                     result = {"reference": session.reference}
                 elif path == "/api/export":
@@ -239,6 +240,13 @@ def main() -> None:
         help="Serve the editor to a browser instead of opening a desktop window",
     )
     parser.add_argument("--port", type=int, default=8765, help="Port for --serve")
+    parser.add_argument(
+        "--mcp-port",
+        type=int,
+        default=MCP_PORT,
+        help="Where to host the MCP server while agents are allowed "
+        "(the next free port if taken)",
+    )
     args = parser.parse_args()
     reference = None
     if args.reference:
@@ -256,6 +264,7 @@ def main() -> None:
         args.svg.name if args.svg else "Untitled.svg",
         reference,
     )
+    backend.agents.mcp_port = args.mcp_port
     if not args.serve:
         from vectrify.ui import desktop
 
