@@ -175,3 +175,23 @@ export function instancePoints(paths, selectedNodes, owners) {
   }
   return {strong, twins};
 }
+
+// The path a tool acts on under the pointer: the frontmost of *hits* that is a
+// drawing path whose geometry and structure are unlocked, inside the entered
+// group *scope* if there is one, and among the selected paths (or the paths
+// in selected groups) when anything is selected. Null when none qualifies.
+export function pointerTarget(hits, objects, selected, scope = null) {
+  const byId = new Map(objects.map(item => [item.id, item]));
+  const eligible = selected.length ? new Set(pointTargets(selected, objects).paths) : null;
+  const inside = id => {
+    for (let at = id; at !== undefined && at !== null; at = byId.get(at)?.parent) if (at === scope) return true;
+    return false;
+  };
+  return hits.find(id => {
+    const item = byId.get(id);
+    if (!item || item.tag !== 'path' || item.resource) return false;
+    if ([...item.locks, ...item.inherited_locks].some(lock => lock === 'geometry' || lock === 'structure')) return false;
+    if (scope && !inside(id)) return false;
+    return !eligible || eligible.has(id);
+  }) ?? null;
+}

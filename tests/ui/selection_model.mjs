@@ -1,6 +1,6 @@
 // Checks the two-level selection's transitions; run by test_selection_model.py.
 import assert from 'node:assert/strict';
-import {boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
+import {boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from '../../src/vectrify/ui/static/selection.js';
 
 // The drawing holds group trees (group pines (a, b), c) and d.
 const parents = new Map([['trees', 'root'], ['pines', 'trees'], ['a', 'pines'], ['b', 'pines'], ['c', 'trees'], ['d', 'root']]);
@@ -90,3 +90,18 @@ assert.deepEqual(instancePoints(shown, new Set(['n2']), pointOwners([], geometry
 assert.deepEqual(instancePoints(shown, new Set(['n1']), pointOwners(['a n1', 'b n1'], geometryOf)), {strong: ['a n1', 'b n1'], twins: []});
 // When the path it was picked in is no longer shown, another one has it.
 assert.deepEqual(instancePoints(shown.slice(0, 1), new Set(['n1']), picked), {strong: ['a n1'], twins: []});
+
+// Tools act on the path under the pointer; a selection narrows that.
+{
+  const item = (id, parent, extra = {}) => ({id, parent, tag: 'path', resource: false, locks: [], inherited_locks: [], ...extra});
+  const objects = [
+    {id: 'g', parent: 'root', tag: 'g', resource: false, locks: [], inherited_locks: []},
+    item('a', 'g'), item('b', 'root'), item('locked', 'root', {locks: ['geometry']}), item('def', 'root', {resource: true}),
+  ];
+  assert.equal(pointerTarget(['b', 'a'], objects, []), 'b');
+  assert.equal(pointerTarget(['locked', 'def', 'a'], objects, []), 'a');
+  assert.equal(pointerTarget(['b', 'a'], objects, ['g']), 'a');
+  assert.equal(pointerTarget(['b'], objects, ['g']), null);
+  assert.equal(pointerTarget(['b', 'a'], objects, [], 'g'), 'a');
+  assert.equal(pointerTarget([], objects, []), null);
+}

@@ -434,8 +434,6 @@ def test_knife_cuts_selected_paths_into_pieces_that_meet_and_undoes_in_one_step(
             '<path id="p" fill="red" d="M0 0H20V20H0Z"/></g></svg>'
         )
     )
-    with pytest.raises(DocumentError, match="Select"):
-        send(session, "knife", start=[15, -5], end=[15, 30])
     send(session, "select", objects=["p"])
     result = send(session, "knife", start=[15, -5], end=[15, 30])
     pieces = result["selection"]["objects"]
