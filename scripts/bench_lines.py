@@ -17,6 +17,9 @@ white; the trace's ink is picked by the same rule. The scores:
 
 - line_p / line_r / line_f: precision, recall and F of the ink's centrelines
   (thinned as cel thins), each within 2 px of the other's;
+- stroke_r: the share of the true ink centrelines within 2 px of a traced
+  stroke of any colour, which tells a line not found from one drawn too
+  light to count as ink;
 - width: the median ratio of traced ink width to true ink width along the
   true centrelines the trace found;
 - edge_f: F of the colour edges of the full drawings, within 2 px;
@@ -206,6 +209,13 @@ def ink_only(svg: str) -> str:
     return svg
 
 
+def strokes_only(svg: str) -> str:
+    """*svg* with only its stroked paths, each drawn black."""
+    svg = re.sub(r"<rect\b[^>]*>", "", svg)
+    svg = re.sub(r'<path\b(?![^>]*stroke="#)[^>]*>', "", svg)
+    return re.sub(r'stroke="#[0-9a-fA-F]{3,6}"', 'stroke="#000000"', svg)
+
+
 def warp(image: Image.Image) -> Image.Image:
     """The noisy input's geometry: a small rotation and a gentle wave."""
     from scipy.ndimage import map_coordinates
@@ -327,6 +337,8 @@ def score(truth: str, svg: str, width: int, height: int, kind: str) -> dict:
     line_truth, line_trace = thin(ink_truth), thin(ink_trace)
     precision = _near(line_trace, line_truth)
     recall = _near(line_truth, line_trace)
+    stroked = render(strokes_only(svg), width, height).min(-1) < 128
+    stroke_recall = _near(line_truth, thin(stroked))
     # Widths along the true centrelines the trace found, each against the
     # traced width at the traced centreline nearest it.
     nearest = nearest_indices(~line_trace)
@@ -345,6 +357,7 @@ def score(truth: str, svg: str, width: int, height: int, kind: str) -> dict:
         "line_p": round(precision, 3),
         "line_r": round(recall, 3),
         "line_f": round(_f(precision, recall), 3),
+        "stroke_r": round(stroke_recall, 3),
         "width": round(float(np.median(ratio)), 2) if ratio.size else None,
         "edge_p": round(edge_p, 3),
         "edge_r": round(edge_r, 3),
@@ -396,6 +409,7 @@ def _line(row: dict) -> str:
     return (
         f"{row['reference']} [{row['input']}]: "
         f"lines {row['line_p']}/{row['line_r']}/{row['line_f']}, "
+        f"strokes found {row.get('stroke_r')}, "
         f"width {row['width']}, edges {row['edge_f']}, mse {row['mse']}, "
         f"{row['paths']} paths, {row['points']} points, {row['strokes']} strokes, "
         f"{row['ink_fills']} ink fills, {row['seconds']} s"
@@ -414,6 +428,7 @@ def compare(before: Path, after: Path) -> None:
         "line_p",
         "line_r",
         "line_f",
+        "stroke_r",
         "width",
         "edge_f",
         "mse",
