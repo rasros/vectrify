@@ -3,9 +3,10 @@
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Vectrify — SVG editor</title><link rel="icon" href="favicon.svg"><link rel="stylesheet" href="style.css"></head>
 <body>
 <header class="topbar">
-  <a class="brand" href="" aria-label="Vectrify editor"><img src="favicon.svg" alt="">vectrify<span class="badge">STUDIO</span></a>
+  <a class="brand" href="" aria-label="Vectrify editor"><img src="favicon.svg" alt=""><span class="brand-name">vectrify</span><span class="badge">STUDIO</span></a>
   <div class="document-title"><span class="document-dot"></span><span id="filename">Opening drawing…</span><span id="dirty" title="Unsaved changes"></span></div>
   <nav aria-label="File actions"><button id="palette-open" class="palette-button" title="Find and run any command (Ctrl/⌘ K)" aria-keyshortcuts="Control+K">Commands <kbd>Ctrl K</kbd></button><button id="settings-open" title="API keys and a local server for the LLM tools">Settings</button><button id="open-file" title="Open an SVG or a saved .vectrify project">Open…</button><button id="restore-saved" title="Reopen a project saved earlier in this browser">Restore saved…</button><button id="save-project" title="Download an editable .vectrify project with locks, pins and the reference (Ctrl/⌘ S)">Save project</button><button id="export-svg" class="primary" title="Download the drawing as a plain SVG file">Export SVG <span>↗</span></button></nav>
+  <button id="topbar-more" class="strip-more" aria-haspopup="menu" aria-expanded="false" aria-controls="topbar-more-menu" aria-label="More file actions" title="More file actions" hidden>⋯</button>
 </header>
 <main class="workspace">
   <aside class="toolrail" aria-label="Drawing tools">
@@ -60,6 +61,7 @@
 <dialog id="palette" class="palette" aria-label="Command palette"><input id="palette-input" type="text" placeholder="Type a command…" aria-label="Command" role="combobox" aria-controls="palette-list" aria-expanded="true" autocomplete="off" spellcheck="false"><div id="palette-list" class="palette-list" role="listbox" aria-label="Commands"></div><p class="palette-foot"><kbd>↑</kbd><kbd>↓</kbd> choose · <kbd>Enter</kbd> run · <kbd>Esc</kbd> close</p></dialog>
 <div id="context-menu" class="context-menu" role="menu" aria-label="Actions" hidden></div>
 <div id="strip-more-menu" class="strip-more-menu" role="menu" aria-label="More tool options" hidden></div>
+<div id="topbar-more-menu" class="strip-more-menu topbar-more-menu" role="menu" aria-label="More file actions" hidden></div>
 <div id="toast" role="status" aria-live="polite" hidden><span id="toast-message"></span><button id="toast-close" aria-label="Dismiss message">×</button></div>
 <dialog id="recovery-dialog" aria-labelledby="recovery-title"><h2 id="recovery-title">Restore saved project</h2><p>Browser recovery copies include the drawing, reference image and selection. Choose a copy to open it in this tab.</p><div id="recovery-list"></div><button id="recovery-close">Cancel</button></dialog>
 <dialog id="contact-dialog" class="job-dialog" aria-labelledby="contact-title">

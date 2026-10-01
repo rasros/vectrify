@@ -1353,24 +1353,65 @@ function layoutStrip(force = false) {
   if (!hidden.length) closeStripMenu();
   else if (!menu.hidden) placeStripMenu();
 }
-function placeStripMenu() {
-  const menu = $('strip-more-menu'), box = $('strip-more').getBoundingClientRect(), size = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - size.width - 8))}px`;
-  menu.style.top = `${box.bottom + 6}px`;
+// A "⋯" button and the menu of what did not fit beside it. A command run from
+// the menu closes it; fields and choices keep it open.
+function moreMenu(button, menu) {
+  const place = () => {
+    const box = button.getBoundingClientRect(), size = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - size.width - 8))}px`;
+    menu.style.top = `${box.bottom + 6}px`;
+  };
+  const close = () => { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
+  button.onclick = () => {
+    if (!menu.hidden) { close(); return; }
+    menu.hidden = false; button.setAttribute('aria-expanded', 'true');
+    place();
+    menu.querySelector('button:not(:disabled), input, select')?.focus();
+  };
+  menu.addEventListener('click', event => { if (event.target.closest('button')) close(); });
+  menu.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); button.focus(); } });
+  window.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !button.contains(event.target)) close(); }, true);
+  return {place, close};
 }
-function closeStripMenu() { $('strip-more-menu').hidden = true; $('strip-more').setAttribute('aria-expanded', 'false'); }
-$('strip-more').onclick = () => {
-  const menu = $('strip-more-menu');
-  if (!menu.hidden) { closeStripMenu(); return; }
-  menu.hidden = false; $('strip-more').setAttribute('aria-expanded', 'true');
-  placeStripMenu();
-  menu.querySelector('button:not(:disabled), input, select')?.focus();
-};
-// A command run from the menu closes it; fields and choices keep it open.
-$('strip-more-menu').addEventListener('click', event => { if (event.target.closest('button')) closeStripMenu(); });
-$('strip-more-menu').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeStripMenu(); $('strip-more').focus(); } });
-window.addEventListener('pointerdown', event => { if (!event.target.closest('#strip-more-menu, #strip-more')) closeStripMenu(); }, true);
+const stripMenu = moreMenu($('strip-more'), $('strip-more-menu'));
+const placeStripMenu = stripMenu.place, closeStripMenu = stripMenu.close;
 new ResizeObserver(() => scheduleStrip()).observe($('tool-strip'));
+// The top bar keeps to one row too: the title shrinks, then the file actions
+// that do not fit go into its "⋯" menu, least important first.
+const topbarPriority = {'export-svg': 1, 'palette-open': 1, 'save-project': 2, 'open-file': 3};
+const topbarMenu = moreMenu($('topbar-more'), $('topbar-more-menu'));
+const topbarParked = new Map();
+let topbarSignature = '';
+function layoutTopbar() {
+  const bar = document.querySelector('.topbar'), nav = bar.querySelector('nav'), more = $('topbar-more'), menu = $('topbar-more-menu');
+  const signature = `${bar.clientWidth}|${$('filename').textContent}`;
+  if (signature === topbarSignature) return;
+  topbarSignature = signature;
+  for (const [item, mark] of topbarParked) mark.replaceWith(item);
+  topbarParked.clear();
+  more.hidden = false;
+  const moreWidth = more.getBoundingClientRect().width;
+  more.hidden = true;
+  const style = getComputedStyle(bar), gap = parseFloat(style.columnGap) || 0, inner = parseFloat(getComputedStyle(nav).columnGap) || 0;
+  const title = bar.querySelector('.document-title'), name = $('filename');
+  // The title keeps room for a short name while it is shown.
+  const titleRoom = getComputedStyle(title).display === 'none' ? 0 : Math.min(name.scrollWidth + 30, 140) + gap;
+  const available = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    - bar.querySelector('.brand').getBoundingClientRect().width - titleRoom - gap;
+  const items = [...nav.children].filter(item => getComputedStyle(item).display !== 'none');
+  const widths = items.map(item => ({width: item.getBoundingClientRect().width + inner, priority: topbarPriority[item.id] || 4}));
+  const hidden = overflowLayout(widths, available + inner, moreWidth + gap);
+  for (const index of hidden) {
+    const item = items[index], mark = document.createComment('parked');
+    item.before(mark); menu.append(item); topbarParked.set(item, mark);
+  }
+  more.hidden = !hidden.length;
+  if (!hidden.length) topbarMenu.close();
+  else if (!menu.hidden) topbarMenu.place();
+}
+new ResizeObserver(() => layoutTopbar()).observe(document.querySelector('.topbar'));
+new MutationObserver(() => layoutTopbar()).observe($('filename'), {childList: true, characterData: true, subtree: true});
+document.fonts?.ready.then(() => { topbarSignature = ''; layoutTopbar(); });
 // The level and count of the selection, and the entered group.
 function renderStatus() {
   if (!state) return;
