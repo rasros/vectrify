@@ -137,6 +137,28 @@ def test_line_to_fill_outlines_the_stroke():
     assert abs(curve_path(document.geometry_for("p")).area) == pytest.approx(40)
 
 
+def test_convert_flips_each_path_as_one_edit():
+    session = session_with(
+        '<path id="bar" d="M10 20H70V24H10Z" fill="#a00"/>'
+        f'<path id="line" d="M10 50L30 50" {LINE}/>'
+    )
+    send(session, "select", objects=["bar", "line"])
+    result = send(session, "convert_lines")
+    assert result["undo"] == ["Convert line/fill"]
+    document = session.editor.snapshot.document
+    assert document.element("bar").get("fill") == "none"
+    assert document.element("bar").get("stroke") == "#a00"
+    assert document.element("line").get("fill") == "#123456"
+    assert document.element("line").get("stroke") == "none"
+
+
+def test_convert_refuses_paths_that_paint_nothing():
+    session = session_with('<path id="p" d="M0 0L9 9" fill="none"/>')
+    send(session, "select", objects=["p"])
+    with pytest.raises(DocumentError, match="filled paths or stroked lines"):
+        send(session, "convert_lines")
+
+
 def test_the_knife_cuts_a_selected_line_into_two_paths():
     session = session_with(f'<path id="p" d="M0 0L30 0" {LINE}/>')
     send(session, "select", objects=["p"])

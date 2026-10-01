@@ -745,6 +745,13 @@ def test_shared_geometry_lists_its_users_and_takes_a_point_once():
     assert geometry.node(node).endpoint == (21, 22)
 
 
+def test_the_state_marks_paths_that_share_their_geometry():
+    session = Session(import_svg(SHARED))
+    assert not any(o["shared"] for o in session.state(svg=False)["objects"])
+    objects = shared_session().state(svg=False)["objects"]
+    assert {o["id"] for o in objects if o["shared"]} == {"a", "b"}
+
+
 DONUTS = """<svg width="200" height="100"><g id="g">
 <path id="left" fill="#336699" d="M0 0H90V90H0Z M10 10V30H30V10Z"/>
 <path id="right" fill="#993366"

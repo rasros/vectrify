@@ -24,7 +24,6 @@ let scope = null;
 let clickCycle = null, lastPick = null;
 let pathDraft = [], pathHover = null;
 let joinContext = null;
-let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let redrawHover = null;
 const SNAP_RADIUS = 8;
 // How near, in screen pixels, the selection's frame is grabbed to resize it.
@@ -48,7 +47,6 @@ function toast(message, error = false) {
 $('toast-close').onclick = () => $('toast').hidden = true;
 function setBusy(label, delta) {
   pending += delta; $('busy').hidden = pending === 0;
-  $('hole-controls').disabled = pending > 0;
   if (label) $('busy-label').textContent = label;
   document.body.setAttribute('aria-busy', String(pending > 0 || input.waiting > 0));
 }
@@ -150,7 +148,6 @@ async function applyState(next) {
   if (replaced) { focusPoint = null; pointMemory = null; scope = null; fit(); }
   if (changed) { geometries = new Map(); pathHoles.clear(); clickCycle = null; lastPick = null; }
   if (scope && object(scope)?.tag !== 'g') scope = null;
-  if (holePlan && (changed || oneObject()?.id !== holePlan.object)) holePlan = null;
   renderObjects(); renderInspector();
   if (level() === 'points') await loadGeometries();
   renderInspector(); drawOverlay();
@@ -454,7 +451,8 @@ function enable(element, reason) {
 }
 // Every command the selection offers, the tool strip, the Actions list, the
 // context menu and the command palette run. *disabled* gives the reason it
-// cannot run now, or ''; *level* limits it to object or point tools.
+// cannot run now, or ''; *level* limits it to object or point tools; a *rare*
+// command's buttons hide while it cannot run.
 const noSelection = () => !state?.selection.objects.length && 'Select objects first';
 const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (N) first');
 const visiblePaths = () => state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
@@ -512,31 +510,30 @@ const COMMANDS = [
   {id: 'forward', name: 'Bring forward', group: 'Arrange', keys: 'Ctrl/⌘ ]', run: () => action('reorder', {step: 1}), disabled: () => !oneObject() && 'Select one object to restack'},
   {id: 'to-front', name: 'Bring to front', group: 'Arrange', keys: 'Ctrl/⌘ Shift ]', run: () => action('reorder', {to: 'front'}),
     disabled: () => noSelection() || (state.selection.objects.some(id => object(id)?.resource) && 'Definitions and clipping boundaries keep their place')},
-  {id: 'enter-group', name: 'Enter group', group: 'Select', keys: 'Double-click', run: () => enterObject(oneObject().id), disabled: () => oneObject()?.tag !== 'g' && 'Select one group'},
-  {id: 'edit-points', name: 'Edit points', group: 'Select', keys: 'Double-click', run: () => enterObject(oneObject().id), disabled: () => (oneObject()?.tag !== 'path' || oneObject().resource) && 'Select one visible path'},
-  {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', run: stepUp, disabled: () => !state.selection.objects.length && !scope && 'Nothing to step up from'},
+  {id: 'enter', name: 'Enter', label: () => oneObject()?.tag === 'g' ? 'Enter group' : 'Edit points', group: 'Select', keys: 'Double-click', keywords: 'group points nodes into',
+    run: () => enterObject(oneObject().id), disabled: () => !(oneObject()?.tag === 'g' || (oneObject()?.tag === 'path' && !oneObject().resource)) && 'Select one group or visible path'},
+  {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', keywords: 'leave exit group', run: stepUp, disabled: () => !state.selection.objects.length && !scope && 'Nothing to step up from'},
   {id: 'rename', name: 'Rename…', group: 'Object', keys: 'F2', run: renameObject, disabled: () => !oneObject() && 'Select one object to rename'},
-  {id: 'exit-group', name: 'Leave the entered group', group: 'Select', run: () => { scope = null; renderStatus(); }, disabled: () => !scope && 'No group is entered'},
   {id: 'group', name: 'Group', group: 'Actions', keywords: 'combine', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
   {id: 'ungroup', name: 'Ungroup', group: 'Actions', run: () => action('ungroup'),
     disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
-  {id: 'join', name: 'Join paths…', group: 'Actions', keywords: 'merge union combine', run: openJoin, disabled: () => joinCandidates().length < 2 && 'Select at least two paths, or groups that contain them'},
-  {id: 'join-ends', name: 'Join ends', group: 'Actions', keywords: 'connect merge dashed broken lines strokes gaps close points', run: joinEnds,
-    disabled: () => !twoEnds() && (level() === 'points' ? 'Select the two points to join, or lines in Select' : noLines())},
-  {id: 'fill-to-line', name: 'Fill to line', group: 'Actions', keywords: 'centreline centerline stroke convert skeleton thin', run: () => action('fill_to_line', {}, 'Finding the centrelines…'),
-    disabled: () => !fillPaths().length && 'Select filled paths that are thin lines'},
-  {id: 'line-to-fill', name: 'Line to fill', group: 'Actions', keywords: 'outline stroke convert expand', run: () => action('line_to_fill', {}, 'Outlining strokes…'), disabled: noLines},
+  {id: 'join', name: 'Join', label: () => joinOpensDialog() ? 'Join…' : 'Join', group: 'Actions', keywords: 'merge union combine connect ends dashed broken lines strokes gaps close points', run: join,
+    disabled: () => !twoEnds() && (level() === 'points' ? 'Select the two points to join, or paths in Select'
+      : joinCandidates().length < 2 && !linePaths().length && 'Select two or more paths, or lines whose ends to join')},
+  {id: 'convert-lines', name: 'Convert line/fill', label: () => ({fills: 'Fill to line', lines: 'Line to fill'})[!linePaths().length ? fillPaths().length && 'fills' : !fillPaths().length && 'lines'] || 'Convert line/fill', group: 'Actions',
+    keywords: 'fill to line, line to fill, centreline centerline stroke outline expand skeleton thin', run: () => action('convert_lines', {}, 'Converting…'),
+    disabled: () => !fillPaths().length && !linePaths().length && 'Select filled paths or stroked lines'},
   {id: 'split-parts', name: 'Split parts', group: 'Actions', run: splitParts,
     disabled: () => noSelection() || (oneObject()?.tag === 'use' ? 'Detach this instance to an editable path first' : !visiblePaths() && 'Only visible paths can be split')},
   {id: 'cut-hole', name: 'Cut out as hole', group: 'Actions', run: cutHole,
     disabled: () => (state.selection.objects.length !== 2 || !visiblePaths()) && 'Select two visible paths, one inside or overlapping the other'},
-  {id: 'holes', name: 'Holes…', group: 'Actions', run: inspectHoles, disabled: () => (oneObject()?.tag !== 'path' || oneObject().resource) && 'Select one visible path'},
   {id: 'snap-edges', name: 'Snap edges…', group: 'Actions', run: openSnapEdges,
     disabled: () => state.selection.objects.length < 2 ? 'Select two or more paths' : !visiblePaths() && 'Every object must be a visible path'},
   {id: 'cleanup', name: 'Clean up…', group: 'Actions', keywords: 'duplicate vertices merge tidy', run: openCleanup, disabled: noSelection},
-  {id: 'detach', name: 'Detach', label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Actions', run: () => action('detach'),
-    disabled: () => !['path', 'use'].includes(oneObject()?.tag) && 'Select one path or instance'},
-  {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', keywords: 'remove', level: 'objects', run: () => action('delete'), disabled: noSelection},
+  {id: 'detach', name: 'Detach', rare: true, label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Actions', run: () => action('detach'),
+    disabled: () => !(oneObject()?.tag === 'use' || oneObject()?.shared) && 'Select one instance, or a path that shares its geometry'},
+  {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', keywords: 'remove points', run: deleteSelection,
+    disabled: () => level() === 'points' ? noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them') : noSelection()},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
   {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
@@ -554,8 +551,6 @@ const COMMANDS = [
     run: () => action('pin', {points: pointPairs(), pinned: !selectedPoints().every(key => nodeAt(key)?.pinned)}), disabled: noPoints},
   {id: 'split-edge', name: 'Split edge', group: 'Points', run: () => action('split', {points: pointPairs()}),
     disabled: () => noPoints() || (selectedPoints().every(key => nodeAt(key)?.command === 'M' && !contourAt(key)?.closed) && 'A start point has no edge leading into it')},
-  {id: 'delete-points', name: 'Delete points', group: 'Points', keys: 'Delete', run: () => action('delete_node', {points: pointPairs()}, 'Deleting points…'),
-    disabled: () => noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them')},
   {id: 'delete-contour', name: 'Delete contour', group: 'Points', run: () => action('delete_contour', {points: pointPairs()}, 'Deleting contours…'),
     disabled: () => noPoints() || (selectedPoints().some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it')},
   {id: 'break-points', name: 'Break at point', group: 'Points', keywords: 'cut split disconnect open loop', run: () => action('break_points', {points: pointPairs()}, 'Breaking lines…'),
@@ -586,7 +581,10 @@ function renderCommands() {
   for (const button of document.querySelectorAll('[data-command]')) {
     const command = commandById.get(button.dataset.command); if (!command) continue;
     if (!button.dataset.title) button.dataset.title = button.title || `${commandName(command)}${command.keys ? ` (${command.keys})` : ''}`;
-    enable(button, command.disabled?.() || '');
+    const reason = command.disabled?.() || '';
+    enable(button, reason);
+    // A rare command is left out of the buttons while it does not apply.
+    if (command.rare) button.hidden = !!reason;
     if (button.dataset.label === 'command') button.firstChild.textContent = commandName(command);
   }
 }
@@ -603,10 +601,8 @@ function renderInspector() {
   $('object-name').value = item?.name || '';
   $('object-name').placeholder = item?.label || 'Automatic name';
   $('object-name').dataset.objectId = item?.id || '';
-  $('inspector-title').textContent = holePlan ? 'Holes' : 'Properties';
-  $('hole-inspector').hidden = !holePlan;
-  $('empty-inspector').hidden = !!holePlan || !!selected.length;
-  $('properties').hidden = !!holePlan || !selected.length;
+  $('empty-inspector').hidden = !!selected.length;
+  $('properties').hidden = !selected.length;
   $('selection-kind').textContent = item?.tag || (selected.length ? 'Multiple' : 'Drawing');
   for (const controls of document.querySelectorAll('[data-tools]')) controls.hidden = !controls.dataset.tools.split(' ').includes(tool);
   renderNodeInspector();
@@ -634,7 +630,6 @@ function renderInspector() {
     input.parentElement.title = item ? '' : 'Select one object to change its locks';
   });
   renderCommands();
-  renderHoles();
   scheduleStrip();
 }
 // The context menu offers the selection's commands where the pointer is.
@@ -643,7 +638,7 @@ function openContextMenu(x, y) {
   const menu = $('context-menu'), groups = MENU_GROUPS[level() === 'points' ? 'points' : 'objects'];
   menu.replaceChildren();
   for (const group of groups) {
-    const commands = COMMANDS.filter(command => command.group === group && (!command.level || command.level === level()) && !(command.id === 'delete' && level() === 'points'));
+    const commands = COMMANDS.filter(command => command.group === group && (!command.level || command.level === level()));
     // Only what applies here: the palette lists the rest, with the reason.
     const shown = commands.filter(command => command.id !== 'step-up' && !command.disabled?.());
     if (!shown.length) continue;
@@ -1061,20 +1056,19 @@ function drawOverlay() {
     } catch { /* Resource elements may have no display bounds. */ }
   }
   drawFrame();
-  drawHoles();
   drawPathDraft();
   drawKnife();
   drawRedraw();
   drawSnap();
   drawBox();
-  if (!holePlan && level() === 'points') drawPoints();
+  if (level() === 'points') drawPoints();
   renderStatus();
 }
 // Select resizes the selection like a window: its frame is the bounding box
 // of the selected objects, with small ticks at the corners; the cursor shows
 // what a drag does. Null when nothing that can be resized is selected.
 function selectionFrame() {
-  if (tool !== 'select' || !state?.selection.objects.length || holePlan) return null;
+  if (tool !== 'select' || !state?.selection.objects.length) return null;
   const ids = topSelection();
   if (ids.some(id => !object(id) || object(id).resource || ['defs', 'clipPath', 'svg'].includes(object(id).tag))) return null;
   const xs = [], ys = [];
@@ -1414,7 +1408,7 @@ async function cutWithKnife({start, end}) {
   // With nothing selected the knife cuts what it crosses, in the entered group.
   if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y],within:scope},'Cutting…')) {
     const pieces = state.selection.objects.length, lines = state.selection.objects.every(id => !filledPath(id));
-    toast(lines ? `Cut the line${pieces > 1 ? ` into ${pieces} paths` : ' open'} where the knife crosses it; Join ends joins it again.` : `Cut into ${pieces} pieces. They meet exactly along the cut; Join paths merges them again.`);
+    toast(lines ? `Cut the line${pieces > 1 ? ` into ${pieces} paths` : ' open'} where the knife crosses it; Join ends joins it again.` : `Cut into ${pieces} pieces. They meet exactly along the cut; Join merges them again.`);
   }
 }
 // Redraw outline: the stroke, where its ends attach to a path's outline and
@@ -1503,7 +1497,6 @@ async function setTool(value) {
   const from = tool;
   const switched = switchTool({objects: state.selection.objects, points: selectedPoints(), memory: pointMemory}, from, value);
   clickCycle = null; lastPick = null; pathDraft=[]; pathHover=null; redrawHover=null; hoverPath = null; tool=value; pointMemory = switched.memory;
-  if (!['select','hand'].includes(value)) holePlan = null;
   document.querySelectorAll('[data-tool]').forEach(button => button.classList.toggle('active', button.dataset.tool === tool));
   $('tool-name').textContent=names[tool]; $('canvas-hint').textContent=hints[tool];
   stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife','redraw'].includes(tool) ? 'crosshair' : 'default';
@@ -1666,8 +1659,6 @@ function holdGesture(event) {
 function pressStage(event) {
   if (!state || drag) return;
   const middle = event.button === 1;
-  const holeId = event.target.dataset?.hole;
-  if (holeId && !middle && !space && tool !== 'hand') { toggleHole(holeId); return; }
   stage.focus({preventScroll:true});
   try { stage.setPointerCapture(event.pointerId); } catch { /* A replayed press may be released already. */ }
   const common = {x:event.clientX,y:event.clientY,time:event.timeStamp ?? performance.now(),shift:event.shiftKey || event.ctrlKey || event.metaKey,moved:false};
@@ -1970,10 +1961,15 @@ $('join-confirm').onclick = async () => {
     } else { $('join-error').textContent = $('toast-message').textContent; $('join-error').hidden = false; }
   } finally { $('join-confirm').disabled = false; $('join-cancel').disabled = false; }
 };
-// Two selected points join each other; otherwise every selected line joins
-// the ends that continue it nearby.
-async function joinEnds() {
+// Join: two selected points join each other; lines join the ends that
+// continue them nearby; filled paths merge by area, after choosing colours.
+const joinOpensDialog = () => !twoEnds() && joinCandidates().length > 1 && linePaths().length < joinCandidates().length;
+function join() {
   if (twoEnds()) return action('join_two_ends', {points: pointPairs()}, 'Joining ends…');
+  return joinOpensDialog() ? openJoin() : joinEnds();
+}
+// Every selected line joins the ends that continue it nearby.
+async function joinEnds() {
   const lines = linePaths().length;
   if (await action('join_ends', {reach: JOIN_REACH / zoom}, 'Joining line ends…')) toast(`Joined the ends of ${plural(lines, 'line path')} that continue each other within ${JOIN_REACH} screen pixels; zoom out to reach wider gaps.`);
 }
@@ -1983,114 +1979,11 @@ async function splitParts() {
     toast(state.selection.objects.length > before ? `Split into ${state.selection.objects.length} independently editable paths.` : 'No disconnected parts found. Holes and touching contours stay together.');
   }
 }
-function renderHoles() {
-  if (!holePlan) return;
-  $('hole-path').textContent = object(holePlan.object)?.label || '';
-  $('hole-total').textContent = `(${chosenHoles.size} / ${holePlan.holes.length})`;
-  $('hole-all').checked = holePlan.holes.length > 0 && chosenHoles.size === holePlan.holes.length;
-  $('hole-all').indeterminate = chosenHoles.size > 0 && chosenHoles.size < holePlan.holes.length;
-  $('hole-fill').disabled = !chosenHoles.size;
-  $('hole-shapes').disabled = !chosenHoles.size;
-  $('hole-enclosed').disabled = !chosenHoles.size;
-  $('hole-fill').textContent = chosenCleanup.size ? `Fill holes & delete ${chosenCleanup.size} ${chosenCleanup.size === 1 ? 'shape' : 'shapes'}` : 'Fill selected holes';
-  const list = document.createDocumentFragment();
-  for (const [i, hole] of holePlan.holes.entries()) {
-    const row = document.createElement('div'); row.className = 'hole-row';
-    const label = document.createElement('label'); label.className = 'toggle';
-    const check = document.createElement('input'); check.type = 'checkbox'; check.checked = chosenHoles.has(hole.id);
-    check.onchange = () => toggleHole(hole.id);
-    label.append(check, `Hole ${i+1} · ${hole.area.toLocaleString(undefined,{maximumFractionDigits:1})} px²`);
-    const focus = document.createElement('button'); focus.textContent = 'View'; focus.title = `Zoom to hole ${i+1}`;
-    focus.onclick = () => focusHole(hole);
-    row.append(label, focus); list.append(row);
-  }
-  if (!holePlan.holes.length) list.append('No removable holes found.');
-  const scroll = $('hole-list').scrollTop;
-  $('hole-list').replaceChildren(list); $('hole-list').scrollTop = scroll;
-  const enclosed = document.createDocumentFragment();
-  if (holePlan.enclosedChecked && !holePlan.enclosed.length) enclosed.append('No shapes fully inside the chosen holes.');
-  if (holePlan.enclosed.length) {
-    const note = document.createElement('p'); note.className = 'muted'; note.textContent = 'Choose shapes to delete with the fill:'; enclosed.append(note);
-    for (const id of holePlan.enclosed) {
-      const label = document.createElement('label'); label.className = 'toggle';
-      const check = document.createElement('input'); check.type = 'checkbox'; check.checked = chosenCleanup.has(id);
-      check.onchange = () => {if(check.checked) chosenCleanup.add(id); else chosenCleanup.delete(id); renderHoles(); drawOverlay();};
-      label.append(check, object(id)?.label || id); enclosed.append(label);
-    }
-  }
-  $('hole-enclosed-list').replaceChildren(enclosed);
+// Delete works at the current level: the selected points in a point tool,
+// else the selected objects.
+function deleteSelection() {
+  return level() === 'points' ? action('delete_node', {points: pointPairs()}, 'Deleting points…') : action('delete');
 }
-function holesChanged() {
-  chosenCleanup.clear(); holePlan.enclosed = []; holePlan.enclosedChecked = false;
-  renderHoles(); drawOverlay();
-}
-function toggleHole(id) {
-  if (pending || !holePlan) return;
-  if (chosenHoles.has(id)) chosenHoles.delete(id); else chosenHoles.add(id);
-  holesChanged();
-}
-function drawHoles() {
-  if (!holePlan) return;
-  const matrix = localToOverlay(svgElement(holePlan.object)); if (!matrix) return;
-  // Draw smallest holes last so a nested hole remains independently clickable.
-  for (const hole of [...holePlan.holes].reverse()) {
-    const path = xmlElement('path', {d:hole.d, transform:matrix.toString(), class:`hole-preview${chosenHoles.has(hole.id) ? ' chosen' : ''}`, 'data-hole':hole.id});
-    overlay.append(path);
-  }
-  for (const id of chosenCleanup) {
-    const element = svgElement(id), contour = selectionContour(element), matrix = localToOverlay(element);
-    if (!contour || !matrix) continue;
-    contour.removeAttribute('transform');
-    const group = xmlElement('g',{transform:matrix.toString(),class:'hole-delete-preview'}); group.append(contour); overlay.append(group);
-  }
-}
-function focusHole(hole) {
-  const matrix = localToOverlay(svgElement(holePlan.object)); if (!matrix) return;
-  const [x1,y1,x2,y2] = hole.bounds;
-  const points = [[x1,y1],[x2,y1],[x2,y2],[x1,y2]].map(p => new DOMPoint(...p).matrixTransform(matrix));
-  const xs = points.map(p=>p.x), ys = points.map(p=>p.y);
-  const width = Math.max(...xs)-Math.min(...xs), height = Math.max(...ys)-Math.min(...ys);
-  const bounds = stage.getBoundingClientRect();
-  zoom = Math.min(32, bounds.width/Math.max(60,width*2), bounds.height/Math.max(60,height*2));
-  pan = {x:bounds.width/2-((Math.min(...xs)+Math.max(...xs))/2-state.bounds[0])*zoom,
-         y:bounds.height/2-((Math.min(...ys)+Math.max(...ys))/2-state.bounds[1])*zoom};
-  updateView();
-}
-async function inspectHoles() {
-  if (pending || !oneObject()) return;
-  const id = oneObject().id; await setTool('select'); setBusy('Finding holes…',1);
-  try {
-    holePlan = await request('/api/holes',{object:id,epoch:state.epoch,revision:state.revision});
-    chosenHoles.clear(); chosenCleanup.clear(); renderInspector(); drawOverlay();
-  } catch(error) {toast(error.message,true);} finally {setBusy('',-1);}
-}
-$('hole-all').onchange = event => {chosenHoles = new Set(event.target.checked ? holePlan.holes.map(h=>h.id) : []); holesChanged();};
-$('hole-clear').onclick = () => {chosenHoles.clear(); holesChanged();};
-$('hole-small').onclick = () => {
-  const max = Number($('hole-max-area').value);
-  if (!Number.isFinite(max) || max < 0) {toast('Enter a non-negative area.',true);return;}
-  chosenHoles = new Set(holePlan.holes.filter(h=>h.area <= max).map(h=>h.id)); holesChanged();
-};
-$('hole-close').onclick = () => {holePlan = null; renderInspector(); drawOverlay();};
-$('hole-enclosed').onclick = async () => {
-  if(pending || !chosenHoles.size) return;
-  setBusy('Finding enclosed shapes…',1);
-  try {
-    const result = await request('/api/holes',{object:holePlan.object,holes:[...chosenHoles],find_enclosed:true,epoch:state.epoch,revision:state.revision});
-    holePlan.enclosed = result.enclosed; holePlan.enclosedChecked = true; chosenCleanup.clear(); renderHoles();
-  } catch(error) {toast(error.message,true);} finally {setBusy('',-1);}
-};
-$('hole-fill').onclick = async () => {
-  if(pending || !chosenHoles.size) return;
-  const count = chosenHoles.size, deleted = chosenCleanup.size;
-  if(await action('fill_holes',{object:holePlan.object,holes:[...chosenHoles],delete_objects:[...chosenCleanup]},'Filling holes…'))
-    toast(`Filled ${count} chosen holes${deleted ? ` and deleted ${deleted} enclosed ${deleted === 1 ? 'shape' : 'shapes'}` : ''}. Undo restores both.`);
-};
-$('hole-shapes').onclick = async () => {
-  if(pending || !chosenHoles.size) return;
-  if(await action('holes_to_shapes',{object:holePlan.object,holes:[...chosenHoles]},'Making shapes…'))
-    toast(`Turned the chosen holes into ${state.selection.objects.length} ${state.selection.objects.length === 1 ? 'shape' : 'shapes'} above the path. Undo restores the holes.`);
-};
 async function cutHole() {
   if (await action('cut_hole', {}, 'Cutting out the hole…')) toast('Cut the shape out as a hole. Undo restores both paths.');
 }
@@ -2295,8 +2188,8 @@ window.addEventListener('keydown',event=>{
   if(event.key==='Escape'){
     // Escape cancels what is under way at once, else steps the selection up
     // a level once any edit is done.
-    const busy = drag || pathDraft.length || holePlan || (holding && !holding.released);
-    pathDraft=[];pathHover=null;stage.classList.remove('panning');holePlan=null;
+    const busy = drag || pathDraft.length || (holding && !holding.released);
+    pathDraft=[];pathHover=null;stage.classList.remove('panning');
     if (holding && !holding.released) { holding.cancel(); holding = null; }
     if (drag) {
       if (drag.saved) for (const [id, saved] of drag.saved) if (geometries.has(id)) restoreValues(geometries.get(id), saved);
@@ -2341,8 +2234,7 @@ window.addEventListener('keydown',event=>{
     event.preventDefault();
     later(()=>{
       if(!state?.selection.objects.length)return;
-      if(level()==='points') { if(selectedPoints().length) runCommand('delete-points'); }
-      else runCommand('delete');
+      if(level()!=='points' || selectedPoints().length) runCommand('delete');
     });
   }
 });

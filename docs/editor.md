@@ -50,9 +50,11 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Then the
   objects' name, role and connections, paint (fill, stroke, stroke width,
   opacity), **Move by** an offset, locks, and the **Actions** on the
-  selection: Group, Ungroup, Join paths…, Split parts, Cut out as hole,
-  Holes…, Snap edges…, Clean up…, Detach and Delete. An action that cannot run
-  is dimmed, with the reason as its tooltip.
+  selection: Group, Ungroup, Join, Convert line/fill, Split parts, Cut out as
+  hole, Snap edges…, Clean up…, Detach and Delete. An action that cannot run
+  is dimmed, with the reason as its tooltip. Detach shows only for an instance
+  or a path that shares its geometry, and Delete deletes the selected points
+  in a point tool, else the selected objects.
 - **Right-click** on the canvas or in the tree for a menu of the actions that
   apply to what is there: a right-click on something unselected selects it
   first. In a point tool the menu offers the point commands.
@@ -68,7 +70,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Reference panel picks the same three views.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
-reference, Tidy, Fit colours, Join paths, Clean up, Snap edges, Settings,
+reference, Tidy, Fit colours, Join (for filled paths), Clean up, Snap edges, Settings,
 Restore saved project and Keyboard shortcuts, each titled as the command that
 opens it. They open from the Reference panel, the Actions, the context menu or
 the palette.
@@ -198,7 +200,7 @@ and saved projects restore it.
   **Delete segment** takes out the segment between two selected neighbouring
   points, splitting the line there (a closed contour opens); with more
   points selected, every segment between two of them goes, and a piece left
-  as a lone point is dropped. **Join ends** joins any two selected points, in one
+  as a lone point is dropped. **Join** joins any two selected points, in one
   path or two, filled or not, into one line however far apart they are; a
   point that is not a free end yet is broken there first: ends that meet become one point, others are bridged by a curve leaving
   each end along its line. Two ends of one line close it. A small loop in a
@@ -241,36 +243,39 @@ and saved projects restore it.
   edges, and objects with instances that would change too. Locked objects and
   groups, definitions, clipping contours and a group into itself are refused
   as well. Each drop is one undoable edit.
-- **Join paths…** combines selected paths and groups, recursively including
-  paths in nested groups and counting overlapping selections only once, even if other objects
-  sit between them. The result always occupies the frontmost selected position;
-  intervening objects stay in their existing order. Fill/stroke colours and
-  numeric paint properties are averaged by clipped painted area (including
-  strokes, excluding holes), so larger shapes contribute more. Colour alpha is
-  included; fully unpainted selections fall back to equal weights. Clicking
-  Join paths opens an options dialog: keep the default area-weighted color mix or
-  choose any participating path's fill/stroke colors (including inherited
-  colors and fill/stroke alpha). Width and overall opacity stay area-weighted.
-  Cancel leaves the document untouched; stacking remains fixed at frontmost.
-  Filled overlaps use a curved boolean union, preventing cancellation holes and
-  internal seams. Disjoint contours keep exact nodes; boolean intersections
-  create new nodes and require affected pins to be removed first. Two pieces
-  that abut, such as the halves of a knife cut or parts split apart, merge
-  back into one region this way.
-  Empty selected group wrappers are removed after joining; groups containing
-  non-path shapes must be converted or selected more narrowly first. Undo restores
-  the original geometry, paint and stacking. Transforms and per-path clipping
-  are resolved into the common parent when joining across groups. The frontmost
-  ancestry is split as needed so unselected objects retain their stacking,
-  styling and clipping. Area weighting uses the original clipped painted areas.
-  Filled regions and stroke-only outlines join separately. Cross-group joins
-  reject object-bounding-box clips, clipped stroke-only paths,
-  non-uniformly scaled strokes, and group-opacity cases where splitting would
-  change unselected artwork. Degenerate clip intersections use a winding-aware
-  fallback; its curve tolerance is 0.01 SVG units (straight edges stay exact).
-- **Join ends** (Actions, and the Nodes strip) joins the two selected points
-  when exactly two are selected, as above; in a point tool it needs them.
-  Otherwise it joins the open ends of the selected stroked lines (paths with
+- **Join** (Actions, and the Nodes strip) does what fits the selection: two
+  selected points join each other, as above; lines join at their ends, below;
+  and filled paths merge by area, through a dialog (**Join…**). In a point
+  tool it needs the two points.
+- Joining filled paths combines selected paths and groups, recursively
+  including paths in nested groups and counting overlapping selections only
+  once, even if other objects sit between them. The result always occupies the
+  frontmost selected position; intervening objects stay in their existing
+  order. Fill/stroke colours and numeric paint properties are averaged by
+  clipped painted area (including strokes, excluding holes), so larger shapes
+  contribute more. Colour alpha is included; fully unpainted selections fall
+  back to equal weights. Clicking Join opens an options dialog: keep the
+  default area-weighted color mix or choose any participating path's
+  fill/stroke colors (including inherited colors and fill/stroke alpha). Width
+  and overall opacity stay area-weighted. Cancel leaves the document
+  untouched; stacking remains fixed at frontmost. Filled overlaps use a curved
+  boolean union, preventing cancellation holes and internal seams. Disjoint
+  contours keep exact nodes; boolean intersections create new nodes and
+  require affected pins to be removed first. Two pieces that abut, such as the
+  halves of a knife cut or parts split apart, merge back into one region this
+  way. Empty selected group wrappers are removed after joining; groups
+  containing non-path shapes must be converted or selected more narrowly
+  first. Undo restores the original geometry, paint and stacking. Transforms
+  and per-path clipping are resolved into the common parent when joining
+  across groups. The frontmost ancestry is split as needed so unselected
+  objects retain their stacking, styling and clipping. Area weighting uses the
+  original clipped painted areas. Filled regions and stroke-only outlines join
+  separately. Cross-group joins reject object-bounding-box clips, clipped
+  stroke-only paths, non-uniformly scaled strokes, and group-opacity cases
+  where splitting would change unselected artwork. Degenerate clip
+  intersections use a winding-aware fallback; its curve tolerance is 0.01 SVG
+  units (straight edges stay exact).
+- Joining lines joins the open ends of the selected stroked lines (paths with
   no fill, or the paths in selected groups) where one line carries on from
   another: ends at most 12 screen pixels apart, so zooming out reaches wider
   gaps, and in line with each other, the line turning at most 60° across the
@@ -281,21 +286,21 @@ and saved projects restore it.
   each end along its line. The joined line lands in the frontmost of its paths
   and keeps that path's paint; a path left without lines is deleted, and the
   paths holding joined lines are selected. Side-by-side ends of parallel lines
-  do not join. **Join paths** on lines alone does the same, since lines join
-  at their ends rather than by area.
-- **Fill to line** (Actions) turns each selected thin filled shape, such as a
-  part of an outline that a trace drew as a fill, into a stroked line down
-  its middle: the shape is rasterised about 12 pixels across its thickness,
-  thinned to a centreline as the Cel art tracer does, and fitted with curves.
-  Lines meeting at a junction run on through it the straightest way. The
-  stroke width is the shape's thickness measured along the centreline, its
-  colour and opacity the fill's, with round caps and joins, so the stroke
-  covers about what the fill did. The path keeps its ID, place in the stack
-  and group; its points are new, so pinned points are refused. A shape about
-  as wide as it is long is not a line and is refused.
-  **Line to fill** does the reverse for stroked paths without a fill: each
-  becomes the filled shape its stroke paints, with its width, caps and joins,
-  in the stroke's colour.
+  do not join. Lines join at their ends rather than by area.
+- **Convert line/fill** (Actions) flips each selected path, as one edit; it
+  reads **Fill to line** or **Line to fill** when the selection holds only one
+  kind. Fill to line turns each selected thin filled shape, such as a part of
+  an outline that a trace drew as a fill, into a stroked line down its middle:
+  the shape is rasterised about 12 pixels across its thickness, thinned to a
+  centreline as the Cel art tracer does, and fitted with curves. Lines meeting
+  at a junction run on through it the straightest way. The stroke width is the
+  shape's thickness measured along the centreline, its colour and opacity the
+  fill's, with round caps and joins, so the stroke covers about what the fill
+  did. The path keeps its ID, place in the stack and group; its points are
+  new, so pinned points are refused. A shape about as wide as it is long is
+  not a line and is refused. Line to fill does the reverse for stroked paths
+  without a fill: each becomes the filled shape its stroke paints, with its
+  width, caps and joins, in the stroke's colour.
 - **Split disconnected parts** separates selected drawing paths into independent
   geometries. Holes and touching/overlapping contours stay together; original
   curves and pins are preserved. A group retains styling,
@@ -327,7 +332,7 @@ and saved projects restore it.
   with less of the cut lines become a new path just above, so cutting across
   a loop in a line takes the loop away whole to be deleted; two cuts across
   its neck do the same. Lines the knife misses stay where they are, and
-  **Join ends** joins pieces again. A filled path is cut only when the line
+  **Join** joins pieces again. A filled path is cut only when the line
   runs through it from outside to outside; a line that ends inside a shape or
   misses it leaves it alone. The cut runs along the
   whole line through that path, so a line across one arm of a U also cuts the
@@ -336,7 +341,7 @@ and saved projects restore it.
   kept), with the original's paint, transform, locks and stacking place; the
   first piece keeps its ID. Curves stay curves. The two pieces meet exactly
   on the same seam points but stay independent: dragging a seam point moves
-  only that piece, and **Join paths** merges them back into one. Pinned
+  only that piece, and **Join** merges them back into one. Pinned
   points, shared geometry, instances and locks are refused. The pieces are
   selected afterwards, and the cut is one undoable edit. A line that crosses
   nothing the knife can cut says so; a plain click selects.
@@ -363,18 +368,6 @@ and saved projects restore it.
   they attach. Pinned points inside the stretch and geometry or structure
   locks are refused. The redraw is one undoable edit; a
   plain click selects, and Escape cancels a stroke.
-- **Holes…** (Actions) on a selected drawing path lists its holes in the
-  right panel until **Done**. Pick holes on the canvas or in the list, zoom to an individual hole with **View**, or
-  select all holes up to a maximum area (SVG document units squared).
-  **Find shapes inside chosen holes** lists fully enclosed painted objects;
-  explicitly check any to delete. Partially overlapping objects stay out of
-  this list. Filling and optional deletion are a single undoable action.
-  Filling removes the chosen interior contours and their nested islands while
-  retaining all other curves exactly. **Turn selected holes into shapes**
-  instead moves each chosen hole out into its own path with the path's paint,
-  just above it (also available per hole from Nodes). Pins and locks
-  are enforced. Ambiguous crossing/coincident contours are
-  not offered as holes.
 - Geometry/paint/position/structure locks and backend-enforced constraints.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
 
