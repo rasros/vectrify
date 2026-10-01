@@ -16,8 +16,9 @@ fills as strokes in their ink: a thin line's antialiased middle is a mix of
 ink and surface, so it is drawn darker and thinner than its pixels look.
 There is one path per line colour and width, a line cut where its width
 steps so each part has its own.
-Optionally one unbroken stroke runs round the drawing's silhouette, in the
-outer line's ink and width, in place of the traced outer line.
+Optionally one unbroken stroke runs round the drawing's silhouette in place
+of the traced outer line, in its ink, down the middle of that ink at its
+width, and open where the edge has none.
 
 CPU only, with numpy and scipy.
 """
@@ -167,6 +168,12 @@ LINE_GAP = 1.5
 # OUTLINE_INSET beyond half that in. A traced line within OUTLINE_SLACK
 # beyond half the outline's width of its middle is the outline itself. The
 # background's regions keep out of the silhouette's rim, OUTLINE_RIM deep.
+# With outer ink, the outline is drawn only where the ink across the edge,
+# from where it first covers half its most (at least OUTLINE_PEAK) until
+# its cover falls below OUTLINE_CLEAR, is at least OUTLINE_INK_LEAST of a
+# stroke wide, across gaps
+# up to OUTLINE_BRIDGE strokes long; it is cut where that width steps by
+# OUTLINE_STEP, each piece down its own ink's middle.
 BACKGROUND_SHARE = 0.5
 BACKGROUND_FLAT = 12.0
 BACKGROUND_DIFFERENCE = 40.0
@@ -177,6 +184,11 @@ OUTLINE_WIDTH = 2.0
 OUTLINE_INSET = 0.5
 OUTLINE_SLACK = 1.5
 OUTLINE_RIM = 12
+OUTLINE_BRIDGE = 6.0
+OUTLINE_STEP = 1.25
+OUTLINE_INK_LEAST = 0.25
+OUTLINE_CLEAR = 0.1
+OUTLINE_PEAK = 0.25
 
 
 def _disk(radius: int) -> np.ndarray:
@@ -910,13 +922,13 @@ def outer_line(
     return outer, float(np.median(inside[outer]))
 
 
-def outline_contours(
-    drawing: np.ndarray, depth: float, width: float, tolerance: float
-) -> tuple[list[Subpath], np.ndarray]:
+def outline_runs(
+    drawing: np.ndarray, depth: float, width: float
+) -> tuple[list[np.ndarray], np.ndarray]:
     """The middle of a closed stroke round the silhouette *drawing*, *depth*
-    pixels in from the background, as contours; and the pixels along it.
-    Where the silhouette runs off the canvas, it stops; pieces shorter than
-    four times *width* go.
+    pixels in from the background, as runs of points; and the pixels along
+    it. Where the silhouette runs off the canvas, it stops; pieces shorter
+    than four times *width* go.
 
     The traced pixel edge is moved onto the level where the distance from
     the background, between pixel centres, is *depth*: through the outer
@@ -931,7 +943,7 @@ def outline_contours(
     middle = sizes[pieces] >= SILHOUETTE_LEAST
     edge = middle & ~binary_erosion(middle, border_value=1)
     slopes = tuple(np.gradient(inside))
-    contours = []
+    runs = []
     for points in boundary_chains(np.pad(middle.astype(np.int32), 1)):
         points = points - 1
         # Off the canvas edge: the parts that run along it go.
@@ -950,24 +962,134 @@ def outline_contours(
                 on_edge = np.concatenate((on_edge[start:-1], on_edge[: start + 1]))
             segments = [points[a:b] for a, b in _stretches(~on_edge)]
         for run in segments:
-            if len(run) < max(12, 4 * width):
+            if len(run) >= max(12, 4 * width):
+                runs.append(_onto_level(run, inside, slopes, depth))
+    return runs, edge
+
+
+def _contour(run: np.ndarray, tolerance: float) -> Subpath:
+    """The run *points* of an outline fitted with curves, as a contour."""
+    closed = len(run) > 3 and np.array_equal(run[0], run[-1])
+    nodes = curve_nodes(run, tolerance, smooth=FILL_SMOOTH, cut=FILL_CUT)
+    if closed and nodes and nodes[-1][0] == "L":
+        nodes = nodes[:-1]
+    return Subpath(
+        "s",
+        (
+            PathNode("n", "M", tuple(float(v) for v in run[0])),
+            *(PathNode("n", c, v) for c, v in nodes),
+        ),
+        closed,
+    )
+
+
+def inked_outline(
+    runs: list[np.ndarray],
+    cover: np.ndarray,
+    line: np.ndarray,
+    drawing: np.ndarray,
+    stroke: float,
+) -> list[tuple[np.ndarray, float]]:
+    """The stretches of the outline *runs* that run along drawn ink, each
+    moved onto the ink's middle there and with its width.
+
+    Across the silhouette *drawing* at each point, from just outside it to
+    twice *stroke* in, the ink's *cover* of each pixel (0-1) sums to its
+    width there and centres on its middle. Where there is less than
+    OUTLINE_INK_LEAST of a stroke of ink, and no pixel of the drawn *line*
+    within OUTLINE_SLACK beyond half the stroke, across gaps up to OUTLINE_BRIDGE
+    strokes long, the outline is left open, as along a cropped hem with no
+    ink. Each stretch is cut where the ink's width steps by OUTLINE_STEP,
+    as the lines are, and each piece lies at its own ink's middle.
+    """
+    inside = distance_transform_edt(drawing)
+    slopes = tuple(np.gradient(inside))
+    gap = distance_transform_edt(~line)
+    reach = stroke / 2 + OUTLINE_SLACK
+    # Depths from the background across the silhouette, in pixels.
+    depths = np.arange(-1.0, 2 * stroke + OUTLINE_GAP, 0.5)
+    bridge = OUTLINE_BRIDGE * stroke
+    shortest = max(12.0, 4 * stroke)
+    span = max(LINE_PIECE, LINE_PIECE_WIDTHS * stroke)
+    kept = []
+    for run in runs:
+        at = [run[:, 1] - 0.5, run[:, 0] - 0.5]
+        start_depth = map_coordinates(inside, at, order=1, mode="nearest")
+        dy, dx = (map_coordinates(s, at, order=1, mode="nearest") for s in slopes)
+        norm = np.maximum(np.hypot(dx, dy), 1e-6)
+        dx, dy = dx / norm, dy / norm
+        # Each point's ray, from its depth *start_depth* to each of *depths*.
+        offset = depths[None, :] - start_depth[:, None]
+        xs = run[:, 0, None] + offset * dx[:, None] - 0.5
+        ys = run[:, 1, None] + offset * dy[:, None] - 0.5
+        ink = map_coordinates(cover, [ys.ravel(), xs.ravel()], order=1, mode="constant")
+        ink = ink.reshape(xs.shape)
+        # Only the outer ink: from its first sample covering half its most,
+        # until the cover falls away, with the partial cover before it.
+        index = np.arange(len(depths))[None, :]
+        peak = ink.max(1, keepdims=True)
+        strong = (ink >= 0.5 * peak) & (peak >= OUTLINE_PEAK)
+        first = np.where(strong.any(1), strong.argmax(1), len(depths))[:, None]
+        clear = (ink < OUTLINE_CLEAR) & (index > first)
+        stop = np.where(clear.any(1), clear.argmax(1), len(depths))[:, None]
+        ink = np.where((index >= first - 1) & (index < stop), ink, 0.0)
+        width = ink.sum(1) * 0.5
+        middle = (ink * depths).sum(1) / np.maximum(ink.sum(1), 1e-6)
+        lined = gap[
+            np.clip(run[:, 1].astype(int), 0, line.shape[0] - 1),
+            np.clip(run[:, 0].astype(int), 0, line.shape[1] - 1),
+        ]
+        # Where the ink was measured, and where a drawn line at least runs.
+        found = width >= OUTLINE_INK_LEAST * stroke
+        inked = found | (lined <= reach)
+        if not inked.any():
+            continue
+        closed = len(run) > 3 and np.array_equal(run[0], run[-1])
+        for start in (np.argmax, np.argmin):
+            if closed and not inked.all():
+                # A loop: from a point with (then without) ink round to it.
+                at = int(start(inked))
+                order = np.concatenate((np.arange(at, len(run) - 1), np.arange(at + 1)))
+                run, inked, found = run[order], inked[order], found[order]
+                width, middle = width[order], middle[order]
+            steps = np.linalg.norm(np.diff(run, axis=0), axis=1)
+            along = np.concatenate(([0.0], np.cumsum(steps)))
+            for first, last in _stretches(~inked):
+                # A short break in the ink between two inked stretches.
+                if (
+                    first > 0
+                    and last < len(run)
+                    and along[last] - along[first] <= bridge
+                ):
+                    inked[first:last] = True
+        for first, last in _stretches(inked):
+            if along[last - 1] - along[first] < shortest:
                 continue
-            run = _onto_level(run, inside, slopes, depth)
-            closed = np.array_equal(run[0], run[-1])
-            nodes = curve_nodes(run, tolerance, smooth=FILL_SMOOTH, cut=FILL_CUT)
-            if closed and nodes and nodes[-1][0] == "L":
-                nodes = nodes[:-1]
-            contours.append(
-                Subpath(
-                    "s",
-                    (
-                        PathNode("n", "M", tuple(float(v) for v in run[0])),
-                        *(PathNode("n", c, v) for c, v in nodes),
-                    ),
-                    closed,
+            piece = run[first:last]
+            # Across a break, and along a line too faint to measure, the
+            # ink's width and middle either side, or the outline's own.
+            own = found[first:last]
+            wide, deep = width[first:last], middle[first:last]
+            if own.any():
+                wide = np.where(own, wide, np.median(wide[own]))
+                deep = np.where(own, deep, np.median(deep[own]))
+            else:
+                wide = np.full(len(piece), stroke)
+                deep = np.full(len(piece), float(np.median(start_depth)))
+            parts = []
+            for a, b in width_pieces(wide, span, OUTLINE_STEP):
+                middle_depth = float(np.median(deep[a : b + 1]))
+                part = _onto_level(piece[a : b + 1], inside, slopes, middle_depth)
+                if parts:
+                    # Each piece starts where the one before ends.
+                    part[0] = parts[-1][0][-1]
+                parts.append(
+                    (part, max(stroke / WIDTH_STEP, float(np.median(wide[a : b + 1]))))
                 )
-            )
-    return contours, edge
+            if len(parts) > 1 and np.array_equal(piece[0], piece[-1]):
+                parts[-1][0][-1] = parts[0][0][0]
+            kept.extend(parts)
+    return kept
 
 
 def _onto_level(
@@ -1145,11 +1267,11 @@ def vectorize(
     elif drawing is not None:
         # No lines to take its ink and width from.
         stroke = line_width or OUTLINE_WIDTH
-        contours, _ = outline_contours(
-            drawing, stroke / 2 + OUTLINE_INSET, stroke, tolerance
-        )
+        contours, _ = outline_runs(drawing, stroke / 2 + OUTLINE_INSET, stroke)
         if contours:
-            parts.append(_stroke(contours, "#000000", stroke))
+            parts.append(
+                _stroke([_contour(c, tolerance) for c in contours], "#000000", stroke)
+            )
         details["outline"] = len(contours)
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
@@ -1211,12 +1333,17 @@ def _line_paths(
     # Each line pixel's share covered by each ink, over the surface of the
     # region it lies in, summed across the line: its width in that ink.
     widths_by_ink = []
+    covers = []
     for value in palette:
         away = surface - value
         span = (away * away).sum(-1)
         cover = ((surface - target) * away).sum(-1) / np.maximum(span, 1)
-        # On a surface as dark as the ink, the line pixel is all ink.
-        cover = np.where(span < 30**2, 1.0, np.clip(cover, 0, 1)) * line
+        # On a surface as dark as the ink, the line pixel is all ink. Every
+        # pixel's cover, line or not, is kept: the outline goes by the ink
+        # the picture has, whether or not it was found as a line.
+        cover = np.where(span < 30**2, line, np.clip(cover, 0, 1))
+        covers.append(cover)
+        cover = cover * line
         widths_by_ink.append(
             np.bincount(flat, cover.ravel(), minlength=line.size).reshape(line.shape)
         )
@@ -1243,7 +1370,7 @@ def _line_paths(
         outer_pixels, depth = outer
         if outer_pixels is None:
             depth = max(THINNEST, line_width or typical) / 2 + OUTLINE_INSET
-        contours, edge = outline_contours(drawing, depth, 2 * depth, tolerance)
+        contours, edge = outline_runs(drawing, depth, 2 * depth)
         stroke = max(THINNEST, line_width or typical)
         outer_ink = int(np.argmin(palette @ LUMINANCE))
         if contours:
@@ -1269,10 +1396,29 @@ def _line_paths(
                         (50,),
                     )[0],
                 )
+            if outer_pixels is not None:
+                # Only along the drawn ink, at its width there.
+                pieces = inked_outline(
+                    contours, covers[outer_ink], line, drawing, stroke
+                )
+                if line_width:
+                    pieces = [(run, line_width) for run, _ in pieces]
+                drawn = np.zeros(line.shape, dtype=bool)
+                for run, _ in pieces:
+                    xs = np.clip(run[:, 0].astype(int), 0, line.shape[1] - 1)
+                    ys = np.clip(run[:, 1].astype(int), 0, line.shape[0] - 1)
+                    drawn[ys, xs] = True
+                edge &= binary_dilation(drawn, np.ones((3, 3)), iterations=2)
+                away = distance_transform_edt(~edge)
+            else:
+                pieces = [(run, stroke) for run in contours]
             reach = stroke / 2 + OUTLINE_SLACK
             runs = off_outline(runs, edge, reach, max(3.0, stroke))
             off = away > reach
-            outer_parts.append(_stroke(contours, colour(palette[outer_ink]), stroke))
+            outer_parts.extend(
+                _outline_strokes(pieces, colour(palette[outer_ink]), tolerance)
+            )
+            contours = [run for run, _ in pieces]
         outer_details = {
             "outline": len(contours),
             "outline_width": round(stroke, 2),
@@ -1390,6 +1536,23 @@ def _line_paths(
     }
 
 
+def _outline_strokes(
+    pieces: list[tuple[np.ndarray, float]], paint: str, tolerance: float
+) -> list[str]:
+    """The outline's *pieces*, runs and their widths, fitted with curves and
+    stroked in *paint*, one path per group of about one width."""
+    if not pieces:
+        return []
+    widths = np.array([width for _, width in pieces])
+    lengths = np.array([len(run) for run, _ in pieces], dtype=float)
+    paths = []
+    for members in width_groups(widths, lengths):
+        width = _weighted_percentiles(widths[members], lengths[members], (50,))[0]
+        contours = [_contour(pieces[i][0], tolerance) for i in members]
+        paths.append(_stroke(contours, paint, width))
+    return paths
+
+
 def _stroke(contours: list[Subpath], paint: str, width: float) -> str:
     """*contours* as one round-capped stroke of *paint*, *width* wide."""
     data = " ".join(
@@ -1451,9 +1614,11 @@ def _widths_along(across: np.ndarray, run: np.ndarray) -> np.ndarray:
     return across[ys, xs]
 
 
-def width_pieces(widths: np.ndarray, shortest: float) -> list[tuple[int, int]]:
+def width_pieces(
+    widths: np.ndarray, shortest: float, ratio: float = WIDTH_STEP
+) -> list[tuple[int, int]]:
     """The run whose points are *widths* wide, as (first, last) pieces cut
-    where its width steps by more than WIDTH_STEP, each at least *shortest*
+    where its width steps by more than *ratio*, each at least *shortest*
     points long; adjacent pieces share the point between them.
 
     Each cut is where the typical widths either side differ the most, and
@@ -1475,7 +1640,7 @@ def width_pieces(widths: np.ndarray, shortest: float) -> list[tuple[int, int]]:
         after = (sums[-1] - sums[at]) / (count - at)
         step = np.abs(before - after)
         best = int(step.argmax())
-        if step[best] <= np.log(WIDTH_STEP):
+        if step[best] <= np.log(ratio):
             return [(first, last)]
         middle = first + int(at[best])
         return [*cut(first, middle), *cut(middle, last)]

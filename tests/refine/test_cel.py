@@ -403,3 +403,51 @@ def test_the_outer_outline_is_a_stroke_with_filled_lines_too():
     strokes = stroke_paths(svg)
     assert len(strokes) == 1
     assert strokes[0][0].endswith("Z")
+
+
+def hemmed_shape() -> Image.Image:
+    """A green panel on white outlined in black on three sides, its bottom
+    edge a cut hem with no ink."""
+    pixels = np.full((160, 200, 3), 255, dtype=np.uint8)
+    pixels[20:140, 30:170] = (80, 140, 120)
+    pixels[20:24, 30:170] = 20
+    pixels[20:140, 30:34] = 20
+    pixels[20:140, 166:170] = 20
+    return Image.fromarray(pixels)
+
+
+def rendered(svg: str) -> np.ndarray:
+    png = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
+    assert png is not None
+    return np.asarray(Image.open(io.BytesIO(png)).convert("L"))
+
+
+def test_the_outer_outline_leaves_a_cut_edge_with_no_ink_open():
+    svg, details = cel.vectorize(hemmed_shape(), regions=3, outline=True)
+    assert details["outline_inked"]
+    d, _, _ = stroke_paths(svg)[0]
+    assert not d.endswith("Z")
+    drawn = rendered(svg)
+    # The inked sides are drawn, the hem is not.
+    assert drawn[80, 31] < 100
+    assert drawn[80, 168] < 100
+    assert drawn[21, 100] < 100
+    assert drawn[137:141, 50:150].min() > 100
+
+
+def test_the_outer_outline_follows_the_width_of_its_ink():
+    y, x = np.mgrid[:160, :200]
+    r = np.hypot(x - 100, y - 80)
+    pixels = np.full((160, 200, 3), 255, dtype=np.uint8)
+    pixels[r <= 60] = (220, 60, 50)
+    # Thin on the left half, bold on the right.
+    pixels[(r > 57) & (r <= 60) & (x < 100)] = 20
+    pixels[(r > 52) & (r <= 60) & (x >= 100)] = 20
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=3, outline=True)
+    widths = sorted(width for _, paint, width in stroke_paths(svg) if paint < "#3")
+    assert widths[0] <= 4
+    assert widths[-1] >= 6.5
+    drawn = rendered(svg)
+    # The bold side's inner edge, which a stroke of one width would miss.
+    assert drawn[80, 100 + 53] < 100
+    assert drawn[80, 100 - 55] > 100
