@@ -44,7 +44,6 @@ from vectrify.operations import (
 )
 from vectrify.refine.centreline import centreline
 from vectrify.refine.redraw import redraw_stretch
-from vectrify.refine.retrace import SAM_CACHE
 
 MAX_SOURCE = 128 * 1024 * 1024
 # How near, in screen pixels, a redraw stroke's ends attach to a point of the
@@ -127,10 +126,6 @@ class Session:
                 for j in self.jobs.values()
             ):
                 raise DocumentError("Another operation is already running")
-            if "gpu" in chosen.resources and chosen.name != "retrace":
-                # Retrace keeps SAM loaded between runs; another GPU job
-                # needs that memory, and the next retrace loads it again.
-                SAM_CACHE.release()
             job = Job(chosen, request, context_key=self._job_key(chosen))
             job.start()
             self.jobs = {k: v for k, v in self.jobs.items() if v.status == "running"}
@@ -179,19 +174,12 @@ class Session:
             budget=Budget.parse(payload.get("budget")),
             reference=self.reference_image() if chosen.needs_reference else None,
             bounds=tuple(bounds) if isinstance(bounds, list) else bounds,
-            source_name=self.source_name(),
         )
 
     def _job_key(self, method: Method) -> tuple:
         """What a result depends on besides the revision the commit checks."""
         reference = self.reference["data_url"] if self.reference else None
         return (self.epoch, reference if method.needs_reference else None)
-
-    def source_name(self) -> str | None:
-        """The reference's file name, else the drawing's, unless a placeholder."""
-        names = [self.reference["name"] if self.reference else None, self.name]
-        generic = {"Reference", "Untitled.svg"}
-        return next((n for n in names if n and n not in generic), None)
 
     def reference_image(self) -> Image.Image | None:
         if not self.reference:
@@ -364,7 +352,6 @@ class Session:
             job.stop.set()
         self.jobs = {}
         self.editor, self.name, self.reference = editor, name, reference
-        SAM_CACHE.release()
         self.epoch = uuid4().hex
         self._svg_revision = -1
 
@@ -446,11 +433,6 @@ class Session:
                 if payload.get("reference")
                 else None
             )
-            if (reference or {}).get("data_url") != (self.reference or {}).get(
-                "data_url"
-            ):
-                # The embedding retraces reuse is of the old reference.
-                SAM_CACHE.release()
             self.reference = reference
         elif command in POINT_COMMANDS:
             chosen = self.editor.snapshot.selection

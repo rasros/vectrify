@@ -22,6 +22,13 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
 
 ## Layout
 
+- **Top bar**: the name, the drawing's title and the file actions
+  (**Commands**, **Open…**, **Restore saved…**, **Save project**, **Export
+  SVG**). It keeps to one row at any width down to a phone's: the badge, the
+  Ctrl K hint and then the title make room first, and the actions that still
+  do not fit move into a **⋯** menu at its end, the least important first
+  (**Restore saved…**, then **Open…**, then **Save project**), so
+  **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`V`) and
   **Knife** (`K`), the point tools **Nodes** (`N`) and **Redraw outline**
@@ -60,7 +67,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   first. In a point tool the menu offers the point commands.
 - **Command palette** (Ctrl/⌘ K, or **Commands** in the top bar): type to find
   any command by name, group or a keyword (tools, actions, points, reference
-  tools, open, save, export, settings, view), with its shortcut. ↑ / ↓ choose,
+  tools, open, save, export, view), with its shortcut. ↑ / ↓ choose,
   Enter runs, Escape closes. A command that cannot run now shows why instead.
 - The footer shows the artboard size, the reference overlay toggle (`O`),
   with its opacity and an amber canvas border while it is visible, and zoom.
@@ -70,7 +77,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Reference panel picks the same three views.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
-reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges, Settings,
+reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges,
 Restore saved project and Keyboard shortcuts, each titled as the command that
 opens it. They open from the Reference panel, the Actions, the context menu or
 the palette.
@@ -250,7 +257,11 @@ and saved projects restore it.
   group with opacity or clipping, a changed transform on a path with shared
   edges, and objects with instances that would change too. Locked objects and
   groups, definitions, clipping contours and a group into itself are refused
-  as well. Each drop is one undoable edit.
+  as well. Each drop is one undoable edit. A drag can start while an edit is
+  running: dropped before the edit is done, the objects land next to the rows
+  they were dropped by, on the tree the edit leaves, and the drop is refused
+  with a reason if those rows are gone or have moved to another group. A drag
+  still held when the edit finishes follows the new rows under the pointer.
 - **Join** (Actions, and the Nodes strip) does what fits the selection: two
   selected points join each other, as above; lines join at their ends, below;
   and filled paths merge by area, through a dialog (**Join…**). In a point
@@ -402,36 +413,16 @@ a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
 it. With a reference loaded the panel picks the view (**Drawing**,
 **Overlay** or **Reference** alone, as `O` cycles them) and the overlay's
 opacity; its heading gives the state. Below are the tools that compare the
-drawing with it: **Generate…**, **Retrace** with its mode, **Tidy…**,
-**Fit colours…** and **Fit gradient…**, acting on the selection made with any tool. A tool that
-cannot run is dimmed, with the reason as its tooltip. Each is also in the
-command palette.
-
-**Retrace** (Shift+R) replaces the outline of each selected
-path with a fresh trace of its object in the reference, keeping the path's ID,
-paint and place in the stacking order. Draw or keep a rough shape over the
-object and press it: the new outline lands as one undoable edit, with a toast
-giving the change in reference error. **With SAM** prompts SAM with the path's
-box, points inside it and points just outside it that look different, and
-takes the mask that agrees with the path, keeps to one colour and has its
-outline on the reference's edges; holes in the object stay holes. It needs the
-`samvg` extra and a CUDA GPU; without one it retraces **By colour**, which
-grows the region from the path's inside over pixels of its colour, within a
-margin around it. Either way the region's edges are moved onto the reference's
-own and the outline is traced as SAMVG traces its regions. The first retrace
-loads SAM (ViT-H) and encodes the reference, a few seconds; later ones on the
-same reference reuse both and take under a second for a typical shape, more
-for a very large one. The model is released after three idle minutes, when
-the reference changes, and before another GPU tool runs. Only visible filled
-paths can be retraced; locked geometry, pinned points and shared geometry are
-refused (unpin or detach first). It replaces Tidy for fixing a whole
-shape; Tidy remains for tidying one.
+drawing with it: **Generate…**, **Tidy…**, **Fit colours…** and **Fit
+gradient…**, acting on the selection made with any tool. A tool that cannot
+run is dimmed, with the reason as its tooltip. Each is also in the command
+palette.
 
 **Tidy…** is a quick clean-up of the selected paths, or the paths
 inside selected groups, against the reference around them, never the whole
 image. By default it snaps their points onto the reference's edges and removes
-the points they do not need, in a few seconds; to reshape a path, use Retrace
-(Shift+R) or Redraw outline (R). Tick the steps it may use:
+the points they do not need, in a few seconds; to reshape a path, use Redraw
+outline (R). Tick the steps it may use:
 
 - **Snap to reference** (on by default) moves the points onto the reference's
   nearest edges. With **Add detail** it also adds points where the path
@@ -473,13 +464,6 @@ endpoints stay fixed, and surviving points keep their identity. Colour is left
 to Fit colours. The job runs in the background with progress, Stop & keep
 best, and reference/before/after previews; the result lists the steps it
 took. Apply is one undoable edit.
-
-Generate's language model method draws the reference from scratch with a
-multimodal model. It needs an API key or a local server, set up under
-**Settings** in the top bar. A local server is any OpenAI-compatible
-endpoint, such as `http://localhost:11434/v1` for Ollama, with a model that
-accepts images. Settings also holds each provider's model and reasoning
-effort. The editor shows only the last four characters of a saved key.
 
 **Fit colours…** solves the flat fill colour of every selected object that
 best matches the reference, with geometry locked. Each object is rendered with
@@ -539,7 +523,9 @@ picture the lines are found after a small median filter smooths the grain
 away. It fills the space between the lines with a shrinking ball so a small
 gap in a line does not join the regions either side, splits each region where
 its colour changes with no line, and merges neighbours down to the chosen
-number of **Regions**, those of a similar colour first, and regions of
+number of **Regions** (0, the default, keeps one per 10,000 pixels of the
+traced area, at least 50 and at most 2,000), those of a similar colour first,
+and regions of
 different colours a drawn line separates last (the same colour either side of
 a line merges freely, since the line is drawn over it). Lightness counts
 more than hue in how alike two colours are, and two regions of some size a

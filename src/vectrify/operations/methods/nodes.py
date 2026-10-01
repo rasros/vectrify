@@ -8,7 +8,7 @@ It mixes three steps and picks, round by round, whichever helps:
   in the reference's pixels.
 - Shape fits the points and handles by gradient descent (the path fit),
   on the GPU when there is one and on the CPU otherwise. It is off unless
-  asked for: Retrace shape and Redraw outline reshape a path far faster.
+  asked for: Redraw outline reshapes a path far faster.
 
 Every round tries each chosen step on the paths as they stand and keeps the
 one that lowers the difference to the reference most, if it fixes enough of

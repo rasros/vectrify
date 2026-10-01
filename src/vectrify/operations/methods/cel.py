@@ -19,8 +19,9 @@ from vectrify.operations.generate import (
 from vectrify.operations.settings import Setting, read_settings
 
 SETTINGS = {
-    # How many filled regions the trace merges down to.
-    "regions": Setting(int, 50, minimum=1, maximum=2000),
+    # How many filled regions the trace merges down to; 0 sizes it to the
+    # traced area (see auto_regions).
+    "regions": Setting(int, 0, minimum=0, maximum=2000),
     # The lines' stroke width in reference pixels; 0 measures each line.
     "line_width": Setting(float, 0.0, minimum=0.0, maximum=32.0, label="line width"),
     # How far an outline or line may stray from the traced pixels.
@@ -28,6 +29,18 @@ SETTINGS = {
     # Draw the lines as strokes, tapered ones too; off, they are filled shapes.
     "strokes": Setting(bool, True),
 }
+
+
+# By default a trace keeps one region per this many reference pixels (about
+# 100 x 100), within these bounds: a larger image has room for more detail.
+PIXELS_PER_REGION = 10_000
+AUTO_REGIONS = (50, 2000)
+
+
+def auto_regions(size: tuple[int, int]) -> int:
+    """The regions a trace of an area *size* pixels keeps by default."""
+    low, high = AUTO_REGIONS
+    return min(high, max(low, round(size[0] * size[1] / PIXELS_PER_REGION)))
 
 
 class Cel:
@@ -46,6 +59,8 @@ class Cel:
 
         settings = read_settings(request.settings, SETTINGS, "cel")
         region = target_region(request)
+        if not settings["regions"]:
+            settings["regions"] = auto_regions(region.image.size)
         context.progress(0, "Finding the lines and filling the regions…", total=2)
         svg, details = vectorize(region.image, **settings)
         context.progress(1, "Placing traced regions and lines…")

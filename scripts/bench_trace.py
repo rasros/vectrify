@@ -38,6 +38,7 @@ ROOT = Path(__file__).resolve().parents[1]
 REFERENCES = (
     "ChatGPT Image Sep 29, 2026, 10_40_22 PM.png",
     "chest-clothing-bold-v2.png",
+    "earth-hybrid-v2.png",
 )
 # Generate settings on top of each method's defaults, by method and preset.
 PRESETS: dict[str, dict[str, dict]] = {

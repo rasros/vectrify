@@ -18,7 +18,6 @@ from typing import Any
 from urllib.parse import urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
-from vectrify.llm import keys
 from vectrify.ui.session import MAX_SOURCE, Session
 
 STATIC = Path(__file__).with_name("static")
@@ -77,12 +76,6 @@ class Backend:
                         if "objects" in data
                         else session.nodes(data["object"])
                     )
-                elif path == "/api/settings":
-                    if {"api_keys", "local", "models"} & data.keys():
-                        keys.save(
-                            data.get("api_keys"), data.get("local"), data.get("models")
-                        )
-                    result = keys.summary()
                 elif path == "/api/reference":
                     result = {"reference": session.reference}
                 elif path == "/api/export":

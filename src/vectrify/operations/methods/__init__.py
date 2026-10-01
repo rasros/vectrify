@@ -6,10 +6,8 @@ from vectrify.operations.methods import (
     colour_regions,
     colours,
     edges,
-    llm,
     nodes,
     path_fit,
-    retrace,
     samvg,
 )
 
@@ -19,9 +17,7 @@ __all__ = [
     "colour_regions",
     "colours",
     "edges",
-    "llm",
     "nodes",
     "path_fit",
-    "retrace",
     "samvg",
 ]
