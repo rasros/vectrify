@@ -1,6 +1,6 @@
 # MCP server (sketch)
 
-Status: design sketch, nothing built yet. It replaces the removed LLM
+Status: design agreed, nothing built yet. It replaces the removed LLM
 features: instead of Vectrify calling a model, an agent (Claude Code, Claude
 Desktop or any MCP client) calls Vectrify.
 
@@ -34,14 +34,19 @@ default when an editor is running.
 ### The live channel
 
 The desktop app has no port today (pywebview calls `Backend` in process).
-Proposal: when the editor starts it listens on a Unix socket (named pipe on
-Windows) under the user's runtime directory, owner-only, and writes
-`{socket, token}` to `~/.local/state/vectrify/editor.json`. The protocol is the
-existing `Backend.handle(path, data, session)` as JSON lines, plus one call to
-find the window's session id. `--serve` mode can expose the same thing over
-its HTTP port with the token as a header. A menu item or setting, "Allow
-agents to edit", turns it on per window; the footer shows when an agent is
-connected and what it last did.
+The editor serves an agent endpoint over HTTP on localhost: in `--serve`
+mode on its own port, and in the desktop app on a port it opens when
+"Allow agents to edit" is turned on for the window. It writes
+`{url, token}` to `~/.local/state/vectrify/editor.json`, owner-only; every
+request carries the token. The calls are the existing
+`Backend.handle(path, data, session)` plus one to find the window's session
+id. The footer shows when an agent is connected and what it last did.
+
+Images are the bulk of the traffic (an agent renders after most edits), so
+renders are PNG bytes in the HTTP response body, not base64 inside JSON, and
+the MCP server passes them on as image content. Renders are capped in size
+and can be cropped to a region, so a close look at one part does not cost a
+full-size image; a render of an unchanged revision and region is cached.
 
 ## Tools
 
@@ -62,6 +67,12 @@ ids as in the tree; points are `[object, node]` pairs.
 **Selecting**
 - `select(objects?, points?)`.
 
+**History**
+- `history()`: the undo and redo stacks, each entry with its label, who made
+  it (the person or the agent) and the revision after it.
+- `undo(steps?)`, `redo(steps?)`; the agent's own edits are labelled
+  "Agent: …" in the editor's history too.
+
 **Editing** (one undo step each; refusals come back as tool errors with the
 editor's message)
 - `paint(ids, fill?, stroke?, stroke_width?, opacity?)`, `rename`, `locks`.
@@ -71,7 +82,6 @@ editor's message)
   `handles(points, count)`, `break`, `join_points`, `split_edge`,
   `delete_points`.
 - `knife(line)`, `redraw_outline(id, stroke)`.
-- `undo`, `redo`.
 
 **Operations** (jobs: start, then poll or wait; the agent decides to apply)
 - `generate(method, settings, scope)`, `tidy(ids, settings)`,
@@ -91,15 +101,19 @@ editor's message)
   processes out; file writes outside the opened file need consent.
 - Budgets: renders are capped in size; `describe` pages large trees.
 
-## Open questions
+## Decisions
 
-1. Live channel: Unix socket + token as above, or reuse `--serve` HTTP only?
-2. Should the agent's edits be marked in undo history ("Agent: …")?
-3. Expose the generic `action(command, payload)` as an escape hatch, or only
-   typed tools? Typed is safer to call and easier to document; generic covers
-   everything the UI can do.
-4. Prompts/resources: ship a `vectrify://guide` resource explaining the
-   workflow (render, compare, edit, render again) for clients that read it?
+1. Both targets: headless files and the live editor, with the same tools.
+2. The live channel is HTTP on localhost with a token; images travel as
+   PNG bodies.
+3. The agent's edits are labelled in the history, and it can inspect the
+   history and undo or redo.
+4. Typed tools only, no generic `action(command, payload)`; together they
+   cover nearly everything the UI can do. A test checks every editor command
+   is reachable from some tool, or listed as deliberately left out.
+5. A `vectrify://guide` resource (and the server's instructions) explains the
+   workflow: describe, render and compare, edit, render again, undo what
+   made it worse.
 
 ## First prototype
 
