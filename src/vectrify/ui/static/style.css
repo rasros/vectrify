@@ -229,3 +229,6 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 @media (max-width: 560px) { .topbar { gap: 8px; } }
 @media (max-width: 420px) { .topbar .brand-name { display: none; } .topbar { padding: 0 8px; } }
 [data-key]::after { content: attr(data-key); margin-left: 5px; font-size: 9px; opacity: .5; }
+#overlay .agent-flash { fill: #ffd16626; stroke: #ffd166; stroke-width: calc(2px * var(--selection-scale,1)); pointer-events: none; animation: agent-flash 1.5s ease-out forwards; }
+@keyframes agent-flash { 0%, 40% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { #overlay .agent-flash { animation: none; } }

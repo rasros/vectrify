@@ -86,7 +86,10 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   off, which stops the server. `vectrify-mcp`'s `connect()` reaches the
   window too. While it is on, the agent's edits appear as it makes them and
   land in the undo history labelled "Agent: …", and the footer reads *Agent
-  connected* with the agent's last action.
+  connected* with the agent's last action. The objects each edit touched
+  flash briefly in the canvas; the person's selection (objects, points and
+  the entered group) is never changed by the agent, except that objects it
+  deletes drop out of it.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
 reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges,

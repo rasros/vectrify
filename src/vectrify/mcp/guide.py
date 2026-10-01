@@ -6,8 +6,9 @@ loop: describe() the drawing, look with render() (overlay="side" to set it
 beside the reference) and compare() (error and a heat map of where it
 differs), make one edit, render or compare again, and undo() an edit that
 made it worse. Every edit is one undo step labelled "Agent: ..." in the
-editor's history. Ids are object ids from describe(); points are
-[object id, node id] pairs from points(). If an edit is refused because the
+editor's history. Every edit names its targets: ids are object ids from
+describe(), points are [object id, node id] pairs from points(); no tool acts
+on the current selection. If an edit is refused because the
 drawing changed, describe() again: someone else edited it."""
 
 INSTRUCTIONS = (
@@ -41,13 +42,15 @@ GUIDE = """\
   (or call `connect()`). The editor also hosts this server itself, at the
   URL its Agents popover shows; a client added there is always on that
   window, and has no `open` or `connect`. Every edit shows in the window
-  as you make it and lands in its undo history. Selecting there selects for
-  the person too.
+  as you make it and lands in its undo history, and the objects you
+  touched flash briefly. The person's selection stays theirs: your edits
+  never change it.
 - Both have the same drawing tools. `describe()` says which one you are on.
 
 ## The loop
 
-1. `describe()`: the artboard, the reference, the selection, and the objects
+1. `describe()`: the artboard, the reference, the person's selection (for
+   context only), and the objects
    (id, label, tag, parent, paint, bounds, locks), a page at a time
    (`page`, `page_size`, or `within` a group id).
 2. Look: `render()` is the drawing; `render(overlay="side")` puts the
@@ -77,18 +80,25 @@ GUIDE = """\
   `delete_contours`, `join_points`.
 - `redraw_outline(id, points)` redraws the stretch of an outline a stroke
   runs along, as the Redraw tool does; its ends must lie on the outline.
-- Tools that take `ids` select them first; without `ids` they act on the
-  current selection.
-- Locked properties, pinned points and the selection are enforced: a
+- Every edit takes its targets: `ids` for object tools (at least one),
+  `points` for point tools, `contours` for holes. There is no selection to
+  set or rely on. An edit's answer gives `result`, the objects (and points)
+  it left to work on next, such as the new group or the cut pieces, and
+  `created` and `removed`.
+- `knife` without `ids` cuts every unlocked path it crosses (`within` a
+  group if given).
+- Locked properties and pinned points are enforced: a
   refusal is a tool error with the editor's reason. Do not work around it;
   tell the person if a lock is in the way.
 
 ## Operations
 
-`generate(method, settings, scope)` traces the reference into new shapes
-(`cel` for flat colour with ink lines, `colour-regions` for posterised
-regions; `samvg` needs a GPU). `tidy`, `fit_colours(fill="flat"|"linear")`,
-`snap_edges` and `cleanup` improve existing paths. Each starts a job:
+`generate(method, settings, group)` traces the reference into new shapes,
+over the whole drawing or into the area of `group` (`cel` for flat colour
+with ink lines, `colour-regions` for posterised regions; `samvg` needs a
+GPU). `tidy(ids)`, `fit_colours(ids, fill="flat"|"linear")`,
+`snap_edges(ids)` and `cleanup(ids)` improve existing paths. Each starts a
+job:
 `job_status(id, wait_seconds)` waits for it and returns its metrics and
 before/after previews, then `apply(id)` keeps the result as one undo step
 or `discard(id)` drops it. Look at the previews and metrics before applying.

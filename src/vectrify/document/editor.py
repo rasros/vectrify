@@ -285,6 +285,19 @@ class Editor:
         self._document, self._selection = first.before, first.before_selection
         self._revision += 1
 
+    def reselect(self, since: int, before: Selection, after: Selection) -> None:
+        """Give the edits after the first *since* the selections to show on
+        undo (*before*) and redo (*after*), as when an agent edits on a
+        selection of its own and gives the person theirs back."""
+        last = len(self._undo) - 1
+        for i in range(since, last + 1):
+            entry = self._undo[i]
+            self._undo[i] = replace(
+                entry,
+                before_selection=before if i == since else entry.before_selection,
+                after_selection=after if i == last else entry.after_selection,
+            )
+
     def select(self, selection: Selection) -> None:
         self._document.selection_ids(selection)
         self._selection = selection

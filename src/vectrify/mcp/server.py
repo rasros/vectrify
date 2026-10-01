@@ -17,11 +17,12 @@ import json
 import mimetypes
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from mcp.types import CallToolResult, ImageContent, TextContent, ToolAnnotations
+from pydantic import Field
 
 from vectrify.mcp.guide import GUIDE, INSTRUCTIONS, WINDOW_INSTRUCTIONS
 from vectrify.mcp.target import (
@@ -34,7 +35,10 @@ from vectrify.mcp.target import (
 
 Target = FileTarget | LiveTarget | WindowTarget
 
-Point = list[str]
+# An edit's targets, always given: no tool acts on the current selection.
+Ids = Annotated[list[str], Field(min_length=1)]
+Point = Annotated[list[str], Field(min_length=2, max_length=2)]
+Points = Annotated[list[Point], Field(min_length=1)]
 Region = list[float]
 LOOK = ToolAnnotations(read_only_hint=True)
 NO_TARGET = (
@@ -332,22 +336,11 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         """Redo steps undone."""
         return state.call("redo", {"steps": steps})
 
-    # Selecting and objects --------------------------------------------
-
-    @tool(structured_output=False)
-    def select(
-        objects: list[str] | None = None, points: list[Point] | None = None
-    ) -> CallToolResult:
-        """Select objects, and points as [object id, node id] pairs.
-
-        Nothing given clears the selection. In the editor window this is the
-        person's selection too.
-        """
-        return state.call("select", {"objects": objects, "points": points})
+    # Objects -----------------------------------------------------------
 
     @tool(structured_output=False)
     def paint(
-        ids: list[str] | None = None,
+        ids: Ids,
         fill: str | None = None,
         stroke: str | None = None,
         stroke_width: float | None = None,
@@ -355,8 +348,8 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         fill_opacity: float | None = None,
         stroke_opacity: float | None = None,
     ) -> CallToolResult:
-        """Set the paint of objects (or the selection): colours as CSS
-        colours or "none"."""
+        """Set the paint of the objects ids: colours as CSS colours or
+        "none"."""
         return state.call(
             "paint",
             {
@@ -382,13 +375,13 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("locks", {"id": id, "locks": locks})
 
     @tool(structured_output=False)
-    def move(dx: float, dy: float, ids: list[str] | None = None) -> CallToolResult:
-        """Move objects (or the selection) by dx, dy document units."""
+    def move(ids: Ids, dx: float, dy: float) -> CallToolResult:
+        """Move the objects ids by dx, dy document units."""
         return state.call("move", {"dx": dx, "dy": dy, "ids": ids})
 
     @tool(structured_output=False)
     def resize(
-        ids: list[str] | None = None,
+        ids: Ids,
         scale: list[float] | None = None,
         anchor: str | list[float] = "center",
         box: Region | None = None,
@@ -402,40 +395,37 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
     @tool(structured_output=False)
     def reorder(
-        to: Literal["front", "back", "forward", "backward"],
-        ids: list[str] | None = None,
+        ids: Ids, to: Literal["front", "back", "forward", "backward"]
     ) -> CallToolResult:
         """Restack objects within their group; forward and backward move
         one object one step."""
         return state.call("reorder", {"to": to, "ids": ids})
 
     @tool(structured_output=False)
-    def move_into(ids: list[str], parent: str, index: int) -> CallToolResult:
+    def move_into(ids: Ids, parent: str, index: int) -> CallToolResult:
         """Move objects into group parent (the root id for the top level)
         at index among its children (0 is the back)."""
         return state.call("move_into", {"ids": ids, "parent": parent, "index": index})
 
     @tool(structured_output=False)
-    def group(ids: list[str] | None = None) -> CallToolResult:
+    def group(ids: Ids) -> CallToolResult:
         """Group two or more objects."""
         return state.call("group", {"ids": ids})
 
     @tool(structured_output=False)
-    def ungroup(ids: list[str] | None = None) -> CallToolResult:
+    def ungroup(ids: Ids) -> CallToolResult:
         """Ungroup groups, keeping their children."""
         return state.call("ungroup", {"ids": ids})
 
     @tool(structured_output=False)
-    def join(
-        ids: list[str] | None = None, color_source: str | None = None
-    ) -> CallToolResult:
+    def join(ids: Ids, color_source: str | None = None) -> CallToolResult:
         """Merge paths into one outline, its colour mixed by area or taken
         from the path color_source."""
         return state.call("join", {"ids": ids, "color_source": color_source})
 
     @tool(structured_output=False)
     def join_ends(
-        ids: list[str] | None = None,
+        ids: Ids,
         reach: float = 4.0,
         bridge: Literal["curve", "line"] = "curve",
     ) -> CallToolResult:
@@ -449,20 +439,18 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("join_points", {"a": a, "b": b})
 
     @tool(structured_output=False)
-    def split_parts(ids: list[str] | None = None) -> CallToolResult:
+    def split_parts(ids: Ids) -> CallToolResult:
         """Split paths into their disconnected parts; holes stay with theirs."""
         return state.call("split_parts", {"ids": ids})
 
     @tool(structured_output=False)
-    def cut_hole(ids: list[str] | None = None) -> CallToolResult:
+    def cut_hole(ids: Ids) -> CallToolResult:
         """With two paths, cut the inner (or overlapping) one out of the
         other as a hole."""
         return state.call("cut_hole", {"ids": ids})
 
     @tool(structured_output=False)
-    def fill_holes(
-        contours: list[Point], delete_enclosed: bool = False
-    ) -> CallToolResult:
+    def fill_holes(contours: Points, delete_enclosed: bool = False) -> CallToolResult:
         """Fill holes, given as [object id, hole id] pairs from holes();
         delete_enclosed also deletes shapes lying wholly inside them."""
         return state.call(
@@ -470,19 +458,19 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         )
 
     @tool(structured_output=False)
-    def holes_to_shapes(contours: list[Point]) -> CallToolResult:
+    def holes_to_shapes(contours: Points) -> CallToolResult:
         """Turn holes ([object id, hole id] pairs) into shapes of their own."""
         return state.call("holes_to_shapes", {"contours": contours})
 
     @tool(structured_output=False)
-    def detach(ids: list[str] | None = None) -> CallToolResult:
+    def detach(ids: Ids) -> CallToolResult:
         """Give an instance (use) or a path sharing its geometry an
         editable geometry of its own."""
         return state.call("detach", {"ids": ids})
 
     @tool(structured_output=False)
     def convert(
-        ids: list[str] | None = None,
+        ids: Ids,
         to: Literal["line", "fill", "either"] = "either",
     ) -> CallToolResult:
         """Turn thin filled shapes into centre lines (to="line"), stroked
@@ -490,8 +478,8 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("convert", {"ids": ids, "to": to})
 
     @tool(structured_output=False)
-    def delete(ids: list[str] | None = None) -> CallToolResult:
-        """Delete objects (or the selection)."""
+    def delete(ids: Ids) -> CallToolResult:
+        """Delete the objects ids."""
         return state.call("delete", {"ids": ids})
 
     @tool(structured_output=False)
@@ -505,7 +493,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         name: str | None = None,
     ) -> CallToolResult:
         """Draw a new path from SVG path data with one subpath (close it with
-        Z for a shape), in front, or in parent at index. It is selected."""
+        Z for a shape), in front, or in parent at index; its id is in created."""
         return state.call(
             "add_path",
             {
@@ -556,37 +544,37 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("set_points", {"changes": changes})
 
     @tool(structured_output=False)
-    def handles(points: list[Point], count: Literal[0, 1, 2]) -> CallToolResult:
+    def handles(points: Points, count: Literal[0, 1, 2]) -> CallToolResult:
         """Give points 0, 1 or 2 curve handles."""
         return state.call("handles", {"points": points, "count": count})
 
     @tool(structured_output=False)
-    def pin(points: list[Point], pinned: bool = True) -> CallToolResult:
+    def pin(points: Points, pinned: bool = True) -> CallToolResult:
         """Pin points so no edit or operation moves them, or unpin them."""
         return state.call("pin", {"points": points, "pinned": pinned})
 
     @tool(structured_output=False)
-    def break_points(points: list[Point]) -> CallToolResult:
+    def break_points(points: Points) -> CallToolResult:
         """Cut lines or closed contours open at points."""
         return state.call("break_points", {"points": points})
 
     @tool(structured_output=False)
-    def delete_segment(points: list[Point]) -> CallToolResult:
+    def delete_segment(points: Points) -> CallToolResult:
         """Delete the segment between two neighbouring points."""
         return state.call("delete_segment", {"points": points})
 
     @tool(structured_output=False)
-    def split_edge(points: list[Point]) -> CallToolResult:
+    def split_edge(points: Points) -> CallToolResult:
         """Add a point halfway along the edge leading into each point."""
         return state.call("split_edge", {"points": points})
 
     @tool(structured_output=False)
-    def delete_points(points: list[Point]) -> CallToolResult:
+    def delete_points(points: Points) -> CallToolResult:
         """Delete points; a contour or path left too small goes too."""
         return state.call("delete_points", {"points": points})
 
     @tool(structured_output=False)
-    def delete_contours(points: list[Point]) -> CallToolResult:
+    def delete_contours(points: Points) -> CallToolResult:
         """Delete the whole contours these points are on."""
         return state.call("delete_contours", {"points": points})
 
@@ -596,7 +584,6 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
     def generate(
         method: Literal["cel", "colour-regions", "samvg"] = "cel",
         settings: dict[str, Any] | None = None,
-        scope: Literal["drawing", "selection"] = "drawing",
         group: str | None = None,
     ) -> CallToolResult:
         """Trace the reference into new shapes, as a job to preview.
@@ -604,16 +591,15 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         cel: flat colour regions with ink lines (settings regions,
         tolerance, line_width, strokes, outline); colour-regions: posterised
         regions (colours, min_pixels, tolerance, ...); samvg needs a GPU.
-        scope="selection" with group generates into that group's area.
+        Over the whole drawing, or into the area of the group group.
         """
         return state.call(
-            "generate",
-            {"method": method, "settings": settings, "scope": scope, "group": group},
+            "generate", {"method": method, "settings": settings, "group": group}
         )
 
     @tool(structured_output=False)
     def tidy(
-        ids: list[str] | None = None,
+        ids: Ids,
         settings: dict[str, Any] | None = None,
         rounds: int | None = None,
     ) -> CallToolResult:
@@ -623,7 +609,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
     @tool(structured_output=False)
     def fit_colours(
-        ids: list[str] | None = None,
+        ids: Ids,
         fill: Literal["flat", "linear"] = "flat",
         passes: int | None = None,
         resolution: int | None = None,
@@ -636,14 +622,12 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         )
 
     @tool(structured_output=False)
-    def snap_edges(
-        ids: list[str] | None = None, tolerance: float = 1.0
-    ) -> CallToolResult:
+    def snap_edges(ids: Ids, tolerance: float = 1.0) -> CallToolResult:
         """Snap the touching edges of two or more paths together, as a job."""
         return state.call("snap_edges", {"ids": ids, "tolerance": tolerance})
 
     @tool(structured_output=False)
-    def cleanup(ids: list[str] | None = None) -> CallToolResult:
+    def cleanup(ids: Ids) -> CallToolResult:
         """Merge duplicate paths and drop redundant points, as a job."""
         return state.call("cleanup", {"ids": ids})
 

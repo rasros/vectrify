@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pytest
 
 from tests.mcp.helpers import SVG
@@ -114,3 +116,110 @@ def test_get_svg_of_some_objects():
     assert elements["sun"].startswith("<")
     assert 'id="sun"' in elements["sun"]
     assert "#f1ba77" in elements["sun"]
+
+
+def nodes(agent: Agent, oid: str) -> list[str]:
+    geometry = agent.call("points", {"id": oid}).data["geometry"]
+    return [n["id"] for sp in geometry["subpaths"] for n in sp["nodes"]]
+
+
+def person_selects(agent: Agent, objects: list[str], points: Sequence[str] = ()):
+    session = agent.session
+    session.action(
+        {
+            "command": "select",
+            "objects": objects,
+            "nodes": list(points),
+            "epoch": session.epoch,
+            "revision": session.editor.snapshot.revision,
+        }
+    )
+
+
+def test_agent_edits_leave_the_persons_selection_and_add_one_step_each():
+    agent, seen = fresh()
+    hill, sun = nodes(agent, "hill"), nodes(agent, "sun")
+    person_selects(agent, ["hill"], hill[:2])
+    editor = agent.session.editor
+    chosen = editor.snapshot.selection
+    edits = [
+        ("paint", {"ids": ["sun"], "fill": "red"}),
+        ("move", {"ids": ["sun"], "dx": 3, "dy": 0}),
+        ("resize", {"ids": ["sun"], "scale": [2, 2]}),
+        ("reorder", {"ids": ["sun"], "to": "back"}),
+        ("set_points", {"changes": {"sun": {sun[0]: [301, 21]}}}),
+        ("handles", {"points": [["sun", sun[1]]], "count": 2}),
+        ("group", {"ids": ["sun", "sky"]}),
+    ]
+    reply: dict = {}
+    for step, (tool, args) in enumerate(edits, 1):
+        revision = editor.snapshot.revision
+        reply = agent.call(tool, {"seen": seen, **args}).data
+        seen = [reply["epoch"], reply["revision"]]
+        assert editor.snapshot.selection == chosen, tool
+        # One revision and one undo step each: giving the selection back is
+        # neither.
+        assert reply["revision"] == revision + 1, tool
+        assert len(editor.undo_entries) == step, tool
+        assert agent.touched[-1]["change"] == agent.changes
+    # What the edit left to work on is the agent's, in its answer: the group.
+    (group,) = reply["result"]["objects"]
+    assert group in reply["created"]
+    # Undoing an agent's step keeps the person's selection too.
+    agent.call("undo", {"seen": seen})
+    assert editor.snapshot.selection == chosen
+    person_selects(agent, [])
+    editor.undo()
+    assert editor.snapshot.selection == chosen
+
+
+def test_a_refused_edit_leaves_the_persons_selection():
+    agent, seen = fresh()
+    person_selects(agent, ["hill"])
+    with pytest.raises(RefusedError):
+        agent.call(
+            "add_path",
+            {"seen": seen, "d": "M0 0 L10 0 L10 10 Z", "parent": "no-such-group"},
+        )
+    assert agent.session.editor.snapshot.selection.object_ids == {"hill"}
+    assert not agent.touched
+
+
+def test_deleting_what_the_person_selected_drops_it_from_their_selection():
+    agent, seen = fresh()
+    hill, sun = nodes(agent, "hill"), nodes(agent, "sun")
+    person_selects(agent, ["hill", "sun"], [hill[0], hill[1], sun[0]])
+    reply = agent.call("delete", {"seen": seen, "ids": ["sun"]}).data
+    selection = agent.session.editor.snapshot.selection
+    assert selection.object_ids == {"hill"}
+    assert selection.node_ids == {hill[0], hill[1]}
+    assert reply["removed"] == ["sun"]
+    seen = [reply["epoch"], reply["revision"]]
+    agent.call("delete_points", {"seen": seen, "points": [["hill", hill[0]]]})
+    selection = agent.session.editor.snapshot.selection
+    assert selection.object_ids == {"hill"}
+    assert selection.node_ids == {hill[1]}
+
+
+def test_edits_without_targets_are_refused():
+    agent, seen = fresh()
+    person_selects(agent, ["sun"])
+    for tool, args in [
+        ("paint", {"fill": "red"}),
+        ("paint", {"ids": [], "fill": "red"}),
+        ("delete", {}),
+        ("tidy", {}),
+    ]:
+        with pytest.raises(agent_module.DocumentError, match="ids"):
+            agent.call(tool, {"seen": seen, **args})
+    assert agent.session.editor.undo_labels == ()
+
+
+def test_touched_names_the_changed_objects():
+    agent, seen = fresh()
+    reply = agent.call("move", {"seen": seen, "ids": ["sun", "hill"], "dx": 1, "dy": 0})
+    assert agent.touched[-1] == {"change": 1, "ids": ["hill", "sun"]}
+    agent.call("undo", {"seen": [reply.data["epoch"], reply.data["revision"]]})
+    assert agent.touched[-1] == {"change": 2, "ids": ["hill", "sun"]}
+    agent.call("describe")
+    assert len(agent.touched) == 2

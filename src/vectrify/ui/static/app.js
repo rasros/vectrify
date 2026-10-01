@@ -550,7 +550,38 @@ const twoEnds = () => selectedPoints().length === 2;
 // URL and the command that adds it to Claude Code. Agents' edits land in this
 // session, so while allowed the page polls for them, redraws, and says in the
 // footer what the agent did.
-let agentStatus = {enabled: false, connected: false, last_action: null, changes: 0}, agentSeen = 0, agentPoll = null;
+let agentStatus = {enabled: false, connected: false, last_action: null, changes: 0, touched: []}, agentSeen = 0, agentPoll = null;
+// The objects an agent's change touched flash briefly once the page shows it:
+// the person's selection stays theirs, never the agent's.
+const FLASH_MS = 1500;
+let flash = {ids: [], start: 0, timer: null, seen: null};
+function flashTouched(touched) {
+  const ids = [...new Set(touched.filter(t => t.change > flash.seen).flatMap(t => t.ids))];
+  flash.seen = Math.max(flash.seen, ...touched.map(t => t.change));
+  if (!ids.length) return;
+  clearTimeout(flash.timer);
+  flash = {...flash, ids, start: performance.now(), timer: setTimeout(() => { flash.ids = []; drawOverlay(); }, FLASH_MS)};
+  drawOverlay();
+}
+function drawFlash() {
+  if (!flash.ids.length) return;
+  // Redrawing the overlay keeps the fade where it was.
+  const delay = `${-Math.min(FLASH_MS, performance.now() - flash.start)}ms`;
+  for (const id of flash.ids) {
+    const element = svgElement(id), matrix = localToOverlay(element);
+    if (!element?.getBBox || !matrix) continue;
+    try {
+      const b = element.getBBox();
+      if (!b.width && !b.height) continue;
+      const style = getComputedStyle(element);
+      const pad = style.stroke === 'none' ? 0 : (parseFloat(style.strokeWidth) || 0) / 2;
+      const pts = [[b.x-pad,b.y-pad], [b.x+b.width+pad,b.y-pad], [b.x+b.width+pad,b.y+b.height+pad], [b.x-pad,b.y+b.height+pad]].map(([x,y]) => new DOMPoint(x,y).matrixTransform(matrix));
+      const shape = xmlElement('polygon', {points: pts.map(p => `${p.x},${p.y}`).join(' '), class: 'agent-flash', 'data-object': id, 'aria-hidden': 'true'});
+      shape.style.animationDelay = delay;
+      overlay.append(shape);
+    } catch { /* Resource elements have no display bounds. */ }
+  }
+}
 function showAgent() {
   const s = agentStatus, button = $('agent-toggle');
   button.setAttribute('aria-pressed', String(s.enabled));
@@ -573,11 +604,14 @@ async function pollAgent() {
   try {
     const result = await request('/api/poll');
     agentStatus = result.agent; showAgent();
+    // What agents did before the page opened is not news.
+    if (flash.seen === null) flash.seen = agentStatus.changes;
     // An edit the page did not make: take the session's state as it is now,
     // once the person is not mid-gesture.
     const behind = agentStatus.changes !== agentSeen || result.epoch !== state.epoch || result.revision !== state.revision;
     if (behind && !drag && pending === 0) {
       agentSeen = agentStatus.changes;
+      const touched = agentStatus.touched || [];
       queue = queue.then(async () => {
         const previous = JSON.stringify(state.reference);
         const next = await request('/api/session', {session});
@@ -585,6 +619,7 @@ async function pollAgent() {
         if (next.epoch === state.epoch && next.revision !== state.revision) dirty = true;
         await applyState(next);
         if (JSON.stringify(state.reference) !== previous) await loadReference();
+        flashTouched(touched);
       }).catch(error => toast(error.message, true));
       await queue;
     }
@@ -594,7 +629,7 @@ async function pollAgent() {
 async function setAgents(body) {
   try {
     agentStatus = await request('/api/agent', body);
-    agentSeen = agentStatus.changes; showAgent();
+    agentSeen = flash.seen = agentStatus.changes; showAgent();
     if (agentStatus.enabled) pollAgent();
   } catch (error) { toast(error.message, true); }
 }
@@ -1218,6 +1253,7 @@ function drawOverlay() {
   drawSnap();
   drawBox();
   if (level() === 'points') drawPoints();
+  drawFlash();
   renderStatus();
 }
 // Select resizes the selection like a window: its frame is the bounding box

@@ -129,6 +129,17 @@ def test_an_mcp_client_edits_live_and_the_window_sees_it(server):
                 server,
                 "/api/action",
                 {
+                    "command": "select",
+                    "objects": ["sun"],
+                    "epoch": shown["epoch"],
+                    "revision": shown["revision"],
+                },
+                session_id,
+            )
+            page(
+                server,
+                "/api/action",
+                {
                     "command": "paint",
                     "changes": {"fill": "#0000ff"},
                     "epoch": shown["epoch"],
@@ -149,6 +160,63 @@ def test_an_mcp_client_edits_live_and_the_window_sees_it(server):
     with window.lock:
         assert window.editor.undo_labels == ("Agent: Change paint",)
         assert window.editor.redo_labels == ("Change paint",)
+
+
+def test_the_persons_selection_stays_and_the_poll_names_what_the_agent_touched(
+    server,
+):
+    _, state = page(server, "/api/session", {})
+    session_id = state["session"]
+    page(server, "/api/agent", {"enabled": True}, session_id)
+    found = read_discovery()
+    assert found is not None
+    token = found["token"]
+    _, geometry = page(
+        server,
+        "/api/nodes",
+        {"objects": ["river"], "epoch": state["epoch"], "revision": 0},
+        session_id,
+    )
+    river = [
+        n["id"]
+        for sp in geometry["geometries"]["river"]["subpaths"]
+        for n in sp["nodes"]
+    ]
+    # The person is in Nodes with two of the river's points selected.
+    _, chosen = page(
+        server,
+        "/api/action",
+        {
+            "command": "select",
+            "objects": ["river"],
+            "nodes": river[:2],
+            "epoch": state["epoch"],
+            "revision": state["revision"],
+        },
+        session_id,
+    )
+    seen = [state["epoch"], state["revision"]]
+    _, painted = agent(
+        server,
+        token,
+        {"tool": "paint", "args": {"seen": seen, "ids": ["sun"], "fill": "#00f"}},
+    )
+    _, shown = page(server, "/api/session", {"session": session_id})
+    assert shown["selection"] == chosen["selection"]
+    assert shown["undo"] == ["Agent: Change paint"]
+    _, poll = page(server, "/api/poll", {}, session_id)
+    assert poll["revision"] == painted["data"]["revision"]
+    assert poll["agent"]["touched"] == [{"change": 1, "ids": ["sun"]}]
+
+    # The agent deletes the person's selected path: it leaves their selection.
+    seen = [painted["data"]["epoch"], painted["data"]["revision"]]
+    agent(server, token, {"tool": "delete", "args": {"seen": seen, "ids": ["river"]}})
+    _, shown = page(server, "/api/session", {"session": session_id})
+    assert shown["selection"] == {"objects": [], "nodes": []}
+    _, poll = page(server, "/api/poll", {}, session_id)
+    # Nothing left to show of a deletion.
+    assert [t["change"] for t in poll["agent"]["touched"]] == [1]
+    assert poll["agent"]["changes"] == 2
 
 
 def test_the_desktop_window_opens_a_port_of_its_own_while_allowed():
