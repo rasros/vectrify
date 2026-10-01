@@ -60,6 +60,9 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Enter runs, Escape closes. A command that cannot run now shows why instead.
 - The footer shows the artboard size, the reference overlay toggle (`O`),
   with its opacity and an amber canvas border while it is visible, and zoom.
+  **Reference only** (`Shift+O`, or the button next to the overlay toggle) shows the
+  reference at full strength in place of the drawing, so you can flip between
+  the two to compare; press it again to bring the drawing back.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
 reference, Tidy, Fit colours, Join paths, Clean up, Snap edges, Settings,
