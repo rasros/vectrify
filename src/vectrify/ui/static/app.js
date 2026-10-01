@@ -553,7 +553,7 @@ function showAgent() {
   const s = agentStatus, button = $('agent-toggle');
   button.setAttribute('aria-pressed', String(s.enabled));
   button.classList.toggle('connected', s.enabled && s.connected);
-  $('agent-status').textContent = !s.enabled ? 'Agents off' : s.connected ? `Agent connected${s.last_action ? ' · ' + s.last_action : ''}` : 'Agents allowed';
+  $('agent-status').textContent = !s.enabled ? 'Agents off' : s.connected ? `Agent connected${s.last_action ? ' · ' + s.last_action.replace(/^Agent: /, '') : ''}` : 'Agents allowed';
   button.title = s.enabled ? 'Agents may edit this drawing; click to stop them' : 'Allow agents to edit this drawing';
 }
 async function pollAgent() {
@@ -568,7 +568,10 @@ async function pollAgent() {
       agentSeen = agentStatus.changes;
       queue = queue.then(async () => {
         const previous = JSON.stringify(state.reference);
-        await applyState(await request('/api/session', {session}));
+        const next = await request('/api/session', {session});
+        // The agent's edits are unsaved changes like the person's.
+        if (next.epoch === state.epoch && next.revision !== state.revision) dirty = true;
+        await applyState(next);
         if (JSON.stringify(state.reference) !== previous) await loadReference();
       }).catch(error => toast(error.message, true));
       await queue;

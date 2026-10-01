@@ -462,7 +462,7 @@ class Agent:
             *self._key(),
             region,
             size,
-            len(reference["data_url"]) if reference and kind == "reference" else 0,
+            hash(reference["data_url"]) if reference and kind == "reference" else 0,
         )
         image = self._renders.get(key)
         if image is None:
@@ -1441,10 +1441,13 @@ class AgentChannel:
     def enable(self, session_id: str) -> dict[str, Any]:
         session = self.backend.sessions[session_id]
         with self._lock:
-            if self.session_id != session_id:
+            # One window of this editor at a time; allowing it again keeps
+            # the token an agent may already hold.
+            if self.session_id != session_id or self.token is None:
+                self._forget()
                 self.agent = Agent(session)
                 self.session_id = session_id
-            self.token = secrets.token_urlsafe(32)
+                self.token = secrets.token_urlsafe(32)
             url = self.url
             if url is None:
                 if self._server is None:
@@ -1465,7 +1468,12 @@ class AgentChannel:
                 self.session_id = self.token = self.agent = None
                 if self._server is not None:
                     server, self._server = self._server, None
-                    threading.Thread(target=server.shutdown, daemon=True).start()
+
+                    def close() -> None:
+                        server.shutdown()
+                        server.server_close()
+
+                    threading.Thread(target=close, daemon=True).start()
         return self.status(session_id)
 
     def _write(self, url: str, token: str) -> None:
