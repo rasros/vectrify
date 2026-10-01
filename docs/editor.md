@@ -402,36 +402,16 @@ a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
 it. With a reference loaded the panel picks the view (**Drawing**,
 **Overlay** or **Reference** alone, as `O` cycles them) and the overlay's
 opacity; its heading gives the state. Below are the tools that compare the
-drawing with it: **Generate…**, **Retrace** with its mode, **Tidy…**,
-**Fit colours…** and **Fit gradient…**, acting on the selection made with any tool. A tool that
-cannot run is dimmed, with the reason as its tooltip. Each is also in the
-command palette.
-
-**Retrace** (Shift+R) replaces the outline of each selected
-path with a fresh trace of its object in the reference, keeping the path's ID,
-paint and place in the stacking order. Draw or keep a rough shape over the
-object and press it: the new outline lands as one undoable edit, with a toast
-giving the change in reference error. **With SAM** prompts SAM with the path's
-box, points inside it and points just outside it that look different, and
-takes the mask that agrees with the path, keeps to one colour and has its
-outline on the reference's edges; holes in the object stay holes. It needs the
-`samvg` extra and a CUDA GPU; without one it retraces **By colour**, which
-grows the region from the path's inside over pixels of its colour, within a
-margin around it. Either way the region's edges are moved onto the reference's
-own and the outline is traced as SAMVG traces its regions. The first retrace
-loads SAM (ViT-H) and encodes the reference, a few seconds; later ones on the
-same reference reuse both and take under a second for a typical shape, more
-for a very large one. The model is released after three idle minutes, when
-the reference changes, and before another GPU tool runs. Only visible filled
-paths can be retraced; locked geometry, pinned points and shared geometry are
-refused (unpin or detach first). It replaces Tidy for fixing a whole
-shape; Tidy remains for tidying one.
+drawing with it: **Generate…**, **Tidy…**, **Fit colours…** and **Fit
+gradient…**, acting on the selection made with any tool. A tool that cannot
+run is dimmed, with the reason as its tooltip. Each is also in the command
+palette.
 
 **Tidy…** is a quick clean-up of the selected paths, or the paths
 inside selected groups, against the reference around them, never the whole
 image. By default it snaps their points onto the reference's edges and removes
-the points they do not need, in a few seconds; to reshape a path, use Retrace
-(Shift+R) or Redraw outline (R). Tick the steps it may use:
+the points they do not need, in a few seconds; to reshape a path, use Redraw
+outline (R). Tick the steps it may use:
 
 - **Snap to reference** (on by default) moves the points onto the reference's
   nearest edges. With **Add detail** it also adds points where the path
