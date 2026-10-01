@@ -31,15 +31,13 @@ for every control.
 | --- | --- | --- |
 | Generate | SAMVG | Segments the reference with SAM and traces each region |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
-| Generate | LLM | Asks a multimodal model to draw the reference |
 | Improve | Tidy | Tidies the selected paths in seconds: snaps their points to the reference and simplifies, with Add detail and a gradient shape fit on request; simplifies without one |
-| Improve | Edit with LLM | Sends the drawing and an instruction to a model |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
 | Simplify | Clean up | Drops redundant vertices and merges compatible paths |
 
 Generated shapes are placed over the artboard exactly where the reference is
 shown. Improve and Simplify change only the selection, and locks, pins and
-permissions are enforced by the backend for every method, including LLM edits.
+permissions are enforced by the backend for every method.
 [docs/operations.md](docs/operations.md) describes the operation contract for
 writing new methods.
 
@@ -53,13 +51,6 @@ colour regions and the shape fit of Tidy need; `all` installs both.
 Colour regions need an NVIDIA GPU with CUDA; SAMVG uses it when available. The
 shape fit runs on the GPU with the optional native CUDA extension (below) and
 on the CPU otherwise, except for outlined fills, which need the GPU.
-
-The LLM methods need an OpenAI, Anthropic or Gemini API key, or a local
-server with an OpenAI-compatible API (Ollama, LM Studio, llama.cpp, vLLM) and a
-vision model, entered under **Settings** in the editor. They are saved to
-`~/.config/vectrify/settings.json` (owner-readable only). With the provider set
-to automatic, the hosted providers are tried in that order and the local server
-last.
 
 ## SAMVG
 
