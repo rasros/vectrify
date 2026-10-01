@@ -217,6 +217,8 @@ class HistoryEntry:
     after: Document
     before_selection: Selection
     after_selection: Selection
+    # The editor's revision once this edit was made.
+    revision: int = 0
 
 
 class Editor:
@@ -229,6 +231,9 @@ class Editor:
         self._revision = 0
         self._undo: list[HistoryEntry] = []
         self._redo: list[HistoryEntry] = []
+        # Put before the label of each edit made meanwhile, as "Agent: " is
+        # while an agent edits, so the history says who made it.
+        self.label_prefix = ""
 
     @property
     def snapshot(self) -> Snapshot:
@@ -241,6 +246,44 @@ class Editor:
     @property
     def redo_labels(self) -> tuple[str, ...]:
         return tuple(entry.label for entry in reversed(self._redo))
+
+    @property
+    def undo_entries(self) -> tuple[HistoryEntry, ...]:
+        """The undo stack, oldest first, as *undo_labels* lists it."""
+        return tuple(self._undo)
+
+    @property
+    def redo_entries(self) -> tuple[HistoryEntry, ...]:
+        """The redo stack, next redo first, as *redo_labels* lists it."""
+        return tuple(reversed(self._redo))
+
+    def squash(self, since: int, label: str | None = None) -> None:
+        """Make the edits after the first *since* on the undo stack one step.
+
+        Undoing it then undoes them all; *label* names it, else the first's.
+        """
+        entries = self._undo[since:]
+        if len(entries) < 2:
+            return
+        first, last = entries[0], entries[-1]
+        del self._undo[since:]
+        self._undo.append(
+            replace(
+                last,
+                label=first.label if label is None else label,
+                before=first.before,
+                before_selection=first.before_selection,
+            )
+        )
+
+    def rollback(self, since: int) -> None:
+        """Take back the edits after the first *since*, leaving no redo."""
+        if len(self._undo) <= since:
+            return
+        first = self._undo[since]
+        del self._undo[since:]
+        self._document, self._selection = first.before, first.before_selection
+        self._revision += 1
 
     def select(self, selection: Selection) -> None:
         self._document.selection_ids(selection)
@@ -280,7 +323,14 @@ class Editor:
         if document != self._document:
             self._undo.append(
                 HistoryEntry(
-                    label, self._document, document, self._selection, selection
+                    label
+                    if label.startswith(self.label_prefix)
+                    else self.label_prefix + label,
+                    self._document,
+                    document,
+                    self._selection,
+                    selection,
+                    self._revision + 1,
                 )
             )
             self._redo.clear()
