@@ -500,7 +500,7 @@ function enable(element, reason) {
 // cannot run now, or ''; *level* limits it to object or point tools; a *rare*
 // command's buttons hide while it cannot run.
 const noSelection = () => !state?.selection.objects.length && 'Select objects first';
-const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (N) first');
+const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (A) first');
 const visiblePaths = () => state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
 const noReference = () => !state.reference && 'Load a reference image first, under Reference below the objects';
 // Lines are paths that paint no fill; fills are paths that do.
@@ -547,11 +547,11 @@ function pointContours() {
 const twoEnds = () => selectedPoints().length === 2;
 const COMMANDS = [
   {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
-  {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'N', keywords: 'edit points handles', run: () => setTool('nodes')},
-  {id: 'tool-path', name: 'Draw path tool', group: 'Tools', keys: 'P', keywords: 'pen draw path shape', run: () => setTool('path')},
-  {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'K', keywords: 'cut slice', run: () => setTool('knife')},
+  {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'A', keywords: 'edit points handles', run: () => setTool('nodes')},
+  {id: 'tool-path', name: 'Draw path tool', group: 'Tools', keys: 'D', keywords: 'pen draw path shape', run: () => setTool('path')},
+  {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'C', keywords: 'cut slice', run: () => setTool('knife')},
   {id: 'tool-redraw', name: 'Redraw outline tool', group: 'Tools', keys: 'R', keywords: 'lasso outline fix', run: () => setTool('redraw')},
-  {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'H', keywords: 'hand scroll', run: () => setTool('hand')},
+  {id: 'tool-hand', name: 'Pan tool', group: 'Tools', keys: 'Hold Space', keywords: 'hand scroll', run: () => setTool('hand')},
   {id: 'open', name: 'Open…', group: 'File', keywords: 'svg project load', run: () => $('open-file').click()},
   {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
   {id: 'save', name: 'Save project', group: 'File', keys: 'Ctrl/⌘ S', keywords: 'download vectrify', run: () => download(true)},
@@ -560,7 +560,7 @@ const COMMANDS = [
   {id: 'undo', name: 'Undo', label: () => state?.undo.length ? `Undo ${state.undo.at(-1).toLowerCase()}` : 'Undo', group: 'Edit', keys: 'Ctrl/⌘ Z', run: () => action('undo', {}, 'Undoing…'), disabled: () => !state.undo.length && 'Nothing to undo'},
   {id: 'redo', name: 'Redo', label: () => state?.redo.length ? `Redo ${state.redo[0].toLowerCase()}` : 'Redo', group: 'Edit', keys: 'Ctrl/⌘ Shift Z', run: () => action('redo', {}, 'Redoing…'), disabled: () => !state.redo.length && 'Nothing to redo'},
   {id: 'fit', name: 'Fit the drawing', group: 'View', keys: 'F', keywords: 'zoom', run: fit},
-  {id: 'zoom-selection', name: 'Zoom to selection', group: 'View', run: focusSelection, disabled: noSelection},
+  {id: 'zoom-selection', name: 'Zoom to selection', group: 'View', keys: 'Z', run: focusSelection, disabled: noSelection},
   {id: 'zoom-in', name: 'Zoom in', group: 'View', keys: 'Scroll', run: () => zoomAt(1.25)},
   {id: 'zoom-out', name: 'Zoom out', group: 'View', keys: 'Scroll', run: () => zoomAt(.8)},
   {id: 'finish-path', name: 'Finish path', group: 'Pen', keys: 'Enter', run: () => finishPath(false), disabled: () => (tool !== 'path' || pathDraft.length < 2) && 'Draw two or more points with the pen first'},
@@ -579,10 +579,10 @@ const COMMANDS = [
     run: () => enterObject(oneObject().id), disabled: () => !(oneObject()?.tag === 'g' || (oneObject()?.tag === 'path' && !oneObject().resource)) && 'Select one group or visible path'},
   {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', keywords: 'leave exit group', run: stepUp, disabled: () => !state.selection.objects.length && !scope && 'Nothing to step up from'},
   {id: 'rename', name: 'Rename…', group: 'Object', keys: 'F2', run: renameObject, disabled: () => !oneObject() && 'Select one object to rename'},
-  {id: 'group', name: 'Group', group: 'Actions', keywords: 'combine', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
-  {id: 'ungroup', name: 'Ungroup', group: 'Actions', run: () => action('ungroup'),
+  {id: 'group', name: 'Group', group: 'Actions', keys: 'Ctrl/⌘ G', keywords: 'combine', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
+  {id: 'ungroup', name: 'Ungroup', group: 'Actions', keys: 'Ctrl/⌘ Shift G', run: () => action('ungroup'),
     disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
-  {id: 'join', name: 'Join', label: () => joinOpensDialog() ? 'Join…' : 'Join', group: 'Actions', keywords: 'merge union combine connect ends dashed broken lines strokes gaps close points', run: join,
+  {id: 'join', name: 'Join', label: () => joinOpensDialog() ? 'Join…' : 'Join', group: 'Actions', keys: 'Ctrl/⌘ J', keywords: 'merge union combine connect ends dashed broken lines strokes gaps close points', run: join,
     disabled: () => !twoEnds() && (level() === 'points' ? 'Select the two points to join, or paths in Select'
       : joinCandidates().length < 2 && !linePaths().length && 'Select two or more paths, or lines whose ends to join')},
   {id: 'convert-lines', name: 'Convert line/fill', label: () => ({fills: 'Fill to line', lines: 'Line to fill'})[!linePaths().length ? fillPaths().length && 'fills' : !fillPaths().length && 'lines'] || 'Convert line/fill', group: 'Actions',
@@ -601,8 +601,8 @@ const COMMANDS = [
     disabled: () => level() === 'points' ? noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them') : noSelection()},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
-  {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
-  {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', keys: 'Shift+O', run: () => showDrawingOnly(), disabled: noReference},
+  {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'W', run: toggleReference, disabled: noReference},
+  {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', keys: 'Shift W', run: () => showDrawingOnly(), disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
   {id: 'tidy', name: 'Tidy…', group: 'Reference', keywords: 'simplify snap fit shape optimize nodes points', run: openTidy,
     disabled: () => !state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them'},
@@ -615,12 +615,13 @@ const COMMANDS = [
     run: () => action('pin', {points: pointPairs(), pinned: !selectedPoints().every(key => nodeAt(key)?.pinned)}), disabled: noPoints},
   {id: 'split-edge', name: 'Split edge', group: 'Points', run: () => action('split', {points: pointPairs()}),
     disabled: () => noPoints() || (selectedPoints().every(key => nodeAt(key)?.command === 'M' && !contourAt(key)?.closed) && 'A start point has no edge leading into it')},
-  {id: 'delete-contour', name: 'Delete contour', group: 'Points', run: () => action('delete_contour', {points: pointPairs()}, 'Deleting contours…'),
+  {id: 'delete-contour', name: 'Delete contour', group: 'Points', keys: 'Shift Delete', run: () => action('delete_contour', {points: pointPairs()}, 'Deleting contours…'),
     disabled: () => noPoints() || (selectedPoints().some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it')},
-  {id: 'break-points', name: 'Break at point', group: 'Points', keywords: 'cut split disconnect open loop', run: () => action('break_points', {points: pointPairs()}, 'Breaking lines…'),
-    disabled: () => noPoints() || (!selectedPoints().some(key => breakable(contourAt(key), splitKey(key)[1])) && 'A line\'s ends are free already: pick a point between them, or on a closed contour')},
-  {id: 'delete-segment', name: 'Delete segment', group: 'Points', keywords: 'remove edge gap loop disconnect', run: () => action('delete_segment', {points: pointPairs()}, 'Deleting segments…'),
-    disabled: () => noPoints() || (!pointContours().some(({contour, ids}) => segmentAmong(contour, ids)) && 'Select the two points at the ends of the segment')},
+  // Break cuts at the points, or with the two ends of a segment picked,
+  // deletes that segment.
+  {id: 'break-points', name: 'Break', group: 'Points', keywords: 'cut split disconnect open loop delete segment remove edge gap', run: breakPoints,
+    disabled: () => noPoints() || (!segmentPicked() && !selectedPoints().some(key => breakable(contourAt(key), splitKey(key)[1]))
+      && 'Pick a point between a line\'s ends or on a closed contour, or the two points at a segment\'s ends')},
   {id: 'fill-hole', name: 'Fill hole', group: 'Points', keywords: 'holes remove', run: fillPointHoles, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
   {id: 'hole-to-shape', name: 'Hole to shape', group: 'Points', keywords: 'holes shapes', run: pointHolesToShapes, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
 ];
@@ -943,7 +944,7 @@ function renderNodeInspector() {
   $('point-section').hidden = !onPoints || (!paths.length && !instances);
   $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
-  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (N) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
+  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (A) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
   // Points of shared geometry are points of every path drawing it.
   const sharing = new Set(points.flatMap(key => sharingPaths(splitKey(key)[0])));
   if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (Actions) to edit one path alone.`);
@@ -965,7 +966,6 @@ function renderNodeInspector() {
   for (const button of document.querySelectorAll('[data-command^="handles-"]')) button.setAttribute('aria-pressed', String(handles === Number(button.dataset.command.slice(-1))));
   const pinned = chosen.filter(n => n.pinned).length;
   $('node-pin').checked = chosen.length > 0 && pinned === chosen.length; $('node-pin').indeterminate = pinned > 0 && pinned < chosen.length;
-  $('strip-pin').setAttribute('aria-pressed', String($('node-pin').checked));
   // Points on holes, in one path or several, offer to fill the holes or make
   // them shapes.
   const holes = holeContours(points);
@@ -2119,6 +2119,10 @@ async function splitParts() {
 function deleteSelection() {
   return level() === 'points' ? action('delete_node', {points: pointPairs()}, 'Deleting points…') : action('delete');
 }
+const segmentPicked = () => pointContours().some(({contour, ids}) => segmentAmong(contour, ids));
+function breakPoints() {
+  return segmentPicked() ? action('delete_segment', {points: pointPairs()}, 'Deleting segments…') : action('break_points', {points: pointPairs()}, 'Breaking lines…');
+}
 async function cutHole() {
   if (await action('cut_hole', {}, 'Cutting out the hole…')) toast('Cut the shape out as a hole. Undo restores both paths.');
 }
@@ -2226,7 +2230,7 @@ function showReference() {
   scheduleStrip();
 }
 function setView(view) { referenceView = view; showReference(); }
-// O cycles the view: the drawing, the reference over it, the reference alone.
+// W cycles the view: the drawing, the reference over it, the reference alone.
 function toggleReference() {
   if (reference) setView(VIEWS[(VIEWS.indexOf(referenceView) + 1) % VIEWS.length]);
 }
@@ -2262,6 +2266,36 @@ $('object-name').onkeydown = event => {
   if (event.key === 'Enter') {event.preventDefault();event.target.blur();}
   if (event.key === 'Escape') {event.preventDefault();event.target.value=oneObject()?.name || '';event.target.blur();}
 };
+// The tool keys, all under the left hand; Space held pans.
+const TOOL_KEYS = {v: 'select', a: 'nodes', d: 'path', c: 'knife', r: 'redraw'};
+// The commands a tool strip's numbered controls run, by digit.
+function stripKeys(name) {
+  const keys = {};
+  for (const button of document.querySelectorAll('[data-key][data-command][data-strip]'))
+    if (button.dataset.strip.split(' ').includes(name)) keys[button.dataset.key] = button.dataset.command;
+  return keys;
+}
+// Cancel the gesture under way: a drag (put back as it was), a path being
+// drawn or a held gesture. Whether there was one.
+function cancelGesture() {
+  const busy = !!(drag || pathDraft.length || (holding && !holding.released));
+  pathDraft=[];pathHover=null;stage.classList.remove('panning');
+  if (holding && !holding.released) { holding.cancel(); holding = null; }
+  if (drag) {
+    if (drag.saved) for (const [id, saved] of drag.saved) if (geometries.has(id)) restoreValues(geometries.get(id), saved);
+    drag = null; if (state) renderDrawing();
+  }
+  if (state) renderInspector();
+  drawOverlay();
+  return busy;
+}
+// Each numbered strip control remembers its strip, since the overflow menu
+// may move it out of the strip.
+for (const controls of document.querySelectorAll('.tool-controls[data-tools]'))
+  for (const button of controls.querySelectorAll('[data-key]')) {
+    button.dataset.strip = controls.dataset.tools;
+    button.title = `${button.title || button.getAttribute('aria-label') || ''} (${button.dataset.key})`.trim();
+  }
 // Keys that edit wait for any edit under way, and run in order once it is
 // done; keys that only change the view act at once.
 window.addEventListener('keydown',event=>{
@@ -2275,15 +2309,7 @@ window.addEventListener('keydown',event=>{
   if(event.key==='Escape'){
     // Escape cancels what is under way at once, else steps the selection up
     // a level once any edit is done.
-    const busy = drag || pathDraft.length || (holding && !holding.released);
-    pathDraft=[];pathHover=null;stage.classList.remove('panning');
-    if (holding && !holding.released) { holding.cancel(); holding = null; }
-    if (drag) {
-      if (drag.saved) for (const [id, saved] of drag.saved) if (geometries.has(id)) restoreValues(geometries.get(id), saved);
-      drag = null; if (state) renderDrawing();
-    }
-    if (state) renderInspector();
-    drawOverlay();
+    const busy = cancelGesture();
     if (!busy && state && !event.repeat) later(stepUp);
     return;
   }
@@ -2297,6 +2323,12 @@ window.addEventListener('keydown',event=>{
   }
   if(mod&&key==='s'){event.preventDefault();download(true);return;}
   if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'));return;}
+  // Ctrl/⌘ G groups (with Shift, ungroups) and J joins.
+  if(mod&&!event.altKey&&['g','j'].includes(key)){
+    event.preventDefault();
+    const command=key==='j'?'join':event.shiftKey?'ungroup':'group';
+    later(()=>runCommand(command));return;
+  }
   if(mod&&['BracketLeft','BracketRight'].includes(event.code)){
     // Ctrl/⌘ ] and [ step forward and backward; with Shift, to the front and back.
     event.preventDefault();
@@ -2304,22 +2336,26 @@ window.addEventListener('keydown',event=>{
     later(()=>{if(state?.selection.objects.length)runCommand(command);});return;
   }
   if(mod||event.altKey)return;
-  const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',h:'hand'};
-  if(key==='o'){event.preventDefault();if(!event.repeat)(event.shiftKey?showDrawingOnly:toggleReference)();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
-  if(key==='f'){fit();return;}
-  if(tools[key]){later(()=>setTool(tools[key]));return;}
-  // 1, 2, 3: the selected points get no handle, one or both.
-  if(['1','2','3'].includes(event.key)){
-    const count=Number(event.key)-1;
-    later(()=>{if(tool==='nodes'&&selectedPoints().length)runCommand(`handles-${count}`);});
+  // Tools and the view are on the left hand. A tool key switches at once,
+  // even while an edit runs, and cancels a gesture under way.
+  if(TOOL_KEYS[key]&&!event.shiftKey){event.preventDefault();if(!event.repeat){cancelGesture();setTool(TOOL_KEYS[key]);}return;}
+  if(key==='w'){event.preventDefault();if(!event.repeat)(event.shiftKey?showDrawingOnly:toggleReference)();return;}
+  if(key==='f'&&!event.shiftKey){fit();return;}
+  if(key==='z'&&!event.shiftKey){event.preventDefault();if(state?.selection.objects.length)focusSelection();return;}
+  // 1-9 press the tool strip's controls, as numbered on them.
+  if(/^[1-9]$/.test(event.key)){
+    const command=stripKeys(tool)[event.key];
+    if(command){event.preventDefault();later(()=>runCommand(command));}
     return;
   }
   if(event.key==='Delete'||event.key==='Backspace'){
     event.preventDefault();
+    const contours=event.shiftKey;
     later(()=>{
       if(!state?.selection.objects.length)return;
-      if(level()!=='points' || selectedPoints().length) runCommand('delete');
+      if(level()!=='points') { if(!contours) runCommand('delete'); return; }
+      if(selectedPoints().length) runCommand(contours ? 'delete-contour' : 'delete');
     });
   }
 });

@@ -31,25 +31,26 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   **Commands** and **Export SVG** stay in view.
 - **Left**: the tool rail, the **Objects** tree and, below it, the
   **Reference** panel. The rail holds the object tools **Select** (`V`) and
-  **Knife** (`K`), the point tools **Nodes** (`N`) and **Redraw outline**
-  (`R`), **Draw path** (`P`), which creates and ignores the selection, and
-  **Pan** (`H`). The Reference panel holds the reference image and the tools
-  that match the drawing to it (see Operations); its heading folds it away,
-  and loading a reference opens it again.
+  **Knife** (`C`), the point tools **Nodes** (`A`) and **Redraw outline**
+  (`R`), **Draw path** (`D`), which creates and ignores the selection, and
+  **Pan** (hold Space). The Reference panel holds the reference image and the
+  tools that match the drawing to it (see Operations); its heading folds it
+  away, and loading a reference opens it again.
 - **Tool strip**, above the canvas: undo and redo, then only the active tool's
-  controls, and on the right the selection's level and count, such as
-  "Objects · 3 selected" or "Points · 5 points in 3 paths". Select has the
-  stacking buttons and, inside an entered group, a breadcrumb such as
-  "Drawing › Trees" (click a part to pick at that level). Nodes has the handle
-  buttons (None / One / Two), **Pin points**, **Split edge**, **Delete**,
-  **Delete contour**, X / Y for a single point, and **Fill hole** / **Hole to
-  shape** when the points are on holes. Draw path has Finish, Close shape and
-  Cancel. Knife, Redraw outline, Draw path and Pan show a one-line hint. The
-  strip keeps to one row: when the window is too narrow for the
-  tool's controls, the least important of them (Delete contour first, then
-  Split edge and the coordinates, and so on) move into a **⋯** menu at the
-  end of the controls, which holds them until there is room again; the status
-  stays in view. A command run from the menu closes it.
+  controls, and on the right the selection's level and count, such as "Objects
+  · 3 selected" or "Points · 5 points in 3 paths". Select has the stacking
+  buttons and, inside an entered group, a breadcrumb such as "Drawing › Trees"
+  (click a part to pick at that level). Nodes has the handle buttons (None /
+  One / Two), **Break**, **Join**, **Split edge**, **Delete**, X / Y for a
+  single point, and **Fill hole** / **Hole to shape** when the points are on
+  holes. Numbered controls show their digit, and the keys 1-9 press them (see
+  Keyboard shortcuts). Draw path has Finish, Close shape and Cancel. Knife,
+  Redraw outline, Draw path and Pan show a one-line hint. The strip keeps to
+  one row: when the window is too narrow for the tool's controls, the least
+  important of them (Split edge and the coordinates first, and so on) move
+  into a **⋯** menu at the end of the controls, which holds them until there
+  is room again; the status stays in view. A command run from the menu closes
+  it.
 - **Right**: only the selection's properties, in the same order every time.
   With points selected, the points come first: a single point's coordinates
   (in its path's own frame), its handles and whether it is pinned, and a note
@@ -69,11 +70,11 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   any command by name, group or a keyword (tools, actions, points, reference
   tools, open, save, export, view), with its shortcut. ↑ / ↓ choose,
   Enter runs, Escape closes. A command that cannot run now shows why instead.
-- The footer shows the artboard size, the reference overlay toggle (`O`),
+- The footer shows the artboard size, the reference overlay toggle (`W`),
   with its opacity and an amber canvas border while it is visible, and zoom.
-  `O` cycles the view: the drawing, the reference over it, and the reference
+  `W` cycles the view: the drawing, the reference over it, and the reference
   alone at full strength in place of the drawing, to compare by flipping
-  between them; `Shift+O` always goes straight back to the drawing. The
+  between them; `Shift+W` always goes straight back to the drawing. The
   Reference panel picks the same three views.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
@@ -177,7 +178,7 @@ and saved projects restore it.
 
 - Open SVGs and Vectrify project files; export SVG or download an editable project.
 - Pan/zoom/fit, reference image overlay and opacity adjustment (Reference
-  panel). Press `O` to cycle the view, or click its toggle in the footer.
+  panel). Press `W` to cycle the view, or click its toggle in the footer.
 - The object list shows definition and clipping containers in their actual
   hierarchy. Shared geometry and clipping contours have neutral symbols and
   role labels; instances name their source. The right panel explains these
@@ -192,51 +193,52 @@ and saved projects restore it.
   own gradient. Gradients and their stops are listed under Definitions.
 - Fill/stroke/opacity, dragging and resizing the selected objects, and
   numeric offsets (**Move by**).
-- **Nodes (N)** edits the points of every selected path. Delete/Backspace
+- **Nodes (A)** edits the points of every selected path. Delete/Backspace
   deletes the selected points, a contour's start point included: the next
   point then starts the contour. A contour left with fewer than two points
   (three when closed) is deleted, and a path left without contours is deleted
-  too, so a stray speck can be removed point by point or at once with **Delete
-  contour**. A press takes the nearest point or handle within 10 screen
-  pixels, so a point need not be hit exactly; the one under the pointer is
-  drawn larger, with its handles. Drag blue handles for curves; a handle
-  shorter than 16 screen pixels is drawn that far out along its direction on a
-  dashed line, so it shows clear of its point, and a handle on its point
-  counts as none. Zoom in (up to 25600%) to reveal dense points. **None**,
-  **One** and **Two** handles turn the selected points into corners, points
-  curved on one side (again to switch sides), or smooth points with their
-  handles in line. The keys 1, 2 and 3 do the same. **Pin points** keeps them
-  in place (again to unpin); **Split edge** adds a point on the edge leading
-  into each selected point. For drawn lines the strip also has **Break**,
-  **Delete segment** and **Join ends**. **Break** cuts a line at the selected
+  too, so a stray speck can be removed point by point or at once with
+  Shift+Delete, which deletes the contours the points are on. A press takes
+  the nearest point or handle within 10 screen pixels, so a point need not be
+  hit exactly; the one under the pointer is drawn larger, with its handles.
+  Drag blue handles for curves; a handle shorter than 16 screen pixels is
+  drawn that far out along its direction on a dashed line, so it shows clear
+  of its point, and a handle on its point counts as none. Zoom in (up to
+  25600%) to reveal dense points. **None**, **One** and **Two** handles turn
+  the selected points into corners, points curved on one side (again to switch
+  sides), or smooth points with their handles in line. The keys 1, 2 and 3 do
+  the same. **Pinned** in the right panel (or **Pin points** in the command
+  palette) keeps them in place; **Split edge** (6) adds a point on the edge
+  leading into each selected point. For drawn lines the strip also has
+  **Break** (4) and **Join** (5). **Break** cuts a line at the selected
   points: an open line comes apart there, each piece ending on its own copy of
   the point (both copies stay selected, so a drag moves them together; click
   one to move it alone), and a closed contour opens at the point. A line's
-  ends are free already. **Delete segment** takes out the segment between two
-  selected neighbouring points, splitting the line there (a closed contour
-  opens); with more points selected, every segment between two of them goes,
-  and a piece left as a lone point is dropped. **Join** joins any two selected
-  points, in one path or two, filled or not, into one line however far apart
-  they are; a point that is not a free end yet is broken there first: ends
-  that meet become one point, others are bridged by a curve leaving each end
-  along its line. Two ends of one line close it. A small loop in a line comes
-  out by selecting the points on it and pressing Delete, which reconnects the
-  line past them, or by cutting it off with the knife. Dragging a point moves
-  every selected point by the same offset, each in its own path's frame, and
-  each takes both of its handles along, so the curve keeps its shape around
-  it; dragging a handle moves only that handle. Typing a single point's
-  coordinates does the same for it. Pinned points stay put, and no other path
-  moves. While dragging, the point or handle under the pointer snaps to the
-  points of every visible path (the other points of the dragged paths
-  included) and to the artboard's edges and corners, within 8 screen pixels at
-  any zoom; an orange diamond marks the target and a dashed line the edge.
-  Hold Alt or Ctrl/⌘ to drag without snapping. Where a point started is never
-  a target. When the selected points are all on holes, in one path or several,
-  **Fill hole** removes those holes (and islands inside them) and **Hole to
-  shape** moves them out into new paths, each with its path's paint, stacked
-  just above it and selected afterwards, as one undoable edit. Islands inside
-  a hole go along as holes of the new shape.
-- **Draw path (P)**: click to add corners, drag to set mirrored Bézier handles.
+  ends are free already. With the two points at a segment's ends selected,
+  **Break** instead takes out the segment between them, splitting the line
+  there (a closed contour opens); with more points selected, every segment
+  between two of them goes, and a piece left as a lone point is dropped.
+  **Join** joins any two selected points, in one path or two, filled or not,
+  into one line however far apart they are; a point that is not a free end yet
+  is broken there first: ends that meet become one point, others are bridged
+  by a curve leaving each end along its line. Two ends of one line close it. A
+  small loop in a line comes out by selecting the points on it and pressing
+  Delete, which reconnects the line past them, or by cutting it off with the
+  knife. Dragging a point moves every selected point by the same offset, each
+  in its own path's frame, and each takes both of its handles along, so the
+  curve keeps its shape around it; dragging a handle moves only that handle.
+  Typing a single point's coordinates does the same for it. Pinned points stay
+  put, and no other path moves. While dragging, the point or handle under the
+  pointer snaps to the points of every visible path (the other points of the
+  dragged paths included) and to the artboard's edges and corners, within 8
+  screen pixels at any zoom; an orange diamond marks the target and a dashed
+  line the edge. Hold Alt or Ctrl/⌘ to drag without snapping. Where a point
+  started is never a target. When the selected points are all on holes, in one
+  path or several, **Fill hole** removes those holes (and islands inside them)
+  and **Hole to shape** moves them out into new paths, each with its path's
+  paint, stacked just above it and selected afterwards, as one undoable edit.
+  Islands inside a hole go along as holes of the new shape.
+- **Draw path (D)**: click to add corners, drag to set mirrored Bézier handles.
   Click the first point or **Close shape** for a filled shape, or press Enter /
   **Finish** for an open stroked path. Backspace removes the last point; Escape
   or **Cancel** discards the draft. Creation is one undoable edit and selects the
@@ -341,7 +343,7 @@ and saved projects restore it.
   outer outline is recomputed as a curved boolean difference, which renumbers
   its points and so is refused for pinned points.
   Locks, shared geometry and instances of the outer path are refused.
-- The **Knife** tool (`K`) cuts the paths it crosses along a straight line:
+- The **Knife** tool (`C`) cuts the paths it crosses along a straight line:
   drag across them and release. With nothing selected it cuts every drawing
   path the line crosses whose geometry and structure are unlocked, inside the
   entered group if one is entered; with a selection, only the selected paths
@@ -390,10 +392,18 @@ and saved projects restore it.
 - Geometry/paint/position/structure locks and backend-enforced constraints.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
 
-Keyboard shortcuts are available from the `?` button. `V`, `N`, `P`, `K`, `R`
-and `H` switch tools, and Ctrl/Command-K opens the command palette. Drag with the middle mouse button (in any tool), or hold Space
-and drag, to pan. Use the scroll wheel to zoom, and press `F` to
-fit. Ctrl/Command-Z undoes; add Shift to redo. Ctrl/Command-S saves a project.
+Keyboard shortcuts are available from the `?` button. They come in three
+layers that never collide. Tool and view keys sit under the left hand: `V`
+Select, `A` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline switch
+tools at once, even while an edit runs (cancelling a drag under way); `F` fits
+the drawing, `Z` zooms to the selection, `W` cycles the view and `Shift+W`
+shows the drawing only. The digits 1-9 press the active tool's numbered strip
+controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Split edge; in Select: 1-4
+the stacking buttons), whether they are in the strip or its ⋯ menu. Commands
+use Ctrl/Command: K opens the command palette, G groups (with Shift,
+ungroups), J joins. Drag with the middle mouse button (in any tool), or hold
+Space and drag, to pan. Use the scroll wheel to zoom, and press `F` to fit.
+Ctrl/Command-Z undoes; add Shift to redo. Ctrl/Command-S saves a project.
 
 Projects preserve object/node identities, locks, pins,
 selection and the reference image. SVG exports contain the drawing. Downloads
@@ -411,7 +421,7 @@ The **Reference** panel, below the objects on the left, is where the
 reference lives, whichever tool is active: **Load…** (or **Replace…**) takes
 a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
 it. With a reference loaded the panel picks the view (**Drawing**,
-**Overlay** or **Reference** alone, as `O` cycles them) and the overlay's
+**Overlay** or **Reference** alone, as `W` cycles them) and the overlay's
 opacity; its heading gives the state. Below are the tools that compare the
 drawing with it: **Generate…**, **Tidy…**, **Fit colours…** and **Fit
 gradient…**, acting on the selection made with any tool. A tool that cannot

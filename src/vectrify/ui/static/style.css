@@ -213,3 +213,4 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 @media (max-width: 800px) { .palette-button kbd, #export-svg span { display: none; } .topbar .strip-more { padding: 5px 9px; } }
 @media (max-width: 560px) { .topbar { gap: 8px; } }
 @media (max-width: 420px) { .topbar .brand-name { display: none; } .topbar { padding: 0 8px; } }
+[data-key]::after { content: attr(data-key); margin-left: 5px; font-size: 9px; opacity: .5; }
