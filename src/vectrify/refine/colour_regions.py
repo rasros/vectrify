@@ -1,4 +1,4 @@
-"""No-LLM colour-region vectorizer with CUDA palette fitting.
+"""Colour-region vectorizer with CUDA palette fitting.
 
 A representation separate from SAMVG: a CUDA-fitted palette divides the image
 into colour regions, which are traced into shared-contour SVG regions, with
@@ -788,7 +788,6 @@ def vectorize(
             "seconds": time.monotonic() - started,
             "bytes": len(svg.encode()),
             "gpu": torch.cuda.get_device_name(),
-            "llm_calls": 0,
             "evolutionary_steps": 0,
             "method": (
                 "experimental shared-contour colour regions; "
@@ -837,7 +836,6 @@ def vectorize(
         "seconds": time.monotonic() - started,
         "bytes": len(svg.encode()),
         "gpu": torch.cuda.get_device_name(),
-        "llm_calls": 0,
         "evolutionary_steps": 0,
         "method": "experimental colour regions; not the two-phase SAMVG pipeline",
     }

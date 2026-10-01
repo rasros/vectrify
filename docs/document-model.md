@@ -1,7 +1,7 @@
 # Document model
 
 `vectrify.document` is the editor's document model. It is independent of the
-search, LLM clients and Torch. Automated operations reach it through
+search and Torch. Automated operations reach it through
 `vectrify.operations` (see `docs/operations.md`).
 
 ## Editing state
