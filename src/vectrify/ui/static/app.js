@@ -1,5 +1,5 @@
 import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
-import {dropIndex, dropRefusal, dropTarget} from './tree.js';
+import {dropIndex, dropRefusal, dropTarget, replayDrop} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
 import {matchCommands, moveHighlight} from './palette.js';
 import {TOOL_LEVEL, boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
@@ -362,7 +362,13 @@ function renderObjects() {
     fragment.append(row);
   }
   $('objects').replaceChildren(fragment, treeDropLine); $('object-count').textContent = count;
-  if (treeDrag?.active) showTreeDrop();
+  // A drag held across an edit drops where the pointer is on the new rows.
+  if (treeDrag?.active) {
+    treeDrag.ids = new Set([...treeDrag.ids].filter(id => object(id)));
+    treeDrag.revision = `${state.epoch}:${state.revision}`;
+    if (treeDrag.point) Object.assign(treeDrag, treeDropAt(treeDrag.point, treeDrag.ids));
+    showTreeDrop();
+  }
 }
 // Dragging rows in the tree restacks them, or moves them into a group. The
 // drag carries the whole selection when it starts on a selected row.
@@ -427,12 +433,10 @@ function endTreeDrag(drop) {
   // The pointer is released over a row: that is not a click on it.
   treeDragEnded = true; setTimeout(() => treeDragEnded = false);
   if (!drop) return;
-  // Dropped while an edit runs, it lands once the edit is done, where the
-  // rows then are.
+  // Dropped while an edit runs, it lands once the edit is done, next to the
+  // rows it was dropped by, if they are still there.
   later(() => {
-    const ids = new Set([...finished.ids].filter(id => object(id)));
-    const {target, refusal} = finished.revision !== `${state.epoch}:${state.revision}` ? treeDropAt(finished.point, ids) : finished;
-    if (!ids.size) return;
+    const {ids, target, refusal} = finished.refusal || finished.revision === `${state.epoch}:${state.revision}` ? finished : replayDrop(finished.target, finished.ids, state.objects);
     if (refusal) { toast(refusal, true); return; }
     const children = state.objects.filter(item => item.parent === target.parent).map(item => item.id);
     return action('move_objects', {objects: [...ids], parent: target.parent, index: dropIndex(target, children, ids)}, 'Moving objects…');
@@ -552,7 +556,6 @@ const COMMANDS = [
   {id: 'restore', name: 'Restore saved…', group: 'File', keywords: 'recovery browser copy', run: () => $('restore-saved').click()},
   {id: 'save', name: 'Save project', group: 'File', keys: 'Ctrl/⌘ S', keywords: 'download vectrify', run: () => download(true)},
   {id: 'export', name: 'Export SVG', group: 'File', keywords: 'download save', run: () => download(false)},
-  {id: 'settings', name: 'Settings…', group: 'File', keywords: 'api keys models', run: openSettings},
   {id: 'help', name: 'Keyboard shortcuts', group: 'Help', keys: '?', keywords: 'help keys', run: () => $('help-dialog').showModal()},
   {id: 'undo', name: 'Undo', label: () => state?.undo.length ? `Undo ${state.undo.at(-1).toLowerCase()}` : 'Undo', group: 'Edit', keys: 'Ctrl/⌘ Z', run: () => action('undo', {}, 'Undoing…'), disabled: () => !state.undo.length && 'Nothing to undo'},
   {id: 'redo', name: 'Redo', label: () => state?.redo.length ? `Redo ${state.redo[0].toLowerCase()}` : 'Redo', group: 'Edit', keys: 'Ctrl/⌘ Shift Z', run: () => action('redo', {}, 'Redoing…'), disabled: () => !state.redo.length && 'Nothing to redo'},
@@ -1353,24 +1356,65 @@ function layoutStrip(force = false) {
   if (!hidden.length) closeStripMenu();
   else if (!menu.hidden) placeStripMenu();
 }
-function placeStripMenu() {
-  const menu = $('strip-more-menu'), box = $('strip-more').getBoundingClientRect(), size = menu.getBoundingClientRect();
-  menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - size.width - 8))}px`;
-  menu.style.top = `${box.bottom + 6}px`;
+// A "⋯" button and the menu of what did not fit beside it. A command run from
+// the menu closes it; fields and choices keep it open.
+function moreMenu(button, menu) {
+  const place = () => {
+    const box = button.getBoundingClientRect(), size = menu.getBoundingClientRect();
+    menu.style.left = `${Math.max(8, Math.min(box.left, innerWidth - size.width - 8))}px`;
+    menu.style.top = `${box.bottom + 6}px`;
+  };
+  const close = () => { menu.hidden = true; button.setAttribute('aria-expanded', 'false'); };
+  button.onclick = () => {
+    if (!menu.hidden) { close(); return; }
+    menu.hidden = false; button.setAttribute('aria-expanded', 'true');
+    place();
+    menu.querySelector('button:not(:disabled), input, select')?.focus();
+  };
+  menu.addEventListener('click', event => { if (event.target.closest('button')) close(); });
+  menu.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); close(); button.focus(); } });
+  window.addEventListener('pointerdown', event => { if (!menu.contains(event.target) && !button.contains(event.target)) close(); }, true);
+  return {place, close};
 }
-function closeStripMenu() { $('strip-more-menu').hidden = true; $('strip-more').setAttribute('aria-expanded', 'false'); }
-$('strip-more').onclick = () => {
-  const menu = $('strip-more-menu');
-  if (!menu.hidden) { closeStripMenu(); return; }
-  menu.hidden = false; $('strip-more').setAttribute('aria-expanded', 'true');
-  placeStripMenu();
-  menu.querySelector('button:not(:disabled), input, select')?.focus();
-};
-// A command run from the menu closes it; fields and choices keep it open.
-$('strip-more-menu').addEventListener('click', event => { if (event.target.closest('button')) closeStripMenu(); });
-$('strip-more-menu').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeStripMenu(); $('strip-more').focus(); } });
-window.addEventListener('pointerdown', event => { if (!event.target.closest('#strip-more-menu, #strip-more')) closeStripMenu(); }, true);
+const stripMenu = moreMenu($('strip-more'), $('strip-more-menu'));
+const placeStripMenu = stripMenu.place, closeStripMenu = stripMenu.close;
 new ResizeObserver(() => scheduleStrip()).observe($('tool-strip'));
+// The top bar keeps to one row too: the title shrinks, then the file actions
+// that do not fit go into its "⋯" menu, least important first.
+const topbarPriority = {'export-svg': 1, 'palette-open': 1, 'save-project': 2, 'open-file': 3};
+const topbarMenu = moreMenu($('topbar-more'), $('topbar-more-menu'));
+const topbarParked = new Map();
+let topbarSignature = '';
+function layoutTopbar() {
+  const bar = document.querySelector('.topbar'), nav = bar.querySelector('nav'), more = $('topbar-more'), menu = $('topbar-more-menu');
+  const signature = `${bar.clientWidth}|${$('filename').textContent}`;
+  if (signature === topbarSignature) return;
+  topbarSignature = signature;
+  for (const [item, mark] of topbarParked) mark.replaceWith(item);
+  topbarParked.clear();
+  more.hidden = false;
+  const moreWidth = more.getBoundingClientRect().width;
+  more.hidden = true;
+  const style = getComputedStyle(bar), gap = parseFloat(style.columnGap) || 0, inner = parseFloat(getComputedStyle(nav).columnGap) || 0;
+  const title = bar.querySelector('.document-title'), name = $('filename');
+  // The title keeps room for a short name while it is shown.
+  const titleRoom = getComputedStyle(title).display === 'none' ? 0 : Math.min(name.scrollWidth + 30, 140) + gap;
+  const available = bar.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+    - bar.querySelector('.brand').getBoundingClientRect().width - titleRoom - gap;
+  const items = [...nav.children].filter(item => getComputedStyle(item).display !== 'none');
+  const widths = items.map(item => ({width: item.getBoundingClientRect().width + inner, priority: topbarPriority[item.id] || 4}));
+  const hidden = overflowLayout(widths, available + inner, moreWidth + gap);
+  for (const index of hidden) {
+    const item = items[index], mark = document.createComment('parked');
+    item.before(mark); menu.append(item); topbarParked.set(item, mark);
+  }
+  more.hidden = !hidden.length;
+  if (!hidden.length) topbarMenu.close();
+  else if (!menu.hidden) topbarMenu.place();
+}
+new ResizeObserver(() => layoutTopbar()).observe(document.querySelector('.topbar'));
+new MutationObserver(() => layoutTopbar()).observe($('filename'), {childList: true, characterData: true, subtree: true});
+document.fonts?.ready.then(() => { topbarSignature = ''; layoutTopbar(); });
 // The level and count of the selection, and the entered group.
 function renderStatus() {
   if (!state) return;
@@ -2082,55 +2126,7 @@ document.querySelectorAll('[data-lock]').forEach(box=>box.onchange=()=>{
   const item=oneObject(), locks=[...document.querySelectorAll('[data-lock]:checked')].map(el=>el.dataset.lock);
   if(item)later(()=>object(item.id)&&action('locks',{object:item.id,locks}));
 });
-const KEY_PROVIDERS=['openai','anthropic','gemini','local'];
-const keyRemovals=new Set();
-const HOSTED=['openai','anthropic','gemini'];
-function showKeys({api_keys, local, models, defaults}){
-  keyRemovals.clear();
-  $('local-url').value=local.base_url;
-  $('local-model').value=local.model;
-  for(const name of HOSTED){
-    $(`model-${name}`).value=models[name].model;
-    $(`model-${name}`).placeholder=defaults.models[name];
-    $(`reasoning-${name}`).value=models[name].reasoning;
-    $(`reasoning-${name}`).options[0].textContent=`Default (${defaults.reasoning})`;
-  }
-  for(const name of KEY_PROVIDERS){
-    const tail=api_keys[name];
-    $(`key-${name}`).value='';
-    $(`key-${name}`).placeholder=tail?`Saved (…${tail}) · type to replace`:'Not set';
-    $(`key-${name}-remove`).hidden=!tail;
-  }
-}
-async function openSettings(){
-  try{
-    showKeys(await request('/api/settings'));
-    $('settings-error').hidden=true;
-    $('settings-dialog').showModal();
-  }catch(error){toast(error.message,true);}
-}
-$('settings-open').onclick=openSettings;
 $('palette-open').onclick=openPalette;
-document.querySelectorAll('[data-open-settings]').forEach(button=>button.onclick=openSettings);
-for(const name of KEY_PROVIDERS) $(`key-${name}-remove`).onclick=()=>{
-  keyRemovals.add(name);
-  $(`key-${name}`).value='';
-  $(`key-${name}`).placeholder='Removed when you save';
-  $(`key-${name}-remove`).hidden=true;
-};
-$('settings-save').onclick=async()=>{
-  const api_keys={};
-  for(const name of keyRemovals) api_keys[name]='';
-  for(const name of KEY_PROVIDERS){const key=$(`key-${name}`).value.trim(); if(key) api_keys[name]=key;}
-  const local={base_url:$('local-url').value.trim(), model:$('local-model').value.trim()};
-  const models=Object.fromEntries(HOSTED.map(name=>[name,{model:$(`model-${name}`).value.trim(), reasoning:$(`reasoning-${name}`).value}]));
-  try{
-    showKeys(await request('/api/settings',{api_keys, local, models}));
-    $('settings-dialog').close();
-    toast('Settings saved');
-  }catch(error){$('settings-error').textContent=error.message;$('settings-error').hidden=false;}
-};
-$('settings-close').onclick=()=>$('settings-dialog').close();
 $('help').onclick=()=>$('help-dialog').showModal();$('help-close').onclick=()=>$('help-dialog').close();
 // Keep a local copy of saved projects so a backend restart can restore this tab.
 function recoveryStore(mode, key, value) {
@@ -2444,8 +2440,6 @@ for (const [prefix, ids] of [['contact', ['contact-distance']]]) {
 const generateSettings = {
   samvg: () => ({max_layers:Number($('samvg-max-layers').value), max_side:Number($('samvg-max-side').value), model:$('samvg-model').value}),
   cel: () => ({regions:Number($('cel-regions').value), tolerance:Number($('cel-tolerance').value), line_width:Number($('cel-line-width').value), strokes:$('cel-strokes').checked, outline:$('cel-outline').checked}),
-  llm: () => ({provider:$('gen-llm-provider').value,
-    candidates:Number($('gen-llm-candidates').value), instruction:$('gen-llm-instruction').value}),
   'colour-regions': () => {
     const outlines = $('regions-outlines').value;
     return {colours:Number($('regions-colours').value), min_pixels:Number($('regions-min-pixels').value), tolerance:Number($('regions-tolerance').value),
@@ -2472,25 +2466,6 @@ async function openGenerate() {
   $('generate-scope').options[1].disabled = !group;
   showGenerateMethod(); generateDialog.open('');
 }
-
-// Improve dialogs that search or ask a model over the selection or drawing.
-function openOnScope(dialog, prefix) {
-  const count = state.selection.objects.length;
-  $(prefix+'-scope').value = count ? 'selection' : 'drawing';
-  $(prefix+'-scope').options[0].disabled = !count;
-  dialog.open(count ? selectionSummary() : 'Whole drawing');
-}
-const llmDialog = jobDialog('llm', {
-  start: () => ({action:'improve', method:'llm', scope:$('llm-scope').value,
-    permissions:{geometry:$('llm-geometry').checked, paint:$('llm-paint').checked, structure:$('llm-structure').checked},
-    settings:{instruction:$('llm-instruction').value, provider:$('llm-provider').value, candidates:Number($('llm-candidates').value)}}),
-  describe: ({changed, metrics: {edits, skipped, ...metrics}}) => {
-    const left = skipped ? ` · ${skipped} change(s) outside the scope were left out` : '';
-    return changed ? `${edits} edit(s) · reference error ${errorChange(metrics)}${left}. Apply keeps it as one undoable edit.` : `The reply changed nothing that is allowed${left}.`;
-  },
-  applied: 'LLM edit applied. Undo restores the previous drawing.',
-  choiceLabel: (result, index) => `Reply ${index + 1} · error ${result.metrics.after.error.toFixed(5)}`,
-}).wire();
 
 // A dialog around one operation job: start, poll, stop, preview, choose, apply.
 // Elements are found by id as `${prefix}-name`; missing optional ones are skipped.

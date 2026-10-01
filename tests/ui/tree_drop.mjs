@@ -1,6 +1,6 @@
 // Checks where rows dragged in the Objects tree land; run by test_tree_drop.py.
 import assert from 'node:assert/strict';
-import {dropIndex, dropRefusal, dropTarget} from '../../src/vectrify/ui/static/tree.js';
+import {dropIndex, dropRefusal, dropTarget, replayDrop} from '../../src/vectrify/ui/static/tree.js';
 
 // The drawing holds g (a, b) then c, back to front; rows are 20px tall.
 const spec = [['g', 'root', 0, true], ['a', 'g', 1, false], ['b', 'g', 1, false], ['c', 'root', 0, false]];
@@ -31,3 +31,21 @@ assert.equal(dropIndex({parent: 'g', into: true}, ['a', 'b'], new Set(['c'])), 2
 assert.equal(dropIndex({parent: 'g', after: 'a'}, ['a', 'b'], new Set(['a'])), 0);
 assert.equal(dropIndex({parent: 'g', before: 'b'}, ['a', 'b'], new Set(['c'])), 1);
 assert.equal(dropIndex({parent: 'root', after: 'c'}, ['g', 'c'], new Set(['g'])), 1);
+
+// A drop made while an edit ran lands by the rows it was next to, on the tree
+// the edit left, or is refused if those rows are gone or moved.
+const objects = spec.map(([id, parent]) => ({id, parent, resource: false}));
+const without = (...ids) => objects.filter(item => !ids.includes(item.id));
+assert.deepEqual(replayDrop({parent: 'g', after: 'a'}, new Set(['c']), without('b')),
+  {ids: new Set(['c']), target: {parent: 'g', after: 'a'}, refusal: ''});
+assert.equal(replayDrop({parent: 'g', into: true}, new Set(['c']), without('a', 'b')).refusal, '');
+assert.match(replayDrop({parent: 'g', after: 'a'}, new Set(['c']), without('a')).refusal, /changed/);
+assert.match(replayDrop({parent: 'g', after: 'a'}, new Set(['c']), objects.map(item => item.id === 'a' ? {...item, parent: 'root'} : item)).refusal, /changed/);
+assert.match(replayDrop({parent: 'g', into: true}, new Set(['c']), without('g', 'a', 'b')).refusal, /group/);
+assert.equal(replayDrop({parent: 'root', before: 'g'}, new Set(['c']), objects).refusal, '');
+// Objects removed meanwhile are left out; with none left, nothing moves.
+assert.deepEqual(replayDrop({parent: 'root', after: 'c'}, new Set(['a', 'x']), objects).ids, new Set(['a']));
+assert.match(replayDrop({parent: 'root', after: 'c'}, new Set(['x']), objects).refusal, /removed/);
+// The tree the edit left is checked too: a group into itself, definitions.
+assert.match(replayDrop({parent: 'a', into: true}, new Set(['g']), objects).refusal, /itself/);
+assert.match(replayDrop({parent: 'g', into: true}, new Set(['c']), objects.map(item => item.id === 'g' ? {...item, resource: true} : item)).refusal, /Definitions/);

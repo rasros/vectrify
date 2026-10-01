@@ -83,9 +83,6 @@ class OperationRequest:
     reference: Image.Image | None = None
     # Document-space viewport for previews: x, y, width, height.
     bounds: tuple[float, float, float, float] | None = None
-    # A file name that may name the subject, e.g. the reference image's; LLM
-    # methods offer it to the model as a hint.
-    source_name: str | None = None
 
     def transaction(self, label: str) -> Transaction:
         """An edit of this request's snapshot, limited to its permissions."""

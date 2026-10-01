@@ -59,10 +59,8 @@ commands `start`, `check` (validate a request without running it), `status`,
 | generate | `samvg` | Traces SAM segments of the reference into a new group |
 | generate | `cel` | Traces cel art as flat regions bounded by its drawn lines, with the lines as strokes on top (CPU); `regions` 0 (the default) keeps one per 10,000 pixels, 50-2,000; `outline` draws one unbroken stroke round the drawing's silhouette |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
-| generate | `llm` | Asks an LLM to draw the reference region as SVG |
 | improve | `path-fit` | Gradient fitting of one selected path's nodes, handles and colour (CUDA, or the CPU for unstroked fills) |
 | improve | `nodes` | Fits the selected paths to the reference by mixing the path fit, snapping and simplifying |
-| improve | `llm` | Sends the drawing and an instruction to an LLM; replays its reply within scope |
 | improve | `colours` | Closed-form flat fills or linear gradients for the selected objects, geometry locked |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
 | snap | `edges` | Snaps touching edges of the selected paths together, as plain geometry |
@@ -111,27 +109,17 @@ give the region's error `before` and `after`, `objects` changed,
 
 ## Replaying edited SVG
 
-LLM edits and Clean up change exported SVG, where every element keeps
-its object ID. `replay(tx, svg)` in `vectrify.operations.candidates` accepts
+Clean up changes exported SVG, where every element keeps its object ID. `replay(tx, svg)` in `vectrify.operations.candidates` accepts
 such a candidate only by repeating its differences as transaction commands:
 deletions and insertions (structure), attribute edits, in-place node updates
 for an unchanged path structure, and sibling reorders. The transaction enforces
 selection, permissions, locks and pins, so a replayed edit is always one the
 user could have made by hand.
 
-Strict replay (the default) raises `CandidateRejectedError` for anything it
-cannot express, such as a changed root or element type. A changed path
-structure is rejected too, unless `contours=True` (used by cleanup) turns it
-into `Transaction.replace_geometry`.
-
-Lenient replay (`lenient=True`, used for LLM replies) instead leaves out every
-change outside the transaction's scope or permissions and counts it in
-`Replay.skipped`, and replaces the contours of a path whose structure changed
-when geometry and structure are both allowed. Pass `baseline=` the original
-after the same normalization the candidate went through, so rounding
-introduced by that rewrite is never replayed. `mutation_scope(request)` turns
-the selection (or the whole drawing's top-level objects) and the permissions
-into the `MutationScope` the LLM prompt names as editable.
+Replay raises `CandidateRejectedError` for anything it cannot express, such
+as a changed root or element type. A changed path structure is rejected too,
+unless `contours=True` (used by cleanup) turns it into
+`Transaction.replace_geometry`.
 
 ## Tidy (improve/nodes)
 
@@ -200,23 +188,6 @@ pinned ones.
 
 The result is applied with `Transaction.reshape_path`, which keeps surviving
 node IDs and refuses to move or remove pinned endpoints.
-
-## LLM methods
-
-`generate/llm` and `improve/llm` pick the provider from `settings.provider`
-(`auto` takes the first provider set up in Settings, in the order OpenAI,
-Anthropic, Gemini, then `local`; see `vectrify.llm.keys`). The model and
-reasoning effort are each provider's choice in Settings, falling back to the
-provider default and `medium`. The `local` provider sends the OpenAI chat
-request to the saved server URL with its saved model, and leaves out the
-reasoning effort, which most local servers reject. `candidates` asks for
-several replies, each ranked by reference error. Generate pins the model's viewBox to the region's pixel size and
-rescales a reply that uses another. Improve requires an instruction, names the
-editable object IDs in the prompt, and replays leniently; the prompt is a
-request, the transaction is the enforcement. Both offer
-`OperationRequest.source_name` as a hint about the subject; the editor fills it
-with the reference image's file name, else the drawing's, and skips its
-placeholder names.
 
 ## Writing a method
 
