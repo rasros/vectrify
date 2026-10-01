@@ -506,8 +506,8 @@ const COMMANDS = [
   {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', keywords: 'remove', level: 'objects', run: () => action('delete'), disabled: noSelection},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
-  {id: 'toggle-overlay', name: 'Show or hide the reference overlay', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
-  {id: 'reference-only', name: 'Show the reference instead of the drawing', group: 'Reference', keys: 'Shift+O', run: () => toggleReferenceOnly(), disabled: noReference},
+  {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
+  {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', keys: 'Shift+O', run: () => showDrawingOnly(), disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
   {id: 'retrace', name: 'Retrace', group: 'Reference', keys: 'Shift R', keywords: 'trace outline shape sam', run: retraceShapes,
     disabled: () => noReference() || ((!state.selection.objects.length || !visiblePaths()) && 'Select one or more visible paths')},
@@ -2027,30 +2027,31 @@ function showReference() {
   const visible = enabled && (referenceOnly || reference.opacity > 0);
   $('reference-image').hidden=!enabled;
   $('drawing').style.visibility = referenceOnly ? 'hidden' : '';
-  $('reference-only').hidden=!reference;
-  $('reference-only').setAttribute('aria-pressed', String(referenceOnly));
   const toggle = $('reference-toggle');
   toggle.hidden=!reference;
   toggle.setAttribute('aria-pressed', String(enabled));
-  toggle.title=enabled ? 'Hide reference overlay (O)' : 'Show reference overlay (O)';
-  $('reference-status').textContent=referenceOnly ? 'Reference only' : enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Overlay hidden';
+  toggle.title=referenceOnly ? 'Show the drawing only (O)' : enabled ? 'Show the reference only (O)' : 'Show the reference overlay (O)';
+  $('reference-status').textContent=referenceOnly ? 'Reference only' : enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Drawing only';
   stage.classList.toggle('reference-visible', visible);
   if(reference){$('reference-image').src=reference.data_url;$('reference-image').style.opacity=referenceOnly ? 1 : reference.opacity;$('reference-opacity').value=Math.round(reference.opacity*100);$('reference-percent').textContent=`${Math.round(reference.opacity*100)}%`;}
   else{$('reference-image').removeAttribute('src');}
   scheduleStrip();
 }
+// O cycles the view: the drawing, the reference over it, the reference alone.
 function toggleReference() {
   if (!reference) return;
-  $('reference-visible').checked = !$('reference-visible').checked;
+  if (referenceOnly) { referenceOnly = false; $('reference-visible').checked = false; }
+  else if ($('reference-visible').checked) referenceOnly = true;
+  else $('reference-visible').checked = true;
+  showReference();
+}
+// Shift+O: straight back to the drawing alone.
+function showDrawingOnly() {
+  referenceOnly = false;
+  $('reference-visible').checked = false;
   showReference();
 }
 $('reference-toggle').onclick=toggleReference;
-function toggleReferenceOnly() {
-  if (!reference) return;
-  referenceOnly = !referenceOnly;
-  showReference();
-}
-$('reference-only').onclick=toggleReferenceOnly;
 async function loadReference(){const result=await request('/api/reference');reference=result.reference;showReference();}
 $('add-reference').onclick=()=>$('reference-file').click();
 $('reference-file').onchange=async event=>{
@@ -2059,7 +2060,7 @@ $('reference-file').onchange=async event=>{
 };
 async function removeReference(){if(await action('reference',{reference:null})){reference=null;showReference();renderInspector();}}
 $('remove-reference').onclick=removeReference;
-$('reference-visible').onchange=showReference;
+$('reference-visible').onchange=()=>{if(!$('reference-visible').checked)referenceOnly=false;showReference();};
 $('reference-opacity').oninput=event=>{if(reference){reference.opacity=Number(event.target.value)/100;showReference();}};
 $('reference-opacity').onchange=()=>{if(reference)action('reference',{reference});};
 $('object-name').onchange = event => {
@@ -2116,7 +2117,7 @@ window.addEventListener('keydown',event=>{
   // Shift+R retraces the selected paths; R alone is the Redraw tool.
   if(event.shiftKey&&key==='r'){event.preventDefault();if(!event.repeat)later(()=>runCommand('retrace'));return;}
   const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',t:'trace',h:'hand'};
-  if(key==='o'){event.preventDefault();if(!event.repeat)(event.shiftKey?toggleReferenceOnly:toggleReference)();return;}
+  if(key==='o'){event.preventDefault();if(!event.repeat)(event.shiftKey?showDrawingOnly:toggleReference)();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
   if(key==='f'){fit();return;}
   if(tools[key]){later(()=>setTool(tools[key]));return;}
