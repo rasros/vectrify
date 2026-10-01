@@ -32,7 +32,15 @@ from vectrify.document.join import (
     transformed_geometry,
     union_geometry,
 )
-from vectrify.document.knife import cut_geometry
+from vectrify.document.knife import cut_geometry, cut_strokes
+from vectrify.document.lines import (
+    break_at,
+    contour_ends,
+    delete_segment,
+    end_pairs,
+    joined,
+    segments_among,
+)
 from vectrify.document.model import (
     Document,
     DocumentError,
@@ -997,6 +1005,173 @@ class Transaction:
             self._working = self._working.replace_geometry(updated)
             self._record_remap({n: set() for n in old.keys() - new.keys()})
 
+    def break_points(self, object_id: str, node_ids: Iterable[str]) -> None:
+        """Cut a path's contours at points: an open line comes apart there,
+        each piece ending on its own copy of the point, and a closed contour
+        opens. Both copies stay selected."""
+        geometry = self._working.geometry_for(object_id)
+        copies: dict[str, set[str]] = {}
+        for node_id in node_ids:
+            geometry, mapping = break_at(geometry, node_id)
+            copies.update(mapping)
+        if not copies:
+            raise EditRejectedError(
+                "Break a line at a point between its ends, or a closed contour "
+                "at any point: a line's ends are free already"
+            )
+        self.reshape_path(object_id, geometry)
+        self._record_remap(copies)
+
+    def delete_segments(self, object_id: str, node_ids: frozenset[str]) -> None:
+        """Take out the segments between neighbouring points among
+        *node_ids*: the contour splits there, or a closed one opens."""
+        geometry = self._working.geometry_for(object_id)
+        removed: dict[str, set[str]] = {}
+        segments = segments_among(geometry, node_ids)
+        if not segments:
+            raise EditRejectedError(
+                "Select the two points at the ends of the segment to delete"
+            )
+        for segment in segments:
+            geometry, gone = delete_segment(geometry, segment)
+            removed.update(gone)
+        if not geometry.subpaths:
+            self.delete_objects(frozenset({object_id}))
+            return
+        self.reshape_path(object_id, geometry)
+        self._record_remap(removed)
+
+    def join_ends(
+        self,
+        object_ids: frozenset[str],
+        reach: float = 0.0,
+        *,
+        ends: Sequence[tuple[str, str]] = (),
+        curve: bool = True,
+    ) -> tuple[str, ...]:
+        """Join the open ends of the selected lines that continue each other.
+
+        Ends at most *reach* apart in root user space pair, nearest and
+        straightest first, when the line runs on across the gap; or just the
+        two *ends* given, as (path, point) pairs. Joined lines become one
+        contour, bridged by a curve, or a straight line without *curve*, where
+        their ends do not meet. Each lands in the frontmost of its paths and
+        keeps that path's paint; a path left without contours is deleted.
+        Returns the paths holding the joined lines.
+        """
+        with self._change():
+            self._whole_objects()
+            document = self._working
+            members = {
+                e.id
+                for oid in object_ids
+                for e in Document(document.element(oid)).elements()
+            }
+            paths = [
+                e
+                for e in document.elements()
+                if e.tag == "path"
+                and e.id in members
+                and not any(
+                    a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id)
+                )
+            ]
+            if ends:
+                paths = [p for p in paths if p.id in {oid for oid, _ in ends}]
+            paths = [p for p in paths if path_style(document, p)["fill"] == "none"]
+            frames = {}
+            for path in paths:
+                matrix = IDENTITY
+                for ancestor in document.ancestry(path.id):
+                    matrix = multiply(matrix, transform(ancestor.get("transform")))
+                frames[path.id] = matrix
+            contours: list[tuple[PathNode, ...]] = []
+            owners: list[str] = []
+            for path in paths:
+                geometry = transformed_geometry(
+                    document.geometry_for(path.id), frames[path.id]
+                )
+                for subpath in geometry.subpaths:
+                    if not subpath.closed and len(subpath.nodes) > 1:
+                        contours.append(subpath.nodes)
+                        owners.append(path.id)
+            all_ends = [
+                end
+                for i, nodes in enumerate(contours)
+                for end in contour_ends(i, nodes)
+            ]
+            if ends:
+                chosen = []
+                for oid, nid in ends:
+                    found = [
+                        e
+                        for e in all_ends
+                        if owners[e.contour] == oid
+                        and contours[e.contour][0 if e.side == 0 else -1].id == nid
+                    ]
+                    if not found:
+                        raise EditRejectedError(
+                            "Choose two free ends of stroked lines to join"
+                        )
+                    chosen.append(found[0])
+                if len(chosen) != 2 or chosen[0] == chosen[1]:
+                    raise EditRejectedError("Choose two ends to join")
+                pairs = [(chosen[0], chosen[1])]
+            else:
+                pairs = end_pairs(all_ends, reach)
+            if not pairs:
+                raise EditRejectedError(
+                    "No two line ends here are close enough and in line to join: "
+                    "zoom out to reach wider gaps, or pick the two ends in Nodes"
+                )
+            chains, merged = joined(contours, pairs, curve=curve)
+            order = {p.id: i for i, p in enumerate(paths)}
+            used = {c for members, _ in chains for c in members}
+            landing: dict[str, list[Subpath]] = {}
+            for members, subpath in chains:
+                target = max((owners[c] for c in members), key=order.__getitem__)
+                inverse = inverse_matrix(frames[target])
+                local = transformed_geometry(Geometry("chain", (subpath,)), inverse)
+                landing.setdefault(target, []).append(local.subpaths[0])
+            changed = {owners[c] for c in used}
+            for oid in changed:
+                geometry = document.geometry_for(oid)
+                self._authorize(
+                    self._working.geometry_users(geometry.id), EditKind.STRUCTURE
+                )
+                self._authorize(
+                    self._working.geometry_users(geometry.id), EditKind.GEOMETRY
+                )
+            moved = {n.id for c in used for n in contours[c]}
+            emptied = set()
+            for oid in changed:
+                geometry = document.geometry_for(oid)
+                subpaths = tuple(
+                    s
+                    for s in geometry.subpaths
+                    if not any(n.id in moved for n in s.nodes)
+                ) + tuple(landing.get(oid, ()))
+                if subpaths:
+                    self._working = self._working.replace_geometry(
+                        replace(geometry, subpaths=subpaths)
+                    )
+                else:
+                    emptied.add(oid)
+            self._record_remap(merged)
+            if emptied:
+                target = next(iter(landing))
+                gone = {document.geometry_for(oid).id for oid in emptied}
+                self._remove_objects(frozenset(emptied))
+                # Their lines live on in other paths, so their geometry goes.
+                self._working = replace(
+                    self._working,
+                    geometries=tuple(
+                        g for g in self._working.geometries if g.id not in gone
+                    ),
+                )
+                self._record_object_remap({oid: {target} for oid in emptied})
+            return tuple(p.id for p in paths if p.id in landing)
+
     def split_disconnected(self, object_id: str) -> tuple[str, ...]:
         """Partition a compound path into independently editable exact geometries.
 
@@ -1067,15 +1242,17 @@ class Transaction:
     def cut_paths(
         self, start: tuple[float, float], end: tuple[float, float]
     ) -> tuple[str, ...]:
-        """Cut the selected filled paths the line from *start* to *end* crosses.
+        """Cut the selected paths the line from *start* to *end* crosses.
 
-        The points are in root SVG user space. Each crossed path becomes two
-        paths, one per side of the line, each compound if that side has several
-        parts. Both keep the original's attributes, locks and stacking place;
-        the first keeps its ID and geometry ID. Both pieces meet on the same
-        seam nodes, so they fit exactly without being linked.
-        Paths the line only enters or misses, and stroke-only paths, are left
-        alone. Returns the IDs of the pieces.
+        The points are in root SVG user space. Each crossed filled path
+        becomes two paths, one per side of the line, each compound if that
+        side has several parts; both pieces meet on the same seam nodes, so
+        they fit exactly without being linked. A stroke-only path comes apart
+        where the segment crosses its lines: the pieces on the side with less
+        of them become the second path, so a loop cut across comes away.
+        Both keep the original's attributes, locks and stacking place; the
+        first keeps its ID and geometry ID. Paths the line only enters or
+        misses are left alone. Returns the IDs of the pieces.
         """
         with self._change():
             self._whole_objects()
@@ -1088,21 +1265,24 @@ class Transaction:
                 if any(e.tag in {"defs", "clipPath"} for e in ancestry):
                     continue
                 style = path_style(document, element)
-                if style["fill"] == "none":
+                if style["fill"] == "none" and style["stroke"] == "none":
                     continue
                 matrix = IDENTITY
                 for ancestor in ancestry:
                     matrix = multiply(matrix, transform(ancestor.get("transform")))
                 inverse = inverse_matrix(matrix)
                 geometry = document.geometry_for(element.id)
-                cut = cut_geometry(
-                    geometry,
-                    style["fill-rule"],
-                    mapped_point(start, inverse),
-                    mapped_point(end, inverse),
-                    geometry.id,
-                    new_id("geometry"),
-                )
+                local = mapped_point(start, inverse), mapped_point(end, inverse)
+                if style["fill"] == "none":
+                    cut = cut_strokes(geometry, *local, new_id("geometry"))
+                else:
+                    cut = cut_geometry(
+                        geometry,
+                        style["fill-rule"],
+                        *local,
+                        geometry.id,
+                        new_id("geometry"),
+                    )
                 if cut is None:
                     continue
                 self._authorize(document.dependents({element.id}), EditKind.STRUCTURE)
@@ -1115,6 +1295,20 @@ class Transaction:
                     raise EditRejectedError("Detach shared geometry before cutting")
                 if any(n.pinned for s in geometry.subpaths for n in s.nodes):
                     raise EditRejectedError("Unpin endpoints before cutting a path")
+                kept = {n.id for s in cut.first.subpaths for n in s.nodes}
+                if not cut.second.subpaths:
+                    # A closed line cut once only opens up.
+                    self._working = self._working.replace_geometry(cut.first)
+                    self._record_remap(
+                        {
+                            n.id: set()
+                            for s in geometry.subpaths
+                            for n in s.nodes
+                            if n.id not in kept
+                        }
+                    )
+                    pieces.append(element.id)
+                    continue
                 piece = replace(element, id=new_id("object"), geometry_id=cut.second.id)
                 parent = self._working.ancestry(element.id)[-2]
                 self._working = self._working.replace_element(
@@ -1137,15 +1331,21 @@ class Transaction:
                         cut.second,
                     ),
                 )
+                moved = kept | {n.id for s in cut.second.subpaths for n in s.nodes}
                 self._record_remap(
-                    {n.id: set() for s in geometry.subpaths for n in s.nodes}
+                    {
+                        n.id: set()
+                        for s in geometry.subpaths
+                        for n in s.nodes
+                        if n.id not in moved
+                    }
                 )
                 self._record_object_remap({element.id: {element.id, piece.id}})
                 self._ids |= {piece.id}
                 pieces.extend((element.id, piece.id))
             if not pieces:
                 raise EditRejectedError(
-                    "Drag the knife across a selected filled shape, "
+                    "Drag the knife across a line, or across a filled shape "
                     "from outside it to outside it"
                 )
             return tuple(pieces)

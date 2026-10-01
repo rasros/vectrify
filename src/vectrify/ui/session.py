@@ -26,6 +26,8 @@ from vectrify.document import (
     save_project,
 )
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
+from vectrify.document.join import path_style
+from vectrify.document.lines import stroke_outline
 from vectrify.document.model import new_id
 from vectrify.document.redraw import attachment
 from vectrify.document.svg import parse_path
@@ -37,6 +39,7 @@ from vectrify.operations import (
     Permissions,
     method,
 )
+from vectrify.refine.centreline import centreline
 from vectrify.refine.redraw import redraw_stretch
 from vectrify.refine.retrace import SAM_CACHE
 
@@ -55,6 +58,9 @@ POINT_COMMANDS = {
     "node_handles": "Change handles",
     "delete_node": "Delete node",
     "delete_contour": "Delete contour",
+    "break_points": "Break at point",
+    "delete_segment": "Delete segment",
+    "join_two_ends": "Join ends",
 }
 
 
@@ -521,6 +527,19 @@ class Session:
                 for oid, nid in points:
                     if has_node(tx.preview, oid, nid):
                         tx.delete_node(oid, nid)
+            elif command in {"break_points", "delete_segment"}:
+                by_object: dict[str, list[str]] = {}
+                for oid, nid in points:
+                    by_object.setdefault(oid, []).append(nid)
+                for oid, nids in by_object.items():
+                    if command == "break_points":
+                        tx.break_points(oid, nids)
+                    else:
+                        tx.delete_segments(oid, frozenset(nids))
+            elif command == "join_two_ends":
+                if len(points) != 2:
+                    raise DocumentError("Select the two line ends to join")
+                tx.join_ends(objects, ends=points)
             elif command == "delete_contour":
                 contours = {}
                 for oid, nid in points:
@@ -584,8 +603,14 @@ class Session:
                 tx.move_objects(moving, parent, int(payload["index"]))
             self.editor.select(Selection(object_ids=moving))
             return
+        if command == "knife":
+            self._knife(payload)
+            return
         if not selected:
             raise DocumentError("Select an object first")
+        if command in {"join_ends", "fill_to_line", "line_to_fill"}:
+            self._lines(command, payload, selected)
+            return
         if command == "fill_holes":
             targets = self._hole_targets(payload, "be filled")
             cleanup = frozenset(payload.get("delete_objects", []))
@@ -623,7 +648,6 @@ class Session:
             self.editor.select(Selection(object_ids=frozenset({outer})))
             return
         group_id = None
-        pieces: tuple[str, ...] = ()
         if command == "reorder" and payload.get("to") in {"front", "back"}:
             command = f"to_{payload['to']}"
         with self.editor.transaction(
@@ -640,7 +664,6 @@ class Session:
                 "detach": "Detach geometry",
                 "split_disconnected": "Split disconnected parts",
                 "join_paths": "Join outlines",
-                "knife": "Cut with knife",
             }.get(command, command),
             selection=selection,
         ) as tx:
@@ -714,13 +737,6 @@ class Session:
             elif command == "split_disconnected":
                 for oid in sorted(selected):
                     tx.split_disconnected(oid)
-            elif command == "knife":
-                start, end = (
-                    tuple(number(v) for v in payload[key]) for key in ("start", "end")
-                )
-                if len(start) != 2 or len(end) != 2:
-                    raise DocumentError("A knife line needs two points")
-                pieces = tx.cut_paths((start[0], start[1]), (end[0], end[1]))
             elif command == "join_paths":
                 options = payload.get("options", {})
                 if not isinstance(options, dict) or set(options) - {
@@ -747,8 +763,88 @@ class Session:
 
         if group_id is not None:
             self.editor.select(Selection(object_ids=frozenset({group_id})))
-        if pieces:
-            self.editor.select(Selection(object_ids=frozenset(pieces)))
+
+    def _knife(self, payload: dict) -> None:
+        """Cut the selected paths the knife line crosses."""
+        start, end = (
+            tuple(number(v) for v in payload[key]) for key in ("start", "end")
+        )
+        if len(start) != 2 or len(end) != 2:
+            raise DocumentError("A knife line needs two points")
+        selection = replace(self.editor.snapshot.selection, node_ids=frozenset())
+        if not selection.object_ids:
+            raise DocumentError("Select an object first")
+        with self.editor.transaction("Cut with knife", selection=selection) as tx:
+            pieces = tx.cut_paths((start[0], start[1]), (end[0], end[1]))
+        self.editor.select(Selection(object_ids=frozenset(pieces)))
+
+    def _lines(self, command: str, payload: dict, selected: frozenset[str]) -> None:
+        """Join the selected lines' ends, or turn thin fills into strokes and
+        strokes into fills, as one undoable edit."""
+        document = self.editor.snapshot.document
+        selection = Selection(object_ids=selected)
+        paths = [
+            e
+            for e in document.elements()
+            if e.tag == "path"
+            and e.id in document.selection_ids(selection)
+            and not any(a.tag in {"defs", "clipPath"} for a in document.ancestry(e.id))
+        ]
+        if command == "join_ends":
+            reach = number(payload.get("reach", 0))
+            if reach < 0:
+                raise DocumentError("The reach must not be negative")
+            with self.editor.transaction("Join ends", selection=selection) as tx:
+                joined = tx.join_ends(
+                    selected, reach, curve=payload.get("bridge", "curve") == "curve"
+                )
+            self.editor.select(Selection(object_ids=frozenset(joined)))
+            return
+        filled = command == "fill_to_line"
+        chosen = [
+            p
+            for p in paths
+            if (path_style(document, p)["fill"] != "none") == filled
+            and path_style(document, p)["stroke" if not filled else "fill"] != "none"
+        ]
+        if not chosen:
+            raise DocumentError(
+                "Select filled paths to turn into lines"
+                if filled
+                else "Select stroked paths without a fill to turn into fills"
+            )
+        label = "Fill to line" if filled else "Line to fill"
+        with self.editor.transaction(label, selection=selection) as tx:
+            for path in chosen:
+                style = path_style(document, path)
+                geometry = document.geometry_for(path.id)
+                if filled:
+                    line, width = centreline(geometry, style["fill-rule"])
+                    changes = {
+                        "fill": "none",
+                        "stroke": style["fill"],
+                        "stroke-opacity": style["fill-opacity"],
+                        "stroke-width": f"{width:.4g}",
+                        "stroke-linecap": "round",
+                        "stroke-linejoin": "round",
+                        "fill-opacity": None,
+                        "fill-rule": None,
+                    }
+                else:
+                    line = stroke_outline(geometry, style)
+                    changes = {
+                        "fill": style["stroke"],
+                        "fill-opacity": style["stroke-opacity"],
+                        "fill-rule": "nonzero",
+                        "stroke": "none",
+                        "stroke-opacity": None,
+                        "stroke-width": None,
+                        "stroke-linecap": None,
+                        "stroke-linejoin": None,
+                        "stroke-miterlimit": None,
+                    }
+                tx.replace_geometry(path.id, line)
+                tx.set_attributes(path.id, changes)
 
     def _hole_targets(self, payload: dict, verb: str) -> dict[str, frozenset[str]]:
         """The holes a hole command acts on, by path.

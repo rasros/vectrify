@@ -80,18 +80,25 @@ def test_line_that_does_not_cross_leaves_the_path_alone(start, end):
     assert editor.snapshot.document == document
 
 
-def test_only_crossed_paths_are_cut_and_stroke_only_paths_are_skipped():
+def test_only_crossed_paths_are_cut_and_unpainted_paths_are_skipped():
     document = import_svg(
         '<svg width="100" height="100"><path id="p" d="M0 0H10V10H0Z"/>'
         '<path id="q" d="M50 0H60V10H50Z"/>'
-        '<path id="s" d="M0 5H10" fill="none" stroke="black"/></svg>'
+        '<path id="s" d="M0 5H10" fill="none" stroke="black"/>'
+        '<path id="t" d="M0 6H10" fill="none"/></svg>'
     )
-    editor, pieces = cut(document, (5, -5), (5, 15), "p", "q", "s")
+    editor, pieces = cut(document, (5, -5), (5, 15), "p", "q", "s", "t")
     doc = editor.snapshot.document
-    assert len(pieces) == 2
+    assert len(pieces) == 4
     assert "q" not in pieces
+    assert "t" not in pieces
     assert doc.geometry_for("q") == document.geometry_for("q")
-    assert doc.geometry_for("s") == document.geometry_for("s")
+    assert doc.geometry_for("t") == document.geometry_for("t")
+    # The stroke comes apart where the knife crosses it.
+    assert sorted(
+        [n.endpoint for n in doc.geometry_for(oid).subpaths[0].nodes]
+        for oid in pieces[2:]
+    ) == [[(0, 5), (5, 5)], [(5, 5), (10, 5)]]
 
 
 def test_transformed_path_is_cut_where_the_line_is_on_screen():
