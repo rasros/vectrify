@@ -72,6 +72,10 @@ POINT_COMMANDS = {
 }
 
 
+# Names of elements whose tag does not read as one.
+LABELS = {"linearGradient": "Linear gradient", "stop": "Gradient stop"}
+
+
 def has_node(document: Document, object_id: str, node_id: str) -> bool:
     try:
         document.geometry_for(object_id).node(node_id)
@@ -223,7 +227,8 @@ class Session:
                         if not element.id.startswith("object_")
                         else "Definitions"
                         if element.tag == "defs"
-                        else f"{element.tag.capitalize()} {counters[element.tag]}"
+                        else f"{LABELS.get(element.tag, element.tag.capitalize())} "
+                        f"{counters[element.tag]}"
                     ),
                     "parent": ancestors[-2].id,
                     "depth": len(ancestors) - 2,
@@ -712,8 +717,13 @@ class Session:
                     "stroke-opacity",
                 }:
                     raise DocumentError("Unsupported paint property")
+                others = {k: v for k, v in changes.items() if k != "fill"}
                 for oid in selected:
-                    tx.set_attributes(oid, changes)
+                    if others:
+                        tx.set_attributes(oid, others)
+                    if "fill" in changes:
+                        # Its own gradient, if it had one, goes with a new fill.
+                        tx.set_fill(oid, changes["fill"])
             elif command == "move":
                 dx, dy = number(payload["dx"]), number(payload["dy"])
                 # Avoid translating a selected child twice if its group is selected.

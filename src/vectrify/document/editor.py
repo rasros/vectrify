@@ -51,10 +51,12 @@ from vectrify.document.model import (
     Selection,
     Subpath,
     new_id,
+    paint_server,
     references,
 )
+from vectrify.document.paint import LinearGradient
 from vectrify.document.redraw import redrawn, root_matrix
-from vectrify.document.svg import GEOMETRY, PAINT, validate_attributes
+from vectrify.document.svg import GEOMETRY, GRADIENTS, PAINT, validate_attributes
 from vectrify.document.topology import (
     EdgeRef,
     inverse_matrix,
@@ -159,6 +161,38 @@ def _carry_handles(before: Document, after: Document) -> Document:
             geometry = after.geometry(gid)
             node = replace(geometry.node(nid), values=tuple(values))
             after = after.replace_geometry(geometry.replace_node(node))
+
+
+# Elements that paint their own geometry, and so can take a gradient fill.
+DRAWN = frozenset({"path", "rect", "circle", "ellipse", "line"})
+
+
+def _add_definition(document: Document, definition: Element) -> Document:
+    """*document* with *definition* last in the root's first ``defs``."""
+    root = document.root
+    index = next((i for i, c in enumerate(root.children) if c.tag == "defs"), None)
+    if index is None:
+        defs = Element(new_id("object"), "defs", (), (definition,))
+        children = (defs, *root.children)
+    else:
+        defs = root.children[index]
+        defs = replace(defs, children=(*defs.children, definition))
+        children = (*root.children[:index], defs, *root.children[index + 1 :])
+    return replace(document, root=replace(root, children=children))
+
+
+def _without(document: Document, object_id: str) -> Document:
+    """*document* without the element *object_id* and its subtree."""
+
+    def prune(element: Element) -> Element:
+        children = tuple(prune(c) for c in element.children if c.id != object_id)
+        return (
+            replace(element, children=children)
+            if children != element.children
+            else element
+        )
+
+    return replace(document, root=prune(document.root))
 
 
 class EditRejectedError(DocumentError):
@@ -483,6 +517,64 @@ class Transaction:
             self._working = self._working.replace_element(
                 replace(element, attributes=tuple(attrs.items()))
             )
+
+    def set_fill(self, object_id: str, fill: str | LinearGradient | None) -> None:
+        """Give an object a solid fill, or a linear gradient of its own.
+
+        A gradient lives in the root ``defs`` (created if missing) and belongs
+        to this object alone: one no other object references is updated in
+        place, otherwise a new one is made. Going back to a solid fill removes
+        the object's own gradient once nothing uses it. It is a paint edit of
+        this object only, whatever the selection says about ``defs``.
+        """
+        with self._change():
+            document = self._working
+            element = document.element(object_id)
+            if element.tag in GRADIENTS:
+                raise EditRejectedError("Gradients and stops have no fill of their own")
+            if isinstance(fill, LinearGradient) and element.tag not in DRAWN:
+                raise EditRejectedError(
+                    "Only paths and basic shapes can have a gradient fill"
+                )
+            self._authorize(document.dependents({object_id}), EditKind.PAINT, "fill")
+            old = paint_server(element.get("fill"))
+            # A gradient no other object references is this object's own; its
+            # stroke may share it, as when an outline is painted like the fill.
+            own = old is not None and not any(
+                e.id != object_id and old in references(e) for e in document.elements()
+            )
+            attrs = dict(element.attributes)
+            if isinstance(fill, LinearGradient):
+                if own and old is not None:
+                    current = document.element(old)
+                    self._check_locks(old, EditKind.PAINT, "fill")
+                    made = fill.element(old, tuple(c.id for c in current.children))
+                    updated = replace(
+                        current, attributes=made.attributes, children=made.children
+                    )
+                    if updated != current:
+                        document = document.replace_element(updated)
+                else:
+                    gradient = fill.element(new_id("object"))
+                    document = _add_definition(document, gradient)
+                    attrs["fill"] = f"url(#{gradient.id})"
+            else:
+                if fill is None:
+                    attrs.pop("fill", None)
+                else:
+                    attrs["fill"] = fill
+            validate_attributes(element.tag, attrs)
+            document = document.replace_element(
+                replace(document.element(object_id), attributes=tuple(attrs.items()))
+            )
+            if (
+                own
+                and old is not None
+                and old not in references(document.element(object_id))
+            ):
+                self._check_locks(old, EditKind.PAINT, "fill")
+                document = _without(document, old)
+            self._working = document
 
     def update_node(
         self, object_id: str, node_id: str, values: tuple[float, ...]
@@ -1448,6 +1540,7 @@ class Transaction:
                 styles,
                 painted_weights(document, paths),
                 next((i for i, p in enumerate(paths) if p.id == color_source), None),
+                document,
             )
             for path, style in zip(paths, styles, strict=True):
                 for key, value in paint.items():
@@ -1592,6 +1685,7 @@ class Transaction:
             styles,
             painted_weights(document, paths),
             next((i for i, p in enumerate(paths) if p.id == color_source), None),
+            document,
         )
         normalized = []
         updated = document
@@ -1949,7 +2043,28 @@ class Transaction:
         """Delete explicit subtrees; surviving references must never dangle."""
         with self._change():
             self._whole_objects()
+            before = self._working
             self._remove_objects(object_ids)
+            # Gradients only the deleted objects painted with go with them.
+            kept = {e.id for e in self._working.elements()}
+            unused: set[str] = {
+                server
+                for e in before.elements()
+                if e.id not in kept
+                for server in (
+                    paint_server(e.get("fill")),
+                    paint_server(e.get("stroke")),
+                )
+                if server is not None and server in kept
+            }
+            for element in self._working.elements():
+                unused -= set(references(element))
+            for server in unused:
+                if not any(
+                    EditKind.STRUCTURE in a.locks
+                    for a in self._working.ancestry(server)
+                ):
+                    self._working = _without(self._working, server)
 
     def _remove_objects(self, object_ids: frozenset[str]) -> None:
         removed = set()

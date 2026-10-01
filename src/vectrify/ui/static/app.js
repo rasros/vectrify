@@ -121,8 +121,8 @@ function renderDrawing() {
     for (const attribute of [...element.attributes]) {
       if (attribute.localName === 'href' && attribute.value.startsWith('#')) {
         element.setAttributeNS(attribute.namespaceURI, attribute.name, `#art-${attribute.value.slice(1)}`);
-      } else if (attribute.localName === 'clip-path' && attribute.value.startsWith('url(#')) {
-        element.setAttribute('clip-path', `url(#art-${attribute.value.slice(5,-1)})`);
+      } else if (['clip-path', 'fill', 'stroke'].includes(attribute.localName) && attribute.value.startsWith('url(#')) {
+        element.setAttribute(attribute.localName, `url(#art-${attribute.value.slice(5,-1)})`);
       }
     }
   }
@@ -207,6 +207,11 @@ function resolvedPaint(id, attr, fallback = '') {
   const target = paintReference(element);
   return getComputedStyle(target?.hasAttribute(attr) ? target : element).getPropertyValue(attr).trim() || fallback;
 }
+// Any CSS colour as the browser computes it, rgb(), which colorHex reads.
+function cssColour(value) {
+  const probe = document.createElement('span'); probe.style.color = value; document.body.append(probe);
+  const colour = getComputedStyle(probe).color; probe.remove(); return colour;
+}
 function colorHex(value) {
   const rgb = value.match(/^rgba?\(([^)]+)\)$/i);
   if (!rgb) return /^#[a-f\d]{6}$/i.test(value) ? value : null;
@@ -214,6 +219,31 @@ function colorHex(value) {
   if (channels.length < 3 || channels.some(n => !Number.isFinite(n))) return null;
   return '#' + channels.slice(0,3).map(n=>Math.round(n).toString(16).padStart(2,'0')).join('') +
     (channels.length > 3 && channels[3] < 1 ? Math.round(channels[3]*255).toString(16).padStart(2,'0') : '');
+}
+// A fill or stroke of url(#id) names a linear gradient in the drawing's defs.
+function paintGradient(value) {
+  const id = value?.match(/^url\(\s*["']?#([^"')\s]+)["']?\s*\)$/)?.[1];
+  // Paint in the drawing names its ID with the art- prefix; a document ID has none.
+  const element = id && (drawing.querySelector(`[id="${CSS.escape(id)}"]`) || svgElement(id));
+  return element?.localName === 'linearGradient' ? element : null;
+}
+function gradientStops(gradient) {
+  return [...gradient.querySelectorAll('stop')].map(stop => {
+    const offset = stop.getAttribute('offset') || '0';
+    const value = offset.endsWith('%') ? parseFloat(offset) / 100 : Number(offset);
+    return {offset: Math.max(0, Math.min(1, value || 0)), colour: stop.getAttribute('stop-color') || 'black'};
+  });
+}
+// The gradient as a left-to-right CSS gradient, for swatches.
+function gradientCss(value) {
+  const gradient = paintGradient(value); if (!gradient) return null;
+  const stops = gradientStops(gradient);
+  return stops.length ? `linear-gradient(90deg, ${stops.map(s => `${s.colour} ${(s.offset*100).toFixed(1)}%`).join(', ')})` : null;
+}
+// One colour where a single one is shown: a gradient's first stop.
+function paintColour(value) {
+  const gradient = paintGradient(value);
+  return gradient ? gradientStops(gradient)[0]?.colour || 'none' : value;
 }
 function paintSource(id, kind) {
   let element = svgElement(id);
@@ -238,6 +268,13 @@ function swatchPaint(element) {
 }
 function paintSwatch(swatch, item) {
   const element = svgElement(item.id); if (!element) return;
+  const own = item.tag === 'linearGradient' && gradientCss(`url(#${item.id})`);
+  if (own) {
+    swatch.style.background = own;
+    swatch.title = 'Linear gradient: paints the shapes that use it';
+    swatch.setAttribute('aria-hidden', 'true');
+    return;
+  }
   if (item.resource) {
     swatch.classList.add('resource-symbol');
     swatch.textContent = item.tag === 'defs' ? '◇' : element.closest('clipPath') ? '▧' : '⌁';
@@ -249,16 +286,19 @@ function paintSwatch(swatch, item) {
   const display = color => colorHex(color) || color;
   if (item.tag === 'g') {
     const colors = [...new Set([...element.querySelectorAll('path,rect,circle,ellipse,line,polyline,polygon,use')]
-      .filter(el=>!el.closest('defs,clipPath')).map(el=>{const p=swatchPaint(el);return p.fill !== 'none' ? p.fill : p.stroke;}).filter(c=>c !== 'none'))];
+      .filter(el=>!el.closest('defs,clipPath')).map(el=>{const p=swatchPaint(el);return paintColour(p.fill !== 'none' ? p.fill : p.stroke);}).filter(c=>c !== 'none'))];
     const shown = colors.slice(0,4);
     swatch.classList.add('group-swatch');
     swatch.style.background = shown.length === 1 ? shown[0] : shown.length ? `conic-gradient(${shown.map((c,i)=>`${c} ${i*100/shown.length}% ${(i+1)*100/shown.length}%`).join(',')})` : 'transparent';
     swatch.title = colors.length ? `Group colors: ${shown.map(display).join(', ')}${colors.length > shown.length ? ` (+${colors.length-shown.length} more)` : ''}` : 'No paint';
   } else {
     swatch.classList.toggle('no-paint', paint.fill === 'none' && paint.stroke === 'none');
-    swatch.style.backgroundColor = paint.fill === 'none' ? 'transparent' : paint.fill;
-    if (paint.stroke !== 'none') { swatch.style.borderColor = paint.stroke; swatch.style.borderWidth = '3px'; }
-    swatch.title = `Fill: ${display(paint.fill)} (${paintSource(item.id,'fill')}) · Stroke: ${display(paint.stroke)} (${paintSource(item.id,'stroke')})`;
+    const ramp = gradientCss(paint.fill);
+    if (ramp) swatch.style.background = ramp;
+    else swatch.style.backgroundColor = paint.fill === 'none' ? 'transparent' : paint.fill;
+    if (paint.stroke !== 'none') { swatch.style.borderColor = paintColour(paint.stroke); swatch.style.borderWidth = '3px'; }
+    const named = color => paintGradient(color) ? 'linear gradient' : display(color);
+    swatch.title = `Fill: ${named(paint.fill)} (${paintSource(item.id,'fill')}) · Stroke: ${named(paint.stroke)} (${paintSource(item.id,'stroke')})`;
   }
   swatch.setAttribute('aria-hidden', 'true');
 }
@@ -270,6 +310,8 @@ function objectContext(item) {
   const inClip = !!element?.closest('clipPath');
   let role = '';
   if (item.tag === 'defs') role = 'Not drawn · reusable geometry';
+  else if (item.tag === 'linearGradient') role = 'Linear gradient · paint, not drawn';
+  else if (item.tag === 'stop') role = 'Gradient stop';
   else if (item.tag === 'clipPath') role = 'Clipping boundary · not drawn';
   else if (item.tag === 'use') role = `${inClip ? 'Clip contour' : item.resource ? 'Shared instance' : 'Instance'} of ${source?.label || 'missing source'}`;
   else if (inClip) role = 'Clip contour · not drawn';
@@ -563,7 +605,8 @@ const COMMANDS = [
     disabled: () => noReference() || ((!state.selection.objects.length || !visiblePaths()) && 'Select one or more visible paths')},
   {id: 'tidy', name: 'Tidy…', group: 'Reference', keywords: 'simplify snap fit shape optimize nodes points', run: openTidy,
     disabled: () => !state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them'},
-  {id: 'fit-colours', name: 'Fit colours…', group: 'Reference', run: openColours, disabled: () => noReference() || noSelection()},
+  {id: 'fit-colours', name: 'Fit colours…', group: 'Reference', run: () => openColours('flat'), disabled: () => noReference() || noSelection()},
+  {id: 'fit-gradient', name: 'Fit gradient…', group: 'Reference', keywords: 'gradient ramp shading linear fill colour color', run: () => openColours('linear'), disabled: () => noReference() || noSelection()},
   {id: 'handles-0', name: 'No handles', group: 'Points', keys: '1', run: () => pointHandles(0), disabled: noPoints},
   {id: 'handles-1', name: 'One handle', group: 'Points', keys: '2', run: () => pointHandles(1), disabled: noPoints},
   {id: 'handles-2', name: 'Two handles', group: 'Points', keys: '3', run: () => pointHandles(2), disabled: noPoints},
@@ -631,16 +674,21 @@ function renderInspector() {
   // Empty selections have no paint to resolve; keep the remaining controls reset.
   for (const kind of selected.length ? ['fill', 'stroke'] : []) {
     const value = paintValue(kind, kind === 'fill' ? 'black' : 'none');
-    const hex = colorHex(value);
-    $(`${kind}-value`).value = hex || value;
-    $(`${kind}-value`).placeholder = selected.length ? 'Mixed colors' : '';
+    // A gradient shows as its ramp; picking a colour makes the paint flat.
+    const ramp = gradientCss(value);
+    const hex = colorHex(ramp ? cssColour(paintColour(value)) : value);
+    $(`${kind}-value`).value = ramp ? '' : hex || value;
+    $(`${kind}-value`).placeholder = ramp ? 'Linear gradient' : selected.length ? 'Mixed colors' : '';
     const picker = $(`${kind}-color`);
     picker.value = hex?.slice(0,7) || '#000000';
     picker.classList.toggle('no-paint', value === 'none');
     picker.classList.toggle('mixed-paint', !value);
+    picker.classList.toggle('gradient-paint', !!ramp);
+    picker.style.background = ramp || '';
     const sources = [...new Set(selected.map(id=>paintSource(id,kind)))];
-    $(`${kind}-source`).textContent = !value ? 'Mixed colors' : sources.length === 1 ? sources[0] : 'Different paint sources';
-    picker.title = `${kind === 'fill' ? 'Fill' : 'Stroke'}: ${hex || value || 'mixed'} · ${$(`${kind}-source`).textContent}`;
+    const source = !value ? 'Mixed colors' : sources.length === 1 ? sources[0] : 'Different paint sources';
+    $(`${kind}-source`).textContent = ramp ? `Linear gradient · ${source}. Pick a colour to make it flat.` : source;
+    picker.title = `${kind === 'fill' ? 'Fill' : 'Stroke'}: ${ramp ? 'linear gradient' : hex || value || 'mixed'} · ${source}`;
   }
   const strokeWidth = paintValue('stroke-width', '1');
   $('stroke-width').value = strokeWidth ? parseFloat(strokeWidth) : '';
@@ -2575,11 +2623,17 @@ function errorChange(metrics, key = 'error') {
 const selectionSummary = () => oneObject()?.label || `${state.selection.objects.length} selected objects`;
 const coloursDialog = jobDialog('colours', {
   start: () => ({action:'improve', method:'colours', permissions:{paint:true},
-    settings:{passes:Number($('colours-passes').value), resolution:Number($('colours-resolution').value)}}),
-  describe: result => result.changed ? `${result.metrics.objects} of ${result.metrics.considered} fills changed · reference error ${errorChange(result.metrics)}. Apply keeps it as one undoable edit.` : 'The colours already fit the reference.',
-  applied: 'Colours fitted. Undo restores the previous fills.',
+    settings:{passes:Number($('colours-passes').value), resolution:Number($('colours-resolution').value), fill:$('colours-fill').value}}),
+  describe: result => {
+    const m = result.metrics, gradients = m.gradients ? ` (${m.gradients} as ${m.gradients === 1 ? 'a gradient' : 'gradients'})` : '';
+    return result.changed ? `${m.objects} of ${m.considered} fills changed${gradients} · reference error ${errorChange(m)}. Apply keeps it as one undoable edit.` : 'The colours already fit the reference.';
+  },
+  applied: 'Fills fitted. Undo restores the previous fills.',
 }).wire();
-async function openColours() { await queue; coloursDialog.open(selectionSummary()); }
+// Fit colours and Fit gradient are one dialog, opened with its fill kind chosen.
+const showColoursFill = () => { $('colours-title').textContent = $('colours-fill').value === 'linear' ? 'Fit gradient' : 'Fit colours'; };
+$('colours-fill').onchange = showColoursFill;
+async function openColours(fill = 'flat') { await queue; $('colours-fill').value = fill; showColoursFill(); coloursDialog.open(selectionSummary()); }
 const cleanupDialog = jobDialog('cleanup', {
   start: () => ({action:'simplify', method:'cleanup', bounds:simplifyBounds(), permissions:{geometry:true, structure:true}}),
   describe: result => {

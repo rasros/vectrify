@@ -203,6 +203,32 @@ the supplied document-unit tolerance; changing zoom does not change scope unless
 the caller deliberately changes that tolerance. Boolean geometry uses Shapely 2.
 An index always describes the snapshot it was built from.
 
+## Gradient paint
+
+A fill or stroke is a solid colour, `none`, or `url(#id)` naming a
+`linearGradient` (no fallback colour). A gradient lives inside `defs` and
+holds only `stop` children; it takes `x1`, `y1`, `x2`, `y2` (numbers or
+percentages), `gradientUnits`, `gradientTransform` and `spreadMethod`, and a
+stop takes `offset`, `stop-color` and `stop-opacity`. Neither takes paint,
+transforms or clipping. `references()` includes paint references, so a
+gradient in use cannot be deleted, dependency traversal treats a gradient's
+users as depending on it, and `fresh_ids` renames them together. On import, a
+gradient that inherits from another by `href` takes the attributes it lacks,
+and the stops if it has none, so each gradient stands alone.
+
+`Transaction.set_fill(object_id, fill)` sets a solid fill (or removes the
+attribute with None) or a `LinearGradient` (from `vectrify.document.paint`:
+two end points in the object's own user space and its stops). It is a paint
+edit of that object only, authorized like any fill change, even though the
+gradient sits in `defs`. A gradient no other object references is the
+object's own and is updated in place, keeping its ID and its stops' IDs;
+otherwise a new one is added to the root's first `defs`, which is created if
+missing. Going back to a solid fill removes the object's own gradient once
+nothing uses it. Deleting objects also removes the gradients only they
+painted with. Code that needs one colour for a gradient, such as joins that
+average paint by area, uses `solid_paint`: the gradient's mean colour along
+its length.
+
 ## Import, export, and project files
 
 The importer accepts SVG roots, groups, definitions, clipping, paths,
@@ -211,9 +237,10 @@ Paths normalize relative coordinates, horizontal/vertical lines, and quadratic
 and shorthand Beziers to absolute M/L/C/Z without coordinate rounding.
 Polygons and polylines become paths. Compound paths retain holes and closure.
 
-Solid paint, opacity, stroke width/caps/joins, affine transforms, and local
-clipping are supported. Lengths are unitless document coordinates.
-Arcs, text, gradients, filters, patterns, arbitrary CSS, nested viewports,
+Solid paint, linear gradients, opacity, stroke width/caps/joins, affine
+transforms, and local clipping are supported. Lengths are unitless document
+coordinates. Arcs, text, radial gradients, filters, patterns, arbitrary CSS,
+nested viewports,
 external references, and other unsupported input produce import errors listing
 the unsupported features. Content is never silently removed. XML declarations
 of entities or document types are rejected.

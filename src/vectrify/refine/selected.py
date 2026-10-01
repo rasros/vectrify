@@ -137,6 +137,8 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
     style = path_style(document, element)
     if style["fill"] == "none":
         raise DocumentError("This editor path fitter currently requires a filled path")
+    if options.color and "url(" in style["fill"] + style["stroke"]:
+        raise DocumentError("Gradient fills are fitted with Fit colours")
     if style["stroke"] != "none" and (
         color(style["stroke"]) != color(style["fill"])
         or float(style["fill-opacity"]) != 1

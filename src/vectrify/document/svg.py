@@ -50,7 +50,34 @@ GEOMETRY = {
     "line": {"x1", "y1", "x2", "y2"},
     "use": {"x", "y", "href"},
 }
+# Paint servers: a linear gradient and its stops, kept in defs and referenced
+# by url(#id) from fill or stroke. They take no paint, transform or clipping.
+GRADIENTS = {
+    "linearGradient": {
+        "x1",
+        "y1",
+        "x2",
+        "y2",
+        "gradientUnits",
+        "gradientTransform",
+        "spreadMethod",
+    },
+    "stop": {"offset", "stop-color", "stop-opacity"},
+}
+GEOMETRY.update(GRADIENTS)
 CONTAINERS = {"svg", "g", "defs", "clipPath"}
+# A solid colour, as fill, stroke or stop-color take it.
+SOLID = re.compile(r"#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([0-9.,%\s+-]+\)")
+# A local paint server reference: the whole value, without a fallback colour.
+PAINT_URL = re.compile(r"url\(#([^)\s]+)\)")
+CONTEXT_PAINT = {
+    "inherit",
+    "currentcolor",
+    "context-fill",
+    "context-stroke",
+    "unset",
+    "revert",
+}
 NUMERIC = {
     "x",
     "y",
@@ -79,9 +106,64 @@ class UnsupportedSvgError(DocumentError):
         super().__init__("Unsupported SVG: " + "; ".join(issues))
 
 
+def _validate_transform(value: str) -> None:
+    matches = list(
+        re.finditer(
+            r"(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^()]*)\)", value
+        )
+    )
+    remainder = re.sub(
+        r"(matrix|translate|scale|rotate|skewX|skewY)\s*\([^()]*\)", "", value
+    )
+    if not matches or remainder.strip(" ,\t\r\n"):
+        raise DocumentError("Invalid SVG transform")
+    for match in matches:
+        args = match[2].replace(",", " ").split()
+        arities = {
+            "matrix": {6},
+            "translate": {1, 2},
+            "scale": {1, 2},
+            "rotate": {1, 3},
+            "skewX": {1},
+            "skewY": {1},
+        }
+        if len(args) not in arities[match[1]] or not all(
+            re.fullmatch(NUMBER, n) and math.isfinite(float(n)) for n in args
+        ):
+            raise DocumentError("Invalid SVG transform arguments")
+
+
+def _validate_gradient(tag: str, attributes: dict[str, str]) -> None:
+    for name, value in attributes.items():
+        if name not in GRADIENTS[tag]:
+            raise DocumentError(f"Unsupported attribute on {tag}: {name}")
+        if name in {"x1", "y1", "x2", "y2", "offset"}:
+            match = re.fullmatch(rf"({NUMBER})%?", value)
+            if not match or not math.isfinite(float(match[1])):
+                raise DocumentError(f"{name} must be a finite number or percentage")
+        elif name == "stop-opacity":
+            if not re.fullmatch(NUMBER, value) or not 0 <= float(value) <= 1:
+                raise DocumentError("stop-opacity must be between zero and one")
+        elif name == "stop-color":
+            if not SOLID.fullmatch(value) or value.lower() in CONTEXT_PAINT | {"none"}:
+                raise DocumentError("A gradient stop needs a solid colour")
+        elif name == "gradientTransform":
+            _validate_transform(value)
+        elif name == "gradientUnits" and value not in {
+            "userSpaceOnUse",
+            "objectBoundingBox",
+        }:
+            raise DocumentError(f"Unsupported gradientUnits: {value}")
+        elif name == "spreadMethod" and value not in {"pad", "reflect", "repeat"}:
+            raise DocumentError(f"Unsupported spreadMethod: {value}")
+
+
 def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
     if tag not in GEOMETRY:
         raise DocumentError(f"Unsupported element: {tag}")
+    if tag in GRADIENTS:
+        _validate_gradient(tag, attributes)
+        return
     allowed = GEOMETRY[tag] | PAINT | {"transform", "clip-path"}
     for name, value in attributes.items():
         if name not in allowed:
@@ -106,18 +188,13 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
             if "opacity" in name and not 0 <= float(value) <= 1:
                 raise DocumentError(f"{name} must be between zero and one")
         if name in {"fill", "stroke"}:
-            if not re.fullmatch(
-                r"none|#[0-9a-fA-F]{3,8}|[a-zA-Z]+|rgba?\([0-9.,%\s+-]+\)", value
+            if not (
+                value == "none" or SOLID.fullmatch(value) or PAINT_URL.fullmatch(value)
             ):
-                raise DocumentError("Only solid paint is supported")
-            if value.lower() in {
-                "inherit",
-                "currentcolor",
-                "context-fill",
-                "context-stroke",
-                "unset",
-                "revert",
-            }:
+                raise DocumentError(
+                    "Only solid paint and local linear gradients are supported"
+                )
+            if value.lower() in CONTEXT_PAINT:
                 raise DocumentError("Context-dependent paint is not supported")
         if name == "viewBox":
             numbers = value.replace(",", " ").split()
@@ -128,30 +205,7 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
             if float(numbers[2]) <= 0 or float(numbers[3]) <= 0:
                 raise DocumentError("viewBox dimensions must be positive")
         if name == "transform":
-            matches = list(
-                re.finditer(
-                    r"(matrix|translate|scale|rotate|skewX|skewY)\s*\(([^()]*)\)", value
-                )
-            )
-            remainder = re.sub(
-                r"(matrix|translate|scale|rotate|skewX|skewY)\s*\([^()]*\)", "", value
-            )
-            if not matches or remainder.strip(" ,\t\r\n"):
-                raise DocumentError("Invalid SVG transform")
-            for match in matches:
-                args = match[2].replace(",", " ").split()
-                arities = {
-                    "matrix": {6},
-                    "translate": {1, 2},
-                    "scale": {1, 2},
-                    "rotate": {1, 3},
-                    "skewX": {1},
-                    "skewY": {1},
-                }
-                if len(args) not in arities[match[1]] or not all(
-                    re.fullmatch(NUMBER, n) and math.isfinite(float(n)) for n in args
-                ):
-                    raise DocumentError("Invalid SVG transform arguments")
+            _validate_transform(value)
         enums = {
             "fill-rule": {"nonzero", "evenodd"},
             "clip-rule": {"nonzero", "evenodd"},
@@ -288,6 +342,60 @@ def parse_path(data: str) -> Geometry:
     return Geometry(new_id("geometry"), tuple(subpaths))
 
 
+def gradient_placement(tag: str, parent: str | None, children: list[str]) -> str | None:
+    """Why a paint server or stop is out of place, or None if it is not."""
+    if tag == "linearGradient":
+        if parent != "defs":
+            return "a linear gradient must be inside defs"
+        if any(child != "stop" for child in children):
+            return "a linear gradient can only contain stops"
+    elif tag == "stop" and parent != "linearGradient":
+        return "a gradient stop must be inside a linear gradient"
+    return None
+
+
+def _inline_gradient_links(root: ET.Element, issues: list[str]) -> None:
+    """Resolve linear gradients that inherit from another by href.
+
+    Each takes the attributes it lacks, and the stops if it has none, from the
+    gradient it links to, so every gradient stands alone. A link to anything
+    but a linear gradient stays, and is reported like any unsupported href.
+    """
+    tag = "{" + SVG + "}linearGradient"
+    gradients = {node.get("id"): node for node in root.iter(tag) if node.get("id")}
+
+    def link(node: ET.Element) -> str | None:
+        value = node.get(XLINK) or node.get("href")
+        return value[1:] if value and value.startswith("#") else None
+
+    done: set[int] = set()
+
+    def resolve(node: ET.Element, seen: tuple[int, ...]) -> None:
+        if id(node) in done:
+            return
+        target = gradients.get(link(node) or "")
+        if target is None:
+            return
+        if id(target) in seen:
+            issues.append(f"{node.get('id')}: cyclic gradient reference")
+            return
+        resolve(target, (*seen, id(node)))
+        for name in GRADIENTS["linearGradient"]:
+            if name not in node.attrib and name in target.attrib:
+                node.set(name, target.attrib[name])
+        if not len(node):
+            for stop in target:
+                copy = ET.Element(stop.tag, dict(stop.attrib))
+                copy.attrib.pop("id", None)
+                node.append(copy)
+        node.attrib.pop(XLINK, None)
+        node.attrib.pop("href", None)
+        done.add(id(node))
+
+    for node in gradients.values():
+        resolve(node, ())
+
+
 def import_svg(svg: str) -> Document:
     if "<!DOCTYPE" in svg.upper() or "<!ENTITY" in svg.upper():
         raise UnsupportedSvgError(["XML document types and entities"])
@@ -297,8 +405,9 @@ def import_svg(svg: str) -> Document:
         raise UnsupportedSvgError([f"Invalid XML: {exc}"]) from exc
     issues: list[str] = []
     geometries: list[Geometry] = []
+    _inline_gradient_links(root, issues)
 
-    def read(node: ET.Element) -> Element:
+    def read(node: ET.Element, parent: str | None = None) -> Element:
         if node.tag.startswith("{") and not node.tag.startswith("{" + SVG + "}"):
             issues.append(f"Foreign element {node.tag}")
         tag = node.tag.rsplit("}", 1)[-1]
@@ -340,9 +449,12 @@ def import_svg(svg: str) -> Document:
                 geometries.append(geometry)
             except DocumentError as exc:
                 issues.append(f"{object_id}: {exc}")
-        children = tuple(read(child) for child in node)
-        if children and tag not in CONTAINERS:
+        children = tuple(read(child, tag) for child in node)
+        if children and tag not in CONTAINERS | {"linearGradient"}:
             issues.append(f"{object_id}: {tag} cannot contain child elements")
+        problem = gradient_placement(tag, parent, [c.tag for c in children])
+        if problem:
+            issues.append(f"{object_id}: {problem}")
         if tag == "svg" and node is not root:
             issues.append(f"{object_id}: nested SVG viewports are unsupported")
         if tag == "use" and "href" not in attrs:
