@@ -601,8 +601,6 @@ const COMMANDS = [
   {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'O', run: toggleReference, disabled: noReference},
   {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', keys: 'Shift+O', run: () => showDrawingOnly(), disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
-  {id: 'retrace', name: 'Retrace', group: 'Reference', keys: 'Shift R', keywords: 'trace outline shape sam', run: retraceShapes,
-    disabled: () => noReference() || ((!state.selection.objects.length || !visiblePaths()) && 'Select one or more visible paths')},
   {id: 'tidy', name: 'Tidy…', group: 'Reference', keywords: 'simplify snap fit shape optimize nodes points', run: openTidy,
     disabled: () => !state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them'},
   {id: 'fit-colours', name: 'Fit colours…', group: 'Reference', run: () => openColours('flat'), disabled: () => noReference() || noSelection()},
@@ -2310,8 +2308,6 @@ window.addEventListener('keydown',event=>{
     later(()=>{if(state?.selection.objects.length)runCommand(command);});return;
   }
   if(mod||event.altKey)return;
-  // Shift+R retraces the selected paths; R alone is the Redraw tool.
-  if(event.shiftKey&&key==='r'){event.preventDefault();if(!event.repeat)later(()=>runCommand('retrace'));return;}
   const tools={v:'select',n:'nodes',p:'path',k:'knife',r:'redraw',h:'hand'};
   if(key==='o'){event.preventDefault();if(!event.repeat)(event.shiftKey?showDrawingOnly:toggleReference)();return;}
   if(event.key==='?'){event.preventDefault();$('help-dialog').showModal();return;}
@@ -2413,36 +2409,6 @@ async function openTidy() {
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
   syncNodeSteps();
   nodesDialog.open(selectionSummary());
-}
-
-// Retrace: a quick job applied as soon as it is ready, as one undoable edit.
-async function retraceShapes() {
-  await queue;
-  const count = state.selection.objects.length;
-  setBusy(`Retracing ${count === 1 ? 'the shape' : `${count} shapes`}…`, 1);
-  let job = null;
-  try {
-    job = await operation('start', {epoch:state.epoch, revision:state.revision, action:'improve', method:'retrace',
-      permissions:{geometry:true, structure:true}, settings:{mode:$('retrace-mode').value}});
-    while (job.status === 'running') {
-      await new Promise(resolve => setTimeout(resolve, 200));
-      job = await operation('status', {job:job.id});
-      $('busy-label').textContent = job.message;
-    }
-    if (job.status === 'failed') throw new Error(job.error);
-    if (job.status !== 'ready') return;
-    const {metrics} = job.result;
-    if (!job.result.changed) { toast(job.message, true); return; }
-    const result = await operation('apply', {job:job.id}); job = null; dirty = true;
-    await applyState(result);
-    const skipped = Object.keys(metrics.skipped).length;
-    const colour = metrics.mode === 'colour' && $('retrace-mode').value === 'sam' ? ' by colour, since SAM needs a GPU' : metrics.mode === 'colour' ? ' by colour' : '';
-    toast(`Retraced ${metrics.paths === 1 ? 'the shape' : `${metrics.paths} shapes`}${colour} · reference error ${errorChange(metrics)}${skipped ? ` · ${skipped} left as they were: ${[...new Set(Object.values(metrics.skipped))].join('; ')}` : ''}. Undo restores the outline.`);
-  } catch (error) { toast(error.message, true); }
-  finally {
-    if (job) operation('discard', {job:job.id}).catch(() => {});
-    setBusy('', -1);
-  }
 }
 
 function simplifyBounds() {
