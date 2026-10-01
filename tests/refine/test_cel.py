@@ -205,3 +205,117 @@ def test_a_tapering_line_stays_a_stroke():
     widths = sorted(float(w) for w in re.findall(r'stroke-width="([\d.]+)"', svg))
     assert len(widths) == 2
     assert widths[1] > 2 * widths[0]
+
+
+def test_a_neutral_line_on_a_navy_fill_of_its_own_luminance_is_found():
+    # Navy and the line have about the same luminance; only the brightest
+    # channel tells the line is darker.
+    pixels = np.full((40, 60, 3), (25, 30, 55), dtype=np.float32)
+    pixels[:, 40:] = 235
+    pixels[:, 19:21] = (34, 31, 32)
+    pixels[:, 39:41] = (34, 31, 32)
+    line, _ = cel.detect_lines(pixels, 3)
+    assert line[5:35, 19:21].all()
+    assert line[5:35, 39:41].all()
+    assert not line[5:35, 25:35].any()
+
+
+def test_a_line_only_a_little_darker_than_a_dark_side_is_found():
+    pixels = np.full((40, 60, 3), (35, 45, 75), dtype=np.float32)
+    pixels[:, 31:] = (25, 30, 55)
+    pixels[:, 30] = (30, 28, 30)
+    line, _ = cel.detect_lines(pixels, 3)
+    assert line[5:35, 30].all()
+
+
+def test_shading_against_a_line_does_not_take_the_line_with_it():
+    # A narrow grey shadow touching a black line, on white.
+    pixels = np.full((40, 60, 3), 235, dtype=np.float32)
+    pixels[:, 20:24] = 200
+    pixels[:, 24:26] = 20
+    line, _ = cel.detect_lines(pixels, 3)
+    assert line[5:35, 24:26].all()
+    assert not line[5:35, 20:22].any()
+
+
+def test_a_line_runs_on_where_it_meets_a_dark_fill():
+    # A thin grey line on white running into a navy fill: the fill must not
+    # take the line as a notch of itself.
+    pixels = np.full((40, 60, 3), 235, dtype=np.float32)
+    pixels[:, 40:] = (25, 30, 55)
+    pixels[20, :40] = 120
+    line, _ = cel.detect_lines(pixels, 3)
+    assert line[20, 5:38].all()
+
+
+def test_grain_is_measured():
+    rng = np.random.default_rng(0)
+    pixels = np.asarray(cel_image(), dtype=np.float32)
+    assert cel.noise_level(pixels) < cel.NOISE
+    noisy = np.clip(pixels + rng.normal(0, 8, pixels.shape), 0, 255)
+    assert cel.noise_level(noisy) > cel.NOISE
+
+
+def test_lines_are_found_through_grain():
+    rng = np.random.default_rng(1)
+    pixels = np.asarray(cel_image(), dtype=np.float32)
+    noisy = np.clip(pixels + rng.normal(0, 10, pixels.shape), 0, 255)
+    svg, details = cel.vectorize(Image.fromarray(noisy.astype(np.uint8)), regions=3)
+    assert details["line_style"] == "strokes"
+    stroked = re.sub(r'<rect[^>]*>|<path d="[^"]+" fill="#[^>]*>', "", svg)
+    png = cairosvg.svg2png(bytestring=stroked.encode(), background_color="white")
+    assert png is not None
+    drawn = np.asarray(Image.open(io.BytesIO(png)).convert("L")) < 128
+    truth = np.asarray(cel_image().convert("L")) < 60
+    # The strokes lie on the lines, and few lie anywhere else.
+    assert drawn[truth].mean() > 0.6
+    assert (drawn & ~truth).sum() < 0.3 * drawn.sum()
+
+
+def test_a_thin_antialiased_line_is_drawn_in_its_ink_and_thin():
+    # One bold black line, and a thin one antialiased to grey.
+    pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
+    pixels[10:16, 10:190] = 0
+    pixels[40, 10:190] = 90
+    pixels[41, 10:190] = 200
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
+    strokes = re.findall(r'stroke="#([0-9a-f]{6})" stroke-width="([\d.]+)"', svg)
+    assert {code for code, _ in strokes} == {"000000"}
+    widths = sorted(float(w) for _, w in strokes)
+    assert widths[0] < 1
+    assert widths[-1] > 4
+
+
+def test_strokes_are_grouped_by_width():
+    widths = np.array([1.0, 1.1, 1.2, 2.0, 2.2, 4.0, 4.3])
+    groups = cel.width_groups(widths, np.ones(7))
+    assert [sorted(widths[g].tolist()) for g in groups] == [
+        [1.0, 1.1, 1.2],
+        [2.0, 2.2],
+        [4.0, 4.3],
+    ]
+    # A seldom-used width joins the group nearest it.
+    lengths = np.array([100.0, 100, 100, 1, 100, 100, 100])
+    widths = np.array([1.0, 1.1, 1.2, 2.0, 4.0, 4.1, 4.2])
+    assert len(cel.width_groups(widths, lengths)) == 2
+
+
+def test_a_dark_shape_among_lines_is_filled_not_stroked():
+    line = np.zeros((60, 80), dtype=bool)
+    line[30, 2:78] = True
+    y, x = np.mgrid[:60, :80]
+    line |= np.hypot(x - 40, y - 30) <= 12
+    kept = cel.without_shapes(line)
+    assert not kept[30, 35:45].any()
+    assert kept[30, 2:20].all()
+
+
+def test_regions_of_one_colour_merge_across_a_line_before_different_ones():
+    labels = np.repeat(np.repeat(np.arange(3), 10)[None], 10, axis=0)
+    line = np.zeros(labels.shape, dtype=bool)
+    line[:, 9:11] = True
+    target = np.full((*labels.shape, 3), 120, dtype=np.float32)
+    target[:, 20:] = 200
+    merged = cel.merge_regions(labels, target, line, 2)
+    assert merged[0, 0] == merged[0, 15]
+    assert merged[0, 15] != merged[0, 25]
