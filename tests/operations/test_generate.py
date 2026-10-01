@@ -368,6 +368,39 @@ def test_cel_job_inserts_filled_regions_and_a_stroked_line():
         )
 
 
+def test_cel_job_draws_a_continuous_outer_outline_when_asked():
+    pixels = np.full((200, 400, 3), 255, dtype=np.uint8)
+    pixels[40:160, 40:360] = (220, 60, 50)
+    pixels[38:42, 38:362] = pixels[158:162, 38:362] = 20
+    # The left side of the outline has a gap.
+    pixels[38:162, 358:362] = 20
+    pixels[38:90, 38:42] = pixels[110:162, 38:42] = 20
+    editor = Editor(import_svg(DOC))
+    snapshot = editor.snapshot
+    job = Job(
+        method("generate", "cel"),
+        OperationRequest(
+            action="generate",
+            method="cel",
+            snapshot=type(snapshot)(
+                snapshot.revision, snapshot.document, Selection.all()
+            ),
+            editor=editor,
+            permissions=Permissions(structure=True),
+            reference=Image.fromarray(pixels),
+            settings={"regions": 2, "outline": True},
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["metrics"]["outline"] == 1
+    with pytest.raises(DocumentError, match="Continuous outer outline must be on"):
+        method("generate", "cel").validate(
+            request(editor, Selection.all(), method="cel", settings={"outline": 1})
+        )
+
+
 def test_cel_keeps_more_regions_in_a_larger_trace_by_default():
     from vectrify.operations.methods.cel import auto_regions
 

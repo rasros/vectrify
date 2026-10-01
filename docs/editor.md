@@ -544,7 +544,25 @@ there, and a gap of up to one and a half line widths between two lines that
 carry on from each other is bridged, so an outline comes out as a few long
 lines rather than many short ones; **Line width** fixes the width instead. Lines stay strokes
 however much they taper; only with **Trace lines as strokes** off are they
-filled shapes. **Outline tolerance** is how far a traced edge or line may
+filled shapes. **Continuous outer outline** (off by default) draws one
+unbroken stroke round the whole drawing in place of its traced outer line,
+so the outline has no gaps or breaks. The drawing is everything the
+background does not cover: the background is the commonest colour along the
+canvas border (when at least half the border has it and it is plain, not
+textured), reaching in from the border, and a drawing filling the canvas has
+no outer outline; holes inside the drawing, even background-coloured ones such as a
+gap between an arm and the body, are not part of the outer outline and keep
+their own traced lines. The stroke is always a stroke, also with **Trace
+lines as strokes** off, in the outer line's ink, at its median width and as
+far in from the background as its middle typically lies; a drawing with no
+outer ink gets the lines' typical width in their darkest ink, or a 2 px
+black line with no lines at all. It is smoothed and simplified like the
+region edges, stops where the drawing runs off the canvas, and closes across
+a straight cut edge such as a cropped hem, where it adds a line the
+picture did not have. Traced line pieces along it are dropped, inner
+lines that reach it are carried on to it, so they join, and the drawing's
+regions meet the background beneath its middle. **Outline
+tolerance** is how far a traced edge or line may
 stray from the reference, in reference pixels. It runs on the CPU and needs
 no extra.
 
