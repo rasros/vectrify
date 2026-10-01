@@ -199,3 +199,4 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 .strip-more-menu .strip-item { flex-wrap: wrap; }
 .strip-more-menu .strip-item[hidden] { display: none; }
 #overlay .node.twin { fill: #d1a962; fill-opacity: .3; stroke: #d1a962; stroke-width: 1.5; }
+.toggle-button{font-size:10px;padding:5px 9px}.toggle-button[aria-pressed="true"]{background:#3e5948;border-color:#66816e;color:#e0f0e5}
