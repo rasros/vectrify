@@ -118,6 +118,10 @@ The server edits one target at a time, with the same tools for both:
   unsaved. The footer reads *Agents off*, *Agents allowed*, or *Agent
   connected · <last action>* (connected means a call in the last two
   minutes).
+- The poll's `agent.touched` lists the objects each of the agent's recent
+  changes touched, as `{change, ids}` (the last 20 changes; `change` counts
+  as `agent.changes` does). Once the page shows a change it outlines those
+  objects in the overlay for 1.5 s, fading out. It is not a selection.
 
 ## Safety
 
@@ -130,6 +134,15 @@ The server edits one target at a time, with the same tools for both:
   `describe()` again, so it never overwrites a person's concurrent edit it
   has not seen. `undo()` is checked the same way, so the agent never undoes a
   step it has not seen.
+- The person's selection stays theirs. Every edit names its targets and
+  none acts on the current selection. Inside its locked step a call selects
+  its own targets (the session's checks of scope, locks and points work on
+  the selection), then gives the person their selection back: objects and
+  points, without those the call deleted. Giving it back is neither a
+  revision nor an undo step, and the call's undo step selects the person's
+  selection too, so undoing it does not select the agent's targets. The
+  entered group is the page's own and is kept unless it was deleted. The
+  headless file target goes through the same code.
 - One undo step per call. A tool that needs several session commands (say
   `add_path` with a fill, a parent and a name, or `resize` to a box) runs
   them under the session lock and squashes them into one history entry; if a
@@ -147,9 +160,12 @@ The server edits one target at a time, with the same tools for both:
 ## Tools
 
 Ids are object ids as `describe()` lists them; points are `[object, node]`
-pairs from `points()`. Tools that take `ids` select them first; without them
-they act on the current selection (in the live editor this is the person's
-selection too). Unset arguments take the editor's defaults. Every answer is
+pairs from `points()`. Every edit requires its targets: `ids` (at least one)
+for object tools and operations, `points` or `contours` for point and hole
+tools; the schema refuses a call without them. There is no `select` tool:
+the agent has no selection that lasts between calls. An edit's answer gives
+`result`, the objects and points the edit left selected for itself (the new
+group, the cut pieces), and `created` and `removed`. Unset arguments take the editor's defaults. Every answer is
 JSON text, followed by `Image: <name>` and the PNG for each image.
 
 **Targets**: `open(path)`, `connect(url?, token?)`, `save(path?)`,
@@ -158,7 +174,8 @@ the artboard as the editor shows it), `remove_reference()`.
 
 **Looking**
 - `describe(page?, page_size?, within?)`: target, artboard, reference (name
-  and pixel size), selection, and objects (id, label, name, tag, parent,
+  and pixel size), the person's selection (for context; no tool acts on
+  it), and objects (id, label, name, tag, parent,
   depth, paint, painted bounds `[x, y, w, h]`, transform, locks), a page at a
   time, or one group's contents.
 - `render(region?, overlay?, max_side?)`: the drawing; `region` in document
@@ -178,27 +195,28 @@ region, size), so looking again at an unchanged drawing costs no rendering.
 **History**: `history(limit?)` (undo and redo stacks, newest first: label,
 author `agent` or `person`, revision), `undo(steps?)`, `redo(steps?)`.
 
-**Selecting and objects**: `select(objects?, points?)`,
-`paint(ids?, fill?, stroke?, stroke_width?, opacity?, fill_opacity?,
-stroke_opacity?)`, `rename(id, name)`, `locks(id, locks)`,
-`move(dx, dy, ids?)`, `resize(ids?, scale?, anchor?, box?)`,
-`reorder(to, ids?)` (front, back, forward, backward),
-`move_into(ids, parent, index)`, `group`, `ungroup`, `join(ids?,
-color_source?)`, `join_ends(ids?, reach?, bridge?)`, `split_parts`,
-`cut_hole`, `fill_holes(contours, delete_enclosed?)`,
-`holes_to_shapes(contours)`, `detach`, `convert(ids?, to?)` (line, fill or
-either), `delete`, `add_path(d, fill?, stroke?, stroke_width?, parent?,
-index?, name?)`, `knife(start, end, ids?, within?)`,
-`redraw_outline(id, points, long_way?, pixel?)`.
+**Objects**: `paint(ids, fill?, stroke?, stroke_width?, opacity?,
+fill_opacity?, stroke_opacity?)`, `rename(id, name)`, `locks(id, locks)`,
+`move(ids, dx, dy)`, `resize(ids, scale?, anchor?, box?)`,
+`reorder(ids, to)` (front, back, forward, backward),
+`move_into(ids, parent, index)`, `group(ids)`, `ungroup(ids)`, `join(ids,
+color_source?)`, `join_ends(ids, reach?, bridge?)`, `split_parts(ids)`,
+`cut_hole(ids)`, `fill_holes(contours, delete_enclosed?)`,
+`holes_to_shapes(contours)`, `detach(ids)`, `convert(ids, to?)` (line, fill
+or either), `delete(ids)`, `add_path(d, fill?, stroke?, stroke_width?,
+parent?, index?, name?)`, `knife(start, end, ids?, within?)` (without `ids`
+it cuts every unlocked path it crosses, as the editor's knife does with
+nothing selected), `redraw_outline(id, points, long_way?, pixel?)`.
 
 **Points**: `set_points({object: {node: values}})`, `handles(points,
 count)`, `pin(points, pinned?)`, `break_points`, `delete_segment`,
 `split_edge`, `delete_points`, `delete_contours`, `join_points(a, b)`.
 
-**Operations** (jobs): `generate(method?, settings?, scope?, group?)` (`cel`,
-`colour-regions`, or `samvg` with a GPU), `tidy(ids?, settings?, rounds?)`,
-`fit_colours(ids?, fill?, passes?, resolution?)` (flat or linear gradients),
-`snap_edges(ids?, tolerance?)`, `cleanup(ids?)`. Each starts a job with the
+**Operations** (jobs): `generate(method?, settings?, group?)` (`cel`,
+`colour-regions`, or `samvg` with a GPU; over the whole drawing, or into the
+area of `group`), `tidy(ids, settings?, rounds?)`, `fit_colours(ids, fill?,
+passes?, resolution?)` (flat or linear gradients), `snap_edges(ids,
+tolerance?)`, `cleanup(ids)`. Each starts a job with the
 permissions the editor's dialog would give it; `job_status(id,
 wait_seconds?)` waits (at most 120 s, without holding the session) and
 returns the metrics and the recommended result's previews (reference, before,
@@ -215,7 +233,8 @@ made it worse.
 `Session.operation` handle from the session's source, drives every tool
 through an MCP client, and fails unless each command arrives from some tool
 or is listed in `LEFT_OUT` / `OPERATIONS_LEFT_OUT` (`vectrify/ui/agent.py`)
-with a reason. Left out:
+with a reason. `select` has no tool of its own; it arrives as the first step
+of every targeted tool. Left out:
 
 - `open`: an agent opens a file as its own headless target; it never
   replaces the drawing in the person's window.
@@ -244,9 +263,11 @@ controls (zoom, overlay view, tools), which have no effect on the drawing.
 - The hosted server needs the `mcp` extra in the editor's own environment;
   without it the popover says so and `vectrify-mcp`'s `connect()` still
   works.
-- In the live editor the agent's selection is the person's selection; an
-  agent's `select` or an edit with `ids` changes what the person sees
-  selected.
+- The page flashes only the objects of changes it picks up; with several
+  agent changes between two polls it flashes them together, and a deletion
+  has nothing left to flash.
+- A job (`tidy`, `fit_colours`…) works on the objects it started with; the
+  person's selection meanwhile has no effect on it.
 - The page notices agent edits by polling, so they show within about a
   second, not instantly, and not while the person is mid-drag.
 - Renders use the editor's export and Cairo; they match the page's SVG

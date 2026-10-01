@@ -4,10 +4,12 @@
 ``generate``…) on one ``Session``. Every edit goes through ``Session.action``
 or ``Session.operation``, so selection scope, locks, pins, permissions and
 revision checks hold exactly as for a person, each call is one undo step, and
-the history labels it "Agent: …". The MCP server (``vectrify.mcp``) holds an
-``Agent`` in process for a file it opened, or reaches the one of a running
-editor through ``AgentChannel``: HTTP on localhost with a token, opened when
-the window allows agents to edit.
+the history labels it "Agent: …". Each call names its own targets and works on
+a selection of its own: the person's selection is given back, cleaned of what
+the call deleted, within the same locked step. The MCP server
+(``vectrify.mcp``) holds an ``Agent`` in process for a file it opened, or
+reaches the one of a running editor through ``AgentChannel``: HTTP on
+localhost with a token, opened when the window allows agents to edit.
 
 The agent's calls carry *seen*, the (epoch, revision) it last looked at; an
 edit of a drawing that changed since is refused, so it never overwrites a
@@ -28,8 +30,8 @@ import secrets
 import threading
 import time
 import xml.etree.ElementTree as ET
-from collections import OrderedDict
-from collections.abc import Callable, Sequence
+from collections import OrderedDict, deque
+from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -44,6 +46,7 @@ from vectrify.document import (
     Document,
     DocumentError,
     HitIndex,
+    Selection,
     StaleRevisionError,
     export_svg,
 )
@@ -64,11 +67,14 @@ MAX_PAGE = 500
 MAX_WAIT = 120.0
 # How long after its last call an agent still shows as connected.
 CONNECTED = 120.0
+# How many of the agent's recent changes the page is told the objects of.
+TOUCHED = 20
 
 # Each agent tool that edits, and the editor commands it sends. The MCP
-# server has one tool of the same name for each.
+# server has one tool of the same name for each. Each also sends "select",
+# choosing its own targets for the session's checks; the agent keeps no
+# selection between calls, so there is no select tool.
 EDITS: dict[str, tuple[str, ...]] = {
-    "select": ("select",),
     "paint": ("paint",),
     "rename": ("rename",),
     "locks": ("locks",),
@@ -210,6 +216,14 @@ def _ids(value: Any) -> list[str] | None:
     return [str(v) for v in value]
 
 
+def _targets(value: Any) -> list[str]:
+    """The ids an edit acts on: given, never the current selection."""
+    ids = _ids(value)
+    if not ids:
+        raise DocumentError("Give ids, the objects to act on")
+    return ids
+
+
 def _points(value: Any) -> list[list[str]]:
     if (
         not isinstance(value, list | tuple)
@@ -218,6 +232,57 @@ def _points(value: Any) -> list[list[str]]:
     ):
         raise DocumentError("Give points as a list of [object id, node id] pairs")
     return [[str(o), str(n)] for o, n in value]
+
+
+def kept_selection(selection: Selection, document: Document) -> Selection:
+    """*selection* without the objects and points *document* no longer has."""
+    existing = {e.id for e in document.elements()}
+    objects = selection.object_ids & existing
+    nodes = selection.node_ids
+    if nodes:
+        present: set[str] = set()
+        for oid in objects:
+            for element in Document(document.element(oid)).elements():
+                with contextlib.suppress(DocumentError):
+                    geometry = document.geometry_for(element.id)
+                    present.update(n.id for sp in geometry.subpaths for n in sp.nodes)
+        nodes = nodes & present
+    kept = Selection(objects, nodes, selection.whole_document)
+    try:
+        document.selection_ids(kept)
+    except DocumentError:
+        return Selection()
+    return kept
+
+
+def changed_objects(before: Document, after: Document) -> set[str]:
+    """The objects of *after* that are new or differ from *before* in tag,
+    attributes, name, locks, parent or geometry (not in their children)."""
+
+    def signatures(document: Document) -> dict[str, tuple]:
+        found: dict[str, tuple] = {}
+        stack = [(child, "") for child in document.root.children]
+        while stack:
+            element, parent = stack.pop()
+            geometry = None
+            if element.geometry_id is not None:
+                with contextlib.suppress(DocumentError):
+                    geometry = document.geometry(element.geometry_id)
+            found[element.id] = (
+                (element.tag, element.attributes, element.name, element.locks, parent),
+                geometry,
+            )
+            stack.extend((child, element.id) for child in element.children)
+        return found
+
+    old = signatures(before)
+    changed = set()
+    for oid, (own, geometry) in signatures(after).items():
+        was = old.get(oid)
+        # Geometries are immutable: an unchanged one is the same object.
+        if was is None or was[0] != own or was[1] is not geometry:
+            changed.add(oid)
+    return changed
 
 
 def _png(image: Image.Image) -> bytes:
@@ -279,6 +344,10 @@ class Agent:
         self.changes = 0
         self.last_action: str | None = None
         self.last_time = 0.0
+        # The objects each recent change touched, as {change, ids}, for the
+        # window to show; and the current call's, once it has made them.
+        self.touched: deque[dict[str, Any]] = deque(maxlen=TOUCHED)
+        self._touched: list[str] = []
 
     # The call boundary --------------------------------------------------
 
@@ -289,6 +358,7 @@ class Agent:
         if handler is None:
             raise DocumentError(f"Unknown agent call: {tool}")
         seen = args.pop("seen", None)
+        self._touched = []
         try:
             reply = handler(seen, **args)
         except TypeError as exc:
@@ -299,6 +369,8 @@ class Agent:
         if tool not in LOOKS:
             self.changes += 1
             self.last_action = reply.data.get("step") or tool.replace("_", " ")
+            if self._touched:
+                self.touched.append({"change": self.changes, "ids": self._touched})
         return reply
 
     def _key(self) -> tuple:
@@ -341,7 +413,7 @@ class Agent:
         already done.
         """
         session = self.session
-        with session.lock:
+        with session.lock, self._own_selection() as touched:
             self._check_seen(seen)
             editor = session.editor
             before = {e.id for e in editor.snapshot.document.elements()}
@@ -360,6 +432,8 @@ class Agent:
                             "revision": editor.snapshot.revision,
                         }
                     )
+                    # What each step selects, its targets and its results.
+                    touched.update(editor.snapshot.selection.object_ids)
             except Exception as exc:
                 editor.rollback(since)
                 if editor.snapshot.revision != revision:
@@ -375,7 +449,7 @@ class Agent:
             data: dict[str, Any] = {
                 **self._where(),
                 "changed": snapshot.revision != revision,
-                "selection": self._selection(),
+                "result": self._selection(),
             }
             if len(editor.undo_entries) > since:
                 data["step"] = editor.undo_labels[-1]
@@ -386,10 +460,37 @@ class Agent:
                 data["removed"] = removed[:200]
             return Reply(data)
 
+    @contextlib.contextmanager
+    def _own_selection(self) -> Iterator[set[str]]:
+        """Run a call on a selection of the agent's own, then give the person
+        theirs back, without the objects and points the call deleted.
+
+        Held under the session lock, so the window never shows the agent's.
+        The selection is not a revision, and the call's undo step selects
+        the person's too. Yields the set of ids the call touched, to add to;
+        the objects it changed are added after it.
+        """
+        editor = self.session.editor
+        person = editor.snapshot.selection
+        document = editor.snapshot.document
+        since = len(editor.undo_entries)
+        touched: set[str] = set()
+        try:
+            yield touched
+            after = editor.snapshot.document
+            if after is not document:
+                touched |= changed_objects(document, after)
+            existing = {e.id for e in after.elements()} - {after.root.id}
+            self._touched = sorted(touched & existing)[:200]
+        finally:
+            kept = kept_selection(person, editor.snapshot.document)
+            editor.select(kept)
+            editor.reselect(since, person, kept)
+
     @staticmethod
-    def _select(ids: list[str] | None) -> dict | None:
-        """The step selecting *ids*, or None to keep the selection."""
-        return None if ids is None else {"command": "select", "objects": ids}
+    def _select(ids: list[str]) -> dict:
+        """The step selecting *ids*, the call's own targets."""
+        return {"command": "select", "objects": ids}
 
     @staticmethod
     def _select_points(points: list[list[str]]) -> dict:
@@ -741,24 +842,10 @@ class Agent:
 
     # Editing ------------------------------------------------------------
 
-    def tool_select(self, seen: Any, objects: Any = None, points: Any = None) -> Reply:
-        ids = _ids(objects) or []
-        pairs = _points(points) if points else []
-        return self._edit(
-            seen,
-            [
-                {
-                    "command": "select",
-                    "objects": sorted(set(ids) | {o for o, _ in pairs}),
-                    "nodes": sorted({n for _, n in pairs}),
-                }
-            ],
-        )
-
     def tool_paint(
         self,
         seen: Any,
-        ids: Any = None,
+        ids: Any,
         fill: str | None = None,
         stroke: str | None = None,
         stroke_width: float | None = None,
@@ -781,7 +868,8 @@ class Agent:
         if not changes:
             raise DocumentError("Give a fill, stroke, stroke width or opacity")
         return self._edit(
-            seen, [self._select(_ids(ids)), {"command": "paint", "changes": changes}]
+            seen,
+            [self._select(_targets(ids)), {"command": "paint", "changes": changes}],
         )
 
     def tool_rename(self, seen: Any, id: str, name: str) -> Reply:  # noqa: A002
@@ -801,11 +889,11 @@ class Agent:
             ],
         )
 
-    def tool_move(self, seen: Any, dx: float, dy: float, ids: Any = None) -> Reply:
+    def tool_move(self, seen: Any, dx: float, dy: float, ids: Any) -> Reply:
         return self._edit(
             seen,
             [
-                self._select(_ids(ids)),
+                self._select(_targets(ids)),
                 {
                     "command": "move",
                     "dx": _finite(dx, "dx"),
@@ -817,22 +905,22 @@ class Agent:
     def _selected_bounds(self) -> Box:
         selection = self.session.editor.snapshot.selection.object_ids
         if not selection:
-            raise DocumentError("Select an object first")
+            raise DocumentError("Give ids, the objects to measure")
         bounds = self._hits().bounds(frozenset(selection))
         if bounds is None:
-            raise DocumentError("The selection paints nothing to measure")
+            raise DocumentError("The objects paint nothing to measure")
         return bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]
 
     def tool_resize(
         self,
         seen: Any,
-        ids: Any = None,
+        ids: Any,
         scale: Any = None,
         anchor: Any = "center",
         box: Any = None,
     ) -> Reply:
-        """Scale the selection about *anchor* (a point, or center, top-left,
-        top-right, bottom-left, bottom-right), or fit its painted bounds to
+        """Scale the objects *ids* about *anchor* (a point, or center, top-left,
+        top-right, bottom-left, bottom-right), or fit their painted bounds to
         *box*."""
         if (scale is None) == (box is None):
             raise DocumentError("Give either scale [sx, sy] or box [x, y, w, h]")
@@ -843,7 +931,7 @@ class Agent:
             if box is not None:
                 x, y, w, h = _box(box, "The box")
                 if bw <= 0 or bh <= 0:
-                    raise DocumentError("The selection has no area to resize")
+                    raise DocumentError("The objects have no area to resize")
                 moved.update(dx=x - bx, dy=y - by)
                 return {
                     "command": "resize",
@@ -880,9 +968,9 @@ class Agent:
                 return None
             return {"command": "move", "dx": moved["dx"], "dy": moved["dy"]}
 
-        return self._edit(seen, [self._select(_ids(ids)), resize, move], "Resize")
+        return self._edit(seen, [self._select(_targets(ids)), resize, move], "Resize")
 
-    def tool_reorder(self, seen: Any, to: str, ids: Any = None) -> Reply:
+    def tool_reorder(self, seen: Any, to: str, ids: Any) -> Reply:
         steps = {"forward": 1, "backward": -1}
         if to in {"front", "back"}:
             payload: dict[str, Any] = {"command": "reorder", "to": to}
@@ -890,7 +978,7 @@ class Agent:
             payload = {"command": "reorder", "step": steps[to]}
         else:
             raise DocumentError("to is front, back, forward or backward")
-        return self._edit(seen, [self._select(_ids(ids)), payload])
+        return self._edit(seen, [self._select(_targets(ids)), payload])
 
     def tool_move_into(self, seen: Any, ids: Any, parent: str, index: int) -> Reply:
         return self._edit(
@@ -898,7 +986,7 @@ class Agent:
             [
                 {
                     "command": "move_objects",
-                    "objects": _ids(ids),
+                    "objects": _targets(ids),
                     "parent": parent,
                     "index": index,
                 }
@@ -907,18 +995,16 @@ class Agent:
 
     def _simple(self, command: str, seen: Any, ids: Any, **extra: Any) -> Reply:
         return self._edit(
-            seen, [self._select(_ids(ids)), {"command": command, **extra}]
+            seen, [self._select(_targets(ids)), {"command": command, **extra}]
         )
 
-    def tool_group(self, seen: Any, ids: Any = None) -> Reply:
+    def tool_group(self, seen: Any, ids: Any) -> Reply:
         return self._simple("group", seen, ids)
 
-    def tool_ungroup(self, seen: Any, ids: Any = None) -> Reply:
+    def tool_ungroup(self, seen: Any, ids: Any) -> Reply:
         return self._simple("ungroup", seen, ids)
 
-    def tool_join(
-        self, seen: Any, ids: Any = None, color_source: str | None = None
-    ) -> Reply:
+    def tool_join(self, seen: Any, ids: Any, color_source: str | None = None) -> Reply:
         options: dict[str, Any] = (
             {"colors": "mix"}
             if color_source is None
@@ -927,7 +1013,7 @@ class Agent:
         return self._simple("join_paths", seen, ids, options=options)
 
     def tool_join_ends(
-        self, seen: Any, ids: Any = None, reach: float = 4.0, bridge: str = "curve"
+        self, seen: Any, ids: Any, reach: float = 4.0, bridge: str = "curve"
     ) -> Reply:
         if bridge not in {"curve", "line"}:
             raise DocumentError("bridge is curve or line")
@@ -943,10 +1029,10 @@ class Agent:
             ],
         )
 
-    def tool_split_parts(self, seen: Any, ids: Any = None) -> Reply:
+    def tool_split_parts(self, seen: Any, ids: Any) -> Reply:
         return self._simple("split_disconnected", seen, ids)
 
-    def tool_cut_hole(self, seen: Any, ids: Any = None) -> Reply:
+    def tool_cut_hole(self, seen: Any, ids: Any) -> Reply:
         return self._simple("cut_hole", seen, ids)
 
     def _contours(self, contours: Any) -> list[list[str]]:
@@ -992,10 +1078,10 @@ class Agent:
             ],
         )
 
-    def tool_detach(self, seen: Any, ids: Any = None) -> Reply:
+    def tool_detach(self, seen: Any, ids: Any) -> Reply:
         return self._simple("detach", seen, ids)
 
-    def tool_convert(self, seen: Any, ids: Any = None, to: str = "either") -> Reply:
+    def tool_convert(self, seen: Any, ids: Any, to: str = "either") -> Reply:
         commands = {
             "line": "fill_to_line",
             "fill": "line_to_fill",
@@ -1005,7 +1091,7 @@ class Agent:
             raise DocumentError("to is line, fill or either")
         return self._simple(commands[to], seen, ids)
 
-    def tool_delete(self, seen: Any, ids: Any = None) -> Reply:
+    def tool_delete(self, seen: Any, ids: Any) -> Reply:
         return self._simple("delete", seen, ids)
 
     def tool_add_path(
@@ -1167,7 +1253,7 @@ class Agent:
     def _history(self, seen: Any, command: str, steps: int) -> Reply:
         if type(steps) is not int or steps < 1:
             raise DocumentError("steps is a whole number from 1")
-        with self.session.lock:
+        with self.session.lock, self._own_selection():
             self._check_seen(seen)
             editor = self.session.editor
             stack = editor.undo_labels if command == "undo" else editor.redo_labels
@@ -1187,7 +1273,6 @@ class Agent:
                     "changed": True,
                     "undone" if command == "undo" else "redone": labels,
                     "step": f"{command.capitalize()} {labels[0].lower()}",
-                    "selection": self._selection(),
                 }
             )
 
@@ -1202,7 +1287,7 @@ class Agent:
     def _start(
         self,
         seen: Any,
-        ids: Any,
+        ids: list[str],
         action: str,
         method: str,
         permissions: dict[str, bool],
@@ -1214,12 +1299,11 @@ class Agent:
         if settings is not None and not isinstance(settings, dict):
             raise DocumentError("settings is an object of setting names and values")
         session = self.session
-        with session.lock:
-            # Choosing what to work on is a selection, like the person's.
-            if ids is not None:
-                self._edit(seen, [self._select(_ids(ids))])
-            else:
-                self._check_seen(seen)
+        with session.lock, self._own_selection():
+            self._check_seen(seen)
+            # The job works on the selection it starts with: the agent's own,
+            # of its targets, which the person's then replaces again.
+            session.action({**self._select(ids), **self._where()})
             payload: dict[str, Any] = {
                 "command": "start",
                 **self._where(),
@@ -1271,25 +1355,23 @@ class Agent:
         seen: Any,
         method: str = "cel",
         settings: Any = None,
-        scope: str = "drawing",
         group: str | None = None,
     ) -> Reply:
-        if scope not in {"drawing", "selection"}:
-            raise DocumentError("scope is drawing, or selection with one group")
+        """Over the whole drawing, or into the area of the group *group*."""
         return self._start(
             seen,
-            [group] if group is not None else None,
+            [] if group is None else [str(group)],
             "generate",
             method,
             {"structure": True},
             settings,
-            scope=scope,
+            scope="drawing" if group is None else "selection",
         )
 
     def tool_tidy(
         self,
         seen: Any,
-        ids: Any = None,
+        ids: Any,
         settings: Any = None,
         rounds: int | None = None,
     ) -> Reply:
@@ -1301,7 +1383,7 @@ class Agent:
         structure = bool((chosen["snap"] and chosen["detail"]) or chosen["simplify"])
         return self._start(
             seen,
-            ids,
+            _targets(ids),
             "improve",
             "nodes",
             {"geometry": True, "structure": structure},
@@ -1313,7 +1395,7 @@ class Agent:
     def tool_fit_colours(
         self,
         seen: Any,
-        ids: Any = None,
+        ids: Any,
         fill: str = "flat",
         passes: int | None = None,
         resolution: int | None = None,
@@ -1323,14 +1405,14 @@ class Agent:
             settings["passes"] = passes
         if resolution is not None:
             settings["resolution"] = resolution
-        return self._start(seen, ids, "improve", "colours", {"paint": True}, settings)
+        return self._start(
+            seen, _targets(ids), "improve", "colours", {"paint": True}, settings
+        )
 
-    def tool_snap_edges(
-        self, seen: Any, ids: Any = None, tolerance: float = 1.0
-    ) -> Reply:
+    def tool_snap_edges(self, seen: Any, ids: Any, tolerance: float = 1.0) -> Reply:
         return self._start(
             seen,
-            ids,
+            _targets(ids),
             "snap",
             "edges",
             {"geometry": True, "structure": True},
@@ -1338,10 +1420,10 @@ class Agent:
             bounds=True,
         )
 
-    def tool_cleanup(self, seen: Any, ids: Any = None) -> Reply:
+    def tool_cleanup(self, seen: Any, ids: Any) -> Reply:
         return self._start(
             seen,
-            ids,
+            _targets(ids),
             "simplify",
             "cleanup",
             {"geometry": True, "structure": True},
@@ -1367,7 +1449,7 @@ class Agent:
 
     def tool_apply(self, seen: Any, id: str, choice: int = 0) -> Reply:  # noqa: A002
         session = self.session
-        with session.lock:
+        with session.lock, self._own_selection() as touched:
             self._check_seen(seen)
             editor = session.editor
             since = len(editor.undo_entries)
@@ -1376,10 +1458,11 @@ class Agent:
                 session.operation({"command": "apply", "job": id, "choice": choice})
             finally:
                 editor.label_prefix = ""
+            touched.update(editor.snapshot.selection.object_ids)
             data: dict[str, Any] = {
                 **self._where(),
                 "changed": True,
-                "selection": self._selection(),
+                "result": self._selection(),
             }
             if len(editor.undo_entries) > since:
                 data["step"] = editor.undo_labels[-1]
@@ -1494,6 +1577,8 @@ class AgentChannel:
             "connected": connected,
             "last_action": agent.last_action if agent else None,
             "changes": agent.changes if agent else 0,
+            # What the agent's recent changes touched, for the window to show.
+            "touched": list(agent.touched) if agent else [],
         }
         if enabled and self.token is not None:
             if self.mcp_url is not None:

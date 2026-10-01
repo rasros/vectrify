@@ -35,8 +35,23 @@ def test_open_look_edit_undo_and_save(tmp_path):
             assert png_size(images(close)[0]) == (64, 64)
 
             # A refusal is a tool error carrying the editor's reason.
-            refused = await client.call_tool("paint", {"ids": [], "fill": "red"})
-            assert "Select an object first" in error(refused)
+            refused = await client.call_tool("paint", {"ids": ["sun"]})
+            assert "Give a fill" in error(refused)
+            # Every edit names its targets; none falls back to the selection.
+            for tool, args in [
+                ("paint", {"fill": "red"}),
+                ("paint", {"ids": [], "fill": "red"}),
+                ("delete", {}),
+                ("move", {"dx": 1, "dy": 1}),
+                ("tidy", {}),
+                ("handles", {"points": [], "count": 0}),
+            ]:
+                assert "validation error" in error(await client.call_tool(tool, args))
+            tools = await client.list_tools()
+            schemas = {t.name: t.input_schema for t in tools.tools}
+            assert "select" not in schemas
+            for name in ("paint", "move", "group", "delete", "tidy", "cleanup"):
+                assert "ids" in schemas[name]["required"], name
 
             painted = data(
                 await client.call_tool("paint", {"ids": ["sun"], "fill": "#ff0000"})

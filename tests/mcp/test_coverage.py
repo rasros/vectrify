@@ -3,7 +3,9 @@
 The commands are read from ``Session``'s source, and the test records which
 of them actually arrive at ``Session.action`` (and ``Session.operation``)
 while an MCP client calls the tools. A command added to the session without
-a tool, or a tool that stops sending its command, fails here.
+a tool, or a tool that stops sending its command, fails here. There is no
+select tool: "select" arrives as every targeted tool's first step, the agent
+choosing its own targets before the person's selection is given back.
 """
 
 from __future__ import annotations
@@ -126,7 +128,6 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
                 return [n["id"] for sp in geometry["subpaths"] for n in sp["nodes"]]
 
             line, ring = await nodes("line"), await nodes("ring")
-            await call("select", objects=["a"])
             await call("redraw_outline", id="b", points=[[40, 40], [65, 30], [90, 40]])
             await call("join_points", a=["line", line[0]], b=["line", line[-1]])
             await call("convert", ids=["line2"], to="fill")
@@ -139,7 +140,7 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             await call("reorder", ids=["a"], to="backward")
             await call("move_into", ids=["a"], parent="grp", index=0)
             grouped = data(await call("group", ids=["line", "line2"]))
-            await call("ungroup", ids=grouped["selection"]["objects"])
+            await call("ungroup", ids=grouped["result"]["objects"])
             await call("join", ids=["a", "b"])
             await call("join_ends", ids=["line", "line2"], reach=10)
             await call("split_parts", ids=["ring"])
