@@ -1078,7 +1078,10 @@ class Transaction:
             ]
             if ends:
                 paths = [p for p in paths if p.id in {oid for oid, _ in ends}]
-            paths = [p for p in paths if path_style(document, p)["fill"] == "none"]
+            # Picked by hand, any path's free ends join; found by distance,
+            # only drawn lines', never a filled shape's.
+            if not ends:
+                paths = [p for p in paths if path_style(document, p)["fill"] == "none"]
             frames = {}
             for path in paths:
                 matrix = IDENTITY
@@ -1110,9 +1113,7 @@ class Transaction:
                         and contours[e.contour][0 if e.side == 0 else -1].id == nid
                     ]
                     if not found:
-                        raise EditRejectedError(
-                            "Choose two free ends of stroked lines to join"
-                        )
+                        raise EditRejectedError("Choose two points of paths to join")
                     chosen.append(found[0])
                 if len(chosen) != 2 or chosen[0] == chosen[1]:
                     raise EditRejectedError("Choose two ends to join")

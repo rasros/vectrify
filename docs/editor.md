@@ -197,9 +197,9 @@ and saved projects restore it.
   **Delete segment** takes out the segment between two selected neighbouring
   points, splitting the line there (a closed contour opens); with more
   points selected, every segment between two of them goes, and a piece left
-  as a lone point is dropped. **Join ends** joins the two selected free ends
-  of stroked lines, in one path or two, into one line however far apart they
-  are: ends that meet become one point, others are bridged by a curve leaving
+  as a lone point is dropped. **Join ends** joins any two selected points, in one
+  path or two, filled or not, into one line however far apart they are; a
+  point that is not a free end yet is broken there first: ends that meet become one point, others are bridged by a curve leaving
   each end along its line. Two ends of one line close it. A small loop in a
   line comes out by selecting the points on it and pressing Delete, which
   reconnects the line past them, or by cutting it off with the knife.

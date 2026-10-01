@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import contextlib
 import io
 import json
 import math
@@ -543,8 +544,14 @@ class Session:
                     else:
                         tx.delete_segments(oid, frozenset(nids))
             elif command == "join_two_ends":
-                if len(points) != 2:
-                    raise DocumentError("Select the two line ends to join")
+                if len(points) != 2 or points[0] == points[1]:
+                    raise DocumentError("Select the two points to join")
+                # Any two points join: one that is not a free end yet is
+                # cut there first, opening a closed contour or splitting a
+                # line, so it becomes one.
+                for oid, nid in points:
+                    with contextlib.suppress(EditRejectedError):
+                        tx.break_points(oid, [nid])
                 tx.join_ends(objects, ends=points)
             elif command == "delete_contour":
                 contours = {}

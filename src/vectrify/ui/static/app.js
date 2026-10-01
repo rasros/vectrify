@@ -480,7 +480,7 @@ function pointContours() {
   }
   return [...contours.values()];
 }
-const twoEnds = () => selectedPoints().length === 2 && selectedPoints().every(key => freeEnd(contourAt(key), splitKey(key)[1]) && !filledPath(splitKey(key)[0]));
+const twoEnds = () => selectedPoints().length === 2;
 const COMMANDS = [
   {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
   {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'N', keywords: 'edit points handles', run: () => setTool('nodes')},
@@ -562,7 +562,7 @@ const COMMANDS = [
   {id: 'delete-segment', name: 'Delete segment', group: 'Points', keywords: 'remove edge gap loop disconnect', run: () => action('delete_segment', {points: pointPairs()}, 'Deleting segments…'),
     disabled: () => noPoints() || (!pointContours().some(({contour, ids}) => segmentAmong(contour, ids)) && 'Select the two points at the ends of the segment')},
   {id: 'join-two-ends', name: 'Join two ends', group: 'Points', keywords: 'connect close gap merge lines', run: () => action('join_two_ends', {points: pointPairs()}, 'Joining ends…'),
-    disabled: () => noPoints() || (!twoEnds() && 'Select two free ends of stroked lines')},
+    disabled: () => noPoints() || (!twoEnds() && 'Select the two points to join')},
   {id: 'fill-hole', name: 'Fill hole', group: 'Points', keywords: 'holes remove', run: fillPointHoles, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
   {id: 'hole-to-shape', name: 'Hole to shape', group: 'Points', keywords: 'holes shapes', run: pointHolesToShapes, disabled: () => noPoints() || (!holeContours(selectedPoints()) && 'Select points on holes')},
 ];

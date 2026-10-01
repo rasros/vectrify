@@ -193,7 +193,7 @@ def test_two_chosen_ends_must_be_free_ends():
     document = drawing(("a", "M0 0L10 0L20 0"))
     ids = node_ids(document, "a")[0]
     _, tx = edit(document, "Join ends", "a")
-    with pytest.raises(EditRejectedError, match="free ends"), tx:
+    with pytest.raises(EditRejectedError, match="two points"), tx:
         tx.join_ends(frozenset({"a"}), ends=[("a", ids[0]), ("a", ids[1])])
 
 
