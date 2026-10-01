@@ -2,12 +2,14 @@
 
 import io
 import re
+from dataclasses import replace
 
 import cairosvg
 import numpy as np
 import pytest
 from PIL import Image
 
+from vectrify.document.model import PathNode, Subpath
 from vectrify.refine import cel
 
 
@@ -103,3 +105,41 @@ def test_filled_lines_replace_strokes_when_asked():
 def test_rejects_a_region_count_below_one(regions):
     with pytest.raises(ValueError, match="region count"):
         cel.vectorize(cel_image(), regions=regions)
+
+
+def run(*points) -> Subpath:
+    nodes = [PathNode(f"n{i}", "L", p) for i, p in enumerate(points)]
+    return Subpath("s", (replace(nodes[0], command="M"), *nodes[1:]))
+
+
+def test_runs_meeting_at_a_junction_carry_on_the_straightest_way():
+    runs = [run((0, 0), (10, 0)), run((10, 0), (20, 0)), run((10, 0), (10, 10))]
+    joined = cel._joined_runs(runs, 0)
+    assert sorted([n.endpoint for n in c.nodes] for c in joined) == [
+        [(0, 0), (10, 0), (20, 0)],
+        [(10, 0), (10, 10)],
+    ]
+
+
+def test_a_gap_in_a_line_is_bridged_only_within_reach():
+    runs = [run((0, 0), (10, 0)), run((12, 0), (20, 0))]
+    assert len(cel._joined_runs(runs, 3)) == 1
+    assert len(cel._joined_runs(runs, 1)) == 2
+
+
+def test_a_short_loop_back_to_its_junction_is_a_thinning_artefact():
+    # A ring standing on a line thins to a tiny loop where the two meet.
+    y, x = np.mgrid[:40, :60]
+    mask = np.zeros((40, 60), dtype=bool)
+    mask[20:23, 2:58] = True
+    distance = np.hypot(x - 30, y - 16)
+    mask |= (distance <= 5) & (distance > 3)
+    skeleton = cel.thin(mask)
+    assert any(np.array_equal(r[0], r[-1]) for r in cel.line_runs(skeleton, 0.1))
+    runs = cel.line_runs(skeleton, spur=6)
+    assert all(not np.array_equal(r[0], r[-1]) for r in runs)
+
+
+def test_the_outlines_runs_join_through_their_junctions():
+    _, details = cel.vectorize(cel_image(), regions=3)
+    assert details["line_pieces"] < details["line_runs"]

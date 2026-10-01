@@ -35,6 +35,7 @@ from scipy.ndimage import (
     minimum_filter,
 )
 
+from vectrify.document.lines import contour_ends, end_pairs, joined
 from vectrify.document.model import Geometry, PathNode, Subpath
 from vectrify.refine.colour_regions import (
     boundary_chains,
@@ -87,6 +88,9 @@ WIDTH_STEP = 1.6
 # 0-255 RGB, are one.
 LINE_COLOURS = 3
 LINE_COLOUR_DIFFERENCE = 40.0
+# The longest gap, in line widths, bridged between two runs of one stroke
+# that carry on from each other: a line the detection broke.
+LINE_GAP = 1.5
 
 
 def _disk(radius: int) -> np.ndarray:
@@ -510,8 +514,9 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
     junctions, closed loops ending where they start.
 
     A junction is where more than two runs meet; each run ends at its middle
-    so the strokes join. Branches shorter than *spur* off a junction are
-    thinning's whiskers and go.
+    so the strokes join. Branches shorter than *spur* off a junction, and
+    loops that short from a junction back to it, are thinning's whiskers and
+    go.
     """
     height, width = skeleton.shape
     padded = np.pad(skeleton, 1)
@@ -539,8 +544,9 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
         junction = int(junctions[y, x])
         return centres[junction] if junction else (x + 0.5, y + 0.5)
 
-    # Each run, and how many of its ends are at a junction.
-    runs: list[tuple[np.ndarray, int]] = []
+    # Each run, how many of its ends are at a junction, and whether it comes
+    # back to the junction it left.
+    runs: list[tuple[np.ndarray, int, bool]] = []
 
     def walk(x: int, y: int, u: int, v: int) -> None:
         """Follow the run leaving node (x, y) through (u, v)."""
@@ -571,7 +577,7 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
             ahead = [p for p in following if abs(p[0] - u) + abs(p[1] - v) == 1]
             previous = (u, v)
             u, v = (nodes or ahead or following)[0]
-        runs.append((np.array(run), (start > 0) + (ended > 0)))
+        runs.append((np.array(run), (start > 0) + (ended > 0), start == ended > 0))
 
     for y, x in zip(*np.nonzero(node), strict=True):
         for u, v in neighbours(int(x), int(y)):
@@ -597,12 +603,13 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
         del previous
         if len(run) > 2:
             run.append(run[0])
-        runs.append((np.array(run), 0))
+        runs.append((np.array(run), 0, False))
     kept = []
-    for run, at_junctions in runs:
+    for run, at_junctions, returns in runs:
         length = float(np.linalg.norm(np.diff(run, axis=0), axis=1).sum())
-        # A whisker: off a junction to a free end, and short.
-        if length < 2 or (at_junctions == 1 and length < spur):
+        # A whisker: off a junction to a free end, and short; or a short way
+        # round a pinhole in a junction's blob, back to the junction.
+        if length < 2 or (length < spur and (at_junctions == 1 or returns)):
             continue
         kept.append(run)
     return kept
@@ -768,30 +775,75 @@ def _line_paths(
         low, high = _weighted_percentiles(widths[own], lengths[own], (25, 75))
         if not line_width and high > WIDTH_STEP * low:
             bold[own] = widths[own] > np.sqrt(low * high)
-    grouped: dict[tuple[int, bool], list[tuple[str, float]]] = {}
+    grouped: dict[tuple[int, bool], list[tuple[Subpath, float, int]]] = {}
     for run, index, width, step in zip(runs, colours, widths, bold, strict=True):
         width = line_width or width
         closed = np.array_equal(run[0], run[-1])
         nodes = curve_nodes(run, tolerance)
         if closed and nodes and nodes[-1][0] == "L":
             nodes = nodes[:-1]
-        grouped.setdefault((int(index), bool(step)), []).append(
-            (_data(run[0], nodes, closed), width)
+        contour = Subpath(
+            "s",
+            (
+                PathNode("n", "M", tuple(float(v) for v in run[0])),
+                *(PathNode("n", c, v) for c, v in nodes),
+            ),
+            closed,
         )
+        # Each run counts toward its path's width by the size of its data.
+        size = len(_data(run[0], nodes, closed))
+        grouped.setdefault((int(index), bool(step)), []).append((contour, width, size))
     paths = []
+    pieces_before = pieces_after = 0
     for index, step in sorted(grouped):
         pieces = grouped[index, step]
         width = _weighted_percentiles(
-            np.array([w for _, w in pieces]),
-            np.array([len(d) for d, _ in pieces], dtype=float),
+            np.array([w for _, w, _ in pieces]),
+            np.array([size for _, _, size in pieces], dtype=float),
             (50,),
         )[0]
+        contours = _joined_runs([c for c, _, _ in pieces], LINE_GAP * width)
+        pieces_before += len(pieces)
+        pieces_after += len(contours)
+        data = " ".join(
+            _data(
+                c.nodes[0].endpoint,
+                [(n.command, n.values) for n in c.nodes[1:]],
+                c.closed,
+            )
+            for c in contours
+        )
         paths.append(
-            f'<path d="{" ".join(d for d, _ in pieces)}" fill="none" '
+            f'<path d="{data}" fill="none" '
             f'stroke="{colour(palette[index])}" stroke-width="{width:.2f}" '
             'stroke-linecap="round" stroke-linejoin="round"/>'
         )
-    return paths, {**details, "line_style": "strokes", "line_paths": len(paths)}
+    return paths, {
+        **details,
+        "line_style": "strokes",
+        "line_paths": len(paths),
+        "line_pieces": pieces_after,
+        "line_runs_joined": pieces_before - pieces_after,
+    }
+
+
+def _joined_runs(contours: list[Subpath], reach: float) -> list[Subpath]:
+    """The runs of one stroke joined where one carries on from another: at
+    a junction, the straightest way through, and across a gap at most
+    *reach* long, as the line was heading."""
+    lines = [
+        tuple(PathNode(f"n{i}_{j}", n.command, n.values) for j, n in enumerate(c.nodes))
+        for i, c in enumerate(contours)
+        if not c.closed
+    ]
+    ends = [e for i, nodes in enumerate(lines) for e in contour_ends(i, nodes)]
+    chains, _ = joined(lines, end_pairs(ends, reach))
+    used = {i for members, _ in chains for i in members}
+    return [
+        *(c for c in contours if c.closed),
+        *(Subpath("s", nodes) for i, nodes in enumerate(lines) if i not in used),
+        *(subpath for _, subpath in chains),
+    ]
 
 
 def _weighted_percentiles(
