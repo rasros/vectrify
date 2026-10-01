@@ -314,9 +314,11 @@ and saved projects restore it.
   outer outline is recomputed as a curved boolean difference, which renumbers
   its points and so is refused for pinned points.
   Locks, shared geometry and instances of the outer path are refused.
-- The **Knife** tool (`K`) cuts selected paths, or the paths inside
-  selected groups, along a straight line: drag across them and release. Shift
-  snaps the line to 15° steps. A stroked line without a fill comes apart
+- The **Knife** tool (`K`) cuts the paths it crosses along a straight line:
+  drag across them and release. With nothing selected it cuts every drawing
+  path the line crosses whose geometry and structure are unlocked, inside the
+  entered group if one is entered; with a selection, only the selected paths
+  and the paths inside selected groups. Shift snaps the line to 15° steps. A stroked line without a fill comes apart
   wherever the dragged line crosses it, each piece ending on its own copy of
   the crossing, and a closed one opens up. The pieces on the side of the knife
   with less of the cut lines become a new path just above, so cutting across
@@ -333,14 +335,16 @@ and saved projects restore it.
   on the same seam points but stay independent: dragging a seam point moves
   only that piece, and **Join paths** merges them back into one. Pinned
   points, shared geometry, instances and locks are refused. The pieces are
-  selected afterwards, and the cut is one undoable edit. Without a selection
-  the knife asks you to select shapes first; a plain click selects.
+  selected afterwards, and the cut is one undoable edit. A line that crosses
+  nothing the knife can cut says so; a plain click selects.
 - The **Redraw outline** tool (`R`) fixes a stretch of one path's outline in
   one gesture, like a magnetic lasso: a missing spike, a notch or a grass
-  blade. Select a path (or several, or a group: every path the point tools
-  show can be redrawn), press on its outline (or on one of its points), draw
-  roughly along the reference's edge and release on the same contour; the
-  stroke redraws the path it starts on, and the selection stays as it was. Each
+  blade. Press on a path's outline (or on one of its points), draw roughly
+  along the reference's edge and release on the same contour: the stroke
+  redraws the path it starts on, the last unlocked path the pointer was over
+  (inside the entered group, if one is), which is then selected. With paths
+  selected (or a group: every path the point tools show), only those can be
+  redrawn, and the selection stays as it was. Each
   end attaches to the nearest point within 6 screen pixels, else to the
   nearest place on the outline within 10; white dots show where, and the
   stretch that will be replaced is dashed. On a closed contour that is the

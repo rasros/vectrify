@@ -17,6 +17,7 @@ from vectrify.document import (
     Document,
     DocumentError,
     Editor,
+    EditRejectedError,
     Element,
     Selection,
     StaleRevisionError,
@@ -28,7 +29,7 @@ from vectrify.document import (
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.join import path_style
 from vectrify.document.lines import stroke_outline
-from vectrify.document.model import new_id
+from vectrify.document.model import EditKind, new_id
 from vectrify.document.redraw import attachment
 from vectrify.document.svg import parse_path
 from vectrify.operations import (
@@ -48,6 +49,11 @@ MAX_SOURCE = 128 * 1024 * 1024
 # outline, else to the outline itself.
 NODE_REACH = 6
 REACH = 10
+
+
+# The edits the knife makes to a path it cuts: with nothing selected, it
+# leaves paths locked against them alone.
+KNIFE_EDITS = frozenset({EditKind.GEOMETRY, EditKind.STRUCTURE})
 
 
 # Commands on points, possibly in several selected paths, and their undo labels.
@@ -606,6 +612,9 @@ class Session:
         if command == "knife":
             self._knife(payload)
             return
+        if command == "redraw_outline":
+            self._redraw_outline(payload)
+            return
         if not selected:
             raise DocumentError("Select an object first")
         if command in {"join_ends", "fill_to_line", "line_to_fill"}:
@@ -638,9 +647,6 @@ class Session:
                 for oid, requested in targets.items():
                     shapes.extend(tx.holes_to_shapes(oid, requested))
             self.editor.select(Selection(object_ids=frozenset(shapes)))
-            return
-        if command == "redraw_outline":
-            self._redraw_outline(payload)
             return
         if command == "cut_hole":
             with self.editor.transaction("Cut out as hole", selection=selection) as tx:
@@ -765,17 +771,42 @@ class Session:
             self.editor.select(Selection(object_ids=frozenset({group_id})))
 
     def _knife(self, payload: dict) -> None:
-        """Cut the selected paths the knife line crosses."""
+        """Cut the paths the knife line crosses: the selected ones, or with
+        nothing selected every drawing path whose geometry and structure are
+        unlocked, inside the entered group *within* if one is given."""
         start, end = (
             tuple(number(v) for v in payload[key]) for key in ("start", "end")
         )
         if len(start) != 2 or len(end) != 2:
             raise DocumentError("A knife line needs two points")
+        document = self.editor.snapshot.document
         selection = replace(self.editor.snapshot.selection, node_ids=frozenset())
-        if not selection.object_ids:
-            raise DocumentError("Select an object first")
-        with self.editor.transaction("Cut with knife", selection=selection) as tx:
-            pieces = tx.cut_paths((start[0], start[1]), (end[0], end[1]))
+        chosen = bool(selection.object_ids)
+        if not chosen:
+            within = payload.get("within") or document.root.id
+            inside = {e.id for e in Document(document.element(str(within))).elements()}
+            selection = Selection(
+                object_ids=frozenset(
+                    e.id
+                    for e in document.elements()
+                    if e.tag == "path"
+                    and e.id in inside
+                    and not any(
+                        a.tag in {"defs", "clipPath"} or a.locks & KNIFE_EDITS
+                        for a in document.ancestry(e.id)
+                    )
+                )
+            )
+        try:
+            with self.editor.transaction("Cut with knife", selection=selection) as tx:
+                pieces = tx.cut_paths((start[0], start[1]), (end[0], end[1]))
+        except EditRejectedError as exc:
+            if chosen or "Drag the knife across" not in str(exc):
+                raise
+            raise EditRejectedError(
+                "The knife line crosses no line, and no filled shape from "
+                "outside to outside, that it can cut"
+            ) from exc
         self.editor.select(Selection(object_ids=frozenset(pieces)))
 
     def _lines(self, command: str, payload: dict, selected: frozenset[str]) -> None:
@@ -883,8 +914,12 @@ class Session:
         """
         document = self.editor.snapshot.document
         oid = payload["object"]
-        if not self._in_selection(oid):
-            raise DocumentError("Select the path whose outline to redraw")
+        # The stroke picks the path it starts on; a selection narrows that to
+        # the selected paths.
+        if self.editor.snapshot.selection.object_ids and not self._in_selection(oid):
+            raise DocumentError("Start on the outline of a selected path")
+        if any(a.tag in {"defs", "clipPath"} for a in document.ancestry(oid)):
+            raise DocumentError("Redraw drawing paths, not definitions")
         if document.element(oid).tag != "path":
             raise DocumentError("Redraw works on a path; convert the shape first")
         stroke = payload.get("points")

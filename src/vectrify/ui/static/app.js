@@ -2,7 +2,7 @@ import {pathEndpoints, snapIndex, snapPoint} from './snap.js';
 import {dropIndex, dropRefusal, dropTarget} from './tree.js';
 import {attach, contourLines, stretch} from './redraw.js';
 import {matchCommands, moveHighlight} from './palette.js';
-import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
+import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
 import {HeldGesture, inputQueue} from './input.js';
 import {overflowLayout} from './strip.js';
 import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
@@ -38,7 +38,7 @@ let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastT
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
 const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
 // A one-line hint for the tools with few controls of their own.
-const hints = {select: '', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across selected shapes to cut them · Shift snaps to 15°', redraw: 'Draw along the reference edge from a selected path\'s outline back to it · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
+const hints = {select: '', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across shapes to cut them, only the selected ones if any are · Shift snaps to 15°', redraw: 'Draw along the reference edge from a path\'s outline back to it, a selected path if any are · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -1412,17 +1412,18 @@ function knifeEnd(event) {
   return {x:a.x+Math.cos(angle)*length,y:a.y+Math.sin(angle)*length};
 }
 async function cutWithKnife({start, end}) {
-  if(!state.selection.objects.length){toast('Select the shapes to cut, then drag the knife across them.',true);return;}
-  if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y]},'Cutting…')) {
+  // With nothing selected the knife cuts what it crosses, in the entered group.
+  if(await action('knife',{start:[start.x,start.y],end:[end.x,end.y],within:scope},'Cutting…')) {
     const pieces = state.selection.objects.length, lines = state.selection.objects.every(id => !filledPath(id));
     toast(lines ? `Cut the line${pieces > 1 ? ` into ${pieces} paths` : ' open'} where the knife crosses it; Join ends joins it again.` : `Cut into ${pieces} pieces. They meet exactly along the cut; Join paths merges them again.`);
   }
 }
-// Redraw outline: the stroke, where its ends attach to a selected path's
-// outline and the stretch it will replace, all in the overlay's frame.
+// Redraw outline: the stroke, where its ends attach to a path's outline and
+// the stretch it will replace, all in the overlay's frame. The path is a
+// selected one, or with nothing selected the one under the pointer.
 function redrawLines() {
   const lines = [];
-  for (const id of pointPaths()) {
+  for (const id of state.selection.objects.length ? pointPaths() : hoverPath ? [hoverPath] : []) {
     const matrix = geometries.has(id) && localToOverlay(svgElement(id));
     if (!matrix) continue;
     for (const line of contourLines(geometries.get(id), ([x, y]) => { const p = new DOMPoint(x, y).matrixTransform(matrix); return [p.x, p.y]; }))
@@ -1460,8 +1461,8 @@ function drawRedraw() {
 }
 async function redrawOutline({points, longWay}) {
   const plan = redrawPlan(points, longWay);
-  if (!redrawLines()) {toast('Select a path, then draw along the edge it should follow.', true);return;}
-  if (!plan?.start || !plan.end) {toast('Start and end the stroke on the same outline of a selected path.', true);return;}
+  if (!redrawLines()) {toast(state.selection.objects.length ? 'The selection has no path to redraw.' : 'Start on a path\'s outline, then draw along the edge it should follow.', true);return;}
+  if (!plan?.start || !plan.end) {toast(`Start and end the stroke on the same outline of ${state.selection.objects.length ? 'a selected' : 'one'} path.`, true);return;}
   await action('redraw_outline', {object: plan.object, points, pixel: 1/zoom, long_way: Boolean(longWay)}, state.reference ? 'Fitting to the reference…' : 'Redrawing outline…');
 }
 async function finishPath(closed) {
@@ -1721,9 +1722,17 @@ function hoverPoints(event) {
   const x = event.clientX, y = event.clientY;
   hoverFrame = requestAnimationFrame(async () => {
     hoverFrame = 0;
-    if (tool !== 'nodes' || drag || pending || holding) return;
-    const hit = event.target.dataset?.object || hitStack(x, y).find(id => object(id)?.tag === 'path');
-    const next = hit && !pointPaths().includes(hit) ? hit : null;
+    if (!['nodes', 'redraw'].includes(tool) || drag || pending || holding) return;
+    let next;
+    if (tool === 'redraw') {
+      // With nothing selected, the stroke redraws the path it starts on: the
+      // last one the pointer was over, since the outline's edge is easy to miss.
+      if (state.selection.objects.length) return;
+      next = pointerTarget(hitStack(x, y), state.objects, [], scope) ?? hoverPath;
+    } else {
+      const hit = event.target.dataset?.object || hitStack(x, y).find(id => object(id)?.tag === 'path');
+      next = hit && !pointPaths().includes(hit) ? hit : null;
+    }
     if (next === hoverPath) return;
     hoverPath = next;
     if (next && !geometries.has(next)) { try { await loadGeometries(); } catch { return; } }
@@ -1738,7 +1747,7 @@ function moveStage(event) {
   if (!drag) {
     if (tool==='path' && pathDraft.length) {pathHover=point(event);drawOverlay();}
     if (tool==='redraw' && redrawLines()) {const p=point(event);redrawHover=[p.x,p.y];drawOverlay();}
-    if (tool==='nodes' && state) hoverPoints(event);
+    if (['nodes', 'redraw'].includes(tool) && state) hoverPoints(event);
     if (tool==='select' && state) hoverResize(event);
     return;
   }
