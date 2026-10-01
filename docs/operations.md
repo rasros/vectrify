@@ -88,16 +88,20 @@ at a comparison size of `resolution` pixels on the long side.
 
 `fill` picks what is fitted. `flat` (the default) is the least-squares colour
 per channel. `linear` fits each channel as an affine field `a + b·x + c·y`
-over root user space by the same weighted least squares, takes the first
-singular vector of the 3×2 matrix of their slopes as the gradient's axis,
-and refits `a + k·t` along it. The gradient's ends sit at the extremes of the
-covered pixels' projection on that axis, so no covered pixel is painted by
-padding, and the two stop colours are clipped to 0-1. The axis is mapped
-from root space through the inverse of the object's ancestry transforms and
-its own `transform`, into a `userSpaceOnUse` gradient whose level lines are
-the fitted ones even under skew or uneven scale. A ramp whose ends differ by
-less than 2/255 in every channel stays a flat fill, and instances (`use`)
-always get a flat one, as their user space is their source's.
+over root user space by the same weighted least squares and takes the first
+singular vector of the 3×2 matrix of their slopes as the gradient's axis. The
+ramp may start and stop inside the object, flat beyond its ends (the
+gradient's padding): with the axis also turned up to 4° either way, its ends
+are searched on a 16-step grid over the covered pixels' extent along the axis,
+then twice on grids four times finer around the best pair, each candidate's
+two end colours solved in closed form. Ends past the object's edges would
+paint it the same as ends at its edges with the colours there, so the search
+stays within it. The stop colours are clipped to 0-1. The axis is mapped from
+root space through the inverse of the object's ancestry transforms and its own
+`transform`, into a `userSpaceOnUse` gradient whose level lines are the fitted
+ones even under skew or uneven scale. A ramp whose ends differ by less than
+2/255 in every channel stays a flat fill, and instances (`use`) always get a
+flat one, as their user space is their source's.
 
 The method owns each object's gradient through `Transaction.set_fill`, so it
 needs only paint permission. Objects whose fill is already a gradient can be

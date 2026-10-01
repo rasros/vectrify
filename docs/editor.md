@@ -487,12 +487,12 @@ its fill black and white, which measures its exact coverage (including
 antialiasing, opacity, clipping and objects in front), so the best colour has
 a closed form; outlines painted in the fill colour follow it. Objects are
 fitted back to front; more passes help where fitted objects overlap. No GPU is
-needed. Its **Fill** setting chooses a flat colour or a linear gradient.
-**Fit gradient…** opens the same dialog with Linear gradient chosen: each
-selected shape gets the two-stop gradient, along the direction the reference
-changes most, that best matches it, ending where the shape does. A shape the
-reference paints evenly keeps a flat colour. Apply keeps it as one undoable
-edit.
+needed. Its **Fill** setting chooses a flat colour or a linear gradient. **Fit
+gradient…** opens the same dialog with Linear gradient chosen: each selected
+shape gets the two-stop gradient, along the direction the reference changes
+most, that best matches it, starting and ending where the reference's ramp
+does, inside the shape when it is flat beyond them. A shape the reference
+paints evenly keeps a flat colour. Apply keeps it as one undoable edit.
 
 **Clean up…** removes duplicate and collinear vertices and empty or
 duplicate paths, and merges compatible neighbouring paths into compound paths,

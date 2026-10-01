@@ -11,10 +11,13 @@ against the drawing as already refitted. No GPU and no search are involved.
 With ``fill: "linear"`` the fill may vary across the object: each channel is
 fitted as an affine field ``a + b x + c y`` by the same weighted least squares,
 the fields' common direction (the first singular vector of their 3x2 gradient)
-becomes the gradient's axis, and ``a + k t`` is refitted along it. The ends
-of the gradient sit at the covered pixels' extremes along that axis, so none
-of the object is painted by padding. A ramp that changes by less than about
-two levels of 255 stays a flat fill.
+becomes the gradient's axis. The ramp may start and stop inside the object,
+flat beyond its ends (the gradient's padding): where it starts and ends along
+the axis is searched on a grid over the covered extent and refined, with the
+axis turned a few degrees either way, each candidate's two end colours solved
+in closed form. Ends past the object's edges paint it the same as ends at its
+edges with the colours there, so the search stays within it. A ramp that
+changes by less than about two levels of 255 stays a flat fill.
 """
 
 from __future__ import annotations
@@ -153,21 +156,85 @@ def fit_ramp(
     _, singular, vt = np.linalg.svd(slopes)
     if singular[0] < 1e-12:
         return None
-    direction = vt[0]
-    s = direction[0] * x + direction[1] * y
-    colours = []
-    low, high = float(s[covered.ravel()].min()), float(s[covered.ravel()].max())
-    if high - low < 1e-9:
+    # The ramp may start and stop inside the object, flat beyond its ends:
+    # search where along the axis, and the axis a few degrees either way.
+    keep = coverage.mean(axis=2).ravel() > 0
+    cov = coverage.reshape(-1, 3)[keep]
+    values = (target - dark).reshape(-1, 3)[keep]
+    x, y = x[keep], y[keep]
+    inside = covered.ravel()[keep]
+    base = float(np.arctan2(vt[0][1], vt[0][0]))
+    best = None
+    for turn in TURNS:
+        angle = base + np.radians(turn)
+        direction = (float(np.cos(angle)), float(np.sin(angle)))
+        s = direction[0] * x + direction[1] * y
+        low, high = float(s[inside].min()), float(s[inside].max())
+        if high - low < 1e-9:
+            continue
+        found = _ends(s, cov, values, low, high)
+        if best is None or found[0] < best[0]:
+            best = (found[0], direction, found[1], found[2], found[3])
+    if best is None:
         return None
-    for c in range(3):
-        cov = coverage[..., c].ravel()
-        a, k = _solve(np.stack([cov, cov * s], axis=1), (target - dark)[..., c].ravel())
-        colours.append((a + k * low, a + k * high))
-    ends = tuple((cx + direction[0] * t, cy + direction[1] * t) for t in (low, high))
+    _, direction, t0, t1, colours = best
+    ends = tuple((cx + direction[0] * t, cy + direction[1] * t) for t in (t0, t1))
     clipped = tuple(
-        tuple(float(np.clip(colours[c][i], 0, 1)) for c in range(3)) for i in (0, 1)
+        tuple(float(np.clip(colours[i][c], 0, 1)) for c in range(3)) for i in (0, 1)
     )
     return Ramp(ends[0], ends[1], (clipped[0], clipped[1]))
+
+
+# Turns of the fitted axis tried, in degrees, and the grid of ends searched.
+TURNS = (0.0, -1.0, 1.0, -2.5, 2.5, -4.0, 4.0)
+STEPS = 16
+
+
+def _ramp_error(s, cov, values, t0, t1):
+    """The squared error and end colours of the ramp from *t0* to *t1*, flat
+    beyond: each channel's two end colours in closed form."""
+    u = np.clip((s - t0) / (t1 - t0), 0, 1)[:, None]
+    p, q = cov * (1 - u), cov * u
+    pp, pq, qq = (p * p).sum(0), (p * q).sum(0), (q * q).sum(0)
+    pv, qv = (p * values).sum(0), (q * values).sum(0)
+    det = pp * qq - pq * pq
+    # Where the two ends can't be told apart, one colour fills it.
+    single = np.abs(det) < 1e-12
+    safe = np.where(single, 1.0, det)
+    flat = pv / np.maximum(pp + qq, 1e-12)
+    c0 = np.where(single, flat, (qq * pv - pq * qv) / safe)
+    c1 = np.where(single, flat, (pp * qv - pq * pv) / safe)
+    residual = values - p * c0 - q * c1
+    return float((residual * residual).sum()), (c0, c1)
+
+
+def _ends(s, cov, values, low, high):
+    """The best ends along the axis: a coarse grid over the covered extent,
+    then twice a grid four times finer around the best pair."""
+    step = (high - low) / STEPS
+    shortest = (high - low) / 200
+
+    def search(starts, ends, best):
+        for t0 in starts:
+            for t1 in ends:
+                if t1 - t0 >= shortest:
+                    err, colours = _ramp_error(s, cov, values, t0, t1)
+                    if err < best[0]:
+                        best = (err, t0, t1, colours)
+        return best
+
+    grid = [low + step * i for i in range(STEPS + 1)]
+    best = search(grid, grid, (np.inf, low, high, None))
+
+    def around(t, step):
+        return sorted({min(high, max(low, t + step * k)) for k in range(-4, 5)})
+
+    for _ in range(2):
+        step /= 4
+        best = search(around(best[1], step), around(best[2], step), best)
+    err, t0, t1, colours = best
+    assert colours is not None
+    return err, t0, t1, (tuple(colours[0]), tuple(colours[1]))
 
 
 def local_gradient(document: Document, oid: str, ramp: Ramp) -> LinearGradient:
