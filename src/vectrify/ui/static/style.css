@@ -200,3 +200,8 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 .strip-more-menu .strip-item[hidden] { display: none; }
 #overlay .node.twin { fill: #d1a962; fill-opacity: .3; stroke: #d1a962; stroke-width: 1.5; }
 .toggle-button{font-size:10px;padding:5px 9px}.toggle-button[aria-pressed="true"]{background:#3e5948;border-color:#66816e;color:#e0f0e5}
+
+/* Select resizes the selection by its frame; the cursor shows what a drag does. */
+#overlay .resize-frame { fill: none; stroke: #b0e8bf; stroke-width: calc(1px * var(--selection-scale,1)); pointer-events: none; }
+#overlay .resize-frame.locked { stroke: #889690; stroke-dasharray: calc(2px * var(--selection-scale,1)) calc(3px * var(--selection-scale,1)); }
+#overlay .resize-tick { fill: #141918; stroke: #b0e8bf; stroke-width: calc(1px * var(--selection-scale,1)); pointer-events: none; }

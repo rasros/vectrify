@@ -786,3 +786,17 @@ def test_holes_of_several_paths_become_shapes_as_one_edit():
     send(session, "select", objects=["left"])
     with pytest.raises(DocumentError, match="Select the path"):
         send(session, "fill_holes", contours=[["right", right[1]]])
+
+
+def test_resize_scales_the_selection_about_the_anchor_as_one_edit():
+    session = Session(import_svg(SVG))
+    before = session.state()["svg"]
+    send(session, "select", objects=["a", "b"])
+    result = send(session, "resize", anchor=[0, 0], scale=[2, 0.5])
+    assert result["undo"] == ["Resize"]
+    document = session.editor.snapshot.document
+    assert document.element("a").get("transform") == "scale(2 0.5)"
+    assert document.element("b").get("transform") == "scale(2 0.5)"
+    assert send(session, "undo")["svg"] == before
+    with pytest.raises(DocumentError, match="positive"):
+        send(session, "resize", anchor=[0, 0], scale=[0, 1])

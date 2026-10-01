@@ -5,6 +5,7 @@ import {matchCommands, moveHighlight} from './palette.js';
 import {TOOL_LEVEL, boxSelect, clickPoint, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
 import {HeldGesture, inputQueue} from './input.js';
 import {overflowLayout} from './strip.js';
+import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
 const $ = id => document.getElementById(id);
 const NS = 'http://www.w3.org/2000/svg';
 let state, session, tool = 'select', zoom = 1, pan = {x: 0, y: 0}, drag = null;
@@ -25,6 +26,11 @@ let joinContext = null;
 let holePlan = null, chosenHoles = new Set(), chosenCleanup = new Set();
 let redrawHover = null;
 const SNAP_RADIUS = 8;
+// How near, in screen pixels, the selection's frame is grabbed to resize it.
+const FRAME_REACH = 6;
+// The selection's bounding box in the overlay's frame, while Select can
+// resize it.
+let selectionBox = null;
 // Two clicks at one spot within this many milliseconds are a double-click.
 const DOUBLE_CLICK = 400;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
@@ -1000,6 +1006,7 @@ function drawOverlay() {
   overlay.style.setProperty('--selection-scale', 1 / zoom);
   if (!state) return;
   const targets = new Set(state.selection.objects.flatMap(selectionTargets));
+  selectionBox = selectionFrame();
   for (const element of targets) {
     const matrix = localToOverlay(element);
     if (!element?.getBBox || !matrix) continue;
@@ -1014,13 +1021,15 @@ function drawOverlay() {
         const halo = group.cloneNode(true); halo.setAttribute('class', 'selection-halo');
         overlay.append(halo, group);
       }
-      // Point tools show the points instead of the bounds.
-      if (level() === 'points') continue;
+      // Point tools show the points instead of the bounds, and one object's
+      // frame stands for its bounds.
+      if (level() === 'points' || (selectionBox && targets.size === 1)) continue;
       const b = element.getBBox();
       const pts = [[b.x,b.y], [b.x+b.width,b.y], [b.x+b.width,b.y+b.height], [b.x,b.y+b.height]].map(([x,y]) => new DOMPoint(x,y).matrixTransform(matrix));
       overlay.append(xmlElement('polygon', {points: pts.map(p => `${p.x},${p.y}`).join(' '), class: 'selection-box'}));
     } catch { /* Resource elements may have no display bounds. */ }
   }
+  drawFrame();
   drawHoles();
   drawPathDraft();
   drawKnife();
@@ -1030,6 +1039,127 @@ function drawOverlay() {
   if (!holePlan && level() === 'points') drawPoints();
   renderStatus();
 }
+// Select resizes the selection like a window: its frame is the bounding box
+// of the selected objects, with small ticks at the corners; the cursor shows
+// what a drag does. Null when nothing that can be resized is selected.
+function selectionFrame() {
+  if (tool !== 'select' || !state?.selection.objects.length || holePlan) return null;
+  const ids = topSelection();
+  if (ids.some(id => !object(id) || object(id).resource || ['defs', 'clipPath', 'svg'].includes(object(id).tag))) return null;
+  const xs = [], ys = [];
+  for (const id of ids) {
+    const element = svgElement(id), matrix = localToOverlay(element);
+    if (!element?.getBBox || !matrix) continue;
+    try {
+      const b = element.getBBox();
+      if (!b.width && !b.height) continue;
+      for (const [x, y] of [[b.x,b.y], [b.x+b.width,b.y], [b.x+b.width,b.y+b.height], [b.x,b.y+b.height]]) {
+        const p = new DOMPoint(x, y).matrixTransform(matrix); xs.push(p.x); ys.push(p.y);
+      }
+    } catch { /* Unrendered objects have no bounds. */ }
+  }
+  if (!xs.length) return null;
+  return {left: Math.min(...xs), top: Math.min(...ys), right: Math.max(...xs), bottom: Math.max(...ys)};
+}
+// Why the selection cannot be resized, or ''.
+function resizeRefusal() {
+  for (const id of topSelection()) {
+    const item = object(id), lock = item?.inherited_locks.find(kind => kind === 'transform' || kind === 'geometry');
+    if (lock) return `${item.label}: ${lock === 'transform' ? 'position' : 'geometry'} is locked; unlock it to resize`;
+  }
+  return '';
+}
+function drawFrame() {
+  if (!selectionBox) return;
+  const {left, top, right, bottom} = selectionBox, locked = !!resizeRefusal();
+  overlay.append(xmlElement('rect', {x: left, y: top, width: right - left, height: bottom - top, class: `resize-frame${locked ? ' locked' : ''}`}));
+  if (locked) return;
+  const r = 2.5 / zoom;
+  for (const [x, y] of [[left, top], [right, top], [right, bottom], [left, bottom]]) overlay.append(xmlElement('rect', {x: x - r, y: y - r, width: 2 * r, height: 2 * r, class: 'resize-tick'}));
+}
+// The part of the frame at the screen point (x, y): an edge, a corner,
+// 'inside' or null.
+function frameAt(x, y) {
+  const matrix = selectionBox && overlay.getScreenCTM();
+  if (!matrix) return null;
+  const a = new DOMPoint(selectionBox.left, selectionBox.top).matrixTransform(matrix), b = new DOMPoint(selectionBox.right, selectionBox.bottom).matrixTransform(matrix);
+  return frameHandle({left: a.x, top: a.y, right: b.x, bottom: b.y}, x, y, FRAME_REACH);
+}
+// The cursor over the frame: a resize arrow on an edge or corner, and the
+// move cursor inside it, except over an unselected object, which a press
+// picks instead.
+function frameCursor(x, y) {
+  const handle = frameAt(x, y);
+  if (!handle || space) return 'default';
+  if (handle !== 'inside') return resizeRefusal() ? 'not-allowed' : CURSORS[handle];
+  const hit = hitStack(x, y)[0], picked = hit && pickTarget(hit, scope, parents(), state.root).id;
+  return !hit || state.selection.objects.includes(picked) ? CURSORS.inside : 'default';
+}
+let frameHover = 0;
+function hoverResize(event) {
+  if (frameHover) return;
+  const x = event.clientX, y = event.clientY;
+  frameHover = requestAnimationFrame(() => {
+    frameHover = 0;
+    if (tool === 'select' && !drag && state) stage.style.cursor = frameCursor(x, y);
+  });
+}
+// A press on an edge or corner of the frame starts resizing the selection.
+function pressFrame(event, common, handle) {
+  const refusal = resizeRefusal();
+  if (refusal) { toast(refusal, true); return; }
+  const members = topSelection().map(id => {
+    const element = svgElement(id);
+    return {id, element, before: object(id).attributes.transform || '', frame: element && localToOverlay(element.parentElement)};
+  }).filter(member => member.element && member.frame);
+  const box = {...selectionBox}, grab = point(event);
+  // The edge follows the pointer from where it was grabbed.
+  const offset = {x: handle.includes('w') ? box.left - grab.x : handle.includes('e') ? box.right - grab.x : 0,
+    y: handle.includes('n') ? box.top - grab.y : handle.includes('s') ? box.bottom - grab.y : 0};
+  drag = {...common, kind: 'resize', handle, box, members, offset, result: null};
+}
+// Other objects' bounds and the artboard's edges, which a dragged edge snaps
+// to, in the overlay's frame.
+function frameSnapTargets() {
+  const [bx, by, bw, bh] = state.bounds, x = [bx, bx + bw], y = [by, by + bh];
+  const inverse = overlay.getScreenCTM()?.inverse();
+  if (!inverse) return {x, y};
+  const map = parents(), selected = new Set(state.selection.objects), around = new Set();
+  for (const id of selected) for (let at = map.get(id); at; at = map.get(at)) around.add(at);
+  const inside = id => { for (let at = id; at; at = map.get(at)) if (selected.has(at)) return true; return false; };
+  for (const item of state.objects) {
+    if (item.resource || ['defs', 'clipPath'].includes(item.tag) || around.has(item.id) || inside(item.id)) continue;
+    const rect = svgElement(item.id)?.getBoundingClientRect();
+    if (!rect || rect.width + rect.height === 0) continue;
+    const a = new DOMPoint(rect.left, rect.top).matrixTransform(inverse), b = new DOMPoint(rect.right, rect.bottom).matrixTransform(inverse);
+    x.push(a.x, b.x); y.push(a.y, b.y);
+  }
+  return {x, y};
+}
+// The scale a resize drag gives: the dragged edge snaps to other objects'
+// bounds and the artboard's edges unless Ctrl/⌘ is held; Shift keeps the
+// aspect ratio and Alt resizes from the centre.
+function resizeDrag(event) {
+  const p = point(event), at = {x: p.x + drag.offset.x, y: p.y + drag.offset.y};
+  drag.snapX = drag.snapY = null;
+  if (!event.ctrlKey && !event.metaKey) {
+    drag.edges ??= frameSnapTargets();
+    if (/[we]/.test(drag.handle)) drag.snapX = nearestEdge(at.x, drag.edges.x, SNAP_RADIUS / zoom);
+    if (/[ns]/.test(drag.handle)) drag.snapY = nearestEdge(at.y, drag.edges.y, SNAP_RADIUS / zoom);
+    at.x = drag.snapX ?? at.x; at.y = drag.snapY ?? at.y;
+  }
+  return resizeScale(drag.box, drag.handle, at, {keepRatio: event.shiftKey, fromCentre: event.altKey, minimum: 1 / zoom});
+}
+// The preview scales each object in its parent's frame, as the server will.
+function previewResize() {
+  const {sx, sy, anchor: [ax, ay]} = drag.result;
+  const page = new DOMMatrix().translate(ax, ay).scale(sx, sy).translate(-ax, -ay);
+  for (const member of drag.members) {
+    const local = member.frame.inverse().multiply(page).multiply(member.frame);
+    member.element.setAttribute('transform', `${local} ${member.before}`.trim());
+  }
+}
+const frameSize = box => [box.right - box.left, box.bottom - box.top].map(v => (+v.toFixed(1)).toLocaleString()).join(' × ');
 // The points of every selected path and of the paths in selected groups, and
 // of the unselected path under the pointer in Nodes, faintly, so a click on
 // one adds its path. A selected point of shared geometry is marked faintly in
@@ -1146,6 +1276,9 @@ function renderStatus() {
   scheduleStrip();
   const points = selectedPoints(), paths = level() === 'points' ? pointPaths() : state.selection.objects;
   $('selection-level').textContent = selectionStatus(level() === 'points' ? 'points' : 'objects', paths, points);
+  // Select gives the selection's size, and the new size while resizing.
+  if (drag?.kind === 'resize' && drag.result) $('selection-level').textContent = `Resize · ${frameSize(drag.result.box)}`;
+  else if (selectionBox) $('selection-level').textContent += ` · ${frameSize(selectionBox)}`;
   const trail = $('scope-trail');
   trail.replaceChildren();
   trail.hidden = !scope;
@@ -1227,6 +1360,12 @@ function snappedDrag(event) {
   return p;
 }
 function drawSnap() {
+  if (drag?.kind === 'resize' && drag.moved) {
+    const [x, y, w, h] = state.bounds;
+    if (drag.snapX !== null) overlay.append(xmlElement('line', {x1: drag.snapX, y1: y, x2: drag.snapX, y2: y + h, class: 'snap-edge'}));
+    if (drag.snapY !== null) overlay.append(xmlElement('line', {x1: x, y1: drag.snapY, x2: x + w, y2: drag.snapY, class: 'snap-edge'}));
+    return;
+  }
   const snap = drag?.kind === 'node' && drag.moved ? drag.snap : null;
   if (!snap) return;
   const [x, y, w, h] = state.bounds, r = 6 / zoom;
@@ -1513,6 +1652,8 @@ function pressStage(event) {
     drag={...common,kind:'drawPath',anchor}; drawOverlay(); return;
   }
   if (tool === 'nodes' && event.target.dataset?.node) { pressPoint(event, common); return; }
+  const handle = tool === 'select' ? frameAt(event.clientX, event.clientY) : null;
+  if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
   const hits = hitStack(event.clientX, event.clientY);
   common.hits = hits;
   const id = hits[0] || null;
@@ -1524,12 +1665,13 @@ function pressStage(event) {
     const p=point(event);
     drag={...common,kind:'redraw',id,points:[[p.x,p.y]],longWay:event.shiftKey}; redrawHover=null; drawOverlay(); return;
   }
-  // In Select, dragging a selected object moves the selection; a click picks
-  // what is under the pointer, and any other drag selects what lies inside
-  // its box. Knife and Trace only select.
-  if (tool === 'select' && id) {
-    const targets = clickTargets(hits), picked = targets[0];
-    const selectedHit = state.selection.objects.includes(picked) ||
+  // In Select, dragging a selected object, or the empty canvas inside the
+  // selection's frame, moves the selection; a click picks what is under the
+  // pointer, and any other drag selects what lies inside its box. Knife only
+  // selects.
+  if (tool === 'select' && (id || handle === 'inside')) {
+    const targets = id ? clickTargets(hits) : [], picked = targets[0];
+    const selectedHit = !id || state.selection.objects.includes(picked) ||
       (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
     if (selectedHit && !common.shift) {
       const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || ''})).filter(m=>m.element);
@@ -1563,6 +1705,7 @@ function moveStage(event) {
     if (tool==='path' && pathDraft.length) {pathHover=point(event);drawOverlay();}
     if (tool==='redraw' && redrawLines()) {const p=point(event);redrawHover=[p.x,p.y];drawOverlay();}
     if (tool==='nodes' && state) hoverPoints(event);
+    if (tool==='select' && state) hoverResize(event);
     return;
   }
   drag.moved ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>3;
@@ -1580,6 +1723,7 @@ function moveStage(event) {
     a.out={x:p.x,y:p.y}; a.in={x:2*a.x-p.x,y:2*a.y-p.y}; drawOverlay();
   }
   if (drag.kind === 'node' && drag.moved) { previewPointDrag(snappedDrag(event)); drawOverlay(); renderNodeInspector(); }
+  if (drag.kind === 'resize' && drag.moved) { drag.result = resizeDrag(event); previewResize(); drawOverlay(); }
   if (drag.kind === 'move' && drag.moved) {
     for (const member of drag.members) {
       const matrix=member.element.parentElement.getScreenCTM(); if (!matrix) continue;
@@ -1629,6 +1773,11 @@ async function releaseStage(event) {
   if (finished.kind === 'closePath') {if (!finished.moved) await finishPath(true);return;}
   if (finished.kind === 'node' && finished.moved) await finishPointDrag(finished);
   else if (finished.kind === 'node' && finished.collapse) await selectPoints(finished.objects, [finished.key]);
+  if (finished.kind === 'resize') {
+    const result = finished.moved && finished.result;
+    if (result && (result.sx !== 1 || result.sy !== 1)) await action('resize', {anchor: result.anchor, scale: [result.sx, result.sy]}, 'Resizing…');
+    else { renderDrawing(); drawOverlay(); }
+  }
   if (finished.kind === 'move' && finished.moved) await action('move',{dx:0,dy:0,offsets:Object.fromEntries(finished.members.map(m=>[m.id,m.offset||[0,0]]))},'Moving selection…');
 }
 // Double-click a group to pick within it, or a path to edit its points.
