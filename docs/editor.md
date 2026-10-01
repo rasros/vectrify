@@ -136,9 +136,10 @@ all of them as one undoable edit.
   every path inside a selected group, however deep; box select and the point
   commands span all of them. Selected instances (`use`) have no points of
   their own: the right panel asks to Detach them. Hovering an unselected path
-  in Nodes shows its points faintly; clicking one selects that point and adds
-  its path. Shift-click adds or removes a point; a click on one of several
-  selected points, without dragging, selects it alone.
+  in Nodes shows its points faintly; clicking one selects that point and its
+  path in place of the selection (Shift adds the path). Shift-click adds or
+  removes a point; a click on one of several selected points, without
+  dragging, selects it alone.
 - Paths drawing one shared geometry share its points. A point is selected in
   the path it was clicked in, drawn strong there; the other selected paths
   drawing that geometry show it faintly, since editing it moves them all, and

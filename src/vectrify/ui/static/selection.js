@@ -79,6 +79,14 @@ export function clickPoint(points, key, toggle) {
   return points.includes(key) ? points.filter(k => k !== key) : [...points, key];
 }
 
+// The selected objects after a click on a point of path *id*: unchanged when
+// its points are already shown (*shown*, which counts paths inside a selected
+// group), else that path alone, or with *toggle* (Shift) added.
+export function clickPointPath(objects, shown, id, toggle) {
+  if (shown.includes(id)) return objects;
+  return toggle ? [...objects, id] : [id];
+}
+
 // A drag's box from its two corners, as {left, top, right, bottom}.
 export function dragBox(a, b) {
   return {left: Math.min(a.x, b.x), top: Math.min(a.y, b.y), right: Math.max(a.x, b.x), bottom: Math.max(a.y, b.y)};
