@@ -87,7 +87,8 @@ PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 `bench_colour_regions.py` runs colour regions on one image,
 `bench_samvg_renderer.py` and `check_cuda_renderer.py` time the filled-path
 fit, `bench_trace.py` benchmarks Generate with SAMVG and Tidy on
-fixed references, `subtle_screen.py`
+fixed references, `bench_lines.py` scores the Cel art tracer's lines
+against vector originals (clean, noisy and stretched), `subtle_screen.py`
 checks that the scorers in `vectrify.score` order graded path damage
 correctly, and
 `analyze_profile.py` summarises a py-spy profile.
