@@ -143,3 +143,34 @@ def test_the_knife_cuts_a_selected_line_into_two_paths():
     result = send(session, "knife", start=[10, -5], end=[10, 5])
     assert result["undo"] == ["Cut with knife"]
     assert len(result["selection"]["objects"]) == 2
+
+
+def test_join_two_ends_joins_any_two_points_as_one_edit():
+    # A point in the middle of a line, and the corner of a filled square.
+    body = (
+        f'<path id="a" d="M0 0L10 0L20 0" {LINE}/>'
+        '<path id="b" d="M40 0L50 0L50 10L40 10Z" fill="#336699"/>'
+    )
+    session = session_with(body)
+    middle, corner = ids(session, "a")[0][1], ids(session, "b")[0][2]
+    send(session, "select", objects=["a", "b"], nodes=[middle, corner])
+    result = send(session, "join_two_ends", points=[["a", middle], ["b", corner]])
+    assert result["undo"] == ["Join ends"]
+    joined = [
+        contour
+        for oid in ("a", "b")
+        if oid in {o["id"] for o in result["objects"]}
+        for contour in points(session, oid)
+    ]
+    # Somewhere a contour now runs from the line's middle to the corner.
+    assert any((10, 0) in contour and (50, 10) in contour for contour in joined)
+    send(session, "undo")
+    assert points(session, "a") == [[(0, 0), (10, 0), (20, 0)]]
+
+
+def test_join_two_ends_refuses_one_point():
+    session = session_with(f'<path id="a" d="M0 0L10 0L20 0" {LINE}/>')
+    end = ids(session, "a")[0][0]
+    send(session, "select", objects=["a"], nodes=[end])
+    with pytest.raises(DocumentError, match="two points"):
+        send(session, "join_two_ends", points=[["a", end]])
