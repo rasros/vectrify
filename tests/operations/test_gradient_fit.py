@@ -3,6 +3,7 @@
 import math
 
 import numpy as np
+import pytest
 
 from tests.operations.test_colours_cleanup import render, request
 from vectrify.document import Editor, Selection, import_svg
@@ -206,3 +207,17 @@ def test_linear_fit_finds_a_ramp_that_starts_and_ends_inside_the_shape():
     assert abs(xs[0] - 40) < 1.5
     assert abs(xs[1] - 60) < 1.5
     assert abs(ys[0] - ys[1]) < 1
+
+
+def test_the_batched_ramp_errors_match_one_at_a_time():
+    from vectrify.operations.methods.colours import _ramp_error, _ramp_errors
+
+    rng = np.random.default_rng(3)
+    s = rng.uniform(-5, 5, 300)
+    cov = rng.uniform(0, 1, (300, 3))
+    values = rng.uniform(0, 1, (300, 3))
+    t0 = np.array([-5.0, -2.0, 0.0, 1.0])
+    t1 = np.array([5.0, 3.0, 0.5, 4.0])
+    batched = _ramp_errors(s, cov, values, t0, t1)
+    single = [_ramp_error(s, cov, values, a, b)[0] for a, b in zip(t0, t1, strict=True)]
+    assert batched == pytest.approx(single, rel=1e-9)

@@ -477,3 +477,73 @@ def test_a_small_dark_mark_wider_than_a_line_stays_dark():
     eye = np.hypot((x - 55) / 3.5, (y - 51) / 2.5) <= 1
     assert drawn[eye].mean() < 80
     assert drawn[80:82, 70].min() < 120
+
+
+def test_a_fill_is_fitted_under_the_lines_not_from_its_median():
+    # Region 0's paint is mostly 100 with a fifth at 200: the fitted fill is
+    # the least-squares one, nearer their mean, where a median keeps 100.
+    # Part of a column is under a line of cover 0.5 in black, and region 1
+    # keeps its fallback colour, the lines hiding it whole.
+    labels = np.zeros((10, 20), dtype=np.int64)
+    labels[:, 10:] = 1
+    target = np.full((10, 20, 3), 100.0, dtype=np.float32)
+    target[1:9, 1:3] = 200
+    cover = np.zeros((10, 20, 1), dtype=np.float32)
+    cover[1:9, 5] = 0.5
+    target[1:9, 5] = 50
+    cover[:, 10:] = 1
+    painted = np.zeros((10, 20, 3), dtype=np.float32)
+    fallback = np.array([[100.0] * 3, [7.0] * 3])
+    fitted = cel.fitted_fills(target, labels, cover, painted, fallback)
+    # Region 0 less its edge column beside region 1; the half-covered pixels
+    # show 50 = 0.5 * 100, so they agree with the rest.
+    seen = 1 - cover[:, :9, 0]
+    expected = (seen * target[:, :9, 0]).sum() / (seen * seen).sum()
+    assert fitted[0, 0] == pytest.approx(expected)
+    assert expected > 115
+    assert fitted[1].tolist() == [7.0] * 3
+
+
+def ramped_image() -> Image.Image:
+    """A square outlined in black, its paint ramping left to right from dark
+    to light blue."""
+    pixels = np.full((90, 120, 3), 255, dtype=np.uint8)
+    ramp = np.linspace(0, 1, 100)[None, :, None]
+    dark, light = np.array([40, 60, 140]), np.array([170, 200, 250])
+    pixels[10:80, 10:110] = (dark + ramp * (light - dark)).astype(np.uint8)
+    pixels[8:11, 8:112] = pixels[79:82, 8:112] = 20
+    pixels[8:82, 8:11] = pixels[8:82, 109:112] = 20
+    return Image.fromarray(pixels)
+
+
+def test_a_region_whose_colour_ramps_takes_a_gradient():
+    image = ramped_image()
+    flat, _ = cel.vectorize(image, regions=2, gradients=False)
+    ramped, details = cel.vectorize(image, regions=2)
+    assert details["gradients"] >= 1
+    assert "<linearGradient" in ramped
+    assert "url(#ramp" in ramped
+    reference = np.asarray(image, dtype=float)
+
+    def error(svg):
+        return float(((rendered_rgb(svg) - reference) ** 2).mean())
+
+    assert error(ramped) < 0.7 * error(flat)
+
+
+def test_flat_regions_stay_flat():
+    svg, details = cel.vectorize(cel_image(), regions=3)
+    assert details["gradients"] == 0
+    assert "linearGradient" not in svg
+
+
+def rendered_rgb(svg: str) -> np.ndarray:
+    png = cairosvg.svg2png(bytestring=svg.encode(), background_color="white")
+    assert png is not None
+    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), dtype=float)
+
+
+def test_a_stroke_of_closed_lines_only_has_no_ends_to_join():
+    from vectrify.document.lines import end_pairs
+
+    assert end_pairs([], 3.0) == []
