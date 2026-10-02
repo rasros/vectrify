@@ -15,7 +15,8 @@ before it is fitted. Each region's colour is then fitted in closed form to
 the image under the lines as drawn, and a region whose colour clearly ramps
 takes a linear gradient. The lines are thinned to centrelines and drawn over the
 fills as strokes in their ink: a thin line's antialiased middle is a mix of
-ink and surface, so it is drawn darker and thinner than its pixels look.
+ink and surface, so it is drawn darker and thinner than its pixels look,
+though never under a pixel wide: a hairline is drawn that wide and fainter.
 There is one path per line colour and width, a line cut where its width
 steps so each part has its own.
 Optionally one unbroken stroke runs round the drawing's silhouette in place
@@ -149,6 +150,9 @@ WIDTH_STEP = 1.6
 WIDTH_GROUP = 1.4
 WIDTH_GROUPS = 4
 THINNEST = 0.4
+# A stroke thinner than this is drawn this wide, its opacity its width over
+# this: a hairline of ink shows as the faint line it was, not a sliver.
+STROKE_LEAST = 1.0
 # A thin line's middle mixes its ink with the surface: of the inks that
 # explain its colour within this distance, in 0-255 RGB, of the best, the
 # one covering the least is its ink.
@@ -1728,11 +1732,7 @@ def _line_paths(
             )
             for c in contours
         )
-        paths.append(
-            f'<path d="{data}" fill="none" '
-            f'stroke="{colour(palette[index])}" stroke-width="{width:.2f}" '
-            'stroke-linecap="round" stroke-linejoin="round"/>'
-        )
+        paths.append(_stroke(contours, colour(palette[index]), width))
     filled = _uncovered_ink(target, line, palette, covers, reaches, tolerance)
     return filled + paths, {
         **details,
@@ -1763,7 +1763,9 @@ def _outline_strokes(
 
 
 def _stroke(contours: list[Subpath], paint: str, width: float) -> str:
-    """*contours* as one round-capped stroke of *paint*, *width* wide."""
+    """*contours* as one round-capped stroke of *paint*, *width* wide; one
+    thinner than STROKE_LEAST is drawn that wide, as much fainter: the ink
+    it holds spread over a pixel, as its antialiasing showed it."""
     data = " ".join(
         _data(
             c.nodes[0].endpoint,
@@ -1772,9 +1774,13 @@ def _stroke(contours: list[Subpath], paint: str, width: float) -> str:
         )
         for c in contours
     )
+    faint = ""
+    if width < STROKE_LEAST:
+        faint = f' stroke-opacity="{width / STROKE_LEAST:.2f}"'
+        width = STROKE_LEAST
     return (
-        f'<path d="{data}" fill="none" stroke="{paint}" stroke-width="{width:.2f}" '
-        'stroke-linecap="round" stroke-linejoin="round"/>'
+        f'<path d="{data}" fill="none" stroke="{paint}" stroke-width="{width:.2f}"'
+        f'{faint} stroke-linecap="round" stroke-linejoin="round"/>'
     )
 
 
