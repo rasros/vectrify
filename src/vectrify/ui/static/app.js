@@ -591,11 +591,14 @@ function showAgent() {
   button.title = s.enabled ? 'Agents may edit this drawing: the MCP server and how to add it' : 'Allow agents to edit this drawing';
   $('agent-enabled').checked = s.enabled;
   $('agent-popover-status').textContent = !s.enabled ? 'Turn this on to let an MCP client such as Claude Code look at and edit this drawing. Each edit shows here and is one undo step.' : text + '.';
-  $('agent-mcp').hidden = !(s.enabled && s.mcp);
-  const url = s.mcp?.url || '', command = s.mcp?.command || '';
+  $('agent-setup').hidden = !(s.enabled && s.apps);
+  $('agent-mcp').hidden = $('agent-claude-code').hidden = !(s.enabled && s.mcp);
+  const apps = s.apps || {};
+  const fields = {'agent-url': s.mcp?.url, 'agent-command': s.mcp?.command, 'agent-codex': apps.codex, 'agent-codex-command': apps.codex_command, 'agent-claude-desktop': apps.claude_desktop};
   // Keep a selection the person is making.
-  if ($('agent-url').value !== url) $('agent-url').value = url;
-  if ($('agent-command').value !== command) $('agent-command').value = command;
+  for (const [id, value] of Object.entries(fields)) if ($(id).value !== (value || '')) $(id).value = value || '';
+  $('agent-codex-config').textContent = apps.codex_config || '~/.codex/config.toml';
+  $('agent-claude-desktop-config').textContent = apps.claude_desktop_config || '';
   $('agent-mcp-error').hidden = !(s.enabled && s.mcp_error);
   $('agent-mcp-error').textContent = s.mcp_error || '';
 }
@@ -672,14 +675,15 @@ $('agent-toggle').onclick = async () => {
   openAgentPopover();
 };
 $('agent-enabled').onchange = () => setAgents({enabled: $('agent-enabled').checked});
-$('agent-copy').onclick = async () => {
-  const field = $('agent-command');
+// Each app's setup is text to copy: the editor never edits an app's config.
+for (const button of document.querySelectorAll('#agent-popover .agent-copy')) button.onclick = async () => {
+  const field = $(button.dataset.copy);
   try { await navigator.clipboard.writeText(field.value); }
   catch { field.select(); document.execCommand('copy'); }
-  toast('Copied. Run it in a terminal once; Claude Code then reaches this window whenever Agents is on.');
+  toast(`Copied. Once ${button.dataset.app} has it and is restarted, it reaches this window whenever Agents is on.`);
 };
 $('agent-regenerate').onclick = () => setAgents({regenerate: true}).then(() => toast('New token. Clients added with the old one are refused: copy the command again.'));
-for (const id of ['agent-url', 'agent-command']) $(id).onfocus = () => $(id).select();
+for (const id of ['agent-url', 'agent-command', 'agent-codex', 'agent-codex-command', 'agent-claude-desktop']) $(id).onfocus = () => $(id).select();
 $('agent-popover').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAgentPopover(); $('agent-toggle').focus(); } });
 document.addEventListener('pointerdown', event => { if (!$('agent-popover').hidden && !event.target.closest('#agent-popover, #agent-toggle')) closeAgentPopover(); });
 const COMMANDS = [

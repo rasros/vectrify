@@ -46,6 +46,14 @@ Add it once: the token is kept across restarts (regenerate it from the same
 popover), and the client reaches that window whenever Agents is on, so you
 watch each edit happen.
 
+The same popover's *Add to an app* section also has text to copy for
+**Codex** (the ChatGPT desktop app, CLI and IDE extension: a
+`[mcp_servers.vectrify]` table for `~/.codex/config.toml`, or the
+`codex mcp add` command) and **Claude Desktop** (an `mcpServers` entry for
+`claude_desktop_config.json`). Both start this install's `vectrify-mcp`,
+which attaches to the window with Agents on; restart the app after adding
+it. Vectrify never edits these files itself.
+
 **Headless, over stdio.** `vectrify-mcp` edits a file with no window, or
 `connect()`s to a running editor that allows agents:
 

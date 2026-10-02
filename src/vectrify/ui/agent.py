@@ -28,6 +28,9 @@ import json
 import math
 import os
 import secrets
+import shlex
+import shutil
+import sys
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -2375,6 +2378,72 @@ def claude_command(url: str, token: str) -> str:
     )
 
 
+def mcp_executable() -> str:
+    """This install's ``vectrify-mcp``: beside the running Python, else on PATH."""
+    name = "vectrify-mcp.exe" if os.name == "nt" else "vectrify-mcp"
+    beside = Path(sys.executable).parent / name
+    if beside.is_file():
+        return str(beside.absolute())
+    found = shutil.which("vectrify-mcp")
+    return str(Path(found).absolute()) if found else "vectrify-mcp"
+
+
+def _shell_word(word: str) -> str:
+    if os.name == "nt":
+        return f'"{word}"' if any(c in word for c in ' \t"&()^') else word
+    return shlex.quote(word)
+
+
+def codex_snippet(command: str) -> str:
+    """The ``config.toml`` table that adds ``vectrify-mcp`` to Codex.
+
+    Starting it imports the vision stack, so it gets more than Codex's default
+    10 s. A JSON string is also a valid TOML basic string.
+    """
+    return (
+        "[mcp_servers.vectrify]\n"
+        f"command = {json.dumps(command)}\n"
+        "startup_timeout_sec = 30\n"
+    )
+
+
+def codex_command(command: str) -> str:
+    """The Codex CLI command that adds the same server (default timeout)."""
+    return f"codex mcp add vectrify -- {_shell_word(command)}"
+
+
+def claude_desktop_snippet(command: str) -> str:
+    """The ``claude_desktop_config.json`` entry that adds ``vectrify-mcp``."""
+    return json.dumps({"mcpServers": {"vectrify": {"command": command}}}, indent=2)
+
+
+def claude_desktop_config() -> str:
+    """Where Claude Desktop keeps its MCP servers on this OS."""
+    if sys.platform == "darwin":
+        return "~/Library/Application Support/Claude/claude_desktop_config.json"
+    if os.name == "nt":
+        return r"%APPDATA%\Claude\claude_desktop_config.json"
+    # Claude Desktop has no official Linux build; unofficial ones read this.
+    return "~/.config/Claude/claude_desktop_config.json"
+
+
+def app_setup() -> dict[str, str]:
+    """What other agent apps need to start ``vectrify-mcp``, which then
+    attaches to the window with Agents on through ``editor.json``: no token."""
+    command = mcp_executable()
+    codex_home = os.environ.get("CODEX_HOME")
+    return {
+        "executable": command,
+        "codex_config": str(Path(codex_home) / "config.toml")
+        if codex_home
+        else "~/.codex/config.toml",
+        "codex": codex_snippet(command),
+        "codex_command": codex_command(command),
+        "claude_desktop": claude_desktop_snippet(command),
+        "claude_desktop_config": claude_desktop_config(),
+    }
+
+
 class AgentChannel:
     """One window's door for agents: HTTP on localhost, with a token.
 
@@ -2398,7 +2467,15 @@ class AgentChannel:
         self._hosted: Any = None
         self._images: OrderedDict[str, bytes] = OrderedDict()
         self._lock = threading.Lock()
+        self._apps: dict[str, str] | None = None
         atexit.register(self.close)
+
+    @property
+    def apps(self) -> dict[str, str]:
+        """The snippets that add ``vectrify-mcp`` to other apps, found once."""
+        if self._apps is None:
+            self._apps = app_setup()
+        return self._apps
 
     def status(self, session_id: str | None) -> dict[str, Any]:
         enabled = session_id is not None and session_id == self.session_id
@@ -2415,6 +2492,7 @@ class AgentChannel:
             "touched": list(agent.touched) if agent else [],
         }
         if enabled and self.token is not None:
+            result["apps"] = self.apps
             if self.mcp_url is not None:
                 result["mcp"] = {
                     "url": self.mcp_url,
