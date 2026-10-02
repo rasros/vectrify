@@ -2452,11 +2452,11 @@ $('object-name').onkeydown = event => {
 };
 // The tool keys, all under the left hand; Space held pans.
 const TOOL_KEYS = {v: 'select', a: 'nodes', d: 'path', c: 'knife', r: 'redraw'};
-// The commands a tool strip's numbered controls run, by digit.
+// A tool strip's numbered controls, by digit.
 function stripKeys(name) {
   const keys = {};
-  for (const button of document.querySelectorAll('[data-key][data-command][data-strip]'))
-    if (button.dataset.strip.split(' ').includes(name)) keys[button.dataset.key] = button.dataset.command;
+  for (const button of document.querySelectorAll('[data-key][data-strip]'))
+    if (button.dataset.strip.split(' ').includes(name)) keys[button.dataset.key] = button;
   return keys;
 }
 // Cancel the gesture under way: a drag (put back as it was), a path being
@@ -2529,8 +2529,10 @@ window.addEventListener('keydown',event=>{
   if(key==='z'&&!event.shiftKey){event.preventDefault();if(state?.selection.objects.length)focusSelection();return;}
   // 1-9 press the tool strip's controls, as numbered on them.
   if(/^[1-9]$/.test(event.key)){
-    const command=stripKeys(tool)[event.key];
-    if(command){event.preventDefault();later(()=>runCommand(command));}
+    // A command's control runs it (saying why when it cannot); another
+    // control is pressed, as a click would.
+    const button=stripKeys(tool)[event.key];
+    if(button){event.preventDefault();const command=button.dataset.command;later(()=>command?runCommand(command):button.disabled||button.click());}
     return;
   }
   if(event.key==='Delete'||event.key==='Backspace'){

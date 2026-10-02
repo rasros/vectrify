@@ -805,3 +805,14 @@ def test_resize_scales_the_selection_about_the_anchor_as_one_edit():
     assert send(session, "undo")["svg"] == before
     with pytest.raises(DocumentError, match="positive"):
         send(session, "resize", anchor=[0, 0], scale=[0, 1])
+
+
+def test_a_new_group_is_labelled_by_kind_and_number_not_by_its_id():
+    session = Session(import_svg(SVG))
+    send(session, "select", objects=["a", "b"])
+    result = send(session, "group")
+    groups = [o for o in result["objects"] if o["tag"] == "g" and o["id"] != "layer"]
+    assert len(groups) == 1
+    assert groups[0]["label"] == "Group 2"
+    # A named or hand-written id still shows as itself.
+    assert next(o for o in result["objects"] if o["id"] == "layer")["label"] == "layer"

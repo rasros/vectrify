@@ -429,11 +429,12 @@ tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view and `Shift+W`
 shows the drawing only. The digits 1-9 press the active tool's numbered strip
 controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Split edge; in Select: 1-4
-the stacking buttons), whether they are in the strip or its ⋯ menu. Commands
-use Ctrl/Command: K opens the command palette, G groups (with Shift,
-ungroups), J joins. Drag with the middle mouse button (in any tool), or hold
-Space and drag, to pan. Use the scroll wheel to zoom, and press `F` to fit.
-Ctrl/Command-Z undoes; add Shift to redo. Ctrl/Command-S saves a project.
+the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel),
+whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
+opens the command palette, G groups (with Shift, ungroups), J joins. Drag with
+the middle mouse button (in any tool), or hold Space and drag, to pan. Use the
+scroll wheel to zoom, and press `F` to fit. Ctrl/Command-Z undoes; add Shift
+to redo. Ctrl/Command-S saves a project.
 
 Projects preserve object/node identities, locks, pins,
 selection and the reference image. SVG exports contain the drawing. Downloads

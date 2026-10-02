@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import math
+import re
 import time
 from collections import Counter
 from dataclasses import asdict, replace
@@ -74,7 +75,10 @@ POINT_COMMANDS = {
 
 
 # Names of elements whose tag does not read as one.
-LABELS = {"linearGradient": "Linear gradient", "stop": "Gradient stop"}
+# Ids the editor makes itself (new_id: a prefix and 32 hex digits) are not
+# names: such objects are labelled by kind and number, like "Group 3".
+GENERATED_ID = re.compile(r"[a-z]+_[0-9a-f]{32}")
+LABELS = {"g": "Group", "linearGradient": "Linear gradient", "stop": "Gradient stop"}
 
 
 def has_node(document: Document, object_id: str, node_id: str) -> bool:
@@ -255,7 +259,7 @@ class Session:
                     "label": element.name
                     or (
                         element.id
-                        if not element.id.startswith("object_")
+                        if not GENERATED_ID.fullmatch(element.id)
                         else "Definitions"
                         if element.tag == "defs"
                         else f"{LABELS.get(element.tag, element.tag.capitalize())} "
