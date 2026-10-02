@@ -548,9 +548,12 @@ const twoEnds = () => selectedPoints().length === 2;
 // Agents (an MCP client) may edit this drawing once the footer allows them.
 // The editor then hosts the MCP server itself; the footer's popover shows its
 // URL and the command that adds it to Claude Code. Agents' edits land in this
-// session, so while allowed the page polls for them, redraws, and says in the
-// footer what the agent did.
-let agentStatus = {enabled: false, connected: false, last_action: null, changes: 0, touched: []}, agentSeen = 0, agentPoll = null;
+// session, so while allowed the page is told of each agent call as it happens
+// (server-sent events from /api/events; in the desktop window, a script the
+// window runs), redraws, and says in the footer what the agent did. A slow
+// poll covers a dropped channel.
+let agentStatus = {enabled: false, connected: false, last_action: null, changes: 0, touched: []}, agentSeen = 0, agentPoll = null, agentEvents = null;
+const AGENT_POLL_MS = 5000, AGENT_RETRY_MS = 120;
 // The objects an agent's change touched flash briefly once the page shows it:
 // the person's selection stays theirs, never the agent's.
 const FLASH_MS = 1500;
@@ -601,7 +604,25 @@ function showAgent() {
   $('agent-claude-desktop-config').textContent = apps.claude_desktop_config || '';
   $('agent-mcp-error').hidden = !(s.enabled && s.mcp_error);
   $('agent-mcp-error').textContent = s.mcp_error || '';
+  // The port clients were given was taken: they must be given the new URL.
+  const moved = s.enabled ? s.mcp?.moved : null;
+  $('agent-mcp-moved').hidden = !moved;
+  $('agent-mcp-moved').textContent = moved ? `The MCP server's URL changed: ${moved.old} was taken, so it is at ${moved.new} now. Update clients added with the old URL (copy the command again).` : '';
+  $('agent-toggle').classList.toggle('moved', !!moved);
+  listenAgents();
 }
+// The push channel, open while agents are allowed.
+function listenAgents() {
+  if (desktop) return;
+  if (agentStatus.enabled && !agentEvents && session) {
+    agentEvents = new EventSource(`/api/events?session=${encodeURIComponent(session)}`);
+    agentEvents.onmessage = event => { try { pulse(JSON.parse(event.data)); } catch { /* The poll catches up. */ } };
+  } else if (!agentStatus.enabled && agentEvents) {
+    agentEvents.close(); agentEvents = null;
+  }
+}
+// The desktop window runs this with each pulse.
+window.vectrifyPulse = result => { if (result?.session === session) pulse(result); };
 // What the window shows, for an agent's view(): the visible part of the
 // drawing in its own units [x, y, w, h], the zoom (screen pixels per unit),
 // the canvas size, the tool, the entered group and the reference view.
@@ -618,32 +639,48 @@ function reportView() {
   clearTimeout(viewTimer);
   viewTimer = setTimeout(pollAgent, 250);
 }
+// One pulse at a time: one that comes while the page takes the last is taken
+// after it.
+let pulsing = false, nextPulse = null;
+async function pulse(result) {
+  if (!state) return;
+  if (pulsing) { nextPulse = result; return; }
+  agentStatus = result.agent; showAgent();
+  // What agents did before the page opened is not news.
+  if (flash.seen === null) flash.seen = agentStatus.changes;
+  // An edit the page did not make: take the session's state as it is now,
+  // once the person is not mid-gesture (until then, look again soon).
+  const behind = agentStatus.changes !== agentSeen || result.epoch !== state.epoch || result.revision !== state.revision;
+  if (!behind) return;
+  if (drag || pending > 0) { schedulePoll(AGENT_RETRY_MS); return; }
+  agentSeen = agentStatus.changes;
+  const touched = agentStatus.touched || [];
+  pulsing = true;
+  queue = queue.then(async () => {
+    const previous = JSON.stringify(state.reference);
+    const next = await request('/api/session', {session});
+    // The agent's edits are unsaved changes like the person's.
+    if (next.epoch === state.epoch && next.revision !== state.revision) dirty = true;
+    await applyState(next);
+    if (JSON.stringify(state.reference) !== previous) await loadReference();
+    flashTouched(touched);
+  }).catch(error => toast(error.message, true));
+  try { await queue; } finally {
+    pulsing = false;
+    const waiting = nextPulse; nextPulse = null;
+    if (waiting) pulse(waiting);
+  }
+}
+function schedulePoll(ms) {
+  clearTimeout(agentPoll);
+  if (agentStatus.enabled) agentPoll = setTimeout(pollAgent, ms);
+}
 async function pollAgent() {
   clearTimeout(agentPoll);
-  try {
-    const result = await request('/api/poll', {view: viewReport()});
-    agentStatus = result.agent; showAgent();
-    // What agents did before the page opened is not news.
-    if (flash.seen === null) flash.seen = agentStatus.changes;
-    // An edit the page did not make: take the session's state as it is now,
-    // once the person is not mid-gesture.
-    const behind = agentStatus.changes !== agentSeen || result.epoch !== state.epoch || result.revision !== state.revision;
-    if (behind && !drag && pending === 0) {
-      agentSeen = agentStatus.changes;
-      const touched = agentStatus.touched || [];
-      queue = queue.then(async () => {
-        const previous = JSON.stringify(state.reference);
-        const next = await request('/api/session', {session});
-        // The agent's edits are unsaved changes like the person's.
-        if (next.epoch === state.epoch && next.revision !== state.revision) dirty = true;
-        await applyState(next);
-        if (JSON.stringify(state.reference) !== previous) await loadReference();
-        flashTouched(touched);
-      }).catch(error => toast(error.message, true));
-      await queue;
-    }
-  } catch { /* The next poll tries again. */ }
-  if (agentStatus.enabled) agentPoll = setTimeout(pollAgent, 700);
+  // Looked again by now unless a pulse wants a sooner look.
+  agentPoll = null;
+  try { await pulse(await request('/api/poll', {view: viewReport()})); } catch { /* The next poll tries again. */ }
+  if (agentPoll === null) schedulePoll(AGENT_POLL_MS);
 }
 async function setAgents(body) {
   try {

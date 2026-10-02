@@ -223,7 +223,7 @@ def test_the_persons_selection_stays_and_the_poll_names_what_the_agent_touched(
     assert poll["agent"]["changes"] == 2
 
 
-def test_the_desktop_window_opens_a_port_of_its_own_while_allowed():
+def test_the_desktop_window_takes_connect_on_its_mcp_port_while_allowed():
     backend = Backend(SAMPLE, "sample.svg")
     backend.agents.mcp_port = free_port()
     _, state = backend.handle("/api/session", {}, None)
@@ -233,6 +233,8 @@ def test_the_desktop_window_opens_a_port_of_its_own_while_allowed():
     assert allowed["enabled"]
     found = read_discovery()
     assert found is not None
+    # No port of its own: the hosted MCP server's, with the same token.
+    assert found["url"] == f"http://127.0.0.1:{backend.agents.mcp_port}"
     target = LiveTarget(found["url"], found["token"])
     assert target.call("hello", {}).data["name"] == "sample.svg"
     backend.handle("/api/agent", {"enabled": False}, session)

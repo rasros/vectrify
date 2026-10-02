@@ -48,9 +48,9 @@ def dark_disc_png() -> bytes:
     return buffer.getvalue()
 
 
-def run(tmp_path, body, state: Vectrify | None = None) -> None:
+def run(tmp_path, body, state: Vectrify | None = None, svg: str = SVG) -> None:
     drawing = tmp_path / "cel.svg"
-    drawing.write_text(SVG)
+    drawing.write_text(svg)
 
     async def session():
         async with Client(build_server(state)) as client:
@@ -331,3 +331,161 @@ def test_view_reads_what_the_window_shows_and_render_draws_it(tmp_path):
         assert grey[220, 160] < 60
 
     run(tmp_path, body, state)
+
+
+# Basic shapes, an instance of a path in defs, and two paths side by side.
+SHAPES = """<svg xmlns="http://www.w3.org/2000/svg" \
+xmlns:xlink="http://www.w3.org/1999/xlink" width="200" height="200" \
+viewBox="0 0 200 200">
+<defs><path id="mark" d="M0 0 L20 0 L20 20 L0 20 Z"/></defs>
+<rect id="card" x="10" y="10" width="60" height="40" fill="#ff0000" \
+stroke="#000000" stroke-width="2"/>
+<circle id="dot" cx="150" cy="40" r="10" fill="#0000ff"/>
+<line id="rule" x1="10" y1="100" x2="190" y2="100" stroke="#333333" \
+stroke-width="4"/>
+<use id="stamp" xlink:href="#mark" x="100" y="150" fill="#00aa00"/>
+<g id="pair">
+<path id="left" d="M10 150 L40 150 L40 180 L10 180 Z" fill="#cc0000"/>
+<path id="right" d="M50 150 L80 150 L80 180 L50 180 Z" fill="#00cc00"/>
+</g>
+</svg>
+"""
+
+
+def bounds(points: dict) -> list:
+    return sorted(c["bounds"] for c in points["contours"])
+
+
+def objects(described: dict) -> dict:
+    return {o["id"]: o for o in described["objects"]}
+
+
+def test_region_tools_cut_shapes_into_paths_keeping_their_paint(tmp_path):
+    async def body(call):
+        # Looking already finds shapes and instances by what they paint.
+        assert [o["id"] for o in data(await call("pick", x=20, y=20))["objects"]] == [
+            "card"
+        ]
+        assert [o["id"] for o in data(await call("pick", x=105, y=155))["objects"]] == [
+            "stamp"
+        ]
+        inside = data(await call("describe", region=[140, 30, 20, 20]))
+        assert [o["id"] for o in inside["objects"]] == ["dot"]
+
+        before = data(await call("history"))["undo_total"]
+        cut = data(await call("extract", region=[40, 0, 60, 60], ids=["card"]))
+        assert data(await call("history"))["undo_total"] == before + 1
+        (piece,) = cut["extracted"]
+        assert piece["from"] == "card"
+        # The rect is a path now, with its id and paint; the piece shares them.
+        shown = objects(data(await call("describe")))
+        assert shown["card"]["tag"] == "path"
+        for oid in ("card", piece["path"]):
+            assert shown[oid]["paint"]["fill"] == "#ff0000"
+            assert shown[oid]["paint"]["stroke"] == "#000000"
+        assert bounds(data(await call("points", id="card"))) == [[10, 10, 30, 40]]
+        assert bounds(data(await call("points", id=piece["path"]))) == [
+            [40, 10, 30, 40]
+        ]
+        data(await call("undo"))
+        assert objects(data(await call("describe")))["card"]["tag"] == "rect"
+
+        # A stroked line crossing the region's edge, found by what it paints.
+        ruled = data(await call("extract", region=[0, 90, 100, 20]))
+        (piece,) = ruled["extracted"]
+        assert piece["from"] == "rule"
+        assert bounds(data(await call("points", id=piece["path"]))) == [
+            [10, 100, 90, 0]
+        ]
+        assert bounds(data(await call("points", id="rule"))) == [[100, 100, 90, 0]]
+        shown = objects(data(await call("describe")))
+        # A line fills nothing, as a path neither.
+        assert shown["rule"]["paint"]["fill"] == "none"
+        assert shown["rule"]["paint"]["stroke"] == "#333333"
+        data(await call("undo"))
+
+        # A shape wholly inside is not cut, so stays as it is; deleting in the
+        # region deletes it.
+        whole = await call("extract", region=[130, 20, 40, 40], ids=["dot"])
+        assert "No contour" in error(whole)
+        deleted = data(await call("delete", region=[130, 20, 40, 40]))
+        assert "dot" in deleted["removed"]
+
+    run(tmp_path, body, svg=SHAPES)
+
+
+def test_an_instance_is_cut_only_when_detached_and_pieces_can_be_grouped(tmp_path):
+    async def body(call):
+        stamp = [100, 150, 10, 20]
+        for ids in (["stamp"], None):
+            refused = await call("extract", region=stamp, ids=ids)
+            assert "detach=true" in error(refused)
+            assert 'convert(ids=["stamp"], to="path")' in error(refused).replace(
+                "'", '"'
+            )
+        assert "detach=true" in error(await call("delete", region=stamp))
+        before = data(await call("history"))["undo_total"]
+        detached = data(await call("extract", region=stamp, detach=True))
+        assert data(await call("history"))["undo_total"] == before + 1
+        (piece,) = detached["extracted"]
+        assert piece["from"] == "stamp"
+        shown = objects(data(await call("describe")))
+        assert shown["stamp"]["tag"] == "path"
+        assert bounds(data(await call("points", id=piece["path"]))) == [
+            [100, 150, 10, 20]
+        ]
+        assert bounds(data(await call("points", id="stamp"))) == [[110, 150, 10, 20]]
+        data(await call("undo"))
+        assert objects(data(await call("describe")))["stamp"]["tag"] == "use"
+
+        # Two paths' pieces into one new group, as one undo step.
+        grouped = data(
+            await call(
+                "extract", region=[25, 140, 40, 50], ids=["left", "right"], group=True
+            )
+        )
+        assert grouped["step"] == "Agent: Extract region into a group"
+        assert data(await call("history"))["undo_total"] == before + 1
+        pieces = [p["path"] for p in grouped["extracted"]]
+        assert [p["from"] for p in grouped["extracted"]] == ["left", "right"]
+        group = grouped["group"]
+        inside = data(await call("describe", within=group))
+        assert [o["id"] for o in inside["objects"]] == pieces
+        # Just above the frontmost path they came from.
+        assert [
+            o["id"]
+            for o in data(await call("describe", within="pair"))["objects"]
+            if o["parent"] == "pair"
+        ] == ["left", "right", group]
+        assert bounds(data(await call("points", id=pieces[0]))) == [[25, 150, 15, 30]]
+        assert bounds(data(await call("points", id=pieces[1]))) == [[50, 150, 15, 30]]
+        data(await call("undo"))
+        assert bounds(data(await call("points", id="left"))) == [[10, 150, 30, 30]]
+        assert [
+            o["id"] for o in data(await call("describe", within="pair"))["objects"]
+        ] == ["left", "right"]
+
+    run(tmp_path, body, svg=SHAPES)
+
+
+def test_grouped_pieces_from_different_groups_keep_where_they_are(tmp_path):
+    async def body(call):
+        grouped = data(
+            await call(
+                "extract", region=[60, 80, 80, 60], ids=["ink", "blob"], group=True
+            )
+        )
+        ink, blob = grouped["extracted"]
+        assert (ink["from"], blob["from"]) == ("ink", "blob")
+        # The ink's piece left the scaled group, keeping where it is drawn.
+        eye = data(await call("points", id=ink["path"]))
+        assert [70, 85, 20, 20] in bounds(eye)
+        assert bounds(data(await call("points", id=blob["path"]))) == [
+            [120, 120, 20, 20]
+        ]
+        top = data(await call("describe"))
+        ids = [o["id"] for o in top["objects"] if o["parent"] == top["root"]]
+        # In the frontmost one's group, just above the path it came from.
+        assert ids[ids.index("blob") + 1] == grouped["group"]
+
+    run(tmp_path, body)

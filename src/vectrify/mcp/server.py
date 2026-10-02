@@ -5,8 +5,9 @@ file opened here and the drawing in a running editor window answer alike.
 ``register_tools`` adds them to a server against one ``Vectrify`` state: the
 stdio server's (``build_server``, which can also open files and connect), or
 the one the editor hosts over HTTP on its window (``build_window_server``).
-The server remembers the revision the agent last saw and sends it with each
-edit; the session refuses an edit of a drawing that changed since.
+The server remembers the revision each client last saw (per Streamable HTTP
+session; a stdio server has one client) and sends it with each edit; the
+session refuses an edit of a drawing that changed since.
 """
 
 from __future__ import annotations
@@ -15,7 +16,9 @@ import argparse
 import base64
 import json
 import mimetypes
-from collections.abc import Sequence
+from collections import OrderedDict
+from collections.abc import Hashable, Sequence
+from contextvars import ContextVar
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
@@ -52,12 +55,62 @@ NO_TARGET = (
 )
 
 
+# Which client the current call comes from: its Streamable HTTP session, or
+# for a sessionless request the client it names. Each remembers what it saw.
+CLIENT: ContextVar[Hashable] = ContextVar("vectrify_client", default=None)
+# How many clients' last looks are remembered.
+CLIENTS = 64
+
+
+def client_key(ctx: Any) -> Hashable:
+    """The client a request comes from, as far as the transport tells."""
+    request = getattr(ctx, "request", None)
+    headers = getattr(request, "headers", None)
+    session = headers.get("mcp-session-id") if headers is not None else None
+    if session:
+        return ("session", session)
+    params = getattr(getattr(ctx, "session", None), "client_params", None)
+    info = getattr(params, "client_info", None)
+    if info is not None:
+        return ("client", info.name, info.version)
+    # stdio: the process is the client.
+    return None
+
+
+async def per_client(ctx: Any, call_next: Any) -> Any:
+    """Middleware: run the request as its client's."""
+    token = CLIENT.set(client_key(ctx))
+    try:
+        return await call_next(ctx)
+    finally:
+        CLIENT.reset(token)
+
+
 class Vectrify:
-    """The server's one target and the revision the agent last saw there."""
+    """The server's one target and, for each client, the revision it last saw
+    there: one client's look is not another's."""
 
     def __init__(self, target: Target | None = None) -> None:
         self.target: Target | None = target
-        self.seen: list | None = None
+        # client -> (what it looked at, [epoch, revision]).
+        self._seen: OrderedDict[Hashable, tuple[object, list]] = OrderedDict()
+
+    @property
+    def seen(self) -> list | None:
+        """What the current client last saw of the current target."""
+        entry = self._seen.get(CLIENT.get())
+        target = self.target
+        if entry is None or target is None or entry[0] is not target.identity():
+            return None
+        return entry[1]
+
+    def _saw(self, where: dict[str, Any]) -> None:
+        assert self.target is not None
+        key = CLIENT.get()
+        self._seen[key] = (self.target.identity(), [where["epoch"], where["revision"]])
+        self._seen.move_to_end(key)
+        while len(self._seen) > CLIENTS:
+            self._seen.popitem(last=False)
 
     def require(self) -> Target:
         if self.target is None:
@@ -75,7 +128,9 @@ class Vectrify:
     def attach(self, target: Target) -> dict[str, Any]:
         reply = target.call("hello", {})
         self.target = target
-        self.seen = [reply.data["epoch"], reply.data["revision"]]
+        # What anyone saw was of the target before.
+        self._seen.clear()
+        self._saw(reply.data)
         return reply.data
 
     def call(self, tool: str, args: dict[str, Any] | None = None) -> CallToolResult:
@@ -87,11 +142,11 @@ class Vectrify:
             reply = target.call(tool, payload)
         except TargetError as exc:
             if exc.where:
-                self.seen = [exc.where["epoch"], exc.where["revision"]]
+                self._saw(exc.where)
             raise ToolError(str(exc)) from None
         data = reply.data
         if "epoch" in data and "revision" in data:
-            self.seen = [data["epoch"], data["revision"]]
+            self._saw(data)
         return result(data, reply.images)
 
 
@@ -116,7 +171,7 @@ def result(
 def build_server(state: Vectrify | None = None) -> MCPServer:
     """The stdio server: a file it opens, or a running editor's window."""
     state = state or Vectrify()
-    server = MCPServer("vectrify", instructions=INSTRUCTIONS)
+    server = MCPServer("vectrify", instructions=INSTRUCTIONS, middleware=[per_client])
     tool = server.tool
 
     @tool(structured_output=False)
@@ -165,7 +220,10 @@ def build_window_server(state: Vectrify) -> MCPServer:
     """The server the editor hosts, on the window that allows agents."""
     # Quiet: it runs inside the editor, whose terminal is the person's.
     server = MCPServer(
-        "vectrify", instructions=WINDOW_INSTRUCTIONS, log_level="WARNING"
+        "vectrify",
+        instructions=WINDOW_INSTRUCTIONS,
+        log_level="WARNING",
+        middleware=[per_client],
     )
     register_tools(server, state)
     return server
@@ -551,8 +609,9 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
     ) -> CallToolResult:
         """Turn thin filled shapes into centre lines (to="line"), stroked
         lines into filled outlines (to="fill"), or each into the other; or
-        give an instance (use) or a path sharing its geometry an editable
-        path of its own (to="path")."""
+        give an instance (use), a basic shape (rect, circle, ellipse, line)
+        or a path sharing its geometry an editable path of its own
+        (to="path"), keeping its id and paint."""
         return state.call("convert", {"ids": ids, "to": to})
 
     @tool(structured_output=False)
@@ -562,13 +621,14 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         region: Area | None = None,
         contours: bool = False,
         cut: bool = False,
+        detach: bool = False,
     ) -> CallToolResult:
         """Delete objects (ids); points ([object id, node id] pairs; a
         contour or path left too small goes too), or with contours=true the
         whole contours they are on; or the contours lying inside region
-        ([x, y, w, h] or a polygon), of the paths ids or every unlocked path
-        painting there (cut=true also cuts away the parts of contours
-        crossing into it). One undo step."""
+        ([x, y, w, h] or a polygon), of the paths and shapes ids or every
+        unlocked one painting there (cut=true also cuts away the parts
+        crossing into it; detach as for extract). One undo step."""
         return state.call(
             "delete",
             {
@@ -577,22 +637,41 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
                 "region": region,
                 "contours": contours,
                 "cut": cut,
+                "detach": detach,
             },
         )
 
     @tool(structured_output=False)
     def extract(
-        region: Area, ids: list[str] | None = None, cut: bool = True
+        region: Area,
+        ids: list[str] | None = None,
+        cut: bool = True,
+        group: bool = False,
+        detach: bool = False,
     ) -> CallToolResult:
         """Take the contours lying inside region ([x, y, w, h] or a polygon
         [[x, y], ...], document coordinates) out of their paths, each path's
-        into a new path with its paint, just above it in its group.
+        into a new path with its paint, just above it in its group;
+        group=true puts the new paths into one new group instead, just above
+        the frontmost path they came from.
 
-        The paths ids, or every unlocked path painting there. cut=true cuts
-        strokes crossing the region's edge there (and splits fills along it);
+        The paths ids, or every unlocked path painting there; a rect, circle,
+        ellipse or line it cuts becomes a path first, keeping its id and
+        paint. An instance (use) draws shared geometry: detach=true gives it
+        a path of its own first, else it is refused. cut=true cuts strokes
+        crossing the region's edge there (and splits fills along it);
         cut=false takes only whole contours. One undo step.
         """
-        return state.call("extract", {"region": region, "ids": ids, "cut": cut})
+        return state.call(
+            "extract",
+            {
+                "region": region,
+                "ids": ids,
+                "cut": cut,
+                "group": group,
+                "detach": detach,
+            },
+        )
 
     @tool(structured_output=False)
     def add_path(
