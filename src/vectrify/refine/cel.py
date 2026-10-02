@@ -166,6 +166,10 @@ WIDTH_STEP = 1.6
 WIDTH_GROUP = 1.4
 WIDTH_GROUPS = 4
 THINNEST = 0.4
+# Runs of one width group this many points long in all, much wider or
+# thinner than the groups either side, keep their own path (see
+# width_groups).
+DISTINCT_LEAST = 40
 # A stroke thinner than this is drawn this wide, its opacity its width over
 # this: a hairline of ink shows as the faint line it was, not a sliver.
 STROKE_LEAST = 1.0
@@ -2067,7 +2071,10 @@ def width_groups(
     """The runs *widths* wide and *lengths* long in groups of about one
     width, by index: each widest at most *spread* times its narrowest, then
     the least used merged into a neighbour until there are at most *most*
-    and each holds a twentieth of the length."""
+    and each holds a twentieth of the length. A group at least DISTINCT_LEAST
+    long and more than WIDTH_STEP times wider or narrower than both its
+    neighbours, such as bold lettering among thin lines, keeps its width
+    while there are at most twice *most*."""
     order = np.argsort(widths)
     groups: list[list[int]] = []
     for i in order:
@@ -2080,9 +2087,24 @@ def width_groups(
     def used(group: list[int]) -> float:
         return float(lengths[group].sum())
 
+    def middle_of(g: int) -> float:
+        return float(np.median(widths[groups[g]]))
+
+    def distinct(g: int) -> bool:
+        if used(groups[g]) < DISTINCT_LEAST or len(groups) > 2 * most:
+            return False
+        sides = [h for h in (g - 1, g + 1) if 0 <= h < len(groups)]
+        return all(
+            abs(np.log(middle_of(h) / middle_of(g))) > np.log(WIDTH_STEP) for h in sides
+        )
+
     while len(groups) > 1:
-        least = min(range(len(groups)), key=lambda g: used(groups[g]))
-        if len(groups) <= most and used(groups[least]) >= total / 20:
+        merging = [g for g in range(len(groups)) if not distinct(g)]
+        if not merging:
+            break
+        least = min(merging, key=lambda g: used(groups[g]))
+        kept = len(groups) - len(merging)
+        if len(groups) - kept <= most and used(groups[least]) >= total / 20:
             break
         # Into the neighbour nearest its width.
         middle = float(np.median(widths[groups[least]]))

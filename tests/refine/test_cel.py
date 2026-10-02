@@ -410,6 +410,19 @@ def test_strokes_are_grouped_by_width():
     assert len(cel.width_groups(widths, lengths)) == 2
 
 
+def test_bold_lettering_keeps_its_own_width_among_thin_lines():
+    # Many thin lines of a few widths, and a little bold lettering: too
+    # little to hold a twentieth of the length, but far wider than the rest.
+    widths = np.array([1.0, 1.2, 1.4, 1.7, 2.0, 3.6, 3.8, 4.0])
+    lengths = np.array([400.0, 400, 400, 400, 400, 20, 20, 20])
+    groups = cel.width_groups(widths, lengths)
+    assert sorted(widths[groups[-1]].tolist()) == [3.6, 3.8, 4.0]
+    # Once it is shorter still, it is a stray and joins its neighbour.
+    lengths[5:] = 5
+    groups = cel.width_groups(widths, lengths)
+    assert 2.0 in widths[groups[-1]]
+
+
 def test_a_dark_shape_among_lines_is_filled_not_stroked():
     line = np.zeros((60, 80), dtype=bool)
     line[30, 2:78] = True

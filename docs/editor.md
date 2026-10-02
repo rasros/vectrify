@@ -607,7 +607,10 @@ mark wider than its stroke but too small to be a filled shape, such as an
 eye or an eyebrow, is filled in its ink beneath the stroke where the stroke
 leaves it out, so it keeps its shape. There is
 one path per line colour and width (up to four widths a colour, each path's
-lines within about 40% of its width), each at its lines' measured width;
+lines within about 40% of its width; a little ink much wider or thinner
+than the widths either side, such as bold lettering among thin lines, keeps a
+path of its own rather than joining a thinner one), each at its lines'
+measured width;
 a line whose width changes a lot along it is cut
 where it changes, so each part gets the width it has, and the parts still
 meet end to end. Thinning's whiskers and the tiny loops it leaves round
