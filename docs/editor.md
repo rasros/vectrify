@@ -561,7 +561,9 @@ outlines as dark as ink up to twice as wide; faint narrow shading, and dark
 notches as dark as the surface they open into, are left to the fills, as are
 dark shapes much wider than the lines). In a grainy or JPEG-compressed
 picture the lines are found after a small median filter smooths the grain
-away. It fills the space between the lines with a shrinking ball so a small
+away; since that also takes lines a pixel wide, the lines are looked for again
+after a median of three pixels along each direction, which keeps them, and
+those found only then are drawn over the regions without cutting them. It fills the space between the lines with a shrinking ball so a small
 gap in a line does not join the regions either side, splits each region where
 its colour changes with no line, and merges neighbours down to the chosen
 number of **Regions** (0, the default, keeps one per 10,000 pixels of the

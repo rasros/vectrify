@@ -3,19 +3,21 @@
 Cel and anime art is flat colour inside drawn outlines. The tracer finds the
 lines first, as marks darker in their brightest channel than the surface
 around them (so a black line on a navy fill counts), in a grainy image after
-a median smooths the grain away; dark shapes much wider than a line are left
-to the fills. It fills the space between the lines with a shrinking ball so
-a small gap in a line does not join the regions either side, splits each
-region by colour where a shade edge has no line, and merges regions down to
-a target count, keeping apart regions of different colours a line runs
-between and, past the count, shadows a step darker than their surface. The
-line pixels go to the regions either side, so neighbours meet at the line's
-middle and share one traced edge, smoothed between its corners
-before it is fitted. Each region's colour is then fitted in closed form to
-the image under the lines as drawn, and a region whose colour clearly ramps
-takes a linear gradient. The lines are thinned to centrelines and drawn over the
-fills as strokes in their ink: a thin line's antialiased middle is a mix of
-ink and surface, so it is drawn darker and thinner than its pixels look,
+a median smooths the grain away (and again after one that keeps lines a
+pixel wide, those it finds drawn but not bounding regions); dark shapes
+much wider than a line are left to the fills. It fills the space between
+the lines with a shrinking ball so a small gap in a line does not join the
+regions either side, splits each region by colour where a shade edge has no
+line, and merges regions down to a target count, keeping apart regions of
+different colours a line runs between and, past the count, shadows a step
+darker than their surface. The line pixels go to the regions either side,
+so neighbours meet at the line's middle and share one traced edge, smoothed
+between its corners before it is fitted. Each region's colour is then
+fitted in closed form to the image under the lines as drawn, and a region
+whose colour clearly ramps takes a linear gradient. The lines are thinned to
+centrelines and drawn over the fills as strokes in their ink: a thin
+line's antialiased middle is a mix of ink and surface, so it is drawn
+darker and thinner than its pixels look,
 though never under a pixel wide: a hairline is drawn that wide and fainter.
 There is one path per line colour and width, a line cut where its width
 steps so each part has its own.
@@ -96,7 +98,8 @@ NOTCH_REACH = 32
 NOTCH_BAND = 6
 NOTCH_DARK = 128
 # Above this much grain (see noise_level), lines are found in the image
-# with a 3 x 3 median taken.
+# with a 3 x 3 median taken, and again with the line-keeping one of
+# denoised.
 NOISE = 1.5
 # Dark shapes deeper than this many times the typical line's half width, and
 # than SHAPE_LEAST pixels (so bold strokes of lettering stay lines), are
@@ -282,6 +285,23 @@ def detect_lines(target: np.ndarray, radius: int) -> tuple[np.ndarray, np.ndarra
         small[0] = False
         mask |= small[holes]
     return mask, darkness
+
+
+def denoised(target: np.ndarray) -> np.ndarray:
+    """*target* with its grain smoothed away and its thin lines kept: each
+    pixel the median of three in a row through it, across, down or along a
+    diagonal, the darkest of the four. A line a pixel wide is three of its
+    own pixels along its length, so it keeps its darkness there, where a
+    3 x 3 median would give it to the surface; a lone dark speck is one in
+    every row, so it goes."""
+    rows = []
+    for dy, dx in ((0, 1), (1, 0), (1, 1), (1, -1)):
+        foot = np.zeros((3, 3, 1), dtype=bool)
+        foot[1, 1] = foot[1 + dy, 1 + dx] = foot[1 - dy, 1 - dx] = True
+        rows.append(median_filter(target, footprint=foot))
+    stack = np.stack(rows)
+    darkest = stack.max(-1).argmin(0)
+    return np.take_along_axis(stack, darkest[None, ..., None], 0)[0]
 
 
 def noise_level(target: np.ndarray) -> float:
@@ -1302,6 +1322,14 @@ def vectorize(
     found = median_filter(target, size=(3, 3, 1)) if grainy else target
     line, darkness = detect_lines(found, radius)
     line = without_shapes(line)
+    drawn, drawn_darkness = line, darkness
+    if grainy:
+        # The 3 x 3 median that bounds the regions takes thin lines with
+        # the grain; the lines it lost are found again with them kept, and
+        # drawn over the regions without cutting them.
+        kept, kept_darkness = detect_lines(denoised(target), radius)
+        drawn = line | without_shapes(kept)
+        drawn_darkness = np.maximum(darkness, kept_darkness)
     # 1. Regions the lines bound, then split where only the colour changes.
     filled = trapped_ball_fill(~line)
     split = split_by_colour(target, filled, line)
@@ -1328,11 +1356,11 @@ def vectorize(
         "line_pixels": int(line.sum()),
     }
     line_parts: list[str] = []
-    if line.any():
+    if drawn.any():
         line_parts, line_details = _line_paths(
             target,
-            line,
-            darkness,
+            drawn,
+            drawn_darkness,
             line_width,
             tolerance,
             strokes,
