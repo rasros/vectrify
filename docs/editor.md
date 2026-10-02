@@ -579,7 +579,9 @@ more than hue in how alike two colours are, and two regions of some size a
 clear step apart in lightness, a shadow or highlight and the surface it lies
 on, are never merged; the shadows kept this way do not count toward Regions,
 so a shaded drawing can come out with more regions than asked for (a few
-dozen more on the benchmark drawings). The line pixels go to
+dozen more on the benchmark drawings). A region the merging left with two
+clearly separate shades in it (few of its pixels between them) is then split
+back into them, so its colour is not fitted to a grey between the two. The line pixels go to
 the regions either side, so neighbours
 meet at the line's middle; each edge between two regions is traced once and
 used by both, so they meet exactly with no gap or overlap. Before an edge
