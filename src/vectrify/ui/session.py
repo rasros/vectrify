@@ -7,6 +7,7 @@ import contextlib
 import io
 import json
 import math
+import time
 from collections import Counter
 from dataclasses import asdict, replace
 from threading import RLock
@@ -33,6 +34,7 @@ from vectrify.document.join import path_style
 from vectrify.document.lines import stroke_outline
 from vectrify.document.model import EditKind, new_id
 from vectrify.document.redraw import attachment
+from vectrify.document.regions import region_polygon
 from vectrify.document.svg import parse_path
 from vectrify.operations import (
     Budget,
@@ -105,6 +107,47 @@ class Session:
         self._svg_revision = -1
         self._svg = ""
         self.jobs: dict[str, Job] = {}
+        # What the person's window last said it shows (see set_view), and when.
+        self.view: dict[str, Any] | None = None
+        self.view_time = 0.0
+
+    def set_view(self, view: Any) -> None:
+        """Keep what the page reports it shows: the visible document region
+        [x, y, w, h], the zoom (screen pixels per document unit), its size in
+        pixels, the active tool, the entered group and the reference view."""
+        if not isinstance(view, dict):
+            raise DocumentError("A view is an object")
+        region = view.get("region")
+        pixels = view.get("pixels")
+        if (
+            not isinstance(region, list)
+            or len(region) != 4
+            or not isinstance(pixels, list)
+            or len(pixels) != 2
+        ):
+            raise DocumentError("A view needs its region and pixel size")
+        x, y, w, h = (number(v) for v in region)
+        zoom = number(view.get("zoom"))
+        width, height = (int(number(v)) for v in pixels)
+        if w <= 0 or h <= 0 or zoom <= 0 or width <= 0 or height <= 0:
+            raise DocumentError("A view needs a positive size and zoom")
+        entered = view.get("entered")
+        reference = view.get("reference_view")
+        opacity = view.get("reference_opacity")
+        self.view = {
+            "region": [x, y, w, h],
+            "zoom": zoom,
+            "pixels": [width, height],
+            "tool": str(view.get("tool", ""))[:40],
+            "entered": str(entered) if entered else None,
+            "reference_view": reference
+            if reference in {"drawing", "overlay", "reference"}
+            else None,
+            "reference_opacity": min(1.0, max(0.0, number(opacity)))
+            if opacity is not None
+            else None,
+        }
+        self.view_time = time.monotonic()
 
     def operation(self, payload: dict) -> dict:
         """Start, poll, stop, apply or discard one automated operation."""
@@ -323,6 +366,12 @@ class Session:
             if payload.get("find_enclosed")
             else [],
         }
+
+    def settle(self, revision: int) -> None:
+        """Count the edits since *revision* as one revision (Editor.settle),
+        forgetting the SVG made at one in between."""
+        self.editor.settle(revision)
+        self._svg_revision = -1
 
     def check_revision(self, payload: dict) -> None:
         if (
@@ -582,9 +631,13 @@ class Session:
         document = self.editor.snapshot.document
         if command == "add_path":
             geometry = parse_path(str(payload.get("d", "")))
-            if len(geometry.subpaths) != 1 or len(geometry.subpaths[0].nodes) < 2:
+            # One contour as drawn, or several (a shape and its holes) as an
+            # agent gives them.
+            if not geometry.subpaths or any(
+                len(s.nodes) < 2 for s in geometry.subpaths
+            ):
                 raise DocumentError("Draw at least two path points")
-            closed = geometry.subpaths[0].closed
+            closed = all(s.closed for s in geometry.subpaths)
             width = number(payload.get("stroke_width", 2))
             if width <= 0:
                 raise DocumentError("Stroke width must be positive")
@@ -634,6 +687,25 @@ class Session:
             raise DocumentError("Select an object first")
         if command in {"join_ends", "fill_to_line", "line_to_fill", "convert_lines"}:
             self._lines(command, payload, selected)
+            return
+        if command == "extract":
+            # The selected paths' contours inside a region, taken into paths
+            # of their own, or deleted.
+            region = payload.get("region")
+            if not isinstance(region, list | tuple):
+                raise DocumentError("Give the region as [x, y, w, h] or a polygon")
+            delete = bool(payload.get("delete"))
+            with self.editor.transaction(
+                "Delete in region" if delete else "Extract region", selection=selection
+            ) as tx:
+                pairs = tx.extract_region(
+                    region_polygon(region),
+                    cut=bool(payload.get("cut", True)),
+                    delete=delete,
+                )
+            existing = {e.id for e in self.editor.snapshot.document.elements()}
+            result = {new or old for old, new in pairs} & existing
+            self.editor.select(Selection(object_ids=frozenset(result)))
             return
         if command == "fill_holes":
             targets = self._hole_targets(payload, "be filled")

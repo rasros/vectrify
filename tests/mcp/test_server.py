@@ -78,7 +78,7 @@ def test_open_look_edit_undo_and_save(tmp_path):
             assert row["paint"]["fill"] == "#123456"
 
             nodes = data(await client.call_tool("points", {"id": bird}))
-            first = nodes["geometry"]["subpaths"][0]["nodes"][0]
+            first = nodes["contours"][0]["nodes"][0]
             assert first["values"] == [10, 10]
             data(
                 await client.call_tool(

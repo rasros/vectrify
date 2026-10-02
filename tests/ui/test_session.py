@@ -135,7 +135,7 @@ def test_draw_path_is_editable_selected_and_undoable(data):
     assert session.editor.snapshot.document == document
 
 
-@pytest.mark.parametrize("data", ["", "M1 2", "M1 2 L3 4 M5 6 L7 8", "M1 2 Lnan 3"])
+@pytest.mark.parametrize("data", ["", "M1 2", "M1 2 L3 4 M5 6", "M1 2 Lnan 3"])
 def test_invalid_draw_path_does_not_change_drawing(data):
     session = Session(import_svg(SVG))
     before = session.editor.snapshot.document

@@ -39,7 +39,12 @@ Target = FileTarget | LiveTarget | WindowTarget
 Ids = Annotated[list[str], Field(min_length=1)]
 Point = Annotated[list[str], Field(min_length=2, max_length=2)]
 Points = Annotated[list[Point], Field(min_length=1)]
+# A region: [x, y, width, height] in document units.
 Region = list[float]
+# What the person's window shows, as view() reports it.
+View = Literal["view"]
+# A region, or a polygon [[x, y], ...] around it.
+Area = list[float] | list[list[float]]
 LOOK = ToolAnnotations(read_only_hint=True)
 NO_TARGET = (
     "No drawing yet. open(path) a .svg or .vectrify file, or turn on 'Agents' "
@@ -245,16 +250,22 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
     @look
     def describe(
-        page: int = 0, page_size: int = 100, within: str | None = None
+        page: int = 0,
+        page_size: int = 100,
+        within: str | None = None,
+        region: Region | None = None,
     ) -> CallToolResult:
         """The drawing: artboard, reference, selection and objects.
 
         Objects (id, label, tag, parent, paint, bounds [x, y, w, h], locks)
         come a page at a time, in document order (later is in front);
-        within lists one group's contents.
+        within lists one group's contents. With region [x, y, w, h], only the
+        objects that paint inside it (not just their bounds), front to back,
+        each path with the contours of it that do.
         """
         reply = state.call(
-            "describe", {"page": page, "page_size": page_size, "within": within}
+            "describe",
+            {"page": page, "page_size": page_size, "within": within, "region": region},
         )
         target = state.target
         assert target is not None
@@ -266,36 +277,98 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
     @look
     def render(
-        region: Region | None = None,
+        region: Region | View | None = None,
         overlay: Literal["none", "side", "over"] = "none",
         max_side: int | None = None,
+        grid: bool = False,
     ) -> CallToolResult:
-        """A PNG of the drawing, optionally of region [x, y, w, h] only.
+        """A PNG of the drawing, optionally of region [x, y, w, h] only, or
+        region="view": exactly what the person's window shows.
 
         overlay="side" puts the reference beside it, "over" blends the two.
         max_side caps the longer side in pixels (default 1024, at most 2048).
+        grid=true draws lines labelled with document coordinates. The text
+        says how pixels map to document coordinates.
         """
         return state.call(
-            "render", {"region": region, "overlay": overlay, "max_side": max_side}
+            "render",
+            {"region": region, "overlay": overlay, "max_side": max_side, "grid": grid},
         )
 
     @look
     def reference(
-        region: Region | None = None, max_side: int | None = None
+        region: Region | View | None = None,
+        max_side: int | None = None,
+        grid: bool = False,
     ) -> CallToolResult:
-        """A PNG of the reference image, optionally of region [x, y, w, h]."""
-        return state.call("reference", {"region": region, "max_side": max_side})
+        """A PNG of the reference image, optionally of region [x, y, w, h];
+        grid=true labels document coordinates."""
+        return state.call(
+            "reference", {"region": region, "max_side": max_side, "grid": grid}
+        )
 
     @look
     def compare(
-        region: Region | None = None, max_side: int | None = None
+        region: Region | View | None = None,
+        max_side: int | None = None,
+        grid: bool = False,
     ) -> CallToolResult:
         """How far the drawing is from the reference, over region or all.
 
         Gives the mean squared error (0 is identical), the worst cells of a
         4 x 4 grid as regions to look at next, and a heat map (black agrees).
         """
-        return state.call("compare", {"region": region, "max_side": max_side})
+        return state.call(
+            "compare", {"region": region, "max_side": max_side, "grid": grid}
+        )
+
+    @look
+    def pick(x: float, y: float, radius: float = 0) -> CallToolResult:
+        """What paints at document point (x, y), or within radius of it,
+        front to back: each object with its groups and, for a path, the
+        contours (index, first node, bounds) whose own stroke or fill is
+        there. Stroke widths and transforms count; bounds alone do not."""
+        return state.call("pick", {"x": x, "y": y, "radius": radius})
+
+    @look
+    def sample(x: float, y: float, radius: float = 0) -> CallToolResult:
+        """The colour of the drawing and of the reference at (x, y), the mean
+        within radius, and the object (and contour) that paints there."""
+        return state.call("sample", {"x": x, "y": y, "radius": radius})
+
+    @look
+    def trace_reference(
+        region: Region | View | None = None,
+        colour: str | None = None,
+        dark: bool = True,
+        tolerance: float | None = None,
+        min_area: float | None = None,
+    ) -> CallToolResult:
+        """Outlines of the reference's dark areas in region (luminance at
+        most tolerance, default 0.35), or of the areas near colour (RGB
+        distance 0-1, default 0.12), as closed path data in document
+        coordinates, largest first, holes included. Areas under min_area
+        square units are left out. Adjust the drawing to these instead of
+        reading coordinates off an image."""
+        return state.call(
+            "trace_reference",
+            {
+                "region": region,
+                "colour": colour,
+                "dark": dark,
+                "tolerance": tolerance,
+                "min_area": min_area,
+            },
+        )
+
+    @look
+    def view() -> CallToolResult:
+        """What the person is looking at: their selection (objects and
+        points) and, in the editor window, the visible region [x, y, w, h],
+        the zoom (screen pixels per unit), the active tool, the entered
+        group and the reference view. Read-only: you never change them.
+        render(region="view") renders the same."""
+        return state.call("view", {})
 
     @look
     def get_svg(ids: list[str] | None = None) -> CallToolResult:
@@ -303,13 +376,36 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("get_svg", {"ids": ids})
 
     @look
-    def points(id: str) -> CallToolResult:  # noqa: A002
-        """A path's contours and nodes: ids, commands, values and pins.
+    def points(
+        id: str,  # noqa: A002
+        region: Region | None = None,
+        contours: list[int] | None = None,
+        coords: Literal["document", "local", "both"] = "document",
+        nodes: bool = True,
+        page: int = 0,
+        page_size: int = 300,
+    ) -> CallToolResult:
+        """A path's contours (index, id, first node, count, closed, bounds)
+        with their nodes (id, i, command, values, pinned), a page at a time.
 
-        Values are [x, y] for M and L nodes and [c1x, c1y, c2x, c2y, x, y]
-        for C, in the path's own coordinates.
+        region [x, y, w, h] keeps the contours crossing it and the nodes
+        inside it; contours keeps those indices; nodes=false lists contours
+        only. Values are [x, y] for M and L, [c1x, c1y, c2x, c2y, x, y] for
+        C, in document coordinates (coords="local": the path's own, "both":
+        both). "more" says when there is another page.
         """
-        return state.call("points", {"id": id})
+        return state.call(
+            "points",
+            {
+                "id": id,
+                "region": region,
+                "contours": contours,
+                "coords": coords,
+                "nodes": nodes,
+                "page": page,
+                "page_size": page_size,
+            },
+        )
 
     @look
     def holes(id: str) -> CallToolResult:  # noqa: A002
@@ -483,6 +579,20 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("delete", {"ids": ids})
 
     @tool(structured_output=False)
+    def extract(
+        region: Area, ids: list[str] | None = None, cut: bool = True
+    ) -> CallToolResult:
+        """Take the contours lying inside region ([x, y, w, h] or a polygon
+        [[x, y], ...], document coordinates) out of their paths, each path's
+        into a new path with its paint, just above it in its group.
+
+        The paths ids, or every unlocked path painting there. cut=true cuts
+        strokes crossing the region's edge there (and splits fills along it);
+        cut=false takes only whole contours. One undo step.
+        """
+        return state.call("extract", {"region": region, "ids": ids, "cut": cut})
+
+    @tool(structured_output=False)
     def add_path(
         d: str,
         fill: str | None = None,
@@ -492,8 +602,13 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         index: int | None = None,
         name: str | None = None,
     ) -> CallToolResult:
-        """Draw a new path from SVG path data with one subpath (close it with
-        Z for a shape), in front, or in parent at index; its id is in created."""
+        """Draw a new path from SVG path data in document coordinates (close
+        it with Z for a shape; more subpaths are holes or parts).
+
+        It goes into the group of what is drawn under it, just above that
+        (placed says where and why), or into parent at index; its id is in
+        created.
+        """
         return state.call(
             "add_path",
             {
@@ -538,10 +653,14 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
     # Points ------------------------------------------------------------
 
     @tool(structured_output=False)
-    def set_points(changes: dict[str, dict[str, list[float]]]) -> CallToolResult:
+    def set_points(
+        changes: dict[str, dict[str, list[float]]],
+        coords: Literal["document", "local"] = "document",
+    ) -> CallToolResult:
         """Set node values: {object id: {node id: values}}, values as
-        points() lists them (moving a node, move its handles with it)."""
-        return state.call("set_points", {"changes": changes})
+        points() lists them, in document coordinates unless coords="local"
+        (moving a node, move its handles with it)."""
+        return state.call("set_points", {"changes": changes, "coords": coords})
 
     @tool(structured_output=False)
     def handles(points: Points, count: Literal[0, 1, 2]) -> CallToolResult:
@@ -574,9 +693,20 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         return state.call("delete_points", {"points": points})
 
     @tool(structured_output=False)
-    def delete_contours(points: Points) -> CallToolResult:
-        """Delete the whole contours these points are on."""
-        return state.call("delete_contours", {"points": points})
+    def delete_contours(
+        points: Points | None = None,
+        region: Area | None = None,
+        ids: list[str] | None = None,
+        cut: bool = False,
+    ) -> CallToolResult:
+        """Delete the whole contours these points are on; or those lying
+        inside region ([x, y, w, h] or a polygon), of the paths ids or every
+        unlocked path painting there (cut=true also cuts away the parts of
+        contours crossing into it). One undo step."""
+        return state.call(
+            "delete_contours",
+            {"points": points, "region": region, "ids": ids, "cut": cut},
+        )
 
     # Operations --------------------------------------------------------
 

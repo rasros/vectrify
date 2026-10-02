@@ -235,3 +235,53 @@ def test_the_desktop_window_opens_a_port_of_its_own_while_allowed():
     assert read_discovery() is None
     with pytest.raises(TargetError):
         target.call("hello", {})
+
+
+def test_the_window_reports_its_view_with_its_poll_for_view(server):
+    _, state = page(server, "/api/session", {})
+    session_id = state["session"]
+    page(server, "/api/agent", {"enabled": True}, session_id)
+    found = read_discovery()
+    assert found is not None
+    page(
+        server,
+        "/api/action",
+        {
+            "command": "select",
+            "objects": ["sun"],
+            "epoch": state["epoch"],
+            "revision": 0,
+        },
+        session_id,
+    )
+    shown = {
+        "region": [10, 20, 60, 40],
+        "zoom": 4,
+        "pixels": [240, 160],
+        "tool": "select",
+        "entered": None,
+        "reference_view": None,
+        "reference_opacity": None,
+    }
+    status, _ = page(server, "/api/poll", {"view": shown}, session_id)
+    assert status == 200
+    status, bad = page(server, "/api/poll", {"view": {"zoom": 2}}, session_id)
+    assert status == 400
+    assert "region" in bad["error"]
+    status, body = agent(server, found["token"], {"tool": "view", "args": {}})
+    assert status == 200
+    view = body["data"]
+    assert view["window"] is True
+    assert view["region"] == [10, 20, 60, 40]
+    assert view["zoom"] == 4
+    assert view["tool"] == "select"
+    assert view["selection"]["objects"] == ["sun"]
+    status, body = agent(
+        server, found["token"], {"tool": "render", "args": {"region": "view"}}
+    )
+    assert status == 200
+    assert body["data"]["pixels"] == [240, 160]
+    # Looking changes neither the person's selection nor the drawing.
+    _, after = page(server, "/api/session", {"session": session_id})
+    assert after["selection"]["objects"] == ["sun"]
+    assert after["revision"] == 0

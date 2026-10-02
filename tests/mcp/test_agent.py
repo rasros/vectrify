@@ -119,8 +119,8 @@ def test_get_svg_of_some_objects():
 
 
 def nodes(agent: Agent, oid: str) -> list[str]:
-    geometry = agent.call("points", {"id": oid}).data["geometry"]
-    return [n["id"] for sp in geometry["subpaths"] for n in sp["nodes"]]
+    contours = agent.call("points", {"id": oid}).data["contours"]
+    return [n["id"] for c in contours for n in c["nodes"]]
 
 
 def person_selects(agent: Agent, objects: list[str], points: Sequence[str] = ()):

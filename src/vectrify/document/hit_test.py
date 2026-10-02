@@ -9,6 +9,9 @@ from __future__ import annotations
 
 import math
 import re
+from collections.abc import Callable
+from dataclasses import dataclass
+from functools import partial
 from itertools import pairwise
 
 import numpy as np
@@ -150,6 +153,58 @@ def _filled(contours: tuple[Contour, ...], rule: str) -> BaseGeometry:
     return unary_union(faces)
 
 
+def _stroke(
+    points: tuple[Point2, ...],
+    closed: bool,
+    width: float,
+    style: dict[str, str],
+    tolerance: float,
+) -> BaseGeometry:
+    """Where a contour's stroke paints, in its own coordinates."""
+    cap = {
+        "butt": BufferCapStyle.flat,
+        "round": BufferCapStyle.round,
+        "square": BufferCapStyle.square,
+    }[style.get("stroke-linecap", "butt")]
+    join = {
+        "miter": BufferJoinStyle.mitre,
+        "round": BufferJoinStyle.round,
+        "bevel": BufferJoinStyle.bevel,
+    }[style.get("stroke-linejoin", "miter")]
+    if closed and points[-1] != points[0]:
+        points = (*points, points[0])
+    line = LineString(points) if len(set(points)) > 1 else Point(points[0])
+    return line.buffer(
+        width / 2,
+        quad_segs=_quadrants(width / 2, tolerance),
+        cap_style=cap,
+        join_style=join,
+        mitre_limit=max(1, float(style.get("stroke-miterlimit", "4"))),
+    )
+
+
+def _lazy(make: Callable[[], BaseGeometry]) -> Callable[[], BaseGeometry]:
+    """*make*, called once when first needed."""
+    made: list[BaseGeometry] = []
+
+    def get() -> BaseGeometry:
+        if not made:
+            made.append(make())
+        return made[0]
+
+    return get
+
+
+@dataclass(frozen=True)
+class _ContourPaint:
+    """One contour of a path: its painted bounds in root user space, and,
+    made when first asked for, where its fill and its stroke paint."""
+
+    bounds: tuple[float, float, float, float]
+    fill: Callable[[], BaseGeometry] | None
+    stroke: Callable[[], BaseGeometry] | None
+
+
 class HitIndex:
     """Build once for an immutable document; rebuild after document changes.
 
@@ -167,6 +222,9 @@ class HitIndex:
         self._elements = {e.id: e for e in document.elements()}
         self._geometries = {g.id: g for g in document.geometries}
         self._parts: dict[int, tuple[BaseGeometry, tuple[BaseGeometry, ...]]] = {}
+        # Each drawn path's transform to root user space and its paint.
+        self._paths: dict[str, tuple[Matrix, dict[str, str]]] = {}
+        self._contour_cache: dict[str, list[_ContourPaint]] = {}
         _, areas = self._visit(document.root, IDENTITY, {}, record=True)
         del self._parts
         self._areas = {
@@ -211,6 +269,94 @@ class HitIndex:
             return None
         lefts, tops, rights, bottoms = zip(*(s.bounds for s in shapes), strict=True)
         return min(lefts), min(tops), max(rights), max(bottoms)
+
+    def contours_in(self, object_id: str, shape: BaseGeometry) -> list[tuple[int, str]]:
+        """The contours of the path *object_id* that paint within *shape*.
+
+        Each is (index among the path's subpaths, "stroke" or "fill"): its
+        own stroke, or else its own filled area, after transforms, meets
+        *shape*. Only where the path paints at all, so a hole's inside is
+        no hit.
+        """
+        area = self._areas.get(object_id)
+        if area is None or object_id not in self._paths or not area.intersects(shape):
+            return []
+        found = []
+        left, top, right, bottom = shape.bounds
+        for index, contour in enumerate(self._contour_paint(object_id)):
+            x0, y0, x1, y1 = contour.bounds
+            if x0 > right or x1 < left or y0 > bottom or y1 < top:
+                continue
+            if contour.stroke is not None and contour.stroke().intersects(shape):
+                found.append((index, "stroke"))
+            elif contour.fill is not None and contour.fill().intersects(shape):
+                found.append((index, "fill"))
+        return found
+
+    def _contour_paint(self, object_id: str) -> list[_ContourPaint]:
+        cached = self._contour_cache.get(object_id)
+        if cached is not None:
+            return cached
+        matrix, style = self._paths[object_id]
+        element = self._elements[object_id]
+        assert element.geometry_id is not None
+        scale = math.hypot(*matrix[:4])
+        tolerance = self.tolerance / max(scale, 1e-300)
+        filled = (
+            style.get("fill", "black") != "none"
+            and color(style.get("fill", "black"))[3] > 0
+            and float(style.get("fill-opacity", "1")) > 0
+        )
+        width = float(style.get("stroke-width", "1"))
+        stroked = (
+            width > 0
+            and style.get("stroke", "none") != "none"
+            and color(style["stroke"])[3] > 0
+            and float(style.get("stroke-opacity", "1")) > 0
+        )
+        reach = width / 2 * scale if stroked else 0.0
+        a, b, c, d, e, f = matrix
+
+        def fill(points: tuple[Point2, ...], closed: bool) -> BaseGeometry:
+            return mapped(_filled(((points, closed),), "nonzero"), matrix)
+
+        def stroke(points: tuple[Point2, ...], closed: bool) -> BaseGeometry:
+            return mapped(_stroke(points, closed, width, style, tolerance), matrix)
+
+        result = []
+        for subpath in self._geometries[element.geometry_id].subpaths:
+            points = [subpath.nodes[0].endpoint]
+            for node in subpath.nodes[1:]:
+                if node.command == "C":
+                    v = node.values
+                    points.extend(
+                        _flatten(
+                            (points[-1], (v[0], v[1]), (v[2], v[3]), node.endpoint),
+                            tolerance,
+                        )
+                    )
+                else:
+                    points.append(node.endpoint)
+            xy = np.asarray(points, dtype=np.float64)
+            xs = a * xy[:, 0] + c * xy[:, 1] + e
+            ys = b * xy[:, 0] + d * xy[:, 1] + f
+            line, closed = tuple(points), subpath.closed
+            result.append(
+                _ContourPaint(
+                    (
+                        float(xs.min()) - reach,
+                        float(ys.min()) - reach,
+                        float(xs.max()) + reach,
+                        float(ys.max()) + reach,
+                    ),
+                    _lazy(partial(fill, line, closed))
+                    if filled and len(points) >= 3
+                    else None,
+                    _lazy(partial(stroke, line, closed)) if stroked else None,
+                )
+            )
+        self._contour_cache[object_id] = result
+        return result
 
     def _contours(self, element: Element, tolerance: float) -> tuple[Contour, ...]:
         def number(name: str, default: float = 0) -> float:
@@ -354,6 +500,8 @@ class HitIndex:
         scale = math.hypot(*matrix[:4])
         tolerance = self.tolerance / max(scale, 1e-300)
         contours = self._contours(element, tolerance)
+        if record and element.tag == "path":
+            self._paths[element.id] = (matrix, style)
         parts: list[BaseGeometry] = []
         if clip or (
             style.get("fill", "black") != "none"
@@ -373,29 +521,8 @@ class HitIndex:
             and color(style["stroke"])[3] > 0
             and float(style.get("stroke-opacity", "1")) > 0
         ):
-            cap = {
-                "butt": BufferCapStyle.flat,
-                "round": BufferCapStyle.round,
-                "square": BufferCapStyle.square,
-            }[style.get("stroke-linecap", "butt")]
-            join = {
-                "miter": BufferJoinStyle.mitre,
-                "round": BufferJoinStyle.round,
-                "bevel": BufferJoinStyle.bevel,
-            }[style.get("stroke-linejoin", "miter")]
             for points, closed in contours:
-                if closed and points[-1] != points[0]:
-                    points = (*points, points[0])
-                line = LineString(points) if len(set(points)) > 1 else Point(points[0])
-                parts.append(
-                    line.buffer(
-                        width / 2,
-                        quad_segs=_quadrants(width / 2, tolerance),
-                        cap_style=cap,
-                        join_style=join,
-                        mitre_limit=max(1, float(style.get("stroke-miterlimit", "4"))),
-                    )
-                )
+                parts.append(_stroke(points, closed, width, style, tolerance))
         painted = mapped(unary_union(parts), matrix)
         areas: dict[str, BaseGeometry] = {}
         children = []
