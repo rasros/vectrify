@@ -237,6 +237,14 @@ RAMP_PIXELS = 400
 RAMP_GAIN = 0.25
 RAMP_LEAST = 4.0
 RAMP_SAMPLES = 4000
+# A region whose paint falls into two shades with few pixels between them
+# is two regions run together: it is split into them where the shades,
+# along its colours' main axis, are at least MIXED_STEP apart in 0-255 RGB,
+# each covers at least MIXED_LEAST pixels, and at most MIXED_BETWEEN of its
+# pixels lie in the middle third between them.
+MIXED_STEP = 16.0
+MIXED_LEAST = 100
+MIXED_BETWEEN = 0.1
 
 
 def _disk(radius: int) -> np.ndarray:
@@ -1398,6 +1406,8 @@ def vectorize(
         outer, depth = outer_line(drawing, line, thin(line))
         if outer is not None:
             labels = _within(labels, drawing, depth)
+    # 3. A region run together from two shades is split back into them.
+    labels = split_mixed(labels, target, line)
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
     count = int(labels.max()) + 1
@@ -1491,6 +1501,96 @@ def line_layer(
     return cover, rgba[..., :3] * cover
 
 
+def _inside(labels: np.ndarray) -> np.ndarray:
+    """The pixels whose four neighbours are in their own region."""
+    inside = np.ones(labels.shape, dtype=bool)
+    across = labels[1:] != labels[:-1]
+    inside[1:] &= ~across
+    inside[:-1] &= ~across
+    across = labels[:, 1:] != labels[:, :-1]
+    inside[:, 1:] &= ~across
+    inside[:, :-1] &= ~across
+    return inside
+
+
+def split_mixed(labels: np.ndarray, target: np.ndarray, line: np.ndarray) -> np.ndarray:
+    """*labels* with each region of two shades split in two, its
+    second shade numbered after the last region.
+
+    A region's own paint, away from its edge and the lines, smoothed of
+    grain, is split along its colours' main axis where the two sides differ
+    most (Otsu); when the sides are far apart with few pixels between them
+    (see MIXED_STEP), each pixel takes the shade of its nearest paint, and
+    specks of one shade go to the other.
+    """
+    from scipy.ndimage import find_objects
+
+    smooth = gaussian_filter(target, (1, 1, 0))
+    # Away from its edge and the lines, which the smoothing spreads in.
+    paint = distance_transform_edt(_inside(labels) & ~line) > 2
+    split = labels.copy()
+    count = int(labels.max()) + 1
+    for index, box in enumerate(find_objects(labels + 1)):
+        if box is None:
+            continue
+        mask = labels[box] == index
+        own = mask & paint[box]
+        if own.sum() < 2 * MIXED_LEAST:
+            continue
+        second = _two_shades(smooth[box][own])
+        if second is None:
+            continue
+        shade = np.zeros(mask.shape, dtype=bool)
+        shade[own] = second
+        y, x = nearest_indices(~own)
+        shade = shade[y, x] & mask
+        shade = _without_specks(shade, mask)
+        if min(shade.sum(), (mask & ~shade).sum()) < MIXED_LEAST:
+            continue
+        split[box][shade] = count
+        count += 1
+    return split
+
+
+def _two_shades(colours: np.ndarray) -> np.ndarray | None:
+    """Which of *colours* are the second of two shades, or None when they
+    are not two (see MIXED_STEP)."""
+    colours = colours.astype(np.float64)
+    centred = colours - colours.mean(0)
+    _, vectors = np.linalg.eigh(centred.T @ centred)
+    along = centred @ vectors[:, -1]
+    values = np.sort(along)
+    n = len(values)
+    sums = np.cumsum(values)[:-1]
+    low = np.arange(1, n)
+    below = sums / low
+    above = (sums[-1] + values[-1] - sums) / (n - low)
+    best = int(np.argmax(low * (n - low) * (above - below) ** 2))
+    threshold = (values[best] + values[best + 1]) / 2
+    first, second = below[best], above[best]
+    if second - first < MIXED_STEP or min(best + 1, n - best - 1) < MIXED_LEAST:
+        return None
+    between = np.abs(along - (first + second) / 2) < (second - first) / 6
+    if between.mean() > MIXED_BETWEEN:
+        return None
+    return along > threshold
+
+
+def _without_specks(shade: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """*shade* within *mask*, its pieces and holes under PIECE pixels
+    turned over."""
+    for _ in range(2):
+        pieces, count = label(shade)
+        sizes = np.bincount(pieces.ravel(), minlength=count + 1)
+        sizes[0] = PIECE
+        shade = (sizes[pieces] >= PIECE) & shade
+        holes, count = label(mask & ~shade)
+        sizes = np.bincount(holes.ravel(), minlength=count + 1)
+        sizes[0] = PIECE
+        shade = shade | (mask & (sizes[holes] < PIECE))
+    return shade
+
+
 def fitted_fills(
     target: np.ndarray,
     labels: np.ndarray,
@@ -1508,14 +1608,7 @@ def fitted_fills(
     lines all but hide keeps its *fallback* colour."""
     count = len(fallback)
     flat = labels.ravel()
-    inside = np.ones(labels.shape, dtype=bool)
-    across = labels[1:] != labels[:-1]
-    inside[1:] &= ~across
-    inside[:-1] &= ~across
-    across = labels[:, 1:] != labels[:, :-1]
-    inside[:, 1:] &= ~across
-    inside[:, :-1] &= ~across
-    seen = (1 - cover[..., 0]).astype(np.float64) * inside
+    seen = (1 - cover[..., 0]).astype(np.float64) * _inside(labels)
     weight = np.bincount(flat, (seen * seen).ravel(), minlength=count)
     sums = np.stack(
         [

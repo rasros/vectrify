@@ -599,6 +599,33 @@ def test_a_fill_is_fitted_under_the_lines_not_from_its_median():
     assert fitted[1].tolist() == [7.0] * 3
 
 
+def test_a_region_of_two_shades_is_split_into_them():
+    # One region holding a dark patch in a light one, with some grain: its
+    # fitted colour would be a grey between them.
+    rng = np.random.default_rng(3)
+    labels = np.zeros((60, 80), dtype=np.int64)
+    target = np.full((60, 80, 3), (200, 170, 150), dtype=np.float32)
+    target[15:45, 20:50] = (70, 55, 50)
+    target += rng.normal(0, 3, target.shape).astype(np.float32)
+    line = np.zeros(labels.shape, dtype=bool)
+    split = cel.split_mixed(labels, target, line)
+    assert len(np.unique(split)) == 2
+    assert (split[16:44, 21:49] == split[30, 35]).all()
+    assert (split[:10] == split[0, 0]).all()
+    assert split[0, 0] != split[30, 35]
+
+
+def test_a_ramp_or_one_shade_is_not_split():
+    labels = np.zeros((60, 80), dtype=np.int64)
+    line = np.zeros(labels.shape, dtype=bool)
+    ramp = np.linspace(60, 220, 80, dtype=np.float32)[None, :, None]
+    target = np.broadcast_to(ramp, (60, 80, 3)).copy()
+    assert len(np.unique(cel.split_mixed(labels, target, line))) == 1
+    flat = np.full((60, 80, 3), 150, dtype=np.float32)
+    flat += np.random.default_rng(4).normal(0, 6, flat.shape).astype(np.float32)
+    assert len(np.unique(cel.split_mixed(labels, flat, line))) == 1
+
+
 def ramped_image() -> Image.Image:
     """A square outlined in black, its paint ramping left to right from dark
     to light blue."""
