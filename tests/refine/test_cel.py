@@ -279,6 +279,24 @@ def test_shading_against_a_line_does_not_take_the_line_with_it():
     assert not line[5:35, 20:22].any()
 
 
+def test_a_fold_wedge_is_shading_and_a_wide_black_line_is_not():
+    # A brown robe with a black line five pixels wide and, beside it, a
+    # tapering dark-brown fold wedge six pixels at its widest.
+    pixels = np.full((60, 80, 3), (125, 100, 87), dtype=np.float32)
+    pixels[:, 10:15] = (20, 16, 14)
+    y, x = np.mgrid[:60, :80]
+    wedge = (y >= 5) & (x >= 40) & (x < 40 + 6 * (1 - (y - 5) / 55))
+    pixels[wedge] = (65, 52, 48)
+    line, _ = cel.detect_lines(pixels, 3)
+    shaded, _ = cel.detect_lines(pixels, 3, shading=False)
+    assert line[5:55, 10:15].all()
+    # Without the shading test the wedge reads as a line; with it, its wide
+    # part and much of its tip go to the fills.
+    assert shaded[8:35, 41:44].mean() > 0.5
+    assert not line[8:22, 40:47].any()
+    assert line[:, 35:].sum() < 0.4 * shaded[:, 35:].sum()
+
+
 def test_a_line_runs_on_where_it_meets_a_dark_fill():
     # A thin grey line on white running into a navy fill: the fill must not
     # take the line as a notch of itself.
