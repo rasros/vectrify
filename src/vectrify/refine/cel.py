@@ -106,6 +106,19 @@ NOISE = 1.5
 # filled, not stroked.
 SHAPE_DEPTH = 3.0
 SHAPE_LEAST = 4.5
+# A line at least SHADING_DEPTH deep (about five pixels across with its
+# rim) is solid ink down its middle; a mark that wide whose middle keeps
+# more than SHADING_INK of the light of the surface around it, and is
+# SHADING_LIGHTER lighter than the ink (the darkest tenth of such middles),
+# is shading, such as a fold's wedge, and goes to the fills with its paler
+# edges and tips up to SHADING_REACH pixels on: a black line on a dark navy
+# fill keeps much of its light but is still ink. Pieces of it under
+# SHADING_LEAST pixels are grain.
+SHADING_DEPTH = 2.5
+SHADING_INK = 0.4
+SHADING_LIGHTER = 24
+SHADING_REACH = 4
+SHADING_LEAST = 8
 # The balls the free space is filled with, largest first, in pixels. A gap in
 # a line narrower than a ball keeps it out: the largest closes the most.
 BALLS = (6, 4, 2, 1)
@@ -244,7 +257,9 @@ def line_darkness(target: np.ndarray, radius: int) -> np.ndarray:
     return grey_closing(light, size=2 * radius + 1) - light
 
 
-def detect_lines(target: np.ndarray, radius: int) -> tuple[np.ndarray, np.ndarray]:
+def detect_lines(
+    target: np.ndarray, radius: int, *, shading: bool = True
+) -> tuple[np.ndarray, np.ndarray]:
     """The drawn lines, with their antialiased edges, and each pixel's
     darkness against the surface around it.
 
@@ -255,7 +270,10 @@ def detect_lines(target: np.ndarray, radius: int) -> tuple[np.ndarray, np.ndarra
     pixel much fainter than the image's lines is left to the fills, so a line
     keeps going where shading runs into it. A dark notch between two light
     spikes is as narrow as a line too, but it opens into a surface as dark as
-    itself; it is given back to that surface.
+    itself; it is given back to that surface. With *shading*, a wide mark
+    paler than ink down its middle, such as a fold's wedge, goes to the fills
+    too (see SHADING_INK); in a blurred, grainy image even a line's middle
+    is pale, so there it is left out.
     """
     light = lightness(target)
     darkness = line_darkness(target, radius)
@@ -274,6 +292,8 @@ def detect_lines(target: np.ndarray, radius: int) -> tuple[np.ndarray, np.ndarra
     # With the antialiased rim either side.
     mask |= binary_dilation(mask, np.ones((3, 3))) & faint
     mask = _without_notches(light, mask)
+    if shading:
+        mask = _without_shading(mask, light, light + bold)
     pieces, count = label(mask, np.ones((3, 3)))
     keep = np.bincount(pieces.ravel(), minlength=count + 1) >= LINE_SPECK
     keep[0] = False
@@ -327,6 +347,39 @@ def without_shapes(line: np.ndarray, times: float = SHAPE_DEPTH) -> np.ndarray:
         return line
     y, x = nearest_indices(~inside)
     return line & ~(distance_transform_edt(~inside) <= depth[y, x] + 0.5)
+
+
+def _without_shading(
+    mask: np.ndarray, light: np.ndarray, surface: np.ndarray
+) -> np.ndarray:
+    """*mask* less its wide marks whose middle is paler than ink: where a
+    mark at least SHADING_DEPTH deep keeps more than SHADING_INK of the
+    light of the *surface* around it, it is shading, such as a fold's dark
+    wedge, not a line. The mark goes, as far as it is deep there, with its
+    paler edges and tips up to SHADING_REACH pixels on."""
+    depth = distance_transform_edt(mask)
+    deep = mask & (depth >= SHADING_DEPTH)
+    if not deep.any():
+        return mask
+    # The ink: the darkest of the wide marks' middles.
+    ink = float(np.percentile(light[deep], 10))
+    pale = (light > SHADING_INK * surface) & (light > ink + SHADING_LIGHTER)
+    wide = deep & pale
+    pieces, count = label(wide, np.ones((3, 3)))
+    if not count:
+        return mask
+    keep = np.bincount(pieces.ravel(), minlength=count + 1) >= SHADING_LEAST
+    keep[0] = False
+    wide = keep[pieces]
+    if not wide.any():
+        return mask
+    y, x = nearest_indices(~wide)
+    # Only its pale pixels: an inked line it runs into stays.
+    body = mask & pale & (distance_transform_edt(~wide) <= depth[y, x] + 0.5)
+    body = binary_dilation(
+        body, np.ones((3, 3)), iterations=SHADING_REACH, mask=mask & pale
+    )
+    return mask & ~body
 
 
 def _without_notches(luminance: np.ndarray, mask: np.ndarray) -> np.ndarray:
@@ -1320,14 +1373,14 @@ def vectorize(
     # found in the image with it smoothed away first.
     grainy = noise_level(target) > NOISE
     found = median_filter(target, size=(3, 3, 1)) if grainy else target
-    line, darkness = detect_lines(found, radius)
+    line, darkness = detect_lines(found, radius, shading=not grainy)
     line = without_shapes(line)
     drawn, drawn_darkness = line, darkness
     if grainy:
         # The 3 x 3 median that bounds the regions takes thin lines with
         # the grain; the lines it lost are found again with them kept, and
         # drawn over the regions without cutting them.
-        kept, kept_darkness = detect_lines(denoised(target), radius)
+        kept, kept_darkness = detect_lines(denoised(target), radius, shading=False)
         drawn = line | without_shapes(kept)
         drawn_darkness = np.maximum(darkness, kept_darkness)
     # 1. Regions the lines bound, then split where only the colour changes.

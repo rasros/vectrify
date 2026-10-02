@@ -559,7 +559,11 @@ their brightest channel, so a black line still counts against a navy fill of
 the same brightness, or only a little darker than a dark fill beside it; bold
 outlines as dark as ink up to twice as wide; faint narrow shading, and dark
 notches as dark as the surface they open into, are left to the fills, as are
-dark shapes much wider than the lines). In a grainy or JPEG-compressed
+dark shapes much wider than the lines, and marks about five pixels wide or
+more whose middle is clearly paler than the ink, such as a fold's dark
+wedge on a robe, which stay shaded regions rather than branching strokes;
+in a grainy picture, where blur makes even a line's middle pale, that last
+test is skipped). In a grainy or JPEG-compressed
 picture the lines are found after a small median filter smooths the grain
 away; since that also takes lines a pixel wide, the lines are looked for again
 after a median of three pixels along each direction, which keeps them, and
