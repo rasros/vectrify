@@ -592,7 +592,9 @@ under the lines by at least a quarter and by 4 (in squared 0-255 levels)
 a pixel; the rest stay flat. The lines are thinned to
 centrelines and drawn over the regions as round-capped strokes in their ink:
 a thin line's antialiased middle mixes its ink with the surface, so it is
-drawn in the darker ink at the width of ink it holds, not in grey. A dark
+drawn in the darker ink at the width of ink it holds, not in grey; a line
+holding less than a pixel of ink is drawn a pixel wide and as much fainter
+(its stroke opacity), so it keeps its weight without becoming a sliver. A dark
 mark wider than its stroke but too small to be a filled shape, such as an
 eye or an eyebrow, is filled in its ink beneath the stroke where the stroke
 leaves it out, so it keeps its shape. There is
