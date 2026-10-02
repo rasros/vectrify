@@ -80,7 +80,10 @@ class Backend:
                         else session.nodes(data["object"])
                     )
                 elif path == "/api/poll":
-                    # What the page checks for agents' edits, and the footer.
+                    # What the page checks for agents' edits, and the footer;
+                    # it says what it shows, for an agent's view().
+                    if data.get("view") is not None:
+                        session.set_view(data["view"])
                     result = {
                         "epoch": session.epoch,
                         "revision": session.editor.snapshot.revision,

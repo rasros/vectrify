@@ -276,6 +276,19 @@ class Editor:
             )
         )
 
+    def settle(self, revision: int) -> None:
+        """Count every edit since *revision* as one revision.
+
+        For a call made of several edits under one lock, none of whose
+        in-between revisions anyone saw: the drawing is then one revision
+        past *revision*, as the one undo step they were squashed into says.
+        """
+        if self._revision <= revision + 1:
+            return
+        self._revision = revision + 1
+        if self._undo and self._undo[-1].revision > self._revision:
+            self._undo[-1] = replace(self._undo[-1], revision=self._revision)
+
     def rollback(self, since: int) -> None:
         """Take back the edits after the first *since*, leaving no redo."""
         if len(self._undo) <= since:
@@ -2063,6 +2076,105 @@ class Transaction:
             self.replace_geometry(outer_element.id, path_geometry(difference))
         self.delete_objects(frozenset({inner_element.id}))
         return outer_element.id
+
+    def extract_region(
+        self,
+        polygon: Sequence[tuple[float, float]],
+        *,
+        cut: bool = True,
+        delete: bool = False,
+    ) -> tuple[tuple[str, str | None], ...]:
+        """Take the contours of the selected paths that lie inside *polygon*
+        (root user space) into a path of their own, or delete them.
+
+        Each path with contours inside gets one new path holding them, with
+        its attributes, just above it in its group. With *cut*, contours
+        crossing the edge are cut along it first (see ``split_geometry``);
+        without, only contours wholly inside go. A path lying wholly inside
+        is left alone (or deleted). Returns (path, new path or None) pairs
+        for the paths it changed.
+        """
+        from vectrify.document.regions import object_matrix, split_geometry
+
+        with self._change():
+            self._whole_objects()
+            document = self._working
+            changed: list[tuple[str, str | None]] = []
+            for element in document.elements():
+                if element.id not in self._ids or element.tag != "path":
+                    continue
+                if any(
+                    e.tag in {"defs", "clipPath"} for e in document.ancestry(element.id)
+                ):
+                    continue
+                style = path_style(document, element)
+                filled = style["fill"] != "none"
+                if not filled and style["stroke"] == "none":
+                    continue
+                geometry = document.geometry_for(element.id)
+                split = split_geometry(
+                    geometry,
+                    object_matrix(document, element.id),
+                    polygon,
+                    filled=filled,
+                    rule=style["fill-rule"],
+                    cut=cut,
+                )
+                if not split.inside:
+                    continue
+                self._authorize(document.dependents({element.id}), EditKind.STRUCTURE)
+                self._authorize(document.dependents({element.id}), EditKind.GEOMETRY)
+                if any(element.id in references(e) for e in document.elements()):
+                    raise EditRejectedError(
+                        "This path is referenced; detach its instances first"
+                    )
+                if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
+                    raise EditRejectedError("Detach shared geometry first")
+                if delete and any(n.pinned for s in split.inside for n in s.nodes):
+                    raise EditRejectedError("Unpin the points before deleting them")
+                if not split.outside:
+                    if delete:
+                        self._remove_objects(frozenset({element.id}))
+                        changed.append((element.id, None))
+                    continue
+                before = {n.id for s in geometry.subpaths for n in s.nodes}
+                after = {n.id for s in split.outside for n in s.nodes}
+                kept = replace(geometry, subpaths=split.outside)
+                self._working = self._working.replace_geometry(kept)
+                made: str | None = None
+                if not delete:
+                    taken = Geometry(new_id("geometry"), split.inside)
+                    after |= {n.id for s in split.inside for n in s.nodes}
+                    piece = replace(
+                        element, id=new_id("object"), geometry_id=taken.id, name=""
+                    )
+                    parent = self._working.ancestry(element.id)[-2]
+                    self._working = self._working.replace_element(
+                        replace(
+                            parent,
+                            children=tuple(
+                                child
+                                for c in parent.children
+                                for child in (
+                                    (c, piece) if c.id == element.id else (c,)
+                                )
+                            ),
+                        )
+                    )
+                    self._working = replace(
+                        self._working,
+                        geometries=(*self._working.geometries, taken),
+                    )
+                    self._ids |= {piece.id}
+                    made = piece.id
+                self._record_remap({n: set() for n in before - after})
+                changed.append((element.id, made))
+            if not changed:
+                raise EditRejectedError(
+                    "No contour of these paths lies inside the region"
+                    + ("" if cut else "; cut=true takes the parts of ones crossing it")
+                )
+            return tuple(changed)
 
     def _whole_objects(self) -> None:
         if self._selection.node_ids:
