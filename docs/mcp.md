@@ -17,10 +17,17 @@ It runs two ways, with the same drawing tools:
 Turning on **Agents** (installed with `vectrify[mcp]`) starts the MCP
 server inside the editor, at `http://127.0.0.1:8770/mcp`: uvicorn running
 the SDK's Streamable HTTP ASGI app (`MCPServer.streamable_http_app`) in a
-background thread. If 8770 is taken it takes the next free port of the
-following 20 and the popover shows which; `vectrify --mcp-port N` picks
-another start. It works the same in the desktop app and in `--serve`.
+background thread. It works the same in the desktop app and in `--serve`.
 Turning Agents off stops the server, and so does quitting.
+
+- **A stable port.** The port it was hosted on is kept in
+  `$XDG_STATE_HOME/vectrify/mcp-port` and preferred next time, so the URL a
+  client was given keeps working; `vectrify --mcp-port N` asks for N
+  instead. With neither it is 8770. If the port is taken it takes the next
+  free one of the following 20 (and remembers that), and the popover warns,
+  in amber, that the URL changed, with the old URL and the new one: clients
+  added with the old URL must be updated (the footer's dot turns amber too).
+  The status carries it as `agent.mcp.moved: {old, new}`.
 
 The footer's popover shows the URL and the command, with a Copy button:
 
@@ -136,30 +143,51 @@ The server edits one target at a time, with the same tools for both:
   Turning it off, or quitting, removes the file and stops the server.
 - `/agent/call` stays: it is what the stdio `vectrify-mcp`'s `connect()`
   (`LiveTarget`) talks to, from its own process. A client that adds the
-  hosted URL never uses it.
+  hosted URL never uses it. `url` in `editor.json` says where it is:
   - In `--serve` mode the editor's own server carries the channel on its
     port, under `/agent/`.
-  - The desktop app (pywebview, which has no port) opens a localhost port
-    of its own when Agents is turned on, and closes it when turned off.
+  - The desktop app (pywebview, which has no port) carries it on the hosted
+    MCP server's port, under `/agent/` next to `/mcp`, behind the same guard
+    and token (`Guard.agent_call` in `vectrify/mcp/hosted.py`, which runs
+    each call off the event loop). One port, open only while Agents is on.
+    Without the `mcp` extra in the editor's environment the desktop app has
+    no agent channel at all.
 - Requests: `POST /agent/call` with `{tool, args}` and
   `Authorization: Bearer <token>`, answered with `{data, images}`; each image
   is fetched as a raw PNG body from `GET /agent/image/<key>`, never as base64
   inside JSON. Requests must be addressed to `127.0.0.1` or `localhost`. Off:
   403; a missing or wrong token: 401; an edit of a drawing that changed since
   the agent looked: 409; a refusal: 400 with the editor's message.
-- The page polls `/api/poll` every 0.7 s while Agents is on. When the agent
-  changed something (or the revision moved), it fetches the session's state
-  and redraws, unless the person is mid-gesture, and marks the drawing
-  unsaved. The footer reads *Agents off*, *Agents allowed*, or *Agent
-  connected · <last action>* (connected means a call in the last two
-  minutes).
-- The poll carries what the window shows, for `view()`: the visible part of
+- The page is told of each agent call as it happens. After every call
+  (looks too, and Agents turning on or off) `AgentChannel` beats
+  (`changed()`; `wait(beat, timeout)` waits for the next), and the page gets
+  its *pulse*, `{session, epoch, revision, agent}`, the same body
+  `/api/poll` answers:
+  - with `--serve`, as server-sent events from `GET /api/events?session=…`
+    (same-origin like the page's other requests; one `data:` line per pulse,
+    a comment every 15 s when idle; `Backend.events`), which the page opens
+    with an `EventSource` while Agents is on;
+  - in the desktop app, by a thread of `desktop.Api` that runs
+    `window.vectrifyPulse(<pulse>)` in the page with pywebview's `run_js`, so
+    an agent call never waits on the page.
+
+  When the agent changed something (or the revision moved), the page fetches
+  the session's state and redraws and marks the drawing unsaved. Mid-gesture
+  (a drag, or an edit of the person's own in flight) it waits and looks
+  again every 120 ms, so the edit shows once the pointer is released. It
+  still polls `/api/poll` every 5 s, which covers a dropped channel. Measured
+  in headless Chrome with `--serve`, an SDK client's paint showed in the
+  page 15 ms (median of 12; at most 48 ms) after the client sent it,
+  before the client had its answer back (about 50 ms). The footer reads
+  *Agents off*, *Agents allowed*, or *Agent connected · <last action>*
+  (connected means a call in the last two minutes).
+- The page reports what the window shows, for `view()`: the visible part of
   the drawing `[x, y, w, h]` in document units, the zoom (screen pixels per
   unit), the canvas size in pixels, the active tool, the entered group and
-  the reference view and opacity. The page sends it with each poll and,
-  250 ms after the view changes (zoom, pan, tool, entered group, reference
-  view), polls early; `Session.set_view` keeps the latest. Nothing is sent
-  while Agents is off.
+  the reference view and opacity. It sends it with each poll and, 250 ms
+  after the view changes (zoom, pan, tool, entered group, reference view),
+  in a poll of its own; `Session.set_view` keeps the latest. Nothing is
+  sent while Agents is off.
 - The poll's `agent.touched` lists the objects each of the agent's recent
   changes touched, as `{change, ids}` (the last 20 changes; `change` counts
   as `agent.changes` does). Once the page shows a change it outlines those
@@ -170,12 +198,19 @@ The server edits one target at a time, with the same tools for both:
 - Every edit goes through `Session.action` or `Session.operation`, so
   selection scope, locks, pins, permissions and revision checks hold exactly
   as in the editor: an agent can do nothing a person couldn't.
-- Revisions: the server remembers the epoch and revision of the last answer
-  (describe, render, an edit…) and sends it with each edit. If the drawing
-  changed since, the edit is refused with a message telling the agent to
-  `describe()` again, so it never overwrites a person's concurrent edit it
-  has not seen. `undo()` is checked the same way, so the agent never undoes a
-  step it has not seen.
+- Revisions: the server remembers, for each client, the epoch and revision
+  of the last answer it had (describe, render, an edit…) and sends it with
+  that client's edits. If the drawing changed since, the edit is refused
+  with a message telling the agent to `describe()` again, so it never
+  overwrites a person's (or another agent's) concurrent edit it has not
+  seen. `undo()` is checked the same way, so the agent never undoes a step
+  it has not seen. A client is its Streamable HTTP session
+  (`Mcp-Session-Id`); a stdio server is one client. A middleware
+  (`per_client` in `vectrify/mcp/server.py`) puts the client's key in a
+  context variable for the tool call; what it saw is also tied to the
+  target it looked at (`identity()`: the file, the editor, or the window's
+  `Agent`), so after Agents moves to another window every client must look
+  again.
 - The person's selection stays theirs. Every edit names its targets and
   none acts on the current selection. Inside its locked step a call selects
   its own targets (the session's checks of scope, locks and points work on
@@ -302,9 +337,10 @@ join each other; stroked lines join their ends within `reach`; filled
 paths merge by area; `joined` says which), `split_parts(ids)`,
 `cut_hole(ids)`, `holes(contours, action?, delete_enclosed?)` (`fill` or
 `shape`, of the holes `points()` marks), `convert(ids, to?)` (line, fill,
-either, or `path`: an instance or shared geometry detached into an editable
-path of its own; nothing else detaches by itself), `delete(ids? | points? |
-region?, contours?, cut?)` (objects; points, or with `contours=true` the
+either, or `path`: an instance, a basic shape or shared geometry made an
+editable path of its own, keeping its id and paint; nothing else detaches
+by itself), `delete(ids? | points? | region?, contours?, cut?, detach?)`
+(objects; points, or with `contours=true` the
 whole contours they are on; with a region, the contours inside it, see
 below), `add_path(d, fill?, stroke?, stroke_width?,
 parent?, index?, name?)` (path data in document coordinates, several
@@ -316,18 +352,32 @@ level), `knife(start, end, ids?, within?)` (without `ids`
 it cuts every unlocked path it crosses, as the editor's knife does with
 nothing selected), `redraw_outline(id, points, long_way?, pixel?)`.
 
-**Regions**: `extract(region, ids?, cut?)` takes the contours of the paths
-`ids` (or of every path painting in the region whose geometry and structure
-are unlocked) that lie inside the region into a new path per path, with its
-attributes, just above it in its group, and answers `extracted`: `{path,
-from, contours}`. Contours wholly inside go as they are, keeping their node
+**Regions**: `extract(region, ids?, cut?, group?, detach?)` takes the
+contours of the paths `ids` (or of every path or shape painting in the
+region whose geometry and structure are unlocked) that lie inside the
+region into a new path per path, with its attributes, just above it in its
+group, and answers `extracted`: `{path, from, contours}`. With
+`group=true` the new paths go into one new group (`group` in the answer)
+just above the frontmost path they came from, in that path's group: pieces
+from other groups move there keeping where they are drawn (the transform
+and paint they inherited are written onto them, as `arrange(parent=…)`
+does), all in the one undo step "Extract region into a group". A rect,
+circle, ellipse or line is cut as the path of its outline (cubic arcs for
+round parts, `regions.shape_geometry`): one the region cuts becomes that
+path, keeping its id, paint and transform (a line's path is given
+`fill="none"`); one wholly inside is left as it is (or deleted). An
+instance (`use`) draws shared geometry, so a region edit that would act on
+one is refused, naming it, unless `detach=true`, which first gives it a
+path of its own as `convert(ids, to="path")` does. `describe(region)` and
+`pick` find shapes and instances by what they paint, as they do paths
+(only paths list contours). Contours wholly inside go as they are, keeping their node
 ids. With `cut=true` (the default) a stroke crossing the region's edge is
 cut there with the knife's machinery and its pieces go to the side they lie
 on, and a filled shape whose outline crosses the edge is split along it
 (Skia path ops, as the knife's fill cut; its shapes get new node ids); a
 fill that merely surrounds the region is left alone, as is a shape and its
 holes unless all of them are inside. A path lying wholly inside is left as
-it is. `delete(region=..., ids?, cut?)` deletes them instead
+it is. `delete(region=..., ids?, cut?, detach?)` deletes them instead
 (whole contours unless `cut=true`). Both are one undo step: the session
 command `extract` (`Transaction.extract_region`, `document/regions.py`).
 
@@ -391,11 +441,14 @@ the agent reads them with `view()` and never sets them.
   another window of the same `--serve` server moves the channel (and the
   hosted server's target) there; the agent must `describe()` again before it
   edits. The discovery file names the most recent editor to allow agents.
-- Two editors both allowing agents host on 8770 and 8771; a client added
-  with 8770 reaches whichever got it first.
-- Clients of the hosted server share one record of the revision last seen,
-  so with two clients at once, one's `describe()` counts as the other's
-  look too. Use one client at a time.
+- Two editors both allowing agents host on two ports; a client added with
+  the first reaches whichever got it first, and the second's popover says
+  its URL moved.
+- A request with no session (the sessionless 2026-07-28 Streamable HTTP
+  protocol, which the SDK's own client speaks by default) is told apart
+  only by the `clientInfo` it sends: two such clients of the same name and
+  version share one record of what they saw. Clients that open a session
+  (`Mcp-Session-Id`, as today's do) are kept apart.
 - The hosted server needs the `mcp` extra in the editor's own environment;
   without it the popover says so and `vectrify-mcp`'s `connect()` still
   works.
@@ -404,17 +457,21 @@ the agent reads them with `view()` and never sets them.
   has nothing left to flash.
 - A job (`tidy`, `fit_colours`…) works on the objects it started with; the
   person's selection meanwhile has no effect on it.
-- The page notices agent edits by polling, so they show within about a
-  second, not instantly, and not while the person is mid-drag.
+- Agent edits wait while the person is mid-drag, and show once it ends.
+  Each open `--serve` page holds one event stream (a server thread) while
+  Agents is on.
 - Renders use the editor's export and Cairo; they match the page's SVG
   rendering closely but not pixel for pixel. `render(region="view")` shows
   the window's view of the drawing, without the page's checkerboard, the
   canvas around the artboard or the selection overlay.
-- The view is as of the window's last poll (within about a second); a
-  window that has not polled since Agents was turned on has none yet.
-- `extract` and `delete(region=...)` act on paths; shapes (rect,
-  circle…) and instances are left alone. Cutting a filled shape gives all
-  of its contours new node ids.
+- The view is as of the window's last report (sent 250 ms after it
+  changes, and with each 5 s poll); a window that has not reported since
+  Agents was turned on has none yet.
+- Cutting a filled shape gives all of its contours new node ids. A shape's
+  sizes must be plain numbers (no units or percentages) to be cut, and
+  `detach=true` handles instances of paths in `defs` only, as Detach does.
+  `extract(group=true)` is refused where the pieces cannot move into one
+  group keeping their look (a group with opacity or a clip in between).
 - `trace_reference` traces the reference at its own resolution there, at
   least 256 and at most 1024 pixels on the long side; finer detail needs a
   smaller region.

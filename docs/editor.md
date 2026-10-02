@@ -14,7 +14,9 @@ uv run vectrify drawing.svg --reference original.png
 
 With the `desktop` extra the editor opens in a native window (pywebview: the
 platform's web view, or Qt WebEngine on Linux), and the page calls the Python
-backend directly; saving asks for a file with a native dialog. Without the
+backend directly; saving asks for a file with a native dialog. It opens no
+port of its own: with Agents on, agents reach it on the MCP server's port.
+Without the
 extra, or with `--serve` (and optionally `--port`), vectrify serves the editor
 on loopback and prints the address to open in a browser. The UI is included in
 the Python package and needs no Node build step.
@@ -94,6 +96,16 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   flash briefly in the canvas; the person's selection (objects, points and
   the entered group) is never changed by the agent, except that objects it
   deletes drop out of it.
+- Agents' edits reach the page as they happen: the editor pushes each agent
+  call to it (server-sent events with `--serve`, a script the desktop window
+  runs in the app), so an edit shows within a few tens of milliseconds, and
+  a poll every 5 s covers a dropped channel. Mid-drag the page waits and
+  shows the edit once the pointer is released. The MCP server's port is
+  remembered (in `$XDG_STATE_HOME/vectrify/mcp-port`) and taken again next
+  time, so a client added once keeps working; `--mcp-port` asks for another.
+  When the port is taken the server moves to the next free one, and the
+  popover warns in amber with the old URL and the new one: clients added
+  with the old URL must be updated.
 
 Dialogs remain where a preview or confirmation is needed: Generate from
 reference, Tidy, Fit colours (and Fit gradient), Join (for filled paths), Clean up, Snap edges,
