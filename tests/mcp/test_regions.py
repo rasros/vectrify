@@ -185,7 +185,7 @@ def test_extract_takes_a_region_out_cutting_strokes_across_it(tmp_path):
         around = await call("extract", region=[5, 155, 30, 30], ids=["ring"])
         assert "No contour" in error(around)
         # Deleting in a region: the eye goes, the stroke across stays whole.
-        deleted = data(await call("delete_contours", region=EYE))
+        deleted = data(await call("delete", region=EYE))
         assert deleted["step"] == "Agent: Delete in region"
         after = data(await call("points", id="ink"))
         assert after["contours_total"] == 4
@@ -217,7 +217,7 @@ def test_renders_say_how_pixels_map_and_can_carry_a_grid(tmp_path):
     run(tmp_path, with_reference)
 
 
-def test_trace_reference_outlines_a_dark_blob_and_sample_reads_colours(tmp_path):
+def test_trace_reference_outlines_a_dark_blob_and_pick_reads_colours(tmp_path):
     reference = tmp_path / "disc.png"
     reference.write_bytes(dark_disc_png())
 
@@ -242,22 +242,20 @@ def test_trace_reference_outlines_a_dark_blob_and_sample_reads_colours(tmp_path)
         assert nothing["shapes"] == []
         assert "note" in nothing
 
-        dark = data(await call("sample", x=100, y=100, radius=3))
-        assert dark["reference"] == "#0a0a0a"
-        assert dark["object"]["id"] == "face"
-        assert dark["drawing"] == "#f0c090"
-        red = data(await call("sample", x=175, y=25))
-        assert red["drawing"] == "#ff0000"
-        assert red["object"]["id"] == "top"
-        assert red["object"]["colour"] == "#ff0000"
-        assert red["under"] == ["bg"]
-        stroke = data(await call("sample", x=70, y=88))
-        assert stroke["object"] == {
-            "id": "ink",
-            "paints": "stroke",
-            "colour": "#111111",
-            "contour": 1,
-        }
+        # pick gives the colours at a spot along with what paints there.
+        dark = data(await call("pick", x=100, y=100, radius=3))
+        assert dark["colour"]["reference"] == "#0a0a0a"
+        assert dark["colour"]["drawing"] == "#f0c090"
+        assert dark["colour"]["difference"] > 0.5
+        assert dark["objects"][0]["id"] == "face"
+        red = data(await call("pick", x=175, y=25))
+        assert red["colour"]["drawing"] == "#ff0000"
+        assert [o["id"] for o in red["objects"]] == ["top", "bg"]
+        stroke = data(await call("pick", x=70, y=88))
+        ink = stroke["objects"][0]
+        assert ink["id"] == "ink"
+        assert [(c["index"], c["paints"]) for c in ink["contours"]] == [(1, "stroke")]
+        assert stroke["colour"]["drawing"] == "#111111"
 
     run(tmp_path, body)
 
@@ -284,7 +282,7 @@ def test_each_call_is_one_revision_and_new_paths_go_where_they_are_drawn(tmp_pat
         # Where it was drawn, in the document.
         drawn = data(await call("points", id=pupil))["contours"][0]
         assert drawn["bounds"] == [75, 98, 10, 6]
-        painted = data(await call("paint", ids=[pupil], fill="#123456"))
+        painted = data(await call("properties", ids=[pupil], fill="#123456"))
         assert painted["revision"] == start + 2
         undone = data(await call("undo", steps=2))
         assert undone["revision"] == start + 3

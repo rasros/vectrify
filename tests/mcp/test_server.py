@@ -35,31 +35,36 @@ def test_open_look_edit_undo_and_save(tmp_path):
             assert png_size(images(close)[0]) == (64, 64)
 
             # A refusal is a tool error carrying the editor's reason.
-            refused = await client.call_tool("paint", {"ids": ["sun"]})
+            refused = await client.call_tool("properties", {"ids": ["sun"]})
             assert "Give a fill" in error(refused)
             # Every edit names its targets; none falls back to the selection.
             for tool, args in [
-                ("paint", {"fill": "red"}),
-                ("paint", {"ids": [], "fill": "red"}),
-                ("delete", {}),
-                ("move", {"dx": 1, "dy": 1}),
+                ("properties", {"fill": "red"}),
+                ("properties", {"ids": [], "fill": "red"}),
+                ("transform", {"dx": 1, "dy": 1}),
                 ("tidy", {}),
-                ("handles", {"points": [], "count": 0}),
+                ("point_style", {"points": [], "handles": 0}),
             ]:
                 assert "validation error" in error(await client.call_tool(tool, args))
+            # delete takes ids, points or a region, and refuses none of them.
+            assert "Give ids" in error(await client.call_tool("delete", {}))
             tools = await client.list_tools()
             schemas = {t.name: t.input_schema for t in tools.tools}
             assert "select" not in schemas
-            for name in ("paint", "move", "group", "delete", "tidy", "cleanup"):
+            for name in ("properties", "transform", "group", "tidy", "cleanup"):
                 assert "ids" in schemas[name]["required"], name
 
             painted = data(
-                await client.call_tool("paint", {"ids": ["sun"], "fill": "#ff0000"})
+                await client.call_tool(
+                    "properties", {"ids": ["sun"], "fill": "#ff0000"}
+                )
             )
             assert painted["changed"]
             assert painted["step"] == "Agent: Change paint"
             moved = data(
-                await client.call_tool("move", {"ids": ["sun"], "dx": -10, "dy": 5})
+                await client.call_tool(
+                    "transform", {"ids": ["sun"], "dx": -10, "dy": 5}
+                )
             )
             assert moved["step"] == "Agent: Move selection"
 
@@ -110,7 +115,9 @@ def test_open_look_edit_undo_and_save(tmp_path):
             project = tmp_path / "hills.vectrify"
             data(await client.call_tool("save", {"path": str(project)}))
             exported = tmp_path / "out.svg"
-            data(await client.call_tool("export_svg", {"path": str(exported)}))
+            data(await client.call_tool("save", {"path": str(exported)}))
+            # The opened file is now out.svg: save() writes there.
+            data(await client.call_tool("save", {}))
 
     anyio.run(session)
     svg = drawing.read_text()
@@ -154,7 +161,9 @@ def test_an_edit_after_someone_else_changed_the_drawing_is_refused(tmp_path):
                     "revision": 0,
                 }
             )
-            stale = await client.call_tool("paint", {"ids": ["sun"], "fill": "red"})
+            stale = await client.call_tool(
+                "properties", {"ids": ["sun"], "fill": "red"}
+            )
             assert "describe()" in error(stale)
             described = data(await client.call_tool("describe", {}))
             assert "hill" not in [o["id"] for o in described["objects"]]
@@ -165,7 +174,7 @@ def test_an_edit_after_someone_else_changed_the_drawing_is_refused(tmp_path):
                 "revision": 1,
             }
             # Having looked, the agent may edit again.
-            data(await client.call_tool("paint", {"ids": ["sun"], "fill": "red"}))
+            data(await client.call_tool("properties", {"ids": ["sun"], "fill": "red"}))
 
     anyio.run(session)
 
@@ -182,12 +191,15 @@ def test_reference_compare_and_a_cel_trace_applied(tmp_path):
     async def session():
         async with Client(build_server()) as client:
             data(await client.call_tool("open", {"path": str(drawing)}))
-            assert "load_reference" in error(await client.call_tool("reference", {}))
+            alone = {"overlay": "reference"}
+            assert "load_reference" in error(await client.call_tool("render", alone))
             loaded = data(
                 await client.call_tool("load_reference", {"path": str(picture)})
             )
             assert loaded["step"] == "Load reference"
-            reference = await client.call_tool("reference", {"max_side": 100})
+            reference = await client.call_tool(
+                "render", {"overlay": "reference", "max_side": 100}
+            )
             assert png_size(images(reference)[0]) == (100, 50)
             side = await client.call_tool(
                 "render", {"overlay": "side", "max_side": 400}
@@ -203,13 +215,15 @@ def test_reference_compare_and_a_cel_trace_applied(tmp_path):
                 )
             )
             status = await client.call_tool(
-                "job_status", {"id": job["id"], "wait_seconds": 120}
+                "job", {"id": job["id"], "wait_seconds": 120}
             )
             ready = data(status)
             assert ready["status"] == "ready", ready
             assert ready["previews"] == ["reference", "before", "after"]
             assert len(images(status)) == 3
-            applied = data(await client.call_tool("apply", {"id": job["id"]}))
+            applied = data(
+                await client.call_tool("job", {"id": job["id"], "action": "apply"})
+            )
             assert applied["step"] == "Agent: Generate cel trace"
             after = data(await client.call_tool("compare", {}))
             assert after["mse"] < before["mse"] / 4
@@ -217,6 +231,11 @@ def test_reference_compare_and_a_cel_trace_applied(tmp_path):
             # A worse edit, seen in compare, is taken back by undo.
             data(await client.call_tool("undo", {}))
             assert data(await client.call_tool("compare", {}))["mse"] == before["mse"]
+
+            # load_reference() with no path removes it.
+            removed = data(await client.call_tool("load_reference", {}))
+            assert removed["step"] == "Remove reference"
+            assert data(await client.call_tool("describe", {}))["reference"] is None
 
     anyio.run(session)
 

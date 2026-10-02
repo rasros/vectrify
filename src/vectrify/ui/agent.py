@@ -23,6 +23,7 @@ import base64
 import contextlib
 import hmac
 import io
+import itertools
 import json
 import math
 import os
@@ -73,7 +74,7 @@ MIN_SIDE = 16
 # How many objects describe() lists at a time by default, and at most.
 PAGE_SIZE = 100
 MAX_PAGE = 500
-# How long job_status() may wait for a job.
+# How long job(action="status") may wait for a job.
 MAX_WAIT = 120.0
 # How long after its last call an agent still shows as connected.
 CONNECTED = 120.0
@@ -91,34 +92,22 @@ CONTOURS = 30
 # choosing its own targets for the session's checks; the agent keeps no
 # selection between calls, so there is no select tool.
 EDITS: dict[str, tuple[str, ...]] = {
-    "paint": ("paint",),
-    "rename": ("rename",),
-    "locks": ("locks",),
-    "move": ("move",),
-    "resize": ("resize", "move"),
-    "reorder": ("reorder",),
-    "move_into": ("move_objects",),
+    "properties": ("paint", "rename", "locks"),
+    "transform": ("resize", "move"),
+    "arrange": ("reorder", "move_objects"),
     "group": ("group",),
     "ungroup": ("ungroup",),
-    "join": ("join_paths",),
-    "join_ends": ("join_ends",),
-    "join_points": ("join_two_ends",),
+    "join": ("join_paths", "join_ends", "join_two_ends"),
     "split_parts": ("split_disconnected",),
     "cut_hole": ("cut_hole",),
-    "fill_holes": ("fill_holes",),
-    "holes_to_shapes": ("holes_to_shapes",),
-    "detach": ("detach",),
-    "convert": ("fill_to_line", "line_to_fill", "convert_lines"),
-    "delete": ("delete",),
+    "holes": ("fill_holes", "holes_to_shapes"),
+    "convert": ("fill_to_line", "line_to_fill", "convert_lines", "detach"),
+    "delete": ("delete", "delete_node", "delete_contour", "extract"),
     "add_path": ("add_path", "paint", "move_objects", "rename"),
     "set_points": ("move_nodes",),
-    "handles": ("node_handles",),
-    "pin": ("pin",),
-    "break_points": ("break_points",),
-    "delete_segment": ("delete_segment",),
+    "point_style": ("node_handles", "pin"),
+    "break_points": ("break_points", "delete_segment"),
     "split_edge": ("split",),
-    "delete_points": ("delete_node",),
-    "delete_contours": ("delete_contour", "extract"),
     "extract": ("extract",),
     "knife": ("knife",),
     "redraw_outline": ("redraw_outline",),
@@ -133,9 +122,9 @@ LEFT_OUT = {
     "replaces the drawing in the person's window.",
     "node": "The one-point drag; set_points sends move_nodes, which moves one "
     "point or many.",
-    "to_front": "Internal: reorder(to='front') arrives as reorder and is "
+    "to_front": "Internal: arrange(to='front') arrives as reorder and is "
     "renamed to this inside the session.",
-    "to_back": "Internal: reorder(to='back') arrives as reorder and is "
+    "to_back": "Internal: arrange(to='back') arrives as reorder and is "
     "renamed to this inside the session.",
 }
 
@@ -151,17 +140,13 @@ LOOKS = frozenset(
         "hello",
         "describe",
         "render",
-        "reference",
         "compare",
         "get_svg",
         "points",
-        "holes",
         "pick",
-        "sample",
         "trace_reference",
         "view",
         "history",
-        "job_status",
         "export",
     }
 )
@@ -435,9 +420,15 @@ class Agent:
             raise DocumentError(f"{tool}: {exc}") from None
         finally:
             self.last_time = time.monotonic()
-        if tool not in LOOKS:
+        # A job's status only looks; its other actions change something.
+        looks = tool in LOOKS or (
+            tool == "job" and args.get("action", "status") == "status"
+        )
+        if not looks:
             self.changes += 1
-            self.last_action = reply.data.get("step") or tool.replace("_", " ")
+            self.last_action = reply.data.get("step") or (
+                f"{args['action']} job" if tool == "job" else tool.replace("_", " ")
+            )
             if self._touched:
                 self.touched.append({"change": self.changes, "ids": self._touched})
         return reply
@@ -851,7 +842,8 @@ class Agent:
         radius: float = 0.0,
         limit: int = PICKED,
     ) -> Reply:
-        """What paints at (x, y), or within radius of it, front to back."""
+        """What paints at (x, y), or within radius of it, front to back, and
+        the drawing's and the reference's colour there."""
         at = (_finite(x, "x"), _finite(y, "y"))
         reach = _finite(radius, "radius")
         if reach < 0:
@@ -878,6 +870,7 @@ class Agent:
                 **self._where(),
                 "at": list(at),
                 "radius": reach,
+                "colour": self._colours(at, reach),
                 "order": "front to back",
                 "objects": objects,
                 "total": len(found),
@@ -890,7 +883,7 @@ class Agent:
                 data["next"] = (
                     "points(id, contours=[index]) lists a contour's nodes; "
                     "extract(region) takes what lies in a region into a path of "
-                    "its own; delete_contours(region=...) deletes it."
+                    "its own; delete(region=...) deletes it."
                 )
             return Reply(data)
 
@@ -956,8 +949,10 @@ class Agent:
         max_side: int | None = None,
         grid: bool = False,
     ) -> Reply:
-        if overlay not in {"none", "side", "over"}:
-            raise DocumentError("overlay is none, side (by side) or over")
+        if overlay not in {"none", "side", "over", "reference"}:
+            raise DocumentError(
+                "overlay is none, side (by side), over or reference (alone)"
+            )
         box, side = self._look(region, max_side)
         opacity = 0.5
         if region == "view":
@@ -987,29 +982,8 @@ class Agent:
                 + (", the reference over the drawing" if overlay == "over" else "")
                 + (", the reference alone" if overlay == "reference" else "")
             )
-        return Reply(data, [("render", _png(image))])
-
-    def tool_reference(
-        self,
-        _seen: Any,
-        region: Any = None,
-        max_side: int | None = None,
-        grid: bool = False,
-    ) -> Reply:
-        box, side = self._look(region, max_side)
-        size = _size(box, side)
-        image = self._cached("reference", box, size)
-        if grid:
-            image = agent_look.draw_grid(image, box)
-        return Reply(
-            {
-                **self._where(),
-                "region": list(box),
-                "pixels": list(image.size),
-                "mapping": agent_look.mapping(box, size),
-            },
-            [("reference", _png(image))],
-        )
+        name = "reference" if overlay == "reference" else "render"
+        return Reply(data, [(name, _png(image))])
 
     def tool_compare(
         self,
@@ -1064,48 +1038,24 @@ class Agent:
             [("difference", _png(heat))],
         )
 
-    def tool_sample(self, _seen: Any, x: float, y: float, radius: float = 0.0) -> Reply:
-        """The drawing's and the reference's colour at (x, y), the mean over
-        radius, and what paints there."""
-        at = (_finite(x, "x"), _finite(y, "y"))
-        reach = _finite(radius, "radius")
-        if reach < 0:
-            raise DocumentError("radius must not be negative")
-        # A spot is half a unit across at least.
+    def _colours(self, at: tuple[float, float], reach: float) -> dict[str, Any]:
+        """The drawing's and the reference's mean colour within *reach* of
+        *at* (half a unit at least), and how far apart they are."""
         half = max(reach, 0.5)
         box = (at[0] - half, at[1] - half, 2 * half, 2 * half)
         size = (17, 17)
         drawing = agent_look.disc_mean(self._cached("drawing", box, size))
-        data: dict[str, Any] = {
-            **self._where(),
-            "at": list(at),
-            "radius": reach,
+        colours: dict[str, Any] = {
             "drawing": agent_look.hex_colour(drawing),
             "reference": None,
         }
         if self.session.reference:
             reference = agent_look.disc_mean(self._cached("reference", box, size))
-            data["reference"] = agent_look.hex_colour(reference)
-            data["difference"] = round(math.dist(drawing, reference) / math.sqrt(3), 4)
-        spot = ShapelyPoint(at)
-        with self.session.lock:
-            found = self._covering(spot.buffer(reach) if reach > 0 else spot)
-            document = self.session.editor.snapshot.document
-            if found:
-                oid, contours = found[0]
-                element = document.element(oid)
-                style = path_style(document, element)
-                paints = contours[0][1] if contours else "fill"
-                data["object"] = {
-                    "id": oid,
-                    "paints": paints,
-                    "colour": style["stroke" if paints == "stroke" else "fill"],
-                    "contour": contours[0][0] if contours else None,
-                }
-                data["under"] = [o for o, _ in found[1:6]]
-            else:
-                data["object"] = None
-        return Reply(data)
+            colours["reference"] = agent_look.hex_colour(reference)
+            colours["difference"] = round(
+                math.dist(drawing, reference) / math.sqrt(3), 4
+            )
+        return colours
 
     def tool_trace_reference(
         self,
@@ -1165,7 +1115,7 @@ class Agent:
         }
         if not traced["shapes"]:
             data["note"] = (
-                "Nothing matched: a higher tolerance, or sample(x, y) the colour"
+                "Nothing matched: a higher tolerance, or pick(x, y) for the colour"
             )
         return Reply(data)
 
@@ -1279,6 +1229,18 @@ class Agent:
                     if i not in listing:
                         rows[i] = _contour_summary(subpaths[i], i, matrix)
                 rows = dict(sorted(rows.items()))
+            # Holes: a filled path's contours that cut out of the ones around
+            # them, by the ids holes() takes.
+            found: dict[str, Any] = {}
+            with contextlib.suppress(DocumentError):
+                found = {h.id: h for h in find_holes(document, id)}
+            for row in rows.values():
+                hole = found.get(row["id"])
+                row["hole"] = hole is not None
+                if hole is not None:
+                    row["area"] = round(
+                        document_hole_shape(document, id, (hole,)).area, 3
+                    )
             pages = max(1, math.ceil(len(entries) / page_size))
             data: dict[str, Any] = {
                 **self._where(),
@@ -1290,6 +1252,7 @@ class Agent:
                 "coords": coords,
                 "contours_total": len(subpaths),
                 "contours_chosen": len(chosen),
+                "holes_total": len(found),
                 "contours": list(rows.values()),
                 "page": page,
                 "pages": pages,
@@ -1309,6 +1272,12 @@ class Agent:
                     data["nodes_shown"] = (
                         "those inside the region; i is the node's place in its contour"
                     )
+            if found:
+                data["holes_note"] = (
+                    "A contour with hole=true is a hole; holes(contours=[[object, "
+                    'contour id]], action="fill" or "shape") fills it or makes it '
+                    "a shape of its own"
+                )
             if page + 1 < pages:
                 data["more"] = (
                     f"{len(entries) - (page + 1) * page_size} more "
@@ -1316,19 +1285,6 @@ class Agent:
                     f"page={page + 1}, or narrow it with region or contours"
                 )
             return Reply(data)
-
-    def tool_holes(self, _seen: Any, id: str) -> Reply:  # noqa: A002
-        with self.session.lock:
-            document = self.session.editor.snapshot.document
-            holes = [
-                {
-                    "id": h.id,
-                    "area": round(document_hole_shape(document, id, (h,)).area, 3),
-                    "bounds": [round(v, 3) for v in h.shape.bounds],
-                }
-                for h in find_holes(document, id)
-            ]
-            return Reply({**self._where(), "object": id, "holes": holes})
 
     def tool_history(self, _seen: Any, limit: int = 30) -> Reply:
         if type(limit) is not int or limit < 1:
@@ -1366,7 +1322,7 @@ class Agent:
 
     # Editing ------------------------------------------------------------
 
-    def tool_paint(
+    def tool_properties(
         self,
         seen: Any,
         ids: Any,
@@ -1376,7 +1332,11 @@ class Agent:
         opacity: float | None = None,
         fill_opacity: float | None = None,
         stroke_opacity: float | None = None,
+        name: str | None = None,
+        locks: Any = None,
     ) -> Reply:
+        """Set the paint, the name (of one object) and the locks of *ids*."""
+        targets = _targets(ids)
         changes = {
             key: str(value)
             for key, value in (
@@ -1389,42 +1349,43 @@ class Agent:
             )
             if value is not None
         }
-        if not changes:
-            raise DocumentError("Give a fill, stroke, stroke width or opacity")
-        return self._edit(
-            seen,
-            [self._select(_targets(ids)), {"command": "paint", "changes": changes}],
-        )
+        if not changes and name is None and locks is None:
+            raise DocumentError(
+                "Give a fill, stroke, stroke width, opacity, name or locks"
+            )
+        if name is not None and len(targets) != 1:
+            raise DocumentError("Give one id to name")
+        wanted: frozenset[str] | None = None
+        if locks is not None:
+            if not isinstance(locks, list | tuple):
+                raise DocumentError("Give the locks as a list, empty to unlock")
+            wanted = frozenset(str(v) for v in locks)
 
-    def tool_rename(self, seen: Any, id: str, name: str) -> Reply:  # noqa: A002
-        return self._edit(
-            seen,
-            [self._select([id]), {"command": "rename", "object": id, "name": name}],
-        )
+        def lock(oid: str, adding: bool) -> Callable[[], dict | None]:
+            # Unlocking comes before the other changes, locking after them,
+            # so a lock lifted here does not refuse them.
+            def step() -> dict | None:
+                assert wanted is not None
+                element = self.session.editor.snapshot.document.element(oid)
+                now = frozenset(str(getattr(v, "value", v)) for v in element.locks)
+                after = wanted if adding else now & wanted
+                if after == now:
+                    return None
+                return {"command": "locks", "object": oid, "locks": sorted(after)}
 
-    def tool_locks(self, seen: Any, id: str, locks: Any) -> Reply:  # noqa: A002
-        if not isinstance(locks, list | tuple):
-            raise DocumentError("Give the locks as a list, empty to unlock")
-        return self._edit(
-            seen,
-            [
-                self._select([id]),
-                {"command": "locks", "object": id, "locks": [str(v) for v in locks]},
-            ],
-        )
+            return step
 
-    def tool_move(self, seen: Any, dx: float, dy: float, ids: Any) -> Reply:
-        return self._edit(
-            seen,
-            [
-                self._select(_targets(ids)),
-                {
-                    "command": "move",
-                    "dx": _finite(dx, "dx"),
-                    "dy": _finite(dy, "dy"),
-                },
-            ],
-        )
+        steps: list[Step] = [self._select(targets)]
+        if wanted is not None:
+            steps.extend(lock(oid, adding=False) for oid in targets)
+        if changes:
+            steps.append({"command": "paint", "changes": changes})
+        if name is not None:
+            steps.append({"command": "rename", "object": targets[0], "name": name})
+        if wanted is not None:
+            steps.extend(lock(oid, adding=True) for oid in targets)
+        kinds = sum(x is not None for x in (changes or None, name, wanted))
+        return self._edit(seen, steps, "Properties" if kinds > 1 else None)
 
     def _selected_bounds(self) -> Box:
         selection = self.session.editor.snapshot.selection.object_ids
@@ -1435,22 +1396,33 @@ class Agent:
             raise DocumentError("The objects paint nothing to measure")
         return bounds[0], bounds[1], bounds[2] - bounds[0], bounds[3] - bounds[1]
 
-    def tool_resize(
+    def tool_transform(
         self,
         seen: Any,
         ids: Any,
+        dx: float | None = None,
+        dy: float | None = None,
         scale: Any = None,
         anchor: Any = "center",
         box: Any = None,
     ) -> Reply:
-        """Scale the objects *ids* about *anchor* (a point, or center, top-left,
-        top-right, bottom-left, bottom-right), or fit their painted bounds to
-        *box*."""
-        if (scale is None) == (box is None):
-            raise DocumentError("Give either scale [sx, sy] or box [x, y, w, h]")
-        moved: dict[str, float] = {}
+        """Scale the objects *ids* by *scale* about *anchor* (a point, or
+        center, top-left, top-right, bottom-left, bottom-right) and move them
+        by *dx*, *dy*; or fit their painted bounds to *box*."""
+        offset = (
+            _finite(dx if dx is not None else 0.0, "dx"),
+            _finite(dy if dy is not None else 0.0, "dy"),
+        )
+        moving = dx is not None or dy is not None
+        if box is not None and (scale is not None or moving):
+            raise DocumentError("Give box alone, or scale and dx, dy")
+        if box is None and scale is None and not moving:
+            raise DocumentError("Give dx, dy to move, scale [sx, sy], or box")
+        moved = {"dx": offset[0], "dy": offset[1]}
 
-        def resize() -> dict:
+        def resize() -> dict | None:
+            if box is None and scale is None:
+                return None
             bx, by, bw, bh = self._selected_bounds()
             if box is not None:
                 x, y, w, h = _box(box, "The box")
@@ -1488,34 +1460,55 @@ class Agent:
             }
 
         def move() -> dict | None:
-            if not moved or (abs(moved["dx"]) < 1e-9 and abs(moved["dy"]) < 1e-9):
+            if abs(moved["dx"]) < 1e-9 and abs(moved["dy"]) < 1e-9:
                 return None
             return {"command": "move", "dx": moved["dx"], "dy": moved["dy"]}
 
-        return self._edit(seen, [self._select(_targets(ids)), resize, move], "Resize")
+        label = None
+        if box is not None or scale is not None:
+            label = "Transform" if moving else "Resize"
+        return self._edit(seen, [self._select(_targets(ids)), resize, move], label)
 
-    def tool_reorder(self, seen: Any, to: str, ids: Any) -> Reply:
+    def tool_arrange(
+        self,
+        seen: Any,
+        ids: Any,
+        to: str | None = None,
+        parent: str | None = None,
+        index: int | None = None,
+    ) -> Reply:
+        """Restack *ids* within their group (*to*), or move them into the
+        group *parent* at *index* among its children (0 is the back; the
+        front by default)."""
+        targets = _targets(ids)
+        if (to is None) == (parent is None):
+            raise DocumentError(
+                "Give to (front, back, forward, backward) to restack, or parent "
+                "(and index) to move into a group"
+            )
+        if parent is not None:
+
+            def into() -> dict:
+                document = self.session.editor.snapshot.document
+                at = len(document.element(parent).children) if index is None else index
+                return {
+                    "command": "move_objects",
+                    "objects": targets,
+                    "parent": parent,
+                    "index": at,
+                }
+
+            return self._edit(seen, [into])
+        if index is not None:
+            raise DocumentError("index goes with parent, not with to")
         steps = {"forward": 1, "backward": -1}
         if to in {"front", "back"}:
             payload: dict[str, Any] = {"command": "reorder", "to": to}
         elif to in steps:
-            payload = {"command": "reorder", "step": steps[to]}
+            payload = {"command": "reorder", "step": steps[str(to)]}
         else:
             raise DocumentError("to is front, back, forward or backward")
-        return self._edit(seen, [self._select(_targets(ids)), payload])
-
-    def tool_move_into(self, seen: Any, ids: Any, parent: str, index: int) -> Reply:
-        return self._edit(
-            seen,
-            [
-                {
-                    "command": "move_objects",
-                    "objects": _targets(ids),
-                    "parent": parent,
-                    "index": index,
-                }
-            ],
-        )
+        return self._edit(seen, [self._select(targets), payload])
 
     def _simple(self, command: str, seen: Any, ids: Any, **extra: Any) -> Reply:
         return self._edit(
@@ -1528,30 +1521,89 @@ class Agent:
     def tool_ungroup(self, seen: Any, ids: Any) -> Reply:
         return self._simple("ungroup", seen, ids)
 
-    def tool_join(self, seen: Any, ids: Any, color_source: str | None = None) -> Reply:
-        options: dict[str, Any] = (
-            {"colors": "mix"}
-            if color_source is None
-            else {"colors": "source", "color_source": color_source}
-        )
-        return self._simple("join_paths", seen, ids, options=options)
+    def _join_candidates(self, ids: list[str]) -> list[str]:
+        """The paths *ids* name, themselves or inside the groups among them,
+        as the editor's Join counts them."""
+        document = self.session.editor.snapshot.document
+        found: list[str] = []
+        for oid in ids:
+            for element in Document(document.element(oid)).elements():
+                if element.tag == "path" and element.id not in found:
+                    found.append(element.id)
+        return found
 
-    def tool_join_ends(
-        self, seen: Any, ids: Any, reach: float = 4.0, bridge: str = "curve"
+    def tool_join(
+        self,
+        seen: Any,
+        ids: Any = None,
+        points: Any = None,
+        reach: float | None = None,
+        bridge: str | None = None,
+        color_source: str | None = None,
     ) -> Reply:
+        """As the editor's Join: two points join each other; stroked lines
+        join their ends within reach; filled paths merge into one outline,
+        its colour mixed by area or taken from the path color_source."""
+        if (ids is None) == (points is None):
+            raise DocumentError(
+                "Give ids (the paths to join) or points (two [object id, node "
+                "id] pairs to join), not both"
+            )
+        if points is not None:
+            if reach is not None or bridge is not None or color_source is not None:
+                raise DocumentError(
+                    "Two points join as they are: reach, bridge and color_source "
+                    "go with ids"
+                )
+            pairs = _points(points)
+            if len(pairs) != 2:
+                raise DocumentError("Give two points to join")
+            reply = self._edit(
+                seen,
+                [
+                    self._select_points(pairs),
+                    {"command": "join_two_ends", "points": pairs},
+                ],
+            )
+            reply.data["joined"] = "points"
+            return reply
+        targets = _targets(ids)
+        with self.session.lock:
+            document = self.session.editor.snapshot.document
+            paths = self._join_candidates(targets)
+            styles = [path_style(document, document.element(p)) for p in paths]
+        lines = [s for s in styles if s["fill"] == "none" and s.get("stroke") != "none"]
+        if len(paths) > 1 and len(lines) < len(paths):
+            if reach is not None or bridge is not None:
+                raise DocumentError(
+                    "These are filled paths, which merge by area: reach and "
+                    "bridge go with stroked lines"
+                )
+            options: dict[str, Any] = (
+                {"colors": "mix"}
+                if color_source is None
+                else {"colors": "source", "color_source": color_source}
+            )
+            reply = self._simple("join_paths", seen, targets, options=options)
+            reply.data["joined"] = "outlines"
+            return reply
+        if color_source is not None:
+            raise DocumentError(
+                "These are stroked lines, which join at their ends: color_source "
+                "goes with filled paths"
+            )
+        bridge = "curve" if bridge is None else bridge
         if bridge not in {"curve", "line"}:
             raise DocumentError("bridge is curve or line")
-        return self._simple("join_ends", seen, ids, reach=reach, bridge=bridge)
-
-    def tool_join_points(self, seen: Any, a: Any, b: Any) -> Reply:
-        points = _points([a, b])
-        return self._edit(
+        reply = self._simple(
+            "join_ends",
             seen,
-            [
-                self._select_points(points),
-                {"command": "join_two_ends", "points": points},
-            ],
+            targets,
+            reach=4.0 if reach is None else _finite(reach, "reach"),
+            bridge=bridge,
         )
+        reply.data["joined"] = "line ends"
+        return reply
 
     def tool_split_parts(self, seen: Any, ids: Any) -> Reply:
         return self._simple("split_disconnected", seen, ids)
@@ -1559,19 +1611,34 @@ class Agent:
     def tool_cut_hole(self, seen: Any, ids: Any) -> Reply:
         return self._simple("cut_hole", seen, ids)
 
-    def _contours(self, contours: Any) -> list[list[str]]:
+    def tool_holes(
+        self,
+        seen: Any,
+        contours: Any,
+        action: str = "fill",
+        delete_enclosed: bool = False,
+    ) -> Reply:
+        """Fill holes, or turn them into shapes of their own; *contours* are
+        [object id, hole id] pairs, the ids points() marks as holes."""
         try:
-            return _points(contours)
+            pairs = _points(contours)
         except DocumentError:
             raise DocumentError(
                 "Give holes as a list of [object id, hole id] pairs"
             ) from None
-
-    def tool_fill_holes(
-        self, seen: Any, contours: Any, delete_enclosed: bool = False
-    ) -> Reply:
-        pairs = self._contours(contours)
         objects = sorted({o for o, _ in pairs})
+        if action == "shape":
+            if delete_enclosed:
+                raise DocumentError("delete_enclosed goes with action='fill'")
+            return self._edit(
+                seen,
+                [
+                    self._select(objects),
+                    {"command": "holes_to_shapes", "contours": pairs},
+                ],
+            )
+        if action != "fill":
+            raise DocumentError("action is fill or shape")
 
         def fill() -> dict:
             payload: dict[str, Any] = {"command": "fill_holes", "contours": pairs}
@@ -1592,30 +1659,52 @@ class Agent:
 
         return self._edit(seen, [self._select(objects), fill])
 
-    def tool_holes_to_shapes(self, seen: Any, contours: Any) -> Reply:
-        pairs = self._contours(contours)
-        return self._edit(
-            seen,
-            [
-                self._select(sorted({o for o, _ in pairs})),
-                {"command": "holes_to_shapes", "contours": pairs},
-            ],
-        )
-
-    def tool_detach(self, seen: Any, ids: Any) -> Reply:
-        return self._simple("detach", seen, ids)
-
     def tool_convert(self, seen: Any, ids: Any, to: str = "either") -> Reply:
         commands = {
             "line": "fill_to_line",
             "fill": "line_to_fill",
             "either": "convert_lines",
+            "path": "detach",
         }
         if to not in commands:
-            raise DocumentError("to is line, fill or either")
+            raise DocumentError("to is line, fill, either or path")
         return self._simple(commands[to], seen, ids)
 
-    def tool_delete(self, seen: Any, ids: Any) -> Reply:
+    def tool_delete(
+        self,
+        seen: Any,
+        ids: Any = None,
+        points: Any = None,
+        region: Any = None,
+        contours: bool = False,
+        cut: bool = False,
+    ) -> Reply:
+        """Delete the objects *ids*; the *points* (or, with *contours*, the
+        contours they are on); or the contours inside *region*, of the paths
+        *ids* or every unlocked path painting there."""
+        if points is not None and region is not None:
+            raise DocumentError("Give points or a region, not both")
+        if cut and region is None:
+            raise DocumentError("cut goes with a region")
+        if region is not None:
+            return self._in_region(seen, region, ids, cut, delete=True)
+        if points is not None:
+            if ids is not None:
+                raise DocumentError(
+                    "Give ids (objects) or points ([object id, node id] pairs), "
+                    "not both"
+                )
+            command = "delete_contour" if contours else "delete_node"
+            return self._on_points(command, seen, points)
+        if ids is None:
+            raise DocumentError(
+                "Give ids (objects to delete), points ([object id, node id] "
+                "pairs), or a region to delete the contours inside it"
+            )
+        if contours:
+            raise DocumentError(
+                "contours goes with points: the contours those points are on"
+            )
         return self._simple("delete", seen, ids)
 
     def _spot(self, d: str) -> dict[str, Any] | None:
@@ -1794,25 +1883,78 @@ class Agent:
             ],
         )
 
-    def tool_handles(self, seen: Any, points: Any, count: int) -> Reply:
-        if count not in {0, 1, 2}:
-            raise DocumentError("count is 0, 1 or 2 handles")
-        return self._on_points("node_handles", seen, points, count=count)
+    def tool_point_style(
+        self,
+        seen: Any,
+        points: Any,
+        handles: int | None = None,
+        pinned: bool | None = None,
+    ) -> Reply:
+        """Give *points* 0, 1 or 2 curve handles, and pin or unpin them."""
+        pairs = _points(points)
+        if handles is None and pinned is None:
+            raise DocumentError("Give handles (0, 1 or 2) or pinned")
+        if handles is not None and handles not in {0, 1, 2}:
+            raise DocumentError("handles is 0, 1 or 2")
+        steps: list[Step] = [self._select_points(pairs)]
+        pin = (
+            None
+            if pinned is None
+            else {"command": "pin", "points": pairs, "pinned": bool(pinned)}
+        )
+        # Unpin before changing the handles, pin after.
+        if pin is not None and not pinned:
+            steps.append(pin)
+        if handles is not None:
+            steps.append({"command": "node_handles", "points": pairs, "count": handles})
+        if pin is not None and pinned:
+            steps.append(pin)
+        both = handles is not None and pinned is not None
+        return self._edit(seen, steps, "Point style" if both else None)
 
-    def tool_pin(self, seen: Any, points: Any, pinned: bool = True) -> Reply:
-        return self._on_points("pin", seen, points, pinned=bool(pinned))
+    def _segment_among(self, pairs: list[list[str]]) -> bool:
+        """Whether two of the points are the ends of one segment, as the
+        editor's Break tells deleting a segment from breaking at points."""
+        document = self.session.editor.snapshot.document
+        chosen: dict[str, set[str]] = {}
+        for oid, nid in pairs:
+            chosen.setdefault(oid, set()).add(nid)
+        for oid, nids in chosen.items():
+            try:
+                subpaths = document.geometry_for(oid).subpaths
+            except DocumentError:
+                continue
+            for subpath in subpaths:
+                ids = [n.id for n in subpath.nodes]
+                # A closed contour ending on its moveto shows one point for
+                # the two nodes: the last stands for both.
+                twins = (
+                    subpath.closed
+                    and len(ids) > 2
+                    and subpath.nodes[0].endpoint == subpath.nodes[-1].endpoint
+                )
+                shown = ids[1:] if twins else ids
+                among = {ids[-1] if twins and n == ids[0] else n for n in nids}
+                ends = list(itertools.pairwise(shown))
+                if subpath.closed and len(shown) > 1:
+                    ends.append((shown[-1], shown[0]))
+                if any(a != b and a in among and b in among for a, b in ends):
+                    return True
+        return False
 
     def tool_break_points(self, seen: Any, points: Any) -> Reply:
-        return self._on_points("break_points", seen, points)
-
-    def tool_delete_segment(self, seen: Any, points: Any) -> Reply:
-        return self._on_points("delete_segment", seen, points)
+        """Cut lines or closed contours open at points; given the two points
+        at a segment's ends, delete that segment instead, as Break does."""
+        pairs = _points(points)
+        with self.session.lock:
+            segment = self._segment_among(pairs)
+        command = "delete_segment" if segment else "break_points"
+        reply = self._on_points(command, seen, pairs)
+        reply.data["broke"] = "segment deleted" if segment else "at the points"
+        return reply
 
     def tool_split_edge(self, seen: Any, points: Any) -> Reply:
         return self._on_points("split", seen, points)
-
-    def tool_delete_points(self, seen: Any, points: Any) -> Reply:
-        return self._on_points("delete_node", seen, points)
 
     def _region_paths(self, polygon: list[tuple[float, float]], ids: Any) -> list[str]:
         """The paths a region edit acts on: *ids*, or every drawn path that
@@ -1878,25 +2020,6 @@ class Agent:
         self, seen: Any, region: Any, ids: Any = None, cut: bool = True
     ) -> Reply:
         return self._in_region(seen, region, ids, cut, delete=False)
-
-    def tool_delete_contours(
-        self,
-        seen: Any,
-        points: Any = None,
-        region: Any = None,
-        ids: Any = None,
-        cut: bool = False,
-    ) -> Reply:
-        if region is not None:
-            if points is not None:
-                raise DocumentError("Give points or a region, not both")
-            return self._in_region(seen, region, ids, cut, delete=True)
-        if points is None:
-            raise DocumentError(
-                "Give points, [object id, node id] pairs on the contours, or a "
-                "region to delete the contours inside it"
-            )
-        return self._on_points("delete_contour", seen, points)
 
     def tool_knife(
         self,
@@ -2040,13 +2163,10 @@ class Agent:
             ]
         if data.get("status") == "ready":
             data["next"] = (
-                "apply(id) keeps the recommended result as one undo step"
-                + (
-                    ", apply(id, choice=n) an alternative"
-                    if data["alternatives"]
-                    else ""
-                )
-                + "; discard(id) drops it"
+                'job(id, action="apply") keeps the recommended result as one '
+                "undo step"
+                + (", choice=n an alternative" if data["alternatives"] else "")
+                + '; job(id, action="discard") drops it'
             )
         return Reply(data, images)
 
@@ -2135,7 +2255,27 @@ class Agent:
         with self.session.lock:
             return self.session.operation({"command": command, "job": job, **extra})
 
-    def tool_job_status(self, _seen: Any, id: str, wait_seconds: float = 0) -> Reply:  # noqa: A002
+    def tool_job(
+        self,
+        seen: Any,
+        id: str,  # noqa: A002
+        action: str = "status",
+        wait_seconds: float = 0,
+        choice: int = 0,
+    ) -> Reply:
+        """A job's status (waiting up to *wait_seconds* for it), or apply
+        its result (or alternative *choice*), discard it or stop it."""
+        if action == "status":
+            return self._job_status(id, wait_seconds)
+        if action == "apply":
+            return self._apply(seen, id, choice)
+        if action == "discard":
+            return Reply(self._job("discard", id))
+        if action == "stop":
+            return self._job_reply(self._job("stop", id))
+        raise DocumentError("action is status, apply, discard or stop")
+
+    def _job_status(self, id: str, wait_seconds: Any) -> Reply:  # noqa: A002
         wait = max(0.0, min(MAX_WAIT, _finite(wait_seconds, "wait_seconds")))
         deadline = time.monotonic() + wait
         state = self._job("status", id)
@@ -2147,7 +2287,7 @@ class Agent:
             state = self._job("status", id, preview=True)
         return self._job_reply(state)
 
-    def tool_apply(self, seen: Any, id: str, choice: int = 0) -> Reply:  # noqa: A002
+    def _apply(self, seen: Any, id: str, choice: int) -> Reply:  # noqa: A002
         session = self.session
         with session.lock, self._own_selection() as touched:
             self._check_seen(seen)
@@ -2167,12 +2307,6 @@ class Agent:
             if len(editor.undo_entries) > since:
                 data["step"] = editor.undo_labels[-1]
             return Reply(data)
-
-    def tool_discard(self, _seen: Any, id: str) -> Reply:  # noqa: A002
-        return Reply(self._job("discard", id))
-
-    def tool_stop(self, _seen: Any, id: str) -> Reply:  # noqa: A002
-        return self._job_reply(self._job("stop", id))
 
 
 # The live channel ------------------------------------------------------

@@ -116,7 +116,7 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             tools = {t.name for t in (await client.list_tools()).tools}
             # Each editing call of the agent is an MCP tool of that name.
             assert set(EDITS) - {"set_reference"} <= tools
-            assert {"load_reference", "remove_reference"} <= tools
+            assert "load_reference" in tools
 
             async def call(tool_name: str, /, **args):
                 return await client.call_tool(tool_name, args)
@@ -129,59 +129,67 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
 
             line, ring = await nodes("line"), await nodes("ring")
             await call("redraw_outline", id="b", points=[[40, 40], [65, 30], [90, 40]])
-            await call("join_points", a=["line", line[0]], b=["line", line[-1]])
+            await call("join", points=[["line", line[0]], ["line", line[-1]]])
             await call("convert", ids=["line2"], to="fill")
-            await call("paint", ids=["a"], fill="#ff8800")
-            await call("rename", id="a", name="Square")
-            await call("locks", id="a", locks=[])
-            await call("move", ids=["a"], dx=1, dy=1)
-            await call("resize", ids=["a"], box=[0, 0, 30, 30])
-            await call("reorder", ids=["a"], to="front")
-            await call("reorder", ids=["a"], to="backward")
-            await call("move_into", ids=["a"], parent="grp", index=0)
+            await call(
+                "properties", ids=["a"], fill="#ff8800", name="Square", locks=["paint"]
+            )
+            await call("properties", ids=["a"], locks=[])
+            await call("transform", ids=["a"], dx=1, dy=1)
+            await call("transform", ids=["a"], box=[0, 0, 30, 30])
+            await call("arrange", ids=["a"], to="front")
+            await call("arrange", ids=["a"], to="backward")
+            await call("arrange", ids=["a"], parent="grp", index=0)
             grouped = data(await call("group", ids=["line", "line2"]))
             await call("ungroup", ids=grouped["result"]["objects"])
             await call("join", ids=["a", "b"])
-            await call("join_ends", ids=["line", "line2"], reach=10)
             await call("split_parts", ids=["ring"])
             await call("cut_hole", ids=["ring", "c"])
-            holes = data(await call("holes", id="ring"))["holes"]
-            contours = [["ring", h["id"]] for h in holes] or [["ring", "x"]]
-            await call("fill_holes", contours=contours)
-            await call("holes_to_shapes", contours=contours)
-            await call("detach", ids=["inst"])
+            listed = data(await call("points", id="ring", nodes=False))["contours"]
+            holes = [c["id"] for c in listed if c["hole"]]
+            contours = [["ring", h] for h in holes] or [["ring", "x"]]
+            await call("holes", contours=contours, action="fill")
+            await call("holes", contours=contours, action="shape")
+            await call("convert", ids=["inst"], to="path")
             await call("convert", ids=["ring"], to="line")
             await call("convert", ids=["ring"], to="either")
             await call("add_path", d="M0 0 L20 0 L20 20 Z", fill="#000")
             await call("set_points", changes={"ring": {ring[1]: [180, 100]}})
-            await call("handles", points=[["ring", ring[1]]], count=2)
-            await call("pin", points=[["ring", ring[1]]], pinned=True)
-            await call("pin", points=[["ring", ring[1]]], pinned=False)
+            await call(
+                "point_style", points=[["ring", ring[1]]], handles=2, pinned=True
+            )
+            await call("point_style", points=[["ring", ring[1]]], pinned=False)
             await call("split_edge", points=[["ring", ring[1]]])
             await call("break_points", points=[["ring", ring[2]]])
-            await call("delete_segment", points=[["ring", ring[2]], ["ring", ring[3]]])
-            await call("delete_points", points=[["ring", ring[1]]])
-            await call("delete_contours", points=[["ring", ring[0]]])
+            await call("delete", points=[["ring", ring[1]]])
+            await call("delete", points=[["ring", ring[0]]], contours=True)
             await call("knife", start=[0, 75], end=[200, 75])
             await call("delete", ids=["c"])
             await call("load_reference", path=str(picture))
-            await call("remove_reference")
+            await call("load_reference")
             await call("undo")
             await call("redo")
             # The operations, on the drawing as it was.
             data(await call("open", path=str(drawing)))
             data(await call("extract", region=[0, 140, 70, 30], ids=["line"]))
-            await call("delete_contours", region=[140, 0, 60, 60])
+            await call("delete", region=[140, 0, 60, 60])
             data(await call("undo", steps=2))
+            # Two lines join at their ends; a segment's two ends delete it.
+            joined = data(await call("join", ids=["line", "line2"], reach=10))
+            assert joined["joined"] == "line ends"
+            (path,) = joined["result"]["objects"]
+            ends = [[path, n] for n in (await nodes(path))[:2]]
+            broke = data(await call("break_points", points=ends))
+            assert broke["broke"] == "segment deleted"
             await call("load_reference", path=str(picture))
             job = data(await call("cleanup", ids=["b"]))
-            await call("job_status", id=job["id"])
-            await call("discard", id=job["id"])
+            await call("job", id=job["id"])
+            await call("job", id=job["id"], action="discard")
             job = data(await call("snap_edges", ids=["a", "side"]))
-            await call("apply", id=job["id"])
+            await call("job", id=job["id"], action="apply")
             job = data(await call("fit_colours", ids=["b"], resolution=32))
-            await call("stop", id=job["id"])
-            await call("discard", id=job["id"])
+            await call("job", id=job["id"], action="stop")
+            await call("job", id=job["id"], action="discard")
 
     anyio.run(session)
     missing = ACTION_COMMANDS - set(LEFT_OUT) - actions

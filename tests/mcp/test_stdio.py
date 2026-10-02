@@ -28,12 +28,16 @@ def test_the_entry_point_serves_over_stdio(tmp_path, state_home):
     async def run():
         async with Client(parameters) as client:
             names = {t.name for t in (await client.list_tools()).tools}
-            assert {"describe", "render", "paint", "generate", "undo"} <= names
+            assert {"describe", "render", "properties", "generate", "undo"} <= names
             described = data(await client.call_tool("describe", {}))
             assert described["target"] == f"the file {drawing}"
             rendered = await client.call_tool("render", {"max_side": 100})
             assert png_size(images(rendered)[0]) == (100, 50)
-            data(await client.call_tool("paint", {"ids": ["sun"], "fill": "#abcdef"}))
+            data(
+                await client.call_tool(
+                    "properties", {"ids": ["sun"], "fill": "#abcdef"}
+                )
+            )
             data(await client.call_tool("save", {}))
 
     anyio.run(run)
