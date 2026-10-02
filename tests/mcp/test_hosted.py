@@ -15,7 +15,7 @@ from mcp.shared._httpx_utils import create_mcp_http_client
 
 from tests.mcp.helpers import data, error, free_port, images, png_size
 from vectrify.mcp.target import read_discovery
-from vectrify.ui.agent import token_file
+from vectrify.ui.agent import port_file, token_file
 from vectrify.ui.server import Backend
 
 SAMPLE = (Path(__file__).parents[1] / "ui" / "sample.svg").read_text()
@@ -185,3 +185,109 @@ def test_a_taken_port_moves_to_the_next_free_one(editor):
     assert int(url.split(":")[2].split("/")[0]) > port
     token = token_file().read_text().strip()
     assert post(url, token).status_code == 200
+    # Asked for (--mcp-port) and not got: the popover says the URL moved.
+    assert allowed["mcp"]["moved"] == {
+        "old": f"http://127.0.0.1:{port}/mcp",
+        "new": url,
+    }
+
+
+def port_of(url: str) -> int:
+    return int(url.rsplit(":", 1)[1].split("/")[0])
+
+
+def test_the_port_is_remembered_and_a_move_from_it_is_told():
+    # As the editor starts: no --mcp-port, so the port used last time.
+    remembered = free_port()
+    port_file().parent.mkdir(parents=True, exist_ok=True)
+    port_file().write_text(f"{remembered}\n")
+
+    def allow() -> tuple[Backend, str, dict]:
+        backend = Backend(SAMPLE, "sample.svg")
+        _, state = backend.handle("/api/session", {}, None)
+        session = state["session"]
+        return (
+            backend,
+            session,
+            backend.handle("/api/agent", {"enabled": True}, session)[1],
+        )
+
+    backend, session, allowed = allow()
+    assert backend.agents.mcp_port is None
+    assert allowed["mcp"]["url"] == f"http://127.0.0.1:{remembered}/mcp"
+    assert "moved" not in allowed["mcp"]
+    backend.agents.close()
+    # Taken by something else next time: another port, and a warning that
+    # names the URL clients were given and the one they need now.
+    with socket.socket() as busy:
+        busy.bind(("127.0.0.1", remembered))
+        busy.listen(1)
+        backend, session, allowed = allow()
+        moved = allowed["mcp"]["moved"]
+        assert moved["old"] == f"http://127.0.0.1:{remembered}/mcp"
+        assert moved["new"] == allowed["mcp"]["url"] != moved["old"]
+        # The page polls the same status, so the warning stays while it is on.
+        _, poll = backend.handle("/api/poll", {}, session)
+        assert poll["agent"]["mcp"]["moved"] == moved
+        # The new port is the one remembered now.
+        assert int(port_file().read_text()) == port_of(moved["new"])
+        backend.handle("/api/agent", {"enabled": False}, session)
+        _, off = backend.handle("/api/poll", {}, session)
+        assert "mcp" not in off["agent"]
+        backend.agents.close()
+    # And kept from then on, with no warning.
+    backend, session, allowed = allow()
+    assert allowed["mcp"]["url"] == moved["new"]
+    assert "moved" not in allowed["mcp"]
+    backend.agents.close()
+
+
+def test_each_client_must_look_for_itself():
+    """Two clients of the hosted server: one's look is not the other's."""
+    backend = Backend(SAMPLE, "sample.svg")
+    backend.agents.mcp_port = free_port()
+    _, state = backend.handle("/api/session", {}, None)
+    url = backend.handle("/api/agent", {"enabled": True}, state["session"])[1]["mcp"][
+        "url"
+    ]
+    token = token_file().read_text().strip()
+
+    def legacy() -> Client:
+        # Streamable HTTP sessions, as today's clients open them.
+        return Client(
+            streamable_http_client(
+                url,
+                http_client=create_mcp_http_client(
+                    {"Authorization": f"Bearer {token}"}
+                ),
+            ),
+            mode="legacy",
+        )
+
+    async def run():
+        async with legacy() as a, legacy() as b, legacy() as c:
+            data(await a.call_tool("describe", {}))
+            data(await b.call_tool("describe", {}))
+            # A's look and edit are A's: C never looked.
+            data(await a.call_tool("properties", {"ids": ["sun"], "fill": "#0f0"}))
+            fresh = await c.call_tool("properties", {"ids": ["sun"], "fill": "#00f"})
+            assert "describe() first" in error(fresh)
+            # B looked before A's edit: it must look again.
+            stale = await b.call_tool("properties", {"ids": ["sun"], "fill": "#f00"})
+            assert "changed since you last looked" in error(stale)
+            data(await b.call_tool("describe", {}))
+            data(await b.call_tool("properties", {"ids": ["sun"], "fill": "#f00"}))
+            # Now A is behind.
+            behind = await a.call_tool("transform", {"ids": ["sun"], "dx": 1})
+            assert "changed since you last looked" in error(behind)
+
+    try:
+        anyio.run(run)
+        session = backend.sessions[state["session"]]
+        with session.lock:
+            assert session.editor.undo_labels == (
+                "Agent: Change paint",
+                "Agent: Change paint",
+            )
+    finally:
+        backend.agents.close()

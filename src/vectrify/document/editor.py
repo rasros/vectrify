@@ -933,6 +933,21 @@ class Transaction:
             if self._selection.node_ids:
                 raise EditRejectedError("Detaching requires a whole object selection")
             self._authorize(self._working.dependents({object_id}), EditKind.STRUCTURE)
+            from vectrify.document.regions import SHAPES, as_path, shape_geometry
+
+            if element.tag in SHAPES:
+                # A basic shape: a path of its outline, its paint kept.
+                affected = self._working.dependents({object_id})
+                self._authorize(affected, EditKind.GEOMETRY)
+                if any(object_id in references(e) for e in self._working.elements()):
+                    raise EditRejectedError(
+                        "Detach references to this shape before making it a path"
+                    )
+                geometry = shape_geometry(element)
+                self._working = replace(
+                    self._working, geometries=(*self._working.geometries, geometry)
+                ).replace_element(as_path(element, geometry))
+                return object_id
             original = self._working.geometry_for(object_id)
             geometry = original.detached()
             if element.tag == "path":
@@ -2091,27 +2106,40 @@ class Transaction:
         its attributes, just above it in its group. With *cut*, contours
         crossing the edge are cut along it first (see ``split_geometry``);
         without, only contours wholly inside go. A path lying wholly inside
-        is left alone (or deleted). Returns (path, new path or None) pairs
-        for the paths it changed.
+        is left alone (or deleted). A basic shape (rect, circle, ellipse,
+        line) the region cuts becomes a path of its outline first, keeping
+        its id and paint. Returns (path, new path or None) pairs for the
+        paths it changed.
         """
-        from vectrify.document.regions import object_matrix, split_geometry
+        from vectrify.document.regions import (
+            SHAPES,
+            as_path,
+            object_matrix,
+            shape_geometry,
+            split_geometry,
+        )
 
         with self._change():
             self._whole_objects()
             document = self._working
             changed: list[tuple[str, str | None]] = []
             for element in document.elements():
-                if element.id not in self._ids or element.tag != "path":
+                if element.id not in self._ids or element.tag not in SHAPES | {"path"}:
                     continue
                 if any(
                     e.tag in {"defs", "clipPath"} for e in document.ancestry(element.id)
                 ):
                     continue
                 style = path_style(document, element)
-                filled = style["fill"] != "none"
+                shape = element.tag in SHAPES
+                filled = style["fill"] != "none" and element.tag != "line"
                 if not filled and style["stroke"] == "none":
                     continue
-                geometry = document.geometry_for(element.id)
+                geometry = (
+                    shape_geometry(element)
+                    if shape
+                    else document.geometry_for(element.id)
+                )
                 split = split_geometry(
                     geometry,
                     object_matrix(document, element.id),
@@ -2126,9 +2154,13 @@ class Transaction:
                 self._authorize(document.dependents({element.id}), EditKind.GEOMETRY)
                 if any(element.id in references(e) for e in document.elements()):
                     raise EditRejectedError(
-                        "This path is referenced; detach its instances first"
+                        f"{element.id} is referenced; detach its instances first"
                     )
-                if sum(e.geometry_id == geometry.id for e in document.elements()) != 1:
+                if (
+                    not shape
+                    and sum(e.geometry_id == geometry.id for e in document.elements())
+                    != 1
+                ):
                     raise EditRejectedError("Detach shared geometry first")
                 if delete and any(n.pinned for s in split.inside for n in s.nodes):
                     raise EditRejectedError("Unpin the points before deleting them")
@@ -2139,8 +2171,18 @@ class Transaction:
                     continue
                 before = {n.id for s in geometry.subpaths for n in s.nodes}
                 after = {n.id for s in split.outside for n in s.nodes}
-                kept = replace(geometry, subpaths=split.outside)
-                self._working = self._working.replace_geometry(kept)
+                if shape:
+                    # Cut: the shape becomes the path of what is left of it.
+                    kept = Geometry(new_id("geometry"), split.outside)
+                    element = as_path(element, kept)
+                    self._working = replace(
+                        self._working, geometries=(*self._working.geometries, kept)
+                    ).replace_element(element)
+                    # Its outline's points were never the document's.
+                    before = set(after)
+                else:
+                    kept = replace(geometry, subpaths=split.outside)
+                    self._working = self._working.replace_geometry(kept)
                 made: str | None = None
                 if not delete:
                     taken = Geometry(new_id("geometry"), split.inside)

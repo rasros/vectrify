@@ -154,7 +154,9 @@ for `coords="local"`.
   just above them in their group. `cut=true` (the default) cuts strokes
   where they cross the region's edge and splits fills crossing it along
   the edge; a fill merely around the region is left alone. `cut=false`
-  takes whole contours only. `delete(region=...)` deletes them instead
+  takes whole contours only. `group=true` puts the new paths in one new
+  group. Shapes (rect, circle, ellipse, line) are cut as paths; instances
+  (use) need `detach=true`. `delete(region=...)` deletes them instead
   (whole contours unless `cut=true`). Each is one undo step.
 - The shape to match: `trace_reference(region)` outlines the reference's
   dark areas there (`colour="#..."` for areas of one colour; `tolerance`

@@ -34,7 +34,7 @@ import xml.etree.ElementTree as ET
 from collections import OrderedDict, deque
 from collections.abc import Callable, Iterator, Sequence
 from dataclasses import dataclass, field
-from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.server import BaseHTTPRequestHandler
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
@@ -102,13 +102,13 @@ EDITS: dict[str, tuple[str, ...]] = {
     "cut_hole": ("cut_hole",),
     "holes": ("fill_holes", "holes_to_shapes"),
     "convert": ("fill_to_line", "line_to_fill", "convert_lines", "detach"),
-    "delete": ("delete", "delete_node", "delete_contour", "extract"),
+    "delete": ("delete", "delete_node", "delete_contour", "extract", "detach"),
     "add_path": ("add_path", "paint", "move_objects", "rename"),
     "set_points": ("move_nodes",),
     "point_style": ("node_handles", "pin"),
     "break_points": ("break_points", "delete_segment"),
     "split_edge": ("split",),
-    "extract": ("extract",),
+    "extract": ("extract", "detach", "move_objects", "group"),
     "knife": ("knife",),
     "redraw_outline": ("redraw_outline",),
     "set_reference": ("reference",),
@@ -168,6 +168,9 @@ SIDE_GAP = 4
 # One step of an edit: a payload, one made once the steps before are done,
 # or None to skip it.
 Step = dict | Callable[[], dict | None] | None
+# What a region edit acts on: paths, the basic shapes it turns into paths
+# where it cuts them, and (detached first) instances.
+REGION_TAGS = frozenset({"path", "rect", "circle", "ellipse", "line", "use"})
 
 
 # What a session refuses an edit with, as Backend.handle answers them.
@@ -402,6 +405,8 @@ class Agent:
         # window to show; and the current call's, once it has made them.
         self.touched: deque[dict[str, Any]] = deque(maxlen=TOUCHED)
         self._touched: list[str] = []
+        # Called after each call, for the window to show it at once.
+        self.on_call: Callable[[], None] | None = None
 
     # The call boundary --------------------------------------------------
 
@@ -413,6 +418,16 @@ class Agent:
             raise DocumentError(f"Unknown agent call: {tool}")
         seen = args.pop("seen", None)
         self._touched = []
+        try:
+            return self._answer(tool, handler, seen, args)
+        finally:
+            # Even a refusal may have made a revision, taking back its steps.
+            if self.on_call is not None:
+                self.on_call()
+
+    def _answer(
+        self, tool: str, handler: Callable[..., Reply], seen: Any, args: dict
+    ) -> Reply:
         try:
             reply = handler(seen, **args)
         except TypeError as exc:
@@ -1678,16 +1693,17 @@ class Agent:
         region: Any = None,
         contours: bool = False,
         cut: bool = False,
+        detach: bool = False,
     ) -> Reply:
         """Delete the objects *ids*; the *points* (or, with *contours*, the
         contours they are on); or the contours inside *region*, of the paths
-        *ids* or every unlocked path painting there."""
+        and shapes *ids* or every unlocked one painting there."""
         if points is not None and region is not None:
             raise DocumentError("Give points or a region, not both")
-        if cut and region is None:
-            raise DocumentError("cut goes with a region")
+        if (cut or detach) and region is None:
+            raise DocumentError("cut and detach go with a region")
         if region is not None:
-            return self._in_region(seen, region, ids, cut, delete=True)
+            return self._in_region(seen, region, ids, cut, delete=True, detach=detach)
         if points is not None:
             if ids is not None:
                 raise DocumentError(
@@ -1956,70 +1972,150 @@ class Agent:
     def tool_split_edge(self, seen: Any, points: Any) -> Reply:
         return self._on_points("split", seen, points)
 
-    def _region_paths(self, polygon: list[tuple[float, float]], ids: Any) -> list[str]:
-        """The paths a region edit acts on: *ids*, or every drawn path that
-        paints inside the region and whose geometry and structure are not
-        locked."""
-        if ids is not None:
-            return _targets(ids)
+    def _region_paths(
+        self, polygon: list[tuple[float, float]], ids: Any, detach: bool
+    ) -> list[str]:
+        """What a region edit acts on: *ids*, or every drawn path, basic shape
+        or (with *detach*) instance that paints inside the region and whose
+        geometry and structure are not locked. An instance draws shared
+        geometry, so without *detach* it is refused rather than left out."""
         document = self.session.editor.snapshot.document
-        found = [
-            oid
-            for oid, _ in self._covering(Polygon(polygon))
-            if document.element(oid).tag == "path"
-            and not any(
-                a.locks & {EditKind.GEOMETRY, EditKind.STRUCTURE}
-                for a in document.ancestry(oid)
-            )
-        ]
-        if not found:
+        if ids is not None:
+            found = _targets(ids)
+        else:
+            found = [
+                oid
+                for oid, _ in self._covering(Polygon(polygon))
+                if document.element(oid).tag in REGION_TAGS
+                and not any(
+                    a.locks & {EditKind.GEOMETRY, EditKind.STRUCTURE}
+                    for a in document.ancestry(oid)
+                )
+            ]
+            if not found:
+                raise DocumentError(
+                    "No unlocked path or shape paints inside the region; "
+                    "pick(x, y) or describe(region=...) shows what is there"
+                )
+        instances = [oid for oid in found if document.element(oid).tag == "use"]
+        if instances and not detach:
             raise DocumentError(
-                "No unlocked path paints inside the region; pick(x, y) or "
-                "describe(region=...) shows what is there"
+                f"{', '.join(instances[:10])} "
+                + ("is an instance" if len(instances) == 1 else "are instances")
+                + " (use) of shared geometry. Pass detach=true to give "
+                + ("it a path" if len(instances) == 1 else "them paths")
+                + f" of {'its' if len(instances) == 1 else 'their'} own first, "
+                f'or convert(ids={instances[:10]}, to="path"), or name the '
+                "paths to act on in ids"
             )
         return found
 
     def _in_region(
-        self, seen: Any, region: Any, ids: Any, cut: bool, delete: bool
+        self,
+        seen: Any,
+        region: Any,
+        ids: Any,
+        cut: bool,
+        delete: bool,
+        group: bool = False,
+        detach: bool = False,
     ) -> Reply:
         if not isinstance(region, list | tuple):
             raise DocumentError("region is [x, y, w, h] or a polygon [[x, y], ...]")
         polygon = region_polygon(region)
-        reply = self._edit(
-            seen,
-            [
-                lambda: self._select(self._region_paths(polygon, ids)),
-                {
-                    "command": "extract",
-                    "region": [list(p) for p in polygon],
-                    "cut": bool(cut),
-                    "delete": delete,
-                },
-            ],
-        )
-        if not delete:
-            document = self.session.editor.snapshot.document
-            pieces = []
-            for oid in reply.data.get("created", []):
-                element = document.element(oid)
-                if element.tag != "path":
+        session = self.session
+        targets: list[str] = []
+        before: set[str] = set()
+        pieces: list[dict[str, Any]] = []
+
+        def document() -> Document:
+            return session.editor.snapshot.document
+
+        def choose() -> dict:
+            targets[:] = self._region_paths(polygon, ids, detach)
+            before.update(e.id for e in document().elements())
+            return self._select(targets)
+
+        def instances() -> list[str]:
+            return [t for t in targets if document().element(t).tag == "use"]
+
+        def taken() -> dict | None:
+            """The pieces the region took, each with the path it came from
+            (the one just below it), before any grouping moves them."""
+            for element in document().elements():
+                if element.id in before or element.tag != "path":
                     continue
-                siblings = document.ancestry(oid)[-2].children
-                at = next(i for i, c in enumerate(siblings) if c.id == oid)
+                siblings = document().ancestry(element.id)[-2].children
+                at = next(i for i, c in enumerate(siblings) if c.id == element.id)
                 pieces.append(
                     {
-                        "path": oid,
+                        "path": element.id,
                         "from": siblings[at - 1].id if at else None,
-                        "contours": len(document.geometry_for(oid).subpaths),
+                        "contours": len(document().geometry_for(element.id).subpaths),
                     }
                 )
+            return None
+
+        def gather() -> dict | None:
+            """Move the pieces together, just above the path the frontmost
+            came from, to group them there."""
+            if not pieces:
+                return None
+            front = pieces[-1]
+            parent = document().ancestry(front["path"])[-2]
+            moving = {p["path"] for p in pieces}
+            staying = [c.id for c in parent.children if c.id not in moving]
+            index = staying.index(front["from"]) + 1 if front["from"] else 0
+            return {
+                "command": "move_objects",
+                "objects": [p["path"] for p in pieces],
+                "parent": parent.id,
+                "index": index,
+            }
+
+        steps: list[Step] = [
+            choose,
+            # Instances get paths of their own, keeping their ids.
+            lambda: self._select(instances()) if instances() else None,
+            lambda: {"command": "detach"} if instances() else None,
+            lambda: self._select(targets),
+            {
+                "command": "extract",
+                "region": [list(p) for p in polygon],
+                "cut": bool(cut),
+                "delete": delete,
+            },
+            taken,
+        ]
+        if group:
+            steps += [
+                gather,
+                lambda: self._select([p["path"] for p in pieces]),
+                {"command": "group"},
+            ]
+        reply = self._edit(
+            seen,
+            steps,
+            label=("Extract region into a group" if group else None),
+        )
+        if not delete:
             reply.data["extracted"] = pieces
+            if group and pieces:
+                reply.data["group"] = document().ancestry(pieces[0]["path"])[-2].id
         return reply
 
     def tool_extract(
-        self, seen: Any, region: Any, ids: Any = None, cut: bool = True
+        self,
+        seen: Any,
+        region: Any,
+        ids: Any = None,
+        cut: bool = True,
+        group: bool = False,
+        detach: bool = False,
     ) -> Reply:
-        return self._in_region(seen, region, ids, cut, delete=False)
+        return self._in_region(
+            seen, region, ids, cut, delete=False, group=bool(group), detach=detach
+        )
 
     def tool_knife(
         self,
@@ -2311,8 +2407,9 @@ class Agent:
 
 # The live channel ------------------------------------------------------
 
-# Where the editor hosts the MCP server while a window allows agents, and how
-# many ports after it to try when it is taken.
+# Where the editor hosts the MCP server while a window allows agents, unless
+# it hosted it elsewhere before (or --mcp-port says), and how many ports after
+# it to try when it is taken.
 MCP_PORT = 8770
 MCP_PORTS = 20
 OFF = (
@@ -2335,6 +2432,12 @@ def discovery_file() -> Path:
 def token_file() -> Path:
     """The agent token, kept across runs so a client is added only once."""
     return state_dir() / "agent-token"
+
+
+def port_file() -> Path:
+    """The port the MCP server was last hosted on, preferred next time so the
+    URL clients were given keeps working."""
+    return state_dir() / "mcp-port"
 
 
 def _write_private(path: Path, text: str) -> None:
@@ -2362,6 +2465,19 @@ def agent_token(regenerate: bool = False) -> str:
     return token
 
 
+def remembered_port() -> int | None:
+    """The port the MCP server was last hosted on, if any."""
+    with contextlib.suppress(OSError, ValueError):
+        port = int(port_file().read_text().strip())
+        if 0 < port < 65536:
+            return port
+    return None
+
+
+def mcp_url(port: int) -> str:
+    return f"http://127.0.0.1:{port}/mcp"
+
+
 def local_host(headers: Any, port: int) -> bool:
     """Whether a request was addressed to this machine, not via a renamed host."""
     return headers.get("Host", "") in {f"127.0.0.1:{port}", f"localhost:{port}"}
@@ -2379,26 +2495,47 @@ class AgentChannel:
     """One window's door for agents: HTTP on localhost, with a token.
 
     Off until the window allows agents to edit. Then the editor hosts the MCP
-    server itself (Streamable HTTP at ``/mcp`` on *mcp_port*, or the next
-    free port), and keeps the JSON channel ``vectrify-mcp``'s ``connect()``
-    uses: in ``--serve`` mode the editor's own server carries it (*url* is
-    that server's); in the desktop app it opens a port of its own.
+    server itself (Streamable HTTP at ``/mcp``): on *mcp_port* when one is
+    given (``--mcp-port``), else on the port it used last time, else on
+    ``MCP_PORT``; the next free port when that is taken, saying the URL
+    moved. It keeps the JSON channel ``vectrify-mcp``'s ``connect()`` uses
+    (``/agent/call``): in ``--serve`` mode the editor's own server carries it
+    (*url* is that server's), in the desktop app the MCP port does, with the
+    same token.
+
+    Each agent call (and each change of the channel) is a *beat*: the page
+    waits on it (``wait``) to show the agent's edits at once.
     """
 
-    def __init__(self, backend, mcp_port: int = MCP_PORT):
+    def __init__(self, backend, mcp_port: int | None = None):
         self.backend = backend
         self.url: str | None = None
         self.mcp_port = mcp_port
         self.mcp_url: str | None = None
         self.mcp_error: str | None = None
+        # {old, new}: the URL clients were given, and the one it moved to.
+        self.mcp_moved: dict[str, str] | None = None
         self.session_id: str | None = None
         self.token: str | None = None
         self.agent: Agent | None = None
-        self._server: ThreadingHTTPServer | None = None
         self._hosted: Any = None
         self._images: OrderedDict[str, bytes] = OrderedDict()
         self._lock = threading.Lock()
+        self._pulse = threading.Condition()
+        self.beat = 0
         atexit.register(self.close)
+
+    def changed(self) -> None:
+        """Wake whatever waits for the agent's next call."""
+        with self._pulse:
+            self.beat += 1
+            self._pulse.notify_all()
+
+    def wait(self, beat: int, timeout: float) -> int:
+        """The beat after *beat*, or *beat* again after *timeout* seconds."""
+        with self._pulse:
+            self._pulse.wait_for(lambda: self.beat != beat, timeout)
+            return self.beat
 
     def status(self, session_id: str | None) -> dict[str, Any]:
         enabled = session_id is not None and session_id == self.session_id
@@ -2416,10 +2553,13 @@ class AgentChannel:
         }
         if enabled and self.token is not None:
             if self.mcp_url is not None:
-                result["mcp"] = {
+                mcp: dict[str, Any] = {
                     "url": self.mcp_url,
                     "command": claude_command(self.mcp_url, self.token),
                 }
+                if self.mcp_moved is not None:
+                    mcp["moved"] = dict(self.mcp_moved)
+                result["mcp"] = mcp
             elif self.mcp_error is not None:
                 result["mcp_error"] = self.mcp_error
         return result
@@ -2431,21 +2571,23 @@ class AgentChannel:
             if self.session_id != session_id or self.agent is None:
                 self._forget()
                 self.agent = Agent(session)
+                self.agent.on_call = self.changed
                 self.session_id = session_id
             self.token = agent_token()
-            url = self.url
-            if url is None:
-                if self._server is None:
-                    self._server = AgentServer(self)
-                    threading.Thread(
-                        target=self._server.serve_forever,
-                        daemon=True,
-                        name="vectrify-agents",
-                    ).start()
-                url = f"http://127.0.0.1:{self._server.server_port}"
             self._host()
-            self._write(url, self.token)
+            url = self._call_url()
+            if url is not None:
+                self._write(url, self.token)
+        self.changed()
         return self.status(session_id)
+
+    def _call_url(self) -> str | None:
+        """Where ``/agent/call`` is: the editor's server, else the MCP port."""
+        if self.url is not None:
+            return self.url
+        if self.mcp_url is not None:
+            return self.mcp_url.removesuffix("/mcp")
+        return None
 
     def _host(self) -> None:
         """Serve MCP over HTTP from this editor, if the SDK is installed."""
@@ -2455,17 +2597,31 @@ class AgentChannel:
             from vectrify.mcp.hosted import HostedMCP
         except ImportError:
             self.mcp_error = (
-                "Install vectrify[mcp] to host the MCP server in the editor; "
-                "vectrify-mcp can still connect()."
+                "Install vectrify[mcp] to host the MCP server in the editor"
+                + (
+                    "; vectrify-mcp can still connect()."
+                    if self.url is not None
+                    else "."
+                )
             )
             return
+        remembered = remembered_port()
+        preferred = self.mcp_port or remembered or MCP_PORT
         hosted = HostedMCP(self)
         try:
-            self.mcp_url = hosted.start(self.mcp_port, MCP_PORTS)
+            url = hosted.start(preferred, MCP_PORTS)
         except OSError as exc:
             self.mcp_error = f"Could not host the MCP server: {exc}"
             return
-        self._hosted, self.mcp_error = hosted, None
+        self._hosted, self.mcp_url, self.mcp_error = hosted, url, None
+        # A client may hold the URL it had: given --mcp-port, or used before.
+        expected = mcp_url(preferred)
+        given = self.mcp_port is not None or remembered is not None
+        self.mcp_moved = (
+            {"old": expected, "new": url} if given and url != expected else None
+        )
+        with contextlib.suppress(OSError):
+            _write_private(port_file(), url.rsplit(":", 1)[1].split("/")[0] + "\n")
 
     def regenerate(self, session_id: str) -> dict[str, Any]:
         """Make a new token; clients holding the old one are refused."""
@@ -2474,33 +2630,26 @@ class AgentChannel:
             token = agent_token(regenerate=True)
             if self.token is not None:
                 self.token = token
-                url = self.url or (
-                    f"http://127.0.0.1:{self._server.server_port}"
-                    if self._server is not None
-                    else None
-                )
+                url = self._call_url()
                 if url is not None:
                     self._write(url, token)
+        self.changed()
         return self.status(session_id)
 
     def disable(self, session_id: str) -> dict[str, Any]:
         with self._lock:
             if self.session_id == session_id:
                 self._forget()
+                if self.agent is not None:
+                    self.agent.on_call = None
                 self.session_id = self.token = self.agent = None
                 self._unhost()
-                if self._server is not None:
-                    server, self._server = self._server, None
-
-                    def close() -> None:
-                        server.shutdown()
-                        server.server_close()
-
-                    threading.Thread(target=close, daemon=True).start()
+        self.changed()
         return self.status(session_id)
 
     def _unhost(self) -> None:
         hosted, self._hosted, self.mcp_url = self._hosted, None, None
+        self.mcp_moved = None
         if hosted is not None:
             hosted.stop()
 
@@ -2575,6 +2724,10 @@ class AgentChannel:
         )
 
 
+# How big an agent's request may be.
+MAX_CALL = 300 * 1024 * 1024
+
+
 def answer(handler: BaseHTTPRequestHandler, channel: AgentChannel, port: int) -> None:
     """Serve one agent request on *handler*'s connection."""
     if not local_host(handler.headers, port):
@@ -2587,7 +2740,7 @@ def answer(handler: BaseHTTPRequestHandler, channel: AgentChannel, port: int) ->
         data = b""
         if handler.command == "POST":
             length = int(handler.headers.get("Content-Length", "0") or 0)
-            if not 0 <= length <= 300 * 1024 * 1024:
+            if not 0 <= length <= MAX_CALL:
                 length = 0
             data = handler.rfile.read(length)
         status, kind, body = channel.http(
@@ -2599,26 +2752,3 @@ def answer(handler: BaseHTTPRequestHandler, channel: AgentChannel, port: int) ->
     handler.send_header("Cache-Control", "no-store")
     handler.end_headers()
     handler.wfile.write(body)
-
-
-class AgentHandler(BaseHTTPRequestHandler):
-    server: Any
-
-    def log_message(self, *_args: Any, **_kwargs: Any) -> None:
-        pass
-
-    def do_GET(self) -> None:
-        answer(self, self.server.channel, self.server.server_port)
-
-    def do_POST(self) -> None:
-        answer(self, self.server.channel, self.server.server_port)
-
-
-class AgentServer(ThreadingHTTPServer):
-    """The desktop window's agent port, open while agents are allowed."""
-
-    daemon_threads = True
-
-    def __init__(self, channel: AgentChannel):
-        super().__init__(("127.0.0.1", 0), AgentHandler)
-        self.channel = channel
