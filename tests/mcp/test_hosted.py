@@ -86,16 +86,18 @@ def test_a_client_over_http_edits_the_window(editor):
     async def run():
         async with client(url, token) as mcp:
             tools = {t.name for t in (await mcp.list_tools()).tools}
-            assert {"describe", "render", "paint", "history"} <= tools
+            assert {"describe", "render", "properties", "history"} <= tools
             # Always this window: nothing to open or connect to.
             assert not {"open", "connect"} & tools
-            refused = await mcp.call_tool("paint", {"ids": ["sun"], "fill": "#0f0"})
+            refused = await mcp.call_tool(
+                "properties", {"ids": ["sun"], "fill": "#0f0"}
+            )
             assert "describe() first" in error(refused)
             described = data(await mcp.call_tool("describe", {}))
             assert described["target"].startswith("the editor window")
             assert "sun" in [o["id"] for o in described["objects"]]
             painted = data(
-                await mcp.call_tool("paint", {"ids": ["sun"], "fill": "#00ff00"})
+                await mcp.call_tool("properties", {"ids": ["sun"], "fill": "#00ff00"})
             )
             assert painted["step"] == "Agent: Change paint"
             rendered = await mcp.call_tool("render", {"max_side": 120})

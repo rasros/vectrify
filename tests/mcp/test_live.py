@@ -107,7 +107,9 @@ def test_an_mcp_client_edits_live_and_the_window_sees_it(server):
             assert "sun" in [o["id"] for o in described["objects"]]
 
             painted = data(
-                await client.call_tool("paint", {"ids": ["sun"], "fill": "#00ff00"})
+                await client.call_tool(
+                    "properties", {"ids": ["sun"], "fill": "#00ff00"}
+                )
             )
             assert painted["step"] == "Agent: Change paint"
             # Images travel as PNG bodies and arrive as image content.
@@ -147,7 +149,9 @@ def test_an_mcp_client_edits_live_and_the_window_sees_it(server):
                 },
                 session_id,
             )
-            stale = await client.call_tool("move", {"ids": ["sun"], "dx": 5, "dy": 0})
+            stale = await client.call_tool(
+                "transform", {"ids": ["sun"], "dx": 5, "dy": 0}
+            )
             assert "changed since you last looked" in error(stale)
             history = data(await client.call_tool("history", {}))
             assert [(e["label"], e["author"]) for e in history["undo"]] == [
@@ -199,7 +203,7 @@ def test_the_persons_selection_stays_and_the_poll_names_what_the_agent_touched(
     _, painted = agent(
         server,
         token,
-        {"tool": "paint", "args": {"seen": seen, "ids": ["sun"], "fill": "#00f"}},
+        {"tool": "properties", "args": {"seen": seen, "ids": ["sun"], "fill": "#00f"}},
     )
     _, shown = page(server, "/api/session", {"session": session_id})
     assert shown["selection"] == chosen["selection"]

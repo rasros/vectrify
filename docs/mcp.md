@@ -74,8 +74,8 @@ The server edits one target at a time, with the same tools for both:
 1. **A file, headless.** `open(path)` loads an `.svg` or `.vectrify` project
    into its own `Backend`/`Session` in the server's process. `save()` writes
    it back (a `.vectrify` path keeps locks, pins, the reference and the
-   selection; any other is plain SVG), `save(path)` and `export_svg(path)`
-   write elsewhere.
+   selection; any other is plain SVG), and `save(path)` writes elsewhere
+   (and makes that the file `save()` writes).
 2. **The running editor, live.** When the person turns on **Agents** in the
    editor's footer (or *Allow agents to edit* in the command palette), the
    stdio server can also join the session that window shows: each edit appears as it is
@@ -151,8 +151,8 @@ The server edits one target at a time, with the same tools for both:
   entered group is the page's own and is kept unless it was deleted. The
   headless file target goes through the same code.
 - One undo step and one revision per call. A tool that needs several
-  session commands (say `add_path` with a fill, a parent and a name, or
-  `resize` to a box) runs them under the session lock and squashes them into
+  session commands (say `add_path` with a fill, a parent and a name,
+  `properties` with paint, a name and locks, or `transform` to a box) runs them under the session lock and squashes them into
   one history entry, and `Editor.settle` then counts them as one revision:
   nobody saw the ones in between, and what was cached at them is dropped.
   `undo(steps=n)` is one revision too. If a later command is refused, the
@@ -170,27 +170,28 @@ The server edits one target at a time, with the same tools for both:
   `pick` lists 20 objects and 30 contours of each; `trace_reference` gives
   at most 40 shapes and about 16,000 characters of path data.
 - Looking is read-only: `view()` reads the person's selection and viewport
-  and never changes them; `pick`, `sample` and `trace_reference` change
-  nothing.
+  and never changes them; `pick` and `trace_reference` change nothing.
 
 ## Tools
 
 Ids are object ids as `describe()` lists them; points are `[object, node]`
 pairs from `points()`. Every edit requires its targets: `ids` (at least one)
 for object tools and operations, `points` or `contours` for point and hole
-tools; the schema refuses a call without them. There is no `select` tool:
+tools; the schema refuses a call without them (`join` and `delete` take
+`ids`, `points` or a region, and refuse a call with none). There is no `select` tool:
 the agent has no selection that lasts between calls. An edit's answer gives
 `result`, the objects and points the edit left selected for itself (the new
 group, the cut pieces), and `created` and `removed`. Unset arguments take the editor's defaults. Every answer is
 JSON text, followed by `Image: <name>` and the PNG for each image.
 
-**Targets**: `open(path)`, `connect(url?, token?)`, `save(path?)`,
-`export_svg(path)`, `load_reference(path)` (PNG, JPEG or WebP, stretched over
-the artboard as the editor shows it), `remove_reference()`.
+**Targets**: `open(path)`, `connect(url?, token?)`, `save(path?)` (a
+`.svg` path writes plain SVG, a `.vectrify` path a project; no path saves to
+the opened file), `load_reference(path?)` (PNG, JPEG or WebP, stretched over
+the artboard as the editor shows it; no path removes the reference).
 
 All coordinates are document coordinates (the root's user space) and every
-region is `[x, y, w, h]`; a region that edits (`extract`, `delete_contours`)
-may also be a polygon `[[x, y], ...]`.
+region is `[x, y, w, h]`; a region that edits (`extract`, `delete`) may also
+be a polygon `[[x, y], ...]`.
 
 **Looking**
 - `describe(page?, page_size?, within?, region?)`: target, artboard,
@@ -205,7 +206,9 @@ may also be a polygon `[[x, y], ...]`.
   `bounds`, and whether its `stroke` or `fill` paints there). It is a hit
   test of painted coverage (`HitIndex.contours_in`): fills with their
   holes, strokes with their width, caps and joins, through transforms and
-  clips; not bounding boxes.
+  clips; not bounding boxes. Its `colour` gives the drawing's and the
+  reference's colour there (the mean over a disc of `radius`, at least half
+  a unit) and their `difference` (RGB distance, 0 to 1).
 - `view()`: what the person is looking at: their selection (objects and
   points) and, in the editor window, the visible `region`, the `zoom`, the
   canvas `pixels`, the active `tool`, the `entered_group`, the
@@ -216,8 +219,8 @@ may also be a polygon `[[x, y], ...]`.
   document units, or `"view"` for exactly what the window shows (its region
   at its pixel size, with the reference over it or alone as the window
   shows it); `overlay="side"` puts the reference beside it, `"over"` blends
-  them. `grid=true` draws lines labelled with document coordinates.
-- `reference(region?, max_side?, grid?)`: the reference alone.
+  them, `"reference"` shows the reference alone. `grid=true` draws lines
+  labelled with document coordinates.
 - `compare(region?, max_side?, grid?)`: mean squared error against the
   reference (RGB in 0..1, on white), the worst four cells of a 4 x 4 grid as
   regions, and a heat map (black agrees, through red and yellow to white).
@@ -225,9 +228,6 @@ may also be a polygon `[[x, y], ...]`.
   the `units_per_pixel`, and a sentence giving the document point of the
   top-left pixel and the formula (side by side, where the reference
   starts).
-- `sample(x, y, radius?)`: the drawing's and the reference's colour there
-  (the mean over a disc of `radius`, at least half a unit), their
-  difference, and the object (and contour) painting it and what is under.
 - `trace_reference(region?, colour?, dark?, tolerance?, min_area?)`: the
   reference's dark areas in the region (luminance at most `tolerance`,
   0.35 by default), or those near `colour` (RGB distance, 0.12 by
@@ -238,14 +238,15 @@ may also be a polygon `[[x, y], ...]`.
 - `get_svg(ids?)`: the SVG of the drawing or of some objects.
 - `points(id, region?, contours?, coords?, nodes?, page?, page_size?)`: a
   path's contours (`index`, `id`, `first_node`, `count`, `closed`,
-  `bounds`) and their nodes (`id`, `i` its place in the contour, `command`,
+  `bounds`, `hole`; a hole also has its `area`, and `holes_total` counts
+  them) and their nodes (`id`, `i` its place in the contour, `command`,
   `values`, `pinned`), with the paths sharing the geometry (`users`) and
   its `transform` when it has one. `region` keeps the contours crossing it
   and the nodes inside it, `contours` those indices, `nodes=false` lists
   contours only. Values are document coordinates; `coords="local"` gives
   the path's own, `"both"` both. Nodes come 300 a page; `more` says how
-  many are left and how to get them.
-- `holes(id)`: a path's holes, with areas and bounds.
+  many are left and how to get them. A hole's contour `id` is what `holes`
+  takes.
 
 Renders of the drawing and the reference are cached per (epoch, revision,
 region, size), so looking again at an unchanged drawing costs no rendering.
@@ -253,15 +254,24 @@ region, size), so looking again at an unchanged drawing costs no rendering.
 **History**: `history(limit?)` (undo and redo stacks, newest first: label,
 author `agent` or `person`, revision), `undo(steps?)`, `redo(steps?)`.
 
-**Objects**: `paint(ids, fill?, stroke?, stroke_width?, opacity?,
-fill_opacity?, stroke_opacity?)`, `rename(id, name)`, `locks(id, locks)`,
-`move(ids, dx, dy)`, `resize(ids, scale?, anchor?, box?)`,
-`reorder(ids, to)` (front, back, forward, backward),
-`move_into(ids, parent, index)`, `group(ids)`, `ungroup(ids)`, `join(ids,
-color_source?)`, `join_ends(ids, reach?, bridge?)`, `split_parts(ids)`,
-`cut_hole(ids)`, `fill_holes(contours, delete_enclosed?)`,
-`holes_to_shapes(contours)`, `detach(ids)`, `convert(ids, to?)` (line, fill
-or either), `delete(ids)`, `add_path(d, fill?, stroke?, stroke_width?,
+**Objects**: `properties(ids, fill?, stroke?, stroke_width?, opacity?,
+fill_opacity?, stroke_opacity?, name?, locks?)` (paint; a name, with one id
+only; locks, an empty list unlocking; unlocking runs before the other
+changes and locking after them, all one step), `transform(ids, dx?, dy?,
+scale?, anchor?, box?)` (move and/or scale about an anchor, or fit the
+painted bounds to `box`), `arrange(ids, to)` (front, back, forward,
+backward) or `arrange(ids, parent, index?)` (into a group, the front unless
+`index` says otherwise), `group(ids)`, `ungroup(ids)`, `join(ids? |
+points?, reach?, bridge?, color_source?)` (the editor's Join: two points
+join each other; stroked lines join their ends within `reach`; filled
+paths merge by area; `joined` says which), `split_parts(ids)`,
+`cut_hole(ids)`, `holes(contours, action?, delete_enclosed?)` (`fill` or
+`shape`, of the holes `points()` marks), `convert(ids, to?)` (line, fill,
+either, or `path`: an instance or shared geometry detached into an editable
+path of its own; nothing else detaches by itself), `delete(ids? | points? |
+region?, contours?, cut?)` (objects; points, or with `contours=true` the
+whole contours they are on; with a region, the contours inside it, see
+below), `add_path(d, fill?, stroke?, stroke_width?,
 parent?, index?, name?)` (path data in document coordinates, several
 subpaths allowed; without `parent` it goes into the group of the frontmost
 object drawn under its centre, or its bounds, just above that object, and
@@ -282,31 +292,36 @@ on, and a filled shape whose outline crosses the edge is split along it
 (Skia path ops, as the knife's fill cut; its shapes get new node ids); a
 fill that merely surrounds the region is left alone, as is a shape and its
 holes unless all of them are inside. A path lying wholly inside is left as
-it is. `delete_contours(region=..., ids?, cut?)` deletes them instead
+it is. `delete(region=..., ids?, cut?)` deletes them instead
 (whole contours unless `cut=true`). Both are one undo step: the session
 command `extract` (`Transaction.extract_region`, `document/regions.py`).
 
 **Points**: `set_points({object: {node: values}}, coords?)` (document
-coordinates unless `coords="local"`), `handles(points, count)`,
-`pin(points, pinned?)`, `break_points`, `delete_segment`, `split_edge`,
-`delete_points`, `delete_contours(points)`, `join_points(a, b)`.
+coordinates unless `coords="local"`), `point_style(points, handles?,
+pinned?)` (0, 1 or 2 handles; pin or unpin), `break_points(points)` (given
+the two points at a segment's ends it deletes that segment, as the
+editor's Break does), `split_edge(points)`, `delete(points, contours?)`,
+`join(points=[a, b])`.
 
 **Operations** (jobs): `generate(method?, settings?, group?)` (`cel`,
 `colour-regions`, or `samvg` with a GPU; over the whole drawing, or into the
 area of `group`), `tidy(ids, settings?, rounds?)`, `fit_colours(ids, fill?,
 passes?, resolution?)` (flat or linear gradients), `snap_edges(ids,
 tolerance?)`, `cleanup(ids)`. Each starts a job with the
-permissions the editor's dialog would give it; `job_status(id,
-wait_seconds?)` waits (at most 120 s, without holding the session) and
-returns the metrics and the recommended result's previews (reference, before,
-after) as images; `apply(id, choice?)` keeps a result as one undo step,
-`discard(id)` drops it, `stop(id)` stops it early.
+permissions the editor's dialog would give it; `job(id, action?,
+wait_seconds?, choice?)` follows it: `status` (the default) waits (at most
+120 s, without holding the session) and returns the metrics and the
+recommended result's previews (reference, before, after) as images;
+`apply` keeps a result (or alternative `choice`) as one undo step,
+`discard` drops it, `stop` stops it early.
 
 **Guide**: the server's instructions (what a client sees up front) give a
 short "for X use Y" list (what the person sees: `view`; what is under a
-spot: `pick`; a path's nodes: `points(id, region)`; coordinates of an image:
-its `mapping` and `grid`; the shape to match: `trace_reference`; a piece of
-a path: `extract`) and point to the `vectrify://guide` resource, which
+spot and its colours: `pick`; a path's nodes: `points(id, region)`;
+coordinates of an image: its `mapping` and `grid`; the shape to match:
+`trace_reference`; paint, names and locks: `properties`; joining: `join`;
+a piece of a path: `extract`; deleting: `delete`; holes, jobs, saving) and
+point to the `vectrify://guide` resource, which
 explains the loop: look, edit, look again, undo what made it worse. Refusals
 point to the right tool where one fits (an unknown id points to `pick` and
 `points`; `describe` of a large drawing points to `pick` and `region`).
@@ -324,7 +339,8 @@ of every targeted tool. Left out:
   replaces the drawing in the person's window.
 - `node`: the one-point drag; `set_points` sends `move_nodes`, which moves
   one point or many.
-- `to_front`, `to_back`: internal names `reorder` is rewritten to.
+- `to_front`, `to_back`: internal names `reorder` (`arrange(to=...)`) is
+  rewritten to.
 - operation `check`: the dialog's probe; the agent starts the job and reads
   the refusal instead.
 
@@ -361,7 +377,7 @@ the agent reads them with `view()` and never sets them.
   canvas around the artboard or the selection overlay.
 - The view is as of the window's last poll (within about a second); a
   window that has not polled since Agents was turned on has none yet.
-- `extract` and `delete_contours(region)` act on paths; shapes (rect,
+- `extract` and `delete(region=...)` act on paths; shapes (rect,
   circle…) and instances are left alone. Cutting a filled shape gives all
   of its contours new node ids.
 - `trace_reference` traces the reference at its own resolution there, at

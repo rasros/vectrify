@@ -18,13 +18,20 @@ For X use Y:
 - a path's nodes: points(id, region=...) or points(id, contours=[i])
 - how the drawing looks: render(region, overlay="side", grid=true); every
   image's text says how its pixels map to document coordinates
+- the reference alone: render(region, overlay="reference")
 - where it differs from the reference: compare(region); colours at a spot:
-  sample(x, y)
+  pick(x, y) (its colour)
 - the shape to match: trace_reference(region) outlines the reference's dark
   (or colour=...) areas as path data
-- take a piece out of a path: extract(region); delete it: delete_contours(
-  region=...)
-- move nodes: set_points; new shapes: add_path"""
+- paint, name, locks: properties(ids, ...); move or scale: transform;
+  stacking and groups: arrange
+- join anything (points, line ends, filled outlines): join
+- take a piece out of a path: extract(region); delete it: delete(region=...);
+  delete objects, points or contours: delete(ids | points, contours=...)
+- holes: points(id) marks them (hole=true); holes(contours, action=...)
+- move nodes: set_points; handles and pins: point_style; new shapes: add_path
+- jobs (generate, tidy, ...): job(id, action="status" | "apply" | ...)
+- save as SVG or project: save(path)"""
 
 INSTRUCTIONS = (
     _LOOP
@@ -53,7 +60,9 @@ GUIDE = """\
 - **A file.** `open(path)` loads an `.svg` or `.vectrify` project into a
   headless editor in the server. `save()` writes it back (`.vectrify` keeps
   locks, pins, the reference and the selection; `.svg` is plain SVG);
-  `save(path)` or `export_svg(path)` write elsewhere.
+  `save(path)` writes elsewhere: plain SVG to a `.svg` path, a project to a
+  `.vectrify` one. `load_reference(path)` loads the reference image;
+  `load_reference()` removes it.
 - **The editor window.** When the person has the editor open and has turned
   on *Agents* in its footer, the server attaches to that window by itself
   (or call `connect()`). The editor also hosts this server itself, at the
@@ -94,25 +103,35 @@ for `coords="local"`.
    one part at the same pixel budget. `grid=true` draws lines labelled with
    document coordinates. Each image's text gives the mapping: which document
    point the top-left pixel is and the units per pixel, so a pixel (px, py)
-   is (x + px * ux, y + py * uy). `reference(region)` is the reference
+   is (x + px * ux, y + py * uy). `overlay="reference"` is the reference
    alone.
 5. Measure: `compare(region)` gives the mean squared error against the
    reference, a heat map (black agrees, red to white differs) and the worst
    cells of a 4 x 4 grid over the region, each a region to look at next.
-   `sample(x, y, radius)` gives the drawing's and the reference's colour
-   there and which object paints it.
+   `pick(x, y, radius)` also gives the drawing's and the reference's mean
+   colour there and their difference.
 6. Edit, one change at a time. Each call is one undo step and one revision.
 7. Look again. If it got worse, `undo()`. `history()` lists the steps,
    newest first, with who made each (person or agent).
 
 ## Editing
 
-- Objects: `paint`, `rename`, `locks`, `move`, `resize` (scale about an
-  anchor, or fit to a box), `reorder`, `move_into`, `group`, `ungroup`,
-  `join` (merge outlines), `join_ends` (close gaps between line ends),
-  `split_parts`, `cut_hole` (two paths: the inner one cuts the outer),
-  `fill_holes` and `holes_to_shapes` (holes from `holes(id)`), `detach`,
-  `convert` (fill to centre line, stroke to fill), `delete`, `knife`.
+- Objects: `properties(ids, fill, stroke, ..., name, locks)` (paint, a
+  name for one object, locks; one step), `transform(ids, dx, dy, scale,
+  anchor)` (move and/or scale) or `transform(ids, box=...)` (fit to a box),
+  `arrange(ids, to="front")` (restack) or `arrange(ids, parent, index)`
+  (move into a group), `group`, `ungroup`, `split_parts`, `cut_hole` (two
+  paths: the inner one cuts the outer), `convert(ids, to)` (`line`: fill to
+  centre line, `fill`: stroke to fill, `path`: an instance or shared
+  geometry into an editable path of its own), `delete(ids)`, `knife`.
+- `join` is the editor's Join: `join(points=[a, b])` joins two points;
+  `join(ids)` joins stroked lines at their ends within `reach`, or merges
+  filled paths into one outline (`color_source` picks the paint). `joined`
+  in the answer says which it did.
+- Holes: `points(id)` marks each contour of a filled path that is a hole
+  (`hole=true`, with its `area`); `holes(contours=[[path, contour id]],
+  action="fill")` fills them (`delete_enclosed` also deletes the shapes
+  inside), `action="shape"` makes them shapes of their own.
 - New shapes: `add_path(d, fill, stroke, ...)`, path data in document
   coordinates (more subpaths are holes). It goes into the group of what is
   drawn under it, just above that, so a fix lands among the shapes it
@@ -125,16 +144,18 @@ for `coords="local"`.
   `contours=[i, ...]` those contours, `nodes=false` the summaries only.
   Node values are the SVG command's numbers: `[x, y]` for M and L, `[c1x,
   c1y, c2x, c2y, x, y]` for C. `set_points({id: {node: values}})` moves
-  them; `handles`, `pin`, `break_points`, `delete_segment`, `split_edge`,
-  `delete_points`, `delete_contours`, `join_points`.
+  them; `point_style(points, handles=0|1|2, pinned=...)`, `break_points`
+  (given a segment's two end points, it deletes that segment, as Break
+  does), `split_edge`, `delete(points=...)` (with `contours=true` the whole
+  contours they are on), `join(points=[a, b])`.
 - Pieces: `extract(region)` takes the contours inside a region (a
   rectangle or a polygon `[[x, y], ...]`) out of every unlocked path
   painting there (or the paths `ids`) into new paths with the same paint,
   just above them in their group. `cut=true` (the default) cuts strokes
   where they cross the region's edge and splits fills crossing it along
   the edge; a fill merely around the region is left alone. `cut=false`
-  takes whole contours only. `delete_contours(region=...)` deletes them
-  instead (whole contours unless `cut=true`). Each is one undo step.
+  takes whole contours only. `delete(region=...)` deletes them instead
+  (whole contours unless `cut=true`). Each is one undo step.
 - The shape to match: `trace_reference(region)` outlines the reference's
   dark areas there (`colour="#..."` for areas of one colour; `tolerance`
   and `min_area` tune it) as closed path data in document coordinates,
@@ -143,7 +164,7 @@ for `coords="local"`.
 - `redraw_outline(id, points)` redraws the stretch of an outline a stroke
   runs along, as the Redraw tool does; its ends must lie on the outline.
 - Every edit takes its targets: `ids` for object tools (at least one),
-  `points` for point tools, `contours` for holes. There is no selection to
+  `points` for point tools, `contours` for `holes`. There is no selection to
   set or rely on. An edit's answer gives `result`, the objects (and points)
   it left to work on next, such as the new group or the cut pieces, and
   `created` and `removed`.
@@ -160,10 +181,10 @@ over the whole drawing or into the area of `group` (`cel` for flat colour
 with ink lines, `colour-regions` for posterised regions; `samvg` needs a
 GPU). `tidy(ids)`, `fit_colours(ids, fill="flat"|"linear")`,
 `snap_edges(ids)` and `cleanup(ids)` improve existing paths. Each starts a
-job:
-`job_status(id, wait_seconds)` waits for it and returns its metrics and
-before/after previews, then `apply(id)` keeps the result as one undo step
-or `discard(id)` drops it. Look at the previews and metrics before applying.
+job: `job(id, wait_seconds=...)` waits for it and returns its metrics and
+before/after previews, then `job(id, action="apply")` keeps the result as
+one undo step or `job(id, action="discard")` drops it; `action="stop"`
+stops it early. Look at the previews and metrics before applying.
 
 ## Budgets
 
