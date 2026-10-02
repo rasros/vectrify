@@ -170,6 +170,32 @@ def test_a_line_leaving_a_junction_along_a_staircase_is_followed_on():
     assert lengths[0] > 5
 
 
+def test_a_short_mark_off_a_line_stays_but_a_whisker_goes():
+    # A thick line with a bump, which thins to a whisker, and a thin line
+    # with a short mark leaving it, as a mouth leaves a jaw's outline.
+    mask = np.zeros((60, 80), dtype=bool)
+    mask[10:18, 5:75] = True
+    mask[18:21, 36:44] = True
+    mask[40:43, 5:75] = True
+    mask[34:40, 40:42] = True
+    skeleton = cel.thin(mask)
+    depth = cel.distance_transform_edt(mask)
+
+    def free_ends(runs):
+        return {float(p[1]) for r in runs for p in (r[0], r[-1])}
+
+    # Both are shorter than the spur: without the line's depth, both go.
+    runs = cel.line_runs(skeleton, 10)
+    assert len(runs) == 4
+    assert not any(14 < y < 41 for y in free_ends(runs))
+    # The mark's free end is beyond its line's ink and stays; the whisker's
+    # is within the thick line's and goes.
+    runs = cel.line_runs(skeleton, 10, depth)
+    assert len(runs) == 5
+    assert 35.5 in free_ends(runs)
+    assert not any(14 < y < 20 for y in free_ends(runs))
+
+
 def test_the_outlines_runs_join_through_their_junctions():
     _, details = cel.vectorize(cel_image(), regions=3)
     assert details["line_pieces"] < details["line_runs"]
