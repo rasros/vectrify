@@ -45,6 +45,18 @@ References, from Wikimedia Commons, downloaded once into
 - https://commons.wikimedia.org/wiki/Special:FilePath/Wikipe-tan_sorceress_color.svg
 - https://commons.wikimedia.org/wiki/Special:FilePath/Adult_Wikipe-tan.svg
 
+Those four are the tuning set: settings are chosen on them. `--heldout`
+runs the held-out set (HELDOUT) instead, drawings never used for tuning,
+so a change tuned on the first is checked once on the second. They are
+downloaded once into ~/.cache/vectrify-bench/heldout:
+
+- https://commons.wikimedia.org/wiki/Special:FilePath/Neko_Wikipe-tan.svg
+  (CC BY-SA 3.0; Kasuga, vectorised by Malyszkz)
+- https://commons.wikimedia.org/wiki/Special:FilePath/Angry_Wikipe-tan.svg
+  (CC BY-SA 3.0; Kasuga, Mikael Häggström, Esby and Antonsusi)
+
+    uv run python scripts/bench_lines.py --heldout --out runs/heldout.jsonl
+
 Wikipe-tan is by Kasuga (Kasuga~jawiki) and other Wikimedia contributors;
 the files are licensed CC BY-SA (see each file's page on Commons for its
 exact version and authors).
@@ -73,6 +85,9 @@ REFERENCES = (
     "Wikipe-tan_sorceress_color",
     "Adult_Wikipe-tan",
 )
+# Never tune on these.
+HELDOUT = ("Neko_Wikipe-tan", "Angry_Wikipe-tan")
+HELDOUT_DIR = CACHE / "heldout"
 INPUTS = ("clean", "noisy", "stretched")
 HEIGHT = 1000
 # How near, in pixels, a traced line or edge must be to a true one.
@@ -99,7 +114,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--references", nargs="+", default=list(REFERENCES))
+    parser.add_argument("--references", nargs="+")
+    parser.add_argument(
+        "--heldout",
+        action="store_true",
+        help="Run the held-out drawings (HELDOUT), not the tuning set",
+    )
     parser.add_argument("--inputs", nargs="+", default=list(INPUTS), choices=INPUTS)
     parser.add_argument(
         "--set",
@@ -127,8 +147,9 @@ def main() -> None:
         return
     settings = dict(_setting(item) for item in args.set)
     rows = []
-    for name in args.references:
-        truth = reference(name)
+    names = args.references or list(HELDOUT if args.heldout else REFERENCES)
+    for name in names:
+        truth = reference(name, HELDOUT_DIR if args.heldout else CACHE)
         width, height = size(truth)
         clean = Image.fromarray(render(truth, width, height))
         for kind in args.inputs:
@@ -166,9 +187,9 @@ def main() -> None:
                 file.write(json.dumps(row) + "\n")
 
 
-def reference(name: str) -> str:
-    """The SVG source of reference *name*, downloaded once into the cache."""
-    path = CACHE / f"{name}.svg"
+def reference(name: str, folder: Path = CACHE) -> str:
+    """The SVG source of reference *name*, downloaded once into *folder*."""
+    path = folder / f"{name}.svg"
     if not path.exists():
         request = urllib.request.Request(
             COMMONS + f"{name}.svg",
@@ -176,7 +197,7 @@ def reference(name: str) -> str:
         )
         with urllib.request.urlopen(request, timeout=60) as response:
             data = response.read()
-        CACHE.mkdir(parents=True, exist_ok=True)
+        folder.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
     return path.read_text()
 

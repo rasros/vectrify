@@ -13,6 +13,14 @@ run only the steps after SAM are timed and tuning them takes seconds;
     uv run python scripts/bench_trace.py --compare runs/base.jsonl runs/b.jsonl
     uv run python scripts/bench_trace.py --method cel --paths 0 --out runs/cel.jsonl
     uv run python scripts/bench_trace.py --nodes shape=true --nodes seconds=60
+    uv run python scripts/bench_trace.py --method cel --paths 0 --heldout
+
+The default references are the tuning set: settings are chosen on them.
+`--heldout` runs the held-out set (HELDOUT) instead, images never used
+for tuning, so a change tuned on the first is checked once on the second.
+They are cel-shaded art from the author's own project and are not in the
+repository: they go in ~/.cache/vectrify-bench/heldout. lin-ren-v1
+(2048x3072) is downscaled to 1600 px on its long side.
 
 Small dark features a trace can lose, such as earth-hybrid-v2's eye, are
 reported as the trace's mean luminance where the reference is dark there
@@ -44,6 +52,14 @@ REFERENCES = (
     "chest-clothing-bold-v2.png",
     "earth-hybrid-v2.png",
 )
+# The held-out set, in HELDOUT_DIR, and the long side to downscale each to
+# (None: as it is). Never tune on these.
+HELDOUT = {
+    "reference-left-v1.png": None,
+    "reference-up-v10.png": None,
+    "lin-ren-v1.png": 1600,
+    "courtyard-quiet-v1.png": None,
+}
 # Small dark features a trace can lose, by reference: each a box (x0, y0,
 # x1, y1) in which the reference's pixels darker than FEATURE_DARK (0-255
 # luminance) are the feature. Each is reported as the trace's mean luminance
@@ -72,6 +88,21 @@ PRESETS: dict[str, dict[str, dict]] = {
 # `--nodes` overrides them.
 OPTIMIZE = {"workers": 1}
 CACHE = Path.home() / ".cache" / "vectrify-bench"
+HELDOUT_DIR = CACHE / "heldout"
+
+
+def load(path: Path) -> Image.Image:
+    """Reference *path* as the editor shows it, transparency over white (not
+    black), and downscaled as HELDOUT says when it is a held-out one."""
+    image = on_white(Image.open(path))
+    side = HELDOUT.get(path.name) if path.parent == HELDOUT_DIR else None
+    if side and max(image.size) > side:
+        scale = side / max(image.size)
+        image = image.resize(
+            (round(image.width * scale), round(image.height * scale)),
+            Image.Resampling.LANCZOS,
+        )
+    return image
 
 
 def main() -> None:
@@ -79,6 +110,11 @@ def main() -> None:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--references", nargs="+", type=Path)
+    parser.add_argument(
+        "--heldout",
+        action="store_true",
+        help="Run the held-out references (HELDOUT), not the tuning set",
+    )
     parser.add_argument("--method", default="samvg", choices=sorted(PRESETS))
     parser.add_argument("--preset", nargs="+", help="Presets of the method to run")
     parser.add_argument(
@@ -118,11 +154,14 @@ def main() -> None:
         )
     overrides = dict(_setting(item) for item in args.set)
     nodes = OPTIMIZE | dict(_setting(item) for item in args.nodes)
-    references = args.references or [ROOT / name for name in REFERENCES]
+    references = args.references or (
+        [HELDOUT_DIR / name for name in HELDOUT]
+        if args.heldout
+        else [ROOT / name for name in REFERENCES]
+    )
     rows = []
     for path in references:
-        # As the editor shows it: transparency over white, not black.
-        image = on_white(Image.open(path))
+        image = load(path)
         for preset in args.preset or list(presets):
             settings = {**presets[preset], **overrides}
             for _ in range(args.repeat):

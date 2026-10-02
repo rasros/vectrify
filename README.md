@@ -119,7 +119,9 @@ PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 fit, `bench_trace.py` benchmarks Generate with SAMVG and Tidy on
 fixed references, `bench_lines.py` scores the Cel art tracer's lines
 against vector originals (clean, noisy and stretched), `bench_shadows.py`
-measures the shading it leaves out, `subtle_screen.py`
+measures the shading it leaves out (each of these three takes `--heldout`
+to run a held-out set of images never used for tuning instead of the
+default tuning set), `subtle_screen.py`
 checks that the scorers in `vectrify.score` order graded path damage
 correctly, and
 `analyze_profile.py` summarises a py-spy profile.

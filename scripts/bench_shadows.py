@@ -15,6 +15,10 @@ editor shows them) and the line bench's SVG drawings, rendered clean:
     uv run python scripts/bench_shadows.py --renders runs/shadows
     uv run python scripts/bench_shadows.py --rescore runs/shadows
     uv run python scripts/bench_shadows.py --compare runs/a.jsonl runs/b.jsonl
+    uv run python scripts/bench_shadows.py --heldout
+
+`--heldout` runs both benches' held-out sets instead, never used for
+tuning (see bench_trace and bench_lines).
 
 Cel is deterministic, so one run per case compares settings. Keep the
 machine cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
@@ -27,14 +31,15 @@ import json
 from pathlib import Path
 
 import numpy as np
+from bench_lines import CACHE, _setting, reference, render, size, trace
+from bench_lines import HELDOUT as LINE_HELDOUT
+from bench_lines import HELDOUT_DIR as LINE_HELDOUT_DIR
 from bench_lines import REFERENCES as LINE_REFERENCES
-from bench_lines import _setting, reference, render, size, trace
+from bench_trace import HELDOUT as TRACE_HELDOUT
+from bench_trace import HELDOUT_DIR, ROOT, load
 from bench_trace import REFERENCES as TRACE_REFERENCES
-from bench_trace import ROOT
 from PIL import Image
 from scipy.ndimage import binary_opening, gaussian_filter, label
-
-from vectrify.image_utils import on_white
 
 # The measure's constants, as the brief for it gives them.
 SIGMA = 1.5
@@ -61,11 +66,17 @@ def missing_shadows(reference: np.ndarray, traced: np.ndarray) -> dict:
     }
 
 
-def cases(images: Path) -> list[tuple[str, Image.Image]]:
-    """Each reference's name and image, the raster ones from *images*."""
-    found = [(name, on_white(Image.open(images / name))) for name in TRACE_REFERENCES]
-    for name in LINE_REFERENCES:
-        svg = reference(name)
+def cases(images: Path, heldout: bool = False) -> list[tuple[str, Image.Image]]:
+    """Each reference's name and image, the raster ones from *images*; with
+    *heldout*, the held-out ones instead."""
+    if heldout:
+        found = [(name, load(HELDOUT_DIR / name)) for name in TRACE_HELDOUT]
+        drawings, folder = LINE_HELDOUT, LINE_HELDOUT_DIR
+    else:
+        found = [(name, load(images / name)) for name in TRACE_REFERENCES]
+        drawings, folder = LINE_REFERENCES, CACHE
+    for name in drawings:
+        svg = reference(name, folder)
         found.append((name, Image.fromarray(render(svg, *size(svg)))))
     return found
 
@@ -83,6 +94,11 @@ def main() -> None:
     )
     parser.add_argument(
         "--images", type=Path, default=ROOT, help="Where the raster references are"
+    )
+    parser.add_argument(
+        "--heldout",
+        action="store_true",
+        help="Run the held-out references, not the tuning set",
     )
     parser.add_argument("--out", type=Path, help="Write one JSON line per case")
     parser.add_argument(
@@ -103,7 +119,7 @@ def main() -> None:
         return
     settings = dict(_setting(item) for item in args.set)
     rows = []
-    for name, image in cases(args.images):
+    for name, image in cases(args.images, args.heldout):
         seconds = None
         if args.rescore:
             svg = (args.rescore / f"{Path(name).stem}-cel.svg").read_text()
