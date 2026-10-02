@@ -4,6 +4,9 @@ The same tools as ``vectrify-mcp``, served over the MCP Streamable HTTP
 transport at ``http://127.0.0.1:<port>/mcp`` from a background thread
 (uvicorn running the SDK's ASGI app), on the window's session in process. A
 client adds the URL once, with the editor's stable token as a bearer header.
+The same port, with the same token, carries ``/agent/call``, the JSON channel
+``vectrify-mcp``'s ``connect()`` uses, for the desktop window, which has no
+HTTP server of its own.
 """
 
 from __future__ import annotations
@@ -14,6 +17,7 @@ import socket
 import threading
 from typing import TYPE_CHECKING
 
+import anyio.to_thread
 import uvicorn
 from mcp.server.transport_security import TransportSecuritySettings
 from starlette.datastructures import Headers
@@ -21,7 +25,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from vectrify.mcp.server import Vectrify, build_window_server
 from vectrify.mcp.target import WindowTarget
-from vectrify.ui.agent import OFF
+from vectrify.ui.agent import MAX_CALL, OFF
 
 if TYPE_CHECKING:
     from vectrify.ui.agent import AgentChannel
@@ -60,20 +64,57 @@ class Guard:
             if refusal is not None:
                 status, message = refusal
                 body = json.dumps({"error": message}).encode()
-                await send(
-                    {
-                        "type": "http.response.start",
-                        "status": status,
-                        "headers": [
-                            (b"content-type", b"application/json"),
-                            (b"content-length", str(len(body)).encode()),
-                            (b"cache-control", b"no-store"),
-                        ],
-                    }
-                )
-                await send({"type": "http.response.body", "body": body})
+                await respond(send, status, "application/json", body)
+                return
+            if scope["path"].startswith("/agent/"):
+                await self.agent_call(scope, receive, send, headers)
                 return
         await self.app(scope, receive, send)
+
+    async def agent_call(
+        self, scope: Scope, receive: Receive, send: Send, headers: Headers
+    ) -> None:
+        """``vectrify-mcp``'s JSON channel (``connect()``), on this same port."""
+        body = bytearray()
+        more = True
+        while more:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                return
+            body += message.get("body", b"")
+            more = message.get("more_body", False)
+            if len(body) > MAX_CALL:
+                await respond(
+                    send,
+                    413,
+                    "application/json",
+                    b'{"error": "Request exceeds the editor limit"}',
+                )
+                return
+        path = scope["path"] + (
+            "?" + scope["query_string"].decode() if scope.get("query_string") else ""
+        )
+        # An agent call may wait (a job's status up to two minutes): off the
+        # event loop, so other clients keep being answered.
+        status, kind, answer = await anyio.to_thread.run_sync(
+            self.channel.http, scope["method"], path, headers, bytes(body)
+        )
+        await respond(send, status, kind, answer)
+
+
+async def respond(send: Send, status: int, kind: str, body: bytes) -> None:
+    await send(
+        {
+            "type": "http.response.start",
+            "status": status,
+            "headers": [
+                (b"content-type", kind.encode()),
+                (b"content-length", str(len(body)).encode()),
+                (b"cache-control", b"no-store"),
+            ],
+        }
+    )
+    await send({"type": "http.response.body", "body": body})
 
 
 def bind(port: int, tries: int) -> socket.socket:

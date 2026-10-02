@@ -12,16 +12,19 @@ import base64
 import json
 import mimetypes
 import secrets
+from collections.abc import Iterator
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlparse
+from urllib.parse import parse_qs, urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
 from vectrify.ui.agent import MCP_PORT, AgentChannel, answer
 from vectrify.ui.session import MAX_SOURCE, Session
 
 STATIC = Path(__file__).with_name("static")
+# How often an idle push channel says it is still there, in seconds.
+KEEPALIVE = 15.0
 # What the editor opens with when it is given no drawing: an empty artboard.
 BLANK = (
     '<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" '
@@ -44,6 +47,32 @@ class Backend:
         self.sessions: dict[str, Session] = {}
         # The door agents edit a window's session through, once it allows it.
         self.agents = AgentChannel(self)
+
+    def pulse(self, session: Session, session_id: str) -> dict[str, Any]:
+        """What the page is told of its session's drawing and agents."""
+        return {
+            "session": session_id,
+            "epoch": session.epoch,
+            "revision": session.editor.snapshot.revision,
+            "agent": self.agents.status(session_id),
+        }
+
+    def events(self, session_id: str) -> Iterator[dict[str, Any] | None]:
+        """The page's push channel: its pulse now and after each agent call,
+        or None when nothing happened for a while (to keep the line open).
+        Ends when the session does."""
+        channel = self.agents
+        beat = channel.beat
+        while True:
+            session = self.sessions.get(session_id)
+            if session is None:
+                return
+            with session.lock:
+                pulse = self.pulse(session, session_id)
+            yield pulse
+            while (new := channel.wait(beat, KEEPALIVE)) == beat:
+                yield None
+            beat = new
 
     def handle(self, path: str, data: Any, session_id: str | None) -> tuple[int, dict]:
         """Answer one request as (status, body), whatever carried it."""
@@ -80,15 +109,12 @@ class Backend:
                         else session.nodes(data["object"])
                     )
                 elif path == "/api/poll":
-                    # What the page checks for agents' edits, and the footer;
-                    # it says what it shows, for an agent's view().
+                    # What the page checks for agents' edits, and the footer
+                    # (pushed to it as they happen, polled now and then); it
+                    # says what it shows, for an agent's view().
                     if data.get("view") is not None:
                         session.set_view(data["view"])
-                    result = {
-                        "epoch": session.epoch,
-                        "revision": session.editor.snapshot.revision,
-                        "agent": self.agents.status(session_id),
-                    }
+                    result = self.pulse(session, session_id or "")
                 elif path == "/api/agent":
                     if data.get("regenerate"):
                         result = self.agents.regenerate(session_id or "")
@@ -183,7 +209,11 @@ class Handler(BaseHTTPRequestHandler):
                 403, {"error": "This editor accepts local same-origin requests only"}
             )
             return
-        path = urlparse(self.path).path
+        parsed = urlparse(self.path)
+        path = parsed.path
+        if path == "/api/events":
+            self.events(parse_qs(parsed.query).get("session", [""])[0])
+            return
         files = {
             "/": "index.html",
             "/app.js": "app.js",
@@ -206,6 +236,30 @@ class Handler(BaseHTTPRequestHandler):
         self.respond(
             200, file.read_bytes(), mimetypes.guess_type(file.name)[0] or "text/plain"
         )
+
+    def events(self, session_id: str) -> None:
+        """Server-sent events: the page's pulse after each agent call."""
+        backend = self.server.backend
+        if session_id not in backend.sessions:
+            self.json(401, {"error": "Editor session expired; reload this page"})
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        try:
+            for pulse in backend.events(session_id):
+                if pulse is None:
+                    self.wfile.write(b": still here\n\n")
+                else:
+                    data = json.dumps(pulse, allow_nan=False)
+                    self.wfile.write(f"data: {data}\n\n".encode())
+                self.wfile.flush()
+        except OSError:
+            # The page went away.
+            pass
+        self.close_connection = True
 
     def do_POST(self) -> None:
         # Agents carry a token rather than the page's origin.
@@ -246,9 +300,9 @@ def main() -> None:
     parser.add_argument(
         "--mcp-port",
         type=int,
-        default=MCP_PORT,
-        help="Where to host the MCP server while agents are allowed "
-        "(the next free port if taken)",
+        default=None,
+        help="Where to host the MCP server while agents are allowed (default: "
+        f"the port used last time, else {MCP_PORT}; the next free port if taken)",
     )
     args = parser.parse_args()
     reference = None

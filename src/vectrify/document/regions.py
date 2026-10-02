@@ -29,14 +29,97 @@ from vectrify.document.knife import _cut_open, _Line
 from vectrify.document.model import (
     Document,
     DocumentError,
+    Element,
     Geometry,
     PathNode,
     Subpath,
     new_id,
 )
+from vectrify.document.svg import GEOMETRY, parse_path
 from vectrify.document.topology import inverse_matrix, mapped_point, subdivide
 
 Point2 = tuple[float, float]
+# The basic shapes a region edit turns into paths where it cuts them.
+SHAPES = frozenset({"rect", "circle", "ellipse", "line"})
+# A quarter ellipse's Bezier handles, as a fraction of its radius.
+KAPPA = 4 * (math.sqrt(2) - 1) / 3
+
+
+def shape_geometry(element: Element) -> Geometry:
+    """A basic shape's outline as path geometry in its own coordinates, as
+    SVG draws it: a rectangle (rounded by rx and ry), circle or ellipse
+    closed, starting at its top-left corner or rightmost point; a line open."""
+
+    def number(name: str, default: float = 0.0) -> float:
+        value = element.get(name)
+        try:
+            return default if value in {None, "", "auto"} else float(str(value))
+        except ValueError:
+            raise DocumentError(
+                f"{element.id}: {name}={value!r} is not a plain number"
+            ) from None
+
+    def at(x: float, y: float) -> str:
+        return f"{x!r} {y!r}"
+
+    tag = element.tag
+    if tag == "line":
+        data = f"M{at(number('x1'), number('y1'))} L{at(number('x2'), number('y2'))}"
+    elif tag in {"circle", "ellipse"}:
+        cx, cy = number("cx"), number("cy")
+        rx, ry = (
+            (number("r"), number("r"))
+            if tag == "circle"
+            else (number("rx", -1), number("ry", -1))
+        )
+        # An ellipse's missing radius is the other one (SVG 2's auto).
+        rx, ry = (ry if rx < 0 else rx), (rx if ry < 0 else ry)
+        if rx <= 0 or ry <= 0:
+            raise DocumentError(f"{element.id}: this {tag} draws nothing")
+        kx, ky = KAPPA * rx, KAPPA * ry
+        data = (
+            f"M{at(cx + rx, cy)} "
+            f"C{at(cx + rx, cy + ky)} {at(cx + kx, cy + ry)} {at(cx, cy + ry)} "
+            f"C{at(cx - kx, cy + ry)} {at(cx - rx, cy + ky)} {at(cx - rx, cy)} "
+            f"C{at(cx - rx, cy - ky)} {at(cx - kx, cy - ry)} {at(cx, cy - ry)} "
+            f"C{at(cx + kx, cy - ry)} {at(cx + rx, cy - ky)} {at(cx + rx, cy)} Z"
+        )
+    elif tag == "rect":
+        x, y = number("x"), number("y")
+        w, h = number("width"), number("height")
+        if w <= 0 or h <= 0:
+            raise DocumentError(f"{element.id}: this rect draws nothing")
+        rx, ry = number("rx", -1), number("ry", -1)
+        rx, ry = (ry if rx < 0 else rx), (rx if ry < 0 else ry)
+        rx, ry = min(max(rx, 0), w / 2), min(max(ry, 0), h / 2)
+        if rx > 0 and ry > 0:
+            kx, ky = KAPPA * rx, KAPPA * ry
+            data = (
+                f"M{at(x + rx, y)} L{at(x + w - rx, y)} "
+                f"C{at(x + w - rx + kx, y)} {at(x + w, y + ry - ky)} "
+                f"{at(x + w, y + ry)} L{at(x + w, y + h - ry)} "
+                f"C{at(x + w, y + h - ry + ky)} {at(x + w - rx + kx, y + h)} "
+                f"{at(x + w - rx, y + h)} L{at(x + rx, y + h)} "
+                f"C{at(x + rx - kx, y + h)} {at(x, y + h - ry + ky)} "
+                f"{at(x, y + h - ry)} L{at(x, y + ry)} "
+                f"C{at(x, y + ry - ky)} {at(x + rx - kx, y)} {at(x + rx, y)} Z"
+            )
+        else:
+            data = f"M{at(x, y)} L{at(x + w, y)} L{at(x + w, y + h)} L{at(x, y + h)} Z"
+    else:
+        raise DocumentError(f"{element.id}: a {tag} is not a basic shape")
+    return parse_path(data)
+
+
+def as_path(element: Element, geometry: Geometry) -> Element:
+    """*element*, a basic shape, as a path drawing *geometry*, keeping its id,
+    paint, transform and everything else but the shape's own attributes. A
+    line fills nothing, so its path does not either."""
+    shape = GEOMETRY[element.tag]
+    attributes = tuple((k, v) for k, v in element.attributes if k not in shape)
+    if element.tag == "line" and element.get("fill") is None:
+        attributes = (*attributes, ("fill", "none"))
+    return replace(element, tag="path", attributes=attributes, geometry_id=geometry.id)
 
 
 def object_matrix(document: Document, object_id: str) -> Matrix:

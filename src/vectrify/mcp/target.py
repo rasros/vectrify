@@ -59,6 +59,10 @@ class FileTarget:
     def call(self, tool: str, args: dict[str, Any]) -> Reply:
         return call_agent(self.agent, tool, args)
 
+    def identity(self) -> object:
+        """What a client's look was of: another means it must look again."""
+        return self
+
     def describe(self) -> str:
         return f"the file {self.path}"
 
@@ -87,18 +91,17 @@ class WindowTarget:
     def __init__(self, channel: AgentChannel, url: str):
         self.channel = channel
         self.url = url
-        self._agent: Agent | None = None
 
     def call(self, tool: str, args: dict[str, Any]) -> Reply:
         agent = self.channel.agent
         if agent is None:
             raise TargetError(OFF)
-        if agent is not self._agent:
-            # Another window (or the same one allowed afresh): what the agent
-            # saw was another drawing.
-            self._agent = agent
-            args = {**args, "seen": None}
         return call_agent(agent, tool, args)
+
+    def identity(self) -> object:
+        # Another window (or the same one allowed afresh): what a client saw
+        # was another drawing.
+        return self.channel.agent
 
     def describe(self) -> str:
         return f"the editor window, which hosts this server at {self.url}"
@@ -153,6 +156,9 @@ class LiveTarget:
                 f"The editor at {self.url} is not answering ({exc}). Is it still "
                 "open with agents allowed? connect() again, or open() a file."
             ) from None
+
+    def identity(self) -> object:
+        return self
 
     def call(self, tool: str, args: dict[str, Any]) -> Reply:
         body = json.dumps({"tool": tool, "args": args}).encode()
