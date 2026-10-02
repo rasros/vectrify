@@ -31,6 +31,11 @@ SETTINGS = {
     # One unbroken stroke round the drawing's silhouette, in place of the
     # traced outer line.
     "outline": Setting(bool, False, label="continuous outer outline"),
+    # Each region's colour fitted to the image under the lines as drawn,
+    # rather than its pixels' median.
+    "fit_colours": Setting(bool, True, label="fit colours"),
+    # A region whose colour clearly ramps takes a linear gradient.
+    "gradients": Setting(bool, True, label="gradients"),
 }
 
 
@@ -75,7 +80,14 @@ class Cel:
             name="Cel trace",
             metrics={
                 key: details[key]
-                for key in ("regions", "line_paths", "line_style", "outline", "seconds")
+                for key in (
+                    "regions",
+                    "gradients",
+                    "line_paths",
+                    "line_style",
+                    "outline",
+                    "seconds",
+                )
                 if key in details
             },
         )

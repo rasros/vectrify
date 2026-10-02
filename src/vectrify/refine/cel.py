@@ -11,7 +11,9 @@ a target count, keeping apart regions of different colours a line runs
 between and, past the count, shadows a step darker than their surface. The
 line pixels go to the regions either side, so neighbours meet at the line's
 middle and share one traced edge, smoothed between its corners
-before it is fitted. The lines are thinned to centrelines and drawn over the
+before it is fitted. Each region's colour is then fitted in closed form to
+the image under the lines as drawn, and a region whose colour clearly ramps
+takes a linear gradient. The lines are thinned to centrelines and drawn over the
 fills as strokes in their ink: a thin line's antialiased middle is a mix of
 ink and surface, so it is drawn darker and thinner than its pixels look.
 There is one path per line colour and width, a line cut where its width
@@ -28,7 +30,7 @@ from __future__ import annotations
 import heapq
 import time
 from itertools import pairwise
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import numpy as np
 from PIL import Image
@@ -51,6 +53,7 @@ from scipy.ndimage import (
 
 from vectrify.document.lines import contour_ends, end_pairs, joined
 from vectrify.document.model import Geometry, PathNode, Subpath
+from vectrify.document.paint import hex_colour
 from vectrify.refine.colour_regions import (
     boundary_chains,
     colour,
@@ -66,6 +69,9 @@ from vectrify.refine.redraw import _corners
 from vectrify.refine.redraw import _smoothed as _smoothed_between
 from vectrify.refine.samvg import _fit_cubic, _simplified_data, mask_path
 from vectrify.refine.simplify import simplified_geometry
+
+if TYPE_CHECKING:
+    from vectrify.operations.methods.colours import Ramp
 
 LUMINANCE = np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
 # A line is darker than the surface either side by this much at its core, in
@@ -121,11 +127,13 @@ SHADOW_LEAST = 150
 DENSITY = 6
 SMOOTH = 1.0
 # A region boundary is smoothed more than a line before it is fitted, and
-# cut into curves at the points a polyline within this share of the
+# cut into curves at the points a polyline within this many times the
 # tolerance needs (a line's within half): a fill's edge has only the pixel
-# staircase to lose, where a line's centreline wavers with its ink.
+# staircase to lose, where a line's centreline wavers with its ink. The
+# cubics between the cuts are then simplified within the tolerance itself,
+# so cutting this coarsely leaves fewer points without moving the outline.
 FILL_SMOOTH = 2.0
-FILL_CUT = 1.0
+FILL_CUT = 2.0
 # A run turning more than CORNER degrees over CORNER_SPAN points either side
 # has a corner there: each stretch between corners is smoothed on its own
 # and a curve ends at each, so the corner stays sharp.
@@ -194,6 +202,17 @@ OUTLINE_PEAK = 0.25
 # this many pixels across, is filled beneath them.
 UNCOVERED_WIDE = 3
 UNCOVERED_LEAST = 8
+# A region's colour is fitted where the lines leave at least this many
+# pixels' worth of it showing.
+FIT_LEAST = 4.0
+# A region of at least RAMP_PIXELS takes a gradient when one lowers its
+# squared error under the lines by RAMP_GAIN of the flat fill's, and by
+# RAMP_LEAST per pixel in 0-255 RGB squared; it is fitted on about
+# RAMP_SAMPLES of its pixels.
+RAMP_PIXELS = 400
+RAMP_GAIN = 0.25
+RAMP_LEAST = 4.0
+RAMP_SAMPLES = 4000
 
 
 def _disk(radius: int) -> np.ndarray:
@@ -1201,13 +1220,19 @@ def vectorize(
     tolerance: float = 0.75,
     strokes: bool = True,
     outline: bool = False,
+    fit_colours: bool = True,
+    gradients: bool = True,
 ) -> tuple[str, dict]:
     """Trace *image* as flat regions and drawn lines, as SVG in its pixels.
 
     *line_width* 0 measures the lines; any other fixes their stroke width.
     Without *strokes* the lines are filled shapes instead. With *outline*,
     one unbroken stroke runs round the drawing's silhouette (see
-    :func:`silhouette`) in place of the traced outer line.
+    :func:`silhouette`) in place of the traced outer line. With
+    *fit_colours*, each region's colour is the one that best matches the
+    image under the lines as drawn (see :func:`fitted_fills`), not its
+    median; with *gradients*, a region whose colour clearly ramps takes a
+    linear gradient (see :func:`ramps`).
     """
     if regions < 1 or not np.isfinite(tolerance) or tolerance < 0:
         raise ValueError("invalid region count or tolerance")
@@ -1240,21 +1265,13 @@ def vectorize(
     labels = labels.reshape(line.shape)
     count = int(labels.max()) + 1
     medians = region_medians(target, labels, line)
-    fills = {index: colour(medians[index]) for index in range(count)}
     outlines = region_outlines(labels, tolerance)
     order = np.argsort(-np.bincount(labels.ravel(), minlength=count))
-    # Beneath them all, the largest region's colour shows at any seam.
-    backdrop = fills[int(order[0])]
-    parts = [f'<rect width="{width}" height="{height}" fill="{backdrop}"/>']
-    parts.extend(
-        f'<path d="{outlines[int(i)]}" fill="{fills[int(i)]}" fill-rule="evenodd"/>'
-        for i in order
-        if int(i) in outlines
-    )
     details: dict[str, Any] = {
         "regions": len(outlines),
         "line_pixels": int(line.sum()),
     }
+    line_parts: list[str] = []
     if line.any():
         line_parts, line_details = _line_paths(
             target,
@@ -1267,23 +1284,193 @@ def vectorize(
             drawing=drawing,
             outer=(outer, depth),
         )
-        parts.extend(line_parts)
         details.update(line_details)
     elif drawing is not None:
         # No lines to take its ink and width from.
         stroke = line_width or OUTLINE_WIDTH
         contours, _ = outline_runs(drawing, stroke / 2 + OUTLINE_INSET, stroke)
         if contours:
-            parts.append(
+            line_parts.append(
                 _stroke([_contour(c, tolerance) for c in contours], "#000000", stroke)
             )
         details["outline"] = len(contours)
+    # Each region's colour, fitted under the lines as drawn; a region whose
+    # colour ramps clearly better than it stays flat takes a gradient.
+    fitted = medians
+    gradient_defs: list[str] = []
+    paints: dict[int, str] = {}
+    if fit_colours or gradients:
+        cover, painted = line_layer(line_parts, width, height)
+        if fit_colours:
+            fitted = fitted_fills(target, labels, cover, painted, medians)
+        if gradients:
+            for index, ramp in ramps(target, labels, cover, painted, fitted).items():
+                gradient_defs.append(_gradient(f"ramp{index}", ramp))
+                paints[index] = f"url(#ramp{index})"
+        details["gradients"] = len(gradient_defs)
+    fills = {i: paints.get(i) or colour(fitted[i]) for i in range(count)}
+    # Beneath them all, the largest region's colour shows at any seam.
+    backdrop = colour(fitted[int(order[0])])
+    parts = [f"<defs>{''.join(gradient_defs)}</defs>"] if gradient_defs else []
+    parts.append(f'<rect width="{width}" height="{height}" fill="{backdrop}"/>')
+    parts.extend(
+        f'<path d="{outlines[int(i)]}" fill="{fills[int(i)]}" fill-rule="evenodd"/>'
+        for i in order
+        if int(i) in outlines
+    )
+    parts.extend(line_parts)
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
         f'viewBox="0 0 {width} {height}">' + "".join(parts) + "</svg>"
     )
     details["seconds"] = time.monotonic() - started
     return svg, details
+
+
+def line_layer(
+    parts: list[str], width: int, height: int
+) -> tuple[np.ndarray, np.ndarray]:
+    """The lines *parts* rendered alone: each pixel's cover by them, 0-1,
+    and their colour times that cover, 0-255 RGB."""
+    import io
+
+    import cairosvg
+
+    if not parts:
+        return np.zeros((height, width, 1), np.float32), np.zeros(
+            (height, width, 3), np.float32
+        )
+    svg = (
+        f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
+        f'viewBox="0 0 {width} {height}">' + "".join(parts) + "</svg>"
+    )
+    png = cairosvg.svg2png(
+        bytestring=svg.encode(), output_width=width, output_height=height
+    )
+    assert png is not None
+    with Image.open(io.BytesIO(png)) as rendered:
+        rgba = np.asarray(rendered.convert("RGBA"), dtype=np.float32)
+    cover = rgba[..., 3:] / 255
+    return cover, rgba[..., :3] * cover
+
+
+def fitted_fills(
+    target: np.ndarray,
+    labels: np.ndarray,
+    cover: np.ndarray,
+    painted: np.ndarray,
+    fallback: np.ndarray,
+) -> np.ndarray:
+    """Each region's flat colour, by label, that best matches *target* under
+    the lines: a pixel shows ``(1 - cover) * fill + painted`` (see
+    :func:`line_layer`), so the least-squares fill per channel is the sum of
+    ``(1 - cover) * (target - painted)`` over the region's pixels, over that
+    of ``(1 - cover) ** 2``, as Fit colours solves it. Pixels on a region's
+    edge are left out: the outline's antialiasing already mixes them with
+    the neighbour, so counting them would mix it in twice. A region the
+    lines all but hide keeps its *fallback* colour."""
+    count = len(fallback)
+    flat = labels.ravel()
+    inside = np.ones(labels.shape, dtype=bool)
+    across = labels[1:] != labels[:-1]
+    inside[1:] &= ~across
+    inside[:-1] &= ~across
+    across = labels[:, 1:] != labels[:, :-1]
+    inside[:, 1:] &= ~across
+    inside[:, :-1] &= ~across
+    seen = (1 - cover[..., 0]).astype(np.float64) * inside
+    weight = np.bincount(flat, (seen * seen).ravel(), minlength=count)
+    sums = np.stack(
+        [
+            np.bincount(
+                flat, (seen * (target[..., c] - painted[..., c])).ravel(), count
+            )
+            for c in range(3)
+        ],
+        1,
+    )
+    fitted = np.clip(sums / np.maximum(weight, 1e-9)[:, None], 0, 255)
+    return np.where((weight >= FIT_LEAST)[:, None], fitted, fallback)
+
+
+def ramps(
+    target: np.ndarray,
+    labels: np.ndarray,
+    cover: np.ndarray,
+    painted: np.ndarray,
+    fitted: np.ndarray,
+) -> dict[int, Ramp]:
+    """The regions, by label, whose colour ramps: the linear gradient Fit
+    gradients would give each (see :func:`fit_ramp`), fitted on at most
+    about RAMP_SAMPLES of its pixels, kept where it lowers the region's
+    squared error under the lines by at least RAMP_GAIN of its flat
+    *fitted* colour's and by RAMP_LEAST per pixel."""
+    from scipy.ndimage import find_objects
+
+    from vectrify.operations.generate import Region
+    from vectrify.operations.methods.colours import fit_ramp
+
+    found = {}
+    seen = 1 - cover[..., 0]
+    for index, box in enumerate(find_objects(labels + 1)):
+        if box is None:
+            continue
+        mask = labels[box] == index
+        size = int(mask.sum())
+        if size < RAMP_PIXELS:
+            continue
+        step = max(1, int(np.ceil(np.sqrt(size / RAMP_SAMPLES))))
+        sample = (slice(step // 2, None, step), slice(step // 2, None, step))
+        own = mask[sample]
+        rows, columns = own.shape
+        if own.sum() < 3:
+            continue
+        reference = target[box][sample] / 255
+        under = np.where(own[..., None], painted[box][sample] / 255, reference)
+        coverage = np.where(own, seen[box][sample], 0)[..., None].repeat(3, -1)
+        region = Region(
+            float(box[1].start),
+            float(box[0].start),
+            float(columns * step),
+            float(rows * step),
+            Image.new("RGB", (columns, rows)),
+        )
+        xs, ys = np.meshgrid(
+            region.x + (np.arange(columns) + 0.5) * step,
+            region.y + (np.arange(rows) + 0.5) * step,
+        )
+        ramp = fit_ramp(under, coverage, reference, region)
+        if ramp is None or ramp.flat():
+            continue
+        (x0, y0), (x1, y1) = ramp.start, ramp.end
+        dx, dy = x1 - x0, y1 - y0
+        u = np.clip(((xs - x0) * dx + (ys - y0) * dy) / (dx * dx + dy * dy), 0, 1)
+        start, end = (np.asarray(c) for c in ramp.colours)
+        before, after = (
+            float(((coverage * fill + under - reference)[own] ** 2).sum())
+            for fill in (fitted[index] / 255, start + u[..., None] * (end - start))
+        )
+        pixels = float(own.sum())
+        if (
+            after <= before * (1 - RAMP_GAIN)
+            and (before - after) / pixels >= RAMP_LEAST / 255**2
+        ):
+            found[index] = ramp
+    return found
+
+
+def _gradient(name: str, ramp: Ramp) -> str:
+    """*ramp* as a linear gradient in the trace's pixels, named *name*."""
+    (x1, y1), (x2, y2) = ramp.start, ramp.end
+    stops = "".join(
+        f'<stop offset="{offset}" stop-color="{hex_colour(c)}"/>'
+        for offset, c in zip((0, 1), ramp.colours, strict=True)
+    )
+    return (
+        f'<linearGradient id="{name}" gradientUnits="userSpaceOnUse" '
+        f'x1="{x1:.2f}" y1="{y1:.2f}" x2="{x2:.2f}" y2="{y2:.2f}">{stops}'
+        "</linearGradient>"
+    )
 
 
 def region_medians(

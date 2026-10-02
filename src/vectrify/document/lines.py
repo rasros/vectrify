@@ -224,7 +224,7 @@ def end_pairs(
     there: that is a corner of one line.
     """
     limit = math.cos(math.radians(turn))
-    tiny = 1e-9 * max(1.0, *(abs(v) for e in ends for v in e.point))
+    tiny = 1e-9 * max([1.0, *(abs(v) for e in ends for v in e.point)])
 
     def dot(u: Point, v: Point) -> float:
         return u[0] * v[0] + u[1] * v[1]

@@ -578,8 +578,18 @@ the regions either side, so neighbours
 meet at the line's middle; each edge between two regions is traced once and
 used by both, so they meet exactly with no gap or overlap. Before an edge
 is fitted, its pixel staircase is smoothed away between its corners, which
-stay sharp, so the outlines come out smooth and with few points. Each region is
-coloured from its own pixels, not the lines'. The lines are thinned to
+stay sharp, so the outlines come out smooth and with few points: each run
+between corners is cut into as few curves as a polyline within twice the
+tolerance needs, then simplified within the tolerance. With **Fit colours**
+(on by default) each region takes the flat colour that best matches the
+reference under the lines as they are drawn, solved in closed form as Fit
+colours solves it, leaving out the pixels along its edge, which the
+outline's antialiasing already mixes with its neighbour; off, it takes the
+median of its own pixels, not the lines'. With **Gradients** (on by
+default) a region whose colour ramps across it, such as a sky, takes the
+linear gradient Fit gradients would give it, where that lowers its error
+under the lines by at least a quarter and by 4 (in squared 0-255 levels)
+a pixel; the rest stay flat. The lines are thinned to
 centrelines and drawn over the regions as round-capped strokes in their ink:
 a thin line's antialiased middle mixes its ink with the surface, so it is
 drawn in the darker ink at the width of ink it holds, not in grey. A dark

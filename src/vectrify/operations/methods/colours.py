@@ -208,6 +208,40 @@ def _ramp_error(s, cov, values, t0, t1):
     return float((residual * residual).sum()), (c0, c1)
 
 
+def _ramp_errors(s, cov, values, t0, t1) -> np.ndarray:
+    """:func:`_ramp_error`'s squared error for each pair of *t0* and *t1*,
+    many at once: the residual expanded in the sums the two end colours are
+    solved from, so no pair needs its own pass over the pixels' residuals."""
+    u = np.clip((s[None] - t0[:, None]) / (t1 - t0)[:, None], 0, 1)
+    # Per pair and channel: the sums of p p, p q, q q, p v, q v with
+    # p = cov (1 - u), q = cov u.
+    cc, cv = cov * cov, cov * values
+    uu = u * u
+    a = cc.sum(0)[None]
+    b = u @ cc
+    c = uu @ cc
+    pp, pq, qq = a - 2 * b + c, b - c, c
+    av = cv.sum(0)[None]
+    qv = u @ cv
+    pv = av - qv
+    det = pp * qq - pq * pq
+    single = np.abs(det) < 1e-12
+    safe = np.where(single, 1.0, det)
+    flat = pv / np.maximum(pp + qq, 1e-12)
+    c0 = np.where(single, flat, (qq * pv - pq * qv) / safe)
+    c1 = np.where(single, flat, (pp * qv - pq * pv) / safe)
+    # |v - p c0 - q c1|^2, summed over the pixels.
+    vv = (values * values).sum(0)[None]
+    error = (
+        vv - 2 * c0 * pv - 2 * c1 * qv + c0 * c0 * pp + 2 * c0 * c1 * pq + c1 * c1 * qq
+    )
+    return error.sum(1)
+
+
+# Pairs of ends whose errors are worked out together, times the pixels.
+BATCH = 4_000_000
+
+
 def _ends(s, cov, values, low, high):
     """The best ends along the axis: a coarse grid over the covered extent,
     then twice a grid four times finer around the best pair."""
@@ -215,13 +249,22 @@ def _ends(s, cov, values, low, high):
     shortest = (high - low) / 200
 
     def search(starts, ends, best):
-        for t0 in starts:
-            for t1 in ends:
-                if t1 - t0 >= shortest:
-                    err, colours = _ramp_error(s, cov, values, t0, t1)
-                    if err < best[0]:
-                        best = (err, t0, t1, colours)
-        return best
+        pairs = np.array(
+            [(t0, t1) for t0 in starts for t1 in ends if t1 - t0 >= shortest]
+        )
+        if not len(pairs):
+            return best
+        chunk = max(1, BATCH // max(len(s), 1))
+        errors = np.concatenate(
+            [
+                _ramp_errors(s, cov, values, part[:, 0], part[:, 1])
+                for part in np.array_split(pairs, -(-len(pairs) // chunk))
+            ]
+        )
+        i = int(np.argmin(errors))
+        t0, t1 = float(pairs[i, 0]), float(pairs[i, 1])
+        err, colours = _ramp_error(s, cov, values, t0, t1)
+        return (err, t0, t1, colours) if err < best[0] else best
 
     grid = [low + step * i for i in range(STEPS + 1)]
     best = search(grid, grid, (np.inf, low, high, None))
