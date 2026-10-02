@@ -313,6 +313,33 @@ def test_lines_are_found_through_grain():
     assert (drawn & ~truth).sum() < 0.3 * drawn.sum()
 
 
+def test_a_one_pixel_line_is_found_through_grain():
+    # A 3 x 3 median gives a one-pixel line to the surface; the line is
+    # found again with it kept, along a row and a diagonal alike.
+    rng = np.random.default_rng(2)
+    pixels = np.asarray(cel_image(), dtype=np.float32).copy()
+    pixels[25, 15:55] = 30
+    for i in range(30):
+        pixels[30 + i, 65 + i] = 30
+    noisy = np.clip(pixels + rng.normal(0, 10, pixels.shape), 0, 255)
+    assert cel.noise_level(noisy) > cel.NOISE
+    image = noisy.astype(np.float32)
+    lost, _ = cel.detect_lines(cel.median_filter(image, size=(3, 3, 1)), 3)
+    kept, _ = cel.detect_lines(cel.denoised(image), 3)
+    row = np.zeros(lost.shape, dtype=bool)
+    row[25, 18:52] = True
+    diagonal = np.zeros(lost.shape, dtype=bool)
+    for i in range(3, 27):
+        diagonal[30 + i, 65 + i] = True
+    assert kept[row].mean() > 0.9
+    assert kept[diagonal].mean() > 0.9
+    assert lost[row].mean() < 0.5
+    svg, _ = cel.vectorize(Image.fromarray(noisy.astype(np.uint8)), regions=3)
+    stroked = re.sub(r'<rect[^>]*>|<path d="[^"]+" fill="#[^>]*>', "", svg)
+    drawn = rendered(stroked) < 200
+    assert drawn[24:27, 18:52].any(0).mean() > 0.8
+
+
 def test_a_thin_antialiased_line_is_drawn_in_its_ink_and_thin():
     # One bold black line, and a thin one antialiased to grey.
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
