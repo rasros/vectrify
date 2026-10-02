@@ -40,7 +40,10 @@ from urllib.parse import urlparse
 
 import cairosvg
 import numpy as np
+from cairosvg.colors import color as css_colour
 from PIL import Image
+from shapely.geometry import LineString, Polygon
+from shapely.geometry import Point as ShapelyPoint
 
 from vectrify.document import (
     Document,
@@ -50,9 +53,16 @@ from vectrify.document import (
     StaleRevisionError,
     export_svg,
 )
+from vectrify.document.hit_test import IDENTITY, Matrix
 from vectrify.document.holes import document_hole_shape, find_holes
+from vectrify.document.join import path_style
+from vectrify.document.model import EditKind, Subpath
+from vectrify.document.regions import object_matrix, region_polygon, samples
+from vectrify.document.svg import parse_path
+from vectrify.document.topology import inverse_matrix, mapped_point
 from vectrify.image_utils import on_white
 from vectrify.operations.generate import frame
+from vectrify.ui import agent_look
 
 # What the history puts before an agent's edits.
 AGENT_PREFIX = "Agent: "
@@ -69,6 +79,12 @@ MAX_WAIT = 120.0
 CONNECTED = 120.0
 # How many of the agent's recent changes the page is told the objects of.
 TOUCHED = 20
+# How many nodes points() lists at a time by default, and at most.
+NODES = 300
+MAX_NODES = 2000
+# How many objects pick() lists, and contours of each.
+PICKED = 20
+CONTOURS = 30
 
 # Each agent tool that edits, and the editor commands it sends. The MCP
 # server has one tool of the same name for each. Each also sends "select",
@@ -102,7 +118,8 @@ EDITS: dict[str, tuple[str, ...]] = {
     "delete_segment": ("delete_segment",),
     "split_edge": ("split",),
     "delete_points": ("delete_node",),
-    "delete_contours": ("delete_contour",),
+    "delete_contours": ("delete_contour", "extract"),
+    "extract": ("extract",),
     "knife": ("knife",),
     "redraw_outline": ("redraw_outline",),
     "set_reference": ("reference",),
@@ -139,6 +156,10 @@ LOOKS = frozenset(
         "get_svg",
         "points",
         "holes",
+        "pick",
+        "sample",
+        "trace_reference",
+        "view",
         "history",
         "job_status",
         "export",
@@ -146,6 +167,19 @@ LOOKS = frozenset(
 )
 
 Box = tuple[float, float, float, float]
+# The paint describe() and pick() list of an object.
+PAINT_KEYS = (
+    "fill",
+    "stroke",
+    "stroke-width",
+    "opacity",
+    "fill-opacity",
+    "stroke-opacity",
+)
+# What pick() looks through to the objects inside.
+CONTAINERS = frozenset({"svg", "g", "defs", "clipPath", "linearGradient", "stop"})
+# Between the drawing and the reference set side by side.
+SIDE_GAP = 4
 # One step of an edit: a payload, one made once the steps before are done,
 # or None to skip it.
 Step = dict | Callable[[], dict | None] | None
@@ -166,7 +200,10 @@ REFUSALS = (
 def reason(exc: BaseException) -> str:
     """A refusal's message for the agent."""
     if isinstance(exc, KeyError):
-        return f"No such object, point or field: {exc.args[0] if exc.args else ''}"
+        return (
+            f"No such object, point or field: {exc.args[0] if exc.args else ''} "
+            "(pick(x, y) gives the ids at a spot, points(id) a path's node ids)"
+        )
     return str(exc) or type(exc).__name__
 
 
@@ -283,6 +320,38 @@ def changed_objects(before: Document, after: Document) -> set[str]:
         if was is None or was[0] != own or was[1] is not geometry:
             changed.add(oid)
     return changed
+
+
+def _map_values(values: Sequence[float], matrix: Matrix) -> list[float]:
+    """A node's values, pairs of coordinates, mapped through *matrix*."""
+    if tuple(matrix) == IDENTITY:
+        return list(values)
+    mapped = []
+    for x, y in zip(values[::2], values[1::2], strict=True):
+        mx, my = mapped_point((x, y), matrix)
+        mapped.extend((round(mx, 6), round(my, 6)))
+    return mapped
+
+
+def _contour_summary(subpath: Subpath, index: int, matrix: Matrix) -> dict[str, Any]:
+    """A contour's index, ID, first node, node count, closed and bounds
+    [x, y, w, h] in document units."""
+    points = np.asarray([mapped_point(p, matrix) for p in samples(subpath)])
+    left, top = points.min(axis=0)
+    right, bottom = points.max(axis=0)
+    return {
+        "index": index,
+        "id": subpath.id,
+        "first_node": subpath.nodes[0].id,
+        "count": len(subpath.nodes),
+        "closed": subpath.closed,
+        "bounds": [
+            round(float(left), 3),
+            round(float(top), 3),
+            round(float(right - left), 3),
+            round(float(bottom - top), 3),
+        ],
+    }
 
 
 def _png(image: Image.Image) -> bytes:
@@ -436,6 +505,7 @@ class Agent:
                     touched.update(editor.snapshot.selection.object_ids)
             except Exception as exc:
                 editor.rollback(since)
+                self._settle(revision)
                 if editor.snapshot.revision != revision:
                     raise RefusedError(reason(exc), self._where()) from exc
                 raise
@@ -444,6 +514,7 @@ class Agent:
             if label is not None:
                 label = AGENT_PREFIX + label
             editor.squash(since, label)
+            self._settle(revision)
             snapshot = editor.snapshot
             after = {e.id for e in snapshot.document.elements()}
             data: dict[str, Any] = {
@@ -459,6 +530,18 @@ class Agent:
             if removed:
                 data["removed"] = removed[:200]
             return Reply(data)
+
+    def _settle(self, revision: int) -> None:
+        """Make the call one revision past *revision*, however many edits it
+        took: what was cached at the revisions in between is dropped, as
+        the next edits reuse their numbers."""
+        if self.session.editor.snapshot.revision <= revision + 1:
+            return
+        self.session.settle(revision)
+        self._svg = self._index = None
+        self._renders = OrderedDict(
+            (key, image) for key, image in self._renders.items() if key[2] <= revision
+        )
 
     @contextlib.contextmanager
     def _own_selection(self) -> Iterator[set[str]]:
@@ -557,36 +640,136 @@ class Agent:
 
     def _cached(self, kind: str, region: Box, size: tuple[int, int]) -> Image.Image:
         """The drawing or the reference over *region*, cached per revision."""
-        reference = self.session.reference
-        key = (
-            kind,
-            *self._key(),
-            region,
-            size,
-            hash(reference["data_url"]) if reference and kind == "reference" else 0,
-        )
-        image = self._renders.get(key)
-        if image is None:
-            with self.session.lock:
-                if kind == "drawing":
-                    image = render_document(self._document_svg(), region, size)
-                else:
-                    picture = self._reference_image()
-                    if picture is None:
-                        raise DocumentError(
-                            "No reference image is loaded; load_reference() one"
-                        )
-                    artboard = self.session.editor.snapshot.document.artboard()
-                    image = crop_reference(picture, artboard, region, size)
+        with self.session.lock:
+            reference = self.session.reference
+            key = (
+                kind,
+                *self._key(),
+                region,
+                size,
+                hash(reference["data_url"]) if reference and kind == "reference" else 0,
+            )
+            image = self._renders.get(key)
+            if image is not None:
+                self._renders.move_to_end(key)
+                return image
+            if kind == "drawing":
+                image = render_document(self._document_svg(), region, size)
+            else:
+                picture = self._reference_image()
+                if picture is None:
+                    raise DocumentError(
+                        "No reference image is loaded; load_reference() one"
+                    )
+                artboard = self.session.editor.snapshot.document.artboard()
+                image = crop_reference(picture, artboard, region, size)
             self._renders[key] = image
             while len(self._renders) > 24:
                 self._renders.popitem(last=False)
-        else:
-            self._renders.move_to_end(key)
-        return image
+            return image
+
+    def _view(self) -> dict[str, Any]:
+        view = self.session.view
+        if view is None:
+            raise DocumentError(
+                "No editor window has said what it shows: this is a file opened "
+                "headlessly, or the window has not reported yet. Give a region "
+                "[x, y, w, h] instead; view() says what the person sees."
+            )
+        return view
+
+    def _look(self, region: Any, max_side: Any, default: int = DEFAULT_SIDE):
+        """The region to look at and the long side to render it at: region
+        "view" is what the person's window shows, at its size."""
+        if region == "view":
+            view = self._view()
+            pixels = view["pixels"]
+            side = (
+                self._side(max_side)
+                if max_side is not None
+                else max(MIN_SIDE, min(MAX_SIDE, max(pixels)))
+            )
+            return tuple(view["region"]), side
+        return self._region(region), self._side(
+            max_side if max_side is not None else default
+        )
 
     def tool_hello(self, _seen: Any) -> Reply:
         return Reply({**self._where(), "name": self.session.name})
+
+    @staticmethod
+    def _object_row(row: dict[str, Any], hits: HitIndex) -> dict[str, Any]:
+        """An object as describe() and pick() list it."""
+        attributes = row["attributes"]
+        bounds = hits.bounds(frozenset({row["id"]}))
+        item: dict[str, Any] = {
+            "id": row["id"],
+            "label": row["label"],
+            "tag": row["tag"],
+            "parent": row["parent"],
+            "depth": row["depth"],
+            "paint": {k: attributes[k] for k in PAINT_KEYS if k in attributes},
+            "bounds": [
+                round(bounds[0], 3),
+                round(bounds[1], 3),
+                round(bounds[2] - bounds[0], 3),
+                round(bounds[3] - bounds[1], 3),
+            ]
+            if bounds
+            else None,
+        }
+        if row["name"]:
+            item["name"] = row["name"]
+        if attributes.get("transform"):
+            item["transform"] = attributes["transform"]
+        for key in ("locks", "inherited_locks"):
+            if row[key]:
+                item[key] = row[key]
+        if row["shared"]:
+            item["shared_geometry"] = True
+        if row["resource"]:
+            item["definition"] = True
+        return item
+
+    def _covering(self, shape: Any) -> list[tuple[str, list[tuple[int, str]]]]:
+        """The drawn objects that paint within *shape*, front to back, each
+        with the contours (index, "stroke" or "fill") of it that do."""
+        hits = self._hits()
+        document = self.session.editor.snapshot.document
+        left, top, right, bottom = shape.bounds
+        found = []
+        for element in reversed(document.elements()):
+            if element.children or element.tag in CONTAINERS:
+                continue
+            area = hits.area(element.id)
+            if area is None:
+                continue
+            x0, y0, x1, y1 = area.bounds
+            if x0 > right or x1 < left or y0 > bottom or y1 < top:
+                continue
+            if not area.intersects(shape):
+                continue
+            contours = (
+                hits.contours_in(element.id, shape) if element.tag == "path" else []
+            )
+            found.append((element.id, contours))
+        return found
+
+    def _contour_rows(
+        self, oid: str, contours: Sequence[tuple[int, str]]
+    ) -> list[dict[str, Any]]:
+        document = self.session.editor.snapshot.document
+        geometry = document.geometry_for(oid)
+        matrix = object_matrix(document, oid)
+        rows = []
+        for index, paint in contours[:CONTOURS]:
+            row = _contour_summary(geometry.subpaths[index], index, matrix)
+            row["paints"] = paint
+            rows.append(row)
+        return rows
+
+    def _rows_by_id(self) -> dict[str, dict[str, Any]]:
+        return {r["id"]: r for r in self.session.state(svg=False)["objects"]}
 
     def tool_describe(
         self,
@@ -594,6 +777,7 @@ class Agent:
         page: int = 0,
         page_size: int = PAGE_SIZE,
         within: str | None = None,
+        region: Any = None,
     ) -> Reply:
         session = self.session
         if type(page) is not int or page < 0:
@@ -607,74 +791,162 @@ class Agent:
             if within is not None:
                 inside = {e.id for e in Document(document.element(within)).elements()}
                 rows = [r for r in rows if r["id"] in inside and r["id"] != within]
+            contours: dict[str, list[tuple[int, str]]] = {}
+            if region is not None:
+                found = self._covering(Polygon(region_polygon(region)))
+                contours = dict(found)
+                by_id = {r["id"]: r for r in rows}
+                rows = [by_id[oid] for oid, _ in found if oid in by_id]
             chosen = rows[page * page_size : (page + 1) * page_size]
             hits = self._hits() if chosen else None
             objects = []
             for row in chosen:
-                attributes = row["attributes"]
-                bounds = hits.bounds(frozenset({row["id"]})) if hits else None
-                item: dict[str, Any] = {
-                    "id": row["id"],
-                    "label": row["label"],
-                    "tag": row["tag"],
-                    "parent": row["parent"],
-                    "depth": row["depth"],
-                    "paint": {
-                        k: attributes[k]
-                        for k in (
-                            "fill",
-                            "stroke",
-                            "stroke-width",
-                            "opacity",
-                            "fill-opacity",
-                            "stroke-opacity",
-                        )
-                        if k in attributes
-                    },
-                    "bounds": [
-                        round(bounds[0], 3),
-                        round(bounds[1], 3),
-                        round(bounds[2] - bounds[0], 3),
-                        round(bounds[3] - bounds[1], 3),
-                    ]
-                    if bounds
-                    else None,
-                }
-                if row["name"]:
-                    item["name"] = row["name"]
-                if attributes.get("transform"):
-                    item["transform"] = attributes["transform"]
-                for key in ("locks", "inherited_locks"):
-                    if row[key]:
-                        item[key] = row[key]
-                if row["shared"]:
-                    item["shared_geometry"] = True
-                if row["resource"]:
-                    item["definition"] = True
+                assert hits is not None
+                item = self._object_row(row, hits)
+                if contours.get(row["id"]):
+                    item["contours"] = self._contour_rows(
+                        row["id"], contours[row["id"]]
+                    )
+                    if len(contours[row["id"]]) > CONTOURS:
+                        item["contours_total"] = len(contours[row["id"]])
                 objects.append(item)
             picture = self._reference_image()
             undo, redo = session.editor.undo_labels, session.editor.redo_labels
-            return Reply(
-                {
-                    **self._where(),
-                    "name": session.name,
-                    "artboard": state["bounds"],
-                    "reference": {
-                        "name": state["reference"]["name"],
-                        "pixels": [picture.width, picture.height] if picture else None,
-                    }
-                    if state["reference"]
-                    else None,
-                    "selection": self._selection(),
-                    "root": state["root"],
-                    "objects": objects,
-                    "page": page,
-                    "pages": max(1, math.ceil(len(rows) / page_size)),
-                    "total": len(rows),
-                    "undo": undo[-1] if undo else None,
-                    "redo": redo[0] if redo else None,
+            data = {
+                **self._where(),
+                "name": session.name,
+                "artboard": state["bounds"],
+                "reference": {
+                    "name": state["reference"]["name"],
+                    "pixels": [picture.width, picture.height] if picture else None,
                 }
+                if state["reference"]
+                else None,
+                "selection": self._selection(),
+                "root": state["root"],
+                "objects": objects,
+                "page": page,
+                "pages": max(1, math.ceil(len(rows) / page_size)),
+                "total": len(rows),
+                "undo": undo[-1] if undo else None,
+                "redo": redo[0] if redo else None,
+            }
+            if region is not None:
+                data["order"] = (
+                    "front to back: the objects that paint inside the region, "
+                    "with the contours of each that do"
+                )
+            elif len(rows) > page_size:
+                data["next"] = (
+                    "To find what is at a spot, pick(x, y) or "
+                    "describe(region=[x, y, w, h]) rather than paging"
+                )
+            return Reply(data)
+
+    def tool_pick(
+        self,
+        _seen: Any,
+        x: float,
+        y: float,
+        radius: float = 0.0,
+        limit: int = PICKED,
+    ) -> Reply:
+        """What paints at (x, y), or within radius of it, front to back."""
+        at = (_finite(x, "x"), _finite(y, "y"))
+        reach = _finite(radius, "radius")
+        if reach < 0:
+            raise DocumentError("radius must not be negative")
+        if type(limit) is not int or limit < 1:
+            raise DocumentError("limit is a whole number from 1")
+        spot = ShapelyPoint(at)
+        shape = spot.buffer(reach) if reach > 0 else spot
+        with self.session.lock:
+            document = self.session.editor.snapshot.document
+            found = self._covering(shape)
+            rows = self._rows_by_id() if found else {}
+            hits = self._hits()
+            objects = []
+            for oid, contours in found[:limit]:
+                item = self._object_row(rows[oid], hits)
+                item["groups"] = [a.id for a in document.ancestry(oid)[1:-1]]
+                if contours:
+                    item["contours"] = self._contour_rows(oid, contours)
+                    if len(contours) > CONTOURS:
+                        item["contours_total"] = len(contours)
+                objects.append(item)
+            data: dict[str, Any] = {
+                **self._where(),
+                "at": list(at),
+                "radius": reach,
+                "order": "front to back",
+                "objects": objects,
+                "total": len(found),
+            }
+            if not found:
+                data["note"] = (
+                    "Nothing paints here; a larger radius, or describe(region=...)"
+                )
+            else:
+                data["next"] = (
+                    "points(id, contours=[index]) lists a contour's nodes; "
+                    "extract(region) takes what lies in a region into a path of "
+                    "its own; delete_contours(region=...) deletes it."
+                )
+            return Reply(data)
+
+    def tool_view(self, _seen: Any) -> Reply:
+        """What the person is looking at: their selection, and what the
+        window shows."""
+        with self.session.lock:
+            session = self.session
+            data: dict[str, Any] = {**self._where(), "selection": self._selection()}
+            view = session.view
+            if view is None:
+                data.update(
+                    window=False,
+                    region=list(session.editor.snapshot.document.artboard()),
+                    note="No editor window has said what it shows (a file opened "
+                    "headlessly, or a window that has not reported yet): the "
+                    "region is the whole artboard.",
+                )
+                return Reply(data)
+            data.update(
+                window=True,
+                region=[round(v, 3) for v in view["region"]],
+                zoom=round(view["zoom"], 4),
+                pixels=view["pixels"],
+                tool=view["tool"],
+                entered_group=view["entered"],
+                reference_view=view["reference_view"],
+                reported_seconds_ago=round(time.monotonic() - session.view_time, 1),
+                note="zoom is screen pixels per document unit; region is "
+                "[x, y, w, h] of the drawing the window shows; "
+                'render(region="view") renders it.',
             )
+            return Reply(data)
+
+    def _compose(
+        self, box: Box, side: int, overlay: str, opacity: float = 0.5
+    ) -> tuple[Image.Image, tuple[int, int]]:
+        """The drawing over *box*, with the reference beside it, blended over
+        it or instead of it; and the size of one of them."""
+        if overlay == "side":
+            # Two images side by side share the pixel budget.
+            size = _size(box, side // 2 if box[2] >= box[3] else side)
+        else:
+            size = _size(box, side)
+        if overlay == "reference":
+            return self._cached("reference", box, size), size
+        drawing = self._cached("drawing", box, size)
+        if overlay == "none":
+            return drawing, size
+        reference = self._cached("reference", box, size)
+        if overlay == "over":
+            return Image.blend(drawing, reference, opacity), size
+        image = Image.new("RGB", (2 * size[0] + SIDE_GAP, size[1]), "#808080")
+        image.paste(drawing, (0, 0))
+        image.paste(reference, (size[0] + SIDE_GAP, 0))
+        return image, size
 
     def tool_render(
         self,
@@ -682,50 +954,74 @@ class Agent:
         region: Any = None,
         overlay: str = "none",
         max_side: int | None = None,
+        grid: bool = False,
     ) -> Reply:
-        box = self._region(region)
-        side = self._side(max_side)
         if overlay not in {"none", "side", "over"}:
             raise DocumentError("overlay is none, side (by side) or over")
-        if overlay == "side":
-            # Two images side by side share the pixel budget.
-            size = _size(box, side // 2 if box[2] >= box[3] else side)
-        else:
-            size = _size(box, side)
-        drawing = self._cached("drawing", box, size)
-        if overlay == "none":
-            image = drawing
-        else:
-            reference = self._cached("reference", box, size)
-            if overlay == "over":
-                image = Image.blend(drawing, reference, 0.5)
-            else:
-                gap = 4
-                image = Image.new("RGB", (2 * size[0] + gap, size[1]), "#808080")
-                image.paste(drawing, (0, 0))
-                image.paste(reference, (size[0] + gap, 0))
-        return Reply(
-            {**self._where(), "region": list(box), "pixels": list(image.size)},
-            [("render", _png(image))],
-        )
+        box, side = self._look(region, max_side)
+        opacity = 0.5
+        if region == "view":
+            view = self._view()
+            mode = view["reference_view"] if self.session.reference else None
+            if overlay == "none" and mode in {"overlay", "reference"}:
+                # As the window shows it: the reference over the drawing at its
+                # opacity there, or the reference alone.
+                overlay = "over" if mode == "overlay" else "reference"
+                opacity = view.get("reference_opacity") or 0.5
+        image, size = self._compose(box, side, overlay, opacity)
+        if grid:
+            image = agent_look.draw_grid(image, box, 0, size[0])
+            if overlay == "side":
+                image = agent_look.draw_grid(image, box, size[0] + SIDE_GAP, size[0])
+        data = {
+            **self._where(),
+            "region": list(box),
+            "pixels": list(image.size),
+            "mapping": agent_look.mapping(
+                box, size, gap=SIDE_GAP if overlay == "side" else 0
+            ),
+        }
+        if region == "view":
+            data["shows"] = (
+                "what the person's window shows"
+                + (", the reference over the drawing" if overlay == "over" else "")
+                + (", the reference alone" if overlay == "reference" else "")
+            )
+        return Reply(data, [("render", _png(image))])
 
     def tool_reference(
-        self, _seen: Any, region: Any = None, max_side: int | None = None
+        self,
+        _seen: Any,
+        region: Any = None,
+        max_side: int | None = None,
+        grid: bool = False,
     ) -> Reply:
-        box = self._region(region)
-        image = self._cached("reference", box, _size(box, self._side(max_side)))
+        box, side = self._look(region, max_side)
+        size = _size(box, side)
+        image = self._cached("reference", box, size)
+        if grid:
+            image = agent_look.draw_grid(image, box)
         return Reply(
-            {**self._where(), "region": list(box), "pixels": list(image.size)},
+            {
+                **self._where(),
+                "region": list(box),
+                "pixels": list(image.size),
+                "mapping": agent_look.mapping(box, size),
+            },
             [("reference", _png(image))],
         )
 
     def tool_compare(
-        self, _seen: Any, region: Any = None, max_side: int | None = None
+        self,
+        _seen: Any,
+        region: Any = None,
+        max_side: int | None = None,
+        grid: bool = False,
     ) -> Reply:
         """The mean squared error against the reference, a heat map of where
         they differ, and the worst cells of a 4 by 4 grid over the region."""
-        box = self._region(region)
-        size = _size(box, self._side(max_side if max_side is not None else 512))
+        box, side = self._look(region, max_side, 512)
+        size = _size(box, side)
         drawing = np.asarray(self._cached("drawing", box, size), dtype=np.float64)
         reference = np.asarray(self._cached("reference", box, size), dtype=np.float64)
         squared = ((drawing - reference) / 255) ** 2
@@ -754,15 +1050,124 @@ class Agent:
                     }
                 )
         cells.sort(key=lambda c: -c["mse"])
+        heat = heat_map(np.sqrt(per_pixel))
+        if grid:
+            heat = agent_look.draw_grid(heat, box)
         return Reply(
             {
                 **self._where(),
                 "region": list(box),
                 "mse": round(float(per_pixel.mean()), 6),
                 "worst_cells": cells[:4],
+                "mapping": agent_look.mapping(box, size),
             },
-            [("difference", _png(heat_map(np.sqrt(per_pixel))))],
+            [("difference", _png(heat))],
         )
+
+    def tool_sample(self, _seen: Any, x: float, y: float, radius: float = 0.0) -> Reply:
+        """The drawing's and the reference's colour at (x, y), the mean over
+        radius, and what paints there."""
+        at = (_finite(x, "x"), _finite(y, "y"))
+        reach = _finite(radius, "radius")
+        if reach < 0:
+            raise DocumentError("radius must not be negative")
+        # A spot is half a unit across at least.
+        half = max(reach, 0.5)
+        box = (at[0] - half, at[1] - half, 2 * half, 2 * half)
+        size = (17, 17)
+        drawing = agent_look.disc_mean(self._cached("drawing", box, size))
+        data: dict[str, Any] = {
+            **self._where(),
+            "at": list(at),
+            "radius": reach,
+            "drawing": agent_look.hex_colour(drawing),
+            "reference": None,
+        }
+        if self.session.reference:
+            reference = agent_look.disc_mean(self._cached("reference", box, size))
+            data["reference"] = agent_look.hex_colour(reference)
+            data["difference"] = round(math.dist(drawing, reference) / math.sqrt(3), 4)
+        spot = ShapelyPoint(at)
+        with self.session.lock:
+            found = self._covering(spot.buffer(reach) if reach > 0 else spot)
+            document = self.session.editor.snapshot.document
+            if found:
+                oid, contours = found[0]
+                element = document.element(oid)
+                style = path_style(document, element)
+                paints = contours[0][1] if contours else "fill"
+                data["object"] = {
+                    "id": oid,
+                    "paints": paints,
+                    "colour": style["stroke" if paints == "stroke" else "fill"],
+                    "contour": contours[0][0] if contours else None,
+                }
+                data["under"] = [o for o, _ in found[1:6]]
+            else:
+                data["object"] = None
+        return Reply(data)
+
+    def tool_trace_reference(
+        self,
+        _seen: Any,
+        region: Any = None,
+        colour: str | None = None,
+        dark: bool = True,
+        tolerance: float | None = None,
+        min_area: float | None = None,
+    ) -> Reply:
+        """Outlines, in document units, of the reference's dark areas (or
+        those near *colour*) in a region."""
+        box, _ = self._look(region, None)
+        picture = self._reference_image()
+        if picture is None:
+            raise DocumentError("No reference image is loaded; load_reference() one")
+        rgb: tuple[float, float, float] | None = None
+        if colour is not None:
+            try:
+                r, g, b, _alpha = css_colour(str(colour))
+            except Exception:
+                raise DocumentError(f"Not a CSS colour: {colour}") from None
+            rgb = (r, g, b)
+        elif not dark:
+            raise DocumentError("Give a colour to trace, or dark=true")
+        limit = (
+            _finite(tolerance, "tolerance")
+            if tolerance is not None
+            else (0.35 if rgb is None else 0.12)
+        )
+        artboard = self.session.editor.snapshot.document.artboard()
+        # The reference's own resolution there, within reason.
+        native = max(
+            box[2] * picture.width / artboard[2], box[3] * picture.height / artboard[3]
+        )
+        size = _size(box, round(min(1024, max(256, native))))
+        image = self._cached("reference", box, size)
+        mask = agent_look.area_mask(image, colour=rgb, tolerance=limit)
+        unit = (box[2] / size[0]) * (box[3] / size[1])
+        min_pixels = (
+            max(1, math.ceil(_finite(min_area, "min_area") / unit))
+            if min_area is not None
+            else 6
+        )
+        traced = agent_look.trace_areas(mask, box, min_pixels=min_pixels)
+        data = {
+            **self._where(),
+            "region": list(box),
+            "pixels": list(size),
+            "traced": f"luminance at most {limit}"
+            if rgb is None
+            else f"within {limit} of {agent_look.hex_colour(rgb)}",
+            **traced,
+            "next": "Each shape's d is closed path data in document units, holes "
+            "included: compare it with points(id, region=...) and move nodes "
+            "with set_points, or draw it with add_path(d).",
+        }
+        if not traced["shapes"]:
+            data["note"] = (
+                "Nothing matched: a higher tolerance, or sample(x, y) the colour"
+            )
+        return Reply(data)
 
     def tool_get_svg(self, _seen: Any, ids: Any = None) -> Reply:
         wanted = _ids(ids)
@@ -788,10 +1193,129 @@ class Agent:
             }
         )
 
-    def tool_points(self, _seen: Any, id: str) -> Reply:  # noqa: A002
+    def tool_points(
+        self,
+        _seen: Any,
+        id: str,  # noqa: A002
+        region: Any = None,
+        contours: Any = None,
+        coords: str = "document",
+        nodes: bool = True,
+        page: int = 0,
+        page_size: int = NODES,
+    ) -> Reply:
+        """A path's contours, and their nodes a page at a time: all, those of
+        the contours *contours*, or those inside *region*."""
+        if coords not in {"document", "local", "both"}:
+            raise DocumentError("coords is document, local or both")
+        if type(page) is not int or page < 0:
+            raise DocumentError("page is a whole number from 0")
+        if type(page_size) is not int or not 1 <= page_size <= MAX_NODES:
+            raise DocumentError(f"page_size is from 1 to {MAX_NODES}")
         with self.session.lock:
-            geometry = self.session.geometries([id])["geometries"][str(id)]
-            return Reply({**self._where(), "object": id, "geometry": geometry})
+            document = self.session.editor.snapshot.document
+            geometry = document.geometry_for(id)
+            matrix = object_matrix(document, id)
+            subpaths = geometry.subpaths
+            if contours is not None:
+                if not isinstance(contours, list | tuple) or any(
+                    type(i) is not int or not 0 <= i < len(subpaths) for i in contours
+                ):
+                    raise DocumentError(
+                        f"contours are indices from 0 to {len(subpaths) - 1}"
+                    )
+                chosen = sorted(set(contours))
+            else:
+                chosen = list(range(len(subpaths)))
+            inside = None
+            if region is not None:
+                polygon = Polygon(region_polygon(region))
+                inside = polygon.covers
+
+                def meets(subpath: Subpath) -> bool:
+                    line = [mapped_point(p, matrix) for p in samples(subpath)]
+                    shape = (
+                        LineString(line)
+                        if len(set(line)) > 1
+                        else ShapelyPoint(line[0])
+                    )
+                    return polygon.intersects(shape)
+
+                chosen = [i for i in chosen if meets(subpaths[i])]
+            # What this page lists: whole contours, or nodes of them.
+            if nodes:
+                entries = [
+                    (i, n, node)
+                    for i in chosen
+                    for n, node in enumerate(subpaths[i].nodes)
+                    if inside is None
+                    or inside(ShapelyPoint(mapped_point(node.endpoint, matrix)))
+                ]
+            else:
+                entries = [(i, -1, None) for i in chosen]
+            listed = entries[page * page_size : (page + 1) * page_size]
+            rows: dict[int, dict[str, Any]] = {}
+            for i, n, node in listed:
+                row = rows.get(i)
+                if row is None:
+                    row = rows[i] = _contour_summary(subpaths[i], i, matrix)
+                if node is None:
+                    continue
+                values = list(node.values)
+                item: dict[str, Any] = {"id": node.id, "i": n, "command": node.command}
+                if coords == "local":
+                    item["values"] = values
+                else:
+                    item["values"] = _map_values(values, matrix)
+                    if coords == "both":
+                        item["local"] = values
+                if node.pinned:
+                    item["pinned"] = True
+                row.setdefault("nodes", []).append(item)
+            if page == 0 and nodes:
+                # Contours crossing the region with no node inside it.
+                listing = {i for i, _, _ in entries}
+                for i in chosen:
+                    if i not in listing:
+                        rows[i] = _contour_summary(subpaths[i], i, matrix)
+                rows = dict(sorted(rows.items()))
+            pages = max(1, math.ceil(len(entries) / page_size))
+            data: dict[str, Any] = {
+                **self._where(),
+                "object": id,
+                "geometry": geometry.id,
+                "users": [
+                    e.id for e in document.elements() if e.geometry_id == geometry.id
+                ],
+                "coords": coords,
+                "contours_total": len(subpaths),
+                "contours_chosen": len(chosen),
+                "contours": list(rows.values()),
+                "page": page,
+                "pages": pages,
+            }
+            if any(abs(a - b) > 1e-12 for a, b in zip(matrix, IDENTITY, strict=True)):
+                data["transform"] = (
+                    "matrix(" + " ".join(f"{v:.9g}" for v in matrix) + ")"
+                )
+                data["coords_note"] = (
+                    "values are document coordinates (the path's own mapped "
+                    "through its transform); set_points takes them so, or "
+                    'coords="local" for its own'
+                )
+            if nodes:
+                data["nodes_total"] = len(entries)
+                if region is not None:
+                    data["nodes_shown"] = (
+                        "those inside the region; i is the node's place in its contour"
+                    )
+            if page + 1 < pages:
+                data["more"] = (
+                    f"{len(entries) - (page + 1) * page_size} more "
+                    f"{'nodes' if nodes else 'contours'}: call points again with "
+                    f"page={page + 1}, or narrow it with region or contours"
+                )
+            return Reply(data)
 
     def tool_holes(self, _seen: Any, id: str) -> Reply:  # noqa: A002
         with self.session.lock:
@@ -1094,6 +1618,44 @@ class Agent:
     def tool_delete(self, seen: Any, ids: Any) -> Reply:
         return self._simple("delete", seen, ids)
 
+    def _spot(self, d: str) -> dict[str, Any] | None:
+        """Where a new path drawn from *d* belongs: in the group of what is
+        drawn under it, just above that, as {parent, index, above}."""
+        try:
+            geometry = parse_path(str(d))
+        except (DocumentError, ValueError):
+            return None
+        points = [n.endpoint for s in geometry.subpaths for n in s.nodes]
+        if not points:
+            return None
+        xs, ys = [p[0] for p in points], [p[1] for p in points]
+        left, top, right, bottom = min(xs), min(ys), max(xs), max(ys)
+        centre = ShapelyPoint((left + right) / 2, (top + bottom) / 2)
+        found = self._covering(centre)
+        if not found and right > left and bottom > top:
+            found = self._covering(
+                Polygon([(left, top), (right, top), (right, bottom), (left, bottom)])
+            )
+        document = self.session.editor.snapshot.document
+        for oid, _ in found:
+            ancestry = document.ancestry(oid)
+            groups = ancestry[1:-1]
+            # A move into the group must keep the path's look and be allowed.
+            if (
+                any(
+                    EditKind.STRUCTURE in a.locks
+                    or float(a.get("opacity", "1") or "1") != 1
+                    or a.get("clip-path", "none") != "none"
+                    for a in groups
+                )
+                or EditKind.STRUCTURE in ancestry[0].locks
+            ):
+                continue
+            parent = ancestry[-2]
+            index = next(i for i, c in enumerate(parent.children) if c.id == oid)
+            return {"parent": parent.id, "index": index + 1, "above": oid}
+        return None
+
     def tool_add_path(
         self,
         seen: Any,
@@ -1105,9 +1667,18 @@ class Agent:
         index: int | None = None,
         name: str | None = None,
     ) -> Reply:
+        placed: dict[str, Any] = {}
+
         def new() -> str:
             (oid,) = self.session.editor.snapshot.selection.object_ids
             return oid
+
+        def where() -> None:
+            # Before the path exists: what is drawn under it.
+            if parent is None and index is None:
+                spot = self._spot(d)
+                if spot is not None:
+                    placed.update(spot)
 
         def paint() -> dict | None:
             changes = {
@@ -1118,16 +1689,34 @@ class Agent:
             return {"command": "paint", "changes": changes} if changes else None
 
         def place() -> dict | None:
-            if parent is None and index is None:
-                return None
             document = self.session.editor.snapshot.document
-            target = parent or document.root.id
-            count = len(document.element(target).children)
+            root = document.root
+            if parent is None and index is None:
+                if not placed:
+                    placed.update(
+                        parent=root.id,
+                        index=len(root.children) - 1,
+                        why="nothing is drawn under it, so it went in front at "
+                        "the top level",
+                    )
+                    return None
+                placed["why"] = (
+                    f"it lies over {placed['above']}, so it went just above it, "
+                    "in its group; give parent and index to put it elsewhere"
+                )
+                target, at = placed["parent"], placed["index"]
+                if target == root.id and at >= len(root.children) - 1:
+                    return None
+            else:
+                target = parent or root.id
+                count = len(document.element(target).children)
+                at = count if index is None else index
+                placed.update(parent=target, index=at, why="as given")
             return {
                 "command": "move_objects",
                 "objects": [new()],
                 "parent": target,
-                "index": count if index is None else index,
+                "index": at,
             }
 
         def rename() -> dict | None:
@@ -1137,9 +1726,10 @@ class Agent:
                 else {"command": "rename", "object": new(), "name": name}
             )
 
-        return self._edit(
+        reply = self._edit(
             seen,
             [
+                where,
                 {
                     "command": "add_path",
                     "d": d,
@@ -1151,21 +1741,48 @@ class Agent:
             ],
             "Draw path",
         )
+        if placed.get("why") == "as given":
+            placed.pop("above", None)
+        reply.data["placed"] = placed
+        return reply
 
-    def tool_set_points(self, seen: Any, changes: Any) -> Reply:
+    def tool_set_points(
+        self, seen: Any, changes: Any, coords: str = "document"
+    ) -> Reply:
         if not isinstance(changes, dict) or not changes:
             raise DocumentError(
                 "changes is {object id: {node id: [values]}}, the values as "
                 "points() lists them"
             )
+        if coords not in {"document", "local"}:
+            raise DocumentError("coords is document or local")
         points = [[str(o), str(n)] for o, nodes in changes.items() for n in nodes]
-        return self._edit(
-            seen,
-            [
-                self._select_points(points),
-                {"command": "move_nodes", "changes": changes},
-            ],
-        )
+
+        def move() -> dict:
+            document = self.session.editor.snapshot.document
+            local: dict[str, dict[str, list[float]]] = {}
+            for oid, nodes in changes.items():
+                if not isinstance(nodes, dict):
+                    raise DocumentError("Give each path's nodes as {node id: values}")
+                inverse = (
+                    inverse_matrix(object_matrix(document, str(oid)))
+                    if coords == "document"
+                    else IDENTITY
+                )
+                local[str(oid)] = {}
+                for nid, values in nodes.items():
+                    if not isinstance(values, list | tuple) or len(values) not in {
+                        2,
+                        6,
+                    }:
+                        raise DocumentError(
+                            "Node values are [x, y], or [c1x, c1y, c2x, c2y, x, y]"
+                        )
+                    numbers = [_finite(v, "A node value") for v in values]
+                    local[str(oid)][str(nid)] = _map_values(numbers, inverse)
+            return {"command": "move_nodes", "changes": local}
+
+        return self._edit(seen, [self._select_points(points), move])
 
     def _on_points(self, command: str, seen: Any, points: Any, **extra: Any) -> Reply:
         pairs = _points(points)
@@ -1197,7 +1814,88 @@ class Agent:
     def tool_delete_points(self, seen: Any, points: Any) -> Reply:
         return self._on_points("delete_node", seen, points)
 
-    def tool_delete_contours(self, seen: Any, points: Any) -> Reply:
+    def _region_paths(self, polygon: list[tuple[float, float]], ids: Any) -> list[str]:
+        """The paths a region edit acts on: *ids*, or every drawn path that
+        paints inside the region and whose geometry and structure are not
+        locked."""
+        if ids is not None:
+            return _targets(ids)
+        document = self.session.editor.snapshot.document
+        found = [
+            oid
+            for oid, _ in self._covering(Polygon(polygon))
+            if document.element(oid).tag == "path"
+            and not any(
+                a.locks & {EditKind.GEOMETRY, EditKind.STRUCTURE}
+                for a in document.ancestry(oid)
+            )
+        ]
+        if not found:
+            raise DocumentError(
+                "No unlocked path paints inside the region; pick(x, y) or "
+                "describe(region=...) shows what is there"
+            )
+        return found
+
+    def _in_region(
+        self, seen: Any, region: Any, ids: Any, cut: bool, delete: bool
+    ) -> Reply:
+        if not isinstance(region, list | tuple):
+            raise DocumentError("region is [x, y, w, h] or a polygon [[x, y], ...]")
+        polygon = region_polygon(region)
+        reply = self._edit(
+            seen,
+            [
+                lambda: self._select(self._region_paths(polygon, ids)),
+                {
+                    "command": "extract",
+                    "region": [list(p) for p in polygon],
+                    "cut": bool(cut),
+                    "delete": delete,
+                },
+            ],
+        )
+        if not delete:
+            document = self.session.editor.snapshot.document
+            pieces = []
+            for oid in reply.data.get("created", []):
+                element = document.element(oid)
+                if element.tag != "path":
+                    continue
+                siblings = document.ancestry(oid)[-2].children
+                at = next(i for i, c in enumerate(siblings) if c.id == oid)
+                pieces.append(
+                    {
+                        "path": oid,
+                        "from": siblings[at - 1].id if at else None,
+                        "contours": len(document.geometry_for(oid).subpaths),
+                    }
+                )
+            reply.data["extracted"] = pieces
+        return reply
+
+    def tool_extract(
+        self, seen: Any, region: Any, ids: Any = None, cut: bool = True
+    ) -> Reply:
+        return self._in_region(seen, region, ids, cut, delete=False)
+
+    def tool_delete_contours(
+        self,
+        seen: Any,
+        points: Any = None,
+        region: Any = None,
+        ids: Any = None,
+        cut: bool = False,
+    ) -> Reply:
+        if region is not None:
+            if points is not None:
+                raise DocumentError("Give points or a region, not both")
+            return self._in_region(seen, region, ids, cut, delete=True)
+        if points is None:
+            raise DocumentError(
+                "Give points, [object id, node id] pairs on the contours, or a "
+                "region to delete the contours inside it"
+            )
         return self._on_points("delete_contour", seen, points)
 
     def tool_knife(
@@ -1259,6 +1957,7 @@ class Agent:
             stack = editor.undo_labels if command == "undo" else editor.redo_labels
             if not stack:
                 raise DocumentError(f"Nothing to {command}")
+            revision = editor.snapshot.revision
             labels = []
             for _ in range(min(steps, len(stack))):
                 labels.append(
@@ -1267,6 +1966,7 @@ class Agent:
                     else editor.redo_labels[0]
                 )
                 self.session.action({"command": command, **self._where()})
+            self._settle(revision)
             return Reply(
                 {
                     **self._where(),

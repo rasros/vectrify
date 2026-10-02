@@ -599,10 +599,26 @@ function showAgent() {
   $('agent-mcp-error').hidden = !(s.enabled && s.mcp_error);
   $('agent-mcp-error').textContent = s.mcp_error || '';
 }
+// What the window shows, for an agent's view(): the visible part of the
+// drawing in its own units [x, y, w, h], the zoom (screen pixels per unit),
+// the canvas size, the tool, the entered group and the reference view.
+function viewReport() {
+  if (!state) return null;
+  const w = stage.clientWidth, h = stage.clientHeight;
+  if (!w || !h) return null;
+  return {region: [state.bounds[0] - pan.x / zoom, state.bounds[1] - pan.y / zoom, w / zoom, h / zoom], zoom, pixels: [w, h], tool, entered: scope, reference_view: reference ? referenceView : null, reference_opacity: reference ? reference.opacity : null};
+}
+// A changed view is told to the session soon, not on every wheel step.
+let viewTimer = null;
+function reportView() {
+  if (!agentStatus.enabled) return;
+  clearTimeout(viewTimer);
+  viewTimer = setTimeout(pollAgent, 250);
+}
 async function pollAgent() {
   clearTimeout(agentPoll);
   try {
-    const result = await request('/api/poll');
+    const result = await request('/api/poll', {view: viewReport()});
     agentStatus = result.agent; showAgent();
     // What agents did before the page opened is not news.
     if (flash.seen === null) flash.seen = agentStatus.changes;
@@ -1540,6 +1556,7 @@ new MutationObserver(() => layoutTopbar()).observe($('filename'), {childList: tr
 document.fonts?.ready.then(() => { topbarSignature = ''; layoutTopbar(); });
 // The level and count of the selection, and the entered group.
 function renderStatus() {
+  reportView();
   if (!state) return;
   scheduleStrip();
   const points = selectedPoints(), paths = level() === 'points' ? pointPaths() : state.selection.objects;
@@ -1711,6 +1728,7 @@ $('path-finish').onclick=()=>later(()=>finishPath(false));
 $('path-close').onclick=()=>later(()=>finishPath(true));
 $('path-cancel').onclick=()=>{pathDraft=[];pathHover=null;drawOverlay();};
 function updateView() {
+  reportView();
   clickCycle = null;
   $('artboard').style.transform = `translate(${pan.x}px,${pan.y}px) scale(${zoom})`;
   // Transparency shows as a checkerboard of 8px squares at any zoom.
@@ -1742,6 +1760,7 @@ async function setTool(value) {
   const from = tool;
   const switched = switchTool({objects: state.selection.objects, points: selectedPoints(), memory: pointMemory}, from, value);
   clickCycle = null; lastPick = null; pathDraft=[]; pathHover=null; redrawHover=null; hoverPath = null; tool=value; pointMemory = switched.memory;
+  reportView();
   document.querySelectorAll('[data-tool]').forEach(button => button.classList.toggle('active', button.dataset.tool === tool));
   $('tool-name').textContent=names[tool]; $('canvas-hint').textContent=hints[tool];
   stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife','redraw'].includes(tool) ? 'crosshair' : 'default';
@@ -2330,6 +2349,7 @@ $('svg-file').onchange=async event=>{
 const VIEWS = ['drawing', 'overlay', 'reference'];
 let referenceView = 'overlay';
 function showReference() {
+  reportView();
   $('reference-controls').hidden=!reference; $('remove-reference').hidden=!reference;
   $('reference-name').textContent=reference?.name || 'No reference';
   $('reference-name').title=reference?.name || '';

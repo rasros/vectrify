@@ -124,8 +124,8 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             data(await call("open", path=str(drawing)))
 
             async def nodes(oid: str) -> list[str]:
-                geometry = data(await call("points", id=oid))["geometry"]
-                return [n["id"] for sp in geometry["subpaths"] for n in sp["nodes"]]
+                contours = data(await call("points", id=oid))["contours"]
+                return [n["id"] for c in contours for n in c["nodes"]]
 
             line, ring = await nodes("line"), await nodes("ring")
             await call("redraw_outline", id="b", points=[[40, 40], [65, 30], [90, 40]])
@@ -170,6 +170,9 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             await call("redo")
             # The operations, on the drawing as it was.
             data(await call("open", path=str(drawing)))
+            data(await call("extract", region=[0, 140, 70, 30], ids=["line"]))
+            await call("delete_contours", region=[140, 0, 60, 60])
+            data(await call("undo", steps=2))
             await call("load_reference", path=str(picture))
             job = data(await call("cleanup", ids=["b"]))
             await call("job_status", id=job["id"])
