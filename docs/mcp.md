@@ -450,11 +450,11 @@ the agent reads them with `view()` and never sets them.
   version share one record of what they saw. Clients that open a session
   (`Mcp-Session-Id`, as today's do) are kept apart.
 - The hosted server needs the `mcp` extra in the editor's own environment;
-  without it the popover says so and `vectrify-mcp`'s `connect()` still
-  works.
+  without it the popover says so, and only a `--serve` editor can still be
+  reached, by `vectrify-mcp`'s `connect()`.
 - The page flashes only the objects of changes it picks up; with several
-  agent changes between two polls it flashes them together, and a deletion
-  has nothing left to flash.
+  agent changes it takes at once (made mid-drag, or while it redraws) it
+  flashes them together, and a deletion has nothing left to flash.
 - A job (`tidy`, `fit_colours`…) works on the objects it started with; the
   person's selection meanwhile has no effect on it.
 - Agent edits wait while the person is mid-drag, and show once it ends.
