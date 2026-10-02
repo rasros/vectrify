@@ -165,6 +165,10 @@ LINE_PIECE_WIDTHS = 4.0
 # 0-255 RGB, are one.
 LINE_COLOURS = 3
 LINE_COLOUR_DIFFERENCE = 40.0
+# A branch off a line shorter than two of the typical line's widths is a
+# whisker of the thinning, unless its free end reaches at least this many
+# pixels beyond the ink of the line it leaves: a short mark of its own.
+WHISKER_OUT = 3.0
 # The longest gap, in line widths, bridged between two runs of one stroke
 # that carry on from each other: a line the detection broke.
 LINE_GAP = 1.5
@@ -740,14 +744,18 @@ def _key(point) -> tuple[int, int]:
     return round(point[0]), round(point[1])
 
 
-def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
+def line_runs(
+    skeleton: np.ndarray, spur: float, depth: np.ndarray | None = None
+) -> list[np.ndarray]:
     """The centrelines as runs of pixel centres between their ends and
     junctions, closed loops ending where they start.
 
     A junction is where more than two runs meet; each run ends at its middle
     so the strokes join. Branches shorter than *spur* off a junction, and
     loops that short from a junction back to it, are thinning's whiskers and
-    go.
+    go; with *depth*, each line pixel's distance from the line's edge, a
+    short branch whose free end reaches at least WHISKER_OUT beyond the ink
+    of the line it leaves is a mark of its own, such as a mouth, and stays.
     """
     height, width = skeleton.shape
     padded = np.pad(skeleton, 1)
@@ -778,9 +786,9 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
         junction = int(junctions[y, x])
         return centres[junction] if junction else (x + 0.5, y + 0.5)
 
-    # Each run, how many of its ends are at a junction, and whether it comes
-    # back to the junction it left.
-    runs: list[tuple[np.ndarray, int, bool]] = []
+    # Each run, how many of its ends are at a junction, whether it comes
+    # back to the junction it left, and whether it starts at one.
+    runs: list[tuple[np.ndarray, int, bool, bool]] = []
 
     def walk(x: int, y: int, u: int, v: int) -> None:
         """Follow the run leaving node (x, y) through (u, v)."""
@@ -819,7 +827,9 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
             ahead = [p for p in following if abs(p[0] - u) + abs(p[1] - v) == 1]
             previous = (u, v)
             u, v = (nodes or ahead or following)[0]
-        runs.append((np.array(run), (start > 0) + (ended > 0), start == ended > 0))
+        runs.append(
+            (np.array(run), (start > 0) + (ended > 0), start == ended > 0, start > 0)
+        )
 
     for y, x in zip(*np.nonzero(node), strict=True):
         for u, v in neighbours(int(x), int(y)):
@@ -851,16 +861,58 @@ def line_runs(skeleton: np.ndarray, spur: float) -> list[np.ndarray]:
         else:
             # Not round to its start: an open stretch, followed both ways.
             run = [*reversed(onward(int(x), int(y))), *run]
-        runs.append((np.array(run), 0, False))
-    kept = []
-    for run, at_junctions, returns in runs:
-        length = float(np.linalg.norm(np.diff(run, axis=0), axis=1).sum())
-        # A whisker: off a junction to a free end, and short; or a short way
-        # round a pinhole in a junction's blob, back to the junction.
-        if length < 2 or (length < spur and (at_junctions == 1 or returns)):
+        runs.append((np.array(run), 0, False, False))
+    lengths = [
+        float(np.linalg.norm(np.diff(run, axis=0), axis=1).sum()) for run, *_ in runs
+    ]
+    # A whisker: off a junction to a free end, and short; or a short way
+    # round a pinhole in a junction's blob, back to the junction.
+    whiskers = {
+        i
+        for i, ((_, at_junctions, returns, _), length) in enumerate(
+            zip(runs, lengths, strict=True)
+        )
+        if length < 2 or (length < spur and (at_junctions == 1 or returns))
+    }
+    if depth is not None:
+        whiskers -= _branches(runs, lengths, whiskers, depth)
+    return [run for i, (run, *_) in enumerate(runs) if i not in whiskers]
+
+
+def _branches(
+    runs: list[tuple[np.ndarray, int, bool, bool]],
+    lengths: list[float],
+    whiskers: set[int],
+    depth: np.ndarray,
+) -> set[int]:
+    """Of the *whiskers*, by index into *runs*, those whose free end lies at
+    least WHISKER_OUT beyond the ink of the lines they leave: how far the end
+    is from the other runs' pixels, less the line's half width (*depth*)
+    there."""
+    lines = np.zeros(depth.shape, dtype=bool)
+    height, width = depth.shape
+
+    def pixels(run: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+        xs = np.clip(run[:, 0].astype(int), 0, width - 1)
+        ys = np.clip(run[:, 1].astype(int), 0, height - 1)
+        return ys, xs
+
+    for i, (run, *_) in enumerate(runs):
+        if i not in whiskers:
+            lines[pixels(run)] = True
+    if not lines.any():
+        return set()
+    away = distance_transform_edt(~lines)
+    ys, xs = nearest_indices(~lines)
+    found = set()
+    for i in whiskers:
+        run, at_junctions, returns, from_junction = runs[i]
+        if at_junctions != 1 or returns or lengths[i] < 2:
             continue
-        kept.append(run)
-    return kept
+        y, x = (p[0] for p in pixels(run[-1:] if from_junction else run[:1]))
+        if away[y, x] - depth[ys[y, x], xs[y, x]] >= WHISKER_OUT:
+            found.add(i)
+    return found
 
 
 def line_colours(target: np.ndarray, skeleton: np.ndarray) -> np.ndarray:
@@ -1544,7 +1596,7 @@ def _line_paths(
             np.bincount(flat, cover.ravel(), minlength=line.size).reshape(line.shape)
         )
     typical = float(np.median(across[skeleton]))
-    runs = line_runs(skeleton, spur=2 * typical + 2)
+    runs = line_runs(skeleton, spur=2 * typical + 2, depth=distance_transform_edt(line))
 
     def style(run: np.ndarray) -> tuple[int, np.ndarray]:
         """The ink of *run*, and its width in that ink along it."""

@@ -22,9 +22,10 @@ They are cel-shaded art from the author's own project and are not in the
 repository: they go in ~/.cache/vectrify-bench/heldout. lin-ren-v1
 (2048x3072) is downscaled to 1600 px on its long side.
 
-Small dark features a trace can lose, such as earth-hybrid-v2's eye, are
-reported as the trace's mean luminance where the reference is dark there
-(see FEATURES): near the reference's own when the feature was kept.
+Small dark features a trace can lose, such as earth-hybrid-v2's eye and
+mouth, are reported as the trace's mean luminance where the reference is
+dark there (see FEATURES): near the reference's own when the feature was
+kept.
 
 The error is the mean squared difference to the reference in 0-255 RGB. SAM
 and the steps after it are deterministic, so one run per case compares
@@ -62,10 +63,14 @@ HELDOUT = {
 }
 # Small dark features a trace can lose, by reference: each a box (x0, y0,
 # x1, y1) in which the reference's pixels darker than FEATURE_DARK (0-255
-# luminance) are the feature. Each is reported as the trace's mean luminance
-# there, after the reference's own.
-FEATURES = {
-    "earth-hybrid-v2.png": {"eye": (1196, 174, 1215, 187)},
+# luminance), or than a fifth number given after the box, are the feature.
+# Each is reported as the trace's mean luminance there, after the
+# reference's own. The mouth is a faint brown mark on light skin.
+FEATURES: dict[str, dict[str, tuple[int, ...]]] = {
+    "earth-hybrid-v2.png": {
+        "eye": (1196, 174, 1215, 187),
+        "mouth": (1195, 206, 1202, 210, 175),
+    },
 }
 FEATURE_DARK = 60
 # Generate settings on top of each method's defaults, by method and preset.
@@ -203,7 +208,7 @@ def trace(
     nodes: dict | None = None,
     cache: bool,
     render: Path | None = None,
-    features: dict[str, tuple[int, int, int, int]] | None = None,
+    features: dict[str, tuple[int, ...]] | None = None,
 ) -> dict:
     """Generate from *image* with method *name* and *settings*, then Optimize
     its largest paths with the settings *nodes*. With *render*, the traced
@@ -285,7 +290,7 @@ def trace(
 
 
 def feature_darkness(
-    image: Image.Image, svg: str, features: dict[str, tuple[int, int, int, int]]
+    image: Image.Image, svg: str, features: dict[str, tuple[int, ...]]
 ) -> dict[str, list[float]]:
     """Each of *features*' mean luminance in *image* and in the trace *svg*,
     over the reference's pixels darker than FEATURE_DARK in its box."""
@@ -305,9 +310,9 @@ def feature_darkness(
     traced = np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=float)
     reference = np.asarray(image.convert("L"), dtype=float)
     found = {}
-    for name, (x0, y0, x1, y1) in features.items():
+    for name, (x0, y0, x1, y1, *level) in features.items():
         box = (slice(y0, y1), slice(x0, x1))
-        dark = reference[box] < FEATURE_DARK
+        dark = reference[box] < (level[0] if level else FEATURE_DARK)
         found[name] = [
             round(float(reference[box][dark].mean()), 1),
             round(float(traced[box][dark].mean()), 1),

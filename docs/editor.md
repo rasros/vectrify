@@ -603,7 +603,9 @@ lines within about 40% of its width), each at its lines' measured width;
 a line whose width changes a lot along it is cut
 where it changes, so each part gets the width it has, and the parts still
 meet end to end. Thinning's whiskers and the tiny loops it leaves round
-a pinhole where lines meet are dropped, the lines of one path run on through
+a pinhole where lines meet are dropped (a short branch reaching three pixels
+or more beyond the ink of the line it leaves, such as a mouth off a jaw's
+outline, is a mark of its own and stays), the lines of one path run on through
 the junctions where they meet the straightest way rather than stopping
 there, and a gap of up to one and a half line widths between two lines that
 carry on from each other is bridged, so an outline comes out as a few long
