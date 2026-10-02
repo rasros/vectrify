@@ -67,6 +67,41 @@ claude mcp add vectrify -- uv run --directory /path/to/vectrify --extra mcp vect
 `vectrify-mcp drawing.svg` opens that file at start. It is a stdio server
 built on the official `mcp` Python SDK (`MCPServer`); the client starts it.
 
+### Other apps, from the popover
+
+The popover's *Add to an app* section shows, under the Claude Code command,
+what Codex and Claude Desktop need to start `vectrify-mcp` themselves, each
+with a Copy button. The command is this install's own executable (beside
+the editor's Python, else the one on `PATH`; `app_setup()` in
+`vectrify/ui/agent.py`), and there is no token: started with no target, the
+server attaches to the window with Agents on through `editor.json` (below).
+The editor only shows the text; it never edits another app's config.
+
+- **Codex** (the ChatGPT desktop app, the Codex CLI and the IDE extension
+  share one config): paste into `~/.codex/config.toml`
+  (`$CODEX_HOME/config.toml` when that is set), next to any other
+  `[mcp_servers.*]` tables, then restart Codex:
+
+  ```toml
+  [mcp_servers.vectrify]
+  command = "/path/to/.venv/bin/vectrify-mcp"
+  startup_timeout_sec = 30
+  ```
+
+  `startup_timeout_sec` raises Codex's 10 s default, since the server
+  imports the vision stack as it starts. Or run
+  `codex mcp add vectrify -- /path/to/.venv/bin/vectrify-mcp` (the default
+  timeout).
+- **Claude Desktop**: merge into `mcpServers` in
+  `claude_desktop_config.json` (macOS
+  `~/Library/Application Support/Claude/`, Windows `%APPDATA%\Claude\`;
+  unofficial Linux builds read `~/.config/Claude/`), keeping any other
+  servers, then restart Claude Desktop:
+
+  ```json
+  {"mcpServers": {"vectrify": {"command": "/path/to/.venv/bin/vectrify-mcp"}}}
+  ```
+
 ## Targets
 
 The server edits one target at a time, with the same tools for both:

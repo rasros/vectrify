@@ -80,8 +80,12 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   palette) lets an agent edit this window's drawing ([the MCP server](mcp.md)).
   Turning it on makes the editor host the MCP server at
   `http://127.0.0.1:8770/mcp` (or the next free port; `--mcp-port` picks
-  another) and opens a popover with that URL, the `claude mcp add` command
-  that adds it to Claude Code (Copy), and *Regenerate token*. Clicking the
+  another) and opens a popover with that URL and an *Add to an app* section
+  of text to copy: the `claude mcp add` command that adds it to Claude Code
+  (with *Regenerate token*), the `[mcp_servers.vectrify]` table for Codex's
+  `~/.codex/config.toml` (or its `codex mcp add` command), and the
+  `mcpServers` entry for Claude Desktop's `claude_desktop_config.json`, each
+  saying where it goes; restart the app after adding it. Clicking the
   footer button again opens or closes the popover; its checkbox turns agents
   off, which stops the server. `vectrify-mcp`'s `connect()` reaches the
   window too. While it is on, the agent's edits appear as it makes them and
