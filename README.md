@@ -122,11 +122,8 @@ against vector originals (clean, noisy and stretched), `bench_shadows.py`
 measures the shading it leaves out (each of these three takes `--heldout`
 to run a held-out set of images never used for tuning instead of the
 default tuning set; each set also holds generated cartoon images in several
-styles and drawings made for the bench, in `scripts/bench_data`), and
-`bench_generate.py` remakes the generated images with the OpenAI image API
-(`uv run --no-project --with openai python scripts/bench_generate.py`; the
-images go in `~/.cache/vectrify-bench/generated`, not the repository),
-`subtle_screen.py`
+styles, kept in `~/.cache/vectrify-bench/generated`, and drawings made for
+the bench, in `scripts/bench_data`), `subtle_screen.py`
 checks that the scorers in `vectrify.score` order graded path damage
 correctly, and
 `analyze_profile.py` summarises a py-spy profile.

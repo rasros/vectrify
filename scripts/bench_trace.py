@@ -25,11 +25,10 @@ repository: they go in ~/.cache/vectrify-bench/heldout. lin-ren-v1
 Both sets also hold generated cartoon images (gen-*.png), seven each, in
 several styles: anime cel, Western TV cartoon, manga with bold inking,
 children's-book flat vector, 1930s rubber-hose, chibi and flat-shaded game
-art. Their prompts, model and set are in scripts/bench_data/generated.json;
-the images are not in the repository but in
-~/.cache/vectrify-bench/generated, made with scripts/bench_generate.py
-(the model is not deterministic, so remade ones differ). Missing ones are
-left out with a note.
+art. They are a fixed dataset, not in the repository but in
+~/.cache/vectrify-bench/generated; scripts/bench_data/generated.json
+records each one's set, style and the prompt it was made from. Missing
+ones are left out with a note.
 
 Small dark features a trace can lose, such as earth-hybrid-v2's eye and
 mouth, are reported as the trace's mean luminance where the reference is
@@ -116,8 +115,8 @@ def generated(heldout: bool = False) -> list[Path]:
     missing = [p.name for p in paths if not p.exists()]
     if missing:
         print(
-            f"left out {len(missing)} generated images not in {GENERATED_DIR} "
-            "(see scripts/bench_generate.py): " + ", ".join(missing),
+            f"left out {len(missing)} generated images not in {GENERATED_DIR}: "
+            + ", ".join(missing),
             flush=True,
         )
     return [p for p in paths if p.exists()]
