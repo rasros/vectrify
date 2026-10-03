@@ -608,14 +608,16 @@ holding less than a pixel of ink is drawn a pixel wide and as much fainter
 mark wider than its stroke but too small to be a filled shape, such as an
 eye or an eyebrow, is filled in its ink beneath the stroke where the stroke
 leaves it out, so it keeps its shape. There is
-one path per line colour and width (up to four widths a colour, each path's
-lines within about 40% of its width; a little ink much wider or thinner
+one path per line colour and width (up to eight widths a colour, each path's
+lines within about 20% of its width; a little ink much wider or thinner
 than the widths either side, such as bold lettering among thin lines, keeps a
 path of its own rather than joining a thinner one), each at its lines'
 measured width;
-a line whose width changes a lot along it is cut
-where it changes, so each part gets the width it has, and the parts still
-meet end to end. Thinning's whiskers and the tiny loops it leaves round
+a line whose width changes along it by more than about a third, such as
+tapered or calligraphic ink swelling and thinning to a point, is cut where
+it changes into parts as short as six pixels or two line widths, so each
+part gets the width it has, and the parts still meet end to end: it stays
+a stroke, drawn as a few round-capped strokes stepping in width. Thinning's whiskers and the tiny loops it leaves round
 a pinhole where lines meet are dropped (a short branch reaching three pixels
 or more beyond the ink of the line it leaves, such as a mouth off a jaw's
 outline, is a mark of its own and stays), the lines of one path run on through
