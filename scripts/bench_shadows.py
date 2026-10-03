@@ -7,8 +7,9 @@ grain does not count, and both are taken as luminance (0.299, 0.587,
 than 18 levels, opened twice so thin line misses go, form blobs, and blobs
 of at least 150 px count. The report is their pixels, blobs and largest.
 
-The references are the trace bench's raster images (over white, as the
-editor shows them) and the line bench's SVG drawings, rendered clean:
+The references are the trace bench's (its generated images, over white
+as the editor shows them, and the bench's own drawings) and the line
+bench's Commons drawings, rendered clean:
 
     uv run python scripts/bench_shadows.py --out runs/shadows.jsonl
     uv run python scripts/bench_shadows.py --set outline=true
@@ -18,8 +19,7 @@ editor shows them) and the line bench's SVG drawings, rendered clean:
     uv run python scripts/bench_shadows.py --heldout
 
 `--heldout` runs both benches' held-out sets instead, never used for
-tuning (see bench_trace and bench_lines). Each set includes its generated
-images (gen-*, see bench_trace) and drawings made for the bench (svg-*).
+tuning (see bench_trace and bench_lines).
 
 Cel is deterministic, so one run per case compares settings. Keep the
 machine cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
@@ -36,7 +36,7 @@ from bench_lines import CACHE, _setting, reference, render, size, trace
 from bench_lines import HELDOUT as LINE_HELDOUT
 from bench_lines import HELDOUT_DIR as LINE_HELDOUT_DIR
 from bench_lines import REFERENCES as LINE_REFERENCES
-from bench_trace import ROOT, load, references
+from bench_trace import load, references
 from PIL import Image
 from scipy.ndimage import binary_opening, gaussian_filter, label
 
@@ -65,17 +65,19 @@ def missing_shadows(reference: np.ndarray, traced: np.ndarray) -> dict:
     }
 
 
-def cases(images: Path, heldout: bool = False) -> list[tuple[str, Image.Image]]:
-    """Each reference's name and image, the raster ones from *images*; with
-    *heldout*, the held-out ones instead."""
-    found = [(path.name, load(path)) for path in references(heldout, images)]
+def cases(heldout: bool = False) -> list[tuple[str, Image.Image]]:
+    """Each reference's name and image: the trace bench's (generated images
+    and the bench's own drawings), then the line bench's Commons drawings;
+    with *heldout*, the held-out ones instead."""
+    found = [(path.name, load(path)) for path in references(heldout)]
     if heldout:
         drawings, folder = LINE_HELDOUT, LINE_HELDOUT_DIR
     else:
         drawings, folder = LINE_REFERENCES, CACHE
     for name in drawings:
-        svg = reference(name, folder)
-        found.append((name, Image.fromarray(render(svg, *size(svg)))))
+        if not name.startswith("svg-"):
+            svg = reference(name, folder)
+            found.append((name, Image.fromarray(render(svg, *size(svg)))))
     return found
 
 
@@ -89,9 +91,6 @@ def main() -> None:
         default=[],
         metavar="KEY=VALUE",
         help="Override a Generate cel setting",
-    )
-    parser.add_argument(
-        "--images", type=Path, default=ROOT, help="Where the raster references are"
     )
     parser.add_argument(
         "--heldout",
@@ -117,7 +116,7 @@ def main() -> None:
         return
     settings = dict(_setting(item) for item in args.set)
     rows = []
-    for name, image in cases(args.images, args.heldout):
+    for name, image in cases(args.heldout):
         seconds = None
         if args.rescore:
             svg = (args.rescore / f"{Path(name).stem}-cel.svg").read_text()

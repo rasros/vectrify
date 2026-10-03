@@ -121,9 +121,10 @@ fixed references, `bench_lines.py` scores the Cel art tracer's lines
 against vector originals (clean, noisy and stretched), `bench_shadows.py`
 measures the shading it leaves out (each of these three takes `--heldout`
 to run a held-out set of images never used for tuning instead of the
-default tuning set; each set also holds generated cartoon images in several
-styles, kept in `~/.cache/vectrify-bench/generated`, and drawings made for
-the bench, in `scripts/bench_data`), `subtle_screen.py`
+default tuning set; each set holds generated cartoon images, mostly anime
+and then several other styles, kept in `~/.cache/vectrify-bench/generated`,
+hard drawings made for the bench, in `scripts/bench_data`, and the line
+bench's Wikipe-tan drawings), `subtle_screen.py`
 checks that the scorers in `vectrify.score` order graded path damage
 correctly, and
 `analyze_profile.py` summarises a py-spy profile.
