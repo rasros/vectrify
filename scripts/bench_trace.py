@@ -30,7 +30,10 @@ holds:
 - the line bench's own drawings (svg-*, see bench_lines), rendered
   1000 px tall.
 
-The error is the mean squared difference to the reference in 0-255 RGB. SAM
+The error is the mean squared difference to the reference in 0-255 RGB.
+Some references also have small facial features marked (FEATURES: eyes
+and mouths, boxes in the reference's pixels), and `features` is the same
+error over just those boxes, which a whole-image error hardly notices. SAM
 and the steps after it are deterministic, so one run per case compares
 settings; repeat with `--repeat` only to judge timings. Keep the machine
 cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
@@ -65,6 +68,27 @@ PRESETS: dict[str, dict[str, dict]] = {
         "defaults": {},
         "clean-outlines": {"preserve_outlines": True, "outline_style": "clean"},
     },
+}
+# Small facial features of some references, as (name, x, y, width, height)
+# boxes in the reference's pixels: the eyes and mouths a trace must keep.
+FEATURES: dict[str, tuple[tuple[str, int, int, int, int], ...]] = {
+    "gen-anime-knight.png": (
+        ("left eye", 440, 166, 36, 36),
+        ("right eye", 508, 152, 52, 34),
+    ),
+    "gen-anime-closeup.png": (
+        ("left eye", 273, 440, 127, 133),
+        ("right eye", 553, 520, 194, 140),
+        ("mouth", 367, 753, 53, 40),
+    ),
+    "gen-chibi-picnic.png": (
+        ("boy left eye", 553, 440, 60, 73),
+        ("boy right eye", 653, 440, 60, 73),
+        ("boy mouth", 607, 507, 46, 40),
+        ("girl left eye", 853, 440, 54, 73),
+        ("girl right eye", 947, 440, 53, 73),
+        ("girl mouth", 896, 507, 37, 33),
+    ),
 }
 # Optimize nodes runs with its own defaults, a quick tidy, on one worker;
 # `--nodes` overrides them.
@@ -178,6 +202,7 @@ def main() -> None:
                         args.paths,
                         nodes=nodes,
                         cache=not args.no_cache,
+                        features=FEATURES.get(path.name, ()),
                         render=(
                             args.renders / f"{path.stem}-{args.method}-{preset}.png"
                             if args.renders
@@ -202,6 +227,7 @@ def trace(
     *,
     nodes: dict | None = None,
     cache: bool,
+    features: tuple[tuple[str, int, int, int, int], ...] = (),
     render: Path | None = None,
 ) -> dict:
     """Generate from *image* with method *name* and *settings*, then Optimize
@@ -254,6 +280,27 @@ def trace(
             output_height=height,
             background_color="white",
         )
+    feature_error = None
+    if features:
+        import io
+
+        import cairosvg
+        import numpy as np
+
+        png = cairosvg.svg2png(
+            bytestring=export_svg(document).encode(),
+            output_width=width,
+            output_height=height,
+            background_color="white",
+        )
+        assert png is not None
+        traced = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), float)
+        truth = np.asarray(image.convert("RGB"), float)
+        squared = [
+            ((traced - truth)[y : y + h, x : x + w] ** 2).ravel()
+            for _, x, y, w, h in features
+        ]
+        feature_error = round(float(np.concatenate(squared).mean()), 2)
     data = " ".join(
         e.get("d") or "" for e in _parse(export_svg(document)) if e.tag.endswith("path")
     )
@@ -270,6 +317,8 @@ def trace(
         "snapped": metrics.get("snapped", 0),
         "total_s": round(total, 1),
     }
+    if feature_error is not None:
+        row["features"] = feature_error
     if name == "samvg":
         row |= {
             "segment_s": round(timing["segment"], 1),
@@ -450,7 +499,8 @@ def _line(row: dict) -> str:
         f"{case}: error {row['error']}, "
         f"{row['paths']} paths, {row.get('points')} points, {row['curves']} curves, "
         f"{row['snapped']} snapped, "
-        f"{row['total_s']} s"
+        + (f"features {row['features']}, " if "features" in row else "")
+        + f"{row['total_s']} s"
     )
     if "after_sam_s" in row:
         text += (
@@ -492,9 +542,9 @@ def compare(before: Path, after: Path) -> None:
     new = {case(r): r for r in new_rows}
     print(
         "| case | error | paths | points | points/path | curves | total s "
-        "| optimize error left |"
+        "| optimize error left | features |"
     )
-    print("|---|---|---|---|---|---|---|---|")
+    print("|---|---|---|---|---|---|---|---|---|")
     for key in sorted(old.keys() & new.keys()):
         a, b = old[key], new[key]
 
@@ -513,7 +563,8 @@ def compare(before: Path, after: Path) -> None:
         print(
             f"| {key[0]} [{key[1]}] | {pair('error')} | {pair('paths')} | "
             f"{pair('points')} | {per_path(a)} → {per_path(b)} | "
-            f"{pair('curves')} | {pair('total_s')} | {left[0]} → {left[1]} |"
+            f"{pair('curves')} | {pair('total_s')} | {left[0]} → {left[1]} | "
+            f"{pair('features')} |"
         )
 
 
