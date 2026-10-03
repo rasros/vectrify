@@ -1,15 +1,12 @@
 """Benchmark tracing and Tidy (improve/nodes) on fixed references.
 
-For each reference and preset, this runs a Generate method (SAMVG unless
+For each reference and preset, this runs a Generate method (cel unless
 `--method` names another) through the same code the editor uses, then
 Tidy on the largest traced paths, and records how close the
-result is to the reference, how heavy it is and how long it took. SAM's
-masks are cached on disk per image and model setting, so after the first
-run only the steps after SAM are timed and tuning them takes seconds;
-`--no-cache` segments again.
+result is to the reference, how heavy it is and how long it took.
 
     uv run python scripts/bench_trace.py --out runs/base.jsonl
-    uv run python scripts/bench_trace.py --set max_side=1024 --out runs/b.jsonl
+    uv run python scripts/bench_trace.py --set regions=200 --out runs/b.jsonl
     uv run python scripts/bench_trace.py --compare runs/base.jsonl runs/b.jsonl
     uv run python scripts/bench_trace.py --method cel --paths 0 --out runs/cel.jsonl
     uv run python scripts/bench_trace.py --nodes shape=true --nodes seconds=60
@@ -43,18 +40,15 @@ applies to them, not the line bench's scores.
 The error is the mean squared difference to the reference in 0-255 RGB.
 Some references also have small facial features marked (FEATURES: eyes
 and mouths, boxes in the reference's pixels), and `features` is the same
-error over just those boxes, which a whole-image error hardly notices. SAM
-and the steps after it are deterministic, so one run per case compares
-settings; repeat with `--repeat` only to judge timings. Keep the machine
+error over just those boxes, which a whole-image error hardly notices.
+`--repeat` runs each case more than once, to judge timings. Keep the machine
 cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
 """
 
 from __future__ import annotations
 
 import argparse
-import hashlib
 import json
-import pickle
 import re
 import time
 from pathlib import Path
@@ -65,9 +59,6 @@ from vectrify.image_utils import on_white
 
 # Generate settings on top of each method's defaults, by method and preset.
 PRESETS: dict[str, dict[str, dict]] = {
-    "samvg": {
-        "defaults": {},
-    },
     "cel": {
         "defaults": {},
         "regions-100": {"regions": 100},
@@ -176,7 +167,7 @@ def main() -> None:
         action="store_true",
         help="Run the set's photographs, not its cartoons",
     )
-    parser.add_argument("--method", default="samvg", choices=sorted(PRESETS))
+    parser.add_argument("--method", default="cel", choices=sorted(PRESETS))
     parser.add_argument("--preset", nargs="+", help="Presets of the method to run")
     parser.add_argument(
         "--set",
@@ -196,7 +187,6 @@ def main() -> None:
         help="Override an Optimize nodes setting; rounds=N sets the rounds",
     )
     parser.add_argument("--repeat", type=int, default=1)
-    parser.add_argument("--no-cache", action="store_true")
     parser.add_argument("--out", type=Path, help="Write one JSON line per case")
     parser.add_argument(
         "--renders", type=Path, help="Save each case's traced drawing here as PNG"
@@ -232,7 +222,6 @@ def main() -> None:
                         settings,
                         args.paths,
                         nodes=nodes,
-                        cache=not args.no_cache,
                         features=FEATURES.get(path.name, ()),
                         render=(
                             args.renders / f"{path.stem}-{args.method}-{preset}.png"
@@ -257,7 +246,6 @@ def trace(
     paths: int,
     *,
     nodes: dict | None = None,
-    cache: bool,
     features: tuple[tuple[str, int, int, int, int], ...] = (),
     render: Path | None = None,
 ) -> dict:
@@ -267,11 +255,6 @@ def trace(
     from vectrify.document import Editor, Selection, export_svg, import_svg
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
-    timing = (
-        _cached_segmentation(cache)
-        if name == "samvg"
-        else {"segment": 0.0, "cached": False, "spent": 0.0}
-    )
     width, height = image.size
     editor = Editor(
         import_svg(
@@ -344,18 +327,12 @@ def trace(
         "points": sum(
             len(s.nodes) for e in drawn for s in document.geometry_for(e.id).subpaths
         ),
-        # Seams Generate snapped together; SAMVG snaps none.
+        # Seams Generate snapped together.
         "snapped": metrics.get("snapped", 0),
         "total_s": round(total, 1),
     }
     if feature_error is not None:
         row["features"] = feature_error
-    if name == "samvg":
-        row |= {
-            "segment_s": round(timing["segment"], 1),
-            "cached": timing["cached"],
-            "after_sam_s": round(total - timing["spent"], 1),
-        }
     if paths:
         row["optimize"] = optimize(editor, image, paths, nodes or OPTIMIZE)
     return row
@@ -418,91 +395,6 @@ def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
     }
 
 
-def _cached_segmentation(enabled: bool) -> dict:
-    """Keep SAM's layers on disk per image and model setting, and time SAM."""
-    import vectrify.refine.samvg as samvg
-
-    # What SAM took (then or now), and what this run spent getting its masks.
-    timing = {"segment": 0.0, "cached": False, "spent": 0.0}
-    original = getattr(samvg.retrieve_layers, "__wrapped__", samvg.retrieve_layers)
-
-    def retrieve(image, **kwargs):
-        started = time.perf_counter()
-        try:
-            return _retrieve(image, **kwargs)
-        finally:
-            timing["spent"] = time.perf_counter() - started
-
-    def _retrieve(image, **kwargs):
-        options = {k: v for k, v in kwargs.items() if not k.startswith("_")}
-        digest = hashlib.sha1(image.tobytes() + repr(image.size).encode())
-        digest.update(json.dumps(options, sort_keys=True, default=str).encode())
-        path = CACHE / f"{digest.hexdigest()}.pkl"
-        if enabled and path.exists():
-            timing["cached"] = True
-            with path.open("rb") as file:
-                cached = pickle.load(file)
-            timing["segment"] = cached["seconds"]
-            layers = [_unpacked(layer) for layer in cached["layers"]]
-            if any(not isinstance(layer, dict) for layer in cached["layers"]):
-                # Written before masks were packed: pack it now.
-                with path.open("wb") as file:
-                    pickle.dump(
-                        {
-                            "layers": [_packed(layer) for layer in layers],
-                            "seconds": cached["seconds"],
-                        },
-                        file,
-                    )
-            return layers
-        started = time.perf_counter()
-        layers = original(image, **kwargs)
-        timing["segment"] = time.perf_counter() - started
-        if enabled:
-            CACHE.mkdir(parents=True, exist_ok=True)
-            with path.open("wb") as file:
-                pickle.dump(
-                    {
-                        "layers": [_packed(layer) for layer in layers],
-                        "seconds": timing["segment"],
-                    },
-                    file,
-                )
-        return layers
-
-    retrieve.__wrapped__ = original  # type: ignore[attr-defined]
-    samvg.retrieve_layers = retrieve
-    return timing
-
-
-def _packed(layer):
-    """A layer with its mask as bits: hundreds of full-size masks are large."""
-    import dataclasses
-
-    import numpy as np
-
-    fields = dataclasses.asdict(layer)
-    mask = fields.pop("mask")
-    return {"bits": np.packbits(mask), "shape": mask.shape, **fields}
-
-
-def _unpacked(stored):
-    import numpy as np
-
-    from vectrify.refine.samvg_types import MaskLayer
-
-    if not isinstance(stored, dict):
-        return stored
-    stored = dict(stored)
-    # Fields layers no longer have, from caches written before they went.
-    stored.pop("overlap_pixels", None)
-    stored.pop("stroke", None)
-    shape = stored.pop("shape")
-    count = shape[0] * shape[1]
-    mask = np.unpackbits(stored.pop("bits"), count=count).astype(bool).reshape(shape)
-    return MaskLayer(mask=mask, **stored)
-
-
 def _parse(svg: str):
     import xml.etree.ElementTree as ET
 
@@ -533,11 +425,6 @@ def _line(row: dict) -> str:
         + (f"features {row['features']}, " if "features" in row else "")
         + f"{row['total_s']} s"
     )
-    if "after_sam_s" in row:
-        text += (
-            f" ({row['after_sam_s']} s after SAM"
-            f"{', SAM cached' if row['cached'] else ''})"
-        )
     if "optimize" in row:
         o = row["optimize"]
         text += (
@@ -548,9 +435,8 @@ def _line(row: dict) -> str:
 
 
 def _case(row: dict) -> str:
-    """The method and preset of *row*; runs from before `--method` are SAMVG."""
-    method = row.get("method", "samvg")
-    return row["preset"] if method == "samvg" else f"{method} {row['preset']}"
+    """The method and preset of *row*."""
+    return f"{row['method']} {row['preset']}"
 
 
 def compare(before: Path, after: Path) -> None:
@@ -564,7 +450,7 @@ def compare(before: Path, after: Path) -> None:
         return [json.loads(line) for line in path.read_text().splitlines() if line]
 
     old_rows, new_rows = load(before), load(after)
-    methods = {r.get("method", "samvg") for r in old_rows + new_rows}
+    methods = {r["method"] for r in old_rows + new_rows}
 
     def case(row: dict) -> tuple[str, str]:
         return row["reference"], (row["preset"] if len(methods) > 1 else _case(row))

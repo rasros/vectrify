@@ -192,7 +192,7 @@ __global__ void coverage_backward_kernel(const float* controls, const float* ups
                         const float dx = cubic_derivative(path, cubic, t, 0);
                         const float dy = cubic_derivative(path, cubic, t, 1);
                         // Gauss-Newton is stable for the short local update
-                        // steps used by SAMVG and avoids a global curve solve.
+                        // steps of the path fit and avoids a global curve solve.
                         t = fminf(1.f, fmaxf(0.f, t - (qx*dx + qy*dy) / (dx*dx + dy*dy + 1e-6f)));
                     }
                     const float qx = cubic_component(path, cubic, t, 0) - px;

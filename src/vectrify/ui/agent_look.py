@@ -156,7 +156,7 @@ def trace_areas(
     At most *limit* areas and about *budget* characters of path data; the
     rest are counted, not given.
     """
-    from vectrify.refine.samvg import mask_path
+    from vectrify.refine.tracing import mask_path
 
     size = (mask.shape[1], mask.shape[0])
     labels, count = ndimage.label(mask)

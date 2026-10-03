@@ -8,7 +8,6 @@ from vectrify.operations.methods import (
     edges,
     nodes,
     path_fit,
-    samvg,
 )
 
 __all__ = [
@@ -19,5 +18,4 @@ __all__ = [
     "edges",
     "nodes",
     "path_fit",
-    "samvg",
 ]

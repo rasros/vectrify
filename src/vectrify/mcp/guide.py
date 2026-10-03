@@ -180,10 +180,10 @@ for `coords="local"`.
 
 `generate(method, settings, group)` traces the reference into new shapes,
 over the whole drawing or into the area of `group` (`cel` for flat colour
-with ink lines, `colour-regions` for posterised regions; `samvg` needs a
-GPU). `tidy(ids)`, `fit_colours(ids, fill="flat"|"linear")`,
-`snap_edges(ids)` and `cleanup(ids)` improve existing paths. Each starts a
-job: `job(id, wait_seconds=...)` waits for it and returns its metrics and
+with ink lines, `colour-regions` for posterised regions). `tidy(ids)`,
+`fit_colours(ids, fill="flat"|"linear")`, `snap_edges(ids)` and
+`cleanup(ids)` improve existing paths. Each starts a job:
+`job(id, wait_seconds=...)` waits for it and returns its metrics and
 before/after previews, then `job(id, action="apply")` keeps the result as
 one undo step or `job(id, action="discard")` drops it; `action="stop"`
 stops it early. Look at the previews and metrics before applying.

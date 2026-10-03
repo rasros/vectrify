@@ -50,7 +50,7 @@ jobs:
         run: uv python install 3.13
 
       - name: Sync dependencies
-        run: uv sync --extra dev --extra vision --extra samvg
+        run: uv sync --extra dev --extra vision
 
       - name: Lint
         run: uv run ruff check src/ tests/ scripts/
