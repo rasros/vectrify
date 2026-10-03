@@ -598,7 +598,9 @@ default) a region whose colour ramps across it, such as a sky, takes the
 linear gradient Fit gradients would give it, where that lowers its error
 under the lines by at least a quarter and by 4 (in squared 0-255 levels)
 a pixel; the rest stay flat. The lines are thinned to
-centrelines and drawn over the regions as round-capped strokes in their ink:
+centrelines and drawn over the regions as round-capped strokes in their ink,
+each moved across its line onto the middle of its ink (thinning leaves a line
+an even number of pixels wide half a pixel off it):
 a thin line's antialiased middle mixes its ink with the surface, so it is
 drawn in the darker ink at the width of ink it holds, not in grey; a line
 holding less than a pixel of ink is drawn a pixel wide and as much fainter

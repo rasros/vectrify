@@ -15,7 +15,8 @@ so neighbours meet at the line's middle and share one traced edge, smoothed
 between its corners before it is fitted. Each region's colour is then
 fitted in closed form to the image under the lines as drawn, and a region
 whose colour clearly ramps takes a linear gradient. The lines are thinned to
-centrelines and drawn over the fills as strokes in their ink: a thin
+centrelines, each moved onto the middle of its ink, and drawn over the
+fills as strokes in their ink: a thin
 line's antialiased middle is a mix of ink and surface, so it is drawn
 darker and thinner than its pixels look,
 though never under a pixel wide: a hairline is drawn that wide and fainter.
@@ -177,6 +178,10 @@ STROKE_LEAST = 1.0
 # explain its colour within this distance, in 0-255 RGB, of the best, the
 # one covering the least is its ink.
 INK_SLACK = 12.0
+# A centreline is moved onto the middle of its ink by at most CENTRE_SHIFT
+# pixels, the ink read up to CENTRE_REACH beyond half the line's width.
+CENTRE_SHIFT = 1.0
+CENTRE_REACH = 1.5
 # A line is cut where its width steps by WIDTH_STEP, into pieces at least
 # this many points long, or this many of the typical line's widths.
 LINE_PIECE = 12
@@ -1915,6 +1920,7 @@ def _line_paths(
     for run, index, width, step in zip(runs, colours, widths, group, strict=True):
         width = line_width or width
         closed = np.array_equal(run[0], run[-1])
+        run = centred(run, covers[int(index)], width)
         nodes = curve_nodes(run, tolerance)
         if closed and nodes and nodes[-1][0] == "L":
             nodes = nodes[:-1]
@@ -1964,6 +1970,49 @@ def _line_paths(
         "line_pieces": pieces_after,
         "line_runs_joined": pieces_before - pieces_after,
     }
+
+
+def centred(run: np.ndarray, ink: np.ndarray, width: float) -> np.ndarray:
+    """The centreline *run* moved across its line onto the middle of its
+    *ink* (each pixel's cover by it over its surface), at most CENTRE_SHIFT:
+    thinning leaves a line an even number of pixels wide on one of its two
+    middle pixels, half a pixel off. The ink is read across the line up to
+    half its *width* and CENTRE_REACH beyond, as far as it runs unbroken from
+    the middle; the shift is smoothed along the run, and the ends, where
+    runs meet, stay."""
+    if len(run) < 5:
+        return run
+    closed = bool(np.array_equal(run[0], run[-1]))
+    points = run[:-1] if closed else run
+    mode = "wrap" if closed else "nearest"
+    tangent = gaussian_filter1d(np.gradient(points, axis=0), 1.5, axis=0, mode=mode)
+    tangent /= np.maximum(np.linalg.norm(tangent, axis=1, keepdims=True), 1e-6)
+    normal = np.stack((-tangent[:, 1], tangent[:, 0]), 1)
+    reach = width / 2 + CENTRE_REACH
+    offsets = np.arange(-reach, reach + 1e-6, 0.5)
+    xs = points[:, 0, None] + offsets * normal[:, 0, None] - 0.5
+    ys = points[:, 1, None] + offsets * normal[:, 1, None] - 0.5
+    weight = map_coordinates(ink, [ys.ravel(), xs.ravel()], order=1, mode="constant")
+    weight = weight.reshape(xs.shape)
+    # Only the ink joined to the middle: not the next line over.
+    middle = len(offsets) // 2
+    inked = weight > 0.05
+    joined = np.ones(weight.shape, dtype=bool)
+    joined[:, middle:] = np.cumprod(inked[:, middle:], axis=1).astype(bool)
+    joined[:, : middle + 1] = np.cumprod(inked[:, middle::-1], axis=1)[:, ::-1].astype(
+        bool
+    )
+    weight = np.where(joined, weight, 0.0)
+    total = weight.sum(1)
+    shift = np.where(total > 0, (weight * offsets).sum(1) / np.maximum(total, 1e-6), 0)
+    shift = np.clip(shift, -CENTRE_SHIFT, CENTRE_SHIFT)
+    shift = gaussian_filter1d(shift, 2.0, mode=mode)
+    if not closed:
+        # Back to none at the ends, where the runs meet.
+        ramp = np.minimum(np.arange(len(points)), np.arange(len(points))[::-1])
+        shift = shift * np.clip(ramp / 3, 0, 1)
+    moved = points + shift[:, None] * normal
+    return np.concatenate((moved, moved[:1])) if closed else moved
 
 
 def filled_lines(
