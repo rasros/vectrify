@@ -611,8 +611,11 @@ each moved across its line onto the middle of its ink (thinning leaves a line
 an even number of pixels wide half a pixel off it):
 a thin line's antialiased middle mixes its ink with the surface, so it is
 drawn in the darker ink at the width of ink it holds, not in grey; a line
-holding less than a pixel of ink is drawn a pixel wide and as much fainter
-(its stroke opacity), so it keeps its weight without becoming a sliver. A dark
+holding less than a pixel of ink is drawn solid at least 0.8 px wide, so it
+keeps its weight without becoming a sliver. In a grainy image, where a line
+that thin may be grain, only the thin, tapering end of a line at least
+1.5 px wide is drawn so; any other is drawn a pixel wide and as much
+fainter (its stroke opacity). A dark
 mark wider than its stroke but too small to be a filled shape, such as an
 eye or an eyebrow, is filled in its ink beneath the stroke where the stroke
 leaves it out, so it keeps its shape. There is
