@@ -567,7 +567,12 @@ test is skipped). In a grainy or JPEG-compressed
 picture the lines are found after a small median filter smooths the grain
 away; since that also takes lines a pixel wide, the lines are looked for again
 after a median of three pixels along each direction, which keeps them, and
-those found only then are drawn over the regions without cutting them. It fills the space between the lines with a shrinking ball so a small
+those found only then are drawn over the regions without cutting them. So
+are thin lines hardly darker, pixel by pixel, than the grain around them,
+such as hatching or a line on a dark fill after blur and JPEG: the picture,
+smoothed a little, curves up steeply across them and hardly along them, by
+at least three times the curvature the picture's own grain gives, so the
+threshold follows how grainy each picture is. It fills the space between the lines with a shrinking ball so a small
 gap in a line does not join the regions either side, splits each region where
 its colour changes with no line, and merges neighbours down to the chosen
 number of **Regions** (0, the default, keeps one per 10,000 pixels of the

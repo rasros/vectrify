@@ -414,6 +414,30 @@ def test_a_one_pixel_line_is_found_through_grain():
     assert drawn[24:27, 18:52].any(0).mean() > 0.8
 
 
+def test_hatching_on_a_dark_fill_is_found_through_grain():
+    # A navy panel hatched with one-pixel black lines, blurred, with grain:
+    # each hatching pixel is hardly darker than the grain around it, but
+    # the lines stand out of it along their length.
+    from scipy.ndimage import gaussian_filter
+
+    pixels = np.full((120, 160, 3), 245.0)
+    pixels[10:110, 10:150] = (40, 50, 80)
+    y, x = np.mgrid[:120, :160]
+    hatch = ((x + y) % 9 == 0) & (y > 20) & (y < 100) & (x > 20) & (x < 140)
+    pixels[hatch] = 35
+    pixels = gaussian_filter(pixels, (1, 1, 0))
+    rng = np.random.default_rng(4)
+    noisy = np.clip(pixels + rng.normal(0, 8, pixels.shape), 0, 255)
+    assert cel.noise_level(noisy.astype(np.float32)) > cel.NOISE
+    svg, _ = cel.vectorize(Image.fromarray(noisy.astype(np.uint8)), regions=3)
+    stroked = re.sub(r'<rect[^>]*>|<path d="[^"]+" fill="#[^>]*>', "", svg)
+    drawn = cel.binary_dilation(rendered(stroked) < 200, np.ones((3, 3)))
+    assert drawn[hatch].mean() > 0.7
+    # Little is drawn off the hatching.
+    off = ~cel.binary_dilation(hatch, np.ones((5, 5)))
+    assert (drawn & off)[20:100, 20:140].mean() < 0.1
+
+
 def test_a_thin_antialiased_line_is_drawn_in_its_ink_and_thin():
     # One bold black line, and a thin one antialiased to grey.
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
