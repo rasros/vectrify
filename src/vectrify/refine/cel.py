@@ -160,12 +160,12 @@ CORNER_SPAN = 4
 # A line whose width varies more than this along it, its 90th percentile
 # over its 10th, is tapered (reported only: it is still a stroke).
 WIDTH_SPREAD = 2.5
-WIDTH_STEP = 1.6
+WIDTH_STEP = 1.35
 # The strokes of one colour are grouped into paths of about one width, the
 # widest of a group at most WIDTH_GROUP times its narrowest, at most
 # WIDTH_GROUPS of them; no stroke is thinner than THINNEST pixels.
-WIDTH_GROUP = 1.4
-WIDTH_GROUPS = 4
+WIDTH_GROUP = 1.2
+WIDTH_GROUPS = 8
 THINNEST = 0.4
 # Runs of one width group this many points long in all, much wider or
 # thinner than the groups either side, keep their own path (see
@@ -184,8 +184,8 @@ CENTRE_SHIFT = 1.0
 CENTRE_REACH = 1.5
 # A line is cut where its width steps by WIDTH_STEP, into pieces at least
 # this many points long, or this many of the typical line's widths.
-LINE_PIECE = 12
-LINE_PIECE_WIDTHS = 4.0
+LINE_PIECE = 6
+LINE_PIECE_WIDTHS = 2.0
 # At most this many line colours, one stroked path each; closer colours, in
 # 0-255 RGB, are one.
 LINE_COLOURS = 3

@@ -282,6 +282,28 @@ def test_a_line_an_even_number_of_pixels_wide_is_stroked_down_its_middle():
     assert abs(np.median(ys) - 30) < 0.15
 
 
+def test_a_line_tapering_to_a_point_steps_down_in_width_as_strokes():
+    # Calligraphic ink, eight pixels wide at one end and a point at the other.
+    y, x = np.mgrid[:60, :260].astype(float)
+    half = np.clip((240 - x) / 230, 0, 1) * 4
+    pixels = np.full((60, 260, 3), 255.0)
+    ink = np.clip(half + 0.5 - abs(y - 30), 0, 1) * (x >= 10)
+    pixels = pixels * (1 - ink[..., None]) + 20 * ink[..., None]
+    svg, details = cel.vectorize(Image.fromarray(pixels.astype(np.uint8)), regions=1)
+    assert details["line_style"] == "strokes"
+    assert details.get("ink_fills", 0) == 0
+    widths = sorted(float(w) for w in re.findall(r'stroke-width="([\d.]+)"', svg))
+    assert len(widths) >= 5
+    assert widths[-1] > 3 * widths[0]
+    drawn = rendered(svg).astype(float)
+    assert (
+        np.abs(
+            drawn - np.asarray(Image.fromarray(pixels.astype(np.uint8)).convert("L"))
+        ).mean()
+        < 3
+    )
+
+
 def test_a_neutral_line_on_a_navy_fill_of_its_own_luminance_is_found():
     # Navy and the line have about the same luminance; only the brightest
     # channel tells the line is darker.
