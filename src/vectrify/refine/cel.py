@@ -4,7 +4,8 @@ Cel and anime art is flat colour inside drawn outlines. The tracer finds the
 lines first, as marks darker in their brightest channel than the surface
 around them (so a black line on a navy fill counts), in a grainy image after
 a median smooths the grain away (and again after one that keeps lines a
-pixel wide, those it finds drawn but not bounding regions); dark shapes
+pixel wide, and those standing out of the grain along their length only,
+those it finds drawn but not bounding regions); dark shapes
 much wider than a line are left to the fills. It fills the space between
 the lines with a shrinking ball so a small gap in a line does not join the
 regions either side, splits each region by colour where a shade edge has no
@@ -102,6 +103,12 @@ NOTCH_DARK = 128
 # with a 3 x 3 median taken, and again with the line-keeping one of
 # denoised.
 NOISE = 1.5
+# In a grainy image, a thin line also stands out of the grain along its
+# length: the brightest channel smoothed over RIDGE_SIGMA pixels curves up
+# across it at least RIDGE_GRAIN times the grain's own curvature (see
+# ridge_lines).
+RIDGE_SIGMA = 1.3
+RIDGE_GRAIN = 3.0
 # Dark shapes deeper than this many times the typical line's half width, and
 # than SHAPE_LEAST pixels (so bold strokes of lettering stay lines), are
 # filled, not stroked.
@@ -349,6 +356,40 @@ def noise_level(target: np.ndarray) -> float:
     steps = np.abs(np.diff(light, axis=1)).ravel()
     small = steps[steps < 24]
     return float(small.mean()) if small.size else 0.0
+
+
+def ridge_lines(target: np.ndarray, darkness: np.ndarray) -> np.ndarray:
+    """The thin dark lines of a grainy *target* that stand out of its grain
+    along their length, such as hatching and lines on a dark fill, whose
+    pixels one by one are hardly darker than the grain around them.
+
+    The brightest channel is smoothed over RIDGE_SIGMA pixels and its
+    curvature taken: across a dark line it curves up steeply, along it
+    hardly at all. A pixel curving up at least RIDGE_GRAIN times the image's
+    own grain (the spread of the curvature along, which grain alone sets),
+    and more than twice as much across as along, is a line, and so is each
+    pixel joined to one curving up half that much; a step between two
+    surfaces is not, being no darker (*darkness*, against the surface around
+    it) than its lighter side. Pieces under LINE_SPECK pixels go.
+    """
+    light = lightness(target).astype(np.float64)
+    hxx = gaussian_filter(light, RIDGE_SIGMA, order=(0, 2))
+    hyy = gaussian_filter(light, RIDGE_SIGMA, order=(2, 0))
+    hxy = gaussian_filter(light, RIDGE_SIGMA, order=(1, 1))
+    middle = (hxx + hyy) / 2
+    spread = np.sqrt(((hxx - hyy) / 2) ** 2 + hxy**2)
+    across = RIDGE_SIGMA**2 * (middle + spread)
+    along = RIDGE_SIGMA**2 * (middle - spread)
+    grain = 1.4826 * float(np.median(np.abs(along - np.median(along))))
+    candidate = (across > 2 * np.abs(along)) & (darkness >= LINE_CONTRAST / 2)
+    core = candidate & (across >= RIDGE_GRAIN * grain)
+    mask = binary_propagation(
+        core, mask=candidate & (across >= RIDGE_GRAIN * grain / 2)
+    )
+    pieces, count = label(mask, np.ones((3, 3)))
+    keep = np.bincount(pieces.ravel(), minlength=count + 1) >= LINE_SPECK
+    keep[0] = False
+    return keep[pieces]
 
 
 def without_shapes(line: np.ndarray, times: float = SHAPE_DEPTH) -> np.ndarray:
@@ -1398,7 +1439,7 @@ def vectorize(
         # the grain; the lines it lost are found again with them kept, and
         # drawn over the regions without cutting them.
         kept, kept_darkness = detect_lines(denoised(target), radius, shading=False)
-        drawn = line | without_shapes(kept)
+        drawn = line | without_shapes(kept) | ridge_lines(target, kept_darkness)
         drawn_darkness = np.maximum(darkness, kept_darkness)
     # 1. Regions the lines bound, then split where only the colour changes.
     filled = trapped_ball_fill(~line)
