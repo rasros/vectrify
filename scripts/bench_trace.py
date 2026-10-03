@@ -16,24 +16,19 @@ run only the steps after SAM are timed and tuning them takes seconds;
     uv run python scripts/bench_trace.py --method cel --paths 0 --heldout
 
 The default references are the tuning set: settings are chosen on them.
-`--heldout` runs the held-out set (HELDOUT) instead, images never used
-for tuning, so a change tuned on the first is checked once on the second.
-They are cel-shaded art from the author's own project and are not in the
-repository: they go in ~/.cache/vectrify-bench/heldout. lin-ren-v1
-(2048x3072) is downscaled to 1600 px on its long side.
+`--heldout` runs the held-out set instead, images never used for tuning,
+so a change tuned on the first is checked once on the second. Each set
+holds:
 
-Both sets also hold generated cartoon images (gen-*.png), seven each, in
-several styles: anime cel, Western TV cartoon, manga with bold inking,
-children's-book flat vector, 1930s rubber-hose, chibi and flat-shaded game
-art. They are a fixed dataset, not in the repository but in
-~/.cache/vectrify-bench/generated; scripts/bench_data/generated.json
-records each one's set, style and the prompt it was made from. Missing
-ones are left out with a note.
-
-Small dark features a trace can lose, such as earth-hybrid-v2's eye and
-mouth, are reported as the trace's mean luminance where the reference is
-dark there (see FEATURES): near the reference's own when the feature was
-kept.
+- generated cartoon images (gen-*.png) in several styles, anime cel most
+  of all, then Western TV cartoon, manga with bold inking, children's-book
+  flat vector, 1930s rubber-hose, chibi and flat-shaded game art. They are
+  a fixed dataset, not in the repository but in
+  ~/.cache/vectrify-bench/generated; scripts/bench_data/generated.json
+  records each one's set, style and the prompt it was made from. Missing
+  ones are left out with a note.
+- the line bench's own drawings (svg-*, see bench_lines), rendered
+  1000 px tall.
 
 The error is the mean squared difference to the reference in 0-255 RGB. SAM
 and the steps after it are deterministic, so one run per case compares
@@ -55,32 +50,6 @@ from PIL import Image
 
 from vectrify.image_utils import on_white
 
-ROOT = Path(__file__).resolve().parents[1]
-REFERENCES = (
-    "ChatGPT Image Sep 29, 2026, 10_40_22 PM.png",
-    "chest-clothing-bold-v2.png",
-    "earth-hybrid-v2.png",
-)
-# The held-out set, in HELDOUT_DIR, and the long side to downscale each to
-# (None: as it is). Never tune on these.
-HELDOUT = {
-    "reference-left-v1.png": None,
-    "reference-up-v10.png": None,
-    "lin-ren-v1.png": 1600,
-    "courtyard-quiet-v1.png": None,
-}
-# Small dark features a trace can lose, by reference: each a box (x0, y0,
-# x1, y1) in which the reference's pixels darker than FEATURE_DARK (0-255
-# luminance), or than a fifth number given after the box, are the feature.
-# Each is reported as the trace's mean luminance there, after the
-# reference's own. The mouth is a faint brown mark on light skin.
-FEATURES: dict[str, dict[str, tuple[int, ...]]] = {
-    "earth-hybrid-v2.png": {
-        "eye": (1196, 174, 1215, 187),
-        "mouth": (1195, 206, 1202, 210, 175),
-    },
-}
-FEATURE_DARK = 60
 # Generate settings on top of each method's defaults, by method and preset.
 PRESETS: dict[str, dict[str, dict]] = {
     "samvg": {
@@ -101,7 +70,6 @@ PRESETS: dict[str, dict[str, dict]] = {
 # `--nodes` overrides them.
 OPTIMIZE = {"workers": 1}
 CACHE = Path.home() / ".cache" / "vectrify-bench"
-HELDOUT_DIR = CACHE / "heldout"
 GENERATED_DIR = CACHE / "generated"
 GENERATED_DATA = Path(__file__).resolve().parent / "bench_data" / "generated.json"
 
@@ -122,26 +90,25 @@ def generated(heldout: bool = False) -> list[Path]:
     return [p for p in paths if p.exists()]
 
 
-def references(heldout: bool = False, images: Path = ROOT) -> list[Path]:
-    """The tuning set's references, the raster ones from *images*, or with
-    *heldout* the held-out set's, generated images last."""
-    if heldout:
-        return [HELDOUT_DIR / name for name in HELDOUT] + generated(True)
-    return [images / name for name in REFERENCES] + generated()
+def references(heldout: bool = False) -> list[Path]:
+    """The tuning set's references, or with *heldout* the held-out set's:
+    the generated images, then the line bench's own drawings."""
+    from bench_lines import DRAWINGS, HELDOUT, REFERENCES
+
+    names = HELDOUT if heldout else REFERENCES
+    drawings = [DRAWINGS / f"{n}.svg" for n in names if n.startswith("svg-")]
+    return generated(heldout) + drawings
 
 
 def load(path: Path) -> Image.Image:
     """Reference *path* as the editor shows it, transparency over white (not
-    black), and downscaled as HELDOUT says when it is a held-out one."""
-    image = on_white(Image.open(path))
-    side = HELDOUT.get(path.name) if path.parent == HELDOUT_DIR else None
-    if side and max(image.size) > side:
-        scale = side / max(image.size)
-        image = image.resize(
-            (round(image.width * scale), round(image.height * scale)),
-            Image.Resampling.LANCZOS,
-        )
-    return image
+    black); an SVG drawing rendered as the line bench renders it."""
+    if path.suffix == ".svg":
+        from bench_lines import render, size
+
+        svg = path.read_text()
+        return Image.fromarray(render(svg, *size(svg)))
+    return on_white(Image.open(path))
 
 
 def main() -> None:
@@ -150,16 +117,9 @@ def main() -> None:
     )
     parser.add_argument("--references", nargs="+", type=Path)
     parser.add_argument(
-        "--images",
-        type=Path,
-        default=ROOT,
-        help="Where the tuning set's raster references are (from a worktree, "
-        "the main checkout)",
-    )
-    parser.add_argument(
         "--heldout",
         action="store_true",
-        help="Run the held-out references (HELDOUT), not the tuning set",
+        help="Run the held-out references, not the tuning set",
     )
     parser.add_argument("--method", default="samvg", choices=sorted(PRESETS))
     parser.add_argument("--preset", nargs="+", help="Presets of the method to run")
@@ -201,7 +161,7 @@ def main() -> None:
     overrides = dict(_setting(item) for item in args.set)
     nodes = OPTIMIZE | dict(_setting(item) for item in args.nodes)
     rows = []
-    for path in args.references or references(args.heldout, args.images):
+    for path in args.references or references(args.heldout):
         image = load(path)
         for preset in args.preset or list(presets):
             settings = {**presets[preset], **overrides}
@@ -218,7 +178,6 @@ def main() -> None:
                         args.paths,
                         nodes=nodes,
                         cache=not args.no_cache,
-                        features=FEATURES.get(path.name),
                         render=(
                             args.renders / f"{path.stem}-{args.method}-{preset}.png"
                             if args.renders
@@ -244,11 +203,10 @@ def trace(
     nodes: dict | None = None,
     cache: bool,
     render: Path | None = None,
-    features: dict[str, tuple[int, ...]] | None = None,
 ) -> dict:
     """Generate from *image* with method *name* and *settings*, then Optimize
     its largest paths with the settings *nodes*. With *render*, the traced
-    drawing is saved there; *features* are reported as FEATURES says."""
+    drawing is saved there."""
     from vectrify.document import Editor, Selection, export_svg, import_svg
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
@@ -318,42 +276,9 @@ def trace(
             "cached": timing["cached"],
             "after_sam_s": round(total - timing["spent"], 1),
         }
-    if features:
-        row["features"] = feature_darkness(image, export_svg(document), features)
     if paths:
         row["optimize"] = optimize(editor, image, paths, nodes or OPTIMIZE)
     return row
-
-
-def feature_darkness(
-    image: Image.Image, svg: str, features: dict[str, tuple[int, ...]]
-) -> dict[str, list[float]]:
-    """Each of *features*' mean luminance in *image* and in the trace *svg*,
-    over the reference's pixels darker than FEATURE_DARK in its box."""
-    import io
-
-    import cairosvg
-    import numpy as np
-
-    width, height = image.size
-    png = cairosvg.svg2png(
-        bytestring=svg.encode(),
-        output_width=width,
-        output_height=height,
-        background_color="white",
-    )
-    assert png is not None
-    traced = np.asarray(Image.open(io.BytesIO(png)).convert("L"), dtype=float)
-    reference = np.asarray(image.convert("L"), dtype=float)
-    found = {}
-    for name, (x0, y0, x1, y1, *level) in features.items():
-        box = (slice(y0, y1), slice(x0, x1))
-        dark = reference[box] < (level[0] if level else FEATURE_DARK)
-        found[name] = [
-            round(float(reference[box][dark].mean()), 1),
-            round(float(traced[box][dark].mean()), 1),
-        ]
-    return found
 
 
 def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
@@ -527,8 +452,6 @@ def _line(row: dict) -> str:
         f"{row['snapped']} snapped, "
         f"{row['total_s']} s"
     )
-    for feature, (reference, traced) in row.get("features", {}).items():
-        text += f", {feature} {traced} (reference {reference})"
     if "after_sam_s" in row:
         text += (
             f" ({row['after_sam_s']} s after SAM"
@@ -592,14 +515,6 @@ def compare(before: Path, after: Path) -> None:
             f"{pair('points')} | {per_path(a)} → {per_path(b)} | "
             f"{pair('curves')} | {pair('total_s')} | {left[0]} → {left[1]} |"
         )
-    # The small features, as luminance where the reference is dark there.
-    for key in sorted(old.keys() & new.keys()):
-        before, after = old[key].get("features", {}), new[key].get("features", {})
-        for feature in sorted(before.keys() & after.keys()):
-            print(
-                f"{key[0]} [{key[1]}] {feature}: {before[feature][1]} → "
-                f"{after[feature][1]} (reference {after[feature][0]})"
-            )
 
 
 if __name__ == "__main__":
