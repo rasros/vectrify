@@ -12,10 +12,12 @@ three ways:
 A distorted input is scored against the original warped the same way.
 
 Truth ink is the original with its near-black, neutral paint (brightest
-channel below 60, channel spread below 25) black and every other colour
-white; the trace's ink is picked by the same rule, each rendered and kept
-where darker than 128 (192 for bent truth, since resampling spreads a
-one-pixel line over two at half its darkness). The scores:
+channel below 60, channel spread below 25) black and every other colour white.
+The trace's ink adds any neutral stroke paint darker than 90 (its brightest
+channel), so a line drawn a shade lighter than the original's ink still counts
+as found; its colour error is the mse's. Each is rendered and kept where
+darker than 128 (192 for bent truth, since resampling spreads a one-pixel line
+over two at half its darkness). The scores:
 
 - line_p / line_r / line_f: precision, recall and F of the ink's centrelines
   (thinned as cel thins), each within 2 px of the other's;
@@ -254,8 +256,17 @@ def render(svg: str, width: int, height: int) -> np.ndarray:
     return np.asarray(Image.open(io.BytesIO(cast(bytes, png))).convert("RGB"))
 
 
-def is_ink(rgb) -> bool:
-    return max(rgb) < 60 and max(rgb) - min(rgb) < 25
+def is_ink(rgb, brightest: float = 60) -> bool:
+    return max(rgb) < brightest and max(rgb) - min(rgb) < 25
+
+
+# A trace's lines are its strokes: any neutral stroke paint darker than
+# TRACE_INK_MOST is ink, so a line drawn a shade lighter than the original's
+# ink still counts as found (its colour error is the mse's). Navy and other
+# coloured darks stay out by the spread rule, fills keep the truth's rule,
+# and mid-grey shading stays out by the cap.
+TRACE_INK_MOST = 90
+STROKE = re.compile(r'stroke="#([0-9a-fA-F]{6}|[0-9a-fA-F]{3})"')
 
 
 def _rgb(code: str) -> tuple[int, ...]:
@@ -263,14 +274,28 @@ def _rgb(code: str) -> tuple[int, ...]:
     return tuple(int(code[i : i + 2], 16) for i in (0, 2, 4))
 
 
-def ink_only(svg: str) -> str:
-    """*svg* with its ink paint black and every other colour white."""
+def trace_ink_limit(svg: str) -> float:
+    """The brightest channel below which *svg*'s neutral paint is its ink."""
+    strokes = [
+        max(rgb)
+        for rgb in (_rgb(m.group(1)) for m in STROKE.finditer(svg))
+        if max(rgb) - min(rgb) < 25 and max(rgb) < TRACE_INK_MOST
+    ]
+    return max([60.0, *(v + 1 for v in strokes)])
+
+
+def ink_only(svg: str, brightest: float = 60) -> str:
+    """*svg* with its ink paint (by `is_ink` with *brightest*) black and every
+    other colour white."""
 
     def functional(match: re.Match) -> str:
         values = [float(v) for v in match.group(1).replace("%", "").split(",")[:3]]
-        return "#000000" if is_ink(values) else "#ffffff"
+        return "#000000" if is_ink(values, brightest) else "#ffffff"
 
-    svg = HEX.sub(lambda m: "#000000" if is_ink(_rgb(m.group(1))) else "#ffffff", svg)
+    svg = HEX.sub(
+        lambda m: "#000000" if is_ink(_rgb(m.group(1)), brightest) else "#ffffff",
+        svg,
+    )
     svg = re.sub(r"rgba?\(([^)]*)\)", functional, svg)
     for name in NAMED:
         svg = re.sub(rf'([:="\s]){name}([;"\s])', r"\1#ffffff\2", svg)
@@ -410,7 +435,7 @@ def score(truth: str, svg: str, width: int, height: int, kind: str) -> dict:
     ink_truth = bend(render(ink_only(truth), width, height)).min(-1) < (
         128 if kind == "clean" else 192
     )
-    ink_trace = render(ink_only(svg), width, height).min(-1) < 128
+    ink_trace = render(ink_only(svg, trace_ink_limit(svg)), width, height).min(-1) < 128
     line_truth, line_trace = thin(ink_truth), thin(ink_trace)
     precision = _near(line_trace, line_truth)
     recall = _near(line_truth, line_trace)
