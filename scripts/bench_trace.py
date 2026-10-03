@@ -151,6 +151,13 @@ def main() -> None:
     )
     parser.add_argument("--references", nargs="+", type=Path)
     parser.add_argument(
+        "--images",
+        type=Path,
+        default=ROOT,
+        help="Where the tuning set's raster references are (from a worktree, "
+        "the main checkout)",
+    )
+    parser.add_argument(
         "--heldout",
         action="store_true",
         help="Run the held-out references (HELDOUT), not the tuning set",
@@ -195,7 +202,7 @@ def main() -> None:
     overrides = dict(_setting(item) for item in args.set)
     nodes = OPTIMIZE | dict(_setting(item) for item in args.nodes)
     rows = []
-    for path in args.references or references(args.heldout):
+    for path in args.references or references(args.heldout, args.images):
         image = load(path)
         for preset in args.preset or list(presets):
             settings = {**presets[preset], **overrides}
