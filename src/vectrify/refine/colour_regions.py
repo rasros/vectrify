@@ -1,8 +1,8 @@
 """Colour-region vectorizer with CUDA palette fitting.
 
-A representation separate from SAMVG: a CUDA-fitted palette divides the image
-into colour regions, which are traced into shared-contour SVG regions, with
-optional preserved dark outlines and a final conservative geometry cleanup.
+A CUDA-fitted palette divides the image into colour regions, which are
+traced into shared-contour SVG regions, with optional preserved dark
+outlines and a final conservative geometry cleanup.
 The vectorizer needs PyTorch with CUDA (the ``vision`` extra); the palette
 fit also runs on the CPU, for the cel tracer.
 """
@@ -35,7 +35,7 @@ from scipy.ndimage import (
     distance_transform_edt as _distance_transform_edt,
 )
 
-from vectrify.refine.samvg import _loops
+from vectrify.refine.tracing import _loops
 from vectrify.svg.cleanup import cleanup_svg_geometry
 
 log = logging.getLogger(__name__)
@@ -789,10 +789,7 @@ def vectorize(
             "bytes": len(svg.encode()),
             "gpu": torch.cuda.get_device_name(),
             "evolutionary_steps": 0,
-            "method": (
-                "experimental shared-contour colour regions; "
-                "not the two-phase SAMVG pipeline"
-            ),
+            "method": ("experimental shared-contour colour regions"),
         }
     smooth = gaussian_filter(target, (smooth_sigma, smooth_sigma, 0))
     labels = remove_fragments(fit_palette(smooth, colours, steps), min_pixels)
@@ -837,5 +834,5 @@ def vectorize(
         "bytes": len(svg.encode()),
         "gpu": torch.cuda.get_device_name(),
         "evolutionary_steps": 0,
-        "method": "experimental colour regions; not the two-phase SAMVG pipeline",
+        "method": "experimental colour regions",
     }

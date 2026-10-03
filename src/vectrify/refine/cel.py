@@ -73,8 +73,8 @@ from vectrify.refine.colour_regions import (
 from vectrify.refine.frozen import Frozen
 from vectrify.refine.redraw import _corners
 from vectrify.refine.redraw import _smoothed as _smoothed_between
-from vectrify.refine.samvg import _fit_cubic, _simplified_data, mask_path
 from vectrify.refine.simplify import simplified_geometry
+from vectrify.refine.tracing import _fit_cubic, _simplified_data, mask_path
 
 if TYPE_CHECKING:
     from vectrify.operations.methods.colours import Ramp

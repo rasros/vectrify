@@ -1,4 +1,4 @@
-"""Optional CUDA winding operator for SAMVG's fixed 16-cubic contours."""
+"""Optional CUDA winding operator for fixed-length closed cubic contours."""
 
 from __future__ import annotations
 
@@ -11,7 +11,7 @@ from typing import Any
 def _extension() -> Any | None:
     """Load the ahead-of-time extension when the installed wheel contains it."""
     try:
-        return importlib.import_module("vectrify._samvg_cuda")
+        return importlib.import_module("vectrify._cuda_renderer")
     except ImportError:
         return None
 

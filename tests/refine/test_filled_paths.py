@@ -8,7 +8,6 @@ import pytest
 from PIL import Image
 
 from vectrify.image_utils import (
-    rasterize_svg,
     rasterize_svg_to_image,
     rasterize_svg_to_png_bytes,
 )
@@ -25,7 +24,6 @@ from vectrify.refine.paths import (
     _torch_compile_enabled,
     _xing_loss,
     fit_filled_svg,
-    fit_opaque_fills_locally,
     parse_filled_cubics,
 )
 
@@ -43,7 +41,7 @@ def _fill_coverage(
     The path's winding angle is smooth with respect to its sampled curve
     points. A sigmoid around pi turns it into antialiased inside coverage while
     retaining gradients for every point coordinate. This is the filled-path
-    counterpart to :func:`coverage`, used by the SAMVG optimiser.
+    counterpart to :func:`coverage`, used by the filled-path optimiser.
     """
     import torch
 
@@ -89,7 +87,7 @@ def test_native_winding_matches_torch_forward_and_gradient(samples, monkeypatch)
     from vectrify.refine import cuda_renderer
 
     if not cuda_renderer.available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     controls = _sixteen_cubic_circle(torch).requires_grad_()
     native = _fill_batched_windings(
         controls, (0, 0, 24, 24), samples=samples, x_offset=0.25, y_offset=0.25
@@ -131,7 +129,7 @@ def test_native_subpixel_windings_share_the_separate_winding_result():
     from vectrify.refine.cuda_renderer import available, winding, windings
 
     if not available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     controls = _sixteen_cubic_circle(torch).requires_grad_()
     fused = windings(controls, (0, 0, 24, 24), samples=16, subpixels=2)
     separate = torch.stack(
@@ -166,7 +164,7 @@ def test_native_even_odd_coverage_stays_cairo_validated():
     from vectrify.refine.cuda_renderer import available
 
     if not available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     size = 96
     contours = [
         torch.tensor(contour, dtype=torch.float32, device="cuda")
@@ -203,7 +201,7 @@ def test_native_analytic_cubic_coverage_stays_cairo_validated():
     from vectrify.refine.cuda_renderer import available
 
     if not available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     size = 96
     contour = torch.tensor(
         parse_filled_cubics("M 12 48 C 12 5 84 5 84 48 C 84 91 12 91 12 48 Z")[0],
@@ -237,7 +235,7 @@ def test_native_analytic_multi_contour_coverage_preserves_a_hole():
     from vectrify.refine.cuda_renderer import available, multi_coverage
 
     if not available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     contours = [
         torch.tensor(contour, dtype=torch.float32, device="cuda")
         for contour in parse_filled_cubics(DONUT_PATH)
@@ -418,46 +416,6 @@ def test_filled_path_fit_preserves_each_compound_contours_closure():
     ]
 
 
-def test_local_fill_fit_changes_only_one_bounded_group():
-    paths = []
-    for index in range(20):
-        x = (index % 5) * 20 + 2
-        y = (index // 5) * 20 + 2
-        paths.append(
-            f'<path d="M {x} {y} L {x + 12} {y} L {x + 12} {y + 12} '
-            f'L {x} {y + 12} Z" fill="#ff0000" />'
-        )
-    source = (
-        '<svg xmlns="http://www.w3.org/2000/svg" width="100" height="80">'
-        + "".join(paths)
-        + "</svg>"
-    )
-    target = Image.new("RGB", (100, 80), "black")
-    reference = io.BytesIO()
-    target.save(reference, format="PNG")
-
-    fitted = fit_opaque_fills_locally(
-        source,
-        reference.getvalue(),
-        steps=1,
-        maximum_paths=4,
-        rasterize=rasterize_svg,
-    )
-
-    before = [
-        element.get("fill")
-        for element in ET.fromstring(source).iter()
-        if element.get("d")
-    ]
-    after = [
-        element.get("fill")
-        for element in ET.fromstring(fitted).iter()
-        if element.get("d")
-    ]
-    assert len(before) == len(after) == 20
-    assert sum(left != right for left, right in zip(before, after, strict=True)) <= 4
-
-
 DONUT_PATH = (
     "M 12 48 C 12 5 84 5 84 48 C 84 91 12 91 12 48 Z "
     "M 34 48 C 34 30 62 30 62 48 C 62 66 34 66 34 48 Z"
@@ -598,7 +556,7 @@ def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients(size):
     from vectrify.refine.cuda_renderer import available, multi_coverage
 
     if not available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     contours = []
     for row in range(4):
         for column in range(4):
@@ -664,7 +622,7 @@ def test_analytic_multi_coverage_reuses_topology_workspace_between_steps():
     from vectrify.refine.cuda_renderer import available, multi_coverage
 
     if not available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     controls = torch.tensor(
         [[[[0.0, 0.0], [0.0, 4.0], [4.0, 4.0], [4.0, 0.0]]] * 16],
         device="cuda",
@@ -697,7 +655,7 @@ def test_tiled_analytic_large_compound_path_matches_cairo(fill_rule):
     from vectrify.refine.cuda_renderer import available
 
     if not available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     size = 64
     pieces = []
     for row in range(2):
@@ -755,7 +713,7 @@ def test_filled_fit_uses_analytic_tiles_for_large_cuda_paths(monkeypatch):
     from vectrify.refine import paths as filled_paths
 
     if not cuda_renderer.available():
-        pytest.skip("optional SAMVG CUDA extension is not installed")
+        pytest.skip("optional CUDA renderer extension is not installed")
     pieces = []
     for row in range(2):
         for column in range(8):

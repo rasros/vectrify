@@ -47,14 +47,6 @@ vision = [
     "torchvision>=0.28.0",
     "transformers>=4.49.0",
 ]
-# The CUDA extension is shipped in platform-specific wheels.  Installing this
-# extra is deliberately sufficient for the SAMVG seed even on machines that
-# use the portable Torch renderer fallback.
-samvg = [
-    "torch>=2.0.0",
-    "torchvision>=0.28.0",
-    "transformers>=4.49.0",
-]
 # A native window instead of a browser tab. Linux uses pywebview's Qt backend,
 # which installs from PyPI without system packages.
 desktop = [
@@ -66,7 +58,7 @@ mcp = [
     "mcp>=2.2",
 ]
 all = [
-    "vectrify[vision,samvg,desktop,mcp]",
+    "vectrify[vision,desktop,mcp]",
 ]
 dev = [
     "pytest",

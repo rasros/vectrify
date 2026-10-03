@@ -771,7 +771,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
     @tool(structured_output=False)
     def generate(
-        method: Literal["cel", "colour-regions", "samvg"] = "cel",
+        method: Literal["cel", "colour-regions"] = "cel",
         settings: dict[str, Any] | None = None,
         group: str | None = None,
     ) -> CallToolResult:
@@ -779,7 +779,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
         cel: flat colour regions with ink lines (settings regions,
         tolerance, line_width, strokes, outline); colour-regions: posterised
-        regions (colours, min_pixels, tolerance, ...); samvg needs a GPU.
+        regions (colours, min_pixels, tolerance, ...).
         Over the whole drawing, or into the area of the group group.
         """
         return state.call(

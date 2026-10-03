@@ -529,28 +529,12 @@ contract in `vectrify.operations` (see `docs/operations.md`) via
 `POST /api/operation`.
 
 **Generate from reference…** (Reference panel) traces the reference into
-new shapes. The SAMVG method, a general-purpose tracer for photos and painterly
-images, segments the image with SAM and traces each region into filled paths.
-Choose the model (ViT-H is best, ViT-B is faster), the resolution SAM segments
-at (by default the reference's own size; a fixed size shrinks a larger
-reference to it, which is faster and uses less GPU memory, and enlarges a
-smaller one first, so outlines do not follow its pixels) and the maximum
-shapes. The rest is fixed: small holes in a region are filled, regions
-narrower than 3 reference pixels everywhere (outlines and hairlines) and those
-hidden entirely by the ones above are left out, each region's edge is moved
-onto the reference's own edges nearby (SAM's masks are coarser than the image
-and smooth away thin spikes and notches), neighbouring regions whose
-difference is not worth a shape of their own are merged and recoloured, and a
-backdrop rectangle beneath them all, in the colour of what no region claims
-(usually the drawn outlines), fills the gaps between regions. Each outline is
-smoothed over about one SAM pixel, traced densely and simplified to within
-half a reference pixel, so it gets as many curves as its shape needs. The result is placed over the
-artboard exactly where the reference is shown, as one new group at the front of
-the whole drawing or of a selected group. With a group selected, only the
-reference around what it already paints is traced. Text is traced as shapes, since the editor
-does not support SVG text. Preview shows the reference, before and after, with
+new shapes, with the Cel art method (the default) or Colour regions. The
+result is placed over the artboard exactly where the reference is shown, as
+one new group at the front of the whole drawing or of a selected group. With
+a group selected, only the reference around what it already paints is traced.
+Text is traced as shapes, since the editor does not support SVG text. Preview shows the reference, before and after, with
 the change in reference error; Apply adds the group as one undoable edit.
-SAMVG needs the `samvg` extra and holds the GPU while it runs.
 
 The Cel art method is for flat, outlined illustrations such as cel and anime
 art, and is the dialog's default. It follows their drawn lines: it finds the
@@ -671,7 +655,7 @@ region. Dark outlines can be treated as ordinary regions, kept as separate
 linework, or kept as linework with the regions beneath cleaned up, which
 defines each region once and reuses it for fill and clip. **Merge and clean up
 geometry** merges compatible paths and drops redundant vertices afterwards. It
-needs CUDA and PyTorch (the `vision` or `samvg` extra).
+needs CUDA and PyTorch (the `vision` extra).
 
 ## Limits
 

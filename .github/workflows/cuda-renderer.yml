@@ -1,4 +1,4 @@
-name: SAMVG CUDA
+name: CUDA renderer
 
 on:
   schedule:
@@ -21,10 +21,10 @@ jobs:
         run: uv python install 3.13
 
       - name: Install CUDA-capable test dependencies
-        run: uv sync --extra dev --extra samvg
+        run: uv sync --extra dev --extra vision
 
       - name: Build the optional extension
-        run: VECTRIFY_BUILD_SAMVG_CUDA=1 uv build --wheel --no-build-isolation
+        run: VECTRIFY_BUILD_CUDA_RENDERER=1 uv build --wheel --no-build-isolation
 
       - name: Install the built wheel
         run: uv pip install --reinstall --no-deps dist/*.whl
@@ -38,5 +38,5 @@ jobs:
       - name: Preserve wheels for renderer benchmarking
         uses: actions/upload-artifact@v4
         with:
-          name: samvg-cuda-wheel
+          name: cuda-renderer-wheel
           path: dist/*.whl

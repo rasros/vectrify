@@ -39,7 +39,7 @@ def request(editor, selection, **extra):
     snapshot = editor.snapshot
     return OperationRequest(
         action="generate",
-        method=extra.pop("method", "samvg"),
+        method=extra.pop("method", "cel"),
         snapshot=type(snapshot)(snapshot.revision, snapshot.document, selection),
         editor=editor,
         permissions=Permissions(structure=True),
@@ -123,99 +123,47 @@ def test_generation_goes_into_a_selected_group_or_needs_the_whole_drawing():
     layer = editor.snapshot.document.element("layer")
     assert [c.tag for c in layer.children] == ["g"]
     with pytest.raises(DocumentError, match="whole drawing or one group"):
-        method("generate", "samvg").validate(
+        method("generate", "cel").validate(
             request(editor, Selection(object_ids=frozenset({"bg"})))
         )
 
 
-def test_samvg_job_inserts_the_trace(monkeypatch):
+def test_cel_job_inserts_the_trace(monkeypatch):
     seen = {}
 
     def fake(image, **kwargs):
         seen.update(kwargs, size=image.size)
-        return SQUARE
+        return SQUARE, {"regions": 1}
 
-    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", fake)
+    monkeypatch.setattr("vectrify.refine.cel.vectorize", fake)
     editor = Editor(import_svg(DOC))
     job = Job(
-        method("generate", "samvg"),
-        request(editor, Selection.all(), settings={"max_layers": 8, "max_side": 400}),
+        method("generate", "cel"),
+        request(editor, Selection.all(), settings={"regions": 8}),
     )
     job.run()
     state = job.state(preview=True)
     assert state["status"] == "ready", state
-    assert seen["max_layers"] == 8
+    assert seen["regions"] == 8
     assert seen["size"] == (400, 200)
-    job.apply()
-    assert editor.undo_labels == ("Generate with SAMVG",)
-
-
-def test_samvg_traces_a_small_reference_enlarged_and_places_it_the_same(
-    monkeypatch,
-):
-    seen = {}
-
-    def fake(image, **kwargs):
-        seen.update(kwargs, size=image.size)
-        # The red square, in the enlarged image's pixels.
-        return (
-            '<svg xmlns="http://www.w3.org/2000/svg" width="800" height="400">'
-            '<path d="M200 100H600V300H200Z" fill="#c80000"/></svg>'
-        )
-
-    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", fake)
-    editor = Editor(import_svg(DOC))
-    job = Job(
-        method("generate", "samvg"),
-        request(
-            editor,
-            Selection.all(),
-            settings={"max_side": 800},
-        ),
-    )
-    job.run()
-    state = job.state()
-    assert state["status"] == "ready", state
-    # Twice the size, so pixel settings double and areas quadruple.
-    assert seen["size"] == (800, 400)
-    assert seen["min_width"] == 6
-    assert seen["min_pixels"] == 128
-    assert seen["tolerance"] == 1.0
     # Placed exactly over the reference's square: no error left.
     assert state["result"]["metrics"]["after"]["error"] < 1e-3
+    job.apply()
+    assert editor.undo_labels == ("Generate cel trace",)
 
 
-def test_samvg_segments_at_the_reference_size_by_default(monkeypatch):
-    seen = {}
-
-    def fake(image, **kwargs):
-        seen.update(kwargs, size=image.size)
-        return SQUARE
-
-    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", fake)
-    job = Job(
-        method("generate", "samvg"),
-        request(Editor(import_svg(DOC)), Selection.all(), settings={}),
-    )
-    job.run()
-    assert job.state()["status"] == "ready"
-    # The 400x200 reference is neither shrunk nor enlarged.
-    assert seen["size"] == (400, 200)
-    assert seen["max_side"] == 400
-
-
-def test_samvg_rejects_bad_settings_and_missing_permission():
+def test_cel_rejects_bad_settings_and_missing_permission():
     editor = Editor(import_svg(DOC))
-    samvg = method("generate", "samvg")
-    with pytest.raises(DocumentError, match="Unknown SAMVG setting"):
-        samvg.validate(request(editor, Selection.all(), settings={"ocr": True}))
+    cel = method("generate", "cel")
+    with pytest.raises(DocumentError, match="Unknown cel setting"):
+        cel.validate(request(editor, Selection.all(), settings={"ocr": True}))
     with pytest.raises(DocumentError, match="whole number"):
-        samvg.validate(request(editor, Selection.all(), settings={"max_layers": 2.5}))
+        cel.validate(request(editor, Selection.all(), settings={"regions": 2.5}))
     with pytest.raises(DocumentError, match="structure"):
-        samvg.validate(
+        cel.validate(
             OperationRequest(
                 action="generate",
-                method="samvg",
+                method="cel",
                 snapshot=editor.snapshot,
                 editor=editor,
                 reference=reference(),
@@ -234,7 +182,7 @@ def test_session_scope_drawing_generates_without_selecting_everything(monkeypatc
 
     from vectrify.ui.session import Session
 
-    monkeypatch.setattr("vectrify.refine.samvg.generate_svg", lambda *_a, **_k: SQUARE)
+    monkeypatch.setattr("vectrify.refine.cel.vectorize", lambda *_a, **_k: (SQUARE, {}))
     stream = io.BytesIO()
     reference().save(stream, format="PNG")
     session = Session(
@@ -249,7 +197,7 @@ def test_session_scope_drawing_generates_without_selecting_everything(monkeypatc
     payload = {
         "command": "start",
         "action": "generate",
-        "method": "samvg",
+        "method": "cel",
         "epoch": session.epoch,
         "revision": 0,
         "permissions": {"structure": True},
@@ -265,7 +213,7 @@ def test_session_scope_drawing_generates_without_selecting_everything(monkeypatc
     assert state["status"] == "ready", state
     session.operation({"command": "apply", "job": job["id"]})
     assert session.editor.snapshot.selection == Selection()
-    assert session.editor.undo_labels == ("Generate with SAMVG",)
+    assert session.editor.undo_labels == ("Generate cel trace",)
 
 
 def test_fresh_ids_rename_definitions_and_every_reference():

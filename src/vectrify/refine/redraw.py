@@ -10,8 +10,8 @@ gradient across it, for the edge's place within a pixel.
 
 The path is fitted with a short cubic every few pixels, split at sharp turns
 so a spike's tip stays a tip, and simplified to a pixel tolerance, the dense
-trace then simplify of the SAMVG tracer. Without a reference the stroke itself
-is fitted, smoothed a little, to a tolerance in screen pixels.
+trace then simplify of ``tracing.mask_path``. Without a reference the stroke
+itself is fitted, smoothed a little, to a tolerance in screen pixels.
 """
 
 from __future__ import annotations
