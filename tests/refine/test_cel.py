@@ -77,6 +77,25 @@ def test_merging_keeps_a_shadow_past_the_region_count():
     assert len(np.unique(merged)) == 1
 
 
+def test_merging_keeps_a_small_mark_of_a_clearly_different_colour():
+    # Skin in two close shades and, in it, a small blue iris: too small to be
+    # a shadow, but far from the skin's colour.
+    labels = np.zeros((40, 40), dtype=np.int64)
+    labels[:, 20:] = 1
+    labels[10:16, 5:11] = 2
+    target = np.full((40, 40, 3), (240, 200, 170), dtype=np.float32)
+    target[:, 20:] = (236, 196, 166)
+    target[10:16, 5:11] = (60, 110, 200)
+    line = np.zeros(labels.shape, dtype=bool)
+    merged = cel.merge_regions(labels, target, line, 1)
+    assert merged[0, 0] == merged[0, 30]
+    assert merged[12, 8] != merged[0, 0]
+    # A speck that small of a colour near the skin's merges.
+    target[10:16, 5:11] = (220, 180, 150)
+    merged = cel.merge_regions(labels, target, line, 1)
+    assert len(np.unique(merged)) == 1
+
+
 def test_shared_edges_meet_exactly():
     labels = np.zeros((30, 40), dtype=int)
     labels[5:25, 8:30] = 1

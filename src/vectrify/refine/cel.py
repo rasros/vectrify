@@ -132,7 +132,7 @@ SHADING_LEAST = 8
 BALLS = (6, 4, 2, 1)
 # Colours the regions are split by, and the smallest split-off piece kept.
 PALETTE = 16
-PIECE = 24
+PIECE = 12
 # Merging across a drawn line costs this many times more for the share of
 # the boundary a line runs along: regions a line separates and that differ
 # stay apart, while regions of one colour either side of a line merge
@@ -146,6 +146,12 @@ SHADE = 2.0
 # are kept apart, and the shadow does not count toward the target count.
 SHADOW_STEP = 8.0
 SHADOW_LEAST = 150
+# A small mark of a clearly different colour, at least FEATURE_STEP from
+# its neighbour in 0-255 RGB, such as an iris, a pupil, a highlight or a
+# mouth, is kept apart from it the same way down to FEATURE_LEAST pixels of
+# paint, and the smaller does not count toward the target count either.
+FEATURE_STEP = 60.0
+FEATURE_LEAST = 12
 # Curves per this many traced pixels of a filled line shape before it is
 # simplified, and the smoothing that takes the pixel staircase out of any
 # traced run first, in pixels.
@@ -663,12 +669,17 @@ def merge_regions(
         """The shadow merging *a* and *b* would wash out, if any: the darker
         of two regions with enough paint of their own (not lines) a step of
         *shadow_step* in lightness apart."""
-        if min(own[a], own[b]) < shadow_least:
+        least = min(own[a], own[b])
+        if least >= shadow_least:
+            light = [float(sums[i] / area[i] @ LUMINANCE) for i in (a, b)]
+            if abs(light[0] - light[1]) >= shadow_step:
+                return a if light[0] < light[1] else b
+        if least < FEATURE_LEAST:
             return None
-        light = [float(sums[i] / area[i] @ LUMINANCE) for i in (a, b)]
-        if abs(light[0] - light[1]) < shadow_step:
+        difference = sums[a] / area[a] - sums[b] / area[b]
+        if float(np.linalg.norm(difference)) < FEATURE_STEP:
             return None
-        return a if light[0] < light[1] else b
+        return a if own[a] < own[b] else b
 
     version = [0] * n
     heap = [(cost(a, b), a, b, 0, 0) for a in range(n) for b in edges[a] if a < b]
