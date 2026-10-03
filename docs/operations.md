@@ -56,7 +56,6 @@ commands `start`, `check` (validate a request without running it), `status`,
 
 | Action | Method | What it does |
 | --- | --- | --- |
-| generate | `samvg` | Traces SAM segments of the reference into a new group |
 | generate | `cel` | Traces cel art as flat regions bounded by its drawn lines, with the lines as strokes on top (CPU), each down the middle of its ink and stepping in width where the ink tapers, thin lines in a grainy picture also found where they stand out of its grain along their length, and small marks of a clearly different colour, such as irises, kept as regions of their own; `regions` 0 (the default) keeps one per 10,000 pixels, 50-2,000; `outline` draws one unbroken stroke round the drawing's silhouette; `fit_colours` (on by default) colours each region with the least-squares flat fill under the drawn lines, as `improve/colours` would, after a region holding two clearly separate shades is split into them; `gradients` (on by default) gives a region whose colour clearly ramps a linear gradient |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
 | improve | `path-fit` | Gradient fitting of one selected path's nodes, handles and colour (CUDA, or the CPU for unstroked fills) |
@@ -168,8 +167,8 @@ pinned ones.
   tenth step, before Cairo scores the candidate, the fit checks it for new
   self-crossings; the nodes at the ends of the crossing segments move halfway
   back to where they last did not cross (twice), then all the way, then the
-  whole outline does, and the fit carries on from there. SAMVG's Xing
-  penalty stays off: it sees only a cubic's own handles crossing, while the
+  whole outline does, and the fit carries on from there. The Xing
+  (handle crossing) penalty stays off: it sees only a cubic's own handles crossing, while the
   fit's folds are mostly neighbouring segments crossing at a node, and in
   single runs it did not reduce them.
 - Snap is `refine.snap.snap`: points and segment middles move along the

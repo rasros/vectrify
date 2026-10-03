@@ -1,8 +1,8 @@
-"""Measure one steady SAMVG filled-path optimisation step.
+"""Measure one steady filled-path optimisation step (path fit).
 
 Example:
-    uv run python scripts/bench_samvg_renderer.py /tmp/cat.svg /tmp/cat.jpg
-    uv run python scripts/bench_samvg_renderer.py /tmp/cat.svg /tmp/cat.jpg \
+    uv run python scripts/bench_cuda_renderer.py /tmp/cat.svg /tmp/cat.jpg
+    uv run python scripts/bench_cuda_renderer.py /tmp/cat.svg /tmp/cat.jpg \
         --torch-fallback
 """
 

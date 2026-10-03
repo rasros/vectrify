@@ -18,16 +18,16 @@ def main() -> None:
     import torch
 
     if not torch.cuda.is_available():
-        raise RuntimeError("SAMVG CUDA benchmark requires a GPU runner")
+        raise RuntimeError("CUDA renderer benchmark requires a GPU runner")
     if cuda_renderer._extension() is None:
-        raise RuntimeError("SAMVG CUDA extension was not built")
+        raise RuntimeError("CUDA renderer extension was not built")
     target = Image.new("RGB", (32, 32), "#4080c0")
     fit_filled_svg(SVG, target, steps=1, optimisation_long_side=32)
     torch.cuda.synchronize()
     started = perf_counter()
     fit_filled_svg(SVG, target, steps=1, optimisation_long_side=32)
     torch.cuda.synchronize()
-    print(f"samvg-cuda renderer step: {perf_counter() - started:.4f}s")
+    print(f"cuda renderer step: {perf_counter() - started:.4f}s")
 
 
 if __name__ == "__main__":

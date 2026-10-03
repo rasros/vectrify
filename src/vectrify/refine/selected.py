@@ -376,7 +376,7 @@ def fit_selected_path(
             previous = index + length - 1
             index += length
         # The implicit closing line, unless the contour already ends where it
-        # starts. A zero-length closing cubic is not harmless: it takes SAMVG's
+        # starts. A zero-length closing cubic is not harmless: it takes
         # 16-cubic contours past the native renderer's width, onto a winding
         # rasteriser whose coverage has no gradient, and nothing moves.
         if previous != head and not np.array_equal(
@@ -590,7 +590,7 @@ def fit_selected_path(
         steps=options.steps,
         point_learning_rate=0.25 if options.nodes or options.handles else 0,
         color_learning_rate=0.01 if options.color else 0,
-        # SAMVG's Xing term only sees a cubic's own handles crossing; the
+        # The Xing term only sees a cubic's own handles crossing; the
         # folds a fit makes are mostly neighbouring segments crossing at a
         # node, which observe undoes, and the term did not reduce them.
         xing_weight=0,

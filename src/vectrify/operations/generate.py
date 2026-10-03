@@ -294,22 +294,19 @@ def generated_result(
     label: str,
     name: str,
     metrics: dict[str, Any] | None = None,
-    traced: Region | None = None,
     seams: float | None = None,
 ) -> OperationResult:
     """Insert *svg* and measure the region against the reference, before and after.
 
-    *svg* is in the pixels of *traced*, the same area as *region* at another
-    size, when it was traced from an enlarged crop. With *seams*, a contact
+    *svg* is in the pixels of *region*'s image. With *seams*, a contact
     distance in those pixels, the touching edges of the inserted paths are
     snapped together so neighbouring regions meet exactly.
     """
     tx = request.transaction(label)
-    traced = traced or region
-    group, shapes = insert_svg(tx, request, svg, traced, name)
+    group, shapes = insert_svg(tx, request, svg, region, name)
     if seams is not None:
         paths = frozenset(i for i in shapes if tx.preview.element(i).tag == "path")
-        scale = traced.width / traced.image.width
+        scale = region.width / region.image.width
         metrics = {
             **(metrics or {}),
             "snapped": snap_seams(tx, paths, seams * scale),

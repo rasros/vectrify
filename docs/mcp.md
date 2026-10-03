@@ -302,7 +302,7 @@ be a polygon `[[x, y], ...]`.
   reference's dark areas in the region (luminance at most `tolerance`,
   0.35 by default), or those near `colour` (RGB distance, 0.12 by
   default), traced as closed cubic path data in document coordinates
-  (`samvg.mask_path` over each connected area, holes included), largest
+  (`tracing.mask_path` over each connected area, holes included), largest
   first, with each area's size and bounds. Areas smaller than `min_area`
   square units (default 6 pixels) are left out.
 - `get_svg(ids?)`: the SVG of the drawing or of some objects.
@@ -388,9 +388,8 @@ the two points at a segment's ends it deletes that segment, as the
 editor's Break does), `split_edge(points)`, `delete(points, contours?)`,
 `join(points=[a, b])`.
 
-**Operations** (jobs): `generate(method?, settings?, group?)` (`cel`,
-`colour-regions`, or `samvg` with a GPU; over the whole drawing, or into the
-area of `group`), `tidy(ids, settings?, rounds?)`, `fit_colours(ids, fill?,
+**Operations** (jobs): `generate(method?, settings?, group?)` (`cel` or
+`colour-regions`; over the whole drawing, or into the area of `group`), `tidy(ids, settings?, rounds?)`, `fit_colours(ids, fill?,
 passes?, resolution?)` (flat or linear gradients), `snap_edges(ids,
 tolerance?)`, `cleanup(ids)`. Each starts a job with the
 permissions the editor's dialog would give it; `job(id, action?,
