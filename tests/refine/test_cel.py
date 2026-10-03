@@ -271,6 +271,17 @@ def test_a_tapering_line_stays_a_stroke():
     assert widths[1] > 2 * widths[0]
 
 
+def test_a_line_an_even_number_of_pixels_wide_is_stroked_down_its_middle():
+    # Thinning leaves a line four pixels wide on one of its two middle rows,
+    # half a pixel off; the stroke runs down the ink's middle.
+    pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
+    pixels[28:32, 10:190] = 20
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
+    (d,) = re.findall(r'<path d="([^"]+)" fill="none"', svg)
+    ys = np.array([float(v) for v in re.findall(r"-?\d+\.\d+ (-?\d+\.\d+)", d)])
+    assert abs(np.median(ys) - 30) < 0.15
+
+
 def test_a_neutral_line_on_a_navy_fill_of_its_own_luminance_is_found():
     # Navy and the line have about the same luminance; only the brightest
     # channel tells the line is darker.
