@@ -21,8 +21,10 @@
 # Run artifacts: a run writes its log and lineage next to the input image.
 duck*/
 
-# Editor source assets and local native extension builds
+# Editor source assets, the line bench's own drawings and local native
+# extension builds
 !src/vectrify/ui/static/*.svg
+!scripts/bench_data/svg/*.svg
 *.so
 
 # Projects and references saved into a checkout while trying the editor

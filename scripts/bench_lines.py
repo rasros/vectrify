@@ -45,10 +45,10 @@ References, from Wikimedia Commons, downloaded once into
 - https://commons.wikimedia.org/wiki/Special:FilePath/Wikipe-tan_sorceress_color.svg
 - https://commons.wikimedia.org/wiki/Special:FilePath/Adult_Wikipe-tan.svg
 
-Those four are the tuning set: settings are chosen on them. `--heldout`
+Those four are in the tuning set: settings are chosen on them. `--heldout`
 runs the held-out set (HELDOUT) instead, drawings never used for tuning,
-so a change tuned on the first is checked once on the second. They are
-downloaded once into ~/.cache/vectrify-bench/heldout:
+so a change tuned on the first is checked once on the second. Its Commons
+drawings are downloaded once into ~/.cache/vectrify-bench/heldout:
 
 - https://commons.wikimedia.org/wiki/Special:FilePath/Neko_Wikipe-tan.svg
   (CC BY-SA 3.0; Kasuga, vectorised by Malyszkz)
@@ -56,6 +56,16 @@ downloaded once into ~/.cache/vectrify-bench/heldout:
   (CC BY-SA 3.0; Kasuga, Mikael Häggström, Esby and Antonsusi)
 
     uv run python scripts/bench_lines.py --heldout --out runs/heldout.jsonl
+
+Both sets also hold drawings made for this bench (svg-*), in
+scripts/bench_data/svg: flat cel-style characters and scenes with ink line
+art of varying width, one or two shade shapes per area, small details,
+dark navy next to ink and bold lettering-like marks. The tuning set has
+svg-anime-girl (anime cel), svg-western-park (Western TV cartoon, thick
+even outlines) and svg-rubberhose-band (1930s rubber-hose, ink-filled
+bodies and limbs); the held-out set has svg-manga-swordsman (manga, bold
+inking), svg-chibi-kitchen (chibi, thin lines, many small objects) and
+svg-game-mech (flat-shaded game art, navy panels).
 
 Wikipe-tan is by Kasuga (Kasuga~jawiki) and other Wikimedia contributors;
 the files are licensed CC BY-SA (see each file's page on Commons for its
@@ -79,14 +89,25 @@ from PIL import Image, ImageFilter
 
 CACHE = Path.home() / ".cache" / "vectrify-bench"
 COMMONS = "https://commons.wikimedia.org/wiki/Special:FilePath/"
+# Drawings made for the bench, in the repository.
+DRAWINGS = Path(__file__).resolve().parent / "bench_data" / "svg"
 REFERENCES = (
     "Wikipe-tan_full_length",
     "Wikipe-tan_face",
     "Wikipe-tan_sorceress_color",
     "Adult_Wikipe-tan",
+    "svg-anime-girl",
+    "svg-western-park",
+    "svg-rubberhose-band",
 )
 # Never tune on these.
-HELDOUT = ("Neko_Wikipe-tan", "Angry_Wikipe-tan")
+HELDOUT = (
+    "Neko_Wikipe-tan",
+    "Angry_Wikipe-tan",
+    "svg-manga-swordsman",
+    "svg-chibi-kitchen",
+    "svg-game-mech",
+)
 HELDOUT_DIR = CACHE / "heldout"
 INPUTS = ("clean", "noisy", "stretched")
 HEIGHT = 1000
@@ -188,7 +209,10 @@ def main() -> None:
 
 
 def reference(name: str, folder: Path = CACHE) -> str:
-    """The SVG source of reference *name*, downloaded once into *folder*."""
+    """The SVG source of reference *name*: one of DRAWINGS, or else
+    downloaded once into *folder*."""
+    if (DRAWINGS / f"{name}.svg").exists():
+        return (DRAWINGS / f"{name}.svg").read_text()
     path = folder / f"{name}.svg"
     if not path.exists():
         request = urllib.request.Request(
