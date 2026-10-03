@@ -68,7 +68,7 @@ claude mcp add vectrify -- uvx --from "vectrify[mcp]" vectrify-mcp
 
 | Action | Method | What it does |
 | --- | --- | --- |
-| Generate | SAMVG | Segments the reference with SAM and traces each region |
+| Generate | Cel art | Traces flat, outlined illustrations as regions inside their drawn lines, the lines as strokes |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
 | Improve | Tidy | Tidies the selected paths in seconds: snaps their points to the reference and simplifies, with Add detail and a gradient shape fit on request; simplifies without one |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
@@ -85,26 +85,19 @@ writing new methods.
 Python 3.10 or newer. SVG rendering needs Cairo; on Debian/Ubuntu install it
 with `sudo apt install libcairo2`.
 
-The `vision` and `samvg` extras install PyTorch and transformers, which SAMVG,
-colour regions and the shape fit of Tidy need; `all` installs both.
-Colour regions need an NVIDIA GPU with CUDA; SAMVG uses it when available. The
-shape fit runs on the GPU with the optional native CUDA extension (below) and
-on the CPU otherwise, except for outlined fills, which need the GPU.
+The `vision` extra installs PyTorch and transformers, which colour regions
+and the shape fit of Tidy need; `all` installs it with the desktop and MCP
+extras. Colour regions need an NVIDIA GPU with CUDA. The shape fit runs on the
+GPU with the optional native CUDA extension (below) and on the CPU otherwise,
+except for outlined fills, which need the GPU.
 
-## SAMVG
-
-SAMVG is inspired by the SAMVG paper, not an installation of the unreleased
-research code. It uses SAM ViT-H by default (ViT-B is faster), keeps masks only
-when they materially improve a flat-colour reconstruction, and traces them into
-layered SVG paths. It is a general-purpose tracer for photos and painterly
-images; the editor's Generate dialog chooses the model, the resolution SAM
-segments at and the maximum number of shapes.
+## CUDA extension
 
 The native CUDA extension for the filled-path fit is built only on request.
 Build a local wheel with it, then time it:
 
 ```sh
-VECTRIFY_BUILD_SAMVG_CUDA=1 uv build --wheel --no-build-isolation
+VECTRIFY_BUILD_CUDA_RENDERER=1 uv build --wheel --no-build-isolation
 uv pip install --force-reinstall --no-deps dist/vectrify-*.whl
 .venv/bin/python scripts/check_cuda_renderer.py
 ```
@@ -115,8 +108,8 @@ PyPI releases are portable Python wheels and do not bundle the CUDA extension.
 
 `scripts/` holds standalone tools run from a checkout:
 `bench_colour_regions.py` runs colour regions on one image,
-`bench_samvg_renderer.py` and `check_cuda_renderer.py` time the filled-path
-fit, `bench_trace.py` benchmarks Generate with SAMVG and Tidy on
+`bench_cuda_renderer.py` and `check_cuda_renderer.py` time the filled-path
+fit, `bench_trace.py` benchmarks Generate (Cel art by default) and Tidy on
 fixed references, `bench_lines.py` scores the Cel art tracer's lines
 against vector originals (clean, noisy and stretched), `bench_shadows.py`
 measures the shading it leaves out (each of these three takes `--heldout`

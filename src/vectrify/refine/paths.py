@@ -7,23 +7,16 @@ strokes can move together.
 
 from __future__ import annotations
 
-import io
 import logging
 import math
 import os
-import random
 import re
 from collections import defaultdict
-from collections.abc import Iterator, Mapping
-from contextlib import contextmanager
 from functools import lru_cache
-from time import perf_counter
 from typing import Any
 
 import numpy as np
 from PIL import Image
-
-from vectrify.image_utils import png_bytes
 
 log = logging.getLogger(__name__)
 
@@ -411,9 +404,9 @@ def _fill_batched_windings(
     # The native primitive is fixed-width, but winding is additive over cubic
     # ranges.  Chunk a long contour into padded 16-cubic ranges and sum its
     # exact native winding fields before applying the SVG fill rule.  This is
-    # the same representation as the fixed SAMVG path, not a tessellation or
-    # geometry approximation, and keeps SAMVG+var off Torch's huge broadcast
-    # fallback.
+    # the same representation as a fixed-length contour, not a tessellation
+    # or geometry approximation, and keeps long contours off Torch's huge
+    # broadcast fallback.
     if samples in {8, 16, 32}:
         from vectrify.refine.cuda_renderer import winding as cuda_winding
 
@@ -503,7 +496,7 @@ def _fill_path_coverage(
     import torch
 
     if contours and contours[0].is_cuda:
-        # SAM's detailed masks can have many contours.  Sum each contour's
+        # A detailed path can have many contours.  Sum each contour's
         # winding before applying the SVG fill rule, exactly as the eager
         # implementation below does, but keep the pixel/segment loops in the
         # fused CUDA primitive.
@@ -512,7 +505,7 @@ def _fill_path_coverage(
         for contour in contours:
             if contour.shape[0] > _FUSED_CUBICS:
                 unfused[tuple(contour.shape)].append(contour)
-        # SAMVG's tracer normally emits at most 16 cubics per contour.  Pad
+        # Most contours have at most 16 cubics.  Pad
         # those contours once and render a whole path in one large GPU batch,
         # rather than launching a tiny batch for each contour-shape group.
         fused_controls = (
@@ -563,7 +556,7 @@ def _fill_path_coverage(
         return torch.stack(coverages).mean(dim=0)
 
     def contour_winding(contour: Any, x_offset: float, y_offset: float) -> Any:
-        # A noisy SAM mask can contain dozens of enclosed contours.  Keeping
+        # A noisy path can contain dozens of enclosed contours.  Keeping
         # every pixel-by-segment intermediate alive until its layer loss is
         # backpropagated exhausts VRAM even on a small working canvas.
         # Checkpointing recomputes the same differentiable winding field during
@@ -827,7 +820,7 @@ def _fill_coverages(
 ) -> Any:
     """Rasterise equal-sized closed cubic paths together on the GPU.
 
-    The SAMVG tracer deliberately emits a fixed number of cubics per contour.
+    Paths with a fixed number of cubics per contour are batched together.
     Keeping that regularity here removes Python's per-path kernel-launch loop;
     this is substantially faster on CUDA for the 500-step optimisation pass.
     """
@@ -835,7 +828,7 @@ def _fill_coverages(
 
     left, top, right, bottom = box
     height, width = bottom - top, right - left
-    # Simple closed contours are the common SAMVG case.  Use the native
+    # Simple closed contours are the common case.  Use the native
     # cubic-intersection renderer here; the sampled winding implementation
     # below remains the portable oracle and handles arbitrary layouts.
     if controls.is_cuda and controls.shape[1] <= _FUSED_CUBICS:
@@ -868,7 +861,7 @@ def _fill_coverages(
     else:
         winding_chunk = _fill_winding_chunk
     # The fused CUDA kernel consumes far less temporary memory than eager
-    # broadcasting, so one complete small SAMVG working raster is faster than
+    # broadcasting, so one complete small working raster is faster than
     # many 1,024-pixel launches.  Retain the conservative caller-selected
     # chunking on CPU.
     active_pixel_chunk = (
@@ -921,7 +914,8 @@ def _fill_coverages(
 
 
 def _xing_penalties(control: Any) -> Any:
-    """Return SAMVG's normalized Xing penalty for every cubic in ``control``."""
+    """Return the normalized Xing (handle crossing) penalty for every cubic
+    in ``control``."""
     import torch
 
     start_handle = control[:, 1] - control[:, 0]
@@ -940,7 +934,7 @@ def _xing_penalties(control: Any) -> Any:
 
 
 def _xing_loss(control: Any) -> Any:
-    """Return SAMVG's normalized per-cubic Xing regularizer (Eq. 3-6--3-8)."""
+    """Return the normalized per-cubic Xing regularizer."""
     return _xing_penalties(control).mean()
 
 
@@ -1026,13 +1020,11 @@ def fit_filled_svg(
 ) -> str:
     """Optimise filled cubic SVG paths against an RGB target.
 
-    SAMVG optimises opaque path coordinates and fill colours for 500 Adam
-    iterations in each of its two passes.  ``learn_alpha`` enables the
-    dissertation's SAMVG+alpha variation: each selected path receives a
-    learnable fill opacity.  The standard SAMVG configuration deliberately
-    keeps it disabled and treats fills as opaque. This implementation reuses
-    Vectrify's torch renderer instead of requiring DiffVG, while retaining the
-    dissertation's full-resolution Adam defaults: point LR 1, colour LR .01,
+    Path coordinates and fill colours are optimised with Adam.
+    ``learn_alpha`` gives each selected path a learnable fill opacity;
+    by default it is off and fills are opaque. This implementation reuses
+    Vectrify's torch renderer instead of requiring DiffVG, with full-resolution
+    Adam defaults: point LR 1, colour LR .01,
     and MSE plus .02 Xing loss.  It uses DiffVG's standard 2x2 optimisation
     sampling; the standalone renderer retains its stricter 4x4 default for
     Cairo-fidelity checks.  Small clipped tiles use fewer cubic samples because
@@ -1043,7 +1035,7 @@ def fit_filled_svg(
     default; larger canvases retain the memory-bounded replay.
     ``sparse_replay`` retains the same painter-order MSE derivative while
     saving layer state only within each path's raster tile; it makes a full
-    1024px SAMVG phase practical without a monolithic alpha stack.
+    1024px fit practical without a monolithic alpha stack.
     ``max_point_displacement`` optionally bounds every control's Euclidean
     displacement from its seed in working-raster pixels. This limits contour
     drift without restricting fill colours; ``None`` retains the unbounded fit.
@@ -1109,7 +1101,7 @@ def fit_filled_svg(
     )
     work_width, work_height = round(width * scale), round(height * scale)
     if monolithic is None:
-        # At SAMVG's 64px seed-fitting resolution the complete opaque-layer
+        # At a 64px fitting resolution the complete opaque-layer
         # graph is small, avoids renderer replay for each bounded layer batch,
         # and has exactly the same painter-order MSE derivative.  Preserve the
         # bounded path at larger resolutions, where its saved alpha/canvas
@@ -1134,12 +1126,12 @@ def fit_filled_svg(
         ]
         for _element, contours, _colour, _fill_rule, _opacity in entries
     ]
-    # A detailed SAMVG seed has hundreds of contours.  Keeping each one as a
+    # A detailed drawing has hundreds of contours.  Keeping each one as a
     # separate Adam parameter turns one optimiser update into hundreds of tiny
     # CUDA kernels.  Store equal-width contour slots in one parameter and use
     # narrow views below, retaining every original contour length in the SVG
     # and Xing terms.  The native coverage primitive itself uses 16-cubic
-    # chunks, but SAMVG+var legitimately emits longer contours; storage must
+    # chunks, but a drawing can have longer contours; storage must
     # therefore use the document maximum rather than that renderer chunk size.
     flat_controls = [control for path in initial_controls for control in path]
     contour_sizes = [len(control) for control in flat_controls]
@@ -1240,7 +1232,7 @@ def fit_filled_svg(
     def close_contours() -> None:
         """Restore the shared joins of every traced closed Bezier contour.
 
-        SAMVG traces closed fixed-segment loops.  The packed parameter storage
+        Traced paths are closed fixed-segment loops.  The packed parameter storage
         keeps their cubic endpoints as separate Adam values for efficient
         rasterisation, so project them back to a continuous closed contour
         after each update.  Otherwise a subpixel gap becomes an extra implicit
@@ -1345,7 +1337,7 @@ def fit_filled_svg(
                 )
                 for index, left, top in items
             ]
-        # SAMVG+var can emit a contour longer than the fixed-width coverage
+        # A contour can be longer than the fixed-width coverage
         # primitive.  Route those through the chunked native winding path;
         # packing them into the old batched coverage call would force eager
         # Torch broadcasting over every cubic and pixel.
@@ -1429,7 +1421,7 @@ def fit_filled_svg(
 
         Sparse replay never needs a full-canvas alpha stack, but it does keep
         the coverage graph for one backward batch alive.  A fixed 16-path
-        batch underutilises CUDA for SAMVG's common 32--64px tiles, but a
+        batch underutilises CUDA for common 32--64px tiles, but a
         recovery pass can create a much larger equal-tile group than the
         initial seed.  Retain the proven 16-path graph cap and apply the
         tile-area budget beneath it.  This bounds peak memory for every
@@ -1636,12 +1628,12 @@ def fit_filled_svg(
 
     # Tile layout is part of the seed rasterisation setup, not optimisation
     # state.  Re-reading each CUDA control tensor's extrema every Adam step
-    # introduces hundreds of device synchronisations on a detailed SAMVG
-    # seed.  The two-pixel antialias margin already makes these fixed tiles
+    # introduces hundreds of device synchronisations on a detailed
+    # drawing.  The two-pixel antialias margin already makes these fixed tiles
     # conservative for the local coordinate updates used by the fit.
     initial_simple_groups = cropped_simple_groups()
     # Simple paths use cropped tiles, so unlike the full-canvas compositor
-    # their bounds are optimisation state.  A SAMVG coordinate update can move
+    # their bounds are optimisation state.  A coordinate update can move
     # a boundary outside its initial two-pixel antialias fringe; continuing to
     # rasterise the old crop silently clips that fill and creates the holes and
     # spikes visible in long fits.  Keep one packed reference so the movement
@@ -2080,336 +2072,3 @@ def fit_filled_svg(
                 f"{float(alpha_values[index].detach().clamp(0, 1).cpu()):.8g}",
             )
     return ET.tostring(root, encoding="unicode")
-
-
-_FillBounds = tuple[float, float, float, float]
-_FittableFill = tuple[int, Any, _FillBounds]
-
-
-def _fittable_fill_elements(root) -> list[_FittableFill]:
-    """Return document-indexed opaque fills with conservative control bounds."""
-    entries = []
-    for document_index, element in enumerate(root.iter()):
-        if element.tag.split("}")[-1] != "path" or not element.get("d"):
-            continue
-        if _fill_rgb(element.get("fill")) is None:
-            continue
-        try:
-            contours = parse_filled_cubics(element.get("d", ""))
-        except UnsupportedPathError:
-            continue
-        if element.get("fill-rule", "nonzero").strip().lower() not in {
-            "evenodd",
-            "nonzero",
-        }:
-            continue
-        points = [point for contour in contours for cubic in contour for point in cubic]
-        entries.append(
-            (
-                document_index,
-                element,
-                (
-                    min(point[0] for point in points),
-                    min(point[1] for point in points),
-                    max(point[0] for point in points),
-                    max(point[1] for point in points),
-                ),
-            )
-        )
-    return entries
-
-
-def _select_fill_group(
-    entries: list[_FittableFill],
-    *,
-    weights: Mapping[int, float] | None,
-    maximum_paths: int,
-) -> set[int]:
-    """Choose one bounded spatial fill group, biased toward attributed error."""
-    if maximum_paths < 1:
-        raise ValueError("maximum_paths must be positive")
-    scores = [max(0.0, (weights or {}).get(index, 0.0)) for index, _el, _box in entries]
-    focal = (
-        random.choices(entries, weights=scores, k=1)[0]
-        if sum(scores) > 0
-        else random.choice(entries)
-    )
-    focal_index, _element, (left, top, right, bottom) = focal
-    centre_x, centre_y = (left + right) / 2, (top + bottom) / 2
-    extent = max(right - left, bottom - top, 8.0)
-
-    def distance(entry: _FittableFill) -> tuple[int, float, int]:
-        (
-            index,
-            _candidate,
-            (
-                candidate_left,
-                candidate_top,
-                candidate_right,
-                candidate_bottom,
-            ),
-        ) = entry
-        candidate_x = (candidate_left + candidate_right) / 2
-        candidate_y = (candidate_top + candidate_bottom) / 2
-        overlap = not (
-            candidate_right < left - extent
-            or candidate_left > right + extent
-            or candidate_bottom < top - extent
-            or candidate_top > bottom + extent
-        )
-        return (
-            0 if overlap else 1,
-            (candidate_x - centre_x) ** 2 + (candidate_y - centre_y) ** 2,
-            index,
-        )
-
-    selected = sorted(entries, key=distance)[:maximum_paths]
-    return {index for index, _element, _box in selected} | {focal_index}
-
-
-def fill_groups(svg: str, *, maximum_paths: int = 16) -> list[set[int]]:
-    """Partition opaque fills into bounded spatial groups for coordinate descent."""
-    import xml.etree.ElementTree as ET
-
-    entries = _fittable_fill_elements(ET.fromstring(svg))
-    remaining = {index for index, _element, _box in entries}
-    groups = []
-    while remaining:
-        focal = next(entry for entry in entries if entry[0] in remaining)
-        focal_index, _element, (left, top, right, bottom) = focal
-        centre_x, centre_y = (left + right) / 2, (top + bottom) / 2
-        extent = max(right - left, bottom - top, 8.0)
-
-        def key(
-            entry: _FittableFill,
-            bounds: _FillBounds = (left, top, right, bottom),
-            radius: float = extent,
-            centre: tuple[float, float] = (centre_x, centre_y),
-        ) -> tuple[int, float, int]:
-            (
-                index,
-                _candidate,
-                (
-                    candidate_left,
-                    candidate_top,
-                    candidate_right,
-                    candidate_bottom,
-                ),
-            ) = entry
-            focal_left, focal_top, focal_right, focal_bottom = bounds
-            focal_x, focal_y = centre
-            candidate_x = (candidate_left + candidate_right) / 2
-            candidate_y = (candidate_top + candidate_bottom) / 2
-            overlap = not (
-                candidate_right < focal_left - radius
-                or candidate_left > focal_right + radius
-                or candidate_bottom < focal_top - radius
-                or candidate_top > focal_bottom + radius
-            )
-            return (
-                0 if overlap else 1,
-                (candidate_x - focal_x) ** 2 + (candidate_y - focal_y) ** 2,
-                index,
-            )
-
-        group = {
-            index
-            for index, _element, _bounds in sorted(
-                (entry for entry in entries if entry[0] in remaining), key=key
-            )[:maximum_paths]
-        }
-        group.add(focal_index)
-        groups.append(group)
-        remaining -= group
-    return groups
-
-
-def fit_opaque_fills_locally(
-    svg: str,
-    reference_png: bytes,
-    *,
-    steps: int = 8,
-    rasterize=None,
-    weights: Mapping[int, float] | None = None,
-    maximum_paths: int = 16,
-    selected_indices: set[int] | None = None,
-    optimisation_long_side: int | None = 64,
-    gpu_gate: Any = None,
-    learn_alpha: bool = False,
-) -> str:
-    """Fit one spatially bounded fill group as a local-search move.
-
-    Unlike the legacy stroke fitter this operates on complete filled shapes,
-    including compound paths and holes.  It deliberately keeps the 64px
-    optimisation raster used by SAMVG; this is a local move, not its 500-step
-    seed-fitting phase.
-    """
-    from PIL import Image
-
-    target = Image.open(io.BytesIO(reference_png)).convert("RGB")
-    if rasterize is None:
-        raise UnsupportedPathError("bounded fill fitting needs an SVG rasterizer")
-    import xml.etree.ElementTree as ET
-
-    original = ET.fromstring(svg)
-    entries = _fittable_fill_elements(original)
-    if not entries:
-        raise UnsupportedPathError("no opaque filled cubic paths to fit")
-    selected_indices = selected_indices or _select_fill_group(
-        entries, weights=weights, maximum_paths=maximum_paths
-    )
-    backdrop_root = ET.fromstring(svg)
-    working_root = ET.fromstring(svg)
-    for index, element in enumerate(backdrop_root.iter()):
-        if index in selected_indices:
-            element.set("d", "")
-    for index, element in enumerate(working_root.iter()):
-        if index not in selected_indices and element.tag.split("}")[-1] == "path":
-            element.set("d", "")
-    backdrop = Image.open(
-        io.BytesIO(
-            rasterize(
-                ET.tostring(backdrop_root, encoding="unicode"),
-                target.width,
-                target.height,
-            )
-        )
-    ).convert("RGB")
-    with gpu_slot(gpu_gate):
-        fitted = fit_filled_svg(
-            ET.tostring(working_root, encoding="unicode"),
-            target,
-            steps=steps,
-            optimisation_long_side=optimisation_long_side,
-            backdrop=backdrop,
-            learn_alpha=learn_alpha,
-        )
-    fitted_root = ET.fromstring(fitted)
-    fitted_by_index = dict(enumerate(fitted_root.iter()))
-    for index, element in enumerate(original.iter()):
-        if index not in selected_indices:
-            continue
-        updated = fitted_by_index[index]
-        element.set("d", updated.get("d", ""))
-        element.set("fill", updated.get("fill", element.get("fill", "")))
-        if learn_alpha:
-            element.set("fill-opacity", updated.get("fill-opacity", "1"))
-    return ET.tostring(original, encoding="unicode")
-
-
-def fit_filled_svg_bounded(
-    svg: str,
-    target: Image.Image,
-    *,
-    rasterize,
-    steps: int = 500,
-    maximum_paths: int = 16,
-    gpu_gate: Any = None,
-    measurements: list[dict[str, int | float]] | None = None,
-    learn_alpha: bool = False,
-    global_replay: bool = True,
-) -> str:
-    """Run one full SAMVG fill phase as bounded spatial coordinate descent.
-
-    ``steps`` is the per-group phase budget.  ``global_replay`` uses the
-    sparse painter-order replay to give every path the dissertation's one
-    simultaneous Adam update per iteration without materialising a full alpha
-    stack.  The older coordinate-descent path remains available for local
-    experiments. Coordinate descent needs to give
-    every group the same fitting opportunity that it would have had in the
-    original global graph; splitting that budget between groups loses detail.
-    It consequently trades wall time for a strictly bounded differentiable
-    graph.  When requested, ``measurements`` receives one timing and CUDA-peak
-    record for each local group mutation.
-    """
-    if steps < 1:
-        raise ValueError("steps must be positive")
-    if global_replay:
-        import xml.etree.ElementTree as ET
-
-        started = perf_counter()
-        peak_before = 0
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
-                peak_before = int(torch.cuda.max_memory_allocated())
-        except ImportError:
-            torch = None  # type: ignore[assignment]
-        with gpu_slot(gpu_gate):
-            fitted = fit_filled_svg(
-                svg,
-                target,
-                steps=steps,
-                learn_alpha=learn_alpha,
-                sparse_replay=True,
-            )
-        if measurements is not None:
-            peak = peak_before
-            if torch is not None and torch.cuda.is_available():
-                torch.cuda.synchronize()
-                peak = int(torch.cuda.max_memory_allocated())
-            measurements.append(
-                {
-                    "group": 0,
-                    "paths": len(_fittable_fill_elements(ET.fromstring(svg))),
-                    "seconds": perf_counter() - started,
-                    "peak_cuda_bytes": peak,
-                }
-            )
-        return fitted
-    groups = fill_groups(svg, maximum_paths=maximum_paths)
-    if not groups:
-        raise UnsupportedPathError("no opaque filled cubic paths to optimise")
-    encoded = png_bytes(target.convert("RGB"))
-    fitted = svg
-    for index, group in enumerate(groups):
-        peak_before = 0
-        try:
-            import torch
-
-            if torch.cuda.is_available():
-                torch.cuda.reset_peak_memory_stats()
-                peak_before = int(torch.cuda.max_memory_allocated())
-        except ImportError:
-            torch = None  # type: ignore[assignment]
-        started = perf_counter()
-        fitted = fit_opaque_fills_locally(
-            fitted,
-            encoded,
-            steps=steps,
-            rasterize=rasterize,
-            maximum_paths=maximum_paths,
-            selected_indices=group,
-            optimisation_long_side=None,
-            gpu_gate=gpu_gate,
-            learn_alpha=learn_alpha,
-        )
-        if measurements is not None:
-            peak = peak_before
-            if torch is not None and torch.cuda.is_available():
-                torch.cuda.synchronize()
-                peak = int(torch.cuda.max_memory_allocated())
-            measurements.append(
-                {
-                    "group": index,
-                    "paths": len(group),
-                    "seconds": perf_counter() - started,
-                    "peak_cuda_bytes": peak,
-                }
-            )
-    return fitted
-
-
-@contextmanager
-def gpu_slot(gpu_gate: Any) -> Iterator[None]:
-    """Hold the run-wide GPU slot for a path fit, when one is configured."""
-    if gpu_gate is None:
-        yield
-        return
-    gpu_gate.acquire()
-    try:
-        yield
-    finally:
-        gpu_gate.release()
