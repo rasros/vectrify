@@ -622,7 +622,10 @@ there, and a gap of up to one and a half line widths between two lines that
 carry on from each other is bridged, so an outline comes out as a few long
 lines rather than many short ones; **Line width** fixes the width instead. Lines stay strokes
 however much they taper; only with **Trace lines as strokes** off are they
-filled shapes. **Continuous outer outline** (off by default) draws one
+filled shapes: each line's pixels at least half as dark as its middle, in
+the ink most of its centreline is nearest (so an antialiased line is one
+colour along its length, not broken up among the inks), traced like the
+regions with its holes kept clear. **Continuous outer outline** (off by default) draws one
 unbroken stroke round the whole drawing in place of its traced outer line,
 so the outline has no gaps or breaks where the drawing has outer ink. The
 drawing is everything the background does not cover: the background is the

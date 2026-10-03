@@ -1882,19 +1882,18 @@ def _line_paths(
         "tapered_share": round(share, 3),
     }
     if not strokes:
-        # Filled shapes: where the ink is at least half a line's darkness.
-        shape = ink >= 0.5
-        if off is not None:
-            shape &= off
-        colours = np.square(target[..., None, :] - palette).sum(-1).argmin(-1)
         paths = list(outer_parts)
+        nearest_ink = np.square(target[..., None, :] - palette).sum(-1).argmin(-1)
+        shape = filled_lines(line, ink, skeleton, runs, nearest_ink, len(palette))
+        if off is not None:
+            shape = np.where(off, shape, 0)
+        outlines = region_outlines(shape, tolerance)
         for index, value in enumerate(palette):
-            data = mask_path(shape & (colours == index), density=DENSITY, smooth=SMOOTH)
-            if data is None:
+            if index + 1 not in outlines:
                 continue
             paths.append(
-                f'<path d="{_simplified_data(data, tolerance)}" '
-                f'fill="{colour(value)}" fill-rule="nonzero"/>'
+                f'<path d="{outlines[index + 1]}" fill="{colour(value)}" '
+                'fill-rule="evenodd"/>'
             )
         return paths, {
             **details,
@@ -1954,14 +1953,6 @@ def _line_paths(
         contours = _joined_runs([c for c, _, _ in pieces], LINE_GAP * width)
         pieces_before += len(pieces)
         pieces_after += len(contours)
-        data = " ".join(
-            _data(
-                c.nodes[0].endpoint,
-                [(n.command, n.values) for n in c.nodes[1:]],
-                c.closed,
-            )
-            for c in contours
-        )
         paths.append(_stroke(contours, colour(palette[index]), width))
     filled = _uncovered_ink(target, line, palette, covers, reaches, tolerance)
     return filled + paths, {
@@ -1973,6 +1964,34 @@ def _line_paths(
         "line_pieces": pieces_after,
         "line_runs_joined": pieces_before - pieces_after,
     }
+
+
+def filled_lines(
+    line: np.ndarray,
+    ink: np.ndarray,
+    skeleton: np.ndarray,
+    runs: list[np.ndarray],
+    nearest: np.ndarray,
+    inks: int,
+) -> np.ndarray:
+    """The lines as filled shapes, by ink: 1 plus the index of the ink of
+    each pixel where the *ink* is at least half its line's darkness, else 0.
+    Each centreline run takes the ink most of its pixels are *nearest*, of
+    *inks*, and each line pixel the ink of the run nearest it, so a line is
+    one colour along its length rather than broken up by its antialiased
+    pixels each nearest another ink."""
+    painted = np.full(line.shape, -1, dtype=np.int64)
+    height, width = line.shape
+    for run in runs:
+        xs = np.clip(run[:, 0].astype(int), 0, width - 1)
+        ys = np.clip(run[:, 1].astype(int), 0, height - 1)
+        painted[ys, xs] = np.bincount(nearest[ys, xs], minlength=inks).argmax()
+    if (painted < 0).all():
+        painted[skeleton] = 0
+    if (painted < 0).all():
+        return np.zeros(line.shape, dtype=np.int64)
+    y, x = nearest_indices(painted < 0)
+    return np.where(line & (ink >= 0.5), painted[y, x] + 1, 0)
 
 
 def _outline_strokes(

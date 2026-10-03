@@ -116,6 +116,29 @@ def test_filled_lines_replace_strokes_when_asked():
     assert 'fill="none"' not in svg
 
 
+def test_filled_lines_keep_a_grainy_outline_whole_in_its_ink():
+    # A grey panel outlined two pixels wide in black, antialiased, with a
+    # grey line on it, and grain: the outline's pixels fall nearest
+    # different inks, yet it is filled whole in black, and the grey line
+    # stays grey.
+    y, x = np.mgrid[:120, :160].astype(float)
+    distance = np.maximum(abs(x - 80) - 50, abs(y - 60) - 40)
+    pixels = np.full((120, 160, 3), 245.0)
+    pixels[distance <= 0] = (170, 175, 185)
+    ink = np.clip(1.5 - abs(distance + 1), 0, 1)[..., None]
+    pixels = pixels * (1 - ink) + 15 * ink
+    pixels[50:56, 40:120] = 95
+    rng = np.random.default_rng(3)
+    noisy = np.clip(pixels + rng.normal(0, 8, pixels.shape), 0, 255)
+    image = Image.fromarray(noisy.astype(np.uint8))
+    svg, details = cel.vectorize(image, regions=3, strokes=False)
+    assert details["line_style"] == "filled"
+    drawn = rendered(svg)
+    ring = abs(distance + 1) <= 1
+    assert drawn[ring].mean() < 70
+    assert 70 < np.median(drawn[52:54, 50:110]) < 120
+
+
 @pytest.mark.parametrize("regions", [0, -1])
 def test_rejects_a_region_count_below_one(regions):
     with pytest.raises(ValueError, match="region count"):
