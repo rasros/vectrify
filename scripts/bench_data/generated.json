@@ -1,37 +1,89 @@
 {
-  "model": "gpt-image-2",
-  "quality": "medium",
-  "size": "1536x1024",
-  "style": "Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism.",
+  "note": "A record of the generated cartoon images in the trace and shadow benches: what each is, its set, and the prompt it was made from (with gpt-image-2), kept as provenance. The images are a fixed dataset kept outside the repository in ~/.cache/vectrify-bench/generated.",
   "images": [
-    {"file": "gen-anime-knight.png", "set": "tuning", "style": "anime cel", "size": "1024x1536",
-     "prompt": "Anime cel-shaded illustration of a young woman knight standing full body, short red hair, light silver armour over a blue tunic, holding a sword point-down, bold tapered black ink lines, bright saturated palette, plain pale background."},
-    {"file": "gen-western-fox.png", "set": "tuning", "style": "Western TV cartoon",
-     "prompt": "Western TV cartoon style drawing of a cheerful orange fox jumping over a log beside a mushroom, thick uniform black outlines, flat bright colours, a simple green meadow and blue sky behind."},
-    {"file": "gen-manga-navy-closeup.png", "set": "tuning", "style": "manga, bold inking", "size": "1024x1536",
-     "prompt": "Manga-style close-up head-and-shoulders portrait of a teenage boy with messy black hair in a navy blue school uniform jacket with a black collar and white shirt, bold black inking with heavy solid blacks, dark-heavy palette, one flat shadow tone on skin."},
-    {"file": "gen-childbook-kitchen.png", "set": "tuning", "style": "children's-book flat vector",
-     "prompt": "Children's picture book flat vector illustration of a cosy kitchen interior with a grandmother baking at a table, shelves with jars, a window and a sleeping cat, thin uniform dark brown outlines, muted earthy palette."},
-    {"file": "gen-rubberhose-car.png", "set": "tuning", "style": "1930s rubber-hose",
-     "prompt": "1930s rubber-hose cartoon of a smiling round jalopy car with big eyes driven by a cheerful bean-shaped character in white gloves, bouncing along a road, black ink outlines, limited muted palette of cream, red and olive."},
-    {"file": "gen-chibi-picnic.png", "set": "tuning", "style": "chibi",
-     "prompt": "Chibi style group scene of four tiny big-headed friends having a picnic on a blanket with a basket and sandwiches, clean thin dark outlines, light pastel palette with pink, mint and lavender."},
-    {"file": "gen-game-valley.png", "set": "tuning", "style": "flat-shaded game art",
-     "prompt": "Flat-shaded video game key art (not pixel art) of a wide valley landscape with a small adventurer figure with a backpack on a path, a few big rounded hills, a handful of simple trees and a castle in the distance, clean dark outlines, large areas of solid flat colour with one hard-edged shadow tone, no soft shading.",
-     "replaces": "An earlier prompt without the last clause ('Flat-shaded video game key art (not pixel art) of a wide valley landscape with a small adventurer figure with a backpack on a path, hills, trees and a castle in the distance, clean dark outlines, flat cel-shaded colours.') gave an image with soft gradient shading over its hills (11.5% of the image soft variation away from edges, against at most 4% for the others); it was discarded."},
-    {"file": "gen-anime-hillside.png", "set": "heldout", "style": "anime cel",
-     "prompt": "Anime cel-shaded landscape of a girl in a white summer dress and straw hat standing on a grassy hillside with a lone tree and fluffy clouds, thin uniform dark ink lines, light pastel palette."},
-    {"file": "gen-western-family.png", "set": "heldout", "style": "Western TV cartoon",
-     "prompt": "Western TV cartoon style group scene of a family of five sitting on a couch in a living room watching television, thick uniform black outlines, flat bright colours."},
-    {"file": "gen-manga-detective.png", "set": "heldout", "style": "manga, bold inking", "size": "1024x1536",
-     "prompt": "Manga-style full-body drawing of a detective in a long black coat, black trousers and a dark navy scarf, standing in a doorway holding a lantern, bold tapered black inking, dark-heavy palette with large solid black areas and one grey shade."},
-    {"file": "gen-childbook-bear.png", "set": "heldout", "style": "children's-book flat vector", "size": "1024x1536",
-     "prompt": "Children's picture book flat vector illustration of a brown bear in a striped scarf flying a kite in a park, thin uniform dark outlines, muted soft palette."},
-    {"file": "gen-rubberhose-cat.png", "set": "heldout", "style": "1930s rubber-hose", "size": "1024x1536",
-     "prompt": "1930s rubber-hose cartoon of a black-and-white cat character with pie-cut eyes and white gloves dancing full body on a small stage, bold black ink lines, limited palette of black, white, cream and red."},
-    {"file": "gen-chibi-wizard.png", "set": "heldout", "style": "chibi",
-     "prompt": "Chibi style close-up of a tiny big-headed wizard girl with a huge pointed purple hat, big eyes and a small wand with a star, clean dark outlines, bright saturated palette."},
-    {"file": "gen-game-truck.png", "set": "heldout", "style": "flat-shaded game art",
-     "prompt": "Flat-shaded video game art (not pixel art) of a dark navy armoured hover truck parked in a hangar interior, crates and lamps around, clean black outlines, dark-heavy palette with orange accents."}
+    {
+      "file": "gen-anime-knight.png",
+      "set": "tuning",
+      "style": "anime cel",
+      "prompt": "Anime cel-shaded illustration of a young woman knight standing full body, short red hair, light silver armour over a blue tunic, holding a sword point-down, bold tapered black ink lines, bright saturated palette, plain pale background. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-western-fox.png",
+      "set": "tuning",
+      "style": "Western TV cartoon",
+      "prompt": "Western TV cartoon style drawing of a cheerful orange fox jumping over a log beside a mushroom, thick uniform black outlines, flat bright colours, a simple green meadow and blue sky behind. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-manga-navy-closeup.png",
+      "set": "tuning",
+      "style": "manga, bold inking",
+      "prompt": "Manga-style close-up head-and-shoulders portrait of a teenage boy with messy black hair in a navy blue school uniform jacket with a black collar and white shirt, bold black inking with heavy solid blacks, dark-heavy palette, one flat shadow tone on skin. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-childbook-kitchen.png",
+      "set": "tuning",
+      "style": "children's-book flat vector",
+      "prompt": "Children's picture book flat vector illustration of a cosy kitchen interior with a grandmother baking at a table, shelves with jars, a window and a sleeping cat, thin uniform dark brown outlines, muted earthy palette. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-rubberhose-car.png",
+      "set": "tuning",
+      "style": "1930s rubber-hose",
+      "prompt": "1930s rubber-hose cartoon of a smiling round jalopy car with big eyes driven by a cheerful bean-shaped character in white gloves, bouncing along a road, black ink outlines, limited muted palette of cream, red and olive. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-chibi-picnic.png",
+      "set": "tuning",
+      "style": "chibi",
+      "prompt": "Chibi style group scene of four tiny big-headed friends having a picnic on a blanket with a basket and sandwiches, clean thin dark outlines, light pastel palette with pink, mint and lavender. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-game-valley.png",
+      "set": "tuning",
+      "style": "flat-shaded game art",
+      "prompt": "Flat-shaded video game key art (not pixel art) of a wide valley landscape with a small adventurer figure with a backpack on a path, a few big rounded hills, a handful of simple trees and a castle in the distance, clean dark outlines, large areas of solid flat colour with one hard-edged shadow tone, no soft shading. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-anime-hillside.png",
+      "set": "heldout",
+      "style": "anime cel",
+      "prompt": "Anime cel-shaded landscape of a girl in a white summer dress and straw hat standing on a grassy hillside with a lone tree and fluffy clouds, thin uniform dark ink lines, light pastel palette. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-western-family.png",
+      "set": "heldout",
+      "style": "Western TV cartoon",
+      "prompt": "Western TV cartoon style group scene of a family of five sitting on a couch in a living room watching television, thick uniform black outlines, flat bright colours. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-manga-detective.png",
+      "set": "heldout",
+      "style": "manga, bold inking",
+      "prompt": "Manga-style full-body drawing of a detective in a long black coat, black trousers and a dark navy scarf, standing in a doorway holding a lantern, bold tapered black inking, dark-heavy palette with large solid black areas and one grey shade. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-childbook-bear.png",
+      "set": "heldout",
+      "style": "children's-book flat vector",
+      "prompt": "Children's picture book flat vector illustration of a brown bear in a striped scarf flying a kite in a park, thin uniform dark outlines, muted soft palette. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-rubberhose-cat.png",
+      "set": "heldout",
+      "style": "1930s rubber-hose",
+      "prompt": "1930s rubber-hose cartoon of a black-and-white cat character with pie-cut eyes and white gloves dancing full body on a small stage, bold black ink lines, limited palette of black, white, cream and red. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-chibi-wizard.png",
+      "set": "heldout",
+      "style": "chibi",
+      "prompt": "Chibi style close-up of a tiny big-headed wizard girl with a huge pointed purple hat, big eyes and a small wand with a star, clean dark outlines, bright saturated palette. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    },
+    {
+      "file": "gen-game-truck.png",
+      "set": "heldout",
+      "style": "flat-shaded game art",
+      "prompt": "Flat-shaded video game art (not pixel art) of a dark navy armoured hover truck parked in a hangar interior, crates and lamps around, clean black outlines, dark-heavy palette with orange accents. Flat colours only, every colour drawn with at most one or two hard-edged shade levels, clear dark outlines around every shape, simple flat background. No text, no letters, no signature, no gradients, no airbrush, no painterly or paper texture, no photorealism."
+    }
   ]
 }

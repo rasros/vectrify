@@ -19,7 +19,7 @@ editor shows them) and the line bench's SVG drawings, rendered clean:
 
 `--heldout` runs both benches' held-out sets instead, never used for
 tuning (see bench_trace and bench_lines). Each set includes its generated
-images (gen-*, see bench_generate) and drawings made for the bench (svg-*).
+images (gen-*, see bench_trace) and drawings made for the bench (svg-*).
 
 Cel is deterministic, so one run per case compares settings. Keep the
 machine cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
