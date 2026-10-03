@@ -58,14 +58,19 @@ drawings are downloaded once into ~/.cache/vectrify-bench/heldout:
     uv run python scripts/bench_lines.py --heldout --out runs/heldout.jsonl
 
 Both sets also hold drawings made for this bench (svg-*), in
-scripts/bench_data/svg: flat cel-style characters and scenes with ink line
-art of varying width, one or two shade shapes per area, small details,
-dark navy next to ink and bold lettering-like marks. The tuning set has
-svg-anime-girl (anime cel), svg-western-park (Western TV cartoon, thick
-even outlines) and svg-rubberhose-band (1930s rubber-hose, ink-filled
-bodies and limbs); the held-out set has svg-manga-swordsman (manga, bold
-inking), svg-chibi-kitchen (chibi, thin lines, many small objects) and
-svg-game-mech (flat-shaded game art, navy panels).
+scripts/bench_data/svg, made to be hard: gradient fills (linear and
+radial) and soft-edged shading, calligraphic ink drawn as filled shapes
+that swell and taper to points, from hairline to very bold in one drawing,
+outlines broken into overlapping or gapped strokes, hatching, speed lines,
+dense small details, and ink over and against dark navy and gradient
+areas. Gradients never use near-black neutral stops, so the ink rule still
+picks only the ink. The tuning set has svg-anime-girl (anime cel, full
+body), svg-anime-face (anime close-up, navy hair), svg-western-park
+(Western TV cartoon) and svg-rubberhose-band (1930s rubber-hose); the
+held-out set has svg-anime-runner (anime action, navy jacket, speed
+lines), svg-manga-swordsman (manga, bold inking), svg-chibi-kitchen
+(chibi, many small objects) and svg-game-mech (flat-shaded game art, navy
+panels). The trace and shadow benches use them as raster references too.
 
 Wikipe-tan is by Kasuga (Kasuga~jawiki) and other Wikimedia contributors;
 the files are licensed CC BY-SA (see each file's page on Commons for its
@@ -97,6 +102,7 @@ REFERENCES = (
     "Wikipe-tan_sorceress_color",
     "Adult_Wikipe-tan",
     "svg-anime-girl",
+    "svg-anime-face",
     "svg-western-park",
     "svg-rubberhose-band",
 )
@@ -104,6 +110,7 @@ REFERENCES = (
 HELDOUT = (
     "Neko_Wikipe-tan",
     "Angry_Wikipe-tan",
+    "svg-anime-runner",
     "svg-manga-swordsman",
     "svg-chibi-kitchen",
     "svg-game-mech",
