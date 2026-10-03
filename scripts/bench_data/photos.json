@@ -1,0 +1,161 @@
+{
+  "note": "Photographs from Wikimedia Commons used by the benches, downscaled to 1600 px on the long side and kept untracked in ~/.cache/vectrify-bench/photos/. Each keeps its licence; attribution below.",
+  "photos": [
+    {
+      "file": "photo-portrait-woman.png",
+      "set": "tuning",
+      "source": "https://commons.wikimedia.org/wiki/File:Portrait_of_a_Tunisian_Woman_from_Djerid.jpg",
+      "title": "File:Portrait of a Tunisian Woman from Djerid.jpg",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "Fawzi Demmane",
+      "size": [
+        1600,
+        1104
+      ]
+    },
+    {
+      "file": "photo-fox.png",
+      "set": "tuning",
+      "source": "https://commons.wikimedia.org/wiki/File:Alaska_Red_Fox_(Vulpes_vulpes).jpg",
+      "title": "File:Alaska Red Fox (Vulpes vulpes).jpg",
+      "license": "CC BY-SA 2.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/2.0",
+      "author": "Gregory \"Slobirdr\" Smith",
+      "size": [
+        1600,
+        1157
+      ]
+    },
+    {
+      "file": "photo-mountain-lake.png",
+      "set": "tuning",
+      "source": "https://commons.wikimedia.org/wiki/File:Mountains_in_snow,_Mountain_lake,_Chola_Valley,_Nepal,_Himalayas.jpg",
+      "title": "File:Mountains in snow, Mountain lake, Chola Valley, Nepal, Himalayas.jpg",
+      "license": "CC BY 4.0",
+      "license_url": "https://creativecommons.org/licenses/by/4.0",
+      "author": "Vyacheslav Argenberg",
+      "size": [
+        1600,
+        1067
+      ]
+    },
+    {
+      "file": "photo-strawberries.png",
+      "set": "tuning",
+      "source": "https://commons.wikimedia.org/wiki/File:Still_life_with_strawberries_in_a_crystal_bowl.jpg",
+      "title": "File:Still life with strawberries in a crystal bowl.jpg",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "W.carter",
+      "size": [
+        1600,
+        1067
+      ]
+    },
+    {
+      "file": "photo-quebec-night.png",
+      "set": "tuning",
+      "source": "https://commons.wikimedia.org/wiki/File:Qu%C3%A9bec_city_at_night,_view_from_L%C3%A9vis_city.jpg",
+      "title": "File:Québec city at night, view from Lévis city.jpg",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "Wilfredor",
+      "size": [
+        1600,
+        1050
+      ]
+    },
+    {
+      "file": "photo-car-seats.png",
+      "set": "tuning",
+      "source": "https://commons.wikimedia.org/wiki/File:Upholstering_the_seats_of_your_own_car,_Margarita_Island,_Venezuela.jpg",
+      "title": "File:Upholstering the seats of your own car, Margarita Island, Venezuela.jpg",
+      "license": "CC0",
+      "license_url": "http://creativecommons.org/publicdomain/zero/1.0/deed.en",
+      "author": "Wilfredor",
+      "size": [
+        1600,
+        1063
+      ]
+    },
+    {
+      "file": "photo-fisherman.png",
+      "set": "heldout",
+      "source": "https://commons.wikimedia.org/wiki/File:Leg_Rowing_Fisherman_Inle_Lake_Myanmar.jpg",
+      "title": "File:Leg Rowing Fisherman Inle Lake Myanmar.jpg",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "Benh LIEU SONG (Flickr)",
+      "size": [
+        1600,
+        1067
+      ]
+    },
+    {
+      "file": "photo-parrot.png",
+      "set": "heldout",
+      "source": "https://commons.wikimedia.org/wiki/File:Ara_ararauna_Luc_Viatour.jpg",
+      "title": "File:Ara ararauna Luc Viatour.jpg",
+      "license": "CC BY 2.0",
+      "license_url": "https://creativecommons.org/licenses/by/2.0",
+      "author": "Luc Viatour",
+      "size": [
+        1600,
+        1236
+      ]
+    },
+    {
+      "file": "photo-cat-snow.png",
+      "set": "heldout",
+      "source": "https://commons.wikimedia.org/wiki/File:Felis_catus-cat_on_snow.jpg",
+      "title": "File:Felis catus-cat on snow.jpg",
+      "license": "CC BY-SA 3.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/3.0",
+      "author": "Von.grzanka",
+      "size": [
+        1600,
+        1067
+      ]
+    },
+    {
+      "file": "photo-pomegranate-flowers.png",
+      "set": "heldout",
+      "source": "https://commons.wikimedia.org/wiki/File:Pomegranate_flowers_(Punica_granatum),_Ponte_de_Sor,_Portugal_(approx._GPS_location)_julesvernex2.jpg",
+      "title": "File:Pomegranate flowers (Punica granatum), Ponte de Sor, Portugal (approx. GPS location) julesvernex2.jpg",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "Jules Verne Times Two",
+      "size": [
+        1600,
+        1220
+      ]
+    },
+    {
+      "file": "photo-forest-path.png",
+      "set": "heldout",
+      "source": "https://commons.wikimedia.org/wiki/File:Bamboo-Lined_Forest_Trail_in_Tadoba_Andhari_National_Park.jpg",
+      "title": "File:Bamboo-Lined Forest Trail in Tadoba Andhari National Park.jpg",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "Rohit Sharma",
+      "size": [
+        1600,
+        1067
+      ]
+    },
+    {
+      "file": "photo-girl-dog.png",
+      "set": "heldout",
+      "source": "https://commons.wikimedia.org/wiki/File:Human%E2%80%93canine_friendship_-_girl_hugging_her_dog_tightly_at_golden_hour_in_Laos.jpg",
+      "title": "File:Human–canine friendship - girl hugging her dog tightly at golden hour in Laos.jpg",
+      "license": "CC BY-SA 4.0",
+      "license_url": "https://creativecommons.org/licenses/by-sa/4.0",
+      "author": "Basile Morin",
+      "size": [
+        1067,
+        1600
+      ]
+    }
+  ]
+}
