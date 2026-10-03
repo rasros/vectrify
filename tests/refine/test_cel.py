@@ -323,6 +323,23 @@ def test_a_line_tapering_to_a_point_steps_down_in_width_as_strokes():
     )
 
 
+def test_the_thin_end_of_a_tapering_line_is_drawn_solid_not_faint():
+    # Three pixels wide, then tapering to a point over forty.
+    y, x = np.mgrid[:60, :260].astype(float)
+    half = np.where(x < 180, 1.5, np.clip((220 - x) / 40, 0, 1) * 1.5)
+    ink = np.clip(half + 0.5 - abs(y - 30), 0, 1) * (x >= 10)
+    pixels = np.repeat(255 - 235 * ink[..., None], 3, -1).astype(np.uint8)
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
+    assert "stroke-opacity" not in svg
+    widths = [float(w) for w in re.findall(r'stroke-width="([\d.]+)"', svg)]
+    assert min(widths) >= cel.TIP_LEAST
+    drawn = rendered(svg).astype(float)
+    truth = np.asarray(Image.fromarray(pixels).convert("L")).astype(float)
+    # The tip stays as dark as ink along its length, and no heavier overall.
+    assert (drawn[:, 180:220].min(0) < 128).mean() > 0.9
+    assert np.abs(drawn - truth).mean() < 1
+
+
 def test_a_neutral_line_on_a_navy_fill_of_its_own_luminance_is_found():
     # Navy and the line have about the same luminance; only the brightest
     # channel tells the line is darker.
@@ -470,29 +487,42 @@ def test_a_thin_antialiased_line_is_drawn_in_its_ink_and_thin():
         svg,
     )
     assert {code for code, _, _ in strokes} == {"000000"}
-    # The ink each holds across: a hairline's opacity carries what it lacks
-    # in width.
-    widths = sorted(float(w) * float(o or 1) for _, w, o in strokes)
+    # The thin one holds under a pixel of ink across, drawn solid, not as a
+    # sliver.
+    widths = sorted(float(w) for _, w, _ in strokes)
     assert widths[0] < 1
     assert widths[-1] > 4
-    assert min(float(w) for _, w, _ in strokes) >= cel.STROKE_LEAST
+    assert min(widths) >= cel.TIP_LEAST
+    assert not any(o for _, _, o in strokes)
 
 
-def test_a_hairline_is_drawn_a_pixel_wide_and_faint():
+def test_a_hairline_is_drawn_solid_with_about_its_ink():
     # A line holding two thirds of a pixel of black ink, antialiased to grey.
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
     pixels[10:16, 10:190] = 0
     pixels[40, 10:190] = 90
     svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
-    faint = re.findall(r'stroke-width="([\d.]+)" stroke-opacity="([\d.]+)"', svg)
-    assert len(faint) == 1
-    width, opacity = (float(v) for v in faint[0])
-    assert width == cel.STROKE_LEAST
-    assert 0.5 < opacity < 0.8
+    assert "stroke-opacity" not in svg
     drawn = rendered(svg).astype(float)
-    # As much ink across as the line had, not a sliver of black.
+    # About as much ink across as the line had, as dark as ink at its middle.
     ink = (255 - drawn[37:44, 50:150]).sum(0).mean()
     assert abs(ink - (255 - 90)) < 40
+    assert drawn[37:44, 50:150].min(0).mean() < 90
+
+
+def test_a_hairline_in_grain_is_drawn_a_pixel_wide_and_faint():
+    rng = np.random.default_rng(3)
+    pixels = np.full((60, 200, 3), 225.0)
+    pixels[10:16, 10:190] = 0
+    pixels[40, 10:190] = 80
+    noisy = np.clip(pixels + rng.normal(0, 8, pixels.shape), 0, 255)
+    assert cel.noise_level(noisy) > cel.NOISE
+    svg, _ = cel.vectorize(Image.fromarray(noisy.astype(np.uint8)), regions=1)
+    faint = re.findall(r'stroke-width="([\d.]+)" stroke-opacity="([\d.]+)"', svg)
+    assert faint
+    width, opacity = (float(v) for v in faint[0])
+    assert width == cel.STROKE_LEAST
+    assert opacity < 1
 
 
 def test_strokes_are_grouped_by_width():

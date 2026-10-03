@@ -20,7 +20,8 @@ centrelines, each moved onto the middle of its ink, and drawn over the
 fills as strokes in their ink: a thin
 line's antialiased middle is a mix of ink and surface, so it is drawn
 darker and thinner than its pixels look,
-though never under a pixel wide: a hairline is drawn that wide and fainter.
+though never under 0.8 px wide, solid (in a grainy image a hairline that is
+not a line's tapering end is drawn a pixel wide and fainter).
 There is one path per line colour and width, a line cut where its width
 steps so each part has its own.
 Optionally one unbroken stroke runs round the drawing's silhouette in place
@@ -184,9 +185,14 @@ THINNEST = 0.4
 # thinner than the groups either side, keep their own path (see
 # width_groups).
 DISTINCT_LEAST = 40
-# A stroke thinner than this is drawn this wide, its opacity its width over
-# this: a hairline of ink shows as the faint line it was, not a sliver.
+# A stroke thinner than STROKE_LEAST is drawn solid, at least TIP_LEAST
+# wide, so it keeps the weight of its ink without thinning to a sliver. In
+# a grainy image, where a line that thin may be the grain, only the thin,
+# tapering end of a line at least TIP_LINE wide is; any other is drawn
+# STROKE_LEAST wide, its opacity its width over that: the faint line it was.
 STROKE_LEAST = 1.0
+TIP_LINE = 1.5
+TIP_LEAST = 0.8
 # A thin line's middle mixes its ink with the surface: of the inks that
 # explain its colour within this distance, in 0-255 RGB, of the best, the
 # one covering the least is its ink.
@@ -1494,6 +1500,7 @@ def vectorize(
             medians[labels],
             drawing=drawing,
             outer=(outer, depth),
+            grainy=grainy,
         )
         details.update(line_details)
     elif drawing is not None:
@@ -1795,11 +1802,14 @@ def _line_paths(
     *,
     drawing: np.ndarray | None = None,
     outer: tuple[np.ndarray | None, float] = (None, 0.0),
+    grainy: bool = False,
 ) -> tuple[list[str], dict]:
     """The lines as stroked paths, one per colour and width, or as filled
     shapes; with the silhouette *drawing*, a stroke round it first, in the
     ink and at the width of its outer line, which it replaces: *outer* is
-    that line's centreline pixels and depth (see :func:`outer_line`)."""
+    that line's centreline pixels and depth (see :func:`outer_line`). In a
+    *grainy* image only the thin ends of lines are drawn solid however thin
+    (see TIP_LINE)."""
     skeleton = thin(line)
     if not skeleton.any():
         return [], {}
@@ -1914,13 +1924,17 @@ def _line_paths(
         }
     if not line_width and strokes:
         # A line whose width changes a lot is drawn as a stroke per width.
-        runs = [
-            run[first : last + 1]
-            for run in runs
-            for first, last in width_pieces(
+        cut = []
+        for run in runs:
+            pieces = width_pieces(
                 _widths_along(across, run), max(LINE_PIECE, LINE_PIECE_WIDTHS * typical)
             )
-        ]
+            body = float(np.median(style(run)[1])) if len(pieces) > 1 else 0.0
+            cut.extend((run[first : last + 1], body) for first, last in pieces)
+        runs = [run for run, _ in cut]
+        tips = np.array([not grainy or body >= TIP_LINE for _, body in cut], bool)
+    else:
+        tips = np.zeros(len(runs), dtype=bool)
     measured = []
     for run in runs:
         index, widths = style(run)
@@ -1963,13 +1977,18 @@ def _line_paths(
         }
     # The runs of one colour and about one width share a path.
     widths = np.array([max(THINNEST, m[1]) for m in measured])
+    # The strokes too thin to draw solid at their width, but drawn solid.
+    solid = tips & (widths < STROKE_LEAST)
+    widths[solid] = np.maximum(widths[solid], TIP_LEAST)
     colours = np.array([m[0] for m in measured])
     group = np.zeros(len(runs), dtype=np.int64)
     if not line_width:
         for index in np.unique(colours):
-            own = np.flatnonzero(colours == index)
+            own = np.flatnonzero((colours == index) & ~solid)
             for number, members in enumerate(width_groups(widths[own], lengths[own])):
                 group[own[members]] = number
+        # Each ink's solid thin strokes are a path of their own.
+        group[solid] = -1
     grouped: dict[tuple[int, int], list[tuple[Subpath, float, int]]] = {}
     group_runs: dict[tuple[int, int], list[np.ndarray]] = {}
     for run, index, width, step in zip(runs, colours, widths, group, strict=True):
@@ -2014,7 +2033,7 @@ def _line_paths(
         contours = _joined_runs([c for c, _, _ in pieces], LINE_GAP * width)
         pieces_before += len(pieces)
         pieces_after += len(contours)
-        paths.append(_stroke(contours, colour(palette[index]), width))
+        paths.append(_stroke(contours, colour(palette[index]), width, faint=step >= 0))
     filled = _uncovered_ink(target, line, palette, covers, reaches, tolerance)
     return filled + paths, {
         **details,
@@ -2115,10 +2134,13 @@ def _outline_strokes(
     return paths
 
 
-def _stroke(contours: list[Subpath], paint: str, width: float) -> str:
-    """*contours* as one round-capped stroke of *paint*, *width* wide; one
-    thinner than STROKE_LEAST is drawn that wide, as much fainter: the ink
-    it holds spread over a pixel, as its antialiasing showed it."""
+def _stroke(
+    contours: list[Subpath], paint: str, width: float, *, faint: bool = True
+) -> str:
+    """*contours* as one round-capped stroke of *paint*, *width* wide; with
+    *faint*, one thinner than STROKE_LEAST is drawn that wide, as much
+    fainter: the ink it holds spread over a pixel, as its antialiasing
+    showed it."""
     data = " ".join(
         _data(
             c.nodes[0].endpoint,
@@ -2127,13 +2149,13 @@ def _stroke(contours: list[Subpath], paint: str, width: float) -> str:
         )
         for c in contours
     )
-    faint = ""
-    if width < STROKE_LEAST:
-        faint = f' stroke-opacity="{width / STROKE_LEAST:.2f}"'
+    opacity = ""
+    if faint and width < STROKE_LEAST:
+        opacity = f' stroke-opacity="{width / STROKE_LEAST:.2f}"'
         width = STROKE_LEAST
     return (
         f'<path d="{data}" fill="none" stroke="{paint}" stroke-width="{width:.2f}"'
-        f'{faint} stroke-linecap="round" stroke-linejoin="round"/>'
+        f'{opacity} stroke-linecap="round" stroke-linejoin="round"/>'
     )
 
 
