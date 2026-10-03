@@ -604,8 +604,11 @@ def merge_regions(
 
     Two regions with at least *shadow_least* pixels of paint each and
     *shadow_step* or more apart in luminance are never merged: a shadow and
-    the surface it falls on. The darker of each pair kept apart this way
-    does not count toward *count*, so more regions may be left.
+    the surface it falls on. Nor is a region with at least FEATURE_LEAST
+    pixels of paint merged into one FEATURE_STEP or more from its colour: a
+    small mark such as an iris or a mouth. The darker of each pair kept
+    apart as a shadow, and the smaller of a mark's, do not count toward
+    *count*, so more regions may be left.
     """
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
