@@ -18,7 +18,8 @@ editor shows them) and the line bench's SVG drawings, rendered clean:
     uv run python scripts/bench_shadows.py --heldout
 
 `--heldout` runs both benches' held-out sets instead, never used for
-tuning (see bench_trace and bench_lines).
+tuning (see bench_trace and bench_lines). Each set includes its generated
+images (gen-*, see bench_generate) and drawings made for the bench (svg-*).
 
 Cel is deterministic, so one run per case compares settings. Keep the
 machine cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
@@ -35,9 +36,7 @@ from bench_lines import CACHE, _setting, reference, render, size, trace
 from bench_lines import HELDOUT as LINE_HELDOUT
 from bench_lines import HELDOUT_DIR as LINE_HELDOUT_DIR
 from bench_lines import REFERENCES as LINE_REFERENCES
-from bench_trace import HELDOUT as TRACE_HELDOUT
-from bench_trace import HELDOUT_DIR, ROOT, load
-from bench_trace import REFERENCES as TRACE_REFERENCES
+from bench_trace import ROOT, load, references
 from PIL import Image
 from scipy.ndimage import binary_opening, gaussian_filter, label
 
@@ -69,11 +68,10 @@ def missing_shadows(reference: np.ndarray, traced: np.ndarray) -> dict:
 def cases(images: Path, heldout: bool = False) -> list[tuple[str, Image.Image]]:
     """Each reference's name and image, the raster ones from *images*; with
     *heldout*, the held-out ones instead."""
+    found = [(path.name, load(path)) for path in references(heldout, images)]
     if heldout:
-        found = [(name, load(HELDOUT_DIR / name)) for name in TRACE_HELDOUT]
         drawings, folder = LINE_HELDOUT, LINE_HELDOUT_DIR
     else:
-        found = [(name, load(images / name)) for name in TRACE_REFERENCES]
         drawings, folder = LINE_REFERENCES, CACHE
     for name in drawings:
         svg = reference(name, folder)

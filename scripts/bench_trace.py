@@ -22,6 +22,15 @@ They are cel-shaded art from the author's own project and are not in the
 repository: they go in ~/.cache/vectrify-bench/heldout. lin-ren-v1
 (2048x3072) is downscaled to 1600 px on its long side.
 
+Both sets also hold generated cartoon images (gen-*.png), seven each, in
+several styles: anime cel, Western TV cartoon, manga with bold inking,
+children's-book flat vector, 1930s rubber-hose, chibi and flat-shaded game
+art. Their prompts, model and set are in scripts/bench_data/generated.json;
+the images are not in the repository but in
+~/.cache/vectrify-bench/generated, made with scripts/bench_generate.py
+(the model is not deterministic, so remade ones differ). Missing ones are
+left out with a note.
+
 Small dark features a trace can lose, such as earth-hybrid-v2's eye and
 mouth, are reported as the trace's mean luminance where the reference is
 dark there (see FEATURES): near the reference's own when the feature was
@@ -94,6 +103,32 @@ PRESETS: dict[str, dict[str, dict]] = {
 OPTIMIZE = {"workers": 1}
 CACHE = Path.home() / ".cache" / "vectrify-bench"
 HELDOUT_DIR = CACHE / "heldout"
+GENERATED_DIR = CACHE / "generated"
+GENERATED_DATA = Path(__file__).resolve().parent / "bench_data" / "generated.json"
+
+
+def generated(heldout: bool = False) -> list[Path]:
+    """The generated images of the tuning set, or with *heldout* the
+    held-out set, that are on disk."""
+    items = json.loads(GENERATED_DATA.read_text())["images"]
+    wanted = "heldout" if heldout else "tuning"
+    paths = [GENERATED_DIR / i["file"] for i in items if i["set"] == wanted]
+    missing = [p.name for p in paths if not p.exists()]
+    if missing:
+        print(
+            f"left out {len(missing)} generated images not in {GENERATED_DIR} "
+            "(see scripts/bench_generate.py): " + ", ".join(missing),
+            flush=True,
+        )
+    return [p for p in paths if p.exists()]
+
+
+def references(heldout: bool = False, images: Path = ROOT) -> list[Path]:
+    """The tuning set's references, the raster ones from *images*, or with
+    *heldout* the held-out set's, generated images last."""
+    if heldout:
+        return [HELDOUT_DIR / name for name in HELDOUT] + generated(True)
+    return [images / name for name in REFERENCES] + generated()
 
 
 def load(path: Path) -> Image.Image:
@@ -159,13 +194,8 @@ def main() -> None:
         )
     overrides = dict(_setting(item) for item in args.set)
     nodes = OPTIMIZE | dict(_setting(item) for item in args.nodes)
-    references = args.references or (
-        [HELDOUT_DIR / name for name in HELDOUT]
-        if args.heldout
-        else [ROOT / name for name in REFERENCES]
-    )
     rows = []
-    for path in references:
+    for path in args.references or references(args.heldout):
         image = load(path)
         for preset in args.preset or list(presets):
             settings = {**presets[preset], **overrides}
