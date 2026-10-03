@@ -14,6 +14,7 @@ run only the steps after SAM are timed and tuning them takes seconds;
     uv run python scripts/bench_trace.py --method cel --paths 0 --out runs/cel.jsonl
     uv run python scripts/bench_trace.py --nodes shape=true --nodes seconds=60
     uv run python scripts/bench_trace.py --method cel --paths 0 --heldout
+    uv run python scripts/bench_trace.py --photos --paths 0 --renders runs/p
 
 The default references are the tuning set: settings are chosen on them.
 `--heldout` runs the held-out set instead, images never used for tuning,
@@ -29,6 +30,15 @@ holds:
   ones are left out with a note.
 - the line bench's own drawings (svg-*, see bench_lines), rendered
   1000 px tall.
+
+`--photos` runs a set of photographs instead of the cartoons, the tuning
+set's six or with `--heldout` the held-out set's six: openly licensed
+photos from Wikimedia Commons (a portrait, animals, landscapes, food, a
+night street, an interior), downscaled to 1600 px on the long side and
+kept outside the repository in ~/.cache/vectrify-bench/photos;
+scripts/bench_data/photos.json records each one's set, source, licence
+and author. Photos have no vector truth, so only this bench's pixel error
+applies to them, not the line bench's scores.
 
 The error is the mean squared difference to the reference in 0-255 RGB.
 Some references also have small facial features marked (FEATURES: eyes
@@ -96,29 +106,45 @@ OPTIMIZE = {"workers": 1}
 CACHE = Path.home() / ".cache" / "vectrify-bench"
 GENERATED_DIR = CACHE / "generated"
 GENERATED_DATA = Path(__file__).resolve().parent / "bench_data" / "generated.json"
+PHOTOS_DIR = CACHE / "photos"
+PHOTOS_DATA = Path(__file__).resolve().parent / "bench_data" / "photos.json"
 
 
 def generated(heldout: bool = False) -> list[Path]:
     """The generated images of the tuning set, or with *heldout* the
     held-out set, that are on disk."""
-    items = json.loads(GENERATED_DATA.read_text())["images"]
+    return _listed(GENERATED_DATA, "images", GENERATED_DIR, heldout, "generated images")
+
+
+def photos(heldout: bool = False) -> list[Path]:
+    """The photographs of the tuning set, or with *heldout* the held-out
+    set, that are on disk."""
+    return _listed(PHOTOS_DATA, "photos", PHOTOS_DIR, heldout, "photos")
+
+
+def _listed(data: Path, key: str, folder: Path, heldout: bool, kind: str) -> list[Path]:
+    """The files *data* lists under *key* in the tuning set, or with
+    *heldout* the held-out set, that are in *folder*."""
+    items = json.loads(data.read_text())[key]
     wanted = "heldout" if heldout else "tuning"
-    paths = [GENERATED_DIR / i["file"] for i in items if i["set"] == wanted]
+    paths = [folder / i["file"] for i in items if i["set"] == wanted]
     missing = [p.name for p in paths if not p.exists()]
     if missing:
         print(
-            f"left out {len(missing)} generated images not in {GENERATED_DIR}: "
-            + ", ".join(missing),
+            f"left out {len(missing)} {kind} not in {folder}: " + ", ".join(missing),
             flush=True,
         )
     return [p for p in paths if p.exists()]
 
 
-def references(heldout: bool = False) -> list[Path]:
+def references(heldout: bool = False, photographs: bool = False) -> list[Path]:
     """The tuning set's references, or with *heldout* the held-out set's:
-    the generated images, then the line bench's own drawings."""
+    the generated images, then the line bench's own drawings; with
+    *photographs*, the set's photos instead."""
     from bench_lines import DRAWINGS, HELDOUT, REFERENCES
 
+    if photographs:
+        return photos(heldout)
     names = HELDOUT if heldout else REFERENCES
     drawings = [DRAWINGS / f"{n}.svg" for n in names if n.startswith("svg-")]
     return generated(heldout) + drawings
@@ -144,6 +170,11 @@ def main() -> None:
         "--heldout",
         action="store_true",
         help="Run the held-out references, not the tuning set",
+    )
+    parser.add_argument(
+        "--photos",
+        action="store_true",
+        help="Run the set's photographs, not its cartoons",
     )
     parser.add_argument("--method", default="samvg", choices=sorted(PRESETS))
     parser.add_argument("--preset", nargs="+", help="Presets of the method to run")
@@ -185,7 +216,7 @@ def main() -> None:
     overrides = dict(_setting(item) for item in args.set)
     nodes = OPTIMIZE | dict(_setting(item) for item in args.nodes)
     rows = []
-    for path in args.references or references(args.heldout):
+    for path in args.references or references(args.heldout, args.photos):
         image = load(path)
         for preset in args.preset or list(presets):
             settings = {**presets[preset], **overrides}

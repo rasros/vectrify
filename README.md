@@ -124,7 +124,10 @@ to run a held-out set of images never used for tuning instead of the
 default tuning set; each set holds generated cartoon images, mostly anime
 and then several other styles, kept in `~/.cache/vectrify-bench/generated`,
 hard drawings made for the bench, in `scripts/bench_data`, and the line
-bench's Wikipe-tan drawings), `subtle_screen.py`
+bench's Wikipe-tan drawings; `bench_trace.py --photos` runs a set of
+photographs from Wikimedia Commons instead, kept in
+`~/.cache/vectrify-bench/photos` and attributed in
+`scripts/bench_data/photos.json`), `subtle_screen.py`
 checks that the scorers in `vectrify.score` order graded path damage
 correctly, and
 `analyze_profile.py` summarises a py-spy profile.
