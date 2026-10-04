@@ -542,6 +542,48 @@ def test_a_black_line_on_navy_takes_the_black_ink_not_a_lighter_grey():
     assert cel._ink_of(palette, np.array([150.0, 152.0, 155.0]), white) == 0
 
 
+def test_a_blurred_black_line_keeps_its_black_ink_where_jpeg_smears_its_hue():
+    # Taken from a noisy trace: a black line on yellow, its middle darker
+    # but, as JPEG keeps darkness sharper than hue, bluer than any mix of
+    # black and yellow. A brown ink, itself such a middle, fits its hue
+    # best; the black still explains its darkness, covering less.
+    palette = np.array([[26.0, 30.0, 46.0], [111.0, 120.0, 119.0], [151, 129, 45]])
+    yellow = np.array([212.0, 169.0, 4.0])
+    middle = np.array([154.0, 132.0, 42.0])
+    assert cel._ink_of(palette, middle, yellow, cel.INK_HUE) == 0
+    # In a clean image a line keeps its hue: that middle is a brown line.
+    assert cel._ink_of(palette, middle, yellow) == 2
+    # On a dark olive, the grey is lighter than the surface: it explains
+    # none of the line's darkness, only its bluer hue.
+    olive = np.array([81.0, 68.0, 7.0])
+    assert cel._ink_of(palette, np.array([72.0, 61.0, 22.0]), olive, cel.INK_HUE) == 0
+
+
+def test_black_lines_in_a_poor_jpeg_of_a_yellow_fill_are_drawn_black():
+    from PIL import ImageFilter
+
+    pixels = np.full((160, 240, 3), (212, 169, 4), dtype=np.uint8)
+    pixels[:, 120:] = (236, 221, 205)
+    pixels[10:16, 10:230] = 20
+    for y in (40, 70, 100, 130):
+        pixels[y : y + 2, 10:230] = 20
+    blurred = Image.fromarray(pixels).filter(ImageFilter.GaussianBlur(0.8))
+    rng = np.random.default_rng(7)
+    noisy = np.asarray(blurred).astype(float) + rng.normal(0, 8, pixels.shape)
+    buffer = io.BytesIO()
+    Image.fromarray(noisy.clip(0, 255).astype(np.uint8)).save(
+        buffer, "JPEG", quality=55
+    )
+    svg, _ = cel.vectorize(Image.open(buffer).convert("RGB"), regions=3)
+    # The strokes alone: down each thin line, black, not a brown mix of
+    # black and yellow.
+    stroked = re.sub(r'<rect[^>]*>|<path d="[^"]+" fill="#[^>]*>', "", svg)
+    drawn = rendered_rgb(stroked)
+    for y in (40, 70, 100, 130):
+        middle = drawn[y - 1 : y + 3, 20:110].min(0)
+        assert (middle.max(-1) < 60).mean() > 0.9
+
+
 def test_a_hairline_is_drawn_solid_with_about_its_ink():
     # A line holding two thirds of a pixel of black ink, antialiased to grey.
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
