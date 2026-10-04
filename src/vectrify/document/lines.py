@@ -229,9 +229,30 @@ def end_pairs(
     def dot(u: Point, v: Point) -> float:
         return u[0] * v[0] + u[1] * v[1]
 
+    # Ends by cell of a grid at least *reach* wide: an end's partners lie in
+    # its cell or the eight around it, so only those are measured.
+    size = max(reach, tiny)
+    cells: dict[tuple[int, int], list[int]] = {}
+
+    def cell(point: Point) -> tuple[int, int]:
+        return math.floor(point[0] / size), math.floor(point[1] / size)
+
+    for i, e in enumerate(ends):
+        cells.setdefault(cell(e.point), []).append(i)
+
+    def around(point: Point) -> list[int]:
+        x, y = cell(point)
+        return [
+            j
+            for dx in (-1, 0, 1)
+            for dy in (-1, 0, 1)
+            for j in cells.get((x + dx, y + dy), ())
+        ]
+
     candidates = []
     for i, a in enumerate(ends):
-        for b in ends[i + 1 :]:
+        nearby = around(a.point)
+        for b in (ends[j] for j in sorted(j for j in nearby if j > i)):
             if a.contour == b.contour and a.side == b.side:
                 continue
             gap = math.dist(a.point, b.point)
@@ -244,7 +265,7 @@ def end_pairs(
                     continue
             elif (
                 ahead < limit
-                and sum(math.dist(e.point, a.point) <= tiny for e in ends) != 2
+                and sum(math.dist(ends[j].point, a.point) <= tiny for j in nearby) != 2
             ):
                 continue
             candidates.append((gap + reach * (1 - ahead), i, a, b))
