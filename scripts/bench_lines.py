@@ -631,17 +631,17 @@ def compare(before: Path, after: Path) -> None:
         tidied = {k: r for k, r in rows.items() if "tidy" in r}
         if not tidied:
             continue
-        after = {k: r["tidy"]["after"] for k, r in tidied.items()}
+        scored = {k: r["tidy"]["after"] for k, r in tidied.items()}
         keys = sorted(tidied)
         print(f"\n{label} run, before → after Tidy:\n")
         print("| case | " + " | ".join(fields) + " |")
         print("|---|" + "---|" * len(fields))
         for key in keys:
-            a, b = tidied[key], after[key]
+            a, b = tidied[key], scored[key]
             cells = " | ".join(f"{a.get(f)} → {b.get(f)}" for f in fields)
             print(f"| {key[0]} [{key[1]}] | {cells} |")
         means = " | ".join(
-            f"{_mean(tidied, keys, f)} → {_mean(after, keys, f)}" for f in fields
+            f"{_mean(tidied, keys, f)} → {_mean(scored, keys, f)}" for f in fields
         )
         print(f"| mean | {means} |")
 
