@@ -3,11 +3,13 @@
 import base64
 import io
 import json
+from unittest.mock import patch
 
 import pytest
 from PIL import Image
 
 from vectrify.document import (
+    Document,
     DocumentError,
     Selection,
     StaleRevisionError,
@@ -42,6 +44,39 @@ def test_ui_paint_and_history_leave_original_svg_unchanged_until_applied():
     assert result["undo"] == ["Change paint"]
     assert send(session, "undo")["svg"] == before
     assert 'fill="green"' in send(session, "redo")["svg"]
+
+
+def test_large_drawing_selection_reuses_metadata_and_edits_refresh_it():
+    svg = '<svg width="1000" height="1000">' + "".join(
+        f'<path id="p{i}" d="M{i} 0 L{i + 1} 0 L{i + 1} 1 Z"/>'
+        for i in range(772)
+    ) + "</svg>"
+    session = Session(import_svg(svg))
+    before = session.state()
+    node = session.nodes("p771")["geometry"]["subpaths"][0]["nodes"][0]["id"]
+    # A click must not traverse the entire tree again to rebuild unchanged
+    # hierarchy, labels and locks, even when selecting points or a range.
+    with patch.object(Document, "ancestry", side_effect=AssertionError("rebuilt tree")):
+        for objects, nodes in [(["p0"], []), (["p771"], [node]), (["p0", "p771"], [])]:
+            state = send(session, "select", objects=objects, nodes=nodes)
+            assert state["objects"] == before["objects"]
+            assert set(state["selection"]["objects"]) == set(objects)
+            assert state["selection"]["nodes"] == nodes
+            assert "svg" not in state
+
+    send(session, "select", objects=["p0"])
+    renamed = send(session, "rename", object="p0", name="First")
+    assert renamed["objects"][0]["label"] == "First"
+    assert send(session, "undo")["objects"] == before["objects"]
+    assert send(session, "redo")["objects"] == renamed["objects"]
+    locked = send(session, "locks", object="p0", locks=["paint"])
+    assert locked["objects"][0]["inherited_locks"] == ["paint"]
+    send(session, "select", objects=["p1"])
+    painted = send(session, "paint", changes={"fill": "green"})
+    assert painted["objects"][1]["attributes"]["fill"] == "green"
+    reopened = send(session, "open", source=SVG)
+    assert reopened["revision"] == 0
+    assert {item["id"] for item in reopened["objects"]} == {"layer", "a", "b"}
 
 
 def test_ui_node_edit_pin_and_lock_are_enforced():

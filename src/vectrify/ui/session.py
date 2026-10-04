@@ -173,6 +173,8 @@ class Session:
         self.lock = RLock()
         self._svg_revision = -1
         self._svg = ""
+        self._objects_document: Document | None = None
+        self._objects: list[dict] = []
         self.jobs: dict[str, Job] = {}
         # What the person's window last said it shows (see set_view), and when.
         self.view: dict[str, Any] | None = None
@@ -305,21 +307,24 @@ class Session:
             image.load()
             return image.copy()
 
-    def state(self, *, svg: bool = True) -> dict:
-        snapshot = self.editor.snapshot
+    def _object_state(self, document: Document) -> list[dict]:
+        # Documents are immutable. Selection changes keep this metadata
+        # valid, including labels, hierarchy, paint and inherited locks.
+        if self._objects_document is document:
+            return self._objects
         objects = []
         counters: dict[str, int] = {}
         # How many elements draw each geometry: more than one shares it.
         users = Counter(
             e.geometry_id
-            for e in snapshot.document.elements()
+            for e in document.elements()
             if e.geometry_id is not None
         )
-        for element in snapshot.document.elements():
+        for element in document.elements():
             if element.tag == "svg":
                 continue
             counters[element.tag] = counters.get(element.tag, 0) + 1
-            ancestors = snapshot.document.ancestry(element.id)
+            ancestors = document.ancestry(element.id)
             objects.append(
                 {
                     "id": element.id,
@@ -346,6 +351,13 @@ class Session:
                     ),
                 }
             )
+        self._objects_document = document
+        self._objects = objects
+        return objects
+
+    def state(self, *, svg: bool = True) -> dict:
+        snapshot = self.editor.snapshot
+        objects = self._object_state(snapshot.document)
         root = snapshot.document.root
         bounds = list(snapshot.document.artboard())
         result = {
