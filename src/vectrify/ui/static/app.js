@@ -157,7 +157,10 @@ async function applyState(next) {
   // work on large drawings for every click.
   if (changed || next.svg) renderObjects();
   else updateObjectSelection();
-  if (level() === 'points') { renderInspector(); await loadGeometries(); }
+  if (level() === 'points') {
+    if (missingGeometries().length) renderInspector();
+    await loadGeometries();
+  }
   renderInspector(); drawOverlay();
 }
 const level = () => TOOL_LEVEL[tool];
@@ -171,9 +174,24 @@ function pointTargetsNow() {
   return targetCache;
 }
 const pointPaths = () => pointTargetsNow().paths;
-function geometryNodes(id) { return geometries.get(id)?.subpaths.flatMap(s => s.nodes) || []; }
-function nodeAt(key) { const [id, node] = splitKey(key); return geometryNodes(id).find(n => n.id === node); }
-function contourAt(key) { const [id, node] = splitKey(key); return geometries.get(id)?.subpaths.find(s => s.nodes.some(n => n.id === node)); }
+const geometryIndexes = new WeakMap();
+function geometryIndex(id) {
+  const geometry = geometries.get(id);
+  if (!geometry) return null;
+  let index = geometryIndexes.get(geometry);
+  if (!index) {
+    const nodes = [], byId = new Map(), contours = new Map();
+    for (const contour of geometry.subpaths) for (const node of contour.nodes) {
+      nodes.push(node); byId.set(node.id, node); contours.set(node.id, contour);
+    }
+    index = {nodes, byId, contours};
+    geometryIndexes.set(geometry, index);
+  }
+  return index;
+}
+function geometryNodes(id) { return geometryIndex(id)?.nodes || []; }
+function nodeAt(key) { const [id, node] = splitKey(key); return geometryIndex(id)?.byId.get(node); }
+function contourAt(key) { const [id, node] = splitKey(key); return geometryIndex(id)?.contours.get(node); }
 // The selected points, from the node ids the server holds, while a point tool
 // is active: in an object tool they are hidden. A node of geometry several
 // shown paths draw is selected in the path it was picked in; the others show
@@ -196,9 +214,12 @@ function selectPoints(objects, keys, focus = keys.at(-1)) {
   owners = pointOwners(keys, id => geometries.get(id)?.id);
   return action('select', {objects: [...new Set(objects)], nodes: [...new Set(keys.map(key => splitKey(key)[1]))]}, 'Selecting…');
 }
-async function loadGeometries() {
+function missingGeometries() {
   const wanted = level() === 'points' ? [...pointPaths(), ...(hoverPath ? [hoverPath] : [])] : [];
-  const missing = [...new Set(wanted)].filter(id => !geometries.has(id));
+  return [...new Set(wanted)].filter(id => !geometries.has(id));
+}
+async function loadGeometries() {
+  const missing = missingGeometries();
   if (!missing.length) return;
   const {epoch, revision} = state;
   const result = await request('/api/nodes', {objects: missing, epoch, revision});
@@ -603,7 +624,7 @@ function drawFlash() {
       const pts = [[b.x-pad,b.y-pad], [b.x+b.width+pad,b.y-pad], [b.x+b.width+pad,b.y+b.height+pad], [b.x-pad,b.y+b.height+pad]].map(([x,y]) => new DOMPoint(x,y).matrixTransform(matrix));
       const shape = xmlElement('polygon', {points: pts.map(p => `${p.x},${p.y}`).join(' '), class: 'agent-flash', 'data-object': id, 'aria-hidden': 'true'});
       shape.style.animationDelay = delay;
-      overlay.append(shape);
+      overlayFrame.content.append(shape);
     } catch { /* Resource elements have no display bounds. */ }
   }
 }
@@ -872,7 +893,7 @@ function renderInspector() {
   $('properties').hidden = !selected.length;
   $('selection-kind').textContent = item?.tag || (selected.length ? 'Multiple' : 'Drawing');
   for (const controls of document.querySelectorAll('[data-tools]')) controls.hidden = !controls.dataset.tools.split(' ').includes(tool);
-  renderNodeInspector();
+  renderNodeInspector(false);
   $('empty-reference-hint').hidden = !!state.reference;
   renderRelationships(item);
   // Empty selections have no paint to resolve; keep the remaining controls reset.
@@ -1137,7 +1158,7 @@ function handleCount(key) {
   return Number(node.command === 'C' && apart(node.values.slice(2, 4))) + Number(next?.command === 'C' && apart(next.values.slice(0, 2)));
 }
 // The point section of the right panel and the Nodes strip.
-function renderNodeInspector() {
+function renderNodeInspector(commands = true) {
   const paths = pointPaths(), points = selectedPoints(), onPoints = level() === 'points';
   const nodes = paths.flatMap(geometryNodes), loaded = paths.every(id => geometries.has(id));
   const node = points.length === 1 && nodeAt(points[0]);
@@ -1173,7 +1194,7 @@ function renderNodeInspector() {
   const holes = holeContours(points);
   if (holes === undefined) loadNodeHoles(points);
   $('strip-hole').hidden = !holes;
-  renderCommands();
+  if (commands) renderCommands();
   scheduleStrip();
 }
 // The hole contours the selected points are on, as [path, contour] pairs,
@@ -1228,10 +1249,18 @@ async function pointHolesToShapes() {
     toast(count === 1 ? 'The hole is now its own shape, just above the path. Undo restores the hole.' : `The ${count} holes are now shapes of their own, each just above its path. Undo restores them.`);
 }
 
+// Matrix reads share one overlay frame during a redraw. Outside it, dragging
+// and hit testing read the live frames so optimistic transforms stay current.
+let overlayFrame = null;
 function localToOverlay(element) {
-  const from = element?.getScreenCTM(), to = overlay.getScreenCTM();
+  if (overlayFrame?.matrices.has(element)) return overlayFrame.matrices.get(element);
+  const from = element?.getScreenCTM(), to = overlayFrame ? overlayFrame.to : overlay.getScreenCTM();
   if (!from || !to) return null;
-  try { return DOMMatrix.fromMatrix(to.inverse().multiply(from)); } catch { return null; }
+  try {
+    const matrix = DOMMatrix.fromMatrix(to.inverse().multiply(from));
+    overlayFrame?.matrices.set(element, matrix);
+    return matrix;
+  } catch { return null; }
 }
 function selectionContour(source, seen = new Set(), inheritedPaint = null) {
   if (seen.has(source) || ['defs', 'clipPath'].includes(source.localName)) return null;
@@ -1298,10 +1327,18 @@ function clipSelection(group, element) {
   return group;
 }
 function drawOverlay() {
-  overlay.replaceChildren();
   // The artboard zoom is a CSS transform, outside SVG's non-scaling-stroke.
   overlay.style.setProperty('--selection-scale', 1 / zoom);
-  if (!state) return;
+  if (!state) { overlay.replaceChildren(); return; }
+  // Read the drawing while all new overlay shapes are detached, then publish
+  // them together. Appending each shape before the next path's CTM or bounds
+  // read forced layout repeatedly during selection, node display and dragging.
+  const content = document.createDocumentFragment();
+  overlayFrame = {content, to: overlay.getScreenCTM(), matrices: new Map()};
+  try { drawOverlayContent(); overlay.replaceChildren(content); }
+  finally { overlayFrame = null; }
+}
+function drawOverlayContent() {
   const targets = new Set(state.selection.objects.flatMap(selectionTargets));
   selectionBox = selectionFrame();
   for (const element of targets) {
@@ -1316,14 +1353,14 @@ function drawOverlay() {
         group.append(contour);
         group = clipSelection(group, element);
         const halo = group.cloneNode(true); halo.setAttribute('class', 'selection-halo');
-        overlay.append(halo, group);
+        overlayFrame.content.append(halo, group);
       }
       // Point tools show the points instead of the bounds, and one object's
       // frame stands for its bounds.
       if (level() === 'points' || (selectionBox && targets.size === 1)) continue;
       const b = element.getBBox();
       const pts = [[b.x,b.y], [b.x+b.width,b.y], [b.x+b.width,b.y+b.height], [b.x,b.y+b.height]].map(([x,y]) => new DOMPoint(x,y).matrixTransform(matrix));
-      overlay.append(xmlElement('polygon', {points: pts.map(p => `${p.x},${p.y}`).join(' '), class: 'selection-box'}));
+      overlayFrame.content.append(xmlElement('polygon', {points: pts.map(p => `${p.x},${p.y}`).join(' '), class: 'selection-box'}));
     } catch { /* Resource elements may have no display bounds. */ }
   }
   drawFrame();
@@ -1369,10 +1406,10 @@ function resizeRefusal() {
 function drawFrame() {
   if (!selectionBox) return;
   const {left, top, right, bottom} = selectionBox, locked = !!resizeRefusal();
-  overlay.append(xmlElement('rect', {x: left, y: top, width: right - left, height: bottom - top, class: `resize-frame${locked ? ' locked' : ''}`}));
+  overlayFrame.content.append(xmlElement('rect', {x: left, y: top, width: right - left, height: bottom - top, class: `resize-frame${locked ? ' locked' : ''}`}));
   if (locked) return;
   const r = 2.5 / zoom;
-  for (const [x, y] of [[left, top], [right, top], [right, bottom], [left, bottom]]) overlay.append(xmlElement('rect', {x: x - r, y: y - r, width: 2 * r, height: 2 * r, class: 'resize-tick'}));
+  for (const [x, y] of [[left, top], [right, top], [right, bottom], [left, bottom]]) overlayFrame.content.append(xmlElement('rect', {x: x - r, y: y - r, width: 2 * r, height: 2 * r, class: 'resize-tick'}));
 }
 // The part of the frame at the screen point (x, y): an edge, a corner,
 // 'inside' or null.
@@ -1468,23 +1505,28 @@ function drawPoints() {
   // Limit handles in dense drawings by screen-space spacing, without dropping
   // geometry. Zooming in exposes the original nodes at their full resolution.
   const occupied = new Set(); let count = 0, total = 0;
+  const unpicked = !chosen.size && !twin.size;
   for (const id of paths) {
     const element = svgElement(id), matrix = localToOverlay(element), screen = element?.getScreenCTM();
     if (!matrix || !screen || !geometries.has(id)) continue;
     const ghost = !selected.has(id);
-    for (const node of geometryNodes(id)) {
-      total++;
+    const nodes = geometryNodes(id); total += nodes.length;
+    for (const node of nodes) {
+      // Nothing after the marker cap can be drawn unless it is selected or
+      // shared with a selected point. Still count every original node above.
+      if (unpicked && count >= 1200) break;
       const key = pointKey(id, node.id), picked = chosen.has(key), mirrored = twin.has(key);
-      const x = node.values.at(-2), y = node.values.at(-1), pos = new DOMPoint(x,y).matrixTransform(screen);
-      if (pos.x < stageBox.left || pos.x > stageBox.right || pos.y < stageBox.top || pos.y > stageBox.bottom) continue;
-      const cell = `${Math.floor(pos.x/10)},${Math.floor(pos.y/10)}`;
+      const x = node.values.at(-2), y = node.values.at(-1);
+      const sx = screen.a*x + screen.c*y + screen.e, sy = screen.b*x + screen.d*y + screen.f;
+      if (sx < stageBox.left || sx > stageBox.right || sy < stageBox.top || sy > stageBox.bottom) continue;
+      const cell = `${Math.floor(sx/10)},${Math.floor(sy/10)}`;
       if (!picked && !mirrored && (occupied.has(cell) || count >= 1200)) continue;
       occupied.add(cell); count++;
-      const p = new DOMPoint(x,y).matrixTransform(matrix);
+      const p = {x: matrix.a*x + matrix.c*y + matrix.e, y: matrix.b*x + matrix.d*y + matrix.f};
       const near = editable && nearPoint === `${id} ${node.id} endpoint`;
       const circle = xmlElement('circle', {cx:p.x, cy:p.y, r: (picked ? 4.8 : mirrored ? 4.2 : 3.3)*(near ? 1.5 : 1)/zoom, class:`node${picked ? ' selected' : ''}${mirrored ? ' twin' : ''}${node.pinned ? ' pinned' : ''}${ghost ? ' ghost' : ''}${near ? ' near' : ''}${editable ? '' : ' passive'}`});
       circle.dataset.object = id; circle.dataset.node = node.id; circle.dataset.part = 'endpoint';
-      overlay.append(circle);
+      overlayFrame.content.append(circle);
     }
   }
   // The handles of the selected points, up to a few hundred of them, and of
@@ -1509,10 +1551,10 @@ function drawHandles(key) {
     if (length < 1e-6) continue;
     const short = length < HANDLE_SPREAD;
     if (short) p = new DOMPoint(anchor.x + (p.x - anchor.x) * HANDLE_SPREAD / length, anchor.y + (p.y - anchor.y) * HANDLE_SPREAD / length);
-    overlay.append(xmlElement('line', {x1:anchor.x,y1:anchor.y,x2:p.x,y2:p.y,class:`handle-line${short ? ' short' : ''}`}));
+    overlayFrame.content.append(xmlElement('line', {x1:anchor.x,y1:anchor.y,x2:p.x,y2:p.y,class:`handle-line${short ? ' short' : ''}`}));
     const near = nearPoint === `${id} ${handle.node.id} ${handle.offset}`;
     const circle = xmlElement('circle', {cx:p.x,cy:p.y,r:3.8*(near ? 1.5 : 1)/zoom,class:`handle${near ? ' near' : ''}`});
-    circle.dataset.object = id; circle.dataset.node = handle.node.id; circle.dataset.part = String(handle.offset); overlay.append(circle);
+    circle.dataset.object = id; circle.dataset.node = handle.node.id; circle.dataset.part = String(handle.offset); overlayFrame.content.append(circle);
   }
 }
 // The rubber band of a box select, in the overlay's frame.
@@ -1520,7 +1562,7 @@ function drawBox() {
   if (drag?.kind !== 'box' || !drag.moved) return;
   const inverse = overlay.getScreenCTM()?.inverse(); if (!inverse) return;
   const a = new DOMPoint(drag.x, drag.y).matrixTransform(inverse), b = new DOMPoint(drag.end.x, drag.end.y).matrixTransform(inverse);
-  overlay.append(xmlElement('rect', {x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), width:Math.abs(a.x-b.x), height:Math.abs(a.y-b.y), class:'select-box'}));
+  overlayFrame.content.append(xmlElement('rect', {x:Math.min(a.x,b.x), y:Math.min(a.y,b.y), width:Math.abs(a.x-b.x), height:Math.abs(a.y-b.y), class:'select-box'}));
 }
 // The tool strip keeps to one row: the active tool's controls that do not fit
 // go, least important first, into the "⋯" menu, keeping the status line.
@@ -1669,12 +1711,12 @@ function drawPathDraft() {
     }
     group.append(xmlElement('circle',{cx:p.x,cy:p.y,r:(i===0?5:3.5)/zoom,fill:i===0?'#fff':'#5cdeff',stroke:'#052b3a','stroke-width':1.5/zoom}));
   });
-  overlay.append(group);
+  overlayFrame.content.append(group);
 }
 function drawKnife() {
   if(drag?.kind!=='knife'||!drag.moved)return;
   const {start:a,end:b}=drag, line={x1:a.x,y1:a.y,x2:b.x,y2:b.y,'pointer-events':'none','aria-hidden':'true'};
-  overlay.append(xmlElement('line',{...line,stroke:'#052b3a','stroke-width':4/zoom}),
+  overlayFrame.content.append(xmlElement('line',{...line,stroke:'#052b3a','stroke-width':4/zoom}),
     xmlElement('line',{...line,stroke:'#ff8a5c','stroke-width':2/zoom,'stroke-dasharray':`${6/zoom} ${4/zoom}`}));
 }
 // Snapping while dragging points or a handle: onto the on-curve points of
@@ -1711,16 +1753,16 @@ function snappedDrag(event) {
 function drawSnap() {
   if (drag?.kind === 'resize' && drag.moved) {
     const [x, y, w, h] = state.bounds;
-    if (drag.snapX !== null) overlay.append(xmlElement('line', {x1: drag.snapX, y1: y, x2: drag.snapX, y2: y + h, class: 'snap-edge'}));
-    if (drag.snapY !== null) overlay.append(xmlElement('line', {x1: x, y1: drag.snapY, x2: x + w, y2: drag.snapY, class: 'snap-edge'}));
+    if (drag.snapX !== null) overlayFrame.content.append(xmlElement('line', {x1: drag.snapX, y1: y, x2: drag.snapX, y2: y + h, class: 'snap-edge'}));
+    if (drag.snapY !== null) overlayFrame.content.append(xmlElement('line', {x1: x, y1: drag.snapY, x2: x + w, y2: drag.snapY, class: 'snap-edge'}));
     return;
   }
   const snap = drag?.kind === 'node' && drag.moved ? drag.snap : null;
   if (!snap) return;
   const [x, y, w, h] = state.bounds, r = 6 / zoom;
-  if (snap.target.x !== undefined) overlay.append(xmlElement('line', {x1: snap.target.x, y1: y, x2: snap.target.x, y2: y + h, class: 'snap-edge'}));
-  if (snap.target.y !== undefined) overlay.append(xmlElement('line', {x1: x, y1: snap.target.y, x2: x + w, y2: snap.target.y, class: 'snap-edge'}));
-  overlay.append(xmlElement('rect', {x: snap.x - r, y: snap.y - r, width: 2 * r, height: 2 * r, transform: `rotate(45 ${snap.x} ${snap.y})`, class: 'snap-target'}));
+  if (snap.target.x !== undefined) overlayFrame.content.append(xmlElement('line', {x1: snap.target.x, y1: y, x2: snap.target.x, y2: y + h, class: 'snap-edge'}));
+  if (snap.target.y !== undefined) overlayFrame.content.append(xmlElement('line', {x1: x, y1: snap.target.y, x2: x + w, y2: snap.target.y, class: 'snap-edge'}));
+  overlayFrame.content.append(xmlElement('rect', {x: snap.x - r, y: snap.y - r, width: 2 * r, height: 2 * r, transform: `rotate(45 ${snap.x} ${snap.y})`, class: 'snap-target'}));
 }
 function knifeEnd(event) {
   const p=point(event), a=drag.start;
@@ -1774,7 +1816,7 @@ function drawRedraw() {
   for (const end of [plan?.start, plan?.end]) {
     if (end) group.append(xmlElement('circle', {cx: end.x, cy: end.y, r: 5/zoom, fill: '#fff', stroke: '#052b3a', 'stroke-width': 1.5/zoom}));
   }
-  overlay.append(group);
+  overlayFrame.content.append(group);
 }
 async function redrawOutline({points, longWay}) {
   const plan = redrawPlan(points, longWay);
