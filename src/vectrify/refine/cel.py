@@ -2003,10 +2003,21 @@ def _line_paths(
         runs, colours, widths, group = _rejoined(runs, parents, colours, widths, group)
     grouped: dict[tuple[int, int], list[tuple[Subpath, float, int]]] = {}
     group_runs: dict[tuple[int, int], list[np.ndarray]] = {}
+    # How many runs end at each point: an end no other run meets is loose.
+    ends: dict[tuple[float, float], int] = {}
+    for run in runs:
+        for point in (run[0], run[-1]):
+            key = (round(float(point[0]), 1), round(float(point[1]), 1))
+            ends[key] = ends.get(key, 0) + 1
+
+    def loose(point: np.ndarray) -> bool:
+        return ends[round(float(point[0]), 1), round(float(point[1]), 1)] == 1
+
     for run, index, width, step in zip(runs, colours, widths, group, strict=True):
         width = line_width or width
         closed = np.array_equal(run[0], run[-1])
-        run = centred(run, covers[int(index)], width)
+        free = (False, False) if closed else (loose(run[0]), loose(run[-1]))
+        run = centred(run, covers[int(index)], width, free)
         nodes = curve_nodes(run, tolerance)
         if closed and nodes and nodes[-1][0] == "L":
             nodes = nodes[:-1]
@@ -2094,14 +2105,20 @@ def _rejoined(
     return merged, colours[firsts], np.array(merged_widths), group[firsts]
 
 
-def centred(run: np.ndarray, ink: np.ndarray, width: float) -> np.ndarray:
+def centred(
+    run: np.ndarray,
+    ink: np.ndarray,
+    width: float,
+    free: tuple[bool, bool] = (False, False),
+) -> np.ndarray:
     """The centreline *run* moved across its line onto the middle of its
     *ink* (each pixel's cover by it over its surface), at most CENTRE_SHIFT:
     thinning leaves a line an even number of pixels wide on one of its two
     middle pixels, half a pixel off. The ink is read across the line up to
     half its *width* and CENTRE_REACH beyond, as far as it runs unbroken from
     the middle; the shift is smoothed along the run, and the ends, where
-    runs meet, stay."""
+    runs meet, stay, but for those *free* (start, end): a line's loose end
+    moves with it."""
     if len(run) < 5:
         return run
     closed = bool(np.array_equal(run[0], run[-1]))
@@ -2131,8 +2148,10 @@ def centred(run: np.ndarray, ink: np.ndarray, width: float) -> np.ndarray:
     shift = gaussian_filter1d(shift, 2.0, mode=mode)
     if not closed:
         # Back to none at the ends, where the runs meet.
-        ramp = np.minimum(np.arange(len(points)), np.arange(len(points))[::-1])
-        shift = shift * np.clip(ramp / 3, 0, 1)
+        count = len(points)
+        start = np.full(count, np.inf) if free[0] else np.arange(count)
+        end = np.full(count, np.inf) if free[1] else np.arange(count)[::-1]
+        shift = shift * np.clip(np.minimum(start, end) / 3, 0, 1)
     moved = points + shift[:, None] * normal
     return np.concatenate((moved, moved[:1])) if closed else moved
 
