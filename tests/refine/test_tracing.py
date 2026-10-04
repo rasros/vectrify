@@ -108,13 +108,27 @@ def test_fixed_cubic_tracing_does_not_duplicate_each_curve_endpoint(monkeypatch)
     samples = []
     monkeypatch.setattr(tracing, "_corners", lambda *_args: [0, 2, 4, 6])
 
-    def fit(points):
-        samples.append(points.copy())
-        return points[0], points[-1]
+    def fit(pieces):
+        samples.extend(points.copy() for points in pieces)
+        return np.array([(points[0], points[-1]) for points in pieces])
 
-    monkeypatch.setattr(tracing, "_fit_cubic", fit)
+    monkeypatch.setattr(tracing, "_fit_cubics", fit)
 
     tracing._cubic_loop(loop, segments=4)
 
     assert [len(points) for points in samples] == [3, 3, 3, 3]
     assert all(not np.array_equal(points[-1], points[-2]) for points in samples)
+
+
+def test_cubics_fitted_together_are_exactly_those_fitted_one_by_one():
+    rng = np.random.default_rng(4)
+    samples = []
+    for size in (2, 3, 5, 9, 17, 40):
+        t = np.linspace(0, 1, size)[:, None]
+        wobble = rng.normal(0, 0.4, (size, 2))
+        curve = np.hstack((30 * t, 10 * np.sin(4 * t))) + wobble
+        samples.append(curve.astype(np.float32))
+    together = tracing._fit_cubics(samples)
+    for sample, controls in zip(samples, together, strict=True):
+        alone = np.array(_fit_cubic(sample))
+        assert np.array_equal(controls, alone)

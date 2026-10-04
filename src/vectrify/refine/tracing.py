@@ -158,6 +158,90 @@ def _fit_cubic(
     return controls[0], controls[1]
 
 
+def _fit_cubics(samples: list[np.ndarray]) -> np.ndarray:
+    """:func:`_fit_cubic` of each of *samples* at once: their two control
+    points, by sample. Each comes out exactly as it would alone, the same
+    arithmetic on each point; only the least-squares solves go one by one."""
+    count = len(samples)
+    sizes = np.array([len(sample) for sample in samples])
+    width = int(sizes.max())
+    rows = np.arange(count)
+    # Each sample padded with its last point at parameter 1, kept finite.
+    points = np.empty((count, width, 2), dtype=np.float32)
+    t = np.ones((count, width), dtype=np.float64)
+    for row, sample in enumerate(samples):
+        points[row, : len(sample)] = sample
+        points[row, len(sample) :] = sample[-1]
+        t[row, : len(sample)] = np.linspace(0.0, 1.0, len(sample), dtype=np.float64)
+    start = points[:, :1]
+    end = points[rows, sizes - 1][:, None]
+    controls = np.empty((count, 2, 2), dtype=np.float64)
+
+    def solve(which: np.ndarray) -> None:
+        parameters = t[which]
+        omt = 1 - parameters
+        leaving = 3 * omt**2 * parameters
+        arriving = 3 * omt * parameters**2
+        base = (
+            omt[..., None] ** 3 * start[which] + parameters[..., None] ** 3 * end[which]
+        )
+        for k, row in enumerate(which.tolist()):
+            n = sizes[row]
+            matrix = np.column_stack((leaving[k, :n], arriving[k, :n]))
+            controls[row], *_ = np.linalg.lstsq(
+                matrix, points[row, :n] - base[k, :n], rcond=None
+            )
+
+    solve(rows)
+    # As _fit_cubic refines each sample's parameters, until they settle.
+    epsilon = 1e-5
+    index = np.arange(width)
+    active = rows[sizes > 2]
+    for _iteration in range(8):
+        if not active.size:
+            break
+        p0 = controls[active, 0][:, None]
+        p1 = controls[active, 1][:, None]
+        first_point, last_point = start[active], end[active]
+        before = t[active]
+        last = sizes[active] - 1
+        omt = 1 - before
+        curve = (
+            omt[..., None] ** 3 * first_point
+            + 3 * omt[..., None] ** 2 * before[..., None] * p0
+            + 3 * omt[..., None] * before[..., None] ** 2 * p1
+            + before[..., None] ** 3 * last_point
+        )
+        first = (
+            3 * omt[..., None] ** 2 * (p0 - first_point)
+            + 6 * omt[..., None] * before[..., None] * (p1 - p0)
+            + 3 * before[..., None] ** 2 * (last_point - p1)
+        )
+        second = 6 * omt[..., None] * (p1 - 2 * p0 + first_point) + 6 * before[
+            ..., None
+        ] * (last_point - 2 * p1 + p0)
+        offset = curve - points[active]
+        numerator = (offset * first).sum(axis=-1)
+        denominator = (first * first).sum(axis=-1) + (offset * second).sum(axis=-1)
+        inner = (index >= 1) & (index < last[:, None])
+        valid = inner & (np.abs(denominator) > 1e-10)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            delta = np.clip(numerator / denominator, -0.05, 0.05)
+        updated = np.where(valid, before - delta, before)
+        updated[:, 0] = 0.0
+        each = np.arange(len(active))
+        updated[each, last] = 1.0
+        updated = np.where(inner, np.clip(updated, epsilon, 1 - epsilon), updated)
+        updated = np.maximum.accumulate(updated, axis=1)
+        updated[each, last] = 1.0
+        change = np.where(index <= last[:, None], np.abs(updated - before), 0)
+        unsettled = change.max(axis=1) >= 1e-4
+        active = active[unsettled]
+        t[active] = updated[unsettled]
+        solve(active)
+    return controls
+
+
 def _smoothed(loop: list[tuple[float, float]], sigma: float):
     """*loop* smoothed along its length by a Gaussian of *sigma* pixels.
 
@@ -191,16 +275,20 @@ def _cubic_loop(
         return None
     points = np.asarray(loop, dtype=np.float32)
     parts = [f"M {points[corners[0], 0]:.2f} {points[corners[0], 1]:.2f}"]
-    for first, second in zip(corners, [*corners[1:], corners[0]], strict=True):
-        indices = (
+    pairs = list(zip(corners, [*corners[1:], corners[0]], strict=True))
+    # Each sample's indices already include its endpoint. Repeating it adds
+    # an artificial least-squares weight at every selected corner and bends
+    # each fitted cubic toward its end point rather than the contour data.
+    samples = [
+        points[
             np.arange(first, second + 1 if second >= first else second + size + 1)
             % size
-        )
-        # ``indices`` already includes the endpoint.  Repeating it adds an
-        # artificial least-squares weight at every selected corner and bends
-        # each fitted cubic toward its end point rather than the contour data.
-        sample = points[indices]
-        control_a, control_b = _fit_cubic(sample)
+        ]
+        for first, second in pairs
+    ]
+    for (_, second), (control_a, control_b) in zip(
+        pairs, _fit_cubics(samples), strict=True
+    ):
         end = points[second]
         parts.append(
             f"C {control_a[0]:.2f} {control_a[1]:.2f} "
