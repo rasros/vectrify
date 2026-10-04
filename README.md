@@ -130,7 +130,8 @@ the error over the tidied paths' own area, their points, Tidy's time per
 path, how many paths it changed, left alone, refused or stopped at its
 time limit, and the self-crossings it left; each `--tidy-steps
 snap,simplify[,detail][,shape]` tidies the same trace once more,
-`--tidy-crops DIR` saves before/after crops, and `--summary RUN...`
+`--trace-cache DIR` reuses traces across runs (keyed by the image, settings
+and tracing code), `--tidy-crops DIR` saves before/after crops, and `--summary RUN...`
 compares the configurations with sign tests across images and paths.
 `bench_lines.py --tidy STEPS` scores a tidied trace's lines (F, width)
 beside the trace's own.
