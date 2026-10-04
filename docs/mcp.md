@@ -156,8 +156,8 @@ The server edits one target at a time, with the same tools for both:
   `Authorization: Bearer <token>`, answered with `{data, images}`; each image
   is fetched as a raw PNG body from `GET /agent/image/<key>`, never as base64
   inside JSON. Requests must be addressed to `127.0.0.1` or `localhost`. Off:
-  403; a missing or wrong token: 401; an edit of a drawing that changed since
-  the agent looked: 409; a refusal: 400 with the editor's message.
+  403; a missing or wrong token: 401; a different drawing epoch or a missing
+  initial look: 409; a conflict or other refusal: 400 with the editor's message.
 - The page is told of each agent call as it happens. After every call
   (looks too, and Agents turning on or off) `AgentChannel` beats
   (`changed()`; `wait(beat, timeout)` waits for the next), and the page gets
@@ -195,16 +195,18 @@ The server edits one target at a time, with the same tools for both:
 
 ## Safety
 
-- Every edit goes through `Session.action` or `Session.operation`, so
+- Drawing edits go through `Session.action` or `Session.operation`, so
   selection scope, locks, pins, permissions and revision checks hold exactly
   as in the editor: an agent can do nothing a person couldn't.
 - Revisions: the server remembers, for each client, the epoch and revision
   of the last answer it had (describe, render, an edit…) and sends it with
-  that client's edits. If the drawing changed since, the edit is refused
-  with a message telling the agent to `describe()` again, so it never
-  overwrites a person's (or another agent's) concurrent edit it has not
-  seen. `undo()` is checked the same way, so the agent never undoes a step
-  it has not seen. A client is its Streamable HTTP session
+  that client's edits. When the revision is older, commands are planned on
+  that document version and merged atomically into the live drawing.
+  Independent changes do not need another look or a manual refresh; true
+  overlaps refuse the entire edit without changing live state. Updated locks,
+  pins, shared geometry consumers and coordinate frames still apply.
+  Undo/redo use exact history IDs and preserve unrelated later edits, without
+  rejecting an unrelated revision change. A client is its Streamable HTTP session
   (`Mcp-Session-Id`); a stdio server is one client. A middleware
   (`per_client` in `vectrify/mcp/server.py`) puts the client's key in a
   context variable for the tool call; what it saw is also tied to the
@@ -225,12 +227,19 @@ The server edits one target at a time, with the same tools for both:
   `properties` with paint, a name and locks, or `transform` to a box) runs them under the session lock and squashes them into
   one history entry, and `Editor.settle` then counts them as one revision:
   nobody saw the ones in between, and what was cached at them is dropped.
-  `undo(steps=n)` is one revision too. If a later command is refused, the
-  earlier ones are rolled back (no redo is left behind) and the refusal
-  reports the new revision as seen.
-- History labels: while an agent's call runs the editor puts "Agent: " before
-  each new history label (`Editor.label_prefix`), so the window's undo
-  history and `history()` say who made each step.
+  `undo(ids=[...])` and `redo(ids=[...])` each advance the revision once,
+  including for multiple IDs. The whole batch is atomic. If a later command
+  is refused, the earlier ones are rolled back and the refusal reports the
+  new revision as seen.
+- History: entries have stable IDs and explicit author metadata. Edit replies
+  include `edit_id`; `history()` lists all authors' changes. MCP
+  `undo(ids=[...])` and `redo(ids=[...])` must name exact entries in the
+  order to restore them, and may restore either author's changes. They
+  preserve unrelated edits and the person's current selection. Conflicts
+  with later edits reject the whole batch; undo dependent changes first.
+  The UI's Undo/Redo only restores the person's own changes, skipping agent
+  entries. Each author's new edits clear only their own redo branch.
+  Agent edits remain labelled "Agent: …" for recognition.
 - Live editing only while the window allows it; the token keeps other local
   processes out. File writes happen in the MCP server's process, so the
   client's tool approval is the consent for each path.
@@ -322,8 +331,11 @@ be a polygon `[[x, y], ...]`.
 Renders of the drawing and the reference are cached per (epoch, revision,
 region, size), so looking again at an unchanged drawing costs no rendering.
 
-**History**: `history(limit?)` (undo and redo stacks, newest first: label,
-author `agent` or `person`, revision), `undo(steps?)`, `redo(steps?)`.
+**History**: `history(limit?)` (undo and redo stacks, newest first: stable
+`id`, label, author `agent` or `person`, revision), `undo(ids)`, `redo(ids)`.
+IDs are required, including for a single step; step counts and implicit latest
+undo are no longer accepted. Edit replies include `edit_id`. Restoring an
+older entry preserves unrelated later edits and refuses conflicts atomically.
 
 **Objects**: `properties(ids, fill?, stroke?, stroke_width?, opacity?,
 fill_opacity?, stroke_opacity?, name?, locks?)` (paint; a name, with one id

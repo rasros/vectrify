@@ -69,3 +69,10 @@ def free_port() -> int:
     with socket.socket() as sock:
         sock.bind(("127.0.0.1", 0))
         return sock.getsockname()[1]
+
+
+async def restore(call, command: str = "undo", count: int = 1):
+    """Resolve exact history IDs before a test restores those changes."""
+    history = data(await call("history", limit=max(30, count)))
+    ids = [entry["id"] for entry in history[command][:count]]
+    return await call(command, ids=ids)

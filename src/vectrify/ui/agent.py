@@ -1,7 +1,7 @@
 """What an agent may do to an editor session.
 
 ``Agent`` answers an agent's calls (``describe``, ``render``, ``paint``,
-``generate``…) on one ``Session``. Every edit goes through ``Session.action``
+``generate``…) on one ``Session``. Drawing edits go through ``Session.action``
 or ``Session.operation``, so selection scope, locks, pins, permissions and
 revision checks hold exactly as for a person, each call is one undo step, and
 the history labels it "Agent: …". Each call names its own targets and works on
@@ -11,9 +11,12 @@ the call deleted, within the same locked step. The MCP server
 reaches the one of a running editor through ``AgentChannel``: HTTP on
 localhost with a token, opened when the window allows agents to edit.
 
-The agent's calls carry *seen*, the (epoch, revision) it last looked at; an
-edit of a drawing that changed since is refused, so it never overwrites a
-person's edit it has not seen.
+The agent's calls carry *seen*, the (epoch, revision) it last looked at.
+Commands are planned on that version and merge into live state, keeping
+independent edits. Overlapping changes are refused without modifying live state.
+History restores exact entry IDs directly through ``Editor``, retaining
+unrelated edits and the person's current selection. UI history commands
+restore only the person's own entries.
 """
 
 from __future__ import annotations
@@ -44,6 +47,7 @@ from vectrify.document import (
     StaleRevisionError,
     export_svg,
 )
+from vectrify.document.history import kept_selection as kept_selection
 from vectrify.document.hit_test import IDENTITY, Matrix
 from vectrify.document.holes import document_hole_shape, find_holes
 from vectrify.document.join import path_style
@@ -124,12 +128,16 @@ EDITS: dict[str, tuple[str, ...]] = {
     "knife": ("knife",),
     "redraw_outline": ("redraw_outline",),
     "set_reference": ("reference",),
-    "undo": ("undo",),
-    "redo": ("redo",),
+    "undo": (),
+    "redo": (),
 }
 
 # Editor commands no agent tool sends, and why.
 LEFT_OUT = {
+    "undo": "MCP restores explicit history IDs through Editor.undo; the UI "
+    "command restores only the person's latest change.",
+    "redo": "MCP restores explicit history IDs through Editor.redo; the UI "
+    "command restores only the person's latest undone change.",
     "open": "An agent opens a file as its own headless target; it never "
     "replaces the drawing in the person's window.",
     "node": "The one-point drag; set_points sends move_nodes, which moves one "
@@ -263,27 +271,6 @@ def _points(value: Any) -> list[list[str]]:
     ):
         raise DocumentError("Give points as a list of [object id, node id] pairs")
     return [[str(o), str(n)] for o, n in value]
-
-
-def kept_selection(selection: Selection, document: Document) -> Selection:
-    """*selection* without the objects and points *document* no longer has."""
-    existing = {e.id for e in document.elements()}
-    objects = selection.object_ids & existing
-    nodes = selection.node_ids
-    if nodes:
-        present: set[str] = set()
-        for oid in objects:
-            for element in Document(document.element(oid)).elements():
-                with contextlib.suppress(DocumentError):
-                    geometry = document.geometry_for(element.id)
-                    present.update(n.id for sp in geometry.subpaths for n in sp.nodes)
-        nodes = nodes & present
-    kept = Selection(objects, nodes, selection.whole_document)
-    try:
-        document.selection_ids(kept)
-    except DocumentError:
-        return Selection()
-    return kept
 
 
 def changed_objects(before: Document, after: Document) -> set[str]:
@@ -470,15 +457,44 @@ class Agent:
                 "Another drawing was opened since you last looked. Call "
                 "describe() to see it before editing."
             )
-        now = session.editor.snapshot.revision
-        if revision != now:
-            raise StaleRevisionError(
-                f"The drawing changed since you last looked (revision {revision}, "
-                f"now {now}); someone else may have edited it. Call describe() "
-                "and render() to see it as it is, then make this edit again."
-            )
+        session.check_revision({"epoch": epoch, "revision": revision})
 
     def _edit(
+        self,
+        seen: Any,
+        steps: Sequence[Step],
+        label: str | None = None,
+    ) -> Reply:
+        session = self.session
+        with session.lock, self._own_selection() as touched:
+            self._check_seen(seen)
+            revision = session.editor.snapshot.revision
+            stale = seen[1] != revision
+            if stale:
+                self._svg = self._index = None
+                self._renders.clear()
+            try:
+                with session.planning(seen[1]):
+                    reply = self._edit_steps(seen, steps, label)
+                    touched.update(self._touched)
+            except RefusedError as exc:
+                if stale:
+                    # The private plan was rolled back; live state never
+                    # changed, so don't report the plan's revision as live.
+                    raise DocumentError(str(exc)) from None
+                raise
+            finally:
+                if stale:
+                    self._svg = self._index = None
+                    self._renders.clear()
+            reply.data.update(self._where())
+            reply.data["changed"] = session.editor.snapshot.revision != revision
+            if reply.data["changed"]:
+                entry = session.editor.undo_entries[-1]
+                reply.data.update(step=entry.label, edit_id=entry.id)
+            return reply
+
+    def _edit_steps(
         self,
         seen: Any,
         steps: Sequence[Step],
@@ -498,6 +514,7 @@ class Agent:
             revision = editor.snapshot.revision
             since = len(editor.undo_entries)
             editor.label_prefix = AGENT_PREFIX
+            editor.author = "agent"
             try:
                 for step in steps:
                     payload = step() if callable(step) else step
@@ -520,6 +537,7 @@ class Agent:
                 raise
             finally:
                 editor.label_prefix = ""
+                editor.author = "person"
             if label is not None:
                 label = AGENT_PREFIX + label
             editor.squash(since, label)
@@ -533,6 +551,7 @@ class Agent:
             }
             if len(editor.undo_entries) > since:
                 data["step"] = editor.undo_labels[-1]
+                data["edit_id"] = editor.undo_entries[-1].id
             created, removed = sorted(after - before), sorted(before - after)
             if created:
                 data["created"] = created[:200]
@@ -567,6 +586,7 @@ class Agent:
         document = editor.snapshot.document
         since = len(editor.undo_entries)
         touched: set[str] = set()
+        editor.select(Selection())
         try:
             yield touched
             after = editor.snapshot.document
@@ -1313,10 +1333,10 @@ class Agent:
             editor = self.session.editor
 
             def entry(e) -> dict[str, Any]:
-                agent = e.label.startswith(AGENT_PREFIX)
                 return {
+                    "id": e.id,
                     "label": e.label,
-                    "author": "agent" if agent else "person",
+                    "author": e.author,
                     "revision": e.revision,
                 }
 
@@ -1325,7 +1345,7 @@ class Agent:
             return Reply(
                 {
                     **self._where(),
-                    # Newest first, so undo(1) takes back undo[0].
+                    # IDs name exact changes, independent of stack position.
                     "undo": undo[::-1][:limit],
                     "redo": redo[:limit],
                     "undo_total": len(undo),
@@ -2172,39 +2192,39 @@ class Agent:
         reply.data["step"] = "Load reference" if reference else "Remove reference"
         return reply
 
-    def _history(self, seen: Any, command: str, steps: int) -> Reply:
-        if type(steps) is not int or steps < 1:
-            raise DocumentError("steps is a whole number from 1")
-        with self.session.lock, self._own_selection():
+    def _history(self, seen: Any, command: str, ids: list[str]) -> Reply:
+        if (
+            not isinstance(ids, list)
+            or not ids
+            or any(not isinstance(eid, str) for eid in ids)
+            or len(set(ids)) != len(ids)
+        ):
+            raise DocumentError("Give distinct history ids from history()")
+        with self.session.lock:
             self._check_seen(seen)
             editor = self.session.editor
-            stack = editor.undo_labels if command == "undo" else editor.redo_labels
-            if not stack:
-                raise DocumentError(f"Nothing to {command}")
-            revision = editor.snapshot.revision
-            labels = []
-            for _ in range(min(steps, len(stack))):
-                labels.append(
-                    editor.undo_labels[-1]
-                    if command == "undo"
-                    else editor.redo_labels[0]
-                )
-                self.session.action({"command": command, **self._where()})
-            self._settle(revision)
+            stack = editor.undo_entries if command == "undo" else editor.redo_entries
+            labels_by_id = {e.id: e.label for e in stack}
+            before = editor.snapshot.document
+            getattr(editor, command)(ids, preserve_selection=True)
+            after = editor.snapshot.document
+            self._touched = sorted(changed_objects(before, after))[:200]
+            labels = [labels_by_id[eid] for eid in ids]
             return Reply(
                 {
                     **self._where(),
                     "changed": True,
+                    "ids": ids,
                     "undone" if command == "undo" else "redone": labels,
                     "step": f"{command.capitalize()} {labels[0].lower()}",
                 }
             )
 
-    def tool_undo(self, seen: Any, steps: int = 1) -> Reply:
-        return self._history(seen, "undo", steps)
+    def tool_undo(self, seen: Any, ids: list[str]) -> Reply:
+        return self._history(seen, "undo", ids)
 
-    def tool_redo(self, seen: Any, steps: int = 1) -> Reply:
-        return self._history(seen, "redo", steps)
+    def tool_redo(self, seen: Any, ids: list[str]) -> Reply:
+        return self._history(seen, "redo", ids)
 
     # Operations ---------------------------------------------------------
 
@@ -2231,6 +2251,7 @@ class Agent:
             payload: dict[str, Any] = {
                 "command": "start",
                 **self._where(),
+                "revision": seen[1],
                 "action": action,
                 "method": method,
                 "permissions": permissions,
@@ -2410,10 +2431,12 @@ class Agent:
             editor = session.editor
             since = len(editor.undo_entries)
             editor.label_prefix = AGENT_PREFIX
+            editor.author = "agent"
             try:
                 session.operation({"command": "apply", "job": id, "choice": choice})
             finally:
                 editor.label_prefix = ""
+                editor.author = "person"
             touched.update(editor.snapshot.selection.object_ids)
             data: dict[str, Any] = {
                 **self._where(),
@@ -2422,4 +2445,5 @@ class Agent:
             }
             if len(editor.undo_entries) > since:
                 data["step"] = editor.undo_labels[-1]
+                data["edit_id"] = editor.undo_entries[-1].id
             return Reply(data)

@@ -91,6 +91,7 @@ class OperationRequest:
             selection=self.snapshot.selection,
             allowed=self.permissions.allowed,
             base=self.snapshot,
+            rebase=True,
         )
 
 

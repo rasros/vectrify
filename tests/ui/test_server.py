@@ -89,10 +89,15 @@ def test_static_ui_and_session_edit_export_roundtrip(server):
         call(
             server,
             "/api/action",
-            {"command": "undo", "epoch": state["epoch"], "revision": 0},
+            {
+                "command": "undo",
+                "epoch": state["epoch"],
+                "revision": 0,
+                "ids": [result["undo_ids"][-1]],
+            },
             headers,
         )[0]
-        == 409
+        == 200
     )
     status, result = call(
         server,
@@ -103,7 +108,7 @@ def test_static_ui_and_session_edit_export_roundtrip(server):
     assert status == 200
     assert json.loads(result["content"])["vectrify_editor"] == 1
     assert (
-        call(server, "/api/session", {"session": state["session"]})[1]["revision"] == 1
+        call(server, "/api/session", {"session": state["session"]})[1]["revision"] == 2
     )
 
 
@@ -155,7 +160,9 @@ def test_hole_inspection_fill_and_cleanup_follow_session_revision(server):
     assert candidates["enclosed"] == ["inside"]
     action("fill_holes", object="p", holes=holes, delete_objects=["inside"])
     assert state["undo"] == ["Fill holes"]
-    assert call(server, "/api/holes", request, headers)[0] == 409
+    status, current = call(server, "/api/holes", request, headers)
+    assert status == 200
+    assert current["holes"] == []
     action("undo")
     assert {obj["id"] for obj in state["objects"]} >= {"p", "inside"}
 

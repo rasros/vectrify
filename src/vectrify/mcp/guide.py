@@ -2,13 +2,18 @@
 
 _LOOP = """\
 Vectrify edits SVG drawings, usually traced from a reference image. Work in a
-loop: look, make one edit, look again, and undo() an edit that made it worse.
+loop: look, make one edit, look again, and undo(ids=[edit_id]) if it got worse.
 Every edit is one undo step labelled "Agent: ..." in the editor's history and
-one revision. Every edit names its targets: ids are object ids, points are
-[object id, node id] pairs; no tool acts on the current selection. All
-coordinates are document coordinates and regions are [x, y, w, h]. If an
-edit is refused because the drawing changed, describe() again: someone else
-edited it.
+one revision. The person's Undo/Redo only changes their own edits. Use
+history() to get exact IDs for undo(ids=[...]) or redo(ids=[...]); edit
+replies include edit_id. You may restore any author's change, but must name
+it. Conflicting later edits refuse the whole batch. Every edit names its
+targets: ids are object ids, points are [object id, node id] pairs; no tool
+acts on the current selection. All
+coordinates are document coordinates and regions are [x, y, w, h]. Concurrent
+edits merge automatically when independent. A genuine overlap is refused
+without changing anything; inspect the conflicting object before deciding
+on another edit. You do not need to refresh after unrelated changes.
 
 For X use Y:
 - what the person is looking at: view() (their selection, zoom, visible
@@ -111,8 +116,13 @@ for `coords="local"`.
    `pick(x, y, radius)` also gives the drawing's and the reference's mean
    colour there and their difference.
 6. Edit, one change at a time. Each call is one undo step and one revision.
-7. Look again. If it got worse, `undo()`. `history()` lists the steps,
-   newest first, with who made each (person or agent).
+7. Look again. If it got worse, `undo(ids=[edit_id])`. `history()` lists
+   the steps, newest first, with stable `id`, label, author (person or
+   agent), and revision. `redo(ids=[...])` restores exact undone changes.
+   Pass multiple IDs in the order to restore them; the batch is atomic.
+   Unrelated later edits stay. A conflicting change must be undone first.
+   The person's Undo/Redo only restores their own changes; their selection
+   and zoom stay theirs, including when you undo a person's change.
 
 ## Editing
 

@@ -91,12 +91,16 @@ function action(command, data = {}, label = 'Applying edit…') {
     if (command !== 'select') clickCycle = null;
     $('busy-label').textContent = label;
     try {
-      const result = await request('/api/action', {command, ...data, epoch: state.epoch, revision: state.revision});
+      const ids = command === 'undo' ? state.undo_ids?.slice(-1) : command === 'redo' ? state.redo_ids?.slice(0, 1) : undefined;
+      const result = await request('/api/action', {command, ...data, ...(ids ? {ids} : {}), selection: state.selection, epoch: state.epoch, revision: state.revision});
       if (command !== 'select') dirty = true;
       await applyState(result);
       return true;
     } catch (error) {
       toast(error.message, true);
+      // A genuine overlap can be refused. Catch up automatically so the
+      // person can keep editing the live drawing without a manual refresh.
+      try { await applyState(await request('/api/session', {session})); } catch { /* Keep the last state if disconnected. */ }
       // Discard optimistic dragging even when the backend rejects the command.
       if (state?.svg) renderDrawing();
       renderInspector(); drawOverlay();
@@ -224,6 +228,7 @@ async function loadGeometries() {
   const {epoch, revision} = state;
   const result = await request('/api/nodes', {objects: missing, epoch, revision});
   if (state.epoch !== epoch || state.revision !== revision) return;
+  if (result.epoch !== epoch || result.revision !== revision) { schedulePoll(0); return; }
   for (const [id, geometry] of Object.entries(result.geometries)) geometries.set(id, geometry);
 }
 function paintReference(element) {
@@ -636,7 +641,7 @@ function showAgent() {
   $('agent-status').textContent = text;
   button.title = s.enabled ? 'Agents may edit this drawing: the MCP server and how to add it' : 'Allow agents to edit this drawing';
   $('agent-enabled').checked = s.enabled;
-  $('agent-popover-status').textContent = !s.enabled ? 'Turn this on to let an MCP client such as Claude Code look at and edit this drawing. Each edit shows here and is one undo step.' : text + '.';
+  $('agent-popover-status').textContent = !s.enabled ? 'Turn this on to let an MCP client such as Claude Code look at and edit this drawing. Each edit shows here. Undo and redo affect only your own changes.' : text + '.';
   $('agent-setup').hidden = !(s.enabled && s.apps);
   $('agent-mcp').hidden = $('agent-claude-code').hidden = !(s.enabled && s.mcp);
   const apps = s.apps || {};
@@ -2883,7 +2888,7 @@ function jobDialog(prefix, {start, describe, applied, choiceLabel = null}) {
       show('progress').hidden = false; show('meter').removeAttribute('value'); show('status').textContent = 'Working…';
       try {
         if (current.job) { await operation('discard', {job:current.job}); current.job = null; }
-        const job = await operation('start', {epoch:current.epoch, revision:current.revision, ...start()});
+        const job = await operation('start', {epoch:current.epoch, revision:current.revision, selection:current.selection, ...start()});
         if (current !== context) { await operation('discard', {job:job.id}); return; }
         current.job = job.id; show('progress').hidden = false; show('stop').hidden = job.status !== 'running';
         show('close').textContent = 'Cancel & discard';

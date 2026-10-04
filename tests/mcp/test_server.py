@@ -54,8 +54,11 @@ def test_open_look_edit_undo_and_save(tmp_path):
             tools = await client.list_tools()
             schemas = {t.name: t.input_schema for t in tools.tools}
             assert "select" not in schemas
-            for name in ("properties", "transform", "group", "cleanup"):
+            for name in ("properties", "transform", "group", "cleanup", "undo", "redo"):
                 assert "ids" in schemas[name]["required"], name
+            for name in ("undo", "redo"):
+                assert "steps" not in schemas[name]["properties"]
+                assert "validation error" in error(await client.call_tool(name, {}))
 
             painted = data(
                 await client.call_tool(
@@ -104,14 +107,18 @@ def test_open_look_edit_undo_and_save(tmp_path):
             ]
             assert {e["author"] for e in history["undo"]} == {"agent"}
 
-            undone = data(await client.call_tool("undo", {"steps": 2}))
+            undone = data(
+                await client.call_tool(
+                    "undo", {"ids": [e["id"] for e in history["undo"][:2]]}
+                )
+            )
             assert undone["undone"] == ["Agent: Move points", "Agent: Draw path"]
             after = data(await client.call_tool("history", {}))
             assert [e["label"] for e in after["redo"]] == [
                 "Agent: Draw path",
                 "Agent: Move points",
             ]
-            data(await client.call_tool("redo", {}))
+            data(await client.call_tool("redo", {"ids": [after["redo"][0]["id"]]}))
 
             saved = data(await client.call_tool("save", {}))
             assert saved["saved"] == str(drawing)
@@ -134,7 +141,7 @@ def project_text(tmp_path) -> str:
     return (tmp_path / "hills.vectrify").read_text()
 
 
-def test_an_edit_after_someone_else_changed_the_drawing_is_refused(tmp_path):
+def test_an_edit_merges_after_someone_else_changes_another_object(tmp_path):
     drawing = tmp_path / "hills.svg"
     drawing.write_text(SVG)
     from vectrify.mcp.server import Vectrify
@@ -164,14 +171,15 @@ def test_an_edit_after_someone_else_changed_the_drawing_is_refused(tmp_path):
                     "revision": 0,
                 }
             )
-            stale = await client.call_tool(
-                "properties", {"ids": ["sun"], "fill": "red"}
+            merged = data(
+                await client.call_tool("properties", {"ids": ["sun"], "fill": "red"})
             )
-            assert "describe()" in error(stale)
+            assert merged["revision"] == 2
             described = data(await client.call_tool("describe", {}))
             assert "hill" not in [o["id"] for o in described["objects"]]
             history = data(await client.call_tool("history", {}))
-            assert history["undo"][0] == {
+            assert history["undo"][1] == {
+                "id": target_session.editor.undo_entries[0].id,
                 "label": "Delete selection",
                 "author": "person",
                 "revision": 1,
@@ -232,7 +240,8 @@ def test_reference_compare_and_a_cel_trace_applied(tmp_path):
             assert after["mse"] < before["mse"] / 4
 
             # A worse edit, seen in compare, is taken back by undo.
-            data(await client.call_tool("undo", {}))
+            history = data(await client.call_tool("history", {}))
+            data(await client.call_tool("undo", {"ids": [history["undo"][0]["id"]]}))
             assert data(await client.call_tool("compare", {}))["mse"] == before["mse"]
 
             # load_reference() with no path removes it.

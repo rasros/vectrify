@@ -14,7 +14,7 @@ import anyio
 import pytest
 from mcp import Client
 
-from tests.mcp.helpers import data, reference_png
+from tests.mcp.helpers import data, reference_png, restore
 from vectrify.mcp.server import build_server
 from vectrify.ui.agent import EDITS, LEFT_OUT
 from vectrify.ui.session import ACTION_COMMANDS, OPERATION_COMMANDS, Session
@@ -132,13 +132,13 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             await call("delete", ids=["c"])
             await call("load_reference", path=str(picture))
             await call("load_reference")
-            await call("undo")
-            await call("redo")
+            await restore(call)
+            await restore(call, "redo")
             # The operations, on the drawing as it was.
             data(await call("open", path=str(drawing)))
             data(await call("extract", region=[0, 140, 70, 30], ids=["line"]))
             await call("delete", region=[140, 0, 60, 60])
-            data(await call("undo", steps=2))
+            data(await restore(call, count=2))
             # Two lines join at their ends; a segment's two ends delete it.
             joined = data(await call("join", ids=["line", "line2"], reach=10))
             assert joined["joined"] == "line ends"

@@ -7,6 +7,7 @@ import pytest
 from vectrify.document import (
     DocumentError,
     Editor,
+    Element,
     Selection,
     StaleRevisionError,
     import_svg,
@@ -89,15 +90,34 @@ def test_permissions_are_enforced_by_the_transaction():
     assert job.state()["status"] == "failed"
 
 
-def test_edits_made_while_running_make_the_result_stale():
+def test_edits_made_while_running_merge_with_the_result():
     ed = editor()
     job = Job(Recolour(), request(ed, paint=True))
     job.start()
     with ed.transaction("Move") as tx:
         tx.set_attributes("a", {"opacity": "0.5"})
-    with pytest.raises(StaleRevisionError, match="Run the operation again"):
-        job.apply()
-    assert ed.snapshot.document.element("a").get("fill") is None
+    job.apply()
+    assert ed.snapshot.document.element("a").get("fill") == "#ff0000"
+    assert ed.snapshot.document.element("a").get("opacity") == "0.5"
+
+
+def test_proposal_keeps_a_new_selection_made_after_the_job_started():
+    ed = editor()
+    job = Job(Recolour(), request(ed, paint=True))
+    job.start()
+    with ed.transaction("Add", selection=Selection.all()) as tx:
+        tx.insert_object(
+            tx.preview.root.id,
+            Element(
+                "b",
+                "rect",
+                (("width", "5"), ("height", "5")),
+            ),
+        )
+    ed.select(Selection(object_ids=frozenset({"b"})))
+    job.apply()
+    assert ed.snapshot.selection.object_ids == {"b"}
+    assert ed.snapshot.document.element("a").get("fill") == "#ff0000"
 
 
 def test_transaction_over_an_earlier_snapshot_commits_only_if_current():
