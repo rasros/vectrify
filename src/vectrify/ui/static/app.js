@@ -2660,21 +2660,26 @@ function syncNodeSteps() {
     card.classList.toggle('off', !on);
     for (const input of card.querySelectorAll('.two-fields input')) if (input.id !== 'nodes-detail' && input.id !== 'nodes-detail-gain') input.disabled = !on;
   }
+  const customRun = $('nodes-custom-run').checked;
+  for (const id of ['nodes-rounds', 'nodes-workers']) $(id).disabled = !customRun;
+  $('nodes-steps').disabled = !customRun || !steps.shape;
   $('nodes-apply').hidden = true; $('nodes-previews').hidden = true;
 }
 const nodesDialog = jobDialog('nodes', {
   start: () => {
     const steps = nodeSteps();
+    const customRun = $('nodes-custom-run').checked;
     const region = $('nodes-in-view').checked ? viewReport()?.region : null;
     return {action:'improve', method:'nodes', scope:'selection',
       permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify, paint:true},
-      settings:{...steps, tolerance:Number($('nodes-tolerance').value), steps:Number($('nodes-steps').value),
-        movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value),
+      settings:{...steps, tolerance:Number($('nodes-tolerance').value),
+        movement:Number($('nodes-movement').value),
+        ...(customRun ? {steps:Number($('nodes-steps').value), workers:Number($('nodes-workers').value)} : {}),
         detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
         allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
         shared:$('nodes-shared').checked,
         seconds:Number($('nodes-seconds').value), ...(region ? {region} : {})},
-      budget:{steps:Number($('nodes-rounds').value)}};
+      budget:{steps:customRun ? Number($('nodes-rounds').value) : 1}};
   },
   describe: ({changed, metrics}) => {
     if (!changed) return 'No step improved the paths within these settings. They are unchanged.';
@@ -2690,6 +2695,7 @@ const nodesDialog = jobDialog('nodes', {
   applied: 'Paths tidied. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
+$('nodes-custom-run').addEventListener('change', syncNodeSteps);
 for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view', 'nodes-shared']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 // Whether paths, or groups that may hold them, are selected for Tidy.
 const tidyTargets = () => state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag));
@@ -2712,6 +2718,9 @@ async function openTidy() {
   const tolerance = $('nodes-tolerance');
   if (tolerance.value === (reference ? '1' : '3')) tolerance.value = reference ? '3' : '1';
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
+  $('nodes-description').textContent = reference
+    ? 'Clean up paths against the reference. Preview the result before applying.'
+    : 'Simplify paths while keeping their shape. Add a reference to enable snapping and fitting.';
   syncNodeSteps();
   nodesDialog.open(targets ? selectionSummary() : 'The paths painting in view.');
 }
