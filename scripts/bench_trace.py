@@ -347,9 +347,14 @@ def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
 
     document = editor.snapshot.document
     index = HitIndex(document)
+
+    def painted(oid: str) -> float:
+        area = index.area(oid)
+        return float(area.area) if area is not None else 0.0
+
     largest = sorted(
         (e.id for e in document.elements() if e.tag == "path"),
-        key=lambda oid: -(index.area(frozenset({oid})) or 0),
+        key=lambda oid: -painted(oid),
     )[:count]
     before = after = seconds = 0.0
     points_before = points_after = 0
