@@ -105,8 +105,9 @@ function action(command, data = {}, label = 'Applying edit…') {
   });
   return queue;
 }
-function svgElement(id) { return drawing.querySelector(`[data-object-id="${CSS.escape(id)}"]`); }
-function object(id) { return state?.objects.find(item => item.id === id); }
+let svgElements = new Map(), objectsById = new Map();
+function svgElement(id) { return svgElements.get(id); }
+function object(id) { return objectsById.get(id); }
 function oneObject() { return state?.selection.objects.length === 1 ? object(state.selection.objects[0]) : null; }
 function xmlElement(name, attrs = {}) {
   const element = document.createElementNS(NS, name);
@@ -116,9 +117,10 @@ function xmlElement(name, attrs = {}) {
 function renderDrawing() {
   const parsed = new DOMParser().parseFromString(state.svg, 'image/svg+xml');
   const root = document.importNode(parsed.documentElement, true);
+  svgElements = new Map();
   // Isolate drawing IDs from editor controls while keeping local SVG references.
   for (const element of [root, ...root.querySelectorAll('*')]) {
-    if (element.id) { element.dataset.objectId = element.id; element.id = `art-${element.id}`; }
+    if (element.id) { svgElements.set(element.id, element); element.dataset.objectId = element.id; element.id = `art-${element.id}`; }
     for (const attribute of [...element.attributes]) {
       if (attribute.localName === 'href' && attribute.value.startsWith('#')) {
         element.setAttributeNS(attribute.namespaceURI, attribute.name, `#art-${attribute.value.slice(1)}`);
@@ -136,6 +138,7 @@ async function applyState(next) {
   const changed = !state || next.epoch !== state.epoch || next.revision !== state.revision;
   const replaced = !state || next.epoch !== state.epoch;
   state = {...state, ...next};
+  if (changed) objectsById = new Map(state.objects.map(item => [item.id, item]));
   $('filename').textContent = state.name; $('dirty').textContent = dirty ? '•' : '';
   if (next.svg) renderDrawing();
   const [x, y, w, h] = state.bounds;
@@ -149,8 +152,12 @@ async function applyState(next) {
   if (replaced) { focusPoint = null; pointMemory = null; scope = null; fit(); }
   if (changed) { geometries = new Map(); pathHoles.clear(); clickCycle = null; lastPick = null; }
   if (scope && object(scope)?.tag !== 'g') scope = null;
-  renderObjects(); renderInspector();
-  if (level() === 'points') await loadGeometries();
+  // Selection does not change the drawing or the tree's labels and swatches.
+  // Keep its rows: rebuilding them reads every path's paint and forces style
+  // work on large drawings for every click.
+  if (changed || next.svg) renderObjects();
+  else updateObjectSelection();
+  if (level() === 'points') { renderInspector(); await loadGeometries(); }
   renderInspector(); drawOverlay();
 }
 const level = () => TOOL_LEVEL[tool];
@@ -320,9 +327,23 @@ function objectContext(item) {
   else if (clip) role = `Clipped by ${clip.label}`;
   return {source, clip, inClip, role};
 }
+let objectRows = new Map(), treeSelection = new Set();
+function updateObjectSelection() {
+  const selected = new Set(state.selection.objects);
+  for (const id of new Set([...treeSelection, ...selected])) {
+    if (treeSelection.has(id) === selected.has(id)) continue;
+    const row = objectRows.get(id);
+    if (!row) continue;
+    row.classList.toggle('selected', selected.has(id));
+    row.setAttribute('aria-selected', String(selected.has(id)));
+  }
+  treeSelection = selected;
+}
 function renderObjects() {
   const search = $('object-search').value.toLowerCase();
   const fragment = document.createDocumentFragment();
+  objectRows = new Map();
+  treeSelection = new Set(state.selection.objects);
   const contexts = new Map(state.objects.map(item => [item.id, objectContext(item)]));
   const visible = new Set();
   for (const item of state.objects) {
@@ -336,9 +357,9 @@ function renderObjects() {
     const context = contexts.get(item.id);
     count++;
     const row = document.createElement('button'); row.className = 'object-row';
-    row.classList.toggle('selected', state.selection.objects.includes(item.id));
+    row.classList.toggle('selected', treeSelection.has(item.id));
     row.classList.toggle('resource', item.resource); row.setAttribute('role', 'option');
-    row.setAttribute('aria-selected', String(state.selection.objects.includes(item.id)));
+    row.setAttribute('aria-selected', String(treeSelection.has(item.id)));
     row.dataset.object = item.id; row.title = `${item.tag} · ${item.id}`;
     row.style.paddingLeft = `${9 + item.depth * 9}px`;
     const swatch = document.createElement('span'); swatch.className = 'swatch';
@@ -360,6 +381,7 @@ function renderObjects() {
     };
     row.ondblclick = () => { if (!item.resource) later(() => object(item.id) && enterObject(item.id)); };
     row.onpointerdown = event => pressTreeRow(event, item);
+    objectRows.set(item.id, row);
     fragment.append(row);
   }
   $('objects').replaceChildren(fragment, treeDropLine); $('object-count').textContent = count;
