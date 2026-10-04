@@ -976,6 +976,22 @@ def _composite_opaque_fills(
     return painted + backdrop * above_inclusive[0][..., None]
 
 
+def _composite_in_context(alphas: Any, colours: Any, context: tuple[Any, ...]) -> Any:
+    """Apply a common frozen SVG response to a selected painter-order run."""
+    import torch
+
+    base, delta, transmission = context
+    if len(alphas) == 1:
+        rgb = colours[0].clamp(0, 1)
+        paint = torch.cat((rgb, rgb.new_ones(1))) if base.shape[-1] == 4 else rgb
+        return base + alphas[0, ..., None] * (delta + transmission * paint)
+    opacity = 1 - (1 - alphas).prod(dim=0)
+    paint = _composite_opaque_fills(alphas, colours)
+    if base.shape[-1] == 4:
+        paint = torch.cat((paint, opacity[..., None]), dim=-1)
+    return base + opacity[..., None] * delta + transmission * paint
+
+
 @lru_cache(maxsize=1)
 def _compiled_opaque_fill_composite() -> Any:
     """Return the CUDA-fused painter's-order compositing kernel when possible."""
@@ -1040,7 +1056,8 @@ def fit_filled_svg(
     displacement from its seed in working-raster pixels. This limits contour
     drift without restricting fill colours; ``None`` retains the unbounded fit.
     ``fit_context`` supplies the editor's frozen affine compositing response
-    for one selected path (base, black-minus-base, white-minus-black), in
+    for one selected path or a contiguous run of sibling fills
+    (base, black-minus-base, white-minus-black), in
     white-backed RGB or white-backed RGB plus alpha for transparent references.
     In the latter case mean colour error and opacity error have equal weight.
     ``project_controls`` enforces editor coordinate constraints after each Adam
@@ -1227,10 +1244,8 @@ def fit_filled_svg(
     # with the selected path implicitly painted on top of everything.
     context_tensors = None
     if fit_context is not None:
-        if len(entries) != 1 or not monolithic or scale != 1:
-            raise ValueError(
-                "Selected-path context requires one unscaled monolithic path"
-            )
+        if not monolithic or scale != 1:
+            raise ValueError("Selected-path context requires unscaled monolithic paths")
         if any(array.shape != (height, width, channels) for array in fit_context):
             raise ValueError("Selected-path context must match the target raster")
         context_tensors = tuple(
@@ -1757,11 +1772,11 @@ def fit_filled_svg(
                 # Selected-path fitting supplies its own compositing response.
                 # Avoid compiling an unused full-document composite for every
                 # crop size (which can exhaust Torch's recompilation cache).
-                base, delta, transmission = context_tensors
-                rgb = color_storage[0].clamp(0, 1)
-                paint = torch.cat((rgb, rgb.new_ones(1))) if channels == 4 else rgb
-                rendered = base + alpha_stack[0, ..., None] * (
-                    delta + transmission * paint
+                # Sibling layers share clips, group opacity and later artwork.
+                # Keep the gradient through their changing overlaps by
+                # composing premultiplied paint before the common response.
+                rendered = _composite_in_context(
+                    alpha_stack, color_storage, context_tensors
                 )
             else:
                 composite = (
