@@ -1835,6 +1835,8 @@ def _line_paths(
     # region it lies in, summed across the line: its width in that ink.
     widths_by_ink = []
     covers = []
+    # A blurred line's ink spreads a pixel beyond the pixels found as line.
+    measured = binary_dilation(line, np.ones((3, 3))) if grainy else line
     for value in palette:
         away = surface - value
         span = (away * away).sum(-1)
@@ -1844,7 +1846,7 @@ def _line_paths(
         # the picture has, whether or not it was found as a line.
         cover = np.where(span < 30**2, line, np.clip(cover, 0, 1))
         covers.append(cover)
-        cover = cover * line
+        cover = cover * measured
         widths_by_ink.append(
             np.bincount(flat, cover.ravel(), minlength=line.size).reshape(line.shape)
         )

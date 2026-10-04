@@ -538,6 +538,24 @@ def test_a_hairline_in_grain_is_drawn_a_pixel_wide_and_faint():
     assert opacity < 1
 
 
+def test_a_blurred_line_in_grain_keeps_its_width():
+    # Blur spreads a line's ink beyond the pixels found as line; its width
+    # counts the ink there too.
+    from scipy.ndimage import gaussian_filter
+
+    rng = np.random.default_rng(5)
+    pixels = np.full((60, 200, 3), 225.0)
+    pixels[10:16, 10:190] = 0
+    pixels[40:42, 10:190] = 0
+    pixels = gaussian_filter(pixels, (1.2, 1.2, 0))
+    noisy = np.clip(pixels + rng.normal(0, 8, pixels.shape), 0, 255)
+    assert cel.noise_level(noisy.astype(np.float32)) > cel.NOISE
+    svg, _ = cel.vectorize(Image.fromarray(noisy.astype(np.uint8)), regions=1)
+    widths = sorted(float(w) for _, _, w in stroke_paths(svg))
+    assert widths[-1] > 0.9 * 6
+    assert widths[0] > 0.9 * 2
+
+
 def test_strokes_are_grouped_by_width():
     widths = np.array([1.0, 1.1, 1.2, 2.0, 2.2, 4.0, 4.3])
     groups = cel.width_groups(widths, np.ones(7))
