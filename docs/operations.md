@@ -155,7 +155,10 @@ runs (reversed when the neighbour runs it the other way), before the result
 is rendered and judged, so the judging sees no gap or overlap opening. A run
 whose ends are gone is left alone. The neighbours that changed are edited and
 selected too, counted under `followed` in the metrics, and their crossings
-are checked as the selected paths' are.
+are checked as the selected paths' are. With `shared` off, neighbours stay
+unchanged. The shape fit judges the selected path in that frozen surrounding
+artwork, so an edge hidden behind a later path need not move; a better fit
+may change another visible edge instead.
 
 `region` ([x, y, w, h] or a polygon [[x, y], ...] in document units) confines
 a run to an area: it acts on the selected paths, or with nothing selected on
