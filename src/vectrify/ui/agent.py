@@ -2284,19 +2284,34 @@ class Agent:
     def tool_tidy(
         self,
         seen: Any,
-        ids: Any,
+        ids: Any = None,
         settings: Any = None,
         rounds: int | None = None,
+        region: Any = None,
     ) -> Reply:
+        """Tidy the paths *ids*; within *region*, only the points inside it,
+        of *ids* or every unlocked path painting there."""
         from vectrify.operations.methods.nodes import SETTINGS
 
+        if region is None and ids is None:
+            raise DocumentError(
+                "Give ids (paths to tidy), or a region to tidy what is inside it"
+            )
         chosen = {k: v.default for k, v in SETTINGS.items()}
         if isinstance(settings, dict):
             chosen.update(settings)
+        if region is not None:
+            if not isinstance(region, list | tuple):
+                raise DocumentError("region is [x, y, w, h] or a polygon [[x, y], ...]")
+            region_polygon(region)
+            settings = {**(settings if isinstance(settings, dict) else {})}
+            settings["region"] = [
+                list(p) if isinstance(p, list | tuple) else p for p in region
+            ]
         structure = bool((chosen["snap"] and chosen["detail"]) or chosen["simplify"])
         return self._start(
             seen,
-            _targets(ids),
+            _targets(ids) if ids is not None or region is None else [],
             "improve",
             "nodes",
             {"geometry": True, "structure": structure},

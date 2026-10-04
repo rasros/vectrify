@@ -138,6 +138,16 @@ by default).
 `shape` and `snap` need a reference; without one the target is the drawing's
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
 
+`region` ([x, y, w, h] or a polygon [[x, y], ...] in document units) confines
+a run to an area: it acts on the selected paths, or with nothing selected on
+every path, that paint inside it (`HitIndex` areas), leaving out paths whose
+geometry is shared or locked; their points outside the area are frozen like
+pinned ones (Snap and Simplify leave them, the path fit moves only the
+others, as `fit_selected_path` does for selected nodes), and the run is
+judged over the area's bounds widened by `margin`. The transaction selects
+the paths it found. The MCP `tidy` tool takes `region` in place of, or with,
+`ids`.
+
 Every round runs each chosen step on the paths as they stand and renders the
 region. A step is judged where it acted: over the pixels whose colour it
 changed, widened by `BAND` (2) pixels, the share of the squared difference to

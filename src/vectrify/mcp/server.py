@@ -788,14 +788,20 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
     @tool(structured_output=False)
     def tidy(
-        ids: Ids,
+        ids: list[str] | None = None,
         settings: dict[str, Any] | None = None,
         rounds: int | None = None,
+        region: Area | None = None,
     ) -> CallToolResult:
         """Tidy paths as a job: snap to the reference, simplify, fit (steps
         shape, snap, detail, simplify; budget: % simplify may worsen the
-        match, tolerance: px cap; allowance: % any step may; seconds, ...)."""
-        return state.call("tidy", {"ids": ids, "settings": settings, "rounds": rounds})
+        match, tolerance: px cap; allowance: % any step may; seconds, ...).
+        With region ([x, y, w, h] or a polygon) only the points inside it
+        move, of the paths ids or every unlocked one painting there."""
+        return state.call(
+            "tidy",
+            {"ids": ids, "settings": settings, "rounds": rounds, "region": region},
+        )
 
     @tool(structured_output=False)
     def fit_colours(
