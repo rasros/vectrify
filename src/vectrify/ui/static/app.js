@@ -2600,7 +2600,7 @@ const nodesDialog = jobDialog('nodes', {
       settings:{...steps, tolerance:Number($('nodes-tolerance').value), steps:Number($('nodes-steps').value),
         movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value),
         detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
-        allowance:Number($('nodes-allowance').value),
+        allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
         seconds:Number($('nodes-seconds').value)},
       budget:{steps:Number($('nodes-rounds').value)}};
   },
@@ -2617,7 +2617,7 @@ const nodesDialog = jobDialog('nodes', {
   applied: 'Paths tidied. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
-for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 async function openTidy() {
   await queue;
   const reference = Boolean(state.reference);
@@ -2628,6 +2628,10 @@ async function openTidy() {
     if (!reference) $('nodes-'+step).checked = false;
   }
   if (!reference) { $('nodes-detail').checked = false; $('nodes-simplify').checked = true; }
+  // With a reference the error budget decides and the tolerance is a cap;
+  // without one the tolerance decides alone, so its default is tighter.
+  const tolerance = $('nodes-tolerance');
+  if (tolerance.value === (reference ? '1' : '3')) tolerance.value = reference ? '3' : '1';
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
   syncNodeSteps();
   nodesDialog.open(selectionSummary());

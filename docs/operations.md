@@ -124,8 +124,10 @@ unless `contours=True` (used by cleanup) turns it into
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
 no other object shares. Its settings are the steps to use (`snap` and
 `simplify`, on by default, `shape`, off, and `detail` for Snap to add points,
-each of which has to fix `detail_gain` reference pixels), Simplify's
-`tolerance` in reference pixels, each path fit's `steps`, `movement` (SVG
+each of which has to fix `detail_gain` reference pixels), Simplify's error
+`budget` in percent (1 by default) and its `tolerance`, the most it may move
+an outline, in reference pixels (3 by default; without a reference, where
+no budget judges it, 1 unless set), each path fit's `steps`, `movement` (SVG
 units) and `resolution`, `workers` (1 by default), the `gain` in percent of the local
 difference a step must fix (1 by default), the `allowance` in percent by
 which the match where the run acted may be worse than at its start (1 by
@@ -190,7 +192,11 @@ pinned ones.
 - Simplify is `refine.simplify.simplify`: the point whose removal moves the
   outline least goes first, the joined cubic keeping the tangents either side
   with least-squares handle lengths, until any removal would move it more than
-  the tolerance.
+  the tolerance. With a reference the tolerance is a cap and the error budget
+  the knob: of `LADDER` (8) tolerances up to the set one, bisection finds the
+  largest whose result leaves the squared difference over the pixels it
+  changed (widened by `BAND`) at most `budget` worse than before; if none
+  does, only the points whose removal moves nothing go.
 
 The result is applied with `Transaction.reshape_path`, which keeps surviving
 node IDs and refuses to move or remove pinned endpoints.

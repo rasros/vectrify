@@ -361,3 +361,47 @@ def test_a_step_that_makes_the_match_worse_is_not_kept(monkeypatch):
     metrics = job.state()["result"]["metrics"]
     assert metrics["steps"] == ["simplify"]
     assert metrics["after"]["nodes"] == 9
+
+
+def test_simplify_removes_points_only_within_the_error_budget():
+    # A disc drawn with 48 points, matching the reference's disc: removing
+    # points within 3 px takes most of them but bends the outline.
+    angles = np.linspace(0, 2 * np.pi, 48, endpoint=False)
+    points = " L".join(
+        f"{32 + 20 * np.cos(a):.3f} {32 + 20 * np.sin(a):.3f}" for a in angles
+    )
+    disc = Image.new("RGB", (64, 64), "white")
+    ImageDraw.Draw(disc).ellipse((12, 12, 52, 52), fill="black")
+
+    def tidied(**settings):
+        ed = Editor(
+            import_svg(
+                f'<svg width="64" height="64"><path id="p" fill="#000000" '
+                f'd="M{points} Z"/></svg>'
+            ),
+            selection=Selection(object_ids=frozenset({"p"})),
+        )
+        req = OperationRequest(
+            action="improve",
+            method="nodes",
+            snapshot=ed.snapshot,
+            editor=ed,
+            permissions=Permissions(geometry=True, structure=True),
+            settings={
+                "workers": 1,
+                "snap": False,
+                "tolerance": 3.0,
+                "allowance": 100.0,
+                **settings,
+            },
+            budget=Budget(steps=1),
+            reference=disc,
+        )
+        job = Job(method("improve", "nodes"), req)
+        job.run()
+        return job.state()["result"]["metrics"]
+
+    loose, tight = tidied(budget=100.0), tidied(budget=0.5)
+    assert loose["after"]["nodes"] < tight["after"]["nodes"]
+    assert tight["after"]["difference"] <= tight["before"]["difference"] * 1.01
+    assert loose["after"]["difference"] > tight["after"]["difference"]
