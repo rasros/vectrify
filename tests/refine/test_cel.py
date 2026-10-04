@@ -962,3 +962,30 @@ def test_an_opaque_image_with_an_alpha_channel_traces_as_without_one():
     svg, _ = cel.vectorize(cel_image(), regions=3)
     rgba, _ = cel.vectorize(cel_image().convert("RGBA"), regions=3)
     assert rgba == svg
+
+
+def test_a_fill_edge_takes_the_longest_curves_that_follow_it(monkeypatch):
+    # A blob whose edge swells and shrinks three times round: cut where one
+    # cubic stops following it, it takes fewer curves than cut by a
+    # polyline, and strays no further from the pixels.
+    y, x = np.mgrid[0:300, 0:400]
+    angle = np.arctan2(y - 150, x - 200)
+    radius = 110 + 25 * np.sin(3 * angle)
+    labels = (np.hypot(x - 200, y - 150) < radius).astype(np.int32)
+
+    def traced() -> tuple[int, int]:
+        data = cel.region_outlines(labels, 0.75)[1]
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="300">'
+            f'<path d="{data}" fill="#000"/></svg>'
+        )
+        png = cairosvg.svg2png(bytestring=svg.encode())
+        assert png is not None
+        drawn = np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))[..., 3] > 127
+        return len(re.findall("[MLC]", data)), int((drawn != (labels == 1)).sum())
+
+    points, off = traced()
+    monkeypatch.setattr(cel, "FILL_FIT", 0.0)
+    cut_points, cut_off = traced()
+    assert points < cut_points
+    assert off <= cut_off

@@ -161,14 +161,17 @@ FEATURE_LEAST = 12
 # traced run first, in pixels.
 DENSITY = 6
 SMOOTH = 1.0
-# A region boundary is smoothed more than a line before it is fitted, and
-# cut into curves at the points a polyline within this many times the
-# tolerance needs (a line's within half): a fill's edge has only the pixel
-# staircase to lose, where a line's centreline wavers with its ink. The
-# cubics between the cuts are then simplified within the tolerance itself,
-# so cutting this coarsely leaves fewer points without moving the outline.
+# A region boundary is smoothed more than a line before it is fitted: a
+# fill's edge has only the pixel staircase to lose, where a line's
+# centreline wavers with its ink. It is cut into curves between its corners
+# only where one cubic fitted to it strays from it by more than FILL_FIT
+# times the tolerance, so each curve runs as far as one can follow it; the
+# silhouette's outline is cut at the points a polyline within FILL_CUT
+# times the tolerance needs (a line's within half). The cubics between the
+# cuts are then simplified within the tolerance itself.
 FILL_SMOOTH = 2.0
 FILL_CUT = 2.0
+FILL_FIT = 1.0
 # A run turning more than CORNER degrees over CORNER_SPAN points either side
 # has a corner there: each stretch between corners is smoothed on its own
 # and a curve ends at each, so the corner stays sharp.
@@ -802,7 +805,12 @@ def _smoothed(
 
 
 def curve_nodes(
-    points: np.ndarray, tolerance: float, *, smooth: float = SMOOTH, cut: float = 0.5
+    points: np.ndarray,
+    tolerance: float,
+    *,
+    smooth: float = SMOOTH,
+    cut: float = 0.5,
+    fit: float = 0.0,
 ) -> list[tuple[str, tuple[float, ...]]]:
     """The run *points* as curves within *tolerance* pixels, after the start.
 
@@ -811,13 +819,20 @@ def curve_nodes(
     tolerance needs; a cubic fitted to the run between each two follows it,
     so a corner stays sharp. Then it is simplified: each curve goes as far
     as it can without moving the outline more than the tolerance. The ends
-    stay where they are, so runs that meet keep meeting.
+    stay where they are, so runs that meet keep meeting. With *fit*, the run
+    is cut between its corners not by a polyline but where one cubic fitted
+    to it strays more than *fit* of the tolerance (see FILL_FIT).
     """
     closed = len(points) > 3 and np.array_equal(points[0], points[-1])
     points = np.asarray(points, dtype=np.float64)
     corners = run_corners(points, closed) if smooth > 0 else []
     points = _smoothed(points, smooth, closed, corners)
-    kept = simplified_indices(points, tolerance * cut) if len(points) > 2 else [0, 1]
+    if fit and len(points) > 2:
+        kept = _cubic_cuts(points, corners, closed, tolerance * fit)
+    else:
+        kept = (
+            simplified_indices(points, tolerance * cut) if len(points) > 2 else [0, 1]
+        )
     kept = sorted({*kept, *corners})
     if len(kept) <= 2 and len(points) <= 3:
         return [("L", tuple(float(v) for v in points[i])) for i in kept[1:]]
@@ -836,6 +851,53 @@ def curve_nodes(
         tolerance,
     )
     return [(node.command, node.values) for node in geometry.subpaths[0].nodes[1:]]
+
+
+def _cubic_cuts(
+    points: np.ndarray, corners: list[int], closed: bool, tolerance: float
+) -> list[int]:
+    """Where the run *points* is cut so that one cubic follows each piece
+    within *tolerance*: at its ends and *corners*, a closed run without a
+    corner also at the point furthest from its start, and then each piece
+    one cubic does not follow is cut where it strays furthest, and again."""
+    last = len(points) - 1
+    cuts = {0, last, *corners}
+    if closed and not corners:
+        cuts.add(int(np.square(points - points[0]).sum(1).argmax()))
+    pending = list(pairwise(sorted(cuts)))
+    while pending:
+        first, end = pending.pop()
+        if end - first < 4:
+            continue
+        sample = points[first : end + 1]
+        a, b = _fit_cubic(sample, reparameterize=False)
+        # How far each point is from the curve: from where the fit put it
+        # first, and if that is too far, from the nearest of many points on it.
+        gap = np.square(sample - _bezier_points(sample, a, b, len(sample))).sum(1)
+        if gap.max() > tolerance * tolerance:
+            curve = _bezier_points(sample, a, b, min(4 * len(sample), 1200))
+            gap = np.square(sample[:, None, :] - curve[None]).sum(-1).min(1)
+        worst = int(gap.argmax())
+        if gap[worst] <= tolerance * tolerance:
+            continue
+        middle = first + min(max(worst, 2), len(sample) - 3)
+        cuts.add(middle)
+        pending.extend(((first, middle), (middle, end)))
+    return sorted(cuts)
+
+
+def _bezier_points(
+    sample: np.ndarray, a: np.ndarray, b: np.ndarray, count: int
+) -> np.ndarray:
+    """*count* points evenly in parameter along the cubic from the first of
+    *sample* to its last, with controls *a* and *b*."""
+    t = np.linspace(0, 1, count)[:, None]
+    return (
+        (1 - t) ** 3 * sample[0]
+        + 3 * (1 - t) ** 2 * t * a
+        + 3 * (1 - t) * t**2 * b
+        + t**3 * sample[-1]
+    )
 
 
 def _reversed(
@@ -885,7 +947,7 @@ def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
                 ("L", (float(x), float(y))) for x, y in simplify(points, 0)[1:]
             ]
         else:
-            nodes = curve_nodes(points, tolerance, smooth=FILL_SMOOTH, cut=FILL_CUT)
+            nodes = curve_nodes(points, tolerance, smooth=FILL_SMOOTH, fit=FILL_FIT)
         end = (float(points[-1, 0]), float(points[-1, 1]))
         if left >= 0:
             pieces.setdefault(left, []).append((start, nodes))
