@@ -490,6 +490,14 @@ image. By default it snaps their points onto the reference's edges, fits
 their shape and removes the points they do not need, in a few seconds a path; to reshape a path, use Redraw
 outline (R). Tick the steps it may use:
 
+**Keep enclosed group layout** is on by default. For a complete opaque group
+with a nearly symmetric open outline, it aligns the outline's two sides,
+confines its fills to that outline and keeps an opaque base under them so holes
+and transparent seams cannot open. This initial repair takes priority over RGB
+accuracy; reference fitting then improves that repaired layout. Turn it off for
+intentional asymmetry or transparency. It leaves partial selections, pinned or
+locked paths and groups with gradients or clipping alone.
+
 - **Snap to reference** (on by default) moves the points onto the reference's
   nearest edges, and a stroked line's points onto the middle of its ink, its
   stroke width set to the ink's width along it. With **Add detail** it also adds points where the path
@@ -531,8 +539,8 @@ that brings them closest to the reference, if it fixes at least the **Minimum
 improvement** (1% by default) of the difference where it acted: over the
 pixels it changed and a thin band around them, so a small fix on a large
 selection counts as much as on a small one. When none helps, Simplify gets its
-turn. No step is kept that leaves the match where Tidy acted worse than it
-started by more than the **Allowed worsening** (1% by default; 0 never trades
+turn. After any layout repair, no fitting step is kept that leaves the match
+worse than that repaired start by more than the **Allowed worsening** (1% by default; 0 never trades
 the match for fewer points), and the run ends once nothing qualifies, the rounds (1 by default in the dialog) run out
 or the **Time limit** (10 s by default) passes. Each round gives each step a
 share of the time left, and a step that runs out hands back how far it got; a

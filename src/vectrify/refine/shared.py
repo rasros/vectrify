@@ -137,7 +137,11 @@ def links(document: Document, oids, candidates) -> list[Link]:
     for oid, subpath_id, matrix, ring, indices, keys in selected:
         matches: dict[int, tuple[str, str, int, bool]] = {}
         for k in indices:
-            hits = [h for h in owned.get(keys[k], ()) if matrices[h[0]] == matrix]
+            hits = [
+                h
+                for h in owned.get(keys[k], ())
+                if h[0] != oid and matrices[h[0]] == matrix
+            ]
             if len(hits) == 1:
                 matches[k] = hits[0]
         found += _runs(oid, subpath_id, ring, indices, matches, sizes, document)
@@ -245,11 +249,15 @@ def _link(oid, subpath_id, ring, start, end, first, last, document) -> Link:
 
 
 def frozen_points(document: Document, found: list[Link]) -> frozenset[str]:
-    """The selected paths' points the runs *found* end at, and the nodes
+    """Both paths' points the runs *found* end at, and the nodes
     closing a contour onto one of them: no step may move or remove them."""
-    ends = {i for link in found for i in (link.start, link.end)}
+    ends = {
+        i
+        for link in found
+        for i in (link.start, link.end, link.neighbour_start, link.neighbour_end)
+    }
     held = set(ends)
-    for oid in {link.path for link in found}:
+    for oid in {oid for link in found for oid in (link.path, link.neighbour)}:
         for subpath in document.geometry_for(oid).subpaths:
             ring = _ring(subpath)
             closing = ring.segments[0] if ring.closed else None
