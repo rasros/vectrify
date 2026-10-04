@@ -188,18 +188,32 @@ class Document:
         )
 
     def elements(self) -> tuple[Element, ...]:
-        def walk(element):
-            yield element
-            for child in element.children:
-                yield from walk(child)
-
-        return tuple(walk(self.root))
+        return self._element_index()[0]
 
     def element(self, element_id: str) -> Element:
-        for element in self.elements():
-            if element.id == element_id:
-                return element
-        raise DocumentError(f"Unknown object: {element_id}")
+        element = self._element_index()[1].get(element_id)
+        if element is None:
+            raise DocumentError(f"Unknown object: {element_id}")
+        return element
+
+    def _element_index(self):
+        # Selection and node loading look up every path. Keep the immutable
+        # tree's paint order, objects and parents without walking it per lookup.
+        index = self.__dict__.get("_element_lookup")
+        if index is None:
+            elements, by_id, parents = [], {}, {}
+            pending: list[tuple[Element, Element | None]] = [(self.root, None)]
+            while pending:
+                element, parent = pending.pop()
+                elements.append(element)
+                # Preserve the first match even before duplicate-id validation.
+                if element.id not in by_id:
+                    by_id[element.id] = element
+                    parents[element.id] = parent
+                pending.extend((child, element) for child in reversed(element.children))
+            index = tuple(elements), by_id, parents
+            object.__setattr__(self, "_element_lookup", index)
+        return index
 
     def geometry(self, geometry_id: str) -> Geometry:
         geometry = self._index()[0].get(geometry_id)
@@ -238,19 +252,13 @@ class Document:
         raise DocumentError(f"Object {element_id} does not reference a path")
 
     def ancestry(self, element_id: str) -> tuple[Element, ...]:
-        def walk(element, ancestors):
-            if element.id == element_id:
-                return (*ancestors, element)
-            for child in element.children:
-                result = walk(child, (*ancestors, element))
-                if result:
-                    return result
-            return ()
-
-        result = walk(self.root, ())
-        if not result:
-            raise DocumentError(f"Unknown object: {element_id}")
-        return result
+        parents = self._element_index()[2]
+        chain = []
+        element = self.element(element_id)
+        while element is not None:
+            chain.append(element)
+            element = parents[element.id]
+        return tuple(reversed(chain))
 
     def replace_element(self, updated: Element) -> Document:
         self.element(updated.id)
@@ -285,6 +293,8 @@ class Document:
         ids = frozenset(selected)
         if selection.whole_document:
             ids = frozenset(e.id for e in self.elements())
+        if not selection.node_ids:
+            return ids
         available_nodes = set()
         for element_id in ids:
             element = self.element(element_id)

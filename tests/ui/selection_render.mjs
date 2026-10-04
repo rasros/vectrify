@@ -28,6 +28,7 @@ const context = vm.createContext({
   renderInspector: () => counts.inspector++, drawOverlay: () => {},
   fit: () => counts.fit++,
   loadGeometries: async () => counts.loads++,
+  missingGeometries: () => [],
   paintSwatch: swatch => { counts.paint++; swatch.title = 'Paint'; },
   objectContext: () => ({role: ''}),
   later: fn => fn(), pressTreeRow: () => {},

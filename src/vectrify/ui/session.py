@@ -316,9 +316,7 @@ class Session:
         counters: dict[str, int] = {}
         # How many elements draw each geometry: more than one shares it.
         users = Counter(
-            e.geometry_id
-            for e in document.elements()
-            if e.geometry_id is not None
+            e.geometry_id for e in document.elements() if e.geometry_id is not None
         )
         for element in document.elements():
             if element.tag == "svg":
