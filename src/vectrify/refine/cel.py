@@ -18,7 +18,8 @@ fitted in closed form to the image under the lines as drawn, and a region
 whose colour clearly ramps takes a linear gradient. The lines are thinned to
 centrelines, each moved onto the middle of its ink, loose ends too, and
 drawn over the fills as strokes in their ink, one the line is darkened
-toward (a black line on navy is not a grey lighter than the navy): a thin
+toward (a black line on navy is not a grey lighter than the navy), by its
+darkness more than its hue, which blur and JPEG smear: a thin
 line's antialiased middle is a mix of ink and surface, so it is drawn
 darker and thinner than its pixels look,
 though never under 0.8 px wide, solid (in a grainy image a hairline that is
@@ -197,8 +198,13 @@ TIP_LINE = 1.5
 TIP_LEAST = 0.8
 # A thin line's middle mixes its ink with the surface: of the inks that
 # explain its colour within this distance, in 0-255 RGB, of the best, the
-# one covering the least is its ink.
+# one covering the least is its ink. In a grainy image, blur and JPEG keep
+# a thin line's darkness but smear its hue into the surface's, so there the
+# fit counts a colour's lightness, in the channel brightest on the surface
+# (as the lines are found), fully, and its difference from that (its hue)
+# INK_HUE as much; a clean image's lines keep their hue, a brown line's too.
 INK_SLACK = 12.0
+INK_HUE = 0.25
 # A centreline is moved onto the middle of its ink by at most CENTRE_SHIFT
 # pixels, the ink read up to CENTRE_REACH beyond half the line's width.
 CENTRE_SHIFT = 1.0
@@ -1104,9 +1110,16 @@ def line_colours(target: np.ndarray, skeleton: np.ndarray) -> np.ndarray:
     return np.array(merged)
 
 
-def _ink_of(palette: np.ndarray, middle: np.ndarray, surface: np.ndarray) -> int:
+def _ink_of(
+    palette: np.ndarray, middle: np.ndarray, surface: np.ndarray, hue: float = 1.0
+) -> int:
     """Which of the *palette* inks, covering some of the pixel, mixes with
-    *surface* into the colour *middle* down a line."""
+    *surface* into the colour *middle* down a line, its hue counted *hue*
+    times as much as its lightness (see INK_SLACK)."""
+    if hue < 1:
+        lightness = np.eye(3)[int(np.argmax(surface))]
+        weigh = hue * np.eye(3) + (1 - hue) * np.ones((3, 1)) * lightness
+        palette, middle, surface = (c @ weigh.T for c in (palette, middle, surface))
     fits = []
     for index, ink in enumerate(palette):
         away = surface - ink
@@ -1117,7 +1130,8 @@ def _ink_of(palette: np.ndarray, middle: np.ndarray, surface: np.ndarray) -> int
         cover = float(np.clip(raw, 0.05, 1))
         miss = float(np.linalg.norm(surface - cover * away - middle))
         fits.append((miss, cover, index, raw > 0))
-    if not fits:
+    if not fits or (hue < 1 and not any(f[3] for f in fits)):
+        # Darkened toward none of them, in grain: the ink nearest its colour.
         return int(np.square(palette - middle).sum(1).argmin())
     least = min(f[0] for f in fits)
     # Of the inks that explain it about as well, the one covering least: a
@@ -1954,6 +1968,7 @@ def _line_paths(
             palette,
             np.median(target[ys, xs], axis=0),
             np.median(surface[ys, xs], axis=0),
+            INK_HUE if grainy else 1.0,
         )
         return index, widths_by_ink[index][ys[inner], xs[inner]]
 
