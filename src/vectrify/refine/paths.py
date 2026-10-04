@@ -1042,6 +1042,7 @@ def fit_filled_svg(
     ``fit_context`` supplies the editor's frozen affine compositing response
     for one selected path (base, black-minus-base, white-minus-black), in
     white-backed RGB or white-backed RGB plus alpha for transparent references.
+    In the latter case mean colour error and opacity error have equal weight.
     ``project_controls`` enforces editor coordinate constraints after each Adam
     update; ``observe`` reports/retains candidates and returns False to stop.
     These optional hooks leave the automatic path-fit mutation unchanged.
@@ -1773,7 +1774,12 @@ def fit_filled_svg(
                     if under is None
                     else _composite_opaque_fills(alpha_stack, color_storage, under)
                 )
-            loss = ((rendered - goal) ** 2).mean()
+            error = (rendered - goal) ** 2
+            loss = (
+                (error[..., :3].sum(-1) + 3 * error[..., 3]).mean() / 6
+                if channels == 4
+                else error.mean()
+            )
             loss = loss + xing_weight * _xing_loss(all_controls)
             loss.backward()
             point_optimizer.step()

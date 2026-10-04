@@ -325,6 +325,12 @@ def test_white_paint_and_a_transparent_gap_have_different_tidy_scores():
     assert best.difference == 0
     assert nodes_method._Scored.of(spill, region).difference > 0
     assert nodes_method._Scored.of(gap, region).difference > 0
+    wrong_colour = correct.copy()
+    wrong_colour[15:25, 15:25, :3] = 0
+    # A transparent hole in opaque white is as wrong as black paint there.
+    assert nodes_method._Scored.of(gap, region).difference == pytest.approx(
+        nodes_method._Scored.of(wrong_colour, region).difference
+    )
 
 
 @pytest.mark.parametrize("amount", [-2, 2])
@@ -879,3 +885,59 @@ def test_without_pytorch_the_default_tidy_runs_without_the_fit(monkeypatch):
     assert "shape" not in metrics["steps"]
     with pytest.raises(DocumentError, match="PyTorch"):
         nodes.validate(request(editor("p")))
+
+
+def test_fitting_reclaims_time_unused_by_simplify(monkeypatch):
+    document = editor("p").snapshot.document
+    region = Region(0, 0, 64, 64, reference())
+    task = nodes_method._Task(
+        document, region, {}, ("p",), reference(), deadline=10, share=3
+    )
+    now = [0.0]
+    calls = []
+    monkeypatch.setattr(nodes_method.time, "monotonic", lambda: now[0])
+
+    def step(name, given, _stop, _report):
+        assert given.document == document
+        calls.append((name, given.share))
+        now[0] += 0.2
+        return document, np.asarray(region.image), {}
+
+    monkeypatch.setattr(nodes_method, "_run_step", step)
+    result = nodes_method._round(["shape", "simplify"], task, None, None, None)
+    assert calls == [("simplify", 3), ("shape", 9.55)]
+    # Candidate priority stays identical to the parallel execution order.
+    assert list(result) == ["shape", "simplify"]
+
+
+def test_straightening_cannot_discard_a_better_fitted_curve(monkeypatch):
+    from vectrify.refine import selected, simplify
+
+    document = editor("p").snapshot.document
+    original = document.geometry_for("p")
+    expected = moved(document, lambda v: tuple(x + 2 for x in v))
+    region = Region(0, 0, 64, 64, reference())
+    target = Image.fromarray(nodes_method._pixels(expected, region))
+
+    def fitting(current, _selection, *_args, **_kwargs):
+        return SimpleNamespace(
+            values={
+                n.id: tuple(v + 2 for v in n.values)
+                for s in current.geometry_for("p").subpaths
+                for n in s.nodes
+            }
+        )
+
+    monkeypatch.setattr(selected, "fit_selected_path", fitting)
+    monkeypatch.setattr(simplify, "straightened", lambda *_args: original)
+    task = nodes_method._Task(
+        document,
+        replace(region, image=target),
+        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        ("p",),
+        target,
+    )
+    after, skipped = nodes_method._fit(task, None, None)
+    assert not skipped
+    assert np.array_equal(nodes_method._pixels(after, region), np.asarray(target))
+    assert after.geometry_for("p") != original

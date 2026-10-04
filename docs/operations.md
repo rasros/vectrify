@@ -211,7 +211,9 @@ worker, Snap and Simplify run in spawned processes while the path fit runs in
 the job's thread, so only one fit runs at a time.
 
 Scoring reads Cairo's pixels directly, including opacity for transparent
-references so white paint and transparency are distinct. It reuses compiled
+references so white paint and transparency are distinct. Average RGB error
+and opacity error have equal weight. The CPU fill renderer integrates 4 × 4
+subpixels so thin regions are not artificially widened. It reuses compiled
 unchanged paths within the operation. Paint servers, clips and markers retain
 CairoSVG's ordinary handling. Simplify reuses the original join costs across its budget
 search and judges identical candidates once. These shortcuts keep the same
@@ -219,13 +221,13 @@ pixel error and outline tolerance checks. The native CUDA fill renderer
 partitions larger crops across GPU blocks while retaining analytic cubic
 coverage; parallel gradient sums can differ slightly in float32 rounding.
 
-The time limit is checked before each round, and each step of a round may
-take the time left divided by one more than the number of steps, from when it
-starts, the last share left for rendering and judging the results: the
-path fit treats that as a stop, Snap stops its passes and Add detail's tries
-there, each handing back how far it got. When the time is up the run ends
-with the best result so far, as on Stop, and the metrics say `out_of_time`
-along with the `seconds` it took.
+The time limit is checked before each round. Non-gradient steps receive a
+share of the remaining time. With one worker they run before fitting, which
+then reclaims unused time and shares it among the remaining paths. With
+multiple workers they run alongside fitting. Every candidate starts from
+the same drawing, with the same priority when judged. The fit leaves a short
+interval for final scoring. When the time is up the run keeps its best result,
+as on Stop, and reports `out_of_time` and `seconds`.
 
 The steps are separate functions over `refine.frozen.Paths` (each selected
 path's `Geometry`), which leave `refine.frozen.Frozen` endpoints alone: the

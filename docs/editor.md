@@ -509,8 +509,9 @@ removes the points they do not need; to reshape a path, use Redraw outline
   whose handles lie on their line within that into straight segments.
   Without a reference the tolerance alone decides, 1 by default.
 
-Transparent references are scored using both colour over white and opacity,
-so opaque white areas and transparent gaps are distinguished. Each fitted
+Transparent references give average colour error over white and opacity
+error equal weight, so opaque white areas and transparent gaps are
+distinguished. Each fitted
 path is judged in the current surrounding artwork before fitting the next.
 
 Where a selected path shares an edge with a neighbour, as the regions of a

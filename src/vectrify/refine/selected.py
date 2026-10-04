@@ -627,9 +627,11 @@ def fit_selected_path(
     )
 
     def score(image):
-        return float(
-            np.mean((context.array(image) - context.array(context.target)) ** 2)
-        )
+        error = (context.array(image) - context.array(context.target)) ** 2
+        if context.alpha:
+            # Mean RGB error and opacity error each contribute half the score.
+            return float(np.mean((error[:, :, :3].sum(-1) + 3 * error[:, :, 3]) / 6))
+        return float(np.mean(error))
 
     before = best = checked = score(context.before_image)
     best_values, best_fill, best_image = {}, None, context.before_image
