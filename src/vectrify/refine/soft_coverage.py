@@ -1,4 +1,4 @@
-"""Differentiable coverage of closed cubic contours in plain PyTorch.
+"""Differentiable cubic fill and round-stroke coverage in plain PyTorch.
 
 The native CUDA kernel is exact; the sampled-winding fallback has almost no
 gradient because winding is piecewise constant. This renderer works on any
@@ -149,12 +149,33 @@ def _sample_coverage(contours, box, *, fill_rule, chord):
     return (0.5 + sign * nearest.reshape(height, width)).clamp(0, 1)
 
 
-def soft_stroke_coverage(contours: list[Any], box, width: float) -> Any:
+def soft_stroke_coverage(
+    contours: list[Any], box, width: float, *, subpixels: int = 4
+) -> Any:
     """Differentiable round-cap, round-join strokes, including open contours.
 
     Only pixels near the centreline are evaluated, as for soft fill coverage.
-    Unlike a fill, a stroke never implicitly closes an open contour.
+    Unlike a fill, a stroke never implicitly closes an open contour. Integrating
+    subpixels keeps thin diagonal strokes from changing width with orientation.
     """
+    import torch
+
+    if type(subpixels) is not int or subpixels < 1:
+        raise ValueError("Subpixel count must be a positive integer")
+    if subpixels == 1:
+        return _sample_stroke_coverage(contours, box, width, CHORD)
+    samples = _sample_stroke_coverage(
+        [control * subpixels for control in contours],
+        tuple(value * subpixels for value in box),
+        width * subpixels,
+        CHORD * subpixels,
+    )
+    return torch.nn.functional.avg_pool2d(samples[None, None], subpixels, subpixels)[
+        0, 0
+    ]
+
+
+def _sample_stroke_coverage(contours, box, width, chord):
     import torch
 
     left, top, right, bottom = box
@@ -162,7 +183,7 @@ def soft_stroke_coverage(contours: list[Any], box, width: float) -> Any:
     reference = contours[0]
     starts, ends = [], []
     for control in contours:
-        points = torch.cat((_polyline(control, CHORD), control[-1:, 3]))
+        points = torch.cat((_polyline(control, chord), control[-1:, 3]))
         points = points - points.new_tensor((left, top))
         starts.append(points[:-1])
         ends.append(points[1:])

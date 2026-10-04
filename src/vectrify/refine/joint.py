@@ -1,6 +1,6 @@
-"""Joint refinement of contiguous selected fills in their frozen SVG context.
+"""Joint refinement of selected fills and round strokes in their SVG context.
 
-A run of sibling fills is composited as one premultiplied layer before its
+A run of sibling paths is composited as one premultiplied layer before its
 common clipping, opacity and surrounding artwork. Optimizing their changing
 overlaps together avoids treating the adjacent selected paths as fixed paint.
 """
@@ -33,7 +33,7 @@ from vectrify.refine.shared import Link, follow
 from vectrify.refine.simplify import curved
 from vectrify.svg_render import render_image
 
-# Bound the full coverage stack, independent of path count and comparison size.
+# Bound the coverage stack and the extra subpixel stroke canvases.
 # Larger selections continue through the individual fitter.
 MAX_COVERAGE_PIXELS = 16 * 1024 * 1024
 
@@ -51,8 +51,10 @@ def _groups(document: Document, oids, options: FitOptions):
         a, b, c, d, _e, _f = root_matrix(document, oid)
         if (
             abs(a * d - b * c) >= 1e-12
-            and style["fill"] != "none"
-            and style["stroke"] == "none"
+            and (
+                (style["fill"] != "none" and style["stroke"] == "none")
+                or (style["fill"] == "none" and style["stroke"] != "none")
+            )
             and not ancestry[-1].get("clip-path")
             and not any(a.get("filter") or a.get("mask") for a in ancestry)
         ):
@@ -77,12 +79,24 @@ def _context(document: Document, oids, target, options: FitOptions):
     points = []
     for oid in oids:
         matrix = root_matrix(document, oid)
-        for sub in document.geometry_for(oid).subpaths:
-            for node in sub.nodes:
-                for point in zip(node.values[::2], node.values[1::2], strict=True):
-                    points.append(
-                        mapped_point(mapped_point(point, matrix), first_inverse)
-                    )
+        local_points = np.array(
+            [
+                mapped_point(mapped_point(point, matrix), first_inverse)
+                for sub in document.geometry_for(oid).subpaths
+                for node in sub.nodes
+                for point in zip(node.values[::2], node.values[1::2], strict=True)
+            ]
+        )
+        if not len(local_points):
+            raise DocumentError("This path contains an empty contour")
+        points.extend(local_points)
+        style = path_style(document, document.element(oid))
+        if style["stroke"] != "none":
+            a, b, c, d, _e, _f = matrix
+            ia, ib, ic, id_, _ie, _if = first_inverse
+            relative = np.array([[ia, ic], [ib, id_]]) @ np.array([[a, c], [b, d]])
+            radius = float(style["stroke-width"]) / 2 * np.linalg.norm(relative, ord=2)
+            points.extend((local_points.min(0) - radius, local_points.max(0) + radius))
     points = np.asarray(points)
     left, top = points.min(0)
     right, bottom = points.max(0)
@@ -136,6 +150,16 @@ class _Coordinates:
         )
         self.original = torch.tensor(self.local, dtype=torch.float32, device=device)
         a, b, c, d, e, f = root_matrix(document, oid)
+        style = path_style(document, document.element(oid))
+        self.stroke_only = style["fill"] == "none"
+        self.stroke_width = 0.0
+        if self.stroke_only:
+            singular = np.linalg.svd(
+                np.array([[a, c], [b, d]]) * context.scale[:, None], compute_uv=False
+            )
+            if abs(singular[0] / singular[1] - 1) > 0.02:
+                raise DocumentError("Round stroke fitting requires a uniform scale")
+            self.stroke_width = float(style["stroke-width"]) * float(singular.mean())
         linear = self.original.new_tensor([[a, c], [b, d]])
         mask = []
         for node in self.nodes:
@@ -153,6 +177,7 @@ class _Coordinates:
             self.original.new_tensor(context.scale),
             self.original.new_tensor(mask)[:, None],
             options.displacement,
+            stroke_only=self.stroke_only,
         )
 
     def geometry_at(self, local):
@@ -211,7 +236,7 @@ def polish(
     stop: Event | None = None,
     progress=None,
 ) -> Document:
-    """Refine compatible sibling fills, keeping only exact-render improvements.
+    """Refine compatible sibling paths, keeping only exact-render improvements.
 
     Pinned/held endpoints, point IDs, paint and movement bounds are preserved.
     Unsupported runs retain their individual fit. The common probe is never
@@ -220,7 +245,26 @@ def polish(
     if not (options.nodes or options.handles) or options.displacement == 0:
         return document
     stop = stop or Event()
-    groups = _groups(document, oids, options)
+    groups = []
+    for group in _groups(document, oids, options):
+        # Preserve the useful fill-only refinement before letting outlines
+        # move with it. Changing the group must not discard that candidate.
+        if any(
+            path_style(document, document.element(oid))["fill"] == "none"
+            for oid in group
+        ):
+            run = []
+            for oid in (*group, None):
+                if (
+                    oid is not None
+                    and path_style(document, document.element(oid))["fill"] != "none"
+                ):
+                    run.append(oid)
+                else:
+                    if len(run) > 1:
+                        groups.append(tuple(run))
+                    run = []
+        groups.append(group)
     for index, group in enumerate(groups):
         if stop.is_set():
             break
@@ -252,12 +296,15 @@ def _polish_group(
         context = _context(prepared, group, target, options)
     except DocumentError:
         return document
-    if len(group) * context.size[0] * context.size[1] > MAX_COVERAGE_PIXELS:
+    canvases = len(group) + 16 * sum(
+        path_style(prepared, prepared.element(oid))["fill"] == "none" for oid in group
+    )
+    if canvases * context.size[0] * context.size[1] > MAX_COVERAGE_PIXELS:
         return document
     if within.is_set():
         return document
     if progress:
-        progress(0, f"Refining {len(group)} adjacent fills together…")
+        progress(0, f"Refining {len(group)} adjacent paths together…")
     coordinates = [
         _Coordinates(prepared, oid, context, options, held, fit_device())
         for oid in group
@@ -266,8 +313,9 @@ def _polish_group(
     opacity = []
     for p in coordinates:
         style = path_style(prepared, prepared.element(p.oid))
-        paint = "#" + "".join(f"{round(v * 255):02x}" for v in color(style["fill"])[:3])
-        opacity.append(float(style["fill-opacity"]) * float(style["opacity"]))
+        kind = "stroke" if p.stroke_only else "fill"
+        paint = "#" + "".join(f"{round(v * 255):02x}" for v in color(style[kind])[:3])
+        opacity.append(float(style[kind + "-opacity"]) * float(style["opacity"]))
         ET.SubElement(
             work,
             "path",
@@ -321,6 +369,31 @@ def _polish_group(
             ):
                 dest.copy_(source)
 
+    # A narrow stroke can lie wholly within the wrong pixel. Its exact-area
+    # gradient then has no indication which way its ink belongs. Compare
+    # nearby pixels together first, then refine at the original resolution.
+    coarse_steps = (
+        min(10, options.steps // 2) if any(p.stroke_only for p in coordinates) else 0
+    )
+    blurred_target = None
+
+    def blur(image):
+        return torch.nn.functional.avg_pool2d(
+            image.permute(2, 0, 1)[None],
+            3,
+            stride=1,
+            padding=1,
+            count_include_pad=False,
+        )[0].permute(1, 2, 0)
+
+    def loss_transform(image, target_image, step):
+        nonlocal blurred_target
+        if step >= coarse_steps:
+            return image, target_image
+        if blurred_target is None:
+            blurred_target = blur(target_image)
+        return blur(image), blurred_target
+
     last_score = best_score
 
     def observe(step, paths, _colours):
@@ -355,12 +428,24 @@ def _polish_group(
                     best, best_score = current, actual
                 change = (last_score - best_score) / max(last_score, 1e-12)
                 last_score = best_score
-                if options.stall and change < options.stall:
+                if options.stall and step > coarse_steps and change < options.stall:
                     return False
         return not within.is_set()
 
-    def coverage(_paths, alphas):
-        return alphas * alphas.new_tensor(opacity)[:, None, None]
+    def coverage(paths, alphas):
+        from vectrify.refine.soft_coverage import soft_stroke_coverage
+
+        painted = []
+        for p, path, alpha, strength in zip(
+            coordinates, paths, alphas, opacity, strict=True
+        ):
+            if p.stroke_only:
+                forward = [c[:n] for c, n in zip(path, p.mapping.counts, strict=True)]
+                alpha = soft_stroke_coverage(
+                    forward, (0, 0, *context.size), p.stroke_width
+                )
+            painted.append(alpha * strength)
+        return torch.stack(painted)
 
     try:
         fit_filled_svg(
@@ -375,6 +460,7 @@ def _polish_group(
             project_controls=project,
             observe=observe,
             coverage_transform=coverage,
+            loss_transform=loss_transform if coarse_steps else None,
             device=fit_device(),
         )
     except DocumentError:
