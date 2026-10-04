@@ -29,6 +29,25 @@ def available() -> bool:
     return importlib.util.find_spec("webview") is not None
 
 
+def _fix_qt_permissions(window: Any) -> None:
+    """Convert pywebview's integer permission policies for PyQt6."""
+    qt = window.gui
+    if not (getattr(qt, "PYQT6", False) and getattr(qt, "is_webengine", False)):
+        return
+
+    # pywebview 6.2.1 passes 1/2 from its feature permission handler, but
+    # PyQt6 requires PermissionPolicy enums. Keep the backend's decisions
+    # intact and only adapt the argument at the Qt boundary.
+    def set_feature_permission(
+        page: Any, origin: Any, feature: Any, policy: Any
+    ) -> None:
+        qt.QWebPage.setFeaturePermission(
+            page, origin, feature, qt.QWebPage.PermissionPolicy(policy)
+        )
+
+    qt.BrowserView.WebPage.setFeaturePermission = set_feature_permission
+
+
 class Api:
     """What the page may call: ``window.pywebview.api.<method>``.
 
@@ -110,6 +129,9 @@ def run(backend: Backend) -> None:
         height=900,
         min_size=(960, 640),
     )
+    # This synchronous event runs after the backend is selected and before
+    # its event loop handles page permission requests.
+    api._window.events.before_show += _fix_qt_permissions
     api._start_pushing(api._window.run_js)
     # pywebview tries GTK first on Linux and prints a traceback when its Python
     # bindings are missing, as they are in a virtualenv; the extra installs Qt.
