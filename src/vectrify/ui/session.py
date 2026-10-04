@@ -156,18 +156,10 @@ class Session:
     def operation(self, payload: dict) -> dict:
         """Start, poll, stop, apply or discard one automated operation."""
         command = payload.get("command")
-        if command in {"start", "check"}:
+        if command == "start":
             self.check_revision(payload)
             chosen = method(str(payload.get("action")), str(payload.get("method")))
             request = self._request(chosen, payload)
-            if command == "check":
-                # Whether the operation would accept this request, without
-                # running it: the dialog offers only what can run.
-                try:
-                    chosen.validate(request)
-                except DocumentError as exc:
-                    return {"ok": False, "error": str(exc)}
-                return {"ok": True}
             if chosen.background and any(
                 j.method.background and j.status == "running"
                 for j in self.jobs.values()

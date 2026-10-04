@@ -415,9 +415,8 @@ point to the right tool where one fits (an unknown id points to `pick` and
 `tests/mcp/test_coverage.py` reads the commands `Session.action` and
 `Session.operation` handle from the session's source, drives every tool
 through an MCP client, and fails unless each command arrives from some tool
-or is listed in `LEFT_OUT` / `OPERATIONS_LEFT_OUT` (`vectrify/ui/agent.py`)
-with a reason. `select` has no tool of its own; it arrives as the first step
-of every targeted tool. Left out:
+or is listed in `LEFT_OUT` (`vectrify/ui/agent.py`) with a reason. `select`
+has no tool of its own; it arrives as the first step of every targeted tool. Left out:
 
 - `open`: an agent opens a file as its own headless target; it never
   replaces the drawing in the person's window.
@@ -425,8 +424,6 @@ of every targeted tool. Left out:
   one point or many.
 - `to_front`, `to_back`: internal names `reorder` (`arrange(to=...)`) is
   rewritten to.
-- operation `check`: the dialog's probe; the agent starts the job and reads
-  the refusal instead.
 
 Not exposed either: `improve/path-fit` (no dialog in the editor uses it),
 setting a gradient fill directly (the session's paint takes colours only;
