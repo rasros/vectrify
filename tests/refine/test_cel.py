@@ -278,6 +278,27 @@ def test_a_line_is_cut_where_its_width_steps():
     assert cel.width_pieces(widths, 8) == [(0, 59)]
 
 
+def test_pieces_of_a_line_drawn_at_one_width_are_one_stroke_again():
+    # Long two-pixel lines, and one that thickens to three pixels for a
+    # short stretch: it is cut there, but the stretch is too little to keep
+    # a width of its own, so both pieces are drawn in one path at one width
+    # and are fitted as one run.
+    pixels = np.full((200, 240, 3), 255, dtype=np.uint8)
+    for y in (20, 60, 100, 140):
+        pixels[y : y + 2, 20:220] = 0
+    pixels[180:182, 20:220] = 0
+    pixels[180:183, 190:215] = 0
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
+    strokes = stroke_paths(svg)
+    assert len(strokes) == 1
+    lines = strokes[0][0].split("M")[1:]
+    assert len(lines) == 5
+    # The stepping line runs smoothly down its middle, with no hook back to
+    # a pixel centre where its pieces met.
+    stepping = [float(v) for v in re.findall(r"[-\d.]+", lines[-1])[1::2]]
+    assert all(180.7 < y < 181.8 for y in stepping[1:-1])
+
+
 def test_a_tapering_line_stays_a_stroke():
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
     # Two pixels wide, then five.
