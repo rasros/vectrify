@@ -59,11 +59,28 @@ An exception aborts the transaction. A rejected command poisons the transaction
 so catching the exception cannot accidentally commit an earlier partial edit.
 Explicit `abort()` discards a preview; no-op transactions create no history.
 
-A transaction cannot commit after any document edit, lock/pin change, undo, or
-redo. Revisions increase monotonically even when undo restores identical
-content. Changing UI selection does not change the document revision or
-retarget an existing transaction. A new edit after undo discards the redo
-branch. Undo/redo applies within one editor session.
+Transactions are strict by default: they cannot commit after another revision.
+With `rebase=True` (used by operation proposals), commit merges the transaction's
+field changes into the current document. UI and MCP commands from older revisions
+are planned privately on their starting document, then merged as one edit. Edits
+of independent objects, properties, or nodes can therefore complete together.
+Overlaps and changes to applicable locks, pins, shared consumers, or coordinate
+frames reject the edit atomically. Recent document versions are retained for
+planning; reads use live state. The UI sends its captured selection and exact
+manual undo/redo IDs, and catches up automatically after a conflict.
+
+Revisions increase monotonically even when undo restores identical content.
+Changing UI selection does not change the document revision or
+retarget an existing transaction. A new edit after undo discards only that
+author's redo branch. Undo/redo applies within one editor session. Each history
+entry has a stable `id` and explicit `author` (`person` or `agent`). The UI
+undoes/redoes only `person` entries. MCP must name exact IDs and can restore
+either author's entries.
+Restoration applies the entry's field changes to the current document, keeping
+unrelated later paint, geometry, and object edits. Conflicting edits or missing
+IDs reject the entire batch without changing document, selection, stacks, or
+revision. MCP history restoration preserves the current selection, dropping
+only identities that cease to exist. A batch advances the revision once.
 
 Operations cannot unlock objects: `Editor.set_locks` and `Editor.pin_node` are
 separate explicit user commands with their own undo history. Properties,

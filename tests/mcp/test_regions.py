@@ -12,7 +12,7 @@ import numpy as np
 from mcp import Client
 from PIL import Image
 
-from tests.mcp.helpers import data, error, images
+from tests.mcp.helpers import data, error, images, restore
 from vectrify.mcp.server import Vectrify, build_server
 from vectrify.mcp.target import FileTarget
 
@@ -163,15 +163,15 @@ def test_extract_takes_a_region_out_cutting_strokes_across_it(tmp_path):
         assert ids == ["face", "ink", new]
         assert described["objects"][2]["paint"]["stroke"] == "#111111"
         # Without cutting only whole contours go.
-        data(await call("undo"))
+        data(await restore(call))
         whole = data(await call("extract", region=EYE, cut=False))
         assert whole["extracted"][0]["contours"] == 1
-        data(await call("undo"))
+        data(await restore(call))
         # A region may be a polygon.
         triangle = [[40, 70], [140, 70], [90, 140]]
         inside = data(await call("extract", region=triangle, ids=["ink"], cut=False))
         assert inside["extracted"][0]["contours"] == 1
-        data(await call("undo"))
+        data(await restore(call))
         # A fill crossing the edge is split along it when named.
         split = data(await call("extract", region=[100, 100, 50, 100], ids=["blob"]))
         (blob,) = split["extracted"]
@@ -284,7 +284,7 @@ def test_each_call_is_one_revision_and_new_paths_go_where_they_are_drawn(tmp_pat
         assert drawn["bounds"] == [75, 98, 10, 6]
         painted = data(await call("properties", ids=[pupil], fill="#123456"))
         assert painted["revision"] == start + 2
-        undone = data(await call("undo", steps=2))
+        undone = data(await restore(call, count=2))
         assert undone["revision"] == start + 3
         # Nothing under it: the top level, in front.
         alone = data(await call("add_path", d="M0 0 L1 0 L1 1 Z"))
@@ -387,7 +387,7 @@ def test_region_tools_cut_shapes_into_paths_keeping_their_paint(tmp_path):
         assert bounds(data(await call("points", id=piece["path"]))) == [
             [40, 10, 30, 40]
         ]
-        data(await call("undo"))
+        data(await restore(call))
         assert objects(data(await call("describe")))["card"]["tag"] == "rect"
 
         # A stroked line crossing the region's edge, found by what it paints.
@@ -402,7 +402,7 @@ def test_region_tools_cut_shapes_into_paths_keeping_their_paint(tmp_path):
         # A line fills nothing, as a path neither.
         assert shown["rule"]["paint"]["fill"] == "none"
         assert shown["rule"]["paint"]["stroke"] == "#333333"
-        data(await call("undo"))
+        data(await restore(call))
 
         # A shape wholly inside is not cut, so stays as it is; deleting in the
         # region deletes it.
@@ -435,7 +435,7 @@ def test_an_instance_is_cut_only_when_detached_and_pieces_can_be_grouped(tmp_pat
             [100, 150, 10, 20]
         ]
         assert bounds(data(await call("points", id="stamp"))) == [[110, 150, 10, 20]]
-        data(await call("undo"))
+        data(await restore(call))
         assert objects(data(await call("describe")))["stamp"]["tag"] == "use"
 
         # Two paths' pieces into one new group, as one undo step.
@@ -459,7 +459,7 @@ def test_an_instance_is_cut_only_when_detached_and_pieces_can_be_grouped(tmp_pat
         ] == ["left", "right", group]
         assert bounds(data(await call("points", id=pieces[0]))) == [[25, 150, 15, 30]]
         assert bounds(data(await call("points", id=pieces[1]))) == [[50, 150, 15, 30]]
-        data(await call("undo"))
+        data(await restore(call))
         assert bounds(data(await call("points", id="left"))) == [[10, 150, 30, 30]]
         assert [
             o["id"] for o in data(await call("describe", within="pair"))["objects"]

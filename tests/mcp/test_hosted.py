@@ -272,14 +272,14 @@ def test_each_client_must_look_for_itself():
             data(await a.call_tool("properties", {"ids": ["sun"], "fill": "#0f0"}))
             fresh = await c.call_tool("properties", {"ids": ["sun"], "fill": "#00f"})
             assert "describe() first" in error(fresh)
-            # B looked before A's edit: it must look again.
+            # B looked before A's edit: overlapping paint is refused.
             stale = await b.call_tool("properties", {"ids": ["sun"], "fill": "#f00"})
-            assert "changed since you last looked" in error(stale)
+            assert "conflicts" in error(stale)
             data(await b.call_tool("describe", {}))
             data(await b.call_tool("properties", {"ids": ["sun"], "fill": "#f00"}))
-            # Now A is behind.
-            behind = await a.call_tool("transform", {"ids": ["sun"], "dx": 1})
-            assert "changed since you last looked" in error(behind)
+            # A is behind, but its move is independent of B's paint.
+            moved = data(await a.call_tool("transform", {"ids": ["sun"], "dx": 1}))
+            assert moved["changed"]
 
     try:
         anyio.run(run)
@@ -288,6 +288,7 @@ def test_each_client_must_look_for_itself():
             assert session.editor.undo_labels == (
                 "Agent: Change paint",
                 "Agent: Change paint",
+                "Agent: Move selection",
             )
     finally:
         backend.agents.close()

@@ -10,6 +10,7 @@ import math
 import re
 import time
 from collections import Counter
+from collections.abc import Iterator
 from dataclasses import asdict, dataclass, replace
 from threading import RLock
 from typing import Any
@@ -274,7 +275,11 @@ class Session:
 
     def _request(self, chosen: Method, payload: dict) -> OperationRequest:
         bounds = payload.get("bounds", self.state(svg=False)["bounds"])
-        snapshot = self.editor.snapshot
+        snapshot = self.editor.snapshot_at(
+            payload.get("revision", self.editor.snapshot.revision)
+        )
+        if "selection" in payload:
+            snapshot = replace(snapshot, selection=self._payload_selection(payload))
         # Operations act on whole paths, whichever of their points are selected.
         snapshot = replace(
             snapshot, selection=replace(snapshot.selection, node_ids=frozenset())
@@ -395,8 +400,14 @@ class Session:
                 "objects": sorted(snapshot.selection.object_ids),
                 "nodes": sorted(snapshot.selection.node_ids),
             },
-            "undo": list(self.editor.undo_labels),
-            "redo": list(self.editor.redo_labels),
+            "undo": [e.label for e in self.editor.undo_entries if e.author == "person"],
+            "redo": [e.label for e in self.editor.redo_entries if e.author == "person"],
+            "undo_ids": [
+                e.id for e in self.editor.undo_entries if e.author == "person"
+            ],
+            "redo_ids": [
+                e.id for e in self.editor.redo_entries if e.author == "person"
+            ],
             "reference": {
                 "name": self.reference["name"],
                 "opacity": self.reference["opacity"],
@@ -483,13 +494,66 @@ class Session:
         self._svg_revision = -1
 
     def check_revision(self, payload: dict) -> None:
-        if (
-            payload.get("epoch") != self.epoch
-            or payload.get("revision") != self.editor.snapshot.revision
-        ):
+        if payload.get("epoch") != self.epoch:
             raise StaleRevisionError(
-                "The drawing changed. Refresh before applying this edit."
+                "Another drawing was opened. This edit belongs to the previous drawing."
             )
+        revision = payload.get("revision")
+        if (
+            type(revision) is not int
+            or not 0 <= revision <= self.editor.snapshot.revision
+        ):
+            raise DocumentError("Invalid document revision")
+
+    def _payload_selection(self, payload: dict) -> Selection:
+        selected = payload.get("selection")
+        if selected is None:
+            return self.editor.snapshot.selection
+        return Selection(
+            frozenset(selected.get("objects", [])), frozenset(selected.get("nodes", []))
+        )
+
+    @contextlib.contextmanager
+    def planning(
+        self, revision: int, selection: Selection | None = None
+    ) -> Iterator[None]:
+        """Plan stale commands privately, then merge one edit into live state.
+
+        The caller holds the session lock. A failed plan/merge never changes
+        the live drawing, history, selection, or reference.
+        """
+        live = self.editor
+        if revision == live.snapshot.revision:
+            yield
+            return
+        base = live.snapshot_at(revision)
+        fork = live.fork(
+            revision, selection if selection is not None else base.selection
+        )
+        reference = self.reference
+        self.editor = fork
+        self._svg_revision = -1
+        self._objects_document = None
+        try:
+            yield
+            edited = fork.snapshot
+            # Handlers may issue several transactions; this is one atomic
+            # edit against the live drawing, authored by the caller.
+            if fork.undo_entries:
+                entry = fork.undo_entries[-1]
+                author = live.author
+                live.author = entry.author
+                try:
+                    live.merge(base, edited.document, entry.label, edited.selection)
+                finally:
+                    live.author = author
+        except Exception:
+            self.reference = reference
+            raise
+        finally:
+            self.editor = live
+            self._svg_revision = -1
+            self._objects_document = None
 
     def open(self, source: str, name: str) -> None:
         if len(source.encode()) > MAX_SOURCE:
@@ -606,8 +670,17 @@ class Session:
         )
 
     def action(self, payload: dict) -> dict:
-        self.check_revision(payload)
         command = payload["command"]
+        # Selection is UI state. A concurrent document edit must not
+        # prevent the person selecting surviving identities.
+        self.check_revision(payload)
+        if (
+            command not in {"select", "undo", "redo", "open"}
+            and payload["revision"] != self.editor.snapshot.revision
+        ):
+            with self.planning(payload["revision"], self._payload_selection(payload)):
+                self.action(payload)
+            return self.state()
         spec = ACTION_COMMANDS.get(command) if isinstance(command, str) else None
         if spec is None:
             raise DocumentError("Unknown editor command")
@@ -616,7 +689,9 @@ class Session:
         before = self.editor.snapshot.revision
         getattr(self, spec.handler)(payload)
         return self.state(
-            svg=command == "open" or self.editor.snapshot.revision != before
+            svg=command == "open"
+            or self.editor.snapshot.revision != before
+            or payload.get("revision") != before
         )
 
     def _command_select(self, payload: dict) -> None:
@@ -661,7 +736,7 @@ class Session:
         self.reference = reference
 
     def _command_history(self, payload: dict) -> None:
-        getattr(self.editor, payload["command"])()
+        getattr(self.editor, payload["command"])(payload.get("ids"), author="person")
 
     def _command_points(self, payload: dict) -> None:
         chosen = self.editor.snapshot.selection

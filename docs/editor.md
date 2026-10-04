@@ -95,7 +95,14 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   connected* with the agent's last action. The objects each edit touched
   flash briefly in the canvas; the person's selection (objects, points and
   the entered group) is never changed by the agent, except that objects it
-  deletes drop out of it.
+  deletes drop out of it. Zoom stays yours too. The Undo/Redo buttons and
+  shortcuts affect only your own edits; agent edits have separate history.
+  MCP can undo either author's changes by exact history ID, preserving
+  unrelated edits and refusing conflicts. Your pending redo is kept while
+  the agent works.
+  Independent simultaneous edits merge automatically, including different
+  properties of the same object. A real overlap reports the conflicting field
+  and the editor catches up automatically; no manual refresh is needed.
 - Agents' edits reach the page as they happen: the editor pushes each agent
   call to it (server-sent events with `--serve`, a script the desktop window
   runs in the app), so an edit shows within a few tens of milliseconds, and

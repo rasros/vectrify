@@ -27,10 +27,13 @@ alternatives. Each proposal wraps an uncommitted transaction with `changed`,
 free-form `metrics` (conventionally `before`/`after`) and preview images.
 Leaving the drawing unchanged is always a valid outcome.
 
-Applying commits the chosen proposal's transaction as one undoable edit. The
-commit checks the snapshot revision, so a result can never overwrite edits made
-while the method ran. Callers add any further dependency, such as the reference
-image, through `Job.context_key`.
+Applying commits the chosen proposal's transaction as one undoable edit. If
+another revision happened while the method ran, commit merges independent
+changes into the live document. Overlapping changes and updated locks, pins,
+shared consumers, or coordinate frames reject the proposal atomically.
+The current user selection is retained, including newly created objects.
+Callers add any further dependency, such as the reference image, through
+`Job.context_key`.
 
 ## Jobs
 

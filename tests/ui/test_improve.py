@@ -181,7 +181,7 @@ def test_job_apply_is_single_undoable_edit_and_rejects_stale_reference(monkeypat
         session.operation({"command": "apply", "job": fresh["id"]})
 
 
-def test_job_result_is_stale_after_an_edit(monkeypatch):
+def test_job_result_refuses_an_overlapping_edit(monkeypatch):
     result = FitResult("a", {}, "#bb0000", 0.2, 0.1, {}, 8, (64, 64))
     monkeypatch.setattr(
         "vectrify.operations.methods.path_fit.fit_selected_path",
@@ -193,7 +193,7 @@ def test_job_result_is_stale_after_an_edit(monkeypatch):
     wait(session, job)
     with session.editor.transaction("Paint") as tx:
         tx.set_attributes("a", {"fill": "#00ff00"})
-    with pytest.raises(StaleRevisionError):
+    with pytest.raises(DocumentError, match="conflicts"):
         session.operation({"command": "apply", "job": job["id"]})
     assert session.editor.snapshot.document.element("a").get("fill") == "#00ff00"
 

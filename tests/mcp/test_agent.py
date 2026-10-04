@@ -101,12 +101,12 @@ def test_a_refused_step_takes_back_the_steps_before_it():
     )
 
 
-def test_edits_need_the_revision_last_seen():
+def test_edits_need_a_starting_snapshot_and_refuse_overlaps():
     agent, seen = fresh()
     with pytest.raises(StaleRevisionError, match="describe"):
         agent.call("properties", {"ids": ["sun"], "fill": "red"})
     agent.call("properties", {"seen": seen, "ids": ["sun"], "fill": "red"})
-    with pytest.raises(StaleRevisionError, match="changed since you last looked"):
+    with pytest.raises(agent_module.DocumentError, match="conflicts"):
         agent.call("properties", {"seen": seen, "ids": ["sun"], "fill": "blue"})
 
 
@@ -166,7 +166,7 @@ def test_agent_edits_leave_the_persons_selection_and_add_one_step_each():
     (group,) = reply["result"]["objects"]
     assert group in reply["created"]
     # Undoing an agent's step keeps the person's selection too.
-    agent.call("undo", {"seen": seen})
+    agent.call("undo", {"seen": seen, "ids": [reply["edit_id"]]})
     assert editor.snapshot.selection == chosen
     person_selects(agent, [])
     editor.undo()
@@ -183,6 +183,138 @@ def test_a_refused_edit_leaves_the_persons_selection():
         )
     assert agent.session.editor.snapshot.selection.object_ids == {"hill"}
     assert not agent.touched
+
+
+@pytest.mark.parametrize("command", ["undo", "redo"])
+def test_history_requires_explicit_ids(command):
+    agent, seen = fresh()
+    before = agent.session.editor.snapshot
+    for args in (
+        {},
+        {"steps": 1},
+        {"ids": []},
+        {"ids": ["missing"]},
+        {"ids": ["same", "same"]},
+        {"ids": "latest"},
+    ):
+        with pytest.raises(agent_module.DocumentError):
+            agent.call(command, {"seen": seen, **args})
+        assert agent.session.editor.snapshot == before
+
+
+def test_targeted_history_keeps_the_persons_current_selection_and_view():
+    agent, seen = fresh()
+    person_selects(agent, ["sun"])
+    session = agent.session
+    session.action(
+        {
+            "command": "paint",
+            "changes": {"fill": "black"},
+            "epoch": seen[0],
+            "revision": seen[1],
+        }
+    )
+    entry = session.editor.undo_entries[-1]
+    person_selects(agent, ["hill"], nodes(agent, "hill")[:2])
+    selected = session.editor.snapshot.selection
+    session.set_view(
+        {
+            "region": [20, 10, 80, 40],
+            "zoom": 4,
+            "pixels": [320, 160],
+            "tool": "nodes",
+            "entered": None,
+        }
+    )
+    view = dict(session.view)
+    seen = [session.epoch, session.editor.snapshot.revision]
+    changed = agent.call("transform", {"seen": seen, "ids": ["sun"], "dx": 3}).data
+    history = agent.call("history").data
+    assert history["undo"][1]["id"] == entry.id
+    seen = [changed["epoch"], changed["revision"]]
+    undone = agent.call("undo", {"seen": seen, "ids": [entry.id]}).data
+    assert session.editor.snapshot.selection == selected
+    assert session.view == view
+    assert session.editor.snapshot.document.element("sun").get("fill") == "#f1ba77"
+    assert (
+        session.editor.snapshot.document.element("sun").get("transform")
+        == "translate(3.0 0.0)"
+    )
+    assert session.state()["undo"] == []
+    assert session.state()["redo"] == ["Change paint"]
+    agent.call(
+        "redo",
+        {
+            "seen": [undone["epoch"], undone["revision"]],
+            "ids": [entry.id],
+        },
+    )
+    assert session.editor.snapshot.document.element("sun").get("fill") == "black"
+    assert session.editor.snapshot.selection == selected
+    assert session.view == view
+
+
+def test_stale_targeted_undo_does_not_undo_a_concurrent_edit():
+    agent, seen = fresh()
+    painted = agent.call(
+        "properties", {"seen": seen, "ids": ["sun"], "fill": "red"}
+    ).data
+    seen = [painted["epoch"], painted["revision"]]
+    agent.call("properties", {"seen": seen, "ids": ["sun"], "fill": "blue"})
+    before = agent.session.editor.snapshot
+    with pytest.raises(agent_module.DocumentError, match="conflicts"):
+        agent.call("undo", {"seen": seen, "ids": [painted["edit_id"]]})
+    assert agent.session.editor.snapshot == before
+    seen = [agent.session.epoch, before.revision]
+    with pytest.raises(agent_module.DocumentError, match="conflicts"):
+        agent.call("undo", {"seen": seen, "ids": [painted["edit_id"]]})
+    assert agent.session.editor.snapshot == before
+
+
+def test_deleting_the_last_selected_node_does_not_select_its_whole_path():
+    agent, seen = fresh()
+    node = nodes(agent, "hill")[1]
+    person_selects(agent, ["hill"], [node])
+    agent.call("delete", {"seen": seen, "points": [["hill", node]]})
+    assert not agent.session.editor.snapshot.selection.object_ids
+    assert not agent.session.editor.snapshot.selection.node_ids
+
+
+def test_operation_targets_stay_private_when_the_person_selects_during_a_job():
+    svg = """<svg width="100" height="100">
+    <path id="a" d="M0 0 L10 0 L20 0 L20 20 L0 20 Z" fill="red"/>
+    <path id="b" d="M30 0 L50 0 L50 20 L30 20 Z" fill="blue"/>
+    </svg>"""
+    agent = Agent(Session(import_svg(svg)))
+    session = agent.session
+    original = session.editor.snapshot.document.geometry_for("a")
+    person_selects(agent, ["b"])
+    job = agent.call("cleanup", {"seen": [session.epoch, 0], "ids": ["a"]}).data
+    assert session.editor.snapshot.selection.object_ids == {"b"}
+    assert session.jobs[job["id"]].request.snapshot.selection.object_ids == {"a"}
+    person_selects(agent, ["b"], nodes(agent, "b")[:2])
+    selected = session.editor.snapshot.selection
+    applied = agent.call(
+        "job",
+        {
+            "seen": [session.epoch, 0],
+            "id": job["id"],
+            "action": "apply",
+        },
+    ).data
+    assert session.editor.snapshot.selection == selected
+    assert session.state()["undo"] == []
+    assert session.editor.undo_entries[-1].author == "agent"
+    assert session.editor.snapshot.document.geometry_for("a") != original
+    agent.call(
+        "undo",
+        {
+            "seen": [applied["epoch"], applied["revision"]],
+            "ids": [applied["edit_id"]],
+        },
+    )
+    assert session.editor.snapshot.document.geometry_for("a") == original
+    assert session.editor.snapshot.selection == selected
 
 
 def test_deleting_what_the_person_selected_drops_it_from_their_selection():
@@ -221,7 +353,13 @@ def test_touched_names_the_changed_objects():
         "transform", {"seen": seen, "ids": ["sun", "hill"], "dx": 1, "dy": 0}
     )
     assert agent.touched[-1] == {"change": 1, "ids": ["hill", "sun"]}
-    agent.call("undo", {"seen": [reply.data["epoch"], reply.data["revision"]]})
+    agent.call(
+        "undo",
+        {
+            "seen": [reply.data["epoch"], reply.data["revision"]],
+            "ids": [reply.data["edit_id"]],
+        },
+    )
     assert agent.touched[-1] == {"change": 2, "ids": ["hill", "sun"]}
     agent.call("describe")
     assert len(agent.touched) == 2
@@ -339,7 +477,7 @@ def test_points_marks_holes_that_holes_fills_or_makes_shapes():
     hole = listed["contours"][1]["id"]
     made = call("holes", contours=[["ring", hole]], action="shape")
     assert made["created"]
-    call("undo")
+    call("undo", ids=[made["edit_id"]])
     call("holes", contours=[["ring", hole]])
     after = call.agent.call("points", {"id": "ring", "nodes": False}).data
     assert after["contours_total"] == 1

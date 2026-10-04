@@ -4,15 +4,17 @@ from __future__ import annotations
 
 import math
 import re
+from collections import OrderedDict
 from collections.abc import Iterable, Sequence
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 
 import pathops
 from shapely import make_valid
 from shapely.geometry import Polygon
 
 from vectrify.document.components import disconnected_parts
+from vectrify.document.history import kept_selection, merge_edit, restore_change
 from vectrify.document.hit_test import IDENTITY, mapped, multiply, transform
 from vectrify.document.holes import (
     Hole,
@@ -220,6 +222,8 @@ class HistoryEntry:
     after_selection: Selection
     # The editor's revision once this edit was made.
     revision: int = 0
+    id: str = field(default_factory=lambda: new_id("edit"))
+    author: str = "person"
 
 
 class Editor:
@@ -235,10 +239,43 @@ class Editor:
         # Put before the label of each edit made meanwhile, as "Agent: " is
         # while an agent edits, so the history says who made it.
         self.label_prefix = ""
+        self.author = "person"
+        self._versions: OrderedDict[int, Document] = OrderedDict({0: document})
 
     @property
     def snapshot(self) -> Snapshot:
         return Snapshot(self._revision, self._document, self._selection)
+
+    def snapshot_at(self, revision: int) -> Snapshot:
+        """A recent document version, with the current UI selection."""
+        document = self._versions.get(revision)
+        if document is None:
+            raise DocumentError(
+                "This edit's starting state has expired. Try the edit again."
+            )
+        return Snapshot(revision, document, self._selection)
+
+    def _remember(self) -> None:
+        self._versions[self._revision] = self._document
+        while len(self._versions) > 256:
+            self._versions.popitem(last=False)
+
+    def fork(self, revision: int, selection: Selection) -> Editor:
+        """Plan commands on a client's version, without mutating live state."""
+        base = self.snapshot_at(revision)
+        fork = Editor(base.document, selection=selection)
+        fork._revision = revision
+        fork._versions = OrderedDict({revision: base.document})
+        fork.author, fork.label_prefix = self.author, self.label_prefix
+        return fork
+
+    def merge(
+        self, base: Snapshot, document: Document, label: str, selection: Selection
+    ) -> Snapshot:
+        merged = merge_edit(base.document, document, self._document)
+        return self._apply(
+            merged, label, self._revision, kept_selection(selection, merged)
+        )
 
     @property
     def undo_labels(self) -> tuple[str, ...]:
@@ -289,6 +326,10 @@ class Editor:
         self._revision = revision + 1
         if self._undo and self._undo[-1].revision > self._revision:
             self._undo[-1] = replace(self._undo[-1], revision=self._revision)
+        self._versions = OrderedDict(
+            (r, d) for r, d in self._versions.items() if r <= self._revision
+        )
+        self._remember()
 
     def rollback(self, since: int) -> None:
         """Take back the edits after the first *since*, leaving no redo."""
@@ -298,6 +339,7 @@ class Editor:
         del self._undo[since:]
         self._document, self._selection = first.before, first.before_selection
         self._revision += 1
+        self._remember()
 
     def reselect(self, since: int, before: Selection, after: Selection) -> None:
         """Give the edits after the first *since* the selections to show on
@@ -324,6 +366,7 @@ class Editor:
         allowed: frozenset[str] = frozenset(EditKind),
         expected_revision: int | None = None,
         base: Snapshot | None = None,
+        rebase: bool = False,
     ) -> Transaction:
         """Open an edit; with *base*, edit that earlier snapshot instead.
 
@@ -333,7 +376,9 @@ class Editor:
         if expected_revision is not None and expected_revision != self._revision:
             raise StaleRevisionError("Document revision has changed")
         base = base or self.snapshot
-        return Transaction(self, label, selection or base.selection, allowed, base)
+        return Transaction(
+            self, label, selection or base.selection, allowed, base, rebase=rebase
+        )
 
     def _apply(
         self,
@@ -358,12 +403,16 @@ class Editor:
                     self._selection,
                     selection,
                     self._revision + 1,
+                    author=self.author,
                 )
             )
-            self._redo.clear()
+            # Each author owns their redo branch. An edit by the other author
+            # must not throw it away; restoring it still checks for conflicts.
+            self._redo = [e for e in self._redo if e.author != self.author]
             self._document = document
             self._selection = selection
             self._revision += 1
+            self._remember()
         return self.snapshot
 
     def rename_object(self, object_id: str, name: str) -> Snapshot:
@@ -410,20 +459,78 @@ class Editor:
             label += "s"
         return self._apply(document, label, self._revision)
 
-    def undo(self) -> Snapshot:
-        if self._undo:
-            entry = self._undo.pop()
-            self._redo.append(entry)
-            self._document, self._selection = entry.before, entry.before_selection
-            self._revision += 1
-        return self.snapshot
+    def undo(
+        self,
+        entry_ids: Sequence[str] | None = None,
+        *,
+        author: str | None = None,
+        preserve_selection: bool = False,
+    ) -> Snapshot:
+        return self._restore("undo", entry_ids, author, preserve_selection)
 
-    def redo(self) -> Snapshot:
-        if self._redo:
-            entry = self._redo.pop()
-            self._undo.append(entry)
-            self._document, self._selection = entry.after, entry.after_selection
-            self._revision += 1
+    def redo(
+        self,
+        entry_ids: Sequence[str] | None = None,
+        *,
+        author: str | None = None,
+        preserve_selection: bool = False,
+    ) -> Snapshot:
+        return self._restore("redo", entry_ids, author, preserve_selection)
+
+    def _restore(
+        self,
+        command: str,
+        entry_ids: Sequence[str] | None,
+        author: str | None,
+        preserve_selection: bool,
+    ) -> Snapshot:
+        source = self._undo if command == "undo" else self._redo
+        destination = self._redo if command == "undo" else self._undo
+        if entry_ids is None:
+            latest = next(
+                (e for e in reversed(source) if author is None or e.author == author),
+                None,
+            )
+            if latest is None:
+                return self.snapshot
+            entry_ids = [latest.id]
+        if (
+            isinstance(entry_ids, str)
+            or not entry_ids
+            or any(not isinstance(eid, str) for eid in entry_ids)
+            or len(set(entry_ids)) != len(entry_ids)
+        ):
+            raise DocumentError("Give distinct history entry ids")
+        available = {e.id: e for e in source}
+        entries = []
+        for eid in entry_ids:
+            entry = available.get(eid)
+            if entry is None or (author is not None and entry.author != author):
+                raise DocumentError(f"No such {command} entry: {eid}")
+            entries.append(entry)
+        document, selection = self._document, self._selection
+        # Plan the entire batch first; a missing ID or conflict leaves both
+        # the document and history stacks untouched.
+        for entry in entries:
+            expected, desired = (
+                (entry.after, entry.before)
+                if command == "undo"
+                else (entry.before, entry.after)
+            )
+            document = restore_change(expected, desired, document)
+            if not preserve_selection:
+                selection = (
+                    entry.before_selection
+                    if command == "undo"
+                    else entry.after_selection
+                )
+            selection = kept_selection(selection, document)
+        self._document, self._selection = document, selection
+        selected = set(entry_ids)
+        source[:] = [e for e in source if e.id not in selected]
+        destination.extend(entries)
+        self._revision += 1
+        self._remember()
         return self.snapshot
 
 
@@ -435,6 +542,8 @@ class Transaction:
         selection: Selection,
         allowed: frozenset[str],
         base: Snapshot | None = None,
+        *,
+        rebase: bool = False,
     ):
         self._editor = editor
         self._base = base or editor.snapshot
@@ -447,6 +556,7 @@ class Transaction:
         self._failed = False
         self._node_remap: dict[str, set[str]] = {}
         self._object_remap: dict[str, set[str]] = {}
+        self._rebase = rebase
 
     @property
     def preview(self) -> Document:
@@ -2676,6 +2786,17 @@ class Transaction:
         if self._closed or self._failed:
             raise EditRejectedError("Transaction is closed or has a failed edit")
         self._closed = True
+        if self._rebase and self._base.revision != self._editor.snapshot.revision:
+            current = self._editor.snapshot
+            self._working = merge_edit(
+                self._base.document, self._working, current.document
+            )
+            return self._editor._apply(
+                self._working,
+                self._label,
+                current.revision,
+                self._remap_selection(current.selection),
+            )
         return self._editor._apply(
             self._working,
             self._label,

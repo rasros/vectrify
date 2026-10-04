@@ -13,7 +13,7 @@ import anyio
 import pytest
 from mcp import Client
 
-from tests.mcp.helpers import data, error, free_port, images, png_size
+from tests.mcp.helpers import data, free_port, images, png_size
 from vectrify.mcp.server import Vectrify, build_server
 from vectrify.mcp.target import LiveTarget, TargetError, read_discovery
 from vectrify.ui.agent import discovery_file
@@ -124,9 +124,9 @@ def test_an_mcp_client_edits_live_and_the_window_sees_it(server):
             assert poll["revision"] == painted["revision"]
             _, shown = page(server, "/api/session", {"session": session_id})
             assert "#00ff00" in shown["svg"]
-            assert shown["undo"] == ["Agent: Change paint"]
+            assert shown["undo"] == []
 
-            # The person edits; the agent, not having looked, is refused.
+            # The person paints; a concurrent agent move merges independently.
             page(
                 server,
                 "/api/action",
@@ -149,20 +149,24 @@ def test_an_mcp_client_edits_live_and_the_window_sees_it(server):
                 },
                 session_id,
             )
-            stale = await client.call_tool(
-                "transform", {"ids": ["sun"], "dx": 5, "dy": 0}
+            moved = data(
+                await client.call_tool("transform", {"ids": ["sun"], "dx": 5, "dy": 0})
             )
-            assert "changed since you last looked" in error(stale)
+            assert moved["changed"]
             history = data(await client.call_tool("history", {}))
             assert [(e["label"], e["author"]) for e in history["undo"]] == [
+                ("Agent: Move selection", "agent"),
                 ("Change paint", "person"),
                 ("Agent: Change paint", "agent"),
             ]
-            data(await client.call_tool("undo", {}))
+            data(await client.call_tool("undo", {"ids": [history["undo"][1]["id"]]}))
 
     anyio.run(run)
     with window.lock:
-        assert window.editor.undo_labels == ("Agent: Change paint",)
+        assert window.editor.undo_labels == (
+            "Agent: Change paint",
+            "Agent: Move selection",
+        )
         assert window.editor.redo_labels == ("Change paint",)
 
 
@@ -207,7 +211,7 @@ def test_the_persons_selection_stays_and_the_poll_names_what_the_agent_touched(
     )
     _, shown = page(server, "/api/session", {"session": session_id})
     assert shown["selection"] == chosen["selection"]
-    assert shown["undo"] == ["Agent: Change paint"]
+    assert shown["undo"] == []
     _, poll = page(server, "/api/poll", {}, session_id)
     assert poll["revision"] == painted["data"]["revision"]
     assert poll["agent"]["touched"] == [{"change": 1, "ids": ["sun"]}]

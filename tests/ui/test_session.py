@@ -15,6 +15,7 @@ from vectrify.document import (
     StaleRevisionError,
     import_svg,
 )
+from vectrify.ui.agent import Agent
 from vectrify.ui.session import Session
 
 SVG = """<svg width="100" height="100"><g id="layer">
@@ -46,11 +47,91 @@ def test_ui_paint_and_history_leave_original_svg_unchanged_until_applied():
     assert 'fill="green"' in send(session, "redo")["svg"]
 
 
+def test_manual_history_skips_agent_edits_and_keeps_redo_while_agent_works():
+    session = Session(import_svg(SVG))
+    agent = Agent(session)
+    send(session, "select", objects=["a"])
+    send(session, "paint", changes={"fill": "green"})
+    send(session, "select", objects=["b"])
+    selected = session.editor.snapshot.selection
+    moved = agent.call(
+        "transform",
+        {
+            "seen": [session.epoch, 1],
+            "ids": ["a"],
+            "dx": 5,
+            "dy": 0,
+        },
+    ).data
+    assert session.editor.snapshot.selection == selected
+    assert session.state()["undo"] == ["Change paint"]
+    undone = send(session, "undo")
+    assert undone["undo"] == []
+    assert undone["redo"] == ["Change paint"]
+    document = session.editor.snapshot.document
+    assert document.element("a").get("fill") == "red"
+    assert document.element("a").get("transform") == "translate(5.0 0.0)"
+    unchanged = session.editor.snapshot
+    send(session, "undo")
+    assert session.editor.snapshot == unchanged
+    agent.call(
+        "properties",
+        {
+            "seen": [session.epoch, unchanged.revision],
+            "ids": ["b"],
+            "fill": "black",
+        },
+    )
+    send(session, "redo")
+    document = session.editor.snapshot.document
+    assert document.element("a").get("fill") == "green"
+    assert document.element("b").get("fill") == "black"
+    agent.call(
+        "undo",
+        {
+            "seen": [session.epoch, session.editor.snapshot.revision],
+            "ids": [moved["edit_id"]],
+        },
+    )
+    assert session.editor.snapshot.document.element("a").get("transform") is None
+    assert session.editor.snapshot.document.element("a").get("fill") == "green"
+
+
+def test_selection_accepts_a_concurrent_revision_but_requires_the_same_document():
+    session = Session(import_svg(SVG))
+    revision = session.editor.snapshot.revision
+    send(session, "select", objects=["a"])
+    send(session, "paint", changes={"fill": "green"})
+    selected = session.action(
+        {
+            "command": "select",
+            "objects": ["b"],
+            "epoch": session.epoch,
+            "revision": revision,
+        }
+    )
+    assert selected["selection"]["objects"] == ["b"]
+    assert selected["revision"] == 1
+    assert 'fill="green"' in selected["svg"]
+    with pytest.raises(StaleRevisionError):
+        session.action(
+            {
+                "command": "select",
+                "objects": ["a"],
+                "epoch": "previous drawing",
+                "revision": revision,
+            }
+        )
+
+
 def test_large_drawing_selection_reuses_metadata_and_edits_refresh_it():
-    svg = '<svg width="1000" height="1000">' + "".join(
-        f'<path id="p{i}" d="M{i} 0 L{i + 1} 0 L{i + 1} 1 Z"/>'
-        for i in range(772)
-    ) + "</svg>"
+    svg = (
+        '<svg width="1000" height="1000">'
+        + "".join(
+            f'<path id="p{i}" d="M{i} 0 L{i + 1} 0 L{i + 1} 1 Z"/>' for i in range(772)
+        )
+        + "</svg>"
+    )
     session = Session(import_svg(svg))
     before = session.state()
     node = session.nodes("p771")["geometry"]["subpaths"][0]["nodes"][0]["id"]

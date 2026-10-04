@@ -448,21 +448,28 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
 
     @look
     def history(limit: int = 30) -> CallToolResult:
-        """The undo and redo stacks, newest first: label, author, revision.
+        """The undo and redo stacks, newest first: id, label, author, revision.
 
         author is "agent" for edits made through this server, else "person".
         """
         return state.call("history", {"limit": limit})
 
     @tool(structured_output=False)
-    def undo(steps: int = 1) -> CallToolResult:
-        """Undo the last steps, whoever made them; check history() first."""
-        return state.call("undo", {"steps": steps})
+    def undo(ids: list[str]) -> CallToolResult:
+        """Undo exact history IDs, in the given order, whoever made them.
+
+        Get IDs from history() or an edit's edit_id. Unrelated later edits
+        stay; conflicting edits are refused. The whole batch is atomic.
+        """
+        return state.call("undo", {"ids": ids})
 
     @tool(structured_output=False)
-    def redo(steps: int = 1) -> CallToolResult:
-        """Redo steps undone."""
-        return state.call("redo", {"steps": steps})
+    def redo(ids: list[str]) -> CallToolResult:
+        """Redo exact undone history IDs, in the given order.
+
+        Get IDs from history(). Conflicts refuse the entire batch.
+        """
+        return state.call("redo", {"ids": ids})
 
     # Objects -----------------------------------------------------------
 
