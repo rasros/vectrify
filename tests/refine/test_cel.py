@@ -496,6 +496,19 @@ def test_a_thin_antialiased_line_is_drawn_in_its_ink_and_thin():
     assert not any(o for _, _, o in strokes)
 
 
+def test_a_black_line_on_navy_takes_the_black_ink_not_a_lighter_grey():
+    # A blurred black line on a navy fill is only a little darker than the
+    # fill; a grey ink lighter than the fill explains none of that darkening,
+    # however close its colour, and must not win as the ink covering least.
+    palette = np.array([[26.0, 30.0, 46.0], [111.0, 120.0, 119.0]])
+    surface = np.array([24.0, 30.0, 54.0])
+    middle = np.array([19.0, 26.0, 48.0])
+    assert cel._ink_of(palette, middle, surface) == 0
+    # A thin black line antialiased to grey on white is still black.
+    white = np.array([250.0, 250.0, 250.0])
+    assert cel._ink_of(palette, np.array([150.0, 152.0, 155.0]), white) == 0
+
+
 def test_a_hairline_is_drawn_solid_with_about_its_ink():
     # A line holding two thirds of a pixel of black ink, antialiased to grey.
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
