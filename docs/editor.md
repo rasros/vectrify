@@ -462,7 +462,18 @@ gradient…**, acting on the selection made with any tool. A tool that cannot
 run is dimmed, with the reason as its tooltip. Each is also in the command
 palette.
 
-**Tidy…** is a quick clean-up of the selected paths, or the paths
+**Tidy…** is also available above the canvas, beside the active tool's name,
+including when the Reference panel is hidden. Its compact dialog keeps the
+steps and **Only what is in view** visible; expand **Advanced settings** for
+the tolerances, fitting controls and run limits. The action buttons stay
+visible while the settings or preview scroll.
+The dialog runs one round by default, with up to 20 internal steps per
+shape fit and 1 worker. Each round tries the enabled steps and keeps the best
+result; extra rounds repeat from that result. Enable
+**Override automatic run limits** to edit these; maximum fitting steps is
+available only with **Fit shape** enabled. The **Time limit** remains editable.
+
+Tidy is a quick clean-up of the selected paths, or the paths
 inside selected groups, against the reference around them, never the whole
 image. By default it snaps their points onto the reference's edges, fits
 their shape and removes the points they do not need, in a few seconds a path; to reshape a path, use Redraw
@@ -511,7 +522,7 @@ pixels it changed and a thin band around them, so a small fix on a large
 selection counts as much as on a small one. When none helps, Simplify gets its
 turn. No step is kept that leaves the match where Tidy acted worse than it
 started by more than the **Allowed worsening** (1% by default; 0 never trades
-the match for fewer points), and the run ends once nothing qualifies, the rounds (4 by default) run out
+the match for fewer points), and the run ends once nothing qualifies, the rounds (1 by default in the dialog) run out
 or the **Time limit** (10 s by default) passes. Each round gives each step a
 share of the time left, and a step that runs out hands back how far it got; a
 run that runs out of time keeps the best result so far, as Stop does, and says

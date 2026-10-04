@@ -90,6 +90,36 @@
 .step-card .muted { margin:4px 0 0; }
 .step-card.off > :not(legend) { opacity:.45; }
 
+/* Tidy keeps its everyday controls compact and its actions visible. */
+#strip-tidy { flex:none; padding:5px 9px; font-size:11px; }
+#nodes-dialog { width:min(560px,calc(100vw - 32px)); max-width:560px; max-height:calc(100dvh - 32px); padding:0; overflow:hidden; }
+#nodes-dialog[open] { display:flex; flex-direction:column; }
+.tidy-heading { padding:22px 24px 0; flex:none; }
+.tidy-heading h2 { margin:0 0 4px; font-size:22px; }
+#nodes-summary { margin:0; font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.tidy-body { min-height:0; overflow:auto; padding:0 24px 20px; scrollbar-width:thin; }
+#nodes-description { margin:12px 0 16px; }
+#nodes-settings { min-width:0; margin:0; padding:0; border:0; }
+#nodes-settings input:disabled { opacity:.45; cursor:default; }
+.tidy-steps { display:grid; gap:8px; }
+.tidy-steps .step-card { padding:6px 12px 10px; }
+.tidy-advanced { border-top:1px solid var(--line); margin-top:16px; padding-top:14px; }
+.tidy-advanced summary { cursor:pointer; color:#b3c3b9; font-size:11px; }
+.tidy-advanced summary:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+.tidy-advanced .step-cards { margin:16px 0 0; }
+#nodes-dialog .join-actions { flex:none; margin:0; padding:14px 24px; border-top:1px solid var(--line); }
+#nodes-dialog .join-actions .primary { margin-top:0; }
+#nodes-dialog .fit-previews { gap:8px; font-size:11px; }
+#nodes-dialog .fit-previews img { height:clamp(100px,25vw,170px); }
+#nodes-dialog #nodes-metrics { font-size:11px; }
+@media(max-width:480px) {
+  .tidy-heading { padding:18px 16px 0; }
+  .tidy-body { padding:0 16px 16px; }
+  #nodes-dialog .join-actions { padding:12px 16px; flex-wrap:wrap; }
+  #nodes-dialog .two-fields { flex-wrap:wrap; }
+  #nodes-dialog .two-fields label { flex:1 1 140px; }
+}
+
 .object-list { position: relative; }
 .object-list.dragging, .object-list.dragging .object-row { cursor: grabbing; }
 .object-list.drop-refused, .object-list.drop-refused .object-row { cursor: not-allowed; }
