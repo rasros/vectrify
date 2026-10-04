@@ -108,6 +108,9 @@ SETTINGS = {
     "allowance": Setting(float, 1.0, minimum=0.0, maximum=100.0, label="allowance"),
     # The most the whole run may take, in seconds.
     "seconds": Setting(float, 10.0, minimum=0.5, maximum=3600.0, label="time limit"),
+    # Where a selected path shares an edge with a neighbour, the neighbour's
+    # edge moves with it, so no gap or overlap opens between them.
+    "shared": Setting(bool, True, label="move shared edges together"),
     # Only what lies in this area is tidied: [x, y, width, height] or a
     # polygon [[x, y], ...] in document units.
     "region": Setting(list, None, label="region"),
@@ -275,8 +278,11 @@ class _Task:
     # step may take from when it starts.
     deadline: float = float("inf")
     share: float = float("inf")
-    # Points no step may move or remove: those outside a region's tidy.
+    # Points no step may move or remove: those outside a region's tidy and
+    # where a shared edge ends.
     held: frozenset[str] = frozenset()
+    # The edges the selected paths share with neighbours, which follow them.
+    shared: tuple = ()
 
 
 class _Until(threading.Event):
@@ -377,6 +383,10 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
         else:
             paths = _simplified(task, paths, fixed, deadline)
         document = _with(document, dict(paths.geometries))
+    if task.shared:
+        from vectrify.refine.shared import follow
+
+        document, _ = follow(document, list(task.shared))
     return document, _pixels(document, region), skipped
 
 
@@ -540,6 +550,15 @@ class OptimizeNodes:
                 else drawing_region(request, settings["resolution"], margin)
             )
             held = frozenset()
+        shared = _shared_edges(start, oids) if settings["shared"] else []
+        if shared:
+            from vectrify.refine.shared import frozen_points
+
+            held |= frozen_points(start, shared)
+        neighbours = tuple(sorted({link.neighbour for link in shared}))
+        # The paths a step may change: the selected ones and, along shared
+        # edges, their neighbours.
+        watched = oids + neighbours
         steps = [s for s in STEPS if settings[s]]
         began = time.monotonic()
         deadline = began + settings["seconds"]
@@ -583,11 +602,12 @@ class OptimizeNodes:
                     # One share is kept back for rendering and judging them.
                     left / (len(steps) + 1),
                     held,
+                    tuple(shared),
                 )
                 results = _round(steps, task, pool, context.stop, report)
                 for _doc, _pixels_after, why in results.values():
                     skipped.update(why)
-                for step in _folding(results, _crossings(document, oids), oids):
+                for step in _folding(results, _crossings(document, watched), watched):
                     del results[step]
                     folded[step] = folded.get(step, 0) + 1
                 scored = {
@@ -618,18 +638,32 @@ class OptimizeNodes:
 
         spent = time.monotonic() - began
         out_of_time = not context.stop.is_set() and time.monotonic() >= deadline
+        followed = [
+            oid
+            for oid in neighbours
+            if document.geometry_for(oid) != start.geometry_for(oid)
+        ]
         tx = (
             request.transaction(LABEL)
-            if polygon is None
-            # A region's tidy edits, and then selects, the paths it found.
+            if polygon is None and not followed
+            # A region's tidy, or one whose neighbours followed, edits and
+            # then selects the paths it changed along with the selection.
             else request.editor.transaction(
                 LABEL,
-                selection=Selection(object_ids=frozenset(oids)),
+                selection=Selection(
+                    object_ids=frozenset(oids)
+                    | frozenset(followed)
+                    | (
+                        request.snapshot.selection.object_ids
+                        if polygon is None
+                        else frozenset()
+                    )
+                ),
                 allowed=request.permissions.allowed,
                 base=request.snapshot,
             )
         )
-        for oid in oids:
+        for oid in (*oids, *followed):
             geometry = document.geometry_for(oid)
             if geometry != start.geometry_for(oid):
                 tx.reshape_path(oid, geometry)
@@ -656,6 +690,8 @@ class OptimizeNodes:
                     "out_of_time": out_of_time,
                     "skipped": skipped,
                     "folded": folded,
+                    # Neighbours whose shared edges moved with the paths.
+                    "followed": len(followed),
                     "reference": request.reference is not None,
                 },
                 # The renders the steps were judged by.
@@ -667,6 +703,27 @@ class OptimizeNodes:
             ),
             message=message,
         )
+
+
+def _shared_edges(document: Document, oids) -> list:
+    """The edges *oids* share with other paths whose geometry may change:
+    their own, unlocked, filled or stroked."""
+    from vectrify.document.model import EditKind
+    from vectrify.refine.shared import links
+
+    chosen = set(oids)
+    candidates = [
+        e.id
+        for e in document.elements()
+        if e.tag == "path"
+        and e.id not in chosen
+        and not any(
+            a.tag in {"defs", "clipPath", "mask"} for a in document.ancestry(e.id)
+        )
+        and document.geometry_users(document.geometry_for(e.id).id) == {e.id}
+        and not any(EditKind.GEOMETRY in a.locks for a in document.ancestry(e.id))
+    ]
+    return links(document, oids, candidates)
 
 
 def _count(document: Document, oids) -> int:

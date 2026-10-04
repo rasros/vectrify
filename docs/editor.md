@@ -491,6 +491,11 @@ outline (R). Tick the steps it may use:
   CUDA extension are there, and on the CPU otherwise; outlined (stroked) fills
   need the GPU.
 
+Where a selected path shares an edge with a neighbour, as the regions of a
+cel trace do, **Move shared edges together** (on by default) moves the
+neighbour's copy of the edge with it, so no gap opens between them and
+neither covers the other; the corners where three regions meet stay put.
+
 **Only what is in view** tidies just the points inside the part of the
 drawing the window shows: of the selected paths, or, with nothing selected
 (Tidy then opens with it ticked), of every path painting there. Zoom in on a

@@ -128,7 +128,8 @@ Tidy is benchmarked as it is used, a touch-up after tracing:
 or `--tidy-all`) and reports, before and after, the whole image's error,
 the error over the tidied paths' own area, their points, Tidy's time per
 path, how many paths it changed, left alone, refused or stopped at its
-time limit, and the self-crossings it left; each `--tidy-steps
+time limit, the self-crossings it left, and the gaps and overlaps between
+fills where it acted; each `--tidy-steps
 snap,simplify[,detail][,shape]` tidies the same trace once more,
 `--trace-cache DIR` reuses traces across runs (keyed by the image, settings
 and tracing code), `--tidy-crops DIR` saves before/after crops, and `--summary RUN...`
