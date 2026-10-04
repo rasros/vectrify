@@ -666,11 +666,14 @@ def _area_mask(shapes, width: int, height: int, widen: int = 0):
 
 
 def _save_crops(folder: Path, truth, first, last, paths: dict, indexes) -> None:
-    """The reference, the trace and the tidied trace side by side around
-    the two paths whose local error Tidy lowered most and the two it raised
-    most, named by how much."""
+    """The reference, the trace and the tidied trace side by side, at twice
+    the size, around the two paths whose local error Tidy lowered most and
+    the two it raised most, named by how much: over the CROP pixels square
+    of each path's area where the error changed most that way."""
     import numpy as np
+    from scipy import ndimage
 
+    off = ((last - truth) ** 2).mean(-1) - ((first - truth) ** 2).mean(-1)
     changed = sorted(
         (r["local"][1] - r["local"][0], oid)
         for oid, r in paths.items()
@@ -683,24 +686,27 @@ def _save_crops(folder: Path, truth, first, last, paths: dict, indexes) -> None:
     folder.mkdir(parents=True, exist_ok=True)
     height, width = truth.shape[:2]
     for kind, change, oid in chosen:
-        boxes = [a.bounds for a in (i.area(oid) for i in indexes) if a is not None]
-        left = max(0, int(min(b[0] for b in boxes)) - 8)
-        top = max(0, int(min(b[1] for b in boxes)) - 8)
-        right = min(width, int(max(b[2] for b in boxes)) + 9)
-        bottom = min(height, int(max(b[3] for b in boxes)) + 9)
-        gap = np.full((bottom - top, 4, 3), 255.0)
-        strip = np.concatenate(
-            [
-                truth[top:bottom, left:right],
-                gap,
-                first[top:bottom, left:right],
-                gap,
-                last[top:bottom, left:right],
-            ],
-            axis=1,
+        mask = _area_mask([i.area(oid) for i in indexes], width, height, 2)
+        # The CROP square, within the image, whose summed change is most
+        # negative (better) or positive (worse).
+        signed = np.where(mask, off if kind == "worse" else -off, 0.0)
+        summed = ndimage.uniform_filter(signed, CROP, mode="constant")
+        y, x = np.unravel_index(int(np.argmax(summed)), summed.shape)
+        left = int(min(max(0, x - CROP // 2), max(0, width - CROP)))
+        top = int(min(max(0, y - CROP // 2), max(0, height - CROP)))
+        window = (slice(top, top + CROP), slice(left, left + CROP))
+        parts = [a[window] for a in (truth, first, last)]
+        gap = np.full((parts[0].shape[0], 4, 3), 255.0)
+        strip = np.concatenate([parts[0], gap, parts[1], gap, parts[2]], axis=1)
+        image = Image.fromarray(strip.astype(np.uint8))
+        image = image.resize(
+            (image.width * 2, image.height * 2), Image.Resampling.NEAREST
         )
-        name = f"{kind}-{oid}-{change:+.0f}.png"
-        Image.fromarray(strip.astype(np.uint8)).save(folder / name)
+        image.save(folder / f"{kind}-{oid}-{change:+.0f}-at-{left},{top}.png")
+
+
+# The side of a Tidy crop, in reference pixels.
+CROP = 160
 
 
 def _parse(svg: str):
