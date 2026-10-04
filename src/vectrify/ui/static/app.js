@@ -2688,7 +2688,7 @@ const operation = (command, body) => request('/api/operation', {command, ...body
 // Tidy: a quick clean-up of the selected paths that mixes snapping, simplifying
 // and fitting (the operation's method is still called nodes).
 const NODE_STEPS = ['shape', 'snap', 'detail', 'simplify'];
-const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify', layout:'repair layout'};
+const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
 const nodeSteps = () => Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
 function syncNodeSteps() {
   const steps = nodeSteps();
@@ -2711,14 +2711,13 @@ const nodesDialog = jobDialog('nodes', {
     const customRun = $('nodes-custom-run').checked;
     const region = $('nodes-in-view').checked ? viewReport()?.region : null;
     return {action:'improve', method:'nodes', scope:'selection',
-      permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify || $('nodes-layout').checked, paint:true},
+      permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify, paint:true},
       settings:{...steps, tolerance:Number($('nodes-tolerance').value),
         movement:Number($('nodes-movement').value),
         ...(customRun ? {steps:Number($('nodes-steps').value), workers:Number($('nodes-workers').value)} : {}),
         detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
         allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
         shared:$('nodes-shared').checked,
-        layout:$('nodes-layout').checked,
         seconds:Number($('nodes-seconds').value), ...(region ? {region} : {})},
       budget:{steps:customRun ? Number($('nodes-rounds').value) : 1}};
   },
@@ -2731,14 +2730,13 @@ const nodesDialog = jobDialog('nodes', {
     const note = skipped.length ? ` Some paths were not fitted: ${[...new Set(skipped)].join('; ')}.` : '';
     const late = metrics.out_of_time ? ' Stopped at the time limit.' : '';
     const followed = metrics.followed ? ` ${metrics.followed} neighbouring path${metrics.followed === 1 ? '' : 's'} moved along shared edges.` : '';
-    const layout = metrics.layouts ? ' Enclosed fills stay inside a symmetric outline with an opaque base; layout repair takes priority over reference accuracy.' : '';
-    return `${points} · ${fit} · ${order}.${followed}${layout}${late}${note} Apply keeps this result as one undoable edit.`;
+    return `${points} · ${fit} · ${order}.${followed}${late}${note} Apply keeps this result as one undoable edit.`;
   },
   applied: 'Paths tidied. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
 $('nodes-custom-run').addEventListener('change', syncNodeSteps);
-for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view', 'nodes-shared', 'nodes-layout']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view', 'nodes-shared']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 // Whether paths, or groups that may hold them, are selected for Tidy.
 const tidyTargets = () => state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag));
 async function openTidy() {

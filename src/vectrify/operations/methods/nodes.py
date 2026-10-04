@@ -33,11 +33,6 @@ found, as Stop does.
 
 Without a reference only Simplify runs, judged against the drawing itself.
 Colour is left to Fit colours.
-
-Complete opaque groups with a nearly symmetric open enclosing outline can first
-repair their layout: reflect the paired outline curves, clip their fills inside
-it and keep a continuous opaque base. This optional structural repair takes
-priority over RGB accuracy; fitting is then judged against the repaired layout.
 """
 
 from __future__ import annotations
@@ -123,9 +118,6 @@ SETTINGS = {
     # Where a selected path shares an edge with a neighbour, the neighbour's
     # edge moves with it, so no gap or overlap opens between them.
     "shared": Setting(bool, True, label="move shared edges together"),
-    # Complete groups with opaque fills inside a nearly symmetric enclosing
-    # outline are fitted as a covered silhouette, rather than unrelated paths.
-    "layout": Setting(bool, True, label="keep enclosed group layout"),
     # Only what lies in this area is tidied: [x, y, width, height] or a
     # polygon [[x, y], ...] in document units.
     "region": Setting(list, None, label="region"),
@@ -164,7 +156,8 @@ def selected_paths(request: OperationRequest, polygon=None) -> list[str]:
         geometry = document.geometry_for(oid)
         if document.geometry_users(geometry.id) != {oid}:
             raise DocumentError("Detach shared geometry before optimizing its nodes")
-    return found
+    chosen = set(found)
+    return [e.id for e in document.elements() if e.id in chosen]
 
 
 def _paths_in(request: OperationRequest, polygon) -> list[str]:
@@ -205,7 +198,8 @@ def _paths_in(request: OperationRequest, polygon) -> list[str]:
         found.append(oid)
     if not found:
         raise DocumentError("No path to tidy paints inside the region")
-    return found
+    chosen = set(found)
+    return [e.id for e in document.elements() if e.id in chosen]
 
 
 def _outside(document: Document, oids, polygon) -> frozenset[str]:
@@ -302,7 +296,6 @@ class _Task:
     widths: bool = False
     # The current render, shared with steps that only need to compare to it.
     pixels: np.ndarray | None = None
-    layouts: tuple = ()
 
 
 class _Until(threading.Event):
@@ -408,24 +401,12 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
                 deadline=deadline,
             )
         else:
-            # Keep paired outline topology while removing redundant fill points.
-            fixed = Frozen(
-                fixed.endpoints
-                | frozenset(
-                    n.id
-                    for layout in task.layouts
-                    for s in document.geometry_for(layout.outline).subpaths
-                    for n in s.nodes
-                )
-            )
             paths = _simplified(task, paths, fixed, deadline)
         document = _with(document, dict(paths.geometries))
     if task.shared:
         from vectrify.refine.shared import follow
 
         document, _ = follow(document, list(task.shared))
-    for layout in task.layouts:
-        document = layout.project(document)
     pixels = (
         task.pixels
         if task.pixels is not None and document == task.document
@@ -519,17 +500,16 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
     skipped: dict[str, str] = {}
     from vectrify.refine.lines import is_line
     from vectrify.refine.paths import UnsupportedPathError
+    from vectrify.refine.shared import follow
 
-    for oid in task.oids:
+    pending = [oid for oid in task.oids if not is_line(document, oid)]
+    current = _Scored.of(
+        task.pixels if task.pixels is not None else _pixels(document, task.region),
+        task.region,
+    )
+    for index, oid in enumerate(pending):
         if stop is not None and stop.is_set():
             break
-        if is_line(document, oid):
-            # Snap fits a stroked line; the path fit fits fills.
-            continue
-        if any(oid == layout.fills[0] for layout in task.layouts):
-            # The continuous opaque base is constrained to the silhouette;
-            # independently fitting it would be discarded by projection.
-            continue
         original = document.geometry_for(oid)
         # In a region's tidy only the points inside it move.
         movable = frozenset(
@@ -537,6 +517,15 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         )
         if not movable:
             continue
+        # Every remaining fill gets a share of the shape step's remaining
+        # time. One expensive early path must not starve the rest of a selection.
+        path_stop = stop
+        if isinstance(stop, _Until):
+            now = time.monotonic()
+            path_stop = _Until(
+                now + (stop.deadline - now) / (len(pending) - index), stop
+            )
+        before = document
         document = document.replace_geometry(curved(original))
         try:
             fit = fit_selected_path(
@@ -547,7 +536,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 ),
                 task.reference,
                 options,
-                stop=stop,
+                stop=path_stop,
                 progress=progress,
             )
         except (DocumentError, UnsupportedPathError) as exc:
@@ -577,6 +566,15 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         if frame is not None:
             fitted = straightened(fitted, STRAIGHT, frame)
         document = document.replace_geometry(fitted)
+        # Judge the actual curves and followed neighbours before fitting the
+        # next path. Straightening and copying an edge can change the result
+        # the single-path fitter judged in its frozen surrounding artwork.
+        document, _ = follow(document, list(task.shared))
+        after = _Scored.of(_pixels(document, task.region), task.region)
+        if after.difference < current.difference and after.fixed(current) >= 0:
+            current = after
+        else:
+            document = before
     return document, skipped
 
 
@@ -629,22 +627,6 @@ class OptimizeNodes:
             )
             held = frozenset()
         shared = _shared_edges(start, oids) if settings["shared"] else []
-        layouts = ()
-        # Boolean layout repairs may change topology, so they require structure
-        # permission and never act on a partial viewport selection.
-        if (
-            settings["layout"]
-            and request.reference is not None
-            and polygon is None
-            and "structure" in request.permissions.allowed
-        ):
-            from vectrify.refine.layout import infer
-            from vectrify.refine.shared import frozen_points
-
-            external = [link for link in shared if link.neighbour not in oids]
-            layouts = infer(start, oids, held | frozen_points(start, external))
-        enclosed = {oid for layout in layouts for oid in layout.fills}
-        shared = [link for link in shared if link.path not in enclosed]
         if shared:
             from vectrify.refine.shared import frozen_points
 
@@ -663,25 +645,13 @@ class OptimizeNodes:
         deadline = began + settings["seconds"]
         document = start
         current = _Scored.of(_pixels(document, region), region)
+        start_score = current
         first, before = current.pixels, current.difference
         points = _count(document, oids)
         taken: list[str] = []
-        # Logical layout properties take precedence over point reduction. The
-        # repair is visible in the preview and recorded separately in metrics.
-        for layout in layouts:
-            document = layout.project(document)
-        if document != start:
-            current = _Scored.of(_pixels(document, region), region)
-            taken.append("layout")
-            points = _count(document, oids)
-        # Subsequent fitting compares against the feasible layout. Comparing
-        # with invalid input would reject every repair that trades RGB error
-        # for the requested geometric relationships.
-        admissible = current
         skipped: dict[str, str] = {}
         # How often each step's result crossed itself more and was not kept.
         folded: dict[str, int] = {}
-        constrained: dict[str, int] = {}
         workers = min(settings["workers"], len(steps))
         pool = (
             ProcessPoolExecutor(
@@ -717,15 +687,10 @@ class OptimizeNodes:
                     tuple(shared),
                     "paint" in request.permissions.allowed,
                     current.pixels,
-                    layouts,
                 )
                 results = _round(steps, task, pool, context.stop, report)
                 for _doc, _pixels_after, why in results.values():
                     skipped.update(why)
-                for step, (candidate, _pixels_after, _why) in list(results.items()):
-                    if any(not layout.valid(candidate) for layout in layouts):
-                        del results[step]
-                        constrained[step] = constrained.get(step, 0) + 1
                 for step in _folding(results, _crossings(document, watched), watched):
                     del results[step]
                     folded[step] = folded.get(step, 0) + 1
@@ -741,7 +706,7 @@ class OptimizeNodes:
                     settings["gain"] / 100,
                     # Without a reference Simplify is judged against the
                     # drawing itself, which any change makes worse.
-                    admissible if request.reference is not None else None,
+                    start_score if request.reference is not None else None,
                     settings["allowance"] / 100,
                 )
                 if chosen is None:
@@ -813,8 +778,6 @@ class OptimizeNodes:
                     # Neighbours whose shared edges moved with the paths.
                     "followed": len(followed),
                     "reference": request.reference is not None,
-                    "layouts": len(layouts),
-                    "constrained": constrained,
                 },
                 # The renders the steps were judged by.
                 previews=preview_urls(

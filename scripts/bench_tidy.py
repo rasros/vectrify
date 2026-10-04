@@ -1,7 +1,6 @@
 """Tidy saved projects with every path in a group selected simultaneously.
 
     uv run python scripts/bench_tidy.py --out .bench/sword.json
-    uv run python scripts/bench_tidy.py --nodes '{"layout": false}'
 
 The fixed sword snapshot includes its reference. Shape properties are measured
 in document units, independently of RGB error and render resolution. The outline
@@ -67,7 +66,17 @@ def _only(document, oids):
     return replace(document, root=prune(document.root))
 
 
-def properties(document, group=GROUP, outline=OUTLINE):
+def _axis(document, outline):
+    from vectrify.document.transforms import object_matrix
+
+    nodes = document.geometry_for(outline).subpaths[0].nodes
+    base = (np.array(nodes[0].values[-2:]) + nodes[-1].values[-2:]) / 2
+    tip = np.array(nodes[len(nodes) // 2].values[-2:])
+    a, b, c, d, e, f = object_matrix(document, outline)
+    return np.array([(a * x + c * y + e, b * x + d * y + f) for x, y in (base, tip)])
+
+
+def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     """Containment per fill, uncovered interior, and reflected silhouette error.
 
     Reflect about the line from the outline's tip to the midpoint of its base.
@@ -75,7 +84,6 @@ def properties(document, group=GROUP, outline=OUTLINE):
     so an underlying hilt or background cannot hide a transparent blade gap.
     """
     from vectrify.document.transforms import object_matrix
-    from vectrify.refine.layout import axis_for, reflection
 
     def shape(oid):
         return curve_path(
@@ -93,8 +101,15 @@ def properties(document, group=GROUP, outline=OUTLINE):
     union = pathops.Path()
     for path in shapes.values():
         union = pathops.op(union, path, pathops.PathOp.UNION)
-    a, c, b, d, e, f = reflection(axis_for(document, outline))
-    reflected = interior.transform(a, b, c, d, e, f)
+    # This case's symmetry axis is a benchmark expectation, not a fitting rule.
+    axis = _axis(document, outline) if axis is None else np.asarray(axis, dtype=float)
+    direction = axis[1] - axis[0]
+    direction /= np.linalg.norm(direction)
+    linear = 2 * np.outer(direction, direction) - np.eye(2)
+    offset = axis[0] - linear @ axis[0]
+    reflected = interior.transform(
+        linear[0, 0], linear[1, 0], linear[0, 1], linear[1, 1], *offset
+    )
     spill = {
         oid: abs(pathops.op(s, interior, pathops.PathOp.DIFFERENCE).area)
         for oid, s in shapes.items()
@@ -125,7 +140,8 @@ def properties(document, group=GROUP, outline=OUTLINE):
 
 def run(path=FIXTURE, settings=None, group=GROUP, outline=OUTLINE):
     document, image = load(path)
-    before = properties(document, group, outline)
+    axis = _axis(document, outline)
+    before = properties(document, group, outline, axis)
     editor = Editor(document, selection=Selection(object_ids=frozenset({group})))
     settings = dict(settings or {})
     request = OperationRequest(
@@ -147,7 +163,7 @@ def run(path=FIXTURE, settings=None, group=GROUP, outline=OUTLINE):
     if state["result"]["changed"]:
         job.apply()
     final = editor.snapshot.document
-    after = properties(final, group, outline)
+    after = properties(final, group, outline, axis)
     target = np.asarray(image, float)
     mse = [
         float(((_render(d, white=True)[:, :, :3].astype(float) - target) ** 2).mean())
@@ -157,6 +173,7 @@ def run(path=FIXTURE, settings=None, group=GROUP, outline=OUTLINE):
         "case": "sword-blade",
         "simultaneous": True,
         "paths": len(document.element(group).children),
+        "symmetry_axis": axis.tolist(),
         "settings": settings,
         "seconds": round(time.perf_counter() - began, 3),
         "before": before,
