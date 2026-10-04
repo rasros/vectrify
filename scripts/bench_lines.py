@@ -35,6 +35,16 @@ over two at half its darkness). The scores:
     uv run python scripts/bench_lines.py --set regions=80 --out runs/b.jsonl
     uv run python scripts/bench_lines.py --compare runs/lines.jsonl runs/b.jsonl
     uv run python scripts/bench_lines.py --rescore runs/r --out runs/r.jsonl
+    uv run python scripts/bench_lines.py --tidy snap,simplify --out runs/t.jsonl
+    uv run python scripts/bench_lines.py --compare runs/lines.jsonl runs/t.jsonl
+
+`--tidy STEPS` also runs Tidy (improve/nodes, the steps a comma list of
+snap, simplify, detail and shape) on the trace's `--tidy-paths` largest
+paths (20; -1 for all) against the input, as bench_trace does, with
+`--nodes` setting its other settings, and scores the tidied trace too: the
+row's own scores stay the trace's, and `tidy` holds what Tidy did and, under
+`after`, the same scores for the tidied trace. `--compare` then also
+prints each run's cases before and after Tidy.
 
 The distortions are seeded, so one run per case compares settings. Keep the
 machine cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
@@ -170,12 +180,34 @@ def main() -> None:
         metavar="DIR",
         help="Score the traces a run saved with --renders DIR, without tracing",
     )
+    parser.add_argument(
+        "--tidy",
+        metavar="STEPS",
+        help="Tidy the trace too, with these steps (a comma list of snap, "
+        "simplify, detail and shape), and score it before and after",
+    )
+    parser.add_argument(
+        "--tidy-paths",
+        type=int,
+        default=20,
+        help="How many of the largest paths to Tidy (-1: all)",
+    )
+    parser.add_argument(
+        "--nodes",
+        action="append",
+        default=[],
+        metavar="KEY=VALUE",
+        help="Override a Tidy setting; rounds=N sets the rounds",
+    )
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("BEFORE", "AFTER"))
     args = parser.parse_args()
     if args.compare:
         compare(*args.compare)
         return
+    if args.tidy and args.rescore:
+        parser.error("--tidy needs the inputs, so it cannot --rescore")
     settings = dict(_setting(item) for item in args.set)
+    nodes = dict(_setting(item) for item in args.nodes)
     rows = []
     names = args.references or list(HELDOUT if args.heldout else REFERENCES)
     for name in names:
@@ -183,7 +215,7 @@ def main() -> None:
         width, height = size(truth)
         clean = Image.fromarray(render(truth, width, height))
         for kind in args.inputs:
-            seconds = None
+            seconds = image = None
             if args.rescore:
                 svg = (args.rescore / f"{name}-{kind}-cel.svg").read_text()
             else:
@@ -208,6 +240,22 @@ def main() -> None:
                 **structure(svg),
                 **score(truth, svg, width, height, kind),
             }
+            if args.tidy and image is not None:
+                tidied, row["tidy"] = tidy(
+                    svg, image, args.tidy, args.tidy_paths, nodes
+                )
+                row["tidy"] |= {
+                    "after": {
+                        **structure(tidied),
+                        **score(truth, tidied, width, height, kind),
+                    }
+                }
+                if args.renders:
+                    stem = args.renders / f"{name}-{kind}"
+                    Path(f"{stem}-tidy.svg").write_text(tidied)
+                    Image.fromarray(render(tidied, width, height)).save(
+                        f"{stem}-tidy.png"
+                    )
             rows.append(row)
             print(_line(row), flush=True)
     if args.out:
@@ -394,6 +442,23 @@ def trace(image: Image.Image, settings: dict) -> tuple[str, float]:
     return export_svg(editor.snapshot.document), seconds
 
 
+def tidy(
+    svg: str, image: Image.Image, steps: str, count: int, nodes: dict
+) -> tuple[str, dict]:
+    """(*svg* with Tidy run on its *count* largest paths, -1 all, with the
+    comma list *steps* and the settings *nodes*, against *image*; what Tidy
+    did, as bench_trace's optimize reports it, less the per-path list)."""
+    from bench_trace import OPTIMIZE, _steps, optimize
+
+    from vectrify.document import Editor, Selection, export_svg, import_svg
+
+    editor = Editor(import_svg(svg), selection=Selection(whole_document=True))
+    report = optimize(editor, image, count, OPTIMIZE | nodes | _steps(steps))
+    report.pop("each", None)
+    report.pop("each_s", None)
+    return export_svg(editor.snapshot.document), report
+
+
 def structure(svg: str) -> dict:
     """How heavy the trace is, and how it draws its ink."""
     paths = re.findall(r"<path\b[^>]*>", svg)
@@ -509,7 +574,7 @@ def _setting(item: str) -> tuple[str, object]:
 
 
 def _line(row: dict) -> str:
-    return (
+    text = (
         f"{row['reference']} [{row['input']}]: "
         f"lines {row['line_p']}/{row['line_r']}/{row['line_f']}, "
         f"strokes found {row.get('stroke_r')}, "
@@ -517,6 +582,15 @@ def _line(row: dict) -> str:
         f"{row['paths']} paths, {row['points']} points, {row['strokes']} strokes, "
         f"{row['ink_fills']} ink fills, {row['seconds']} s"
     )
+    if "tidy" in row:
+        t, after = row["tidy"], row["tidy"]["after"]
+        text += (
+            f"; tidy {t['paths']} paths ({','.join(t['steps'])}): "
+            f"lines F {after['line_f']}, width {after['width']}, "
+            f"edges {after['edge_f']}, mse {after['mse']}, "
+            f"{after['points']} points, {t['changed']} changed, {t['seconds']} s"
+        )
+    return text
 
 
 def compare(before: Path, after: Path) -> None:
@@ -550,6 +624,24 @@ def compare(before: Path, after: Path) -> None:
     if shared:
         means = " | ".join(
             f"{_mean(old, shared, f)} → {_mean(new, shared, f)}" for f in fields
+        )
+        print(f"| mean | {means} |")
+    # A run with --tidy: each case before and after Tidy, run by run.
+    for label, rows in (("BEFORE", old), ("AFTER", new)):
+        tidied = {k: r for k, r in rows.items() if "tidy" in r}
+        if not tidied:
+            continue
+        after = {k: r["tidy"]["after"] for k, r in tidied.items()}
+        keys = sorted(tidied)
+        print(f"\n{label} run, before → after Tidy:\n")
+        print("| case | " + " | ".join(fields) + " |")
+        print("|---|" + "---|" * len(fields))
+        for key in keys:
+            a, b = tidied[key], after[key]
+            cells = " | ".join(f"{a.get(f)} → {b.get(f)}" for f in fields)
+            print(f"| {key[0]} [{key[1]}] | {cells} |")
+        means = " | ".join(
+            f"{_mean(tidied, keys, f)} → {_mean(after, keys, f)}" for f in fields
         )
         print(f"| mean | {means} |")
 
