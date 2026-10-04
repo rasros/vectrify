@@ -55,13 +55,34 @@ def soft_coverage(
     *,
     fill_rule: str = "nonzero",
     chord: float = CHORD,
+    subpixels: int = 4,
 ) -> Any:
     """Coverage (height, width) of one path's closed contours inside *box*.
 
     *contours* are (n, 4, 2) cubic control tensors in pixel coordinates; the
     fill rule combines all of them, so holes work. Pixel ``(i, j)`` of the
     result covers ``[left + i, left + i + 1] x [top + j, top + j + 1]``.
+    Integrating subpixel coverage distinguishes both sides of a thin feature;
+    a single centre-distance sample otherwise paints it at least half opaque.
     """
+    import torch
+
+    if type(subpixels) is not int or subpixels < 1:
+        raise ValueError("Subpixel count must be a positive integer")
+    if subpixels == 1:
+        return _sample_coverage(contours, box, fill_rule=fill_rule, chord=chord)
+    samples = _sample_coverage(
+        [control * subpixels for control in contours],
+        tuple(value * subpixels for value in box),
+        fill_rule=fill_rule,
+        chord=chord * subpixels,
+    )
+    return torch.nn.functional.avg_pool2d(samples[None, None], subpixels, subpixels)[
+        0, 0
+    ]
+
+
+def _sample_coverage(contours, box, *, fill_rule, chord):
     import torch
 
     left, top, right, bottom = box

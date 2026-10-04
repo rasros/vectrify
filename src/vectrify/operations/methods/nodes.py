@@ -21,10 +21,10 @@ curve looped over itself, is never kept, however close it gets; concave
 outlines are fine. With several workers a round's steps run
 side by side, but only one path fit runs at a time.
 
-Every run has a time limit. Each round checks it and gives each step a share
-of what is left, keeping one back to judge them; a slow step stops at its
-share, handing back how far it got. A run out of time keeps the best it
-found, as Stop does.
+Every run has a time limit. Each round checks it and gives the inexpensive
+steps a share of what is left. The fit reclaims the unused time, reserving a
+short interval for rendering and judging, and shares it among the paths.
+A run out of time keeps the best it found, as Stop does.
 
 Without a reference only Simplify runs, judged against the drawing itself.
 Colour is left to Fit colours.
@@ -350,7 +350,7 @@ class _Scored:
     # Squared difference per pixel, over white-backed RGB and, when supplied,
     # reference opacity. White paint and transparent gaps must be distinguishable.
     off: np.ndarray
-    channels: int = 3
+    normalizer: int = 3
 
     @classmethod
     def of(cls, pixels: np.ndarray, region: Region) -> _Scored:
@@ -361,17 +361,18 @@ class _Scored:
             else pixels
         )
         off = ((rgb.astype(np.float64) / 255 - target) ** 2).sum(axis=-1)
-        channels = 3
+        normalizer = 3
         if region.alpha is not None:
             opacity = pixels[:, :, 3].astype(np.float64) / 255
-            off += (opacity - region.alpha) ** 2
-            channels = 4
-        return cls(pixels, off, channels)
+            # Balance mean RGB error and opacity error equally.
+            off += 3 * (opacity - region.alpha) ** 2
+            normalizer = 6
+        return cls(pixels, off, normalizer)
 
     @property
     def difference(self) -> float:
         """The mean squared difference over the region, as generate.error."""
-        return float(self.off.sum() / (self.channels * self.off.size))
+        return float(self.off.sum() / (self.normalizer * self.off.size))
 
     def fixed(self, before: _Scored) -> float:
         """The share of *before*'s difference fixed where the two differ.
@@ -648,7 +649,10 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 for s in geometry.subpaths
             ),
         )
-        # Lines the fit bent by less than it can tell apart go back to lines.
+        # Prefer a line when it retains the fitted improvement. Straightening
+        # can introduce crossings or lose useful subpixel curvature; fall back
+        # to the raw fit if the straightened result is rejected.
+        raw = document.replace_geometry(fitted)
         frame = _frame(document, oid, task.region, task.region.image.size)
         if frame is not None:
             fitted = straightened(fitted, STRAIGHT, frame)
@@ -656,7 +660,13 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         # Judge the actual curves and followed neighbours before fitting the
         # next path. Straightening and copying an edge can change the result
         # the single-path fitter judged in its frozen surrounding artwork.
-        document, current = _improvement(task, before, document, current)
+        simplified, simplified_score = _improvement(task, before, document, current)
+        if simplified == before and raw != document:
+            fitted_document, fitted_score = _improvement(task, before, raw, current)
+            if fitted_score.difference < simplified_score.difference:
+                document, current = fitted_document, fitted_score
+                continue
+        document, current = simplified, simplified_score
     return document, skipped
 
 
@@ -935,11 +945,19 @@ def _round(steps, task: _Task, pool, stop, report):
                 pending[step] = pool.submit(_run_step, step, task)
     results = {}
     for step in steps:
-        if step not in pending:
+        if step != "shape" and step not in pending:
             results[step] = _run_step(step, task, stop, report)
+    if "shape" in steps:
+        # Cheap steps often finish well before their share. Give the fit the
+        # remaining run time rather than reserving unused shares for them.
+        # All candidates still start from the same drawing and are judged
+        # together. Leave a small interval for the final render and scoring.
+        remaining = max(0.0, task.deadline - time.monotonic() - 0.25)
+        fitting = replace(task, share=remaining)
+        results["shape"] = _run_step("shape", fitting, stop, report)
     for step, future in pending.items():
         results[step] = future.result()
-    return results
+    return {step: results[step] for step in steps}
 
 
 def _choose(
