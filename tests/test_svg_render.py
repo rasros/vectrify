@@ -4,6 +4,7 @@ import base64
 import io
 import xml.etree.ElementTree as ET
 
+import cairosvg
 import numpy as np
 import pytest
 from PIL import Image
@@ -12,6 +13,24 @@ from vectrify.document import import_svg
 from vectrify.document.topology import EdgeRef
 from vectrify.operations.previews import render_previews
 from vectrify.svg_render import cached_rendering, render_image, render_png
+
+
+def test_direct_rgba_render_matches_cairo_with_group_opacity_and_clipping():
+    svg = """<svg width="40" height="40">
+    <defs><clipPath id="clip"><path d="M4 4 L36 4 L4 36 Z"/></clipPath></defs>
+    <g opacity="0.6" clip-path="url(#clip)">
+      <path fill="#fa8072" d="M3.2 3.7 L35.6 3.7 L35.6 35.4 L3.2 35.4 Z"/>
+      <path fill="blue" fill-opacity="0.5" d="M10 10 L30 10 L30 30 L10 30 Z"/>
+    </g></svg>"""
+    png = cairosvg.svg2png(bytestring=svg.encode())
+    assert png is not None
+    expected = np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))
+    with cached_rendering():
+        actual = np.asarray(render_image(svg, alpha=True))
+    assert np.array_equal(actual[:, :, 3], expected[:, :, 3])
+    # Straight colour can differ by one level when undoing premultiplication.
+    assert np.max(abs(actual.astype(int) - expected.astype(int))) <= 1
+    assert actual[39, 39].tolist() == [0, 0, 0, 0]
 
 
 @pytest.mark.parametrize("box", [(0, 0, 80, 64), (12.5, 8.5, 40, 32)])

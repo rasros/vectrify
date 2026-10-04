@@ -2694,15 +2694,18 @@ start();
 const operation = (command, body) => request('/api/operation', {command, ...body});
 
 
-// Tidy: a quick clean-up of the selected paths that mixes snapping, simplifying
-// and fitting (the operation's method is still called nodes).
-const NODE_STEPS = ['shape', 'snap', 'detail', 'simplify'];
+// Tidy combines edge-seeking and gradient fitting in Fit path, alongside
+// Simplify (the operation's method is still called nodes).
+const NODE_STEPS = ['shape', 'detail', 'simplify'];
 const STEP_NAMES = {shape:'fit', snap:'snap', simplify:'simplify'};
-const nodeSteps = () => Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
+const nodeSteps = () => {
+  const steps = Object.fromEntries(NODE_STEPS.map(step => [step, $('nodes-'+step).checked]));
+  return {...steps, snap:steps.shape};
+};
 function syncNodeSteps() {
   const steps = nodeSteps();
-  $('nodes-detail').disabled = !steps.snap || !state.reference;
-  $('nodes-detail-gain').disabled = !steps.snap || !steps.detail;
+  $('nodes-detail').disabled = !steps.shape || !state.reference;
+  $('nodes-detail-gain').disabled = !steps.shape || !steps.detail;
   // A step that is off keeps its options visible but dimmed.
   for (const card of document.querySelectorAll('#nodes-settings .step-card[data-step]')) {
     const on = steps[card.dataset.step];
@@ -2720,7 +2723,7 @@ const nodesDialog = jobDialog('nodes', {
     const customRun = $('nodes-custom-run').checked;
     const region = $('nodes-in-view').checked ? viewReport()?.region : null;
     return {action:'improve', method:'nodes', scope:'selection',
-      permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify, paint:true},
+      permissions:{geometry:true, structure:(steps.shape && steps.detail) || steps.simplify, paint:true},
       settings:{...steps, tolerance:Number($('nodes-tolerance').value),
         movement:Number($('nodes-movement').value),
         ...(customRun ? {steps:Number($('nodes-steps').value), workers:Number($('nodes-workers').value)} : {}),
@@ -2755,12 +2758,10 @@ async function openTidy() {
   const targets = tidyTargets();
   if (!targets) $('nodes-in-view').checked = true;
   $('nodes-in-view').disabled = !targets;
-  // Snap comes back on with the reference, as it is by default.
-  if (reference && $('nodes-snap').disabled) $('nodes-snap').checked = true;
-  for (const step of ['shape', 'snap']) {
-    $('nodes-'+step).disabled = !reference;
-    if (!reference) $('nodes-'+step).checked = false;
-  }
+  // Fitting comes back on when a reference is added.
+  if (reference && $('nodes-shape').disabled) $('nodes-shape').checked = true;
+  $('nodes-shape').disabled = !reference;
+  if (!reference) $('nodes-shape').checked = false;
   if (!reference) { $('nodes-detail').checked = false; $('nodes-simplify').checked = true; }
   // With a reference the error budget decides and the tolerance is a cap;
   // without one the tolerance decides alone, so its default is tighter.
@@ -2769,7 +2770,7 @@ async function openTidy() {
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
   $('nodes-description').textContent = reference
     ? 'Clean up paths against the reference. Preview the result before applying.'
-    : 'Simplify paths while keeping their shape. Add a reference to enable snapping and fitting.';
+    : 'Simplify paths while keeping their shape. Add a reference to enable fitting.';
   syncNodeSteps();
   nodesDialog.open(targets ? selectionSummary() : 'The paths painting in view.');
 }

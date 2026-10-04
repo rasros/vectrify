@@ -8,10 +8,11 @@ import numpy as np
 import pytest
 from PIL import Image, ImageDraw
 
-from vectrify.document import DocumentError, Editor, Selection, import_svg
+from vectrify.document import DocumentError, Editor, Selection, export_svg, import_svg
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 from vectrify.operations.generate import Region
 from vectrify.operations.methods import nodes as nodes_method
+from vectrify.svg_render import render_image
 
 # The square is drawn with more points than it needs and a little off target.
 SVG = (
@@ -205,11 +206,13 @@ def snap_twists(monkeypatch):
 
 @pytest.mark.usefixtures("snap_twists")
 def test_a_step_that_makes_a_path_cross_itself_is_not_kept():
-    job = Job(method("improve", "nodes"), request(editor("p"), steps=2, snap=True))
+    ed = editor("p")
+    job = Job(method("improve", "nodes"), request(ed, steps=2, snap=True, detail=True))
     job.run()
     metrics = job.state()["result"]["metrics"]
     assert metrics["steps"] == ["shape", "shape"]
-    assert metrics["folded"] == {"snap": 2}
+    job.apply()
+    assert nodes_method._crossings(ed.snapshot.document, ["p"]) == {"p": 0}
     assert metrics["after"]["difference"] < metrics["before"]["difference"]
 
 
@@ -305,6 +308,84 @@ def test_a_step_is_judged_by_the_pixels_it_changed():
     assert nodes_method._Scored.of(fixed, region).fixed(now) > 0.3
     assert nodes_method._Scored.of(worse, region).fixed(now) < 0
     assert nodes_method._Scored.of(start, region).fixed(now) == 0
+
+
+def test_white_paint_and_a_transparent_gap_have_different_tidy_scores():
+    rgb = Image.new("RGB", (40, 40), "white")
+    alpha = np.zeros((40, 40), np.float32)
+    alpha[10:30, 10:30] = 1
+    region = Region(0, 0, 40, 40, rgb, alpha)
+    correct = np.full((40, 40, 4), 255, np.uint8)
+    correct[:, :, 3] = (alpha * 255).astype(np.uint8)
+    spill = correct.copy()
+    spill[0:10, 10:30, 3] = 255
+    gap = correct.copy()
+    gap[15:25, 15:25, 3] = 0
+    best = nodes_method._Scored.of(correct, region)
+    assert best.difference == 0
+    assert nodes_method._Scored.of(spill, region).difference > 0
+    assert nodes_method._Scored.of(gap, region).difference > 0
+
+
+@pytest.mark.parametrize("amount", [-2, 2])
+@pytest.mark.parametrize("in_view", [False, True])
+def test_tidy_fits_white_shapes_using_reference_opacity(amount, in_view):
+    svg = (
+        '<svg width="64" height="64"><path id="p" fill="white" '
+        'd="M14 14 L50 14 L50 50 L14 50 Z"/></svg>'
+    )
+    document = import_svg(svg)
+    geometry = document.geometry_for("p")
+    expected = document.replace_geometry(
+        replace(
+            geometry,
+            subpaths=tuple(
+                replace(
+                    s,
+                    nodes=tuple(
+                        replace(
+                            n,
+                            values=tuple(
+                                v + (amount if v == 14 else -amount) for v in n.values
+                            ),
+                        )
+                        for n in s.nodes
+                    ),
+                )
+                for s in geometry.subpaths
+            ),
+        )
+    )
+    image = render_image(export_svg(expected), alpha=True)
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
+    settings = {
+        "shape": True,
+        "snap": False,
+        "simplify": False,
+        "resolution": 64,
+        "steps": 30,
+    }
+    if in_view:
+        settings["region"] = [8, 8, 48, 48]
+    job = Job(
+        method("improve", "nodes"),
+        OperationRequest(
+            "improve",
+            "nodes",
+            ed.snapshot,
+            ed,
+            Permissions(geometry=True, structure=True),
+            settings=settings,
+            budget=Budget(steps=1),
+            reference=image,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    metrics = state["result"]["metrics"]
+    assert state["result"]["changed"]
+    assert metrics["after"]["difference"] < metrics["before"]["difference"] * 0.7
 
 
 def test_the_time_limit_ends_the_run_and_keeps_the_best_so_far(monkeypatch):
@@ -723,7 +804,7 @@ def test_a_neighbour_s_shared_edge_moves_with_the_path(
 
 
 @pytest.mark.parametrize("paint", [True, False])
-def test_snap_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
+def test_fit_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
     # The ink runs along y = 32, 4 px wide; the line is drawn 1.5 px above
     # it and half as wide.
     ed = Editor(
@@ -750,7 +831,7 @@ def test_snap_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
     job.run()
     result = job.state()["result"]
     assert result["changed"]
-    assert result["metrics"]["steps"][0] == "snap"
+    assert result["metrics"]["steps"][0] == "shape"
     job.apply()
     document = ed.snapshot.document
     ys = [n.values[-1] for s in document.geometry_for("line").subpaths for n in s.nodes]

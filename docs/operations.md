@@ -48,7 +48,8 @@ at once.
 
 Gradient fitting has one core, `refine.paths.fit_filled_svg`, which
 `improve/path-fit` wraps with exact compositing (clipping, group opacity and
-objects in front), pins and permissions. `fit_filled_svg_bounded` fits one
+objects in front), pins and permissions. The same operation compares a
+bounded nearby-edge proposal, and scores opacity for transparent references. `fit_filled_svg_bounded` fits one
 spatial group at a time.
 
 The editor exposes jobs through one endpoint, `POST /api/operation`, with the
@@ -60,8 +61,8 @@ commands `start`, `status`, `stop`, `apply` and `discard`.
 | --- | --- | --- |
 | generate | `cel` | Traces cel art as flat regions bounded by its drawn lines, with the lines as strokes on top (CPU), each down the middle of its ink, in an ink it is darkened toward (judged by its darkness more than its hue, which blur and JPEG smear into the surface's), and stepping in width where the ink tapers (a blurred line's width counting the ink its blur spreads), thin lines in a grainy picture also found where they stand out of its grain along their length, with aligned ends joined across short gaps only when ink remains darker than both sides; dense irregular texture stays in smoothed colour regions, with solid outlines and directional hatching retained; flat regions within three RGB levels per channel share one compound filled path, keeping their contours and holes, and small marks of a clearly different colour, such as irises, kept as regions of their own; a reference's transparent parts (less than half opaque) are left empty, with no regions or lines over them and the regions' outlines along the transparency's edge; `regions` 0 (the default) keeps one per 10,000 pixels, 50-2,000; `outline` draws one unbroken stroke round the drawing's silhouette; `fit_colours` (on by default) colours each region with the least-squares flat fill under the drawn lines, as `improve/colours` would, after a region holding two clearly separate shades is split into them; `gradients` (on by default) gives a region whose colour clearly ramps a linear gradient |
 | generate | `colour-regions` | Traces a GPU-fitted colour palette's regions into a new group |
-| improve | `path-fit` | Gradient fitting of one selected path's nodes, handles and colour (CUDA, or the CPU for unstroked fills) |
-| improve | `nodes` | Fits the selected paths to the reference by mixing the path fit, snapping and simplifying |
+| improve | `path-fit` | Edge-seeking and gradient fitting of one selected path's nodes, handles and colour (CUDA or CPU for fills and round strokes) |
+| improve | `nodes` | Fits selected paths with combined edge-seeking and gradient fitting, alongside Simplify |
 | improve | `colours` | Closed-form flat fills or linear gradients for the selected objects, geometry locked |
 | simplify | `cleanup` | Drops redundant vertices and merges compatible paths in the selection |
 | snap | `edges` | Snaps touching edges of the selected paths together, as plain geometry |
@@ -126,7 +127,7 @@ unless `contours=True` (used by cleanup) turns it into
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
 no other object shares. Its settings are the steps to use (`snap`,
-`simplify` and `shape`, on by default, and `detail` for Snap to add points,
+`simplify` and `shape`, on by default, and `detail` to allow adding points,
 each of which has to fix `detail_gain` reference pixels), Simplify's error
 `budget` in percent (1 by default) and its `tolerance`, the most it may move
 an outline, in reference pixels (3 by default; without a reference, where
@@ -142,8 +143,11 @@ reference region extends past it; the budget's `steps` is the most rounds (4
 by default).
 `shape` and `snap` need a reference; without one the target is the drawing's
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
-Without PyTorch `shape` is left out of the run, and refused only when it is
-the one step chosen.
+When `shape` and `snap` are both enabled, edge-seeking is part of the shape
+step rather than a competing round result. The dialog exposes this as
+**Fit path**. API callers can still request `shape=False, snap=True` for
+edge-seeking alone. Without PyTorch `shape` is left out and `snap` remains,
+refused only when shape is the sole step chosen. Add detail stays off by default.
 
 With `shared` (on by default) a selected path's edges that another path draws
 too move together (`refine.shared`): a cel trace draws the edge between two
@@ -206,9 +210,10 @@ counting once, so a bow-tie counts 1, a looped cubic 1 and a concave outline
 worker, Snap and Simplify run in spawned processes while the path fit runs in
 the job's thread, so only one fit runs at a time.
 
-Scoring reads Cairo's RGB pixels directly and reuses compiled unchanged paths
-within the operation. Paint servers, clips and markers retain CairoSVG's
-ordinary handling. Simplify reuses the original join costs across its budget
+Scoring reads Cairo's pixels directly, including opacity for transparent
+references so white paint and transparency are distinct. It reuses compiled
+unchanged paths within the operation. Paint servers, clips and markers retain
+CairoSVG's ordinary handling. Simplify reuses the original join costs across its budget
 search and judges identical candidates once. These shortcuts keep the same
 pixel error and outline tolerance checks. The native CUDA fill renderer
 partitions larger crops across GPU blocks while retaining analytic cubic
@@ -257,7 +262,8 @@ pinned ones.
   bring its middle there, and an opaque line's stroke width becomes the
   median of the ink's widths along it (its open ends left out) when that
   differs by over 10%, which needs the `paint` permission. The path fit
-  leaves stroked lines to it.
+  also fits round strokes by gradient descent, preserving open contours and
+  the selected path's paint attributes. Miter outlined fills require CUDA.
 - Simplify is `refine.simplify.simplify`: the point whose removal moves the
   outline least goes first, the joined cubic keeping the tangents either side
   with least-squares handle lengths, until any removal would move it more than

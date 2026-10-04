@@ -1,17 +1,12 @@
 """Improve: Optimize nodes, a quick tidy of the selected paths' points.
 
-It mixes three steps and picks, round by round, whichever helps:
-
-- Snap puts the points on the reference's nearest edges; with Add detail it
-  also adds points where a piece of the shape is missing or too much. A
-  stroked line's points go onto the middle of its ink instead, and its
-  width to the ink's (refine.lines).
-- Simplify removes the points the outline does not need while the match
-  stays within an error budget, never moving it further than a tolerance in
-  the reference's pixels.
-- Shape fits the points and handles by gradient descent (the path fit),
-  on the GPU when there is one and on the CPU otherwise, at a reduced
-  resolution and stopping once it stalls; it is skipped without PyTorch.
+Fit path combines a bounded edge-seeking proposal with gradient fitting of
+points and handles, keeping the better exact render. Add detail explicitly
+allows adding points. Strokes first seek the middle and width of their ink;
+round strokes also support gradient fitting on CPU and CUDA. Without PyTorch,
+edge-seeking remains available. Simplify removes unnecessary points within
+an error budget and a tolerance in reference pixels. The legacy snap-only
+setting remains available to API callers.
 
 Every round tries each chosen step on the paths as they stand and keeps the
 one that lowers the difference to the reference most, if it fixes enough of
@@ -49,8 +44,8 @@ import numpy as np
 from PIL import Image
 from scipy import ndimage
 
-from vectrify.document import Document, DocumentError, Geometry, Selection
-from vectrify.image_utils import preview_urls
+from vectrify.document import Document, DocumentError, Geometry, Selection, export_svg
+from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -65,7 +60,7 @@ from vectrify.operations.generate import (
     target_region,
 )
 from vectrify.operations.settings import Setting, read_settings
-from vectrify.svg_render import cached_rendering
+from vectrify.svg_render import cached_rendering, render_image
 
 LABEL = "Optimize nodes"
 STEPS = ("shape", "snap", "simplify")
@@ -254,12 +249,20 @@ def _area_region(request: OperationRequest, polygon, margin: float, long_side: i
     )
     if box[2] <= box[0] or box[3] <= box[1]:
         raise DocumentError("The region is smaller than one reference pixel")
+    alpha = None
+    if request.reference.has_transparency_data:
+        opacity = np.asarray(
+            request.reference.convert("RGBA").getchannel("A").crop(box)
+        )
+        if opacity.min() < 255:
+            alpha = opacity.astype(np.float32) / 255
     return Region(
         vx + box[0] / sx,
         vy + box[1] / sy,
         (box[2] - box[0]) / sx,
         (box[3] - box[1]) / sy,
         reference.crop(box),
+        alpha,
     )
 
 
@@ -292,7 +295,7 @@ class _Task:
     held: frozenset[str] = frozenset()
     # The edges the selected paths share with neighbours, which follow them.
     shared: tuple = ()
-    # Whether Snap may set stroked lines' widths: a paint change.
+    # Whether edge-seeking may set stroked lines' widths: a paint change.
     widths: bool = False
     # The current render, shared with steps that only need to compare to it.
     pixels: np.ndarray | None = None
@@ -327,6 +330,15 @@ def _paths(document: Document, oids):
 
 
 def _pixels(document: Document, region: Region) -> np.ndarray:
+    if region.alpha is not None:
+        return np.asarray(
+            render_image(
+                export_svg(document),
+                (region.x, region.y, region.width, region.height),
+                region.image.size,
+                alpha=True,
+            )
+        )
     return np.asarray(render_region(document, region))
 
 
@@ -335,19 +347,31 @@ class _Scored:
     """A render of the region and how far each of its pixels is off."""
 
     pixels: np.ndarray
-    # Squared difference per pixel, summed over RGB in 0-1.
+    # Squared difference per pixel, over white-backed RGB and, when supplied,
+    # reference opacity. White paint and transparent gaps must be distinguishable.
     off: np.ndarray
+    channels: int = 3
 
     @classmethod
     def of(cls, pixels: np.ndarray, region: Region) -> _Scored:
         target = np.asarray(region.image.convert("RGB"), dtype=np.float64) / 255
-        off = ((pixels.astype(np.float64) / 255 - target) ** 2).sum(axis=-1)
-        return cls(pixels, off)
+        rgb = (
+            np.asarray(on_white(Image.fromarray(pixels)))
+            if pixels.shape[-1] == 4
+            else pixels
+        )
+        off = ((rgb.astype(np.float64) / 255 - target) ** 2).sum(axis=-1)
+        channels = 3
+        if region.alpha is not None:
+            opacity = pixels[:, :, 3].astype(np.float64) / 255
+            off += (opacity - region.alpha) ** 2
+            channels = 4
+        return cls(pixels, off, channels)
 
     @property
     def difference(self) -> float:
         """The mean squared difference over the region, as generate.error."""
-        return float(self.off.sum() / (3 * self.off.size))
+        return float(self.off.sum() / (self.channels * self.off.size))
 
     def fixed(self, before: _Scored) -> float:
         """The share of *before*'s difference fixed where the two differ.
@@ -376,6 +400,30 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
     deadline = min(task.deadline, time.monotonic() + task.share)
     skipped: dict[str, str] = {}
     if step == "shape":
+        from vectrify.refine.lines import is_line
+
+        initial = (
+            task.oids
+            if settings["detail"]
+            else tuple(oid for oid in task.oids if is_line(document, oid))
+        )
+        if settings["snap"] and initial:
+            # Edge-seeking is the initializer of the fit, not a competing
+            # round result. A stopped gradient fit still retains this proposal.
+            proposed, pixels, _ = _run_step(
+                "snap",
+                replace(task, oids=initial, deadline=deadline, share=task.share / 4),
+                stop,
+                progress,
+            )
+            watched = tuple(set(task.oids) | {link.neighbour for link in task.shared})
+            if not _folding(
+                {"initial": (proposed, pixels, {})},
+                _crossings(document, watched),
+                watched,
+            ):
+                document = proposed
+                task = replace(task, document=document, pixels=pixels)
         document, skipped = _fit(task, _Until(deadline, stop), progress)
     else:
         from vectrify.refine.frozen import Frozen, frozen
@@ -400,9 +448,23 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
                 split_gain=settings["detail_gain"],
                 deadline=deadline,
             )
+            candidate = _with(document, dict(paths.geometries))
+            document = task.document
+            current = _Scored.of(
+                task.pixels if task.pixels is not None else _pixels(document, region),
+                region,
+            )
+            # One badly snapped fill must not discard improvements to other
+            # paths or strokes. Keep each actual, followed change independently.
+            for oid in task.oids:
+                proposed = document.replace_geometry(candidate.geometry_for(oid))
+                width = candidate.element(oid).get("stroke-width")
+                if width != document.element(oid).get("stroke-width"):
+                    proposed = proposed.replace_element(candidate.element(oid))
+                document, current = _improvement(task, document, proposed, current)
         else:
             paths = _simplified(task, paths, fixed, deadline)
-        document = _with(document, dict(paths.geometries))
+            document = _with(document, dict(paths.geometries))
     if task.shared:
         from vectrify.refine.shared import follow
 
@@ -413,6 +475,31 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
         else _pixels(document, region)
     )
     return document, pixels, skipped
+
+
+def _improvement(task: _Task, before: Document, candidate: Document, current: _Scored):
+    """Keep a path's actual improvement after shared edges have followed."""
+    from vectrify.refine.shared import follow
+
+    candidate, _ = follow(candidate, list(task.shared))
+    if candidate == before:
+        return before, current
+    watched = set(task.oids) | {link.neighbour for link in task.shared}
+    changed = [
+        oid
+        for oid in watched
+        if before.geometry_for(oid) != candidate.geometry_for(oid)
+    ]
+    crossings_before = _crossings(before, changed)
+    if any(
+        count > crossings_before[oid]
+        for oid, count in _crossings(candidate, changed).items()
+    ):
+        return before, current
+    after = _Scored.of(_pixels(candidate, task.region), task.region)
+    if after.difference < current.difference and after.fixed(current) >= 0:
+        return candidate, after
+    return before, current
 
 
 # How many tolerances, up to the set one, Simplify's error budget picks from.
@@ -496,13 +583,13 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         displacement=settings["movement"],
         resolution=settings["resolution"],
         stall=settings["stall"] / 100,
+        snap=settings["snap"] and not settings["detail"],
     )
     skipped: dict[str, str] = {}
     from vectrify.refine.lines import is_line
     from vectrify.refine.paths import UnsupportedPathError
-    from vectrify.refine.shared import follow
 
-    pending = [oid for oid in task.oids if not is_line(document, oid)]
+    pending = list(task.oids)
     current = _Scored.of(
         task.pixels if task.pixels is not None else _pixels(document, task.region),
         task.region,
@@ -535,7 +622,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                     node_ids=movable if task.held else frozenset(),
                 ),
                 task.reference,
-                options,
+                replace(options, snap=False) if is_line(document, oid) else options,
                 stop=path_stop,
                 progress=progress,
             )
@@ -569,12 +656,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         # Judge the actual curves and followed neighbours before fitting the
         # next path. Straightening and copying an edge can change the result
         # the single-path fitter judged in its frozen surrounding artwork.
-        document, _ = follow(document, list(task.shared))
-        after = _Scored.of(_pixels(document, task.region), task.region)
-        if after.difference < current.difference and after.fixed(current) >= 0:
-            current = after
-        else:
-            document = before
+        document, current = _improvement(task, before, document, current)
     return document, skipped
 
 
@@ -641,6 +723,8 @@ class OptimizeNodes:
 
             if fit_problem():
                 steps.remove("shape")
+        if "shape" in steps and "snap" in steps:
+            steps.remove("snap")
         began = time.monotonic()
         deadline = began + settings["seconds"]
         document = start

@@ -81,14 +81,14 @@
   <p id="nodes-description" class="muted">Clean up paths against the reference. Preview the result before applying.</p>
   <fieldset id="nodes-settings" aria-label="Tidy settings">
     <div class="tidy-steps">
-      <fieldset class="step-card" data-step="snap"><legend><label class="toggle"><input id="nodes-snap" type="checkbox" checked> Snap to reference</label></legend><p class="muted">Move points onto nearby edges.</p></fieldset>
-      <fieldset class="step-card" data-step="shape"><legend><label class="toggle"><input id="nodes-shape" type="checkbox" checked> Fit shape</label></legend><p class="muted">Adjust points and curves to match.</p></fieldset>
+      <fieldset class="step-card" data-step="shape"><legend><label class="toggle"><input id="nodes-shape" type="checkbox" checked> Fit path</label></legend><p class="muted">Follow nearby edges and fit points and curves to match.</p></fieldset>
       <fieldset class="step-card" data-step="simplify"><legend><label class="toggle"><input id="nodes-simplify" type="checkbox" checked> Simplify</label></legend><p class="muted">Remove points the outline does not need.</p></fieldset>
     </div>
     <label class="toggle" title="Tidy only the points inside the part of the drawing the window shows, of the selected paths or, with none selected, of every path painting there"><input id="nodes-in-view" type="checkbox"> Only what is in view</label>
     <details class="tidy-advanced"><summary>Advanced settings</summary><div class="step-cards">
-    <fieldset class="step-card" data-step="snap">
-      <legend>Snap to reference</legend>
+    <fieldset class="step-card" data-step="shape">
+      <legend>Fit path</legend>
+      <div class="two-fields"><label title="How far one fit may move any point">Maximum movement (SVG units)<input id="nodes-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
       <div class="two-fields"><label class="toggle" title="Add points where the path misses a piece of the shape or covers too much"><input id="nodes-detail" type="checkbox"> Add detail</label><label title="How many reference pixels each added point has to fix to be kept. Lower adds more points.">Pixels per added point<input id="nodes-detail-gain" type="number" min="1" max="500" step="1" value="12"></label></div>
       <div class="two-fields"><label title="How far past the selected paths the reference is read, as a share of their size. Points can only be snapped or added within it, so raise it for a strand or spike that sticks out further.">Search beyond the path (%)<input id="nodes-margin" type="number" min="0" max="200" step="5" value="10"></label></div>
     </fieldset>
@@ -96,16 +96,12 @@
       <legend>Simplify</legend>
       <div class="two-fields"><label title="How much removing points may worsen the match to the reference where it acts, in percent. Simplify removes points only while the match stays within it.">Error budget (%)<input id="nodes-budget" type="number" min="0" max="100" step="0.5" value="1"></label><label title="The most removing points may move an outline anywhere, in reference pixels">Tolerance (px)<input id="nodes-tolerance" type="number" min="0" max="20" step="0.25" value="3"></label></div>
     </fieldset>
-    <fieldset class="step-card" data-step="shape">
-      <legend>Fit shape</legend>
-      <div class="two-fields"><label title="How far one fit may move any point">Maximum movement (SVG units)<input id="nodes-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
-    </fieldset>
     <fieldset class="step-card">
       <legend>Run</legend>
-      <p class="muted">Runs one round by default. Each round tries the enabled steps and keeps the best result. Shape fits use up to 20 internal steps, with 1 worker.</p>
+      <p class="muted">Runs one round by default. Each round tries the enabled steps and keeps the best result. Path fits use up to 20 internal steps, with 1 worker.</p>
       <label class="toggle"><input id="nodes-custom-run" type="checkbox"> Override automatic run limits</label>
-      <div class="two-fields"><label title="The most rounds to run. Extra rounds repeat from the best result; it stops sooner once no step helps.">Maximum rounds<input id="nodes-rounds" type="number" min="1" max="100" value="1" disabled></label><label title="How many steps of a round run at the same time, each in a process of its own that takes a moment to start. Only one shape fit runs at once.">Parallel workers<input id="nodes-workers" type="number" min="1" max="64" value="1" disabled></label></div>
-      <div class="two-fields"><label title="The most gradient steps in each shape fit. It stops sooner once it stops gaining. Requires Fit shape and the run limits override.">Maximum fitting steps<input id="nodes-steps" type="number" min="1" max="1000" value="20" disabled></label></div>
+      <div class="two-fields"><label title="The most rounds to run. Extra rounds repeat from the best result; it stops sooner once no step helps.">Maximum rounds<input id="nodes-rounds" type="number" min="1" max="100" value="1" disabled></label><label title="How many steps of a round run at the same time, each in a process of its own that takes a moment to start. Only one path fit runs at once.">Parallel workers<input id="nodes-workers" type="number" min="1" max="64" value="1" disabled></label></div>
+      <div class="two-fields"><label title="The most gradient steps in each path fit. It stops sooner once it stops gaining. Requires Fit path and the run limits override.">Maximum fitting steps<input id="nodes-steps" type="number" min="1" max="1000" value="20" disabled></label></div>
       <div class="two-fields"><label title="How much of the difference to the reference where a step changed the paths it has to fix to be kept, in percent. Lower keeps smaller gains.">Minimum improvement (%)<input id="nodes-gain" type="number" min="0" max="50" step="0.1" value="1"></label><label title="The most the whole run may take. When it runs out the best result so far is kept, as with Stop.">Time limit (s)<input id="nodes-seconds" type="number" min="0.5" max="3600" step="1" value="10"></label></div>
       <div class="two-fields"><label title="How much worse the match where Tidy acted may get than it started, in percent, for a step to be kept. At 0 Tidy never trades the match for fewer points.">Allowed worsening (%)<input id="nodes-allowance" type="number" min="0" max="100" step="0.5" value="1"></label><label class="toggle" title="Where a selected path shares an edge with another path, as neighbouring regions of a trace do, move the other path's edge with it so no gap or overlap opens"><input id="nodes-shared" type="checkbox" checked> Move shared edges together</label></div>
       <p class="muted">Pinned points stay fixed. Colour is left to Fit colours.</p>

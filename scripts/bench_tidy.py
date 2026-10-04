@@ -37,7 +37,7 @@ def load(path=FIXTURE):
     project = json.loads(path.read_text())
     document, _selection = load_project(json.dumps(project["document"]))
     data = project["reference"]["data_url"].split(",", 1)[1]
-    image = on_white(Image.open(io.BytesIO(base64.b64decode(data))))
+    image = Image.open(io.BytesIO(base64.b64decode(data))).convert("RGBA")
     return document, image
 
 
@@ -164,7 +164,7 @@ def run(path=FIXTURE, settings=None, group=GROUP, outline=OUTLINE):
         job.apply()
     final = editor.snapshot.document
     after = properties(final, group, outline, axis)
-    target = np.asarray(image, float)
+    target = np.asarray(on_white(image), float)
     mse = [
         float(((_render(d, white=True)[:, :, :3].astype(float) - target) ** 2).mean())
         for d in (document, final)

@@ -62,8 +62,20 @@ def reference(image):
     }
 
 
-def test_context_preserves_clipping_opacity_transform_and_front_objects():
-    context = FitContext(import_svg(SVG), SELECTION, target(), FitOptions())
+@pytest.mark.parametrize("transparent", [False, True])
+def test_context_preserves_clipping_opacity_transform_and_front_objects(transparent):
+    svg = (
+        SVG.replace('<rect width="64" height="64" fill="#eeeeff"/>', "")
+        if transparent
+        else SVG
+    )
+    if transparent:
+        png = cairosvg.svg2png(bytestring=svg.encode())
+        assert png is not None
+        image = Image.open(io.BytesIO(png)).convert("RGBA")
+    else:
+        image = target(svg)
+    context = FitContext(import_svg(svg), SELECTION, image, FitOptions())
     # Recover exact coverage from a white fill on transparent isolated path,
     # and compare the compositing response with another actual SVG render.
     context.path.set("fill", "#ffffff")
@@ -78,8 +90,12 @@ def test_context_preserves_clipping_opacity_transform_and_front_objects():
     )
     context.path.set("fill", "#5588bb")
     expected = context.array(context.render())
+    paint = [85 / 255, 136 / 255, 187 / 255, *([1] if transparent else [])]
+    # The alpha response is independent of the selected fill colour.
+    if transparent:
+        alpha[:, :, 3] = alpha[:, :, :3].max(axis=-1)
     reconstructed = context.base + alpha * (
-        context.delta + context.transmission * np.array([85, 136, 187]) / 255
+        context.delta + context.transmission * np.array(paint)
     )
     # Cairo's intermediate 8-bit rounding contributes up to a few levels.
     assert np.max(abs(expected - reconstructed)) < 0.025
@@ -318,7 +334,10 @@ def test_stopping_returns_unchanged_or_better_candidate():
 
 @pytest.mark.parametrize("join", ["round", "miter"])
 def test_outlined_region_fits_fill_and_stroke_together(join):
-    require_gpu()
+    if join == "miter":
+        require_gpu()
+    else:
+        pytest.importorskip("torch")
     outlined = SVG.replace(
         'fill="#800000"',
         f'fill="#800000" stroke="#800000" stroke-width="3" stroke-linejoin="{join}"',
@@ -348,7 +367,9 @@ def test_transparent_reference_is_composited_on_white():
         Image.new("RGBA", (64, 64), (0, 0, 0, 0)),
         FitOptions(),
     )
-    assert np.asarray(context.target).min() == 255
+    pixels = context.array(context.target)
+    assert pixels[:, :, :3].min() == 1
+    assert pixels[:, :, 3].max() == 0
 
 
 def test_miter_geometry_fit_preserves_sharp_join_and_improves_reference_match():
@@ -561,3 +582,92 @@ def test_a_stalled_fit_stops_early():
         FitOptions(steps=200, resolution=64, stall=0.5),
     )
     assert fit.steps < 200
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_cpu_round_stroke_gradient_fits_open_contours_without_closing_them():
+    svg = (
+        '<svg width="64" height="64"><path id="a" fill="none" '
+        'stroke="black" stroke-width="3" stroke-linecap="round" '
+        'stroke-linejoin="round" d="M12 20 C24 12 36 12 48 20 '
+        'C42 28 30 28 22 36"/></svg>'
+    )
+    doc = import_svg(svg)
+    data = cairosvg.svg2png(
+        bytestring=svg.replace('id="a"', 'id="a" transform="translate(0 2)"').encode()
+    )
+    assert data is not None
+    image = Image.open(io.BytesIO(data))
+    result = fit_selected_path(
+        doc,
+        SELECTION,
+        image,
+        FitOptions(snap=False, steps=30, resolution=64, displacement=3),
+    )
+    assert result.after < result.before * 0.4
+    ed = Editor(doc, selection=SELECTION)
+    with ed.transaction("Fit path", selection=SELECTION) as tx:
+        result.write(tx)
+    geometry = ed.snapshot.document.geometry_for("a")
+    assert not geometry.subpaths[0].closed
+    assert [n.id for n in geometry.subpaths[0].nodes] == [
+        n.id for n in doc.geometry_for("a").subpaths[0].nodes
+    ]
+    assert ed.snapshot.document.element("a").attributes == doc.element("a").attributes
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_round_stroke_colour_fit_changes_stroke_without_creating_a_fill():
+    svg = (
+        '<svg width="64" height="64"><path id="a" fill="none" '
+        'stroke="#800000" stroke-width="3" stroke-linecap="round" '
+        'stroke-linejoin="round" d="M12 20 C24 12 36 12 48 20"/></svg>'
+    )
+    doc = import_svg(svg)
+    result = fit_selected_path(
+        doc,
+        SELECTION,
+        target(svg.replace("#800000", "#cc0000")),
+        FitOptions(nodes=False, handles=False, color=True, steps=20, resolution=64),
+    )
+    assert result.after < result.before
+    assert not result.values
+    assert result.fill is None
+    assert result.stroke is not None
+    ed = Editor(doc, selection=SELECTION)
+    with ed.transaction("Fit path", selection=SELECTION) as tx:
+        result.write(tx)
+    assert ed.snapshot.document.element("a").get("fill") == "none"
+    assert ed.snapshot.document.element("a").get("stroke") == result.stroke
+
+
+@pytest.mark.usefixtures("cpu_only")
+def test_edge_proposal_respects_selection_pins_and_maximum_movement():
+    from dataclasses import replace
+
+    import numpy as np
+
+    doc = import_svg(SVG)
+    geometry = doc.geometry_for("a")
+    sub = geometry.subpaths[0]
+    pinned = replace(sub.nodes[0], pinned=True)
+    geometry = replace(
+        geometry, subpaths=(replace(sub, nodes=(pinned, *sub.nodes[1:])),)
+    )
+    doc = doc.replace_geometry(geometry)
+    selected = frozenset({pinned.id, sub.nodes[1].id})
+    result = fit_selected_path(
+        doc,
+        Selection(object_ids=SELECTION.object_ids, node_ids=selected),
+        target(SVG.replace('id="a"', 'id="a" transform="translate(6 2)"')),
+        FitOptions(snap=True, steps=20, resolution=64, displacement=1),
+    )
+    assert result.after <= result.before
+    for node in geometry.subpaths[0].nodes:
+        values = result.values.get(node.id, node.values)
+        if node.id not in selected:
+            assert values == node.values
+        if node.pinned:
+            assert values[-2:] == node.values[-2:]
+        delta = np.array(values).reshape(-1, 2) - np.array(node.values).reshape(-1, 2)
+        assert np.max(np.linalg.norm(delta, axis=1)) <= 1.00001

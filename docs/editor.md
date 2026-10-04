@@ -480,42 +480,39 @@ steps and **Only what is in view** visible; expand **Advanced settings** for
 the tolerances, fitting controls and run limits. The action buttons stay
 visible while the settings or preview scroll.
 The dialog runs one round by default, with up to 20 internal steps per
-shape fit and 1 worker. Each round tries the enabled steps and keeps the best
+path fit and 1 worker. Each round tries the enabled steps and keeps the best
 result; extra rounds repeat from that result. Enable
 **Override automatic run limits** to edit these; maximum fitting steps is
-available only with **Fit shape** enabled. The **Time limit** remains editable.
+available only with **Fit path** enabled. The **Time limit** remains editable.
 
 Tidy is a quick clean-up of the selected paths, or the paths
 inside selected groups, against the reference around them, never the whole
-image. By default it snaps their points onto the reference's edges, fits
-their shape and removes the points they do not need, in a few seconds a path; to reshape a path, use Redraw
-outline (R). Tick the steps it may use:
+image. By default it fits their points and curves to the reference and
+removes the points they do not need; to reshape a path, use Redraw outline
+(R). Tick the steps it may use:
 
-- **Snap to reference** (on by default) moves the points onto the reference's
-  nearest edges, and a stroked line's points onto the middle of its ink, its
-  stroke width set to the ink's width along it. With **Add detail** it also adds points where the path
-  misses a piece of the shape or covers too much: one point, two, or a spike
-  of three whose base stays on the outline, reaching bit by bit along a strand
-  that curls away. **Pixels per added point** is how many reference pixels
-  each new point has to fix to be kept, and **Search beyond the path** how far
-  past the selection, as a share of its size, the reference is read: a point
-  can only reach that far. Add detail tries a limited number of new points per
-  round, so on a large path it adds the ones that fix most first.
+- **Fit path** (on by default) compares a nearby-edge proposal with a fit of
+  the points and curve handles by gradient descent, keeping the better render.
+  Stroked lines follow the middle of their ink, and their width may be fitted
+  to the ink's width. Gradient fits use up to 20 steps by default and respect
+  **Maximum movement** in local SVG units. Straight segments can gain handles
+  where the reference curves; segments left straight stay lines. It uses CUDA
+  when available, otherwise CPU; round strokes work on either, while miter
+  outlines require CUDA. Without PyTorch it uses edge-seeking alone.
+  **Add detail** is off by default. When enabled, it adds points where a piece
+  of the shape is missing or covers too much. **Pixels per added point** sets
+  the improvement needed for each new point, and **Search beyond the path**
+  controls how far past the selection the reference is read.
 - **Simplify** (on by default) removes the points the outline does not need
   while the match to the reference where it acts gets no worse than the
   **Error budget** (1% by default), moving the outline no more than the
   **Tolerance** in reference pixels anywhere (3 by default), and turns curves
   whose handles lie on their line within that into straight segments.
   Without a reference the tolerance alone decides, 1 by default.
-- **Fit shape** (on by default) moves points and curve handles by gradient
-  descent, with a number of fitting steps (20 by default) and a maximum
-  movement per fit in local SVG units; it works at a reduced resolution and
-  stops a path's fit once it stops gaining, and is left out where PyTorch is
-  not installed. Straight segments are fitted as curves,
-  so it can give them handles where the reference curves; those it leaves
-  straight stay lines. It runs on the GPU when PyTorch CUDA and the Vectrify
-  CUDA extension are there, and on the CPU otherwise; outlined (stroked) fills
-  need the GPU.
+
+Transparent references are scored using both colour over white and opacity,
+so opaque white areas and transparent gaps are distinguished. Each fitted
+path is judged in the current surrounding artwork before fitting the next.
 
 Where a selected path shares an edge with a neighbour, as the regions of a
 cel trace do, **Move shared edges together** (on by default) moves the

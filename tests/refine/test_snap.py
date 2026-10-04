@@ -173,12 +173,12 @@ def test_snap_alone_is_the_proposal_and_needs_a_reference():
     assert ids(ed.snapshot.document.geometry_for("p")) == before
 
 
-def test_snap_and_the_path_fit_take_turns():
+def test_edge_seeking_is_part_of_the_path_fit():
     ed = editor(SVG, "p")
     job = Job(method("improve", "nodes"), request(ed, reference(), snap=True))
     job.run()
     metrics = job.state()["result"]["metrics"]
-    assert metrics["steps"][0] == "snap"
+    assert set(metrics["steps"]) == {"shape"}
     assert metrics["after"]["difference"] < 0.5 * metrics["before"]["difference"]
 
 

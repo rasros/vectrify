@@ -113,8 +113,10 @@ def render_image(
     svg: str | bytes,
     box: tuple[float, float, float, float] | None = None,
     size: tuple[int, int] | None = None,
+    *,
+    alpha: bool = False,
 ) -> Image.Image:
-    """Cairo's RGB pixels directly, without a PNG encode/decode between scores."""
+    """Cairo pixels directly, optionally retaining the SVG's transparency."""
     if box is not None:
         assert size is not None
         root = ET.fromstring(svg)
@@ -126,7 +128,7 @@ def render_image(
         tree,
         None,
         96,
-        background_color="white",
+        background_color=None if alpha else "white",
         path_cache=cache if cache is not None else OrderedDict(),
     )
     assert surface.cairo is not None
@@ -137,6 +139,18 @@ def render_image(
         .reshape(surface.height, surface.width, 4)
     )
     channels = [2, 1, 0] if sys.byteorder == "little" else [1, 2, 3]
+    if alpha:
+        opacity = pixels[..., 3 if sys.byteorder == "little" else 0]
+        # Cairo stores premultiplied colour. PIL's RGBA stores straight colour.
+        rgb = np.divide(
+            pixels[..., channels].astype(np.float32) * 255,
+            opacity[..., None],
+            out=np.zeros((*opacity.shape, 3), dtype=np.float32),
+            where=opacity[..., None] != 0,
+        )
+        return Image.fromarray(
+            np.dstack((np.rint(rgb).clip(0, 255).astype(np.uint8), opacity))
+        )
     return Image.fromarray(pixels[..., channels])
 
 
