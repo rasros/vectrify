@@ -15,7 +15,10 @@ darker than their surface. The line pixels go to the regions either side,
 so neighbours meet at the line's middle and share one traced edge, smoothed
 between its corners before it is fitted. Each region's colour is then
 fitted in closed form to the image under the lines as drawn, and a region
-whose colour clearly ramps takes a linear gradient. The lines are thinned to
+whose colour clearly ramps takes a linear gradient. Flat regions within
+three channel levels of each other share a compound filled path; broad,
+irregular texture is smoothed into colour regions, while solid ink and
+directional hatching stay as lines. The lines are thinned to
 centrelines, each moved onto the middle of its ink, loose ends too, and
 drawn over the fills as strokes in their ink, one the line is darkened
 toward (a black line on navy is not a grey lighter than the navy), by its
@@ -53,14 +56,16 @@ from scipy.ndimage import (
     gaussian_filter,
     gaussian_filter1d,
     grey_closing,
+    grey_opening,
     label,
     map_coordinates,
     median,
     median_filter,
     minimum_filter,
+    uniform_filter,
 )
 
-from vectrify.document.lines import contour_ends, end_pairs, joined
+from vectrify.document.lines import End, contour_ends, end_pairs, joined
 from vectrify.document.model import Geometry, PathNode, Subpath
 from vectrify.document.paint import hex_colour
 from vectrify.refine.colour_regions import (
@@ -113,6 +118,16 @@ NOISE = 1.5
 # ridge_lines).
 RIDGE_SIGMA = 1.3
 RIDGE_GRAIN = 3.0
+# Dense, moderate changes away from solid ink across a 31 px neighbourhood
+# mark texture. Large cores grow into their less varied surrounds; the
+# structure tensor's coherence keeps directional hatching as drawn lines.
+TEXTURE_WINDOW = 31
+TEXTURE_CORE = 0.45
+TEXTURE_EDGE = 0.25
+TEXTURE_SURFACE = 0.25
+TEXTURE_LEAST = 5000
+TEXTURE_INK = 0.6
+TEXTURE_COHERENCE = 0.5
 # Dark shapes deeper than this many times the typical line's half width, and
 # than SHAPE_LEAST pixels (so bold strokes of lettering stay lines), are
 # filled, not stroked.
@@ -172,6 +187,10 @@ SMOOTH = 1.0
 FILL_SMOOTH = 2.0
 FILL_CUT = 2.0
 FILL_FIT = 1.0
+# Flat regions whose RGB spans at most this many levels per channel share
+# one compound path. Their area-weighted paint moves no channel by more
+# than this, so noise does not create a separate path for each near shade.
+FILL_COLOUR_SLACK = 3.0
 # A run turning more than CORNER degrees over CORNER_SPAN points either side
 # has a corner there: each stretch between corners is smoothed on its own
 # and a curve ends at each, so the corner stays sharp.
@@ -227,6 +246,13 @@ WHISKER_OUT = 3.0
 # The longest gap, in line widths, bridged between two runs of one stroke
 # that carry on from each other: a line the detection broke.
 LINE_GAP = 1.5
+# In grain, follow visible ink across longer gaps, between aligned ends.
+# Blank gaps still use LINE_GAP; evidence can reach 6-12 px, turning at
+# most 35 degrees, darker than both sides over four fifths of the gap.
+TRACK_REACH = (6.0, 12.0)
+TRACK_TURN = 35.0
+TRACK_SHARE = 0.8
+TRACK_INK = 0.2
 # The outer outline (with *outline*): the background is the canvas border's
 # commonest colour when at least BACKGROUND_SHARE of the border has it, those
 # pixels within BACKGROUND_FLAT of it on average (a plain backdrop), and
@@ -387,6 +413,20 @@ def noise_level(target: np.ndarray, empty: np.ndarray | None = None) -> float:
     return float(small.mean()) if small.size else 0.0
 
 
+def _curvatures(light: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Smoothed brightness curvature in its two principal directions.
+
+    A line bends brightness chiefly across its ink; irregular texture has
+    substantial curvature in both directions.
+    """
+    hxx = gaussian_filter(light, RIDGE_SIGMA, order=(0, 2))
+    hyy = gaussian_filter(light, RIDGE_SIGMA, order=(2, 0))
+    hxy = gaussian_filter(light, RIDGE_SIGMA, order=(1, 1))
+    middle = (hxx + hyy) / 2
+    spread = np.sqrt(((hxx - hyy) / 2) ** 2 + hxy**2)
+    return RIDGE_SIGMA**2 * (middle + spread), RIDGE_SIGMA**2 * (middle - spread)
+
+
 def ridge_lines(target: np.ndarray, darkness: np.ndarray) -> np.ndarray:
     """The thin dark lines of a grainy *target* that stand out of its grain
     along their length, such as hatching and lines on a dark fill, whose
@@ -402,13 +442,7 @@ def ridge_lines(target: np.ndarray, darkness: np.ndarray) -> np.ndarray:
     it) than its lighter side. Pieces under LINE_SPECK pixels go.
     """
     light = lightness(target).astype(np.float64)
-    hxx = gaussian_filter(light, RIDGE_SIGMA, order=(0, 2))
-    hyy = gaussian_filter(light, RIDGE_SIGMA, order=(2, 0))
-    hxy = gaussian_filter(light, RIDGE_SIGMA, order=(1, 1))
-    middle = (hxx + hyy) / 2
-    spread = np.sqrt(((hxx - hyy) / 2) ** 2 + hxy**2)
-    across = RIDGE_SIGMA**2 * (middle + spread)
-    along = RIDGE_SIGMA**2 * (middle - spread)
+    across, along = _curvatures(light)
     grain = 1.4826 * float(np.median(np.abs(along - np.median(along))))
     candidate = (across > 2 * np.abs(along)) & (darkness >= LINE_CONTRAST / 2)
     core = candidate & (across >= RIDGE_GRAIN * grain)
@@ -419,6 +453,64 @@ def ridge_lines(target: np.ndarray, darkness: np.ndarray) -> np.ndarray:
     keep = np.bincount(pieces.ravel(), minlength=count + 1) >= LINE_SPECK
     keep[0] = False
     return keep[pieces]
+
+
+def texture_mask(target: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """Broad areas of tonal texture, and each area's directional coherence.
+
+    Moderate gradients occupy much of a photo's textured surface. Solid ink
+    and abrupt colour edges do not seed texture; a large connected core is
+    needed so small details in a cartoon do not turn into textured regions.
+    Coherence measures whether gradients share a direction, as hatching
+    does even when it is faint and blurred.
+    """
+    brightest = lightness(target)
+    light = gaussian_filter(brightest, 1)
+    gx = gaussian_filter(brightest, 1, order=(0, 1))
+    gy = gaussian_filter(brightest, 1, order=(1, 0))
+    energy = gx * gx + gy * gy
+    surface = grey_closing(light, size=7)
+    active = uniform_filter(
+        ((energy > 9) & (energy < 100) & (light > 0.65 * surface)).astype(float),
+        TEXTURE_WINDOW,
+    )
+    # Remove thin dark and light marks before judging the surface itself.
+    # Hatching over a flat or slowly ramping fill leaves a smooth surface;
+    # foliage and gravel still vary densely after those marks are removed.
+    surface = grey_opening(grey_closing(light, size=9), size=9)
+    sx = gaussian_filter(surface, 1, order=(0, 1))
+    sy = gaussian_filter(surface, 1, order=(1, 0))
+    rough = uniform_filter((sx * sx + sy * sy > 4).astype(float), TEXTURE_WINDOW)
+    across, along = _curvatures(brightest)
+    irregular = uniform_filter(
+        (np.minimum(np.abs(across), np.abs(along)) > 3).astype(float), TEXTURE_WINDOW
+    )
+    # Fine stochastic texture may smooth to a flat surface too. It curves
+    # brightness strongly in both directions, where thin hatching does not.
+    core = (active > TEXTURE_CORE) & ((rough > TEXTURE_SURFACE) | (irregular > 0.3))
+    pieces, _ = label(core)
+    keep = np.bincount(pieces.ravel()) >= TEXTURE_LEAST
+    keep[0] = False
+    core = keep[pieces]
+    if not core.any():
+        return core, np.zeros_like(light)
+    # Once a broad textured surface is found, follow it into dense areas
+    # whose gradients are too strong to seed texture by themselves.
+    varied = uniform_filter((energy > 9).astype(float), TEXTURE_WINDOW)
+    mask = binary_propagation(core, mask=(active > TEXTURE_EDGE) | (varied > 0.5))
+    pieces, count = label(mask)
+    gx = gaussian_filter(brightest, 1.5, order=(0, 1))
+    gy = gaussian_filter(brightest, 1.5, order=(1, 0))
+    # Measure a consistent direction across each connected textured area.
+    # A leaf edge is directional locally, but the canopy is not; hatching
+    # remains parallel throughout. Abrupt borders do not set its direction.
+    smooth = mask & (gx * gx + gy * gy < 100)
+    xx, yy, xy = (
+        np.bincount(pieces.ravel(), (field * smooth).ravel(), minlength=count + 1)
+        for field in (gx * gx, gy * gy, gx * gy)
+    )
+    coherence = np.sqrt((xx - yy) ** 2 + 4 * xy**2) / np.maximum(xx + yy, 1e-6)
+    return mask, coherence[pieces]
 
 
 def without_shapes(line: np.ndarray, times: float = SHAPE_DEPTH) -> np.ndarray:
@@ -617,6 +709,7 @@ def merge_regions(
     shadow_step: float = SHADOW_STEP,
     shadow_least: int = SHADOW_LEAST,
     apart: np.ndarray | None = None,
+    texture: np.ndarray | None = None,
 ) -> np.ndarray:
     """*labels* merged greedily down to *count* regions, renumbered from 0.
 
@@ -633,7 +726,9 @@ def merge_regions(
     small mark such as an iris or a mouth. The darker of each pair kept
     apart as a shadow, and the smaller of a mark's, do not count toward
     *count*, so more regions may be left. The regions under *apart*, a
-    mask, are never merged and do not count either.
+    mask, are never merged and do not count either. A smaller region mostly
+    covered by *texture* is surface detail, not a protected feature or
+    shadow, and can merge toward the requested count.
     """
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
@@ -653,6 +748,11 @@ def merge_regions(
         1,
     )
     # Paint of its own: a region all line has none, and its pixels stand in.
+    textured = (
+        np.bincount(flat[paint], texture.ravel()[paint], minlength=n).astype(np.float64)
+        if texture is not None
+        else np.zeros(n)
+    ).tolist()
     own = list(area)
     bare = area == 0
     if bare.any():
@@ -699,6 +799,9 @@ def merge_regions(
         """The shadow merging *a* and *b* would wash out, if any: the darker
         of two regions with enough paint of their own (not lines) a step of
         *shadow_step* in lightness apart."""
+        smaller = a if own[a] < own[b] else b
+        if textured[smaller] > own[smaller] / 2:
+            return None
         least = min(own[a], own[b])
         if least >= shadow_least:
             light = [float(sums[i] / area[i] @ LUMINANCE) for i in (a, b)]
@@ -738,6 +841,7 @@ def merge_regions(
         parent[b] = a
         area[a] += area[b]
         own[a] += own[b]
+        textured[a] += textured[b]
         sums[a] = sums[a] + sums[b]
         del edges[a][b]
         for c, (total, along) in edges[b].items():
@@ -1580,11 +1684,26 @@ def vectorize(
         kept, kept_darkness = detect_lines(denoised(target), radius, shading=False)
         drawn = line | without_shapes(kept) | ridge_lines(target, kept_darkness)
         drawn_darkness = np.maximum(darkness, kept_darkness)
+    texture = None
+    region_target = target
+    if grainy:
+        texture, coherence = texture_mask(target)
+        if texture.any():
+            share = drawn_darkness / np.maximum(drawn_darkness + lightness(target), 1)
+            marks = texture & (share < TEXTURE_INK) & (coherence < TEXTURE_COHERENCE)
+            line, drawn = line & ~marks, drawn & ~marks
+            # Texture goes to smooth colour regions; fit their paint to the
+            # original pixels later, as for every other region.
+            region_target = np.where(
+                texture[..., None], gaussian_filter(target, (2, 2, 0)), target
+            )
+        else:
+            texture = None
     if empty is not None:
         line, drawn = line & ~empty, drawn & ~empty
     # 1. Regions the lines bound, then split where only the colour changes.
     filled = trapped_ball_fill(~line if empty is None else ~line & ~empty)
-    split = split_by_colour(target, filled, line)
+    split = split_by_colour(region_target, filled, line)
     # 2. Line pixels, and corners no ball reached, go to the nearest region:
     # the boundary runs down the middle of each line.
     if split.any():
@@ -1592,7 +1711,9 @@ def vectorize(
     if empty is not None:
         # The empty pixels are one region of their own, never merged.
         split = np.where(empty, split.max() + 1, split)
-    labels = merge_regions(split, target, line, regions, apart=empty)
+    labels = merge_regions(
+        split, region_target, line, regions, apart=empty, texture=texture
+    )
     labels = remove_fragments(labels, PIECE)
     drawing = silhouette(found) if outline else None
     if outline and empty is not None:
@@ -1657,12 +1778,13 @@ def vectorize(
                 gradient_defs.append(_gradient(f"ramp{index}", ramp))
                 paints[index] = f"url(#ramp{index})"
         details["gradients"] = len(gradient_defs)
-    fills = {i: paints.get(i) or colour(fitted[i]) for i in range(count)}
+    fill_paths, fills = _fill_paths(outlines, fitted, paints, order, labels)
+    details["fill_paths"] = len(fill_paths)
     parts = [f"<defs>{''.join(gradient_defs)}</defs>"] if gradient_defs else []
     # Beneath them all, the largest region's colour shows at any seam: over
     # the canvas, or with transparency, over all that is not empty.
     largest = next(int(i) for i in order if int(i) != hidden)
-    backdrop = colour(fitted[largest])
+    backdrop = fills[largest] if largest not in paints else colour(fitted[largest])
     if hidden is None:
         parts.append(f'<rect width="{width}" height="{height}" fill="{backdrop}"/>')
     else:
@@ -1671,11 +1793,7 @@ def vectorize(
             parts.append(
                 f'<path d="{shown[1]}" fill="{backdrop}" fill-rule="evenodd"/>'
             )
-    parts.extend(
-        f'<path d="{outlines[int(i)]}" fill="{fills[int(i)]}" fill-rule="evenodd"/>'
-        for i in order
-        if int(i) in outlines
-    )
+    parts.extend(fill_paths)
     parts.extend(line_parts)
     svg = (
         f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" height="{height}" '
@@ -1683,6 +1801,52 @@ def vectorize(
     )
     details["seconds"] = time.monotonic() - started
     return svg, details
+
+
+def _fill_paths(
+    outlines: dict[int, str],
+    fitted: np.ndarray,
+    gradients: dict[int, str],
+    order: np.ndarray,
+    labels: np.ndarray,
+) -> tuple[list[str], dict[int, str]]:
+    """Share paths between flat regions of almost the same paint.
+
+    Every group's full colour range stays within FILL_COLOUR_SLACK per
+    channel, rather than chaining progressively different shades together.
+    Disconnected areas and holes keep their subpaths; gradients stay apart.
+    """
+    groups: list[list[int]] = []
+    low: list[np.ndarray] = []
+    high: list[np.ndarray] = []
+    for value in order:
+        index = int(value)
+        if index not in outlines:
+            continue
+        for number, group in enumerate(groups):
+            if index in gradients or group[0] in gradients:
+                continue
+            lower = np.minimum(low[number], fitted[index])
+            upper = np.maximum(high[number], fitted[index])
+            if (upper - lower <= FILL_COLOUR_SLACK).all():
+                group.append(index)
+                low[number], high[number] = lower, upper
+                break
+        else:
+            groups.append([index])
+            low.append(fitted[index].copy())
+            high.append(fitted[index].copy())
+    weights = np.bincount(labels.ravel())
+    paths: list[str] = []
+    fills: dict[int, str] = {}
+    for group in groups:
+        paint = gradients.get(group[0]) or colour(
+            np.average(fitted[group], axis=0, weights=weights[group])
+        )
+        data = " ".join(outlines[i] for i in group)
+        paths.append(f'<path d="{data}" fill="{paint}" fill-rule="evenodd"/>')
+        fills.update((i, paint) for i in group)
+    return paths, fills
 
 
 def _opaque(image: Image.Image, alpha: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
@@ -2210,6 +2374,7 @@ def _line_paths(
         xs = np.clip(run[:, 0].astype(int), 0, line.shape[1] - 1)
         ys = np.clip(run[:, 1].astype(int), 0, line.shape[0] - 1)
         reaches[ys, xs] = np.maximum(reaches[ys, xs], width / 2)
+    tracking_light = gaussian_filter(lightness(target), 1.0) if grainy else None
     for index, step in sorted(grouped):
         pieces = grouped[index, step]
         width = _weighted_percentiles(
@@ -2221,7 +2386,9 @@ def _line_paths(
             xs = np.clip(run[:, 0].astype(int), 0, line.shape[1] - 1)
             ys = np.clip(run[:, 1].astype(int), 0, line.shape[0] - 1)
             reaches[ys, xs] = np.maximum(reaches[ys, xs], width / 2)
-        contours = _joined_runs([c for c, _, _ in pieces], LINE_GAP * width)
+        contours = _joined_runs(
+            [c for c, _, _ in pieces], LINE_GAP * width, light=tracking_light
+        )
         pieces_before += len(pieces)
         pieces_after += len(contours)
         paths.append(_stroke(contours, colour(palette[index]), width, faint=step >= 0))
@@ -2539,23 +2706,80 @@ def width_pieces(
     return cut(0, len(logs) - 1)
 
 
-def _joined_runs(contours: list[Subpath], reach: float) -> list[Subpath]:
+def _joined_runs(
+    contours: list[Subpath], reach: float, *, light: np.ndarray | None = None
+) -> list[Subpath]:
     """The runs of one stroke joined where one carries on from another: at
     a junction, the straightest way through, and across a gap at most
-    *reach* long, as the line was heading."""
+    *reach* long, as the line was heading. With *light*, longer gaps are
+    followed only where visible ink continues between aligned ends."""
     lines = [
         tuple(PathNode(f"n{i}_{j}", n.command, n.values) for j, n in enumerate(c.nodes))
         for i, c in enumerate(contours)
         if not c.closed
     ]
     ends = [e for i, nodes in enumerate(lines) for e in contour_ends(i, nodes)]
-    chains, _ = joined(lines, end_pairs(ends, reach))
+    pairs = end_pairs(ends, reach)
+    if light is not None:
+        used_ends = {(e.contour, e.side) for pair in pairs for e in pair}
+        loose = [e for e in ends if (e.contour, e.side) not in used_ends]
+        pairs.extend(
+            (a, b)
+            for a, b in end_pairs(
+                loose,
+                min(TRACK_REACH[1], max(TRACK_REACH[0], 2 * reach)),
+                turn=TRACK_TURN,
+            )
+            if _ink_across_gap(a, b, light, max(3.0, reach))
+        )
+    chains, _ = joined(lines, pairs)
     used = {i for members, _ in chains for i in members}
     return [
         *(c for c in contours if c.closed),
         *(Subpath("s", nodes) for i, nodes in enumerate(lines) if i not in used),
         *(subpath for _, subpath in chains),
     ]
+
+
+def _ink_across_gap(a: End, b: End, light: np.ndarray, across: float) -> bool:
+    """Follow the ink between aligned ends, rather than joining by distance.
+
+    Sample the same cubic that joins the ends, including its weaker middle.
+    It must remain darker than both neighbouring surfaces along most of the
+    gap: a colour edge or a blank space between unrelated lines cannot join.
+    """
+    start, end = np.array(a.point), np.array(b.point)
+    length = float(np.linalg.norm(end - start))
+    points = np.array(
+        [
+            start,
+            start + np.array(a.heading) * length / 3,
+            end + np.array(b.heading) * length / 3,
+            end,
+        ]
+    )
+    curve = _bezier_points(
+        points, points[1], points[2], max(5, int(np.ceil(2 * length)))
+    )
+    tangent = np.gradient(curve, axis=0)
+    normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
+    normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-6)
+    samples = (
+        curve[:, None, :]
+        + np.array([-across, 0, across])[None, :, None] * normal[:, None, :]
+    )
+    values = map_coordinates(
+        light, [samples[..., 1] - 0.5, samples[..., 0] - 0.5], order=1, mode="nearest"
+    )
+    contrast = np.minimum(values[:, 0], values[:, 2]) - values[:, 1]
+    third = max(1, len(contrast) // 3)
+    # Blur spilling from the two ends alone is not ink across a blank gap.
+    # Its middle must keep a fifth of the contrast seen at the weaker end.
+    middle = float(np.median(contrast[third:-third]))
+    least = max(LINE_CONTRAST / 6, TRACK_INK * min(contrast[0], contrast[-1]))
+    return bool(
+        middle >= least and (contrast >= LINE_CONTRAST / 6).mean() >= TRACK_SHARE
+    )
 
 
 def _weighted_percentiles(

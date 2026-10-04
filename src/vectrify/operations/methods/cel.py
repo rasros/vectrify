@@ -82,6 +82,7 @@ class Cel:
                 key: details[key]
                 for key in (
                     "regions",
+                    "fill_paths",
                     "gradients",
                     "line_paths",
                     "line_style",

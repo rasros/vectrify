@@ -483,7 +483,8 @@ def test_a_one_pixel_line_is_found_through_grain():
     assert drawn[24:27, 18:52].any(0).mean() > 0.8
 
 
-def test_hatching_on_a_dark_fill_is_found_through_grain():
+@pytest.mark.parametrize("mixed", [False, True])
+def test_hatching_on_a_dark_fill_is_found_through_grain(mixed):
     # A navy panel hatched with one-pixel black lines, blurred, with grain:
     # each hatching pixel is hardly darker than the grain around it, but
     # the lines stand out of it along their length.
@@ -492,7 +493,8 @@ def test_hatching_on_a_dark_fill_is_found_through_grain():
     pixels = np.full((120, 160, 3), 245.0)
     pixels[10:110, 10:150] = (40, 50, 80)
     y, x = np.mgrid[:120, :160]
-    hatch = ((x + y) % 9 == 0) & (y > 20) & (y < 100) & (x > 20) & (x < 140)
+    along = np.where(x < 80, x + y, x - y) if mixed else x + y
+    hatch = (along % 9 == 0) & (y > 20) & (y < 100) & (x > 20) & (x < 140)
     pixels[hatch] = 35
     pixels = gaussian_filter(pixels, (1, 1, 0))
     rng = np.random.default_rng(4)
@@ -989,3 +991,83 @@ def test_a_fill_edge_takes_the_longest_curves_that_follow_it(monkeypatch):
     cut_points, cut_off = traced()
     assert points < cut_points
     assert off <= cut_off
+
+
+def test_tracking_follows_weak_ink_but_not_a_blank_gap_or_a_colour_edge():
+    contours = [run((5.5, 20.5), (15.5, 20.5)), run((20.5, 20.5), (35.5, 20.5))]
+    pixels = np.full((40, 45), 220.0)
+    pixels[20, 5:16] = pixels[20, 20:36] = 25
+    blank = cel.gaussian_filter(pixels, 1)
+    assert len(cel._joined_runs(contours, 1.5, light=blank)) == 2
+    pixels[20, 16:20] = 180
+    weak = cel.gaussian_filter(pixels, 1)
+    assert len(cel._joined_runs(contours, 1.5, light=weak)) == 1
+    # A shade edge has a dark side, but no trough between two lighter sides.
+    pixels[20:] = 180
+    edge = cel.gaussian_filter(pixels, 1)
+    assert len(cel._joined_runs(contours, 1.5, light=edge)) == 2
+
+
+def test_dense_texture_stays_in_regions_while_its_black_outline_stays_a_line():
+    rng = np.random.default_rng(9)
+    noise = cel.gaussian_filter(rng.normal(0, 1, (240, 240)), 0.8)
+    noise *= 20 / noise.std()
+    pixels = np.full((240, 240, 3), (135, 155, 110), dtype=float)
+    pixels += noise[..., None]
+    pixels[20:23, 20:220] = pixels[217:220, 20:220] = 20
+    pixels[20:220, 20:23] = pixels[20:220, 217:220] = 20
+    svg, details = cel.vectorize(
+        Image.fromarray(pixels.clip(0, 255).astype(np.uint8)), regions=8
+    )
+    stroked = re.sub(r'<rect[^>]*>|<path d="[^"]+" fill="#[^>]*>', "", svg)
+    drawn = rendered(stroked) < 200
+    assert drawn[30:210, 30:210].mean() < 0.03
+    assert drawn[21, 30:210].mean() > 0.9
+    assert details["regions"] <= 10
+
+
+def test_a_noisy_face_keeps_ink_precision_beside_coloured_highlights():
+    from PIL import ImageFilter
+
+    clean = np.asarray(small_face()).copy()
+    y, x = np.mgrid[:120, :140]
+    clean[(y < 40) & (np.hypot(x - 70, y - 60) < 48)] = (70, 95, 120)
+    clean[(y < 30) & (np.hypot(x - 70, y - 60) < 45)] = (105, 140, 160)
+    blurred = Image.fromarray(clean).filter(ImageFilter.GaussianBlur(0.8))
+    noisy = np.asarray(blurred, dtype=float)
+    noisy += np.random.default_rng(7).normal(0, 8, noisy.shape)
+    buffer = io.BytesIO()
+    Image.fromarray(noisy.clip(0, 255).astype(np.uint8)).save(
+        buffer, "JPEG", quality=55
+    )
+    svg, _ = cel.vectorize(Image.open(buffer).convert("RGB"), regions=5)
+    truth = cel.thin(clean.max(-1) < 60)
+    ink = cel.thin(rendered_rgb(svg).max(-1) < 90)
+    assert (cel.distance_transform_edt(~truth)[ink] <= 2).mean() > 0.97
+    assert (cel.distance_transform_edt(~ink)[truth] <= 2).mean() > 0.97
+
+
+def test_disconnected_regions_share_a_path_without_losing_their_holes_or_colours():
+    from PIL import ImageDraw
+
+    image = Image.new("RGB", (240, 80), "white")
+    draw = ImageDraw.Draw(image)
+    for i in range(5):
+        x = 10 + i * 45
+        draw.ellipse(
+            (x, 15, x + 30, 60),
+            fill=(200 + i % 3, 70, 40),
+            outline=(20, 20, 20),
+            width=2,
+        )
+        draw.ellipse(
+            (x + 10, 30, x + 20, 45), fill="white", outline=(20, 20, 20), width=2
+        )
+    svg, details = cel.vectorize(image, regions=12, gradients=False)
+    assert details["fill_paths"] < details["regions"]
+    # The five similar fills share a path, but their white holes stay empty.
+    drawn = rendered_rgb(svg)
+    for i in range(5):
+        x = 10 + i * 45
+        assert np.abs(drawn[25, x + 15].astype(float) - (201, 70, 40)).max() < 4
+        assert drawn[37, x + 15].min() > 245
