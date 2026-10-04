@@ -70,7 +70,7 @@ claude mcp add vectrify -- uvx --from "vectrify[mcp]" vectrify-mcp
 | --- | --- | --- |
 | Generate | Cel art | Traces flat, outlined illustrations as regions inside their drawn lines, the lines as strokes |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
-| Improve | Tidy | Tidies the selected paths, or what is in view, in seconds: snaps their points to the reference, fits their shape and simplifies within an error budget, never leaving the match worse, moving shared edges together and stroked lines onto their ink; simplifies without one |
+| Improve | Tidy | Tidies the selected paths, or what is in view, in seconds: snaps their points to the reference, fits their shape and simplifies within an error budget, moving shared edges together, keeping enclosed groups covered and symmetric, and putting stroked lines onto their ink; simplifies without one |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
 | Simplify | Clean up | Drops redundant vertices and merges compatible paths |
 
@@ -136,3 +136,10 @@ and tracing code), `--tidy-crops DIR` saves before/after crops, and `--summary R
 compares the configurations with sign tests across images and paths.
 `bench_lines.py --tidy STEPS` scores a tidied trace's lines (F, width)
 beside the trace's own.
+
+`bench_tidy.py` benchmarks the fixed editable sword project, selecting all ten
+paths in its `blade` group in one operation. It measures each fill outside
+Path 80, uncovered interior, reflected outline area, and partially transparent
+interior pixels with the blade rendered alone. The fixture includes the reference
+and stays independent of the working `sword.vectrify` file. For a longer fit:
+`uv run python scripts/bench_tidy.py --nodes '{"seconds":30,"rounds":8,"steps":40,"movement":4}' --out .bench/sword.json`.

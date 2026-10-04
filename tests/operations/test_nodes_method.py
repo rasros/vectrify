@@ -482,6 +482,42 @@ def neighbours_reference():
     return image
 
 
+def test_shared_edges_follow_when_both_paths_are_selected():
+    ed = Editor(
+        import_svg(NEIGHBOURS),
+        selection=Selection(object_ids=frozenset({"left", "right"})),
+    )
+    job = Job(
+        method("improve", "nodes"),
+        OperationRequest(
+            "improve",
+            "nodes",
+            ed.snapshot,
+            ed,
+            Permissions(geometry=True, structure=True),
+            settings={"shape": False, "simplify": False},
+            budget=Budget(steps=2),
+            reference=neighbours_reference(),
+        ),
+    )
+    job.run()
+    result = job.state()["result"]
+    assert result["changed"]
+    job.apply()
+
+    def edge(oid):
+        return sorted(
+            n.values[-2:]
+            for s in ed.snapshot.document.geometry_for(oid).subpaths
+            for n in s.nodes
+            if 16 < n.values[-1] < 48
+        )
+
+    assert edge("left") == edge("right")
+    assert all(x > 33 for x, _y in edge("left"))
+    assert result["metrics"]["followed"] == 0
+
+
 @pytest.mark.parametrize("device", ["cpu", "cuda"])
 @pytest.mark.parametrize("shape", [True, False])
 @pytest.mark.parametrize("shared", [True, False])

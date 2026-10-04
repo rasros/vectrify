@@ -173,6 +173,27 @@ judged over the area's bounds widened by `margin`. The transaction selects
 the paths it found. The MCP `tidy` tool takes `region` in place of, or with,
 `ids`.
 
+`layout` (on by default) treats a complete group of opaque filled paths and
+one nearly symmetric open enclosing outline as a covered silhouette. The two
+outline runs must have matching reversed commands, with their controls already
+within 15% of the width of reflecting about the tip/base axis; the fills must
+cover at least 90% of the outline and largely lie inside it. Paired controls
+are averaged with their reflections. Every step clips the fills to the resulting
+outline and gives the backmost fill its full silhouette, closing both holes and
+partially transparent antialiased seams. Colours, object IDs and stacking stay
+as they were. This repairs the initial layout before reference fitting, so it
+can raise RGB error; the allowance then applies relative to that repaired layout.
+Candidate fills are checked again after clipping, rejecting numerical leaks.
+The metrics report `layouts`, the initial `layout` step and rejected candidates
+under `constrained`. Structure permission and a reference are required. Partial
+regions, pins, locks, shared geometry, gradients, clips, translucent paint and
+nonuniform transforms disable inference. Turn `layout` off for an intentionally
+asymmetric outline or transparent group.
+
+Shared edges are also found between selected paths. The earlier path in drawing
+order owns a shared run, the later one follows it, and both ends are held.
+Only unselected followers count in `followed` and are added to the selection.
+
 Every round runs each chosen step on the paths as they stand and renders the
 region. A step is judged where it acted: over the pixels whose colour it
 changed, widened by `BAND` (2) pixels, the share of the squared difference to
@@ -181,7 +202,8 @@ not grow with the selection. Of the steps that pass, the one that lowers the
 region's mean squared difference (`generate.error`) most is kept; if none
 does, Simplify is kept when it removed points, and otherwise the run ends.
 With a reference, no step is eligible whose result, against the region's
-render at the start, is worse over the pixels changed since then (widened by
+render at the start (after any layout repair), is worse over the pixels
+changed since then (widened by
 `BAND`) by more than `allowance` of the squared difference there: a run never
 trades the match for fewer points beyond it, however many rounds Simplify
 gets. Without a reference Simplify is judged against the drawing itself and
