@@ -512,3 +512,40 @@ def test_a_neighbour_s_shared_edge_moves_with_the_path(shared):
     else:
         assert edge("right") == [(32.0, 24.0), (32.0, 40.0)]
         assert result["metrics"]["followed"] == 0
+
+
+@pytest.mark.parametrize("paint", [True, False])
+def test_snap_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
+    # The ink runs along y = 32, 4 px wide; the line is drawn 1.5 px above
+    # it and half as wide.
+    ed = Editor(
+        import_svg(
+            '<svg width="64" height="64"><path id="line" fill="none" '
+            'stroke="#000000" stroke-width="2" d="M8 30.5 L24 30.5 L40 30.5 '
+            'L56 30.5"/></svg>'
+        ),
+        selection=Selection(object_ids=frozenset({"line"})),
+    )
+    ink = Image.new("RGB", (64, 64), "white")
+    ImageDraw.Draw(ink).rectangle((8, 30, 55, 33), fill="black")
+    req = OperationRequest(
+        action="improve",
+        method="nodes",
+        snapshot=ed.snapshot,
+        editor=ed,
+        permissions=Permissions(geometry=True, structure=True, paint=paint),
+        settings={"workers": 1, "simplify": False},
+        budget=Budget(steps=2),
+        reference=ink,
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    result = job.state()["result"]
+    assert result["changed"]
+    assert result["metrics"]["steps"][0] == "snap"
+    job.apply()
+    document = ed.snapshot.document
+    ys = [n.values[-1] for s in document.geometry_for("line").subpaths for n in s.nodes]
+    assert all(abs(y - 32) < 0.5 for y in ys[1:-1]), ys
+    width = float(document.element("line").get("stroke-width") or "nan")
+    assert abs(width - 4) < 0.6 if paint else width == 2

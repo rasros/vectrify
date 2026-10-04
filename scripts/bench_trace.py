@@ -554,7 +554,7 @@ def optimize(
             "nodes",
             editor.snapshot,
             editor,
-            Permissions(geometry=True, structure=True),
+            Permissions(geometry=True, structure=True, paint=True),
             settings={k: v for k, v in settings.items() if k != "rounds"},
             budget=Budget(steps=settings.get("rounds")),
             reference=image,

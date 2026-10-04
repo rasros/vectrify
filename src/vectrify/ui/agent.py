@@ -2314,7 +2314,7 @@ class Agent:
             _targets(ids) if ids is not None or region is None else [],
             "improve",
             "nodes",
-            {"geometry": True, "structure": structure},
+            {"geometry": True, "structure": structure, "paint": True},
             settings,
             scope="selection",
             budget={"steps": rounds} if rounds is not None else None,
