@@ -49,18 +49,20 @@ def test_object_selection_does_not_read_geometry_without_selected_nodes():
         Document, "geometry_for", side_effect=AssertionError("read nodes")
     ):
         assert document.selection_ids(Selection(object_ids=ids)) == ids
-        assert document.selection_ids(Selection(object_ids={"layer"})) == ids | {
-            "layer"
-        }
+        assert document.selection_ids(
+            Selection(object_ids=frozenset({"layer"}))
+        ) == ids | {"layer"}
         assert document.selection_ids(Selection.all()) == ids | {"root", "layer"}
         with pytest.raises(DocumentError, match="Unknown object"):
-            document.selection_ids(Selection(object_ids={"missing"}))
+            document.selection_ids(Selection(object_ids=frozenset({"missing"})))
     node = document.geometry_for("p0").subpaths[0].nodes[0].id
-    assert document.selection_ids(Selection(object_ids={"p0"}, node_ids={node})) == {
-        "p0"
-    }
+    assert document.selection_ids(
+        Selection(object_ids=frozenset({"p0"}), node_ids=frozenset({node}))
+    ) == {"p0"}
     with pytest.raises(DocumentError, match="Selected nodes"):
-        document.selection_ids(Selection(object_ids={"p1"}, node_ids={node}))
+        document.selection_ids(
+            Selection(object_ids=frozenset({"p1"}), node_ids=frozenset({node}))
+        )
 
 
 def test_lookup_keeps_first_match_before_duplicate_ids_are_validated():
