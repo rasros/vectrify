@@ -72,8 +72,12 @@ settings. The row's `optimize` field then also holds, before and after Tidy:
   before and after, and crossed: how many paths cross themselves more;
 - each: all of that per path, its local error over its own area included.
 
-`--tidy-crops DIR` saves, per case, the reference, the trace and the tidied
-trace side by side around the paths Tidy helped and hurt most. `--summary
+`--trace-cache DIR` keeps each trace in DIR under a hash of the image, the
+method, its settings and the source of the code the method imports, and
+reuses it while they stay the same, so Tidy is benched on one trace without
+tracing again. `--tidy-crops DIR` saves, per case, the reference, the trace
+and the tidied trace side by side around the paths Tidy helped and hurt
+most. `--summary
 RUN...` prints a line per Tidy configuration over the runs' rows, with sign
 tests of the local error across images and across paths.
 """
@@ -241,6 +245,13 @@ def main() -> None:
         metavar="KEY=VALUE",
         help="Override an Optimize nodes setting; rounds=N sets the rounds",
     )
+    parser.add_argument(
+        "--trace-cache",
+        type=Path,
+        metavar="DIR",
+        help="Keep each trace here, keyed by its image, settings and tracing "
+        "code, and reuse it: Tidy configurations then bench one trace",
+    )
     parser.add_argument("--repeat", type=int, default=1)
     parser.add_argument("--out", type=Path, help="Write one JSON line per case")
     parser.add_argument(
@@ -291,6 +302,7 @@ def main() -> None:
                     settings,
                     features=features,
                     render=args.renders / f"{name}.png" if args.renders else None,
+                    cache=args.trace_cache,
                 )
                 case = {
                     "reference": path.name,
@@ -309,7 +321,11 @@ def main() -> None:
                         row["tidy_steps"] = _label(config)
                     crops = None
                     if args.tidy_crops:
-                        label = "-" + _label(config).replace(",", "+") if config else ""
+                        label = (
+                            "-" + _label(config).replace(",", "+").replace(" ", "-")
+                            if config
+                            else ""
+                        )
                         crops = args.tidy_crops / f"{name}{label}"
                     row["optimize"] = optimize(
                         _copy(editor),
@@ -356,13 +372,25 @@ def generate(
     *,
     features: tuple[tuple[str, int, int, int, int], ...] = (),
     render: Path | None = None,
+    cache: Path | None = None,
 ):
     """(the row, the editor holding the trace) for Generate with method
     *name* and *settings* on *image*; the editor is None when it failed.
-    With *render*, the traced drawing is saved there."""
+    With *render*, the traced drawing is saved there. With the folder
+    *cache*, the trace is kept there under a key of the image, the method,
+    its settings and the code it runs (`trace_key`), and read back from
+    there when the key matches, so Tidy configurations bench one trace."""
     from vectrify.document import Editor, Selection, export_svg, import_svg
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
+    if cache is not None:
+        cache = cache / trace_key(image, name, settings)
+        svg, saved = cache.with_suffix(".svg"), cache.with_suffix(".json")
+        if svg.exists() and saved.exists() and not render:
+            return json.loads(saved.read_text()), Editor(
+                import_svg(svg.read_text()),
+                selection=Selection(whole_document=True),
+            )
     width, height = image.size
     editor = Editor(
         import_svg(
@@ -424,7 +452,58 @@ def generate(
     }
     if feature_error is not None:
         row["features"] = feature_error
+    if cache is not None:
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        cache.with_suffix(".svg").write_text(export_svg(document))
+        cache.with_suffix(".json").write_text(json.dumps(row))
     return row, editor
+
+
+def trace_key(image: Image.Image, name: str, settings: dict) -> str:
+    """A key for the trace of *image* by method *name* with *settings*: a
+    hash of the image's pixels, the method and settings, and the source of
+    every vectrify module its method and tracer import, so a change to the
+    tracing code traces again while one to Tidy does not."""
+    import ast
+    import hashlib
+
+    import vectrify
+
+    root = Path(vectrify.__file__).parent
+    pending = [
+        root / "operations" / "methods" / f"{name.replace('-', '_')}.py",
+        root / "refine" / f"{name.replace('-', '_')}.py",
+    ]
+    seen: set[Path] = set()
+    while pending:
+        source = pending.pop()
+        if source in seen or not source.exists():
+            continue
+        seen.add(source)
+        for node in ast.walk(ast.parse(source.read_text())):
+            modules = []
+            if isinstance(node, ast.ImportFrom) and node.module:
+                modules = [node.module] + [
+                    f"{node.module}.{a.name}" for a in node.names
+                ]
+            elif isinstance(node, ast.Import):
+                modules = [a.name for a in node.names]
+            for module in modules:
+                if module.startswith("vectrify."):
+                    parts = module.split(".")[1:]
+                    pending += [
+                        root.joinpath(*parts).with_suffix(".py"),
+                        root.joinpath(*parts, "__init__.py"),
+                    ]
+    digest = hashlib.sha256()
+    rgb = image.convert("RGB")
+    digest.update(f"{rgb.size}".encode())
+    digest.update(rgb.tobytes())
+    digest.update(json.dumps([name, settings], sort_keys=True).encode())
+    for source in sorted(seen):
+        digest.update(source.relative_to(root).as_posix().encode())
+        digest.update(source.read_bytes())
+    return f"{name}-{digest.hexdigest()[:16]}"
 
 
 def optimize(
@@ -568,18 +647,25 @@ TIDY_DEFAULTS = {"snap": True, "simplify": True, "detail": False, "shape": False
 
 
 def _steps(item: str) -> dict:
-    """Tidy's step settings for *item*, a comma list of its steps."""
-    chosen = {s.strip() for s in item.split(",") if s.strip()}
+    """Tidy's settings for *item*: a comma list of its steps, then any other
+    of its settings as KEY=VALUE, apart by spaces."""
+    first, *rest = item.split()
+    chosen = {s.strip() for s in first.split(",") if s.strip()}
     if not chosen or chosen - set(TIDY_DEFAULTS):
         raise ValueError(f"--tidy-steps {item}: choose from {', '.join(TIDY_DEFAULTS)}")
     if "detail" in chosen and "snap" not in chosen:
         raise ValueError(f"--tidy-steps {item}: detail is Snap's, so add snap")
-    return {step: step in chosen for step in TIDY_DEFAULTS}
+    return {step: step in chosen for step in TIDY_DEFAULTS} | dict(
+        _setting(other) for other in rest
+    )
 
 
 def _label(config: dict) -> str:
-    """Tidy's steps in *config*, as `--tidy-steps` takes them."""
-    return ",".join(s for s in TIDY_DEFAULTS if config.get(s))
+    """Tidy's steps and other settings in *config*, as `--tidy-steps`
+    takes them."""
+    steps = ",".join(s for s in TIDY_DEFAULTS if config.get(s))
+    others = [f"{k}={v}" for k, v in config.items() if k not in TIDY_DEFAULTS]
+    return " ".join([steps, *others])
 
 
 def _copy(editor):
