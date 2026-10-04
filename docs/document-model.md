@@ -217,17 +217,24 @@ gradient that inherits from another by `href` takes the attributes it lacks,
 and the stops if it has none, so each gradient stands alone.
 
 `Transaction.set_fill(object_id, fill)` sets a solid fill (or removes the
-attribute with None) or a `LinearGradient` (from `vectrify.document.paint`:
-two end points in the object's own user space and its stops). It is a paint
-edit of that object only, authorized like any fill change, even though the
-gradient sits in `defs`. A gradient no other object references is the
-object's own and is updated in place, keeping its ID and its stops' IDs;
-otherwise a new one is added to the root's first `defs`, which is created if
-missing. Going back to a solid fill removes the object's own gradient once
-nothing uses it. Deleting objects also removes the gradients only they
-painted with. Code that needs one colour for a gradient, such as joins that
-average paint by area, uses `solid_paint`: the gradient's mean colour along
-its length.
+attribute with None) or a private `LinearGradient` (from
+`vectrify.document.paint`: two end points in the object's own user space and
+its stops). Private paint servers have an explicit `Element.paint_owner`
+naming their shape. They are stored in `defs` internally for SVG references,
+but the editor exposes them through the owner's fill properties, without
+listing them or their stops under Definitions. This is a paint edit of that
+object only. Refitting reuses the private gradient and stop IDs. A matching
+stroke can use the same private gradient on that object.
+
+Imported gradients without ownership metadata remain explicit shared assets,
+even with only one consumer. Replacing a shared fill creates a new private
+gradient and preserves the shared definition and other references. A private
+gradient is collected when its owner no longer uses it, including structural
+edits and deletion. Copied or split shapes get independent copies of private
+paint. Shared gradients are never implicitly collected. These changes are
+part of the same transaction and undo/redo entry as the owning shape's edit.
+`solid_paint` returns a gradient's mean colour along its length where one
+colour is needed, such as joins that average paint by area.
 
 ## Import, export, and project files
 
@@ -246,10 +253,13 @@ the unsupported features. Content is never silently removed. XML declarations
 of entities or document types are rejected.
 
 `export_svg` creates ordinary SVG containing object IDs. SVG alone does not
-encode editor node identities, locks, pins, or explicit asset-sharing metadata.
+encode editor node identities, locks, pins, or geometry-sharing metadata.
+Private paint ownership is retained by the SVG data attribute
+`data-vectrify-paint-owner`; renderers use the ordinary gradient definition
+and `url(#id)` reference.
 Use `save_project(document, selection)` and `load_project(json_text)` for a
 versioned project snapshot retaining those identities, constraints, and current
-selection. Version 3 is written; versions 1 and 2 still load. Version 2 also
+selection. Version 4 is written; versions 1, 2 and 3 still load. Version 2 also
 stored shared boundary links between edges, from when the editor linked
 paths; those are dropped on load, keeping the contours as they are.
 Project loading validates references and the supported subset.

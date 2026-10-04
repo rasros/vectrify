@@ -34,7 +34,8 @@ from vectrify.document.editor import Transaction
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.join import path_style
 from vectrify.document.lines import stroke_outline
-from vectrify.document.model import EditKind, new_id
+from vectrify.document.model import EditKind, new_id, paint_server
+from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import attachment
 from vectrify.document.regions import region_polygon
 from vectrify.document.svg import parse_path
@@ -318,11 +319,29 @@ class Session:
         users = Counter(
             e.geometry_id for e in document.elements() if e.geometry_id is not None
         )
+        hidden = {
+            child.id
+            for gradient in document.elements()
+            if gradient.paint_owner is not None
+            for child in Document(gradient).elements()
+        }
+        # A defs holding only private paint is an SVG storage detail.
+        hidden.update(
+            e.id
+            for e in document.elements()
+            if e.tag == "defs"
+            and all(c.id in hidden for c in e.children)
+            and not e.attributes
+            and not e.locks
+            and not e.name
+        )
         for element in document.elements():
-            if element.tag == "svg":
+            if element.tag == "svg" or element.id in hidden:
                 continue
             counters[element.tag] = counters.get(element.tag, 0) + 1
             ancestors = document.ancestry(element.id)
+            server = paint_server(element.get("fill"))
+            gradient = document.element(server) if server else None
             objects.append(
                 {
                     "id": element.id,
@@ -343,6 +362,13 @@ class Session:
                     "shared": element.geometry_id is not None
                     and users[element.geometry_id] > 1,
                     "attributes": dict(element.attributes),
+                    "fill_gradient": {
+                        "private": gradient.paint_owner == element.id,
+                        "attributes": dict(gradient.attributes),
+                        "stops": [dict(c.attributes) for c in gradient.children],
+                    }
+                    if gradient
+                    else None,
                     "locks": sorted(element.locks),
                     "inherited_locks": sorted(
                         set().union(*(a.locks for a in ancestors))
@@ -906,13 +932,42 @@ class Session:
                 "stroke-opacity",
             }:
                 raise DocumentError("Unsupported paint property")
+            fill = changes.get("fill")
+            if isinstance(fill, dict):
+                try:
+                    x1, y1 = (number(v) for v in fill["start"])
+                    x2, y2 = (number(v) for v in fill["end"])
+                    fill = LinearGradient(
+                        (x1, y1),
+                        (x2, y2),
+                        tuple(
+                            GradientStop(
+                                number(stop["offset"]),
+                                stop["colour"],
+                                number(stop.get("opacity", 1)),
+                            )
+                            for stop in fill["stops"]
+                        ),
+                    )
+                except (KeyError, TypeError, ValueError) as exc:
+                    raise DocumentError("Invalid gradient fill") from exc
+            elif fill is not None and not isinstance(fill, str):
+                raise DocumentError("A fill needs a colour or gradient")
             others = {k: v for k, v in changes.items() if k != "fill"}
             for oid in selected:
                 if others:
                     tx.set_attributes(oid, others)
                 if "fill" in changes:
                     # Its own gradient, if it had one, goes with a new fill.
-                    tx.set_fill(oid, changes["fill"])
+                    old = tx.preview.element(oid)
+                    follows = isinstance(fill, LinearGradient) and old.get(
+                        "stroke"
+                    ) == old.get("fill")
+                    tx.set_fill(oid, fill)
+                    if follows:
+                        tx.set_attributes(
+                            oid, {"stroke": tx.preview.element(oid).get("fill")}
+                        )
 
     def _command_move(self, payload: dict) -> None:
         selected = self._object_selection().object_ids

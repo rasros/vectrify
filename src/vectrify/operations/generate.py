@@ -213,7 +213,7 @@ def fresh_ids(svg: str) -> str:
     pattern = re.compile(r"url\(\s*#([^)\s]+)\s*\)")
     for element in root.iter():
         for key, value in element.attrib.items():
-            if key == "id":
+            if key == "id" or (key == "data-vectrify-paint-owner" and value in renamed):
                 element.set(key, renamed[value])
             elif key in HREF and value.startswith("#") and value[1:] in renamed:
                 element.set(key, "#" + renamed[value[1:]])

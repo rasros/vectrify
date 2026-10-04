@@ -568,8 +568,49 @@ class Transaction:
             raise EditRejectedError("Transaction is closed or has a failed edit")
         self._failed = True
         yield
+        self._private_paints()
         self._working.validate()
         self._failed = False
+
+    def _private_paints(self) -> None:
+        """Copy private paint with copied shapes, and collect abandoned assets.
+
+        Structural commands can copy paint or remove its owner (knife, split,
+        join, insertion). Normalize once for every command so all those paths
+        retain appearance without accidentally sharing a private asset.
+        """
+        document = self._working
+        private = {e.id: e for e in document.elements() if e.paint_owner is not None}
+        if not private:
+            return
+        for element in document.elements():
+            servers = set(references(element)) & private.keys()
+            attrs = dict(element.attributes)
+            for server in servers:
+                gradient = private[server]
+                if gradient.paint_owner == element.id:
+                    continue
+                clone = replace(
+                    gradient,
+                    id=new_id("object"),
+                    paint_owner=element.id,
+                    children=tuple(
+                        replace(c, id=new_id("object")) for c in gradient.children
+                    ),
+                )
+                document = _add_definition(document, clone)
+                for kind in ("fill", "stroke"):
+                    if paint_server(element.get(kind)) == server:
+                        attrs[kind] = f"url(#{clone.id})"
+            if attrs != dict(element.attributes):
+                document = document.replace_element(
+                    replace(element, attributes=tuple(attrs.items()))
+                )
+        used = {ref for e in document.elements() for ref in references(e)}
+        for server in private.keys() - used:
+            self._check_locks(server, EditKind.PAINT, "fill")
+            document = _without(document, server)
+        self._working = document
 
     def _check_locks(
         self, object_id: str, kind: EditKind, attribute: str | None = None
@@ -642,11 +683,9 @@ class Transaction:
     def set_fill(self, object_id: str, fill: str | LinearGradient | None) -> None:
         """Give an object a solid fill, or a linear gradient of its own.
 
-        A gradient lives in the root ``defs`` (created if missing) and belongs
-        to this object alone: one no other object references is updated in
-        place, otherwise a new one is made. Going back to a solid fill removes
-        the object's own gradient once nothing uses it. It is a paint edit of
-        this object only, whatever the selection says about ``defs``.
+        Private gradients have explicit ownership. SVG definitions are storage
+        details; imported/shared gradients remain shared until replaced with a
+        private fill. Refitting reuses private gradient and stop identities.
         """
         with self._change():
             document = self._working
@@ -659,11 +698,7 @@ class Transaction:
                 )
             self._authorize(document.dependents({object_id}), EditKind.PAINT, "fill")
             old = paint_server(element.get("fill"))
-            # A gradient no other object references is this object's own; its
-            # stroke may share it, as when an outline is painted like the fill.
-            own = old is not None and not any(
-                e.id != object_id and old in references(e) for e in document.elements()
-            )
+            own = old is not None and document.element(old).paint_owner == object_id
             attrs = dict(element.attributes)
             if isinstance(fill, LinearGradient):
                 if own and old is not None:
@@ -676,7 +711,9 @@ class Transaction:
                     if updated != current:
                         document = document.replace_element(updated)
                 else:
-                    gradient = fill.element(new_id("object"))
+                    gradient = replace(
+                        fill.element(new_id("object")), paint_owner=object_id
+                    )
                     document = _add_definition(document, gradient)
                     attrs["fill"] = f"url(#{gradient.id})"
             else:
@@ -1435,7 +1472,17 @@ class Transaction:
             if len(parts) < 2:
                 return (object_id,)
             geometries = tuple(Geometry(new_id("geometry"), part) for part in parts)
-            child_attributes = tuple(a for a in element.attributes if a[0] == "opacity")
+            private_paint = {
+                kind
+                for kind in ("fill", "stroke")
+                if (server := paint_server(element.get(kind))) is not None
+                and document.element(server).paint_owner == object_id
+            }
+            # Private paint belongs to each resulting shape, rather than the
+            # wrapper. Their user space is unchanged; normalization copies it.
+            child_attributes = tuple(
+                a for a in element.attributes if a[0] in {"opacity", *private_paint}
+            )
             children = tuple(
                 Element(new_id("object"), "path", child_attributes, geometry_id=g.id)
                 for g in geometries
@@ -1443,7 +1490,11 @@ class Transaction:
             group = Element(
                 new_id("group"),
                 "g",
-                tuple(a for a in element.attributes if a[0] != "opacity"),
+                tuple(
+                    a
+                    for a in element.attributes
+                    if a[0] not in {"opacity", *private_paint}
+                ),
                 children,
                 locks=element.locks,
             )
@@ -2218,28 +2269,7 @@ class Transaction:
         """Delete explicit subtrees; surviving references must never dangle."""
         with self._change():
             self._whole_objects()
-            before = self._working
             self._remove_objects(object_ids)
-            # Gradients only the deleted objects painted with go with them.
-            kept = {e.id for e in self._working.elements()}
-            unused: set[str] = {
-                server
-                for e in before.elements()
-                if e.id not in kept
-                for server in (
-                    paint_server(e.get("fill")),
-                    paint_server(e.get("stroke")),
-                )
-                if server is not None and server in kept
-            }
-            for element in self._working.elements():
-                unused -= set(references(element))
-            for server in unused:
-                if not any(
-                    EditKind.STRUCTURE in a.locks
-                    for a in self._working.ancestry(server)
-                ):
-                    self._working = _without(self._working, server)
 
     def _remove_objects(self, object_ids: frozenset[str]) -> None:
         removed = set()

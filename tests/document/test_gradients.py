@@ -1,5 +1,9 @@
 """Linear gradient fills: import, export, references and owned definitions."""
 
+import json
+from dataclasses import replace
+from xml.etree import ElementTree as ET
+
 import pytest
 
 from vectrify.document import (
@@ -114,6 +118,7 @@ def test_set_fill_creates_updates_and_removes_a_private_gradient():
         tx.set_fill("r", RAMP)
     document = editor.snapshot.document
     [gradient] = gradients(document)
+    assert gradient.paint_owner == "r"
     assert document.root.children[0].tag == "defs"
     assert document.element("r").get("fill") == f"url(#{gradient.id})"
     assert gradient.get("gradientUnits") == "userSpaceOnUse"
@@ -170,12 +175,12 @@ def test_set_fill_leaves_shared_gradients_and_needs_paint_permission():
         tx.set_fill("r", "#000000")
 
 
-def test_deleting_the_only_user_removes_its_gradient():
+def test_deleting_the_only_user_keeps_an_explicit_shared_gradient():
     editor = Editor(import_svg(SVG), selection=Selection(object_ids=frozenset({"p"})))
     with editor.transaction("Delete") as tx:
         tx.delete_objects(frozenset({"p"}))
     ids = {e.id for e in editor.snapshot.document.elements()}
-    assert "g" not in ids
+    assert "g" in ids
     # A gradient no deleted object used stays.
     assert "base" in ids
 
@@ -212,3 +217,168 @@ def test_a_gradient_counts_as_its_mean_colour_where_one_colour_is_needed():
         },
     ]
     assert average_paint(styles, [1.0, 1.0], document)["fill"] == "#800080"
+
+
+def private_editor():
+    editor = Editor(
+        import_svg(
+            '<svg width="10" height="10"><path id="p" d="M0 0 H10 V10 H0 Z"/>'
+            '<rect id="r" width="1" height="1"/></svg>'
+        ),
+        selection=Selection.all(),
+    )
+    with editor.transaction("Private fill") as tx:
+        tx.set_fill("p", RAMP)
+    return editor
+
+
+def test_private_gradients_round_trip_in_projects_svg_and_fresh_ids():
+    document = private_editor().snapshot.document
+    [gradient] = gradients(document)
+    assert load_project(save_project(document))[0] == document
+    again = import_svg(export_svg(document))
+    assert again.element(gradient.id).paint_owner == "p"
+    assert export_svg(again) == export_svg(document)
+    root = ET.fromstring(export_svg(document))
+    exported_gradient = root.find("{*}defs/{*}linearGradient")
+    assert exported_gradient is not None
+    assert exported_gradient.get("id") == gradient.id
+    renamed = import_svg(fresh_ids(export_svg(document)))
+    [copied] = gradients(renamed)
+    assert copied.id != gradient.id
+    assert copied.paint_owner != "p"
+    assert renamed.element(copied.paint_owner).get("fill") == f"url(#{copied.id})"
+
+
+def test_old_projects_keep_shared_gradient_identity_and_appearance():
+    original = import_svg(SVG)
+    data = json.loads(save_project(original))
+    data["version"] = 3
+
+    def strip(element):
+        element.pop("paint_owner")
+        for child in element["children"]:
+            strip(child)
+
+    strip(data["root"])
+    loaded, _ = load_project(json.dumps(data))
+    assert loaded == original
+    assert all(g.paint_owner is None for g in gradients(loaded))
+    assert export_svg(loaded) == export_svg(original)
+
+
+def test_replacing_a_single_user_shared_gradient_preserves_the_shared_asset():
+    original = import_svg(SVG)
+    editor = Editor(original, selection=Selection.all())
+    with editor.transaction("Private fill") as tx:
+        tx.set_fill("p", RAMP)
+    after = editor.snapshot.document
+    assert after.element("g") == original.element("g")
+    assert after.element("p").get("fill") != "url(#g)"
+    editor.undo()
+    assert editor.snapshot.document == original
+    editor.redo()
+    assert editor.snapshot.document == after
+
+
+def test_copying_a_shape_copies_its_private_fill_and_stroke():
+    editor = private_editor()
+    with editor.transaction("Outline") as tx:
+        tx.set_attributes("p", {"stroke": tx.preview.element("p").get("fill")})
+    original = editor.snapshot.document
+    source = original.element("p")
+    with editor.transaction("Copy") as tx:
+        tx.insert_object(original.root.id, replace(source, id="copy"))
+    copied = editor.snapshot.document
+    assert copied.element("copy").get("fill") != source.get("fill")
+    assert copied.element("copy").get("stroke") == copied.element("copy").get("fill")
+    [copy_gradient] = [g for g in gradients(copied) if g.paint_owner == "copy"]
+    editor.select(Selection(object_ids=frozenset({"copy"})))
+    with editor.transaction("Recolour copy") as tx:
+        tx.set_fill("copy", LinearGradient((2, 2), (3, 3), RAMP.stops))
+    assert editor.snapshot.document.element(copy_gradient.id).get("x1") == "2.0"
+    assert editor.snapshot.document.element("p") == source
+    with editor.transaction("Delete copy") as tx:
+        tx.delete_objects(frozenset({"copy"}))
+    assert gradients(editor.snapshot.document) == gradients(original)
+    editor.undo()
+    assert editor.snapshot.document.element(copy_gradient.id).paint_owner == "copy"
+    editor.redo()
+    assert gradients(editor.snapshot.document) == gradients(original)
+
+
+def test_cutting_private_paint_copies_it_and_joining_collects_old_assets():
+    editor = private_editor()
+    editor.select(Selection(object_ids=frozenset({"p"})))
+    before = editor.snapshot.document
+    with editor.transaction("Knife") as tx:
+        pieces = tx.cut_paths((-1, 5), (11, 5))
+    cut = editor.snapshot.document
+    assert len(pieces) == 2
+    assert {g.paint_owner for g in gradients(cut)} == set(pieces)
+    assert len({cut.element(oid).get("fill") for oid in pieces}) == 2
+    editor.select(Selection(object_ids=frozenset(pieces)))
+    with editor.transaction("Join") as tx:
+        joined = tx.join_paths(frozenset(pieces), color_source="p")
+    after = editor.snapshot.document
+    [gradient] = gradients(after)
+    assert gradient.paint_owner == joined
+    editor.undo()
+    assert editor.snapshot.document == cut
+    editor.undo()
+    assert editor.snapshot.document == before
+
+
+def test_removing_private_fill_keeps_it_while_the_owners_stroke_uses_it():
+    editor = private_editor()
+    fill = editor.snapshot.document.element("p").get("fill")
+    with editor.transaction("Outline") as tx:
+        tx.set_attributes("p", {"stroke": fill})
+        tx.set_fill("p", "none")
+    assert len(gradients(editor.snapshot.document)) == 1
+    with editor.transaction("Flat outline") as tx:
+        tx.set_attributes("p", {"stroke": "black"})
+    assert not gradients(editor.snapshot.document)
+    editor.undo()
+    assert len(gradients(editor.snapshot.document)) == 1
+
+
+def test_invalid_private_ownership_is_rejected_on_load():
+    document = private_editor().snapshot.document
+    [gradient] = gradients(document)
+    for invalid in ("missing", "r", document.root.id):
+        broken = document.replace_element(replace(gradient, paint_owner=invalid))
+        with pytest.raises(DocumentError, match="Private gradients"):
+            export_svg(broken)
+    broken = document.replace_element(
+        replace(document.element("r"), attributes=(("fill", f"url(#{gradient.id})"),))
+    )
+    with pytest.raises(DocumentError, match="cannot be shared"):
+        export_svg(broken)
+
+
+def test_split_parts_gives_each_shape_its_own_gradient_under_the_wrapper():
+    editor = Editor(
+        import_svg(
+            '<svg width="10" height="10"><path id="p" transform="scale(2)" '
+            'd="M0 0 H2 V2 H0 Z M3 0 H5 V2 H3 Z"/></svg>'
+        ),
+        selection=Selection.all(),
+    )
+    with editor.transaction("Private paint") as tx:
+        tx.set_fill("p", RAMP)
+        tx.set_attributes("p", {"stroke": tx.preview.element("p").get("fill")})
+    before = editor.snapshot.document
+    with editor.transaction("Split parts") as tx:
+        pieces = tx.split_disconnected("p")
+    after = editor.snapshot.document
+    assert len(pieces) == 2
+    assert {g.paint_owner for g in gradients(after)} == set(pieces)
+    assert after.ancestry(pieces[0])[-2].get("fill") is None
+    assert after.ancestry(pieces[0])[-2].get("transform") == "scale(2)"
+    for oid in pieces:
+        assert after.element(oid).get("fill") == after.element(oid).get("stroke")
+    editor.undo()
+    assert editor.snapshot.document == before
+    editor.redo()
+    assert editor.snapshot.document == after

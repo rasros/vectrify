@@ -181,7 +181,8 @@ for `coords="local"`.
 `generate(method, settings, group)` traces the reference into new shapes,
 over the whole drawing or into the area of `group` (`cel` for flat colour
 with ink lines, `colour-regions` for posterised regions). `tidy(ids)`,
-`fit_colours(ids, fill="flat"|"linear")`, `snap_edges(ids)` and
+`fit_colours(ids, fill="flat"|"linear")` (linear fills are private to each
+shape and described in its `fill_gradient` properties), `snap_edges(ids)` and
 `cleanup(ids)` improve existing paths; `tidy(region=[x, y, w, h])` touches
 up only the points inside an area, of every path painting there or of
 `ids`. Each starts a job:

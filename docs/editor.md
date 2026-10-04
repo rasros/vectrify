@@ -220,7 +220,11 @@ and saved projects restore it.
   A gradient fill shows as its ramp, in the tree's swatch and the right
   panel's picker, with "Linear gradient" in place of a colour value; picking
   a colour or typing one makes the fill flat again and removes the object's
-  own gradient. Gradients and their stops are listed under Definitions.
+  own gradient once its stroke no longer uses it. New gradient fills are
+  private to each shape: select the shape to edit endpoints, stop positions,
+  colours and opacity in its Fill properties, or add and remove stops. They
+  do not appear under Definitions. Imported/shared gradients remain listed
+  there and retain their existing references.
 - Fill/stroke/opacity, dragging and resizing the selected objects, and
   numeric offsets (**Move by**).
 - **Nodes (A)** edits the points of every selected path. Delete/Backspace
@@ -545,7 +549,7 @@ a closed form; outlines painted in the fill colour follow it. Objects are
 fitted back to front; more passes help where fitted objects overlap. No GPU is
 needed. Its **Fill** setting chooses a flat colour or a linear gradient. **Fit
 gradient…** opens the same dialog with Linear gradient chosen: each selected
-shape gets the two-stop gradient, along the direction the reference changes
+shape gets its own private two-stop gradient, along the direction the reference changes
 most, that best matches it, starting and ending where the reference's ramp
 does, inside the shape when it is flat beyond them. A shape the reference
 paints evenly keeps a flat colour. Apply keeps it as one undoable edit.

@@ -414,6 +414,7 @@ def import_svg(svg: str) -> Document:
         attrs = dict(node.attrib)
         object_id = attrs.pop("id", None) or new_id("object")
         name = attrs.pop("data-vectrify-name", "")
+        paint_owner = attrs.pop("data-vectrify-paint-owner", None)
         if XLINK in attrs:
             href = attrs.pop(XLINK)
             if "href" in attrs and attrs["href"] != href:
@@ -460,7 +461,13 @@ def import_svg(svg: str) -> Document:
         if tag == "use" and "href" not in attrs:
             issues.append(f"{object_id}: use requires a local reference")
         return Element(
-            object_id, tag, tuple(attrs.items()), children, geometry_id, name=name
+            object_id,
+            tag,
+            tuple(attrs.items()),
+            children,
+            geometry_id,
+            name=name,
+            paint_owner=paint_owner,
         )
 
     document = Document(read(root), tuple(geometries))
@@ -479,6 +486,8 @@ def export_svg(document: Document) -> str:
         attrs["id"] = element.id
         if element.name:
             attrs["data-vectrify-name"] = element.name
+        if element.paint_owner is not None:
+            attrs["data-vectrify-paint-owner"] = element.paint_owner
         if element.geometry_id:
             attrs["d"] = document.geometry(element.geometry_id).path_data()
         if "href" in attrs:

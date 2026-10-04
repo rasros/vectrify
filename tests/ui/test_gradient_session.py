@@ -38,8 +38,9 @@ def test_fit_gradient_then_a_flat_colour_from_the_paint_panel():
     shown = session.state()
     assert f'fill="url(#{gradient})"' in shown["svg"]
     rows = {o["id"]: o for o in shown["objects"]}
-    assert rows[gradient]["label"] == "Linear gradient 1"
-    assert rows[gradient]["resource"]
+    assert gradient not in rows
+    assert not any(o["tag"] in {"defs", "stop"} for o in rows.values())
+    assert rows["a"]["fill_gradient"]["private"]
     assert session.editor.undo_labels == ("Fit gradients",)
 
     session.action(
@@ -54,3 +55,49 @@ def test_fit_gradient_then_a_flat_colour_from_the_paint_panel():
     assert gradients(session) == []
     session.editor.undo()
     assert gradients(session) == [gradient]
+
+
+def test_private_fill_properties_edit_stops_endpoints_and_undo():
+    from tests.document.test_gradients import private_editor
+
+    session = Session(private_editor().snapshot.document)
+    session.editor.select(Selection(object_ids=frozenset({"p"})))
+    before = session.editor.snapshot.document
+    gradient = gradients(session)[0]
+    session.action(
+        {
+            "command": "paint",
+            "epoch": session.epoch,
+            "revision": session.editor.snapshot.revision,
+            "changes": {
+                "fill": {
+                    "start": [1, 2],
+                    "end": [5, 6],
+                    "stops": [
+                        {"offset": 0, "colour": "#112233"},
+                        {"offset": 0.5, "colour": "#445566", "opacity": 0.5},
+                        {"offset": 1, "colour": "#778899"},
+                    ],
+                }
+            },
+        }
+    )
+    after = session.editor.snapshot.document
+    assert gradients(session) == [gradient]
+    assert after.element(gradient).get("x1") == "1.0"
+    shown = next(o for o in session.state()["objects"] if o["id"] == "p")
+    assert shown["fill_gradient"]["stops"][1]["stop-opacity"] == "0.5"
+    assert len(shown["fill_gradient"]["stops"]) == 3
+    session.editor.undo()
+    assert session.editor.snapshot.document == before
+    session.editor.redo()
+    assert session.editor.snapshot.document == after
+
+
+def test_imported_shared_gradients_remain_in_the_tree():
+    from tests.document.test_gradients import SVG
+
+    session = Session(import_svg(SVG))
+    rows = {o["id"]: o for o in session.state()["objects"]}
+    assert rows["g"]["resource"]
+    assert rows["p"]["fill_gradient"]["private"] is False
