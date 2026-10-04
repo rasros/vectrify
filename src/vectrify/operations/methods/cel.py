@@ -70,7 +70,7 @@ class Cel:
         if not settings["regions"]:
             settings["regions"] = auto_regions(region.image.size)
         context.progress(0, "Finding the lines and filling the regions…", total=2)
-        svg, details = vectorize(region.image, **settings)
+        svg, details = vectorize(region.image, alpha=region.alpha, **settings)
         context.progress(1, "Placing traced regions and lines…")
         result = generated_result(
             request,

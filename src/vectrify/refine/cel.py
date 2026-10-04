@@ -275,6 +275,9 @@ RAMP_SAMPLES = 4000
 MIXED_STEP = 16.0
 MIXED_LEAST = 100
 MIXED_BETWEEN = 0.1
+# A pixel of a transparent reference less opaque than this is empty: no
+# region or line covers it, and a region mostly of such pixels goes.
+OPAQUE = 0.5
 
 
 def _disk(radius: int) -> np.ndarray:
@@ -362,12 +365,15 @@ def denoised(target: np.ndarray) -> np.ndarray:
     return np.take_along_axis(stack, darkest[None, ..., None], 0)[0]
 
 
-def noise_level(target: np.ndarray) -> float:
+def noise_level(target: np.ndarray, empty: np.ndarray | None = None) -> float:
     """How grainy *target* is: the mean step between neighbouring pixels'
-    brightest channels, leaving out the edges. Flat cel art steps by under
-    one; noise and JPEG, by two or more."""
+    brightest channels, leaving out the edges and any step into an *empty*
+    pixel. Flat cel art steps by under one; noise and JPEG, by two or more."""
     light = target.max(-1)
-    steps = np.abs(np.diff(light, axis=1)).ravel()
+    steps = np.abs(np.diff(light, axis=1))
+    if empty is not None:
+        steps = steps[~(empty[:, 1:] | empty[:, :-1])]
+    steps = steps.ravel()
     small = steps[steps < 24]
     return float(small.mean()) if small.size else 0.0
 
@@ -601,6 +607,7 @@ def merge_regions(
     shade: float = SHADE,
     shadow_step: float = SHADOW_STEP,
     shadow_least: int = SHADOW_LEAST,
+    apart: np.ndarray | None = None,
 ) -> np.ndarray:
     """*labels* merged greedily down to *count* regions, renumbered from 0.
 
@@ -616,11 +623,14 @@ def merge_regions(
     pixels of paint merged into one FEATURE_STEP or more from its colour: a
     small mark such as an iris or a mouth. The darker of each pair kept
     apart as a shadow, and the smaller of a mark's, do not count toward
-    *count*, so more regions may be left.
+    *count*, so more regions may be left. The regions under *apart*, a
+    mask, are never merged and do not count either.
     """
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
     n = int(labels.max()) + 1
+    fixed = set(np.unique(labels[apart]).tolist()) if apart is not None else set()
+    count += len(fixed)
     if n <= count:
         return labels
     flat = labels.ravel()
@@ -693,7 +703,12 @@ def merge_regions(
         return a if own[a] < own[b] else b
 
     version = [0] * n
-    heap = [(cost(a, b), a, b, 0, 0) for a in range(n) for b in edges[a] if a < b]
+    heap = [
+        (cost(a, b), a, b, 0, 0)
+        for a in range(n)
+        for b in edges[a]
+        if a < b and a not in fixed and b not in fixed
+    ]
     heapq.heapify(heap)
     parent = list(range(n))
     regions = n
@@ -729,7 +744,8 @@ def merge_regions(
         version[b] += 1
         regions -= 1
         for c in edges[a]:
-            heapq.heappush(heap, (cost(a, c), a, c, version[a], version[c]))
+            if c not in fixed:
+                heapq.heappush(heap, (cost(a, c), a, c, version[a], version[c]))
     roots = np.array([_root(parent, i) for i in range(n)])
     _, renumbered = np.unique(roots, return_inverse=True)
     return renumbered[labels]
@@ -1436,6 +1452,7 @@ def vectorize(
     outline: bool = False,
     fit_colours: bool = True,
     gradients: bool = True,
+    alpha: np.ndarray | None = None,
 ) -> tuple[str, dict]:
     """Trace *image* as flat regions and drawn lines, as SVG in its pixels.
 
@@ -1447,16 +1464,35 @@ def vectorize(
     image under the lines as drawn (see :func:`fitted_fills`), not its
     median; with *gradients*, a region whose colour clearly ramps takes a
     linear gradient (see :func:`ramps`).
+
+    *alpha*, each pixel's opacity 0-1, or else the image's own alpha, leaves
+    the pixels less opaque than OPAQUE empty: no region or line covers them,
+    a region mostly of them goes, and the regions' outlines run along the
+    transparency's edge. The colour of a pixel partly transparent is its
+    own, not mixed with what lies behind.
     """
     if regions < 1 or not np.isfinite(tolerance) or tolerance < 0:
         raise ValueError("invalid region count or tolerance")
     started = time.monotonic()
-    target = np.asarray(image.convert("RGB"), dtype=np.float32)
+    if alpha is None and image.has_transparency_data:
+        alpha = np.asarray(image.convert("RGBA").getchannel("A")) / 255
+    empty = None
+    if alpha is not None and (alpha < OPAQUE).any():
+        target, empty = _opaque(image, np.asarray(alpha, dtype=np.float32))
+        if empty.all():
+            return (
+                '<svg xmlns="http://www.w3.org/2000/svg" '
+                f'width="{image.width}" height="{image.height}" '
+                f'viewBox="0 0 {image.width} {image.height}"></svg>',
+                {"regions": 0, "seconds": time.monotonic() - started},
+            )
+    else:
+        target = np.asarray(image.convert("RGB"), dtype=np.float32)
     height, width = target.shape[:2]
     radius = max(3, int(np.ceil(line_width)))
     # Grain and JPEG noise read as faint marks everywhere: the lines are
     # found in the image with it smoothed away first.
-    grainy = noise_level(target) > NOISE
+    grainy = noise_level(target, empty) > NOISE
     found = median_filter(target, size=(3, 3, 1)) if grainy else target
     line, darkness = detect_lines(found, radius, shading=not grainy)
     line = without_shapes(line)
@@ -1468,16 +1504,23 @@ def vectorize(
         kept, kept_darkness = detect_lines(denoised(target), radius, shading=False)
         drawn = line | without_shapes(kept) | ridge_lines(target, kept_darkness)
         drawn_darkness = np.maximum(darkness, kept_darkness)
+    if empty is not None:
+        line, drawn = line & ~empty, drawn & ~empty
     # 1. Regions the lines bound, then split where only the colour changes.
-    filled = trapped_ball_fill(~line)
+    filled = trapped_ball_fill(~line if empty is None else ~line & ~empty)
     split = split_by_colour(target, filled, line)
     # 2. Line pixels, and corners no ball reached, go to the nearest region:
     # the boundary runs down the middle of each line.
     if split.any():
         split = split[nearest_indices(split == 0)]
-    labels = merge_regions(split, target, line, regions)
+    if empty is not None:
+        # The empty pixels are one region of their own, never merged.
+        split = np.where(empty, split.max() + 1, split)
+    labels = merge_regions(split, target, line, regions, apart=empty)
     labels = remove_fragments(labels, PIECE)
     drawing = silhouette(found) if outline else None
+    if outline and empty is not None:
+        drawing = np.asarray(binary_fill_holes(~empty))
     outer, depth = None, 0.0
     if drawing is not None:
         outer, depth = outer_line(drawing, line, thin(line))
@@ -1487,9 +1530,14 @@ def vectorize(
     labels = split_mixed(labels, target, line)
     _, labels = np.unique(labels, return_inverse=True)
     labels = labels.reshape(line.shape)
+    hidden = None
+    if empty is not None:
+        labels, hidden = _without_empty(labels, empty)
     count = int(labels.max()) + 1
     medians = region_medians(target, labels, line)
     outlines = region_outlines(labels, tolerance)
+    if hidden is not None:
+        outlines.pop(hidden, None)
     order = np.argsort(-np.bincount(labels.ravel(), minlength=count))
     details: dict[str, Any] = {
         "regions": len(outlines),
@@ -1534,10 +1582,19 @@ def vectorize(
                 paints[index] = f"url(#ramp{index})"
         details["gradients"] = len(gradient_defs)
     fills = {i: paints.get(i) or colour(fitted[i]) for i in range(count)}
-    # Beneath them all, the largest region's colour shows at any seam.
-    backdrop = colour(fitted[int(order[0])])
     parts = [f"<defs>{''.join(gradient_defs)}</defs>"] if gradient_defs else []
-    parts.append(f'<rect width="{width}" height="{height}" fill="{backdrop}"/>')
+    # Beneath them all, the largest region's colour shows at any seam: over
+    # the canvas, or with transparency, over all that is not empty.
+    largest = next(int(i) for i in order if int(i) != hidden)
+    backdrop = colour(fitted[largest])
+    if hidden is None:
+        parts.append(f'<rect width="{width}" height="{height}" fill="{backdrop}"/>')
+    else:
+        shown = region_outlines((labels != hidden).astype(np.int32), tolerance)
+        if 1 in shown:
+            parts.append(
+                f'<path d="{shown[1]}" fill="{backdrop}" fill-rule="evenodd"/>'
+            )
     parts.extend(
         f'<path d="{outlines[int(i)]}" fill="{fills[int(i)]}" fill-rule="evenodd"/>'
         for i in order
@@ -1550,6 +1607,38 @@ def vectorize(
     )
     details["seconds"] = time.monotonic() - started
     return svg, details
+
+
+def _opaque(image: Image.Image, alpha: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    """*image*'s colours, as they are under its transparency *alpha*, and
+    which pixels are empty (less opaque than OPAQUE), white there."""
+    empty = alpha < OPAQUE
+    rgba = image.convert("RGBA")
+    if image.has_transparency_data:
+        target = np.asarray(rgba, dtype=np.float32)[..., :3]
+    else:
+        # The image over white, with *alpha* apart: take the white back out.
+        mixed = np.asarray(image.convert("RGB"), dtype=np.float32)
+        share = np.maximum(alpha, OPAQUE)[..., None]
+        target = np.clip((mixed - 255 * (1 - share)) / share, 0, 255)
+    return np.where(empty[..., None], 255, target).astype(np.float32), empty
+
+
+def _without_empty(labels: np.ndarray, empty: np.ndarray) -> tuple[np.ndarray, int]:
+    """*labels* with the *empty* pixels, and each region mostly of them, one
+    region numbered after the rest, and that number."""
+    count = int(labels.max()) + 1
+    share = np.bincount(labels[empty], minlength=count) / np.maximum(
+        np.bincount(labels.ravel(), minlength=count), 1
+    )
+    gone = (share > 0.5)[labels] | empty
+    _, kept = np.unique(np.where(gone, -1, labels), return_inverse=True)
+    kept = kept.reshape(labels.shape)
+    if not gone.any():
+        return kept, -1
+    # -1 sorted first: the kept regions from 1, the empty one last.
+    kept = np.where(gone, int(kept.max()), kept - 1)
+    return kept, int(kept.max())
 
 
 def line_layer(
