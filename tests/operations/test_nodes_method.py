@@ -941,3 +941,53 @@ def test_straightening_cannot_discard_a_better_fitted_curve(monkeypatch):
     assert not skipped
     assert np.array_equal(nodes_method._pixels(after, region), np.asarray(target))
     assert after.geometry_for("p") != original
+
+
+def test_tidy_fits_adjacent_fills_jointly_when_individual_fits_cannot_improve(
+    monkeypatch,
+):
+    pytest.importorskip("torch")
+    svg = (
+        '<svg width="64" height="64"><g id="g">'
+        '<path id="left" fill="#a23" d="M10 10 L30 10 L30 50 L10 50 Z"/>'
+        '<path id="right" fill="#38b" d="M34 10 L54 10 L54 50 L34 50 Z"/>'
+        "</g></svg>"
+    )
+    target_svg = (
+        svg.replace("L30 10 L30 50", "L32 10 L32 50")
+        .replace("M34 10", "M32 10")
+        .replace("L34 50", "L32 50")
+    )
+    image = render_image(target_svg, (0, 0, 64, 64), (64, 64), alpha=True)
+    document = import_svg(svg)
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"g"})))
+    monkeypatch.setattr(
+        "vectrify.refine.selected.fit_selected_path",
+        lambda *_args, **_kwargs: SimpleNamespace(values={}),
+    )
+    req = OperationRequest(
+        "improve",
+        "nodes",
+        ed.snapshot,
+        ed,
+        Permissions(geometry=True, structure=True, paint=True),
+        settings={
+            **FIT,
+            "workers": 1,
+            "resolution": 64,
+            "steps": 20,
+            "movement": 2,
+            "seconds": 10,
+        },
+        budget=Budget(steps=1),
+        reference=image,
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"]
+    metrics = state["result"]["metrics"]
+    assert metrics["after"]["difference"] < metrics["before"]["difference"] * 0.7
+    job.apply()
+    assert ed.snapshot.document.root == document.root

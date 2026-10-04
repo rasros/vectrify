@@ -568,7 +568,7 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
 
 
 def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
-    """Fit each path in turn by gradient descent.
+    """Fit paths in order, then jointly polish compatible sibling fills.
 
     Straight segments are fitted as curves, so the fit can bend one where
     the reference needs; those it leaves straight go back to lines.
@@ -667,6 +667,36 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 document, current = fitted_document, fitted_score
                 continue
         document, current = simplified, simplified_score
+    if stop is None or not stop.is_set():
+        from vectrify.refine.joint import polish
+
+        before = document
+        raw = polish(
+            document,
+            task.oids,
+            task.reference,
+            options,
+            held=task.held,
+            shared=task.shared,
+            score=lambda candidate: (
+                _Scored.of(_pixels(candidate, task.region), task.region).difference
+            ),
+            stop=stop,
+            progress=progress,
+        )
+        candidate = raw
+        for oid in task.oids:
+            geometry = raw.geometry_for(oid)
+            if geometry == before.geometry_for(oid):
+                continue
+            frame = _frame(raw, oid, task.region, task.region.image.size)
+            if frame is not None:
+                candidate = candidate.replace_geometry(
+                    straightened(geometry, STRAIGHT, frame)
+                )
+        document, current = _improvement(task, before, candidate, current)
+        if document == before and raw != candidate:
+            document, current = _improvement(task, before, raw, current)
     return document, skipped
 
 
