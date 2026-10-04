@@ -447,3 +447,68 @@ def test_a_region_with_nothing_to_tidy_says_so():
         method("improve", "nodes").validate(
             request(editor(), shape=False, snap=True, region=[56, 56, 6, 6])
         )
+
+
+# Two regions meeting along x = 32 through points at y = 24 and 40, the
+# right one drawn back to its start as a cel trace is; in the reference
+# they meet at x = 36 between those points.
+NEIGHBOURS = (
+    '<svg width="64" height="64">'
+    '<rect width="64" height="64" fill="#00ff00"/>'
+    '<path id="left" fill="#ff0000" '
+    'd="M8 8 L32 8 L32 24 L32 40 L32 56 L8 56 Z"/>'
+    '<path id="right" fill="#0000ff" '
+    'd="M32 8 L56 8 L56 56 L32 56 L32 40 L32 24 L32 8 Z"/>'
+    "</svg>"
+)
+
+
+def neighbours_reference():
+    image = Image.new("RGB", (64, 64), "#00ff00")
+    draw = ImageDraw.Draw(image)
+    draw.rectangle((8, 8, 55, 55), fill="#0000ff")
+    draw.polygon(
+        [(8, 8), (32, 8), (36, 24), (36, 40), (32, 56), (8, 56)], fill="#ff0000"
+    )
+    return image
+
+
+@pytest.mark.parametrize("shared", [True, False])
+def test_a_neighbour_s_shared_edge_moves_with_the_path(shared):
+    ed = Editor(
+        import_svg(NEIGHBOURS), selection=Selection(object_ids=frozenset({"left"}))
+    )
+    req = OperationRequest(
+        action="improve",
+        method="nodes",
+        snapshot=ed.snapshot,
+        editor=ed,
+        permissions=Permissions(geometry=True, structure=True),
+        settings={"workers": 1, "simplify": False, "shared": shared},
+        budget=Budget(steps=2),
+        reference=neighbours_reference(),
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    result = job.state()["result"]
+    assert result["changed"]
+    job.apply()
+    document = ed.snapshot.document
+
+    def edge(oid):
+        return sorted(
+            n.values[-2:]
+            for s in document.geometry_for(oid).subpaths
+            for n in s.nodes
+            if 16 < n.values[-1] < 48
+        )
+
+    left = edge("left")
+    assert all(x > 33 for x, _ in left)
+    if shared:
+        # The two meet where they did, the corners where three meet staying.
+        assert edge("right") == left
+        assert result["metrics"]["followed"] == 1
+    else:
+        assert edge("right") == [(32.0, 24.0), (32.0, 40.0)]
+        assert result["metrics"]["followed"] == 0

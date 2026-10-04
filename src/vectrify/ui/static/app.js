@@ -2602,6 +2602,7 @@ const nodesDialog = jobDialog('nodes', {
         movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value),
         detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
         allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
+        shared:$('nodes-shared').checked,
         seconds:Number($('nodes-seconds').value), ...(region ? {region} : {})},
       budget:{steps:Number($('nodes-rounds').value)}};
   },
@@ -2613,12 +2614,13 @@ const nodesDialog = jobDialog('nodes', {
     const skipped = Object.values(metrics.skipped || {});
     const note = skipped.length ? ` Some paths were not fitted: ${[...new Set(skipped)].join('; ')}.` : '';
     const late = metrics.out_of_time ? ' Stopped at the time limit.' : '';
-    return `${points} · ${fit} · ${order}.${late}${note} Apply keeps this result as one undoable edit.`;
+    const followed = metrics.followed ? ` ${metrics.followed} neighbouring path${metrics.followed === 1 ? '' : 's'} moved along shared edges.` : '';
+    return `${points} · ${fit} · ${order}.${followed}${late}${note} Apply keeps this result as one undoable edit.`;
   },
   applied: 'Paths tidied. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
-for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view', 'nodes-shared']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
 // Whether paths, or groups that may hold them, are selected for Tidy.
 const tidyTargets = () => state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag));
 async function openTidy() {

@@ -138,6 +138,21 @@ by default).
 `shape` and `snap` need a reference; without one the target is the drawing's
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
 
+With `shared` (on by default) a selected path's edges that another path draws
+too move together (`refine.shared`): a cel trace draws the edge between two
+regions in both, the same segments run either way. Before the run, `links`
+finds the maximal runs of segments a selected path has in common with an
+unselected path whose geometry is its own and unlocked (same points, in the
+same frame, either direction; a contour drawn back to its start is read as a
+ring). The points the runs end at, where a third region meets the two, are
+frozen, so every step leaves them; after each step `follow` redraws each
+neighbour's run as the selected path's outline between those points now
+runs (reversed when the neighbour runs it the other way), before the result
+is rendered and judged, so the judging sees no gap or overlap opening. A run
+whose ends are gone is left alone. The neighbours that changed are edited and
+selected too, counted under `followed` in the metrics, and their crossings
+are checked as the selected paths' are.
+
 `region` ([x, y, w, h] or a polygon [[x, y], ...] in document units) confines
 a run to an area: it acts on the selected paths, or with nothing selected on
 every path, that paint inside it (`HitIndex` areas), leaving out paths whose

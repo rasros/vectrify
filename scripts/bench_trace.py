@@ -70,6 +70,8 @@ settings. The row's `optimize` field then also holds, before and after Tidy:
   failed) and stopped at its time limit (out_of_time);
 - crossings: the tidied paths' self-crossings (refine.crossings) summed
   before and after, and crossed: how many paths cross themselves more;
+- gaps and overlaps: pixels where Tidy acted that no fill covers (the
+  drawing beneath shows through) or two fills cover, before and after;
 - each: all of that per path, its local error over its own area included.
 
 `--trace-cache DIR` keeps each trace in DIR under a hash of the image, the
@@ -607,6 +609,10 @@ def optimize(
             "crossings": [crossings(d.geometry_for(oid)) for d in (start, end)],
         }
     statuses = [r["status"] for r in paths.values()]
+    # Seams between fills where Tidy acted, before and after: pixels no fill
+    # covers (a gap the drawing beneath shows through) and pixels two fills
+    # cover (an overlap).
+    seams = [_seams(_fill_cover(d, width, height), union) for d in (start, end)]
     row = {
         "settings": settings,
         "paths": len(largest),
@@ -629,6 +635,8 @@ def optimize(
             sum(r["crossings"][1] for r in paths.values()),
         ],
         "crossed": sum(r["crossings"][1] > r["crossings"][0] for r in paths.values()),
+        "gaps": [seams[0][0], seams[1][0]],
+        "overlaps": [seams[0][1], seams[1][1]],
         "each": list(paths.values()),
     }
     if features:
@@ -693,6 +701,50 @@ def _render(document, width: int, height: int):
     )
     assert png is not None
     return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), float)
+
+
+def _fill_cover(document, width: int, height: int):
+    """How many fills cover each pixel of *document*, roughly: its filled
+    paths drawn black at half opacity, without strokes or basic shapes (a
+    cel trace's backing rectangle), over white, as 0-1 darkness."""
+    import io
+    import xml.etree.ElementTree as ET
+
+    import cairosvg
+    import numpy as np
+
+    from vectrify.document import export_svg
+
+    root = ET.fromstring(export_svg(document))
+    for parent in list(root.iter()):
+        for child in list(parent):
+            tag = child.tag.rsplit("}", 1)[-1]
+            if tag in {"rect", "circle", "ellipse", "line", "polyline", "polygon"}:
+                parent.remove(child)
+            elif tag == "path":
+                if child.get("fill", "black") == "none":
+                    parent.remove(child)
+                    continue
+                for name in ("stroke", "stroke-width", "opacity", "fill-opacity"):
+                    child.attrib.pop(name, None)
+                child.set("fill", "#000000")
+                child.set("fill-opacity", "0.5")
+                child.set("stroke", "none")
+    png = cairosvg.svg2png(
+        bytestring=ET.tostring(root),
+        output_width=width,
+        output_height=height,
+        background_color="white",
+    )
+    assert png is not None
+    grey = np.asarray(Image.open(io.BytesIO(png)).convert("L"), float) / 255
+    return 1 - grey
+
+
+def _seams(cover, mask) -> list[int]:
+    """[gap pixels, overlap pixels] within *mask* of the fill cover *cover*:
+    almost none of it, or two fills' worth (over two thirds)."""
+    return [int((cover[mask] < 0.1).sum()), int((cover[mask] > 0.67).sum())]
 
 
 def _feature_error(rendered, image: Image.Image, features) -> float:
@@ -839,6 +891,12 @@ def _line(row: dict) -> str:
                 f"{o['changed']} changed, {o['unchanged']} unchanged, "
                 f"{o['refused']} refused, {o['out_of_time']} out of time, "
                 f"crossings {o['crossings'][0]} -> {o['crossings'][1]}"
+                + (
+                    f", gaps {o['gaps'][0]} -> {o['gaps'][1]}, "
+                    f"overlaps {o['overlaps'][0]} -> {o['overlaps'][1]}"
+                    if "gaps" in o
+                    else ""
+                )
             )
     return text
 
