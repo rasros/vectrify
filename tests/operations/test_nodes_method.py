@@ -482,8 +482,19 @@ def neighbours_reference():
     return image
 
 
+@pytest.mark.parametrize("device", ["cpu", "cuda"])
+@pytest.mark.parametrize("shape", [True, False])
 @pytest.mark.parametrize("shared", [True, False])
-def test_a_neighbour_s_shared_edge_moves_with_the_path(shared):
+def test_a_neighbour_s_shared_edge_moves_with_the_path(
+    shared, shape, device, monkeypatch
+):
+    from vectrify.refine import selected
+
+    if device == "cuda":
+        problem = selected.gpu_problem()
+        if problem:
+            pytest.skip(problem)
+    monkeypatch.setattr(selected, "fit_device", lambda: device)
     ed = Editor(
         import_svg(NEIGHBOURS), selection=Selection(object_ids=frozenset({"left"}))
     )
@@ -493,7 +504,12 @@ def test_a_neighbour_s_shared_edge_moves_with_the_path(shared):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True),
-        settings={"workers": 1, "simplify": False, "shared": shared},
+        settings={
+            "workers": 1,
+            "simplify": False,
+            "shared": shared,
+            "shape": shape,
+        },
         budget=Budget(steps=2),
         reference=neighbours_reference(),
     )
@@ -513,7 +529,14 @@ def test_a_neighbour_s_shared_edge_moves_with_the_path(shared):
         )
 
     left = edge("left")
-    assert all(x > 33 for x, _ in left)
+    assert left
+    metrics = result["metrics"]
+    assert metrics["after"]["difference"] < metrics["before"]["difference"]
+    # With sharing off, the later blue path hides this boundary. The shape
+    # fit can win by improving another visible edge without moving this one;
+    # CPU and CUDA need not choose the same step. Snap alone still moves it.
+    if shared or not shape:
+        assert all(x > 33 for x, _ in left)
     if shared:
         # The two meet where they did, the corners where three meet staying.
         assert edge("right") == left
