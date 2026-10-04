@@ -127,7 +127,9 @@ no other object shares. Its settings are the steps to use (`snap` and
 each of which has to fix `detail_gain` reference pixels), Simplify's
 `tolerance` in reference pixels, each path fit's `steps`, `movement` (SVG
 units) and `resolution`, `workers` (1 by default), the `gain` in percent of the local
-difference a step must fix (1 by default), `seconds`, the run's time limit
+difference a step must fix (1 by default), the `allowance` in percent by
+which the match where the run acted may be worse than at its start (1 by
+default), `seconds`, the run's time limit
 (10 by default), and the `margin` in percent of the selection's size that the
 reference region extends past it; the budget's `steps` is the most rounds (4
 by default).
@@ -140,7 +142,13 @@ changed, widened by `BAND` (2) pixels, the share of the squared difference to
 the target there that it removed has to be at least `gain`, so the bar does
 not grow with the selection. Of the steps that pass, the one that lowers the
 region's mean squared difference (`generate.error`) most is kept; if none
-does, Simplify is kept when it removed points, and otherwise the run ends. A
+does, Simplify is kept when it removed points, and otherwise the run ends.
+With a reference, no step is eligible whose result, against the region's
+render at the start, is worse over the pixels changed since then (widened by
+`BAND`) by more than `allowance` of the squared difference there: a run never
+trades the match for fewer points beyond it, however many rounds Simplify
+gets. Without a reference Simplify is judged against the drawing itself and
+only its tolerance bounds it. A
 step's result is not eligible when any path crosses itself more than before
 the step (`refine.crossings.crossings`: each contour drawn as a polyline,
 cubics at 8 points, every pair of non-neighbouring lines that properly cross

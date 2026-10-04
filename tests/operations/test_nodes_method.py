@@ -328,3 +328,36 @@ def test_the_time_limit_ends_the_run_and_keeps_the_best_so_far(monkeypatch):
     job.apply()
     corner = ed.snapshot.document.geometry_for("p").subpaths[0].nodes[0].values
     assert corner == (8 + len(metrics["steps"]),) * 2
+
+
+def cutting(_step, task, _stop=None, _progress=None):
+    """Every step cuts the square's corner at (50, 50) off: a point fewer,
+    and a worse match."""
+    geometry = task.document.geometry_for("p")
+    subpaths = tuple(
+        replace(s, nodes=tuple(n for n in s.nodes if n.values != (50.0, 50.0)))
+        for s in geometry.subpaths
+    )
+    document = task.document.replace_geometry(replace(geometry, subpaths=subpaths))
+    return document, nodes_method._pixels(document, task.region), {}
+
+
+def test_a_step_that_makes_the_match_worse_is_not_kept(monkeypatch):
+    monkeypatch.setattr(nodes_method, "_run_step", cutting)
+    job = Job(
+        method("improve", "nodes"),
+        request(editor("p"), shape=False, snap=False, simplify=True),
+    )
+    job.run()
+    state = job.state()
+    assert not state["result"]["changed"]
+    assert state["result"]["metrics"]["after"]["nodes"] == 10
+    # Allowed to cost that much, the point goes.
+    job = Job(
+        method("improve", "nodes"),
+        request(editor("p"), shape=False, snap=False, simplify=True, allowance=100.0),
+    )
+    job.run()
+    metrics = job.state()["result"]["metrics"]
+    assert metrics["steps"] == ["simplify"]
+    assert metrics["after"]["nodes"] == 9
