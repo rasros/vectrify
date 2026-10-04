@@ -43,12 +43,46 @@ and mouths, boxes in the reference's pixels), and `features` is the same
 error over just those boxes, which a whole-image error hardly notices.
 `--repeat` runs each case more than once, to judge timings. Keep the machine
 cool: `nice -n 19 taskset -c 12-19` with `OMP_NUM_THREADS=2`.
+
+Tidy as a touch-up after the trace:
+
+    uv run python scripts/bench_trace.py --tidy --out runs/tidy.jsonl
+    uv run python scripts/bench_trace.py --tidy --tidy-steps snap,simplify \\
+        --tidy-steps shape --tidy-crops runs/crops --out runs/shape.jsonl
+    uv run python scripts/bench_trace.py --summary runs/tidy.jsonl runs/shape.jsonl
+
+`--paths N` tidies the N largest traced paths (by painted area) one at a
+time, each kept before the next is tidied, as when touching up a trace by
+hand. `--tidy` makes that the point of the run: it tidies the 20 largest
+unless `--paths` says otherwise, or every path with `--tidy-all`. Each
+`--tidy-steps` (a comma list of snap, simplify, detail and shape; detail is
+Snap adding points, so it needs snap) tidies the same trace once more, a row
+each marked `tidy_steps`, so configurations compare on one trace; without
+it Tidy runs its own defaults, snap and simplify. `--nodes` sets its other
+settings. The row's `optimize` field then also holds, before and after Tidy:
+
+- whole: the whole image's error, both drawings rendered the same way;
+- local: the error over the tidied paths' area only (their painted areas
+  before and after, widened by 2 px), where Tidy acts and which the whole
+  image's error dilutes; `features` too, when the reference has any;
+- points in the tidied paths, Tidy's seconds per path (each_s), and how many
+  paths it changed, left unchanged (no step helped), refused (the job
+  failed) and stopped at its time limit (out_of_time);
+- crossings: the tidied paths' self-crossings (refine.crossings) summed
+  before and after, and crossed: how many paths cross themselves more;
+- each: all of that per path, its local error over its own area included.
+
+`--tidy-crops DIR` saves, per case, the reference, the trace and the tidied
+trace side by side around the paths Tidy helped and hurt most. `--summary
+RUN...` prints a line per Tidy configuration over the runs' rows, with sign
+tests of the local error across images and across paths.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import re
 import time
 from pathlib import Path
@@ -177,7 +211,28 @@ def main() -> None:
         help="Override a Generate setting for every preset",
     )
     parser.add_argument(
-        "--paths", type=int, default=3, help="Largest paths to Optimize (0: none)"
+        "--paths",
+        type=int,
+        help="Largest paths to Tidy (0: none; 3, or 20 with --tidy)",
+    )
+    parser.add_argument(
+        "--tidy",
+        action="store_true",
+        help="Tidy the trace as a touch-up, the 20 largest paths unless --paths",
+    )
+    parser.add_argument("--tidy-all", action="store_true", help="Tidy every path")
+    parser.add_argument(
+        "--tidy-steps",
+        action="append",
+        metavar="STEPS",
+        help="Tidy's steps, a comma list of snap, simplify, detail and shape; "
+        "repeat it to tidy the same trace with each",
+    )
+    parser.add_argument(
+        "--tidy-crops",
+        type=Path,
+        metavar="DIR",
+        help="Save before/after crops of the paths Tidy changed most here",
     )
     parser.add_argument(
         "--nodes",
@@ -192,10 +247,27 @@ def main() -> None:
         "--renders", type=Path, help="Save each case's traced drawing here as PNG"
     )
     parser.add_argument("--compare", nargs=2, type=Path, metavar=("BEFORE", "AFTER"))
+    parser.add_argument(
+        "--summary",
+        nargs="+",
+        type=Path,
+        metavar="RUN",
+        help="Summarise the Tidy configurations of these runs",
+    )
     args = parser.parse_args()
     if args.compare:
         compare(*args.compare)
         return
+    if args.summary:
+        summary(args.summary)
+        return
+    try:
+        configs = [_steps(item) for item in args.tidy_steps or ()] or [{}]
+    except ValueError as exc:
+        parser.error(str(exc))
+    count = args.paths if args.paths is not None else (20 if args.tidy else 3)
+    if args.tidy_all:
+        count = -1
     presets = PRESETS[args.method]
     unknown = set(args.preset or ()) - set(presets)
     if unknown:
@@ -210,28 +282,45 @@ def main() -> None:
         image = load(path)
         for preset in args.preset or list(presets):
             settings = {**presets[preset], **overrides}
+            features = FEATURES.get(path.name, ())
+            name = f"{path.stem}-{args.method}-{preset}"
             for _ in range(args.repeat):
-                row = {
+                traced, editor = generate(
+                    image,
+                    args.method,
+                    settings,
+                    features=features,
+                    render=args.renders / f"{name}.png" if args.renders else None,
+                )
+                case = {
                     "reference": path.name,
                     "method": args.method,
                     "preset": preset,
                     "settings": settings,
-                    **trace(
-                        image,
-                        args.method,
-                        settings,
-                        args.paths,
-                        nodes=nodes,
-                        features=FEATURES.get(path.name, ()),
-                        render=(
-                            args.renders / f"{path.stem}-{args.method}-{preset}.png"
-                            if args.renders
-                            else None
-                        ),
-                    ),
+                    **traced,
                 }
-                rows.append(row)
-                print(_line(row), flush=True)
+                if not count or editor is None:
+                    rows.append(case)
+                    print(_line(case), flush=True)
+                    continue
+                for config in configs:
+                    row = dict(case)
+                    if config:
+                        row["tidy_steps"] = _label(config)
+                    crops = None
+                    if args.tidy_crops:
+                        label = "-" + _label(config).replace(",", "+") if config else ""
+                        crops = args.tidy_crops / f"{name}{label}"
+                    row["optimize"] = optimize(
+                        _copy(editor),
+                        image,
+                        count,
+                        nodes | config,
+                        features=features,
+                        crops=crops,
+                    )
+                    rows.append(row)
+                    print(_line(row), flush=True)
     if args.out:
         args.out.parent.mkdir(parents=True, exist_ok=True)
         with args.out.open("w") as file:
@@ -249,9 +338,28 @@ def trace(
     features: tuple[tuple[str, int, int, int, int], ...] = (),
     render: Path | None = None,
 ) -> dict:
-    """Generate from *image* with method *name* and *settings*, then Optimize
-    its largest paths with the settings *nodes*. With *render*, the traced
-    drawing is saved there."""
+    """Generate from *image* with method *name* and *settings*, then Tidy
+    its *paths* largest paths (-1: all) with the settings *nodes*. With
+    *render*, the traced drawing is saved there."""
+    row, editor = generate(image, name, settings, features=features, render=render)
+    if paths and editor is not None:
+        row["optimize"] = optimize(
+            editor, image, paths, nodes or OPTIMIZE, features=features
+        )
+    return row
+
+
+def generate(
+    image: Image.Image,
+    name: str,
+    settings: dict,
+    *,
+    features: tuple[tuple[str, int, int, int, int], ...] = (),
+    render: Path | None = None,
+):
+    """(the row, the editor holding the trace) for Generate with method
+    *name* and *settings* on *image*; the editor is None when it failed.
+    With *render*, the traced drawing is saved there."""
     from vectrify.document import Editor, Selection, export_svg, import_svg
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
@@ -279,7 +387,7 @@ def trace(
     total = time.perf_counter() - started
     state = job.state()
     if "result" not in state:
-        return {"failed": state.get("error", state.get("status"))}
+        return {"failed": state.get("error", state.get("status"))}, None
     metrics = state["result"]["metrics"]
     job.apply()
     document = editor.snapshot.document
@@ -296,25 +404,8 @@ def trace(
         )
     feature_error = None
     if features:
-        import io
-
-        import cairosvg
-        import numpy as np
-
-        png = cairosvg.svg2png(
-            bytestring=export_svg(document).encode(),
-            output_width=width,
-            output_height=height,
-            background_color="white",
-        )
-        assert png is not None
-        traced = np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), float)
-        truth = np.asarray(image.convert("RGB"), float)
-        squared = [
-            ((traced - truth)[y : y + h, x : x + w] ** 2).ravel()
-            for _, x, y, w, h in features
-        ]
-        feature_error = round(float(np.concatenate(squared).mean()), 2)
+        rendered = _render(document, width, height)
+        feature_error = _feature_error(rendered, image, features)
     data = " ".join(
         e.get("d") or "" for e in _parse(export_svg(document)) if e.tag.endswith("path")
     )
@@ -333,34 +424,48 @@ def trace(
     }
     if feature_error is not None:
         row["features"] = feature_error
-    if paths:
-        row["optimize"] = optimize(editor, image, paths, nodes or OPTIMIZE)
-    return row
+    return row, editor
 
 
-def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
-    """Optimize nodes on each of the *count* largest paths, one at a time,
-    with *settings*, where `rounds` is the budget's steps."""
+def optimize(
+    editor,
+    image: Image.Image,
+    count: int,
+    settings: dict,
+    *,
+    features: tuple[tuple[str, int, int, int, int], ...] = (),
+    crops: Path | None = None,
+) -> dict:
+    """Tidy (Optimize nodes) each of the *count* largest paths (-1: all), one
+    at a time, each kept before the next, with *settings*, where `rounds` is
+    the budget's steps; and how the drawing changed. With *crops*, crops of
+    the paths it changed most are saved there."""
+    import numpy as np
+
     from vectrify.document import Selection
     from vectrify.document.hit_test import HitIndex
     from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
+    from vectrify.refine.crossings import crossings
 
-    document = editor.snapshot.document
-    index = HitIndex(document)
+    start = editor.snapshot.document
+    index = HitIndex(start)
 
     def painted(oid: str) -> float:
         area = index.area(oid)
         return float(area.area) if area is not None else 0.0
 
     largest = sorted(
-        (e.id for e in document.elements() if e.tag == "path"),
+        (e.id for e in start.elements() if e.tag == "path"),
         key=lambda oid: -painted(oid),
-    )[:count]
+    )
+    if count >= 0:
+        largest = largest[:count]
     before = after = seconds = 0.0
     points_before = points_after = 0
     each: list[float] = []
     # Paths whose run the time limit ended.
     late = 0
+    paths: dict[str, dict] = {}
     for oid in largest:
         editor.select(Selection(object_ids=frozenset({oid})))
         request = OperationRequest(
@@ -379,8 +484,12 @@ def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
         spent = time.perf_counter() - started
         seconds += spent
         each.append(round(spent, 1))
-        result = job.state().get("result")
+        state = job.state()
+        result = state.get("result")
+        record = paths[oid] = {"id": oid, "s": round(spent, 2)}
         if result is None:
+            record["status"] = "refused"
+            record["why"] = state.get("error") or state.get("status")
             continue
         metrics = result["metrics"]
         before += metrics["before"]["difference"]
@@ -388,7 +497,38 @@ def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
         points_before += metrics["before"]["nodes"]
         points_after += metrics["after"]["nodes"]
         late += bool(metrics.get("out_of_time"))
-    return {
+        record |= {
+            "status": "changed" if result["changed"] else "unchanged",
+            "points": [metrics["before"]["nodes"], metrics["after"]["nodes"]],
+            "steps": metrics.get("steps", []),
+            "out_of_time": bool(metrics.get("out_of_time")),
+        }
+        if result["changed"]:
+            job.apply()
+    end = editor.snapshot.document
+    width, height = image.size
+    first, last = _render(start, width, height), _render(end, width, height)
+    truth = np.asarray(image.convert("RGB"), float)
+    off_first = ((first - truth) ** 2).mean(-1)
+    off_last = ((last - truth) ** 2).mean(-1)
+    end_index = HitIndex(end)
+    union = np.zeros((height, width), bool)
+    traced = np.zeros((height, width), bool)
+    for oid, record in paths.items():
+        mask = _area_mask((index.area(oid), end_index.area(oid)), width, height, 2)
+        own = _area_mask((index.area(oid),), width, height, 4)
+        union |= mask
+        traced |= own
+        record |= {
+            "area": round(painted(oid)),
+            "local": _masked(off_first, off_last, mask),
+            # Over the traced path's own area only, widened by 4 px: the
+            # same pixels whatever Tidy did, so configurations compare.
+            "trace": _masked(off_first, off_last, own),
+            "crossings": [crossings(d.geometry_for(oid)) for d in (start, end)],
+        }
+    statuses = [r["status"] for r in paths.values()]
+    row = {
         "settings": settings,
         "paths": len(largest),
         # Each path's own region, summed: the share left says how much it fixed.
@@ -397,7 +537,170 @@ def optimize(editor, image: Image.Image, count: int, settings: dict) -> dict:
         "seconds": round(seconds, 1),
         "each_s": each,
         "out_of_time": late,
+        "steps": [s for s in TIDY_DEFAULTS if settings.get(s, TIDY_DEFAULTS[s])],
+        "whole": [round(float(off_first.mean()), 2), round(float(off_last.mean()), 2)],
+        "local": _masked(off_first, off_last, union),
+        "local_pixels": int(union.sum()),
+        "trace_local": _masked(off_first, off_last, traced),
+        "changed": statuses.count("changed"),
+        "unchanged": statuses.count("unchanged"),
+        "refused": statuses.count("refused"),
+        "crossings": [
+            sum(r["crossings"][0] for r in paths.values()),
+            sum(r["crossings"][1] for r in paths.values()),
+        ],
+        "crossed": sum(r["crossings"][1] > r["crossings"][0] for r in paths.values()),
+        "each": list(paths.values()),
     }
+    if features:
+        row["features"] = [
+            _feature_error(first, image, features),
+            _feature_error(last, image, features),
+        ]
+    if crops is not None:
+        _save_crops(crops, truth, first, last, paths, (index, end_index))
+    return row
+
+
+# Tidy's steps and which are on by default, as operations/methods/nodes.py
+# has them; detail is Snap adding points.
+TIDY_DEFAULTS = {"snap": True, "simplify": True, "detail": False, "shape": False}
+
+
+def _steps(item: str) -> dict:
+    """Tidy's step settings for *item*, a comma list of its steps."""
+    chosen = {s.strip() for s in item.split(",") if s.strip()}
+    if not chosen or chosen - set(TIDY_DEFAULTS):
+        raise ValueError(f"--tidy-steps {item}: choose from {', '.join(TIDY_DEFAULTS)}")
+    if "detail" in chosen and "snap" not in chosen:
+        raise ValueError(f"--tidy-steps {item}: detail is Snap's, so add snap")
+    return {step: step in chosen for step in TIDY_DEFAULTS}
+
+
+def _label(config: dict) -> str:
+    """Tidy's steps in *config*, as `--tidy-steps` takes them."""
+    return ",".join(s for s in TIDY_DEFAULTS if config.get(s))
+
+
+def _copy(editor):
+    """A new editor on *editor*'s drawing, so each Tidy configuration
+    starts from the same trace."""
+    from vectrify.document import Editor, Selection
+
+    return Editor(editor.snapshot.document, selection=Selection(whole_document=True))
+
+
+def _render(document, width: int, height: int):
+    """*document* rendered over white at *width* x *height*, as float RGB."""
+    import io
+
+    import cairosvg
+    import numpy as np
+
+    from vectrify.document import export_svg
+
+    png = cairosvg.svg2png(
+        bytestring=export_svg(document).encode(),
+        output_width=width,
+        output_height=height,
+        background_color="white",
+    )
+    assert png is not None
+    return np.asarray(Image.open(io.BytesIO(png)).convert("RGB"), float)
+
+
+def _feature_error(rendered, image: Image.Image, features) -> float:
+    """The error of the render *rendered* over the *features* boxes."""
+    import numpy as np
+
+    truth = np.asarray(image.convert("RGB"), float)
+    squared = [
+        ((rendered - truth)[y : y + h, x : x + w] ** 2).ravel()
+        for _, x, y, w, h in features
+    ]
+    return round(float(np.concatenate(squared).mean()), 2)
+
+
+def _masked(first, last, mask) -> list:
+    """The per-pixel errors *first* and *last*, each averaged over *mask*."""
+    if not mask.any():
+        return [None, None]
+    return [round(float(first[mask].mean()), 2), round(float(last[mask].mean()), 2)]
+
+
+def _area_mask(shapes, width: int, height: int, widen: int = 0):
+    """The pixels that any of *shapes* (shapely areas in pixels, or None)
+    covers, widened by *widen* pixels."""
+    import numpy as np
+    import shapely
+    from PIL import ImageDraw
+    from scipy import ndimage
+
+    mask = np.zeros((height, width), bool)
+    for shape in shapes:
+        if shape is None or shape.is_empty:
+            continue
+        for part in shapely.get_parts(shape):
+            if part.geom_type != "Polygon" or part.is_empty:
+                continue
+            # Each polygon on its own canvas over its bounds, its holes cut
+            # out, so one polygon's hole never erases another inside it.
+            x0, y0, x1, y1 = part.bounds
+            left, top = max(0, int(x0)), max(0, int(y0))
+            right, bottom = min(width, int(x1) + 2), min(height, int(y1) + 2)
+            if right <= left or bottom <= top:
+                continue
+            canvas = Image.new("1", (right - left, bottom - top), 0)
+            draw = ImageDraw.Draw(canvas)
+
+            def moved(coords, left=left, top=top):
+                return [(x - left, y - top) for x, y in coords]
+
+            draw.polygon(moved(part.exterior.coords), fill=1, outline=1)
+            for hole in part.interiors:
+                draw.polygon(moved(hole.coords), fill=0)
+            mask[top:bottom, left:right] |= np.asarray(canvas, bool)
+    if widen and mask.any():
+        mask = ndimage.binary_dilation(mask, iterations=widen)
+    return mask
+
+
+def _save_crops(folder: Path, truth, first, last, paths: dict, indexes) -> None:
+    """The reference, the trace and the tidied trace side by side around
+    the two paths whose local error Tidy lowered most and the two it raised
+    most, named by how much."""
+    import numpy as np
+
+    changed = sorted(
+        (r["local"][1] - r["local"][0], oid)
+        for oid, r in paths.items()
+        if r["status"] == "changed" and r["local"][0] is not None
+    )
+    chosen = [("better", d, o) for d, o in changed[:2] if d < 0]
+    chosen += [("worse", d, o) for d, o in changed[::-1][:2] if d > 0]
+    if not chosen:
+        return
+    folder.mkdir(parents=True, exist_ok=True)
+    height, width = truth.shape[:2]
+    for kind, change, oid in chosen:
+        boxes = [a.bounds for a in (i.area(oid) for i in indexes) if a is not None]
+        left = max(0, int(min(b[0] for b in boxes)) - 8)
+        top = max(0, int(min(b[1] for b in boxes)) - 8)
+        right = min(width, int(max(b[2] for b in boxes)) + 9)
+        bottom = min(height, int(max(b[3] for b in boxes)) + 9)
+        gap = np.full((bottom - top, 4, 3), 255.0)
+        strip = np.concatenate(
+            [
+                truth[top:bottom, left:right],
+                gap,
+                first[top:bottom, left:right],
+                gap,
+                last[top:bottom, left:right],
+            ],
+            axis=1,
+        )
+        name = f"{kind}-{oid}-{change:+.0f}.png"
+        Image.fromarray(strip.astype(np.uint8)).save(folder / name)
 
 
 def _parse(svg: str):
@@ -433,60 +736,231 @@ def _line(row: dict) -> str:
     if "optimize" in row:
         o = row["optimize"]
         text += (
-            f"; optimize {o['paths']} paths: {o['error_left']} of the error left, "
+            f"; tidy {o['paths']} paths ({','.join(o.get('steps', []))}): "
+            f"{o['error_left']} of the error left, "
             f"points {o['points'][0]} -> {o['points'][1]}, {o['seconds']} s"
         )
+        if "whole" in o:
+            text += (
+                f", whole {o['whole'][0]} -> {o['whole'][1]}, "
+                f"local {o['local'][0]} -> {o['local'][1]}, "
+                f"{o['changed']} changed, {o['unchanged']} unchanged, "
+                f"{o['refused']} refused, {o['out_of_time']} out of time, "
+                f"crossings {o['crossings'][0]} -> {o['crossings'][1]}"
+            )
     return text
 
 
 def _case(row: dict) -> str:
-    """The method and preset of *row*."""
-    return f"{row['method']} {row['preset']}"
+    """The method and preset of *row*, and its Tidy steps if it names them."""
+    steps = f" tidy {row['tidy_steps']}" if row.get("tidy_steps") else ""
+    return f"{row['method']} {row['preset']}{steps}"
+
+
+def _rows(path: Path) -> list[dict]:
+    return [json.loads(line) for line in path.read_text().splitlines() if line]
 
 
 def compare(before: Path, after: Path) -> None:
     """Print the two runs' cases side by side.
 
     Cases pair by reference and preset, and by method too when both runs
-    used the same one; runs of two methods pair up preset by preset.
+    used the same one; runs of two methods pair up preset by preset. Rows
+    of several Tidy configurations (`tidy_steps`) pair by configuration
+    when both runs have them, and each with the other run's one row when
+    only one does.
     """
-
-    def load(path: Path) -> list[dict]:
-        return [json.loads(line) for line in path.read_text().splitlines() if line]
-
-    old_rows, new_rows = load(before), load(after)
+    old_rows, new_rows = _rows(before), _rows(after)
     methods = {r["method"] for r in old_rows + new_rows}
 
     def case(row: dict) -> tuple[str, str]:
-        return row["reference"], (row["preset"] if len(methods) > 1 else _case(row))
+        return row["reference"], (
+            row["preset"] if len(methods) > 1 else f"{row['method']} {row['preset']}"
+        )
 
-    old = {case(r): r for r in old_rows}
-    new = {case(r): r for r in new_rows}
+    old: dict[tuple, list[dict]] = {}
+    new: dict[tuple, list[dict]] = {}
+    for rows, into in ((old_rows, old), (new_rows, new)):
+        for r in rows:
+            into.setdefault(case(r), []).append(r)
     print(
         "| case | error | paths | points | points/path | curves | total s "
-        "| optimize error left | features |"
+        "| optimize error left | features | tidy whole | tidy local Δ% "
+        "| tidy points | tidy s/path | tidy crossed |"
     )
-    print("|---|---|---|---|---|---|---|---|---|")
+    print("|---|---|---|---|---|---|---|---|---|---|---|---|---|---|")
     for key in sorted(old.keys() & new.keys()):
-        a, b = old[key], new[key]
+        for a, b in _pairs(old[key], new[key]):
+            steps = a.get("tidy_steps") or b.get("tidy_steps")
+            name = f"{key[0]} [{key[1]}{f' tidy {steps}' if steps else ''}]"
 
-        def pair(field, a=a, b=b):
-            return f"{a.get(field)} → {b.get(field)}"
+            def pair(field, a=a, b=b):
+                return f"{a.get(field)} → {b.get(field)}"
 
-        def per_path(row):
-            if row.get("points") is None or not row.get("paths"):
-                return None
-            return round(row["points"] / row["paths"], 1)
+            def tidy(row, field):
+                return (row.get("optimize") or {}).get(field)
 
-        left = (
-            (a.get("optimize") or {}).get("error_left"),
-            (b.get("optimize") or {}).get("error_left"),
-        )
+            def tidied(field, at, a=a, b=b):
+                values = [tidy(r, field) for r in (a, b)]
+                shown = [v[at] if isinstance(v, list) else v for v in values]
+                return f"{shown[0]} → {shown[1]}"
+
+            def local(row):
+                v = tidy(row, "local")
+                if not v or not v[0]:
+                    return None
+                return round(100 * (v[1] - v[0]) / v[0], 1)
+
+            def per_path(row):
+                if row.get("points") is None or not row.get("paths"):
+                    return None
+                return round(row["points"] / row["paths"], 1)
+
+            def per_tidied(row):
+                o = row.get("optimize") or {}
+                return round(o["seconds"] / o["paths"], 1) if o.get("paths") else None
+
+            print(
+                f"| {name} | {pair('error')} | {pair('paths')} | "
+                f"{pair('points')} | {per_path(a)} → {per_path(b)} | "
+                f"{pair('curves')} | {pair('total_s')} | "
+                f"{tidy(a, 'error_left')} → {tidy(b, 'error_left')} | "
+                f"{pair('features')} | {tidied('whole', 1)} | "
+                f"{local(a)} → {local(b)} | {tidied('points', 1)} | "
+                f"{per_tidied(a)} → {per_tidied(b)} | "
+                f"{tidy(a, 'crossed')} → {tidy(b, 'crossed')} |"
+            )
+
+
+def _pairs(old: list[dict], new: list[dict]) -> list[tuple[dict, dict]]:
+    """The rows of one case to show side by side: by Tidy configuration
+    when both runs name them, else every row with the other run's first."""
+    if all(r.get("tidy_steps") for r in old + new):
+        by_steps = {r["tidy_steps"]: r for r in new}
+        return [
+            (r, by_steps[r["tidy_steps"]]) for r in old if r["tidy_steps"] in by_steps
+        ]
+    if len(old) == 1:
+        return [(old[0], r) for r in new]
+    return [(r, new[0]) for r in old]
+
+
+def sign_test(better: int, worse: int) -> float:
+    """The two-sided sign test's p for *better* against *worse*, ties left
+    out: how likely a split at least this uneven is from coin flips."""
+    n = better + worse
+    if not n:
+        return 1.0
+    k = min(better, worse)
+    tail = sum(math.comb(n, i) for i in range(k + 1)) / 2**n
+    return min(1.0, 2 * tail)
+
+
+def summary(runs: list[Path]) -> None:
+    """One line per Tidy configuration over the rows of *runs* that tidied.
+
+    Per image: the mean whole-image and local error before and after Tidy,
+    and how many images it lowered or raised the local error of, with the
+    sign test's p. Per path: how many paths' own local error it lowered or
+    raised, with p. Then points, seconds per path, what became of the
+    paths, and self-crossings. Last, each configuration against Tidy's
+    default (snap,simplify) on the same traces: images whose whole error,
+    and paths whose error over their traced area, Tidy leaves lower or
+    higher than the default does.
+    """
+    rows = [
+        r for path in runs for r in _rows(path) if "whole" in (r.get("optimize") or {})
+    ]
+    configs: dict[str, list[dict]] = {}
+    for r in rows:
+        steps = r.get("tidy_steps") or ",".join(r["optimize"]["steps"])
+        configs.setdefault(steps, []).append(r)
+
+    def mean(values) -> float:
+        values = [v for v in values if v is not None]
+        return round(sum(values) / len(values), 2) if values else float("nan")
+
+    def change(a, b) -> str:
+        return f"{a} → {b} ({100 * (b - a) / a:+.1f}%)" if a else f"{a} → {b}"
+
+    def split(pairs) -> str:
+        better = sum(b < a for a, b in pairs)
+        worse = sum(b > a for a, b in pairs)
+        return f"{better}/{worse} p={sign_test(better, worse):.2g}"
+
+    print(
+        "| tidy steps | images | whole | local | images better/worse "
+        "| paths better/worse | points | s/path (max) | changed/unchanged/refused "
+        "| out of time | crossings (paths crossing more) |"
+    )
+    print("|---|---|---|---|---|---|---|---|---|---|---|")
+    for steps, group in configs.items():
+        tidies = [r["optimize"] for r in group]
+        paths = [
+            p
+            for o in tidies
+            for p in o["each"]
+            if p.get("local", [None])[0] is not None
+        ]
+        images = [o["local"] for o in tidies if o["local"][0] is not None]
+        points = [sum(o["points"][i] for o in tidies) for i in (0, 1)]
+        each = [s for o in tidies for s in o["each_s"]]
+
+        def total(field, at=None, tidies=tidies):
+            return sum(o[field] if at is None else o[field][at] for o in tidies)
+
+        whole = [mean(o["whole"][i] for o in tidies) for i in (0, 1)]
         print(
-            f"| {key[0]} [{key[1]}] | {pair('error')} | {pair('paths')} | "
-            f"{pair('points')} | {per_path(a)} → {per_path(b)} | "
-            f"{pair('curves')} | {pair('total_s')} | {left[0]} → {left[1]} | "
-            f"{pair('features')} |"
+            f"| {steps} | {len(group)} | {change(*whole)} "
+            f"| {change(mean(v[0] for v in images), mean(v[1] for v in images))} "
+            f"| {split(images)} | {split([p['local'] for p in paths])} "
+            f"| {change(*points)} | {mean(each)} ({max(each, default=0)}) "
+            f"| {total('changed')}/{total('unchanged')}/{total('refused')} "
+            f"| {total('out_of_time')} "
+            f"| {total('crossings', 0)} → {total('crossings', 1)} "
+            f"({total('crossed')}) |"
+        )
+    default = {
+        (r["reference"], r["preset"]): r for r in configs.get("snap,simplify", [])
+    }
+    if not default or len(configs) < 2:
+        return
+    print()
+    # Local errors here are over the traced paths' own areas (trace,
+    # trace_local): the same pixels in both configurations.
+    print(
+        "| tidy steps against snap,simplify | images | whole after "
+        "| traced area after | images lower/higher (whole) "
+        "| paths lower/higher (traced area) |"
+    )
+    print("|---|---|---|---|---|---|")
+    for steps, group in configs.items():
+        if steps == "snap,simplify":
+            continue
+        matched = [
+            (default[(r["reference"], r["preset"])]["optimize"], r["optimize"])
+            for r in group
+            if (r["reference"], r["preset"]) in default
+            and default[(r["reference"], r["preset"])]["optimize"]["whole"][0]
+            == r["optimize"]["whole"][0]
+        ]
+        if not matched:
+            continue
+        paths = []
+        for base, other in matched:
+            ours = {p["id"]: p["trace"] for p in base["each"] if p.get("trace")}
+            paths += [
+                (ours[p["id"]][1], p["trace"][1])
+                for p in other["each"]
+                if p.get("trace") and ours.get(p["id"], [None])[0] == p["trace"][0]
+            ]
+        whole = [(a["whole"][1], b["whole"][1]) for a, b in matched]
+        local = [(a["trace_local"][1], b["trace_local"][1]) for a, b in matched]
+        print(
+            f"| {steps} | {len(matched)} "
+            f"| {change(mean(a for a, _ in whole), mean(b for _, b in whole))} "
+            f"| {change(mean(a for a, _ in local), mean(b for _, b in local))} "
+            f"| {split(whole)} | {split(paths)} |"
         )
 
 
