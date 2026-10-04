@@ -464,8 +464,8 @@ palette.
 
 **Tidy…** is a quick clean-up of the selected paths, or the paths
 inside selected groups, against the reference around them, never the whole
-image. By default it snaps their points onto the reference's edges and removes
-the points they do not need, in a few seconds; to reshape a path, use Redraw
+image. By default it snaps their points onto the reference's edges, fits
+their shape and removes the points they do not need, in a few seconds a path; to reshape a path, use Redraw
 outline (R). Tick the steps it may use:
 
 - **Snap to reference** (on by default) moves the points onto the reference's
@@ -484,9 +484,11 @@ outline (R). Tick the steps it may use:
   **Tolerance** in reference pixels anywhere (3 by default), and turns curves
   whose handles lie on their line within that into straight segments.
   Without a reference the tolerance alone decides, 1 by default.
-- **Fit shape** (off by default: slow on large paths) moves points and curve
-  handles by gradient descent, with a number of fitting steps and a maximum
-  movement per fit in local SVG units. Straight segments are fitted as curves,
+- **Fit shape** (on by default) moves points and curve handles by gradient
+  descent, with a number of fitting steps (20 by default) and a maximum
+  movement per fit in local SVG units; it works at a reduced resolution and
+  stops a path's fit once it stops gaining, and is left out where PyTorch is
+  not installed. Straight segments are fitted as curves,
   so it can give them handles where the reference curves; those it leaves
   straight stay lines. It runs on the GPU when PyTorch CUDA and the Vectrify
   CUDA extension are there, and on the CPU otherwise; outlined (stroked) fills

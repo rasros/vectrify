@@ -76,7 +76,7 @@
 </dialog>
 <dialog id="nodes-dialog" class="job-dialog" aria-labelledby="nodes-title">
   <h2 id="nodes-title">Tidy</h2>
-  <p id="nodes-summary"></p><p class="muted">A quick clean-up of the selected paths: snaps their points onto the reference's edges and removes the points they do not need. Each round tries every chosen step and keeps the one that fixes most where it acted; Simplify runs when nothing else helps. No step is kept that leaves the match where Tidy acted worse than the allowed worsening. Without a reference, Simplify removes points while keeping the paths looking the same. To reshape a path, use Redraw outline (R).</p>
+  <p id="nodes-summary"></p><p class="muted">A quick clean-up of the selected paths: snaps their points onto the reference's edges, fits their shape and removes the points they do not need. Each round tries every chosen step and keeps the one that fixes most where it acted; Simplify runs when nothing else helps. No step is kept that leaves the match where Tidy acted worse than the allowed worsening. Without a reference, Simplify removes points while keeping the paths looking the same. To reshape a path, use Redraw outline (R).</p>
   <div id="nodes-settings" class="step-cards">
     <fieldset class="step-card" data-step="snap">
       <legend><label class="toggle"><input id="nodes-snap" type="checkbox" checked> Snap to reference</label></legend>
@@ -90,9 +90,9 @@
       <div class="two-fields"><label title="How much removing points may worsen the match to the reference where it acts, in percent. Simplify removes points only while the match stays within it.">Error budget (%)<input id="nodes-budget" type="number" min="0" max="100" step="0.5" value="1"></label><label title="The most removing points may move an outline anywhere, in reference pixels">Tolerance (px)<input id="nodes-tolerance" type="number" min="0" max="20" step="0.25" value="3"></label></div>
     </fieldset>
     <fieldset class="step-card" data-step="shape">
-      <legend><label class="toggle"><input id="nodes-shape" type="checkbox"> Fit shape</label></legend>
-      <p class="muted">Fits points and curve handles to the reference by gradient descent, on the GPU when there is one. Straight segments can gain handles where the reference curves. Slow on large paths, so off by default.</p>
-      <div class="two-fields"><label title="Gradient steps in each fit. More fit more closely but take longer.">Fitting steps<input id="nodes-steps" type="number" min="1" max="1000" value="40"></label><label title="How far one fit may move any point">Maximum movement (SVG units)<input id="nodes-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
+      <legend><label class="toggle"><input id="nodes-shape" type="checkbox" checked> Fit shape</label></legend>
+      <p class="muted">Fits points and curve handles to the reference by gradient descent, on the GPU when there is one. Straight segments can gain handles where the reference curves. It works at a reduced resolution and stops once it stops gaining, so it is on by default; turn it off for a faster tidy.</p>
+      <div class="two-fields"><label title="Gradient steps in each fit. More fit more closely but take longer.">Fitting steps<input id="nodes-steps" type="number" min="1" max="1000" value="20"></label><label title="How far one fit may move any point">Maximum movement (SVG units)<input id="nodes-movement" type="number" min="0" max="100" step="0.5" value="2"></label></div>
     </fieldset>
     <fieldset class="step-card">
       <legend>Run</legend>

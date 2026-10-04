@@ -519,3 +519,45 @@ def test_cpu_coverage_matches_the_native_kernel(curves):
     assert float(difference.mean()) < 0.01
     assert float(difference.max()) < 0.4
     assert abs(float(soft.sum() - native[0].sum())) < 5
+
+
+def test_the_fit_renders_without_paths_far_from_its_crop_and_looks_the_same():
+    import xml.etree.ElementTree as ET
+
+    from vectrify.document import export_svg
+    from vectrify.refine.selected import pruned
+
+    svg = """<svg width="200" height="100" viewBox="0 0 200 100">
+<path id="near" d="M30 10 L70 10 L70 50 Z" fill="green"/>
+<path id="far" d="M150 60 L190 60 L190 90 Z" fill="red"/>
+<path id="wide" d="M120 20 L130 20" stroke="blue" stroke-width="30" fill="none"/>
+<path id="a" d="M20 20 L60 20 L60 60 L20 60 Z" fill="#800000"/></svg>"""
+    document = import_svg(svg)
+    context = FitContext(
+        document, Selection(object_ids=frozenset({"a"})), target(svg), FitOptions()
+    )
+    ids = {e.get("id") for e in context.root.iter()}
+    assert {"near", "a"} <= ids
+    assert "far" not in ids
+    # A stroke reaching into the crop stays, though its line is outside.
+    assert "wide" in ids
+    whole = ET.fromstring(export_svg(document))
+    for name in ("viewBox", "width", "height", "preserveAspectRatio"):
+        whole.set(name, context.root.get(name, ""))
+    kept = np.asarray(context.render())
+    context.root = whole
+    # The paths left out drew nothing there.
+    assert np.array_equal(np.asarray(context.render()), kept)
+    pruned(whole, document, (0, 0, 200, 100), keep="a")
+    assert "far" in {e.get("id") for e in whole.iter()}
+
+
+def test_a_stalled_fit_stops_early():
+    document = import_svg(SVG)
+    fit = fit_selected_path(
+        document,
+        SELECTION,
+        target(),
+        FitOptions(steps=200, resolution=64, stall=0.5),
+    )
+    assert fit.steps < 200

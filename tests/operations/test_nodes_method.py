@@ -226,8 +226,16 @@ def test_the_defaults_are_a_quick_tidy():
     from vectrify.operations.settings import read_settings
 
     settings = read_settings({}, nodes_method.SETTINGS, nodes_method.LABEL)
-    assert (settings["snap"], settings["simplify"]) == (True, True)
-    assert not settings["shape"]
+    assert (settings["snap"], settings["simplify"], settings["shape"]) == (
+        True,
+        True,
+        True,
+    )
+    # The fit is cheap enough to be on: a reduced resolution, few steps, and
+    # it stops once it stalls.
+    assert settings["resolution"] <= 384
+    assert settings["steps"] <= 20
+    assert settings["stall"] > 0
     assert not settings["detail"]
     assert settings["seconds"] == 10
     assert nodes_method.DEFAULT_ROUNDS <= 4
@@ -271,7 +279,7 @@ def test_a_small_local_fix_on_a_large_selection_is_kept(monkeypatch):
         snapshot=ed.snapshot,
         editor=ed,
         permissions=Permissions(geometry=True, structure=True),
-        settings={"workers": 1, "simplify": False},
+        settings={"workers": 1, "simplify": False, "shape": False},
         budget=Budget(steps=1),
         reference=target,
     )
@@ -390,6 +398,7 @@ def test_simplify_removes_points_only_within_the_error_budget():
             settings={
                 "workers": 1,
                 "snap": False,
+                "shape": False,
                 "tolerance": 3.0,
                 "allowance": 100.0,
                 **settings,
@@ -549,3 +558,44 @@ def test_snap_puts_a_stroked_line_on_its_ink_and_sets_its_width(paint):
     assert all(abs(y - 32) < 0.5 for y in ys[1:-1]), ys
     width = float(document.element("line").get("stroke-width") or "nan")
     assert abs(width - 4) < 0.6 if paint else width == 2
+
+
+def test_a_path_the_fit_cannot_take_is_skipped_not_fatal(monkeypatch):
+    from vectrify.refine import selected
+    from vectrify.refine.paths import UnsupportedPathError
+
+    def refusing(*_args, **_kwargs):
+        raise UnsupportedPathError("no opaque filled cubic paths to optimise")
+
+    monkeypatch.setattr(selected, "fit_selected_path", refusing)
+    job = Job(method("improve", "nodes"), request(editor("p"), snap=True))
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert "opaque" in state["result"]["metrics"]["skipped"]["p"]
+
+
+def test_without_pytorch_the_default_tidy_runs_without_the_fit(monkeypatch):
+    from vectrify.refine import selected
+
+    monkeypatch.setattr(selected, "fit_problem", lambda: "Path fitting needs PyTorch")
+    ed = editor("p")
+    req = OperationRequest(
+        action="improve",
+        method="nodes",
+        snapshot=ed.snapshot,
+        editor=ed,
+        permissions=Permissions(geometry=True, structure=True),
+        settings={"workers": 1},
+        budget=Budget(steps=2),
+        reference=reference(),
+    )
+    nodes = method("improve", "nodes")
+    nodes.validate(req)
+    job = Job(nodes, req)
+    job.run()
+    metrics = job.state()["result"]["metrics"]
+    assert metrics["steps"]
+    assert "shape" not in metrics["steps"]
+    with pytest.raises(DocumentError, match="PyTorch"):
+        nodes.validate(request(editor("p")))

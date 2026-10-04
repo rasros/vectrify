@@ -10,8 +10,8 @@ It mixes three steps and picks, round by round, whichever helps:
   stays within an error budget, never moving it further than a tolerance in
   the reference's pixels.
 - Shape fits the points and handles by gradient descent (the path fit),
-  on the GPU when there is one and on the CPU otherwise. It is off unless
-  asked for: Redraw outline reshapes a path far faster.
+  on the GPU when there is one and on the CPU otherwise, at a reduced
+  resolution and stopping once it stalls; it is skipped without PyTorch.
 
 Every round tries each chosen step on the paths as they stand and keeps the
 one that lowers the difference to the reference most, if it fixes enough of
@@ -77,7 +77,7 @@ BAND = 2
 STRAIGHT = 0.25
 
 SETTINGS = {
-    "shape": Setting(bool, False),
+    "shape": Setting(bool, True),
     "snap": Setting(bool, True),
     # Snap may add points where the path misses the shape, each of which has
     # to fix this many reference pixels.
@@ -98,9 +98,12 @@ SETTINGS = {
     "tolerance": Setting(float, 3.0, minimum=0.0, maximum=20.0, label="tolerance"),
     # Each path fit: gradient steps, how far a point may move in SVG units,
     # and the size it works at.
-    "steps": Setting(int, 40, minimum=1, maximum=1000, label="steps"),
+    "steps": Setting(int, 20, minimum=1, maximum=1000, label="steps"),
     "movement": Setting(float, 2.0, minimum=0.0, maximum=100.0, label="movement"),
-    "resolution": Setting(int, 768, minimum=64, maximum=2048, label="resolution"),
+    "resolution": Setting(int, 384, minimum=64, maximum=2048, label="resolution"),
+    # A path fit stops once a check, every ten steps, improves its match by
+    # less than this, in percent: it has stalled.
+    "stall": Setting(float, 0.5, minimum=0.0, maximum=50.0, label="stall"),
     "workers": Setting(int, 1, minimum=1, maximum=max(1, os.cpu_count() or 1)),
     # How much of the difference where a step acted it has to fix to be
     # kept, in percent.
@@ -461,9 +464,11 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         steps=settings["steps"],
         displacement=settings["movement"],
         resolution=settings["resolution"],
+        stall=settings["stall"] / 100,
     )
     skipped: dict[str, str] = {}
     from vectrify.refine.lines import is_line
+    from vectrify.refine.paths import UnsupportedPathError
 
     for oid in task.oids:
         if stop is not None and stop.is_set():
@@ -491,7 +496,8 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 stop=stop,
                 progress=progress,
             )
-        except DocumentError as exc:
+        except (DocumentError, UnsupportedPathError) as exc:
+            # A path the fit cannot take, a gradient's say, is left as it is.
             skipped[oid] = str(exc)
             document = document.replace_geometry(original)
             continue
@@ -541,7 +547,8 @@ class OptimizeNodes:
             from vectrify.refine.selected import fit_problem
 
             problem = fit_problem()
-            if problem:
+            # Without PyTorch the other steps still run, if there are any.
+            if problem and not any(settings[s] for s in STEPS if s != "shape"):
                 raise DocumentError(problem)
         missing = needed_permissions(settings) - request.permissions.allowed
         if missing:
@@ -576,6 +583,11 @@ class OptimizeNodes:
         # edges, their neighbours.
         watched = oids + neighbours
         steps = [s for s in STEPS if settings[s]]
+        if "shape" in steps:
+            from vectrify.refine.selected import fit_problem
+
+            if fit_problem():
+                steps.remove("shape")
         began = time.monotonic()
         deadline = began + settings["seconds"]
         document = start
