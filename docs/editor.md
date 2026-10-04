@@ -76,7 +76,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   with its opacity and an amber canvas border while it is visible, and zoom.
   `W` cycles the view: the drawing, the reference over it, and the reference
   alone at full strength in place of the drawing, to compare by flipping
-  between them; `Shift+W` always goes straight back to the drawing. The
+  between them; `Shift+W` cycles through the same views backward. The
   Reference panel picks the same three views.
 - The footer's **Agents** toggle (also *Allow agents to edit* in the command
   palette) lets an agent edit this window's drawing ([the MCP server](mcp.md)).
@@ -426,8 +426,8 @@ Keyboard shortcuts are available from the `?` button. They come in three
 layers that never collide. Tool and view keys sit under the left hand: `V`
 Select, `A` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
-the drawing, `Z` zooms to the selection, `W` cycles the view and `Shift+W`
-shows the drawing only. The digits 1-9 press the active tool's numbered strip
+the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
+cycles backward. The digits 1-9 press the active tool's numbered strip
 controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Split edge; in Select: 1-4
 the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K

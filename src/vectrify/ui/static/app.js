@@ -779,8 +779,9 @@ const COMMANDS = [
     disabled: () => level() === 'points' ? noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them') : noSelection()},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
-  {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'W', run: toggleReference, disabled: noReference},
-  {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', keys: 'Shift W', run: () => showDrawingOnly(), disabled: noReference},
+  {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'W', run: () => cycleReference(), disabled: noReference},
+  {id: 'cycle-view-backward', name: 'Cycle the view backward', group: 'Reference', keys: 'Shift W', run: () => cycleReference(-1), disabled: noReference},
+  {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', run: () => setView('drawing'), disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
   {id: 'tidy', name: 'Tidy…', group: 'Reference', keywords: 'simplify snap fit shape optimize nodes points', run: openTidy,
     disabled: () => !tidyTargets() && !state.reference && 'Select one or more paths, or groups that contain them, or add a reference to tidy what is in view'},
@@ -2402,7 +2403,7 @@ function showReference() {
   const toggle = $('reference-toggle');
   toggle.hidden=!reference;
   toggle.setAttribute('aria-pressed', String(enabled));
-  toggle.title=only ? 'Show the drawing only (O)' : enabled ? 'Show the reference only (O)' : 'Show the reference overlay (O)';
+  toggle.title=(only ? 'Show the drawing only' : enabled ? 'Show the reference only' : 'Show the reference overlay') + ' (W; Shift+W cycles backward)';
   const status = only ? 'Reference only' : enabled ? `Reference overlay · ${Math.round(reference.opacity*100)}%` : 'Drawing only';
   $('reference-status').textContent=status;
   $('reference-state').textContent=reference ? {drawing: 'Hidden', overlay: `${Math.round(reference.opacity*100)}%`, reference: 'Alone'}[referenceView] : 'None';
@@ -2413,12 +2414,10 @@ function showReference() {
   scheduleStrip();
 }
 function setView(view) { referenceView = view; showReference(); }
-// W cycles the view: the drawing, the reference over it, the reference alone.
-function toggleReference() {
-  if (reference) setView(VIEWS[(VIEWS.indexOf(referenceView) + 1) % VIEWS.length]);
+// W cycles forward through the views; Shift+W cycles backward.
+function cycleReference(direction = 1) {
+  if (reference) setView(VIEWS[(VIEWS.indexOf(referenceView) + direction + VIEWS.length) % VIEWS.length]);
 }
-// Shift+O: straight back to the drawing alone.
-function showDrawingOnly() { setView('drawing'); }
 for (const button of document.querySelectorAll('[data-view]')) button.onclick = () => setView(button.dataset.view);
 // The panel folds to its heading; a newly loaded reference opens it again.
 function foldReference(folded) {
@@ -2429,7 +2428,7 @@ function foldReference(folded) {
 }
 try { if (localStorage.getItem('vectrify-reference-folded')) foldReference(true); } catch { /* Open by default. */ }
 $('reference-fold').onclick = () => foldReference(!$('reference-body').hidden);
-$('reference-toggle').onclick=toggleReference;
+$('reference-toggle').onclick=()=>cycleReference();
 async function loadReference(){const result=await request('/api/reference');reference=result.reference;showReference();}
 $('add-reference').onclick=()=>$('reference-file').click();
 $('reference-file').onchange=async event=>{
@@ -2526,7 +2525,7 @@ window.addEventListener('keydown',event=>{
   // Tools and the view are on the left hand. A tool key switches at once,
   // even while an edit runs, and cancels a gesture under way.
   if(TOOL_KEYS[key]&&!event.shiftKey){event.preventDefault();if(!event.repeat){cancelGesture();setTool(TOOL_KEYS[key]);}return;}
-  if(key==='w'){event.preventDefault();if(!event.repeat)(event.shiftKey?showDrawingOnly:toggleReference)();return;}
+  if(key==='w'){event.preventDefault();if(!event.repeat)cycleReference(event.shiftKey?-1:1);return;}
   if(key==='f'&&!event.shiftKey){fit();return;}
   if(key==='z'&&!event.shiftKey){event.preventDefault();if(state?.selection.objects.length)focusSelection();return;}
   // 1-9 press the tool strip's controls, as numbered on them.
