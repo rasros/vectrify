@@ -299,6 +299,18 @@ def test_pieces_of_a_line_drawn_at_one_width_are_one_stroke_again():
     assert all(180.7 < y < 181.8 for y in stepping[1:-1])
 
 
+def test_a_loose_line_end_moves_onto_its_middle_with_the_line():
+    # A two-pixel line's middle lies between its pixel rows; the line is
+    # moved onto it, its loose ends too, so it needs no hook at either end.
+    pixels = np.full((60, 240, 3), 255, dtype=np.uint8)
+    pixels[30:32, 20:220] = 0
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
+    ((data, _, _),) = stroke_paths(svg)
+    assert data.count("C") + data.count("L") == 1
+    ends = [float(v) for v in re.findall(r"[-\d.]+", data)[1::2]]
+    assert all(abs(y - 31) < 0.1 for y in ends)
+
+
 def test_a_tapering_line_stays_a_stroke():
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
     # Two pixels wide, then five.
