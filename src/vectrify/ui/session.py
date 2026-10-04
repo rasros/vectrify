@@ -49,6 +49,8 @@ from vectrify.refine.centreline import centreline
 from vectrify.refine.redraw import redraw_stretch
 
 MAX_SOURCE = 128 * 1024 * 1024
+# Aspect ratios this close (relatively) count as the same shape.
+ASPECT_SLACK = 0.005
 # How near, in screen pixels, a redraw stroke's ends attach to a point of the
 # outline, else to the outline itself.
 NODE_REACH = 6
@@ -105,7 +107,7 @@ class Session:
     ):
         self.editor = Editor(document)
         self.name = name
-        self.reference = reference
+        self.reference = self.fit_reference(reference) if reference else None
         self.epoch = uuid4().hex
         self.lock = RLock()
         self._svg_revision = -1
@@ -400,6 +402,57 @@ class Session:
         self.epoch = uuid4().hex
         self._svg_revision = -1
 
+    def fit_reference(self, reference: dict) -> dict:
+        """*reference* fitted to the artboard without distortion.
+
+        The editor and every method stretch the reference over the artboard,
+        so their shapes have to agree. An empty drawing takes the image's
+        size as its artboard; a drawing with content keeps its artboard, and
+        the image is centred on a transparent canvas of the artboard's shape.
+        Returns the reference to keep, which may be a new, padded image.
+        """
+        data = base64.b64decode(reference["data_url"].split(",", 1)[1])
+        with Image.open(io.BytesIO(data)) as image:
+            image.load()
+            width, height = image.size
+            document = self.editor.snapshot.document
+            _, _, aw, ah = document.artboard()
+            if (
+                aw <= 0
+                or ah <= 0
+                or abs(width / height - aw / ah) <= ASPECT_SLACK * (aw / ah)
+            ):
+                return reference
+            empty = not any(e.tag not in {"svg", "defs"} for e in document.elements())
+            if empty:
+                root = document.root.id
+                with self.editor.transaction(
+                    "Fit artboard to reference", selection=Selection.all()
+                ) as tx:
+                    tx.set_attributes(
+                        root,
+                        {
+                            "width": str(width),
+                            "height": str(height),
+                            "viewBox": f"0 0 {width} {height}",
+                        },
+                    )
+                return reference
+            # Pad to the artboard's shape, keeping every image pixel.
+            if width / height > aw / ah:
+                canvas = (width, round(width * ah / aw))
+            else:
+                canvas = (round(height * aw / ah), height)
+            padded = Image.new("RGBA", canvas, (0, 0, 0, 0))
+            padded.paste(
+                image.convert("RGBA"),
+                ((canvas[0] - width) // 2, (canvas[1] - height) // 2),
+            )
+        buffer = io.BytesIO()
+        padded.save(buffer, "PNG")
+        url = "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+        return {**reference, "data_url": url}
+
     @staticmethod
     def validate_reference(value: dict) -> dict:
         url = value["data_url"]
@@ -478,6 +531,12 @@ class Session:
                 if payload.get("reference")
                 else None
             )
+            # A new image is fitted to the artboard; an opacity change sends
+            # the fitted one back and is kept as it is.
+            if reference and reference["data_url"] != (self.reference or {}).get(
+                "data_url"
+            ):
+                reference = self.fit_reference(reference)
             self.reference = reference
         elif command in POINT_COMMANDS:
             chosen = self.editor.snapshot.selection

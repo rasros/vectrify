@@ -2434,7 +2434,10 @@ async function loadReference(){const result=await request('/api/reference');refe
 $('add-reference').onclick=()=>$('reference-file').click();
 $('reference-file').onchange=async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
-  const reader=new FileReader();reader.onload=async()=>{const value={name:file.name,data_url:reader.result,opacity:.5};if(await action('reference',{reference:value},'Loading reference…')){reference=value;referenceView='overlay';foldReference(false);showReference();}};reader.readAsDataURL(file);
+  const reader=new FileReader();reader.onload=async()=>{const value={name:file.name,data_url:reader.result,opacity:.5};if(await action('reference',{reference:value},'Loading reference…')){
+    // The editor fits the image to the artboard: it may pad it, or size an
+    // empty artboard to it, so show what it kept.
+    referenceView='overlay';foldReference(false);await loadReference();fit();}};reader.readAsDataURL(file);
 };
 async function removeReference(){if(await action('reference',{reference:null})){reference=null;showReference();renderInspector();}}
 $('remove-reference').onclick=removeReference;
