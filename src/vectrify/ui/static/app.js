@@ -1867,8 +1867,16 @@ async function setTool(value) {
   const switched = switchTool({objects: state.selection.objects, points: selectedPoints(), memory: pointMemory}, from, value);
   clickCycle = null; lastPick = null; pathDraft=[]; pathHover=null; redrawHover=null; hoverPath = null; tool=value; pointMemory = switched.memory;
   reportView();
-  document.querySelectorAll('[data-tool]').forEach(button => button.classList.toggle('active', button.dataset.tool === tool));
-  $('tool-name').textContent=names[tool]; $('canvas-hint').textContent=hints[tool];
+  document.querySelectorAll('.tool[data-tool]').forEach(button => {
+    const active = button.dataset.tool === tool;
+    button.classList.toggle('active', active);
+    button.setAttribute('aria-pressed', String(active));
+  });
+  $('active-tool').dataset.tool = tool;
+  $('tool-strip').dataset.tool = tool;
+  $('tool-shortcut').textContent = {select: 'V', nodes: 'A', path: 'D', knife: 'C', redraw: 'R', hand: 'Space'}[tool];
+  $('tool-name').textContent = tool === 'select' ? 'Select objects' : tool === 'nodes' ? 'Edit points' : names[tool];
+  $('canvas-hint').textContent=hints[tool];
   stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife','redraw'].includes(tool) ? 'crosshair' : 'default';
   renderInspector();
   const nodes = [...new Set(switched.points.map(key => splitKey(key)[1]))];
@@ -2239,7 +2247,7 @@ stage.addEventListener('lostpointercapture', () => {
 stage.addEventListener('wheel',event=>{event.preventDefault();if(!state)return;const b=stage.getBoundingClientRect();zoomAt(Math.exp(-event.deltaY*.0015),event.clientX-b.left,event.clientY-b.top);},{passive:false});
 new ResizeObserver(()=>{if(state)updateView();}).observe(stage);
 $('fit').onclick=fit; $('zoom-in').onclick=()=>zoomAt(1.25); $('zoom-out').onclick=()=>zoomAt(.8);
-document.querySelectorAll('[data-tool]').forEach(button=>button.onclick=()=>later(()=>setTool(button.dataset.tool)));
+document.querySelectorAll('.tool[data-tool]').forEach(button=>button.onclick=()=>later(()=>setTool(button.dataset.tool)));
 $('object-search').oninput=renderObjects;
 $('undo').onclick=()=>later(()=>action('undo',{},'Undoing…')); $('redo').onclick=()=>later(()=>action('redo',{},'Redoing…'));
 // Paint and offsets apply in order with other input, after any edit under way.

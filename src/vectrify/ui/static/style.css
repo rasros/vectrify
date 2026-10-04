@@ -101,6 +101,18 @@
 #overlay .node.ghost { fill-opacity: .45; stroke-opacity: .6; }
 #overlay .node.passive, #overlay .handle.passive { pointer-events: none; }
 .selection-level { flex-shrink: 0; color: #b5c9bd; white-space: nowrap; margin-left: auto; }
+.tool.selection-tool { height: 44px; padding: 5px 6px; }
+.tool.selection-tool svg { display: block; width: 21px; height: 21px; }
+.tool-key { display: block; font-size: 9px; font-weight: 700; line-height: 12px; }
+.tool[data-tool=select].active { color: #d1f5dd; background: #345b43; border-color: #a9cfb4; }
+.tool[data-tool=nodes].active { color: #d6efff; background: #254c67; border-color: #91c0dc; }
+.active-tool { display: inline-flex; align-items: center; gap: 7px; padding: 4px 8px; border: 1px solid #526d5a; border-radius: 6px; background: #2d4033; color: #d1f5dd; font-size: 11px; font-weight: 600; white-space: nowrap; }
+.active-tool kbd { min-width: 20px; padding: 2px 4px; font-size: 10px; background: #16281e; border-color: #66816e; color: inherit; }
+.active-tool[data-tool=select] { background: #345b43; border-color: #a9cfb4; }
+.active-tool[data-tool=nodes] { color: #d6efff; background: #254c67; border-color: #91c0dc; }
+.active-tool[data-tool=nodes] kbd { background: #162e40; border-color: #638ba5; }
+.tool-strip[data-tool=select] .selection-level { color: #c2e7cd; }
+.tool-strip[data-tool=nodes] .selection-level { color: #b9dff7; }
 .scope-trail { display: flex; align-items: center; gap: 2px; flex-shrink: 0; color: #6f8577; white-space: nowrap; }
 .scope-trail .crumb { background: none; border: 0; padding: 3px 4px; font-size: 10px; color: #a9c2b1; }
 .scope-trail .crumb:last-child { color: #d9eadf; font-weight: 600; }
