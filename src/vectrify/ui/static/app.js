@@ -783,7 +783,7 @@ const COMMANDS = [
   {id: 'drawing-only', name: 'Show the drawing only', group: 'Reference', keys: 'Shift W', run: () => showDrawingOnly(), disabled: noReference},
   {id: 'generate', name: 'Generate from reference…', group: 'Reference', run: openGenerate, disabled: noReference},
   {id: 'tidy', name: 'Tidy…', group: 'Reference', keywords: 'simplify snap fit shape optimize nodes points', run: openTidy,
-    disabled: () => !state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag)) && 'Select one or more paths, or groups that contain them'},
+    disabled: () => !tidyTargets() && !state.reference && 'Select one or more paths, or groups that contain them, or add a reference to tidy what is in view'},
   {id: 'fit-colours', name: 'Fit colours…', group: 'Reference', run: () => openColours('flat'), disabled: () => noReference() || noSelection()},
   {id: 'fit-gradient', name: 'Fit gradient…', group: 'Reference', keywords: 'gradient ramp shading linear fill colour color', run: () => openColours('linear'), disabled: () => noReference() || noSelection()},
   {id: 'handles-0', name: 'No handles', group: 'Points', keys: '1', run: () => pointHandles(0), disabled: noPoints},
@@ -2595,13 +2595,14 @@ function syncNodeSteps() {
 const nodesDialog = jobDialog('nodes', {
   start: () => {
     const steps = nodeSteps();
+    const region = $('nodes-in-view').checked ? viewReport()?.region : null;
     return {action:'improve', method:'nodes', scope:'selection',
       permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify},
       settings:{...steps, tolerance:Number($('nodes-tolerance').value), steps:Number($('nodes-steps').value),
         movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value),
         detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),
         allowance:Number($('nodes-allowance').value), budget:Number($('nodes-budget').value),
-        seconds:Number($('nodes-seconds').value)},
+        seconds:Number($('nodes-seconds').value), ...(region ? {region} : {})},
       budget:{steps:Number($('nodes-rounds').value)}};
   },
   describe: ({changed, metrics}) => {
@@ -2617,10 +2618,16 @@ const nodesDialog = jobDialog('nodes', {
   applied: 'Paths tidied. Undo restores them.',
 }).wire();
 for (const step of NODE_STEPS) $('nodes-'+step).addEventListener('change', syncNodeSteps);
-for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+for (const id of ['nodes-tolerance', 'nodes-rounds', 'nodes-workers', 'nodes-steps', 'nodes-movement', 'nodes-detail-gain', 'nodes-gain', 'nodes-margin', 'nodes-seconds', 'nodes-allowance', 'nodes-budget', 'nodes-in-view']) $(id).addEventListener('input', () => { $('nodes-apply').hidden = true; $('nodes-previews').hidden = true; });
+// Whether paths, or groups that may hold them, are selected for Tidy.
+const tidyTargets = () => state.selection.objects.some(id => ['path', 'g'].includes(object(id)?.tag));
 async function openTidy() {
   await queue;
   const reference = Boolean(state.reference);
+  // With nothing selected Tidy works on what is in view.
+  const targets = tidyTargets();
+  if (!targets) $('nodes-in-view').checked = true;
+  $('nodes-in-view').disabled = !targets;
   // Snap comes back on with the reference, as it is by default.
   if (reference && $('nodes-snap').disabled) $('nodes-snap').checked = true;
   for (const step of ['shape', 'snap']) {
@@ -2634,7 +2641,7 @@ async function openTidy() {
   if (tolerance.value === (reference ? '1' : '3')) tolerance.value = reference ? '3' : '1';
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
   syncNodeSteps();
-  nodesDialog.open(selectionSummary());
+  nodesDialog.open(targets ? selectionSummary() : 'The paths painting in view.');
 }
 
 function simplifyBounds() {

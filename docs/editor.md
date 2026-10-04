@@ -491,6 +491,11 @@ outline (R). Tick the steps it may use:
   CUDA extension are there, and on the CPU otherwise; outlined (stroked) fills
   need the GPU.
 
+**Only what is in view** tidies just the points inside the part of the
+drawing the window shows: of the selected paths, or, with nothing selected
+(Tidy then opens with it ticked), of every path painting there. Zoom in on a
+patch of a trace to touch up that patch alone.
+
 Each round tries every ticked step on the paths as they stand and keeps the one
 that brings them closest to the reference, if it fixes at least the **Minimum
 improvement** (1% by default) of the difference where it acted: over the

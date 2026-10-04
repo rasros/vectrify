@@ -42,16 +42,17 @@ def test_open_look_edit_undo_and_save(tmp_path):
                 ("properties", {"fill": "red"}),
                 ("properties", {"ids": [], "fill": "red"}),
                 ("transform", {"dx": 1, "dy": 1}),
-                ("tidy", {}),
                 ("point_style", {"points": [], "handles": 0}),
             ]:
                 assert "validation error" in error(await client.call_tool(tool, args))
             # delete takes ids, points or a region, and refuses none of them.
             assert "Give ids" in error(await client.call_tool("delete", {}))
+            # tidy takes ids or a region.
+            assert "Give ids" in error(await client.call_tool("tidy", {}))
             tools = await client.list_tools()
             schemas = {t.name: t.input_schema for t in tools.tools}
             assert "select" not in schemas
-            for name in ("properties", "transform", "group", "tidy", "cleanup"):
+            for name in ("properties", "transform", "group", "cleanup"):
                 assert "ids" in schemas[name]["required"], name
 
             painted = data(

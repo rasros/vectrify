@@ -489,3 +489,39 @@ def test_grouped_pieces_from_different_groups_keep_where_they_are(tmp_path):
         assert ids[ids.index("blob") + 1] == grouped["group"]
 
     run(tmp_path, body)
+
+
+def test_tidy_a_region_moves_only_the_points_inside_it(tmp_path):
+    reference = tmp_path / "disc.png"
+    reference.write_bytes(dark_disc_png())
+
+    async def body(call):
+        data(await call("load_reference", path=str(reference)))
+        before = data(await call("points", id="blob"))
+        job = data(
+            await call(
+                "tidy",
+                region=[110, 110, 30, 30],
+                settings={"snap": True, "simplify": False, "seconds": 5},
+            )
+        )
+        ready = data(await call("job", id=job["id"], wait_seconds=60))
+        assert ready["status"] == "ready", ready
+        if ready["result"]["changed"]:
+            data(await call("job", id=job["id"], action="apply"))
+        after = data(await call("points", id="blob"))
+        corners = [
+            (n["id"], *n["values"][-2:]) for c in before["contours"] for n in c["nodes"]
+        ]
+        moved = {
+            (n["id"], *n["values"][-2:]) for c in after["contours"] for n in c["nodes"]
+        }
+        # The blob's corners outside the region stay where they were.
+        for corner in corners:
+            if not (110 <= corner[1] <= 140 and 110 <= corner[2] <= 140):
+                assert corner in moved
+        assert "Give ids" in error(await call("tidy"))
+        nothing = await call("tidy", region=[195, 195, 4, 4], ids=["top"])
+        assert "inside the region" in error(nothing)
+
+    run(tmp_path, body)

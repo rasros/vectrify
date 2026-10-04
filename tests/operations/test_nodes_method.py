@@ -405,3 +405,45 @@ def test_simplify_removes_points_only_within_the_error_budget():
     assert loose["after"]["nodes"] < tight["after"]["nodes"]
     assert tight["after"]["difference"] <= tight["before"]["difference"] * 1.01
     assert loose["after"]["difference"] > tight["after"]["difference"]
+
+
+def test_a_region_tidies_only_the_points_inside_it():
+    # Nothing selected: the region picks the path painting inside it, and
+    # only its points left of x = 30 may move.
+    ed = editor()
+    original = {
+        n.id: n.values
+        for s in ed.snapshot.document.geometry_for("p").subpaths
+        for n in s.nodes
+    }
+    job = Job(
+        method("improve", "nodes"),
+        request(
+            ed,
+            shape=False,
+            snap=True,
+            simplify=False,
+            region=[0, 0, 30, 64],
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"]
+    job.apply()
+    after = {
+        n.id: n.values
+        for s in ed.snapshot.document.geometry_for("p").subpaths
+        for n in s.nodes
+    }
+    assert after.keys() == original.keys()
+    moved = {i for i in after if after[i] != original[i]}
+    assert moved
+    assert all(original[i][-2] < 30 for i in moved)
+
+
+def test_a_region_with_nothing_to_tidy_says_so():
+    with pytest.raises(DocumentError, match="inside the region"):
+        method("improve", "nodes").validate(
+            request(editor(), shape=False, snap=True, region=[56, 56, 6, 6])
+        )

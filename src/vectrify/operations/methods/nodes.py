@@ -108,13 +108,29 @@ SETTINGS = {
     "allowance": Setting(float, 1.0, minimum=0.0, maximum=100.0, label="allowance"),
     # The most the whole run may take, in seconds.
     "seconds": Setting(float, 10.0, minimum=0.5, maximum=3600.0, label="time limit"),
+    # Only what lies in this area is tidied: [x, y, width, height] or a
+    # polygon [[x, y], ...] in document units.
+    "region": Setting(list, None, label="region"),
 }
 
 
-def selected_paths(request: OperationRequest) -> list[str]:
-    """The selected paths, and the paths inside selected groups."""
+def area(settings) -> list[tuple[float, float]] | None:
+    """The polygon the *settings* confine Tidy to, or None for whole paths."""
+    if settings["region"] is None:
+        return None
+    from vectrify.document.regions import region_polygon
+
+    return region_polygon(settings["region"])
+
+
+def selected_paths(request: OperationRequest, polygon=None) -> list[str]:
+    """The selected paths, and the paths inside selected groups; within
+    *polygon*, those of them, or of the whole drawing when nothing is
+    selected, that paint inside it."""
     document = request.snapshot.document
     selection = request.snapshot.selection
+    if polygon is not None:
+        return _paths_in(request, polygon)
     if selection.whole_document or not selection.object_ids:
         raise DocumentError("Select the paths to optimize")
     found: list[str] = []
@@ -131,6 +147,108 @@ def selected_paths(request: OperationRequest) -> list[str]:
         if document.geometry_users(geometry.id) != {oid}:
             raise DocumentError("Detach shared geometry before optimizing its nodes")
     return found
+
+
+def _paths_in(request: OperationRequest, polygon) -> list[str]:
+    """The paths painting inside *polygon*: of the selection, or of the
+    whole drawing without one, leaving out those whose geometry is shared
+    or locked."""
+    from shapely.geometry import Polygon
+
+    from vectrify.document.hit_test import HitIndex
+    from vectrify.document.model import EditKind
+
+    document = request.snapshot.document
+    selection = request.snapshot.selection
+    roots = (
+        [document.element(oid) for oid in sorted(selection.object_ids)]
+        if selection.object_ids and not selection.whole_document
+        else [document.root]
+    )
+    pool: list[str] = []
+    while roots:
+        element = roots.pop(0)
+        if element.tag in {"defs", "clipPath", "mask"}:
+            continue
+        if element.tag == "path" and element.id not in pool:
+            pool.append(element.id)
+        roots.extend(element.children)
+    shape = Polygon(polygon)
+    index = HitIndex(document)
+    found = []
+    for oid in pool:
+        painted = index.area(oid)
+        if painted is None or not painted.intersects(shape):
+            continue
+        if document.geometry_users(document.geometry_for(oid).id) != {oid}:
+            continue
+        if any(EditKind.GEOMETRY in a.locks for a in document.ancestry(oid)):
+            continue
+        found.append(oid)
+    if not found:
+        raise DocumentError("No path to tidy paints inside the region")
+    return found
+
+
+def _outside(document: Document, oids, polygon) -> frozenset[str]:
+    """The points of *oids* outside *polygon*: they stay as they are."""
+    import shapely
+    from shapely.geometry import Polygon
+
+    from vectrify.document.regions import object_matrix
+
+    shape = Polygon(polygon)
+    held = set()
+    for oid in oids:
+        a, b, c, d, e, f = object_matrix(document, oid)
+        nodes = [n for s in document.geometry_for(oid).subpaths for n in s.nodes]
+        if not nodes:
+            continue
+        x, y = np.array([n.values[-2:] for n in nodes], dtype=np.float64).T
+        inside = shapely.contains_xy(shape, a * x + c * y + e, b * x + d * y + f)
+        held.update(n.id for n, i in zip(nodes, inside, strict=True) if not i)
+    return frozenset(held)
+
+
+def _area_region(request: OperationRequest, polygon, margin: float, long_side: int):
+    """The region Tidy judges a region's tidy by: *polygon*'s bounds, widened
+    by *margin* of their size, on the artboard, cropped from the reference
+    at whole pixels, or the drawing rendered there without one."""
+    from vectrify.image_utils import on_white
+
+    document = request.snapshot.document
+    vx, vy, vw, vh = document.artboard()
+    xs, ys = [p[0] for p in polygon], [p[1] for p in polygon]
+    pad = margin * max(max(xs) - min(xs), max(ys) - min(ys))
+    left, top = max(min(xs) - pad, vx), max(min(ys) - pad, vy)
+    right, bottom = min(max(xs) + pad, vx + vw), min(max(ys) + pad, vy + vh)
+    if right <= left or bottom <= top:
+        raise DocumentError("The region is outside the artboard")
+    if request.reference is None:
+        scale = long_side / max(right - left, bottom - top)
+        size = (
+            max(1, round((right - left) * scale)),
+            max(1, round((bottom - top) * scale)),
+        )
+        blank = Region(left, top, right - left, bottom - top, Image.new("RGB", size))
+        return replace(blank, image=render_region(document, blank))
+    reference = on_white(request.reference)
+    sx, sy = reference.width / vw, reference.height / vh
+    box = (
+        round((left - vx) * sx),
+        round((top - vy) * sy),
+        round((right - vx) * sx),
+        round((bottom - vy) * sy),
+    )
+    if box[2] <= box[0] or box[3] <= box[1]:
+        raise DocumentError("The region is smaller than one reference pixel")
+    return Region(
+        vx + box[0] / sx,
+        vy + box[1] / sy,
+        (box[2] - box[0]) / sx,
+        (box[3] - box[1]) / sy,
+        reference.crop(box),
+    )
 
 
 def needed_permissions(settings) -> set[str]:
@@ -157,6 +275,8 @@ class _Task:
     # step may take from when it starts.
     deadline: float = float("inf")
     share: float = float("inf")
+    # Points no step may move or remove: those outside a region's tidy.
+    held: frozenset[str] = frozenset()
 
 
 class _Until(threading.Event):
@@ -238,10 +358,10 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
     if step == "shape":
         document, skipped = _fit(task, _Until(deadline, stop), progress)
     else:
-        from vectrify.refine.frozen import frozen
+        from vectrify.refine.frozen import Frozen, frozen
 
         paths = _paths(document, task.oids)
-        fixed = frozen(paths)
+        fixed = Frozen(frozen(paths).endpoints | task.held)
         if step == "snap":
             from vectrify.refine.snap import snap
 
@@ -326,11 +446,20 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         if stop is not None and stop.is_set():
             break
         original = document.geometry_for(oid)
+        # In a region's tidy only the points inside it move.
+        movable = frozenset(
+            n.id for s in original.subpaths for n in s.nodes if n.id not in task.held
+        )
+        if not movable:
+            continue
         document = document.replace_geometry(curved(original))
         try:
             fit = fit_selected_path(
                 document,
-                Selection(object_ids=frozenset({oid})),
+                Selection(
+                    object_ids=frozenset({oid}),
+                    node_ids=movable if task.held else frozenset(),
+                ),
                 task.reference,
                 options,
                 stop=stop,
@@ -376,7 +505,7 @@ class OptimizeNodes:
         settings = read_settings(request.settings, SETTINGS, LABEL)
         if not any(settings[step] for step in STEPS):
             raise DocumentError("Choose at least one step")
-        selected_paths(request)
+        selected_paths(request, area(settings))
         if request.reference is None:
             if settings["shape"]:
                 raise DocumentError("Add a reference image to fit the shape to")
@@ -398,13 +527,19 @@ class OptimizeNodes:
             settings["tolerance"] = NO_REFERENCE
         rounds = request.budget.steps or DEFAULT_ROUNDS
         start = request.snapshot.document
-        oids = tuple(selected_paths(request))
+        polygon = area(settings)
+        oids = tuple(selected_paths(request, polygon))
         margin = settings["margin"] / 100
-        region = (
-            target_region(request, margin)
-            if request.reference is not None
-            else drawing_region(request, settings["resolution"], margin)
-        )
+        if polygon is not None:
+            region = _area_region(request, polygon, margin, settings["resolution"])
+            held = _outside(start, oids, polygon)
+        else:
+            region = (
+                target_region(request, margin)
+                if request.reference is not None
+                else drawing_region(request, settings["resolution"], margin)
+            )
+            held = frozenset()
         steps = [s for s in STEPS if settings[s]]
         began = time.monotonic()
         deadline = began + settings["seconds"]
@@ -447,6 +582,7 @@ class OptimizeNodes:
                     deadline,
                     # One share is kept back for rendering and judging them.
                     left / (len(steps) + 1),
+                    held,
                 )
                 results = _round(steps, task, pool, context.stop, report)
                 for _doc, _pixels_after, why in results.values():
@@ -482,7 +618,17 @@ class OptimizeNodes:
 
         spent = time.monotonic() - began
         out_of_time = not context.stop.is_set() and time.monotonic() >= deadline
-        tx = request.transaction(LABEL)
+        tx = (
+            request.transaction(LABEL)
+            if polygon is None
+            # A region's tidy edits, and then selects, the paths it found.
+            else request.editor.transaction(
+                LABEL,
+                selection=Selection(object_ids=frozenset(oids)),
+                allowed=request.permissions.allowed,
+                base=request.snapshot,
+            )
+        )
         for oid in oids:
             geometry = document.geometry_for(oid)
             if geometry != start.geometry_for(oid):

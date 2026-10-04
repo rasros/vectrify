@@ -182,7 +182,9 @@ for `coords="local"`.
 over the whole drawing or into the area of `group` (`cel` for flat colour
 with ink lines, `colour-regions` for posterised regions). `tidy(ids)`,
 `fit_colours(ids, fill="flat"|"linear")`, `snap_edges(ids)` and
-`cleanup(ids)` improve existing paths. Each starts a job:
+`cleanup(ids)` improve existing paths; `tidy(region=[x, y, w, h])` touches
+up only the points inside an area, of every path painting there or of
+`ids`. Each starts a job:
 `job(id, wait_seconds=...)` waits for it and returns its metrics and
 before/after previews, then `job(id, action="apply")` keeps the result as
 one undo step or `job(id, action="discard")` drops it; `action="stop"`
