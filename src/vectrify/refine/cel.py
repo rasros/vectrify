@@ -16,14 +16,16 @@ so neighbours meet at the line's middle and share one traced edge, smoothed
 between its corners before it is fitted. Each region's colour is then
 fitted in closed form to the image under the lines as drawn, and a region
 whose colour clearly ramps takes a linear gradient. The lines are thinned to
-centrelines, each moved onto the middle of its ink, and drawn over the
-fills as strokes in their ink: a thin
+centrelines, each moved onto the middle of its ink, loose ends too, and
+drawn over the fills as strokes in their ink, one the line is darkened
+toward (a black line on navy is not a grey lighter than the navy): a thin
 line's antialiased middle is a mix of ink and surface, so it is drawn
 darker and thinner than its pixels look,
 though never under 0.8 px wide, solid (in a grainy image a hairline that is
-not a line's tapering end is drawn a pixel wide and fainter).
+not a line's tapering end is drawn a pixel wide and fainter, and a line's
+width counts the ink its blur spreads a pixel beyond it).
 There is one path per line colour and width, a line cut where its width
-steps so each part has its own.
+steps so each part has its own, and pieces drawn at one width fitted as one.
 Optionally one unbroken stroke runs round the drawing's silhouette in place
 of the traced outer line, in its ink, down the middle of that ink at its
 width, and open where the edge has none.
@@ -1095,15 +1097,20 @@ def _ink_of(palette: np.ndarray, middle: np.ndarray, surface: np.ndarray) -> int
         span = float(away @ away)
         if span < 1:
             continue
-        cover = float(np.clip((surface - middle) @ away / span, 0.05, 1))
+        raw = float((surface - middle) @ away / span)
+        cover = float(np.clip(raw, 0.05, 1))
         miss = float(np.linalg.norm(surface - cover * away - middle))
-        fits.append((miss, cover, index))
+        fits.append((miss, cover, index, raw > 0))
     if not fits:
         return int(np.square(palette - middle).sum(1).argmin())
     least = min(f[0] for f in fits)
     # Of the inks that explain it about as well, the one covering least: a
-    # thin line of dark ink, not a grey one as wide as its antialiasing.
-    return min((f for f in fits if f[0] <= least + INK_SLACK), key=lambda f: f[1])[2]
+    # thin line of dark ink, not a grey one as wide as its antialiasing. An
+    # ink the line is not darkened toward at all, such as a grey lighter
+    # than the navy fill a black line runs over, explains none of it.
+    close = [f for f in fits if f[0] <= least + INK_SLACK]
+    close = [f for f in close if f[3]] or close
+    return min(close, key=lambda f: f[1])[2]
 
 
 def silhouette(target: np.ndarray) -> np.ndarray | None:
@@ -1830,6 +1837,8 @@ def _line_paths(
     # region it lies in, summed across the line: its width in that ink.
     widths_by_ink = []
     covers = []
+    # A blurred line's ink spreads a pixel beyond the pixels found as line.
+    measured = binary_dilation(line, np.ones((3, 3))) if grainy else line
     for value in palette:
         away = surface - value
         span = (away * away).sum(-1)
@@ -1839,7 +1848,7 @@ def _line_paths(
         # the picture has, whether or not it was found as a line.
         cover = np.where(span < 30**2, line, np.clip(cover, 0, 1))
         covers.append(cover)
-        cover = cover * line
+        cover = cover * measured
         widths_by_ink.append(
             np.bincount(flat, cover.ravel(), minlength=line.size).reshape(line.shape)
         )
@@ -1925,16 +1934,18 @@ def _line_paths(
     if not line_width and strokes:
         # A line whose width changes a lot is drawn as a stroke per width.
         cut = []
-        for run in runs:
+        for number, run in enumerate(runs):
             pieces = width_pieces(
                 _widths_along(across, run), max(LINE_PIECE, LINE_PIECE_WIDTHS * typical)
             )
             body = float(np.median(style(run)[1])) if len(pieces) > 1 else 0.0
-            cut.extend((run[first : last + 1], body) for first, last in pieces)
-        runs = [run for run, _ in cut]
-        tips = np.array([not grainy or body >= TIP_LINE for _, body in cut], bool)
+            cut.extend((run[first : last + 1], body, number) for first, last in pieces)
+        runs = [run for run, _, _ in cut]
+        tips = np.array([not grainy or body >= TIP_LINE for _, body, _ in cut], bool)
+        parents = np.array([number for _, _, number in cut], dtype=np.int64)
     else:
         tips = np.zeros(len(runs), dtype=bool)
+        parents = np.arange(len(runs))
     measured = []
     for run in runs:
         index, widths = style(run)
@@ -1989,12 +2000,26 @@ def _line_paths(
                 group[own[members]] = number
         # Each ink's solid thin strokes are a path of their own.
         group[solid] = -1
+        # Pieces of one line that land in one path again are one run, fitted
+        # with curves across the step between them.
+        runs, colours, widths, group = _rejoined(runs, parents, colours, widths, group)
     grouped: dict[tuple[int, int], list[tuple[Subpath, float, int]]] = {}
     group_runs: dict[tuple[int, int], list[np.ndarray]] = {}
+    # How many runs end at each point: an end no other run meets is loose.
+    ends: dict[tuple[float, float], int] = {}
+    for run in runs:
+        for point in (run[0], run[-1]):
+            key = (round(float(point[0]), 1), round(float(point[1]), 1))
+            ends[key] = ends.get(key, 0) + 1
+
+    def loose(point: np.ndarray) -> bool:
+        return ends[round(float(point[0]), 1), round(float(point[1]), 1)] == 1
+
     for run, index, width, step in zip(runs, colours, widths, group, strict=True):
         width = line_width or width
         closed = np.array_equal(run[0], run[-1])
-        run = centred(run, covers[int(index)], width)
+        free = (False, False) if closed else (loose(run[0]), loose(run[-1]))
+        run = centred(run, covers[int(index)], width, free)
         nodes = curve_nodes(run, tolerance)
         if closed and nodes and nodes[-1][0] == "L":
             nodes = nodes[:-1]
@@ -2046,14 +2071,56 @@ def _line_paths(
     }
 
 
-def centred(run: np.ndarray, ink: np.ndarray, width: float) -> np.ndarray:
+def _rejoined(
+    runs: list[np.ndarray],
+    parents: np.ndarray,
+    colours: np.ndarray,
+    widths: np.ndarray,
+    group: np.ndarray,
+) -> tuple[list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
+    """*runs*, the pieces of the lines *parents* cut where their width
+    steps, with each two following pieces of one line, ink (*colours*) and
+    width *group* joined again; a joined run's width is its pieces', each
+    counted by its length."""
+    joined: list[list[int]] = []
+    for i in range(len(runs)):
+        last = joined[-1][-1] if joined else -1
+        if (
+            joined
+            and parents[last] == parents[i]
+            and colours[last] == colours[i]
+            and group[last] == group[i]
+        ):
+            joined[-1].append(i)
+        else:
+            joined.append([i])
+    if len(joined) == len(runs):
+        return runs, colours, widths, group
+    merged, merged_widths = [], []
+    for members in joined:
+        merged.append(
+            np.concatenate([runs[members[0]]] + [runs[i][1:] for i in members[1:]])
+        )
+        lengths = np.array([len(runs[i]) for i in members], dtype=float)
+        merged_widths.append(float(np.average(widths[members], weights=lengths)))
+    firsts = [members[0] for members in joined]
+    return merged, colours[firsts], np.array(merged_widths), group[firsts]
+
+
+def centred(
+    run: np.ndarray,
+    ink: np.ndarray,
+    width: float,
+    free: tuple[bool, bool] = (False, False),
+) -> np.ndarray:
     """The centreline *run* moved across its line onto the middle of its
     *ink* (each pixel's cover by it over its surface), at most CENTRE_SHIFT:
     thinning leaves a line an even number of pixels wide on one of its two
     middle pixels, half a pixel off. The ink is read across the line up to
     half its *width* and CENTRE_REACH beyond, as far as it runs unbroken from
     the middle; the shift is smoothed along the run, and the ends, where
-    runs meet, stay."""
+    runs meet, stay, but for those *free* (start, end): a line's loose end
+    moves with it."""
     if len(run) < 5:
         return run
     closed = bool(np.array_equal(run[0], run[-1]))
@@ -2083,8 +2150,10 @@ def centred(run: np.ndarray, ink: np.ndarray, width: float) -> np.ndarray:
     shift = gaussian_filter1d(shift, 2.0, mode=mode)
     if not closed:
         # Back to none at the ends, where the runs meet.
-        ramp = np.minimum(np.arange(len(points)), np.arange(len(points))[::-1])
-        shift = shift * np.clip(ramp / 3, 0, 1)
+        count = len(points)
+        start = np.full(count, np.inf) if free[0] else np.arange(count)
+        end = np.full(count, np.inf) if free[1] else np.arange(count)[::-1]
+        shift = shift * np.clip(np.minimum(start, end) / 3, 0, 1)
     moved = points + shift[:, None] * normal
     return np.concatenate((moved, moved[:1])) if closed else moved
 

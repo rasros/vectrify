@@ -278,6 +278,39 @@ def test_a_line_is_cut_where_its_width_steps():
     assert cel.width_pieces(widths, 8) == [(0, 59)]
 
 
+def test_pieces_of_a_line_drawn_at_one_width_are_one_stroke_again():
+    # Long two-pixel lines, and one that thickens to three pixels for a
+    # short stretch: it is cut there, but the stretch is too little to keep
+    # a width of its own, so both pieces are drawn in one path at one width
+    # and are fitted as one run.
+    pixels = np.full((200, 240, 3), 255, dtype=np.uint8)
+    for y in (20, 60, 100, 140):
+        pixels[y : y + 2, 20:220] = 0
+    pixels[180:182, 20:220] = 0
+    pixels[180:183, 190:215] = 0
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
+    strokes = stroke_paths(svg)
+    assert len(strokes) == 1
+    lines = strokes[0][0].split("M")[1:]
+    assert len(lines) == 5
+    # The stepping line runs smoothly down its middle, with no hook back to
+    # a pixel centre where its pieces met.
+    stepping = [float(v) for v in re.findall(r"[-\d.]+", lines[-1])[1::2]]
+    assert all(180.7 < y < 181.8 for y in stepping[1:-1])
+
+
+def test_a_loose_line_end_moves_onto_its_middle_with_the_line():
+    # A two-pixel line's middle lies between its pixel rows; the line is
+    # moved onto it, its loose ends too, so it needs no hook at either end.
+    pixels = np.full((60, 240, 3), 255, dtype=np.uint8)
+    pixels[30:32, 20:220] = 0
+    svg, _ = cel.vectorize(Image.fromarray(pixels), regions=1)
+    ((data, _, _),) = stroke_paths(svg)
+    assert data.count("C") + data.count("L") == 1
+    ends = [float(v) for v in re.findall(r"[-\d.]+", data)[1::2]]
+    assert all(abs(y - 31) < 0.1 for y in ends)
+
+
 def test_a_tapering_line_stays_a_stroke():
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
     # Two pixels wide, then five.
@@ -496,6 +529,19 @@ def test_a_thin_antialiased_line_is_drawn_in_its_ink_and_thin():
     assert not any(o for _, _, o in strokes)
 
 
+def test_a_black_line_on_navy_takes_the_black_ink_not_a_lighter_grey():
+    # A blurred black line on a navy fill is only a little darker than the
+    # fill; a grey ink lighter than the fill explains none of that darkening,
+    # however close its colour, and must not win as the ink covering least.
+    palette = np.array([[26.0, 30.0, 46.0], [111.0, 120.0, 119.0]])
+    surface = np.array([24.0, 30.0, 54.0])
+    middle = np.array([19.0, 26.0, 48.0])
+    assert cel._ink_of(palette, middle, surface) == 0
+    # A thin black line antialiased to grey on white is still black.
+    white = np.array([250.0, 250.0, 250.0])
+    assert cel._ink_of(palette, np.array([150.0, 152.0, 155.0]), white) == 0
+
+
 def test_a_hairline_is_drawn_solid_with_about_its_ink():
     # A line holding two thirds of a pixel of black ink, antialiased to grey.
     pixels = np.full((60, 200, 3), 255, dtype=np.uint8)
@@ -523,6 +569,24 @@ def test_a_hairline_in_grain_is_drawn_a_pixel_wide_and_faint():
     width, opacity = (float(v) for v in faint[0])
     assert width == cel.STROKE_LEAST
     assert opacity < 1
+
+
+def test_a_blurred_line_in_grain_keeps_its_width():
+    # Blur spreads a line's ink beyond the pixels found as line; its width
+    # counts the ink there too.
+    from scipy.ndimage import gaussian_filter
+
+    rng = np.random.default_rng(5)
+    pixels = np.full((60, 200, 3), 225.0)
+    pixels[10:16, 10:190] = 0
+    pixels[40:42, 10:190] = 0
+    pixels = gaussian_filter(pixels, (1.2, 1.2, 0))
+    noisy = np.clip(pixels + rng.normal(0, 8, pixels.shape), 0, 255)
+    assert cel.noise_level(noisy.astype(np.float32)) > cel.NOISE
+    svg, _ = cel.vectorize(Image.fromarray(noisy.astype(np.uint8)), regions=1)
+    widths = sorted(float(w) for _, _, w in stroke_paths(svg))
+    assert widths[-1] > 0.9 * 6
+    assert widths[0] > 0.9 * 2
 
 
 def test_strokes_are_grouped_by_width():
