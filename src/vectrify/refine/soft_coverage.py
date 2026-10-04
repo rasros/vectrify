@@ -126,3 +126,49 @@ def soft_coverage(
         (height * width,), 1e4, dtype=a.dtype, device=a.device
     ).scatter_reduce(0, pixel, distance, "amin", include_self=True)
     return (0.5 + sign * nearest.reshape(height, width)).clamp(0, 1)
+
+
+def soft_stroke_coverage(contours: list[Any], box, width: float) -> Any:
+    """Differentiable round-cap, round-join strokes, including open contours.
+
+    Only pixels near the centreline are evaluated, as for soft fill coverage.
+    Unlike a fill, a stroke never implicitly closes an open contour.
+    """
+    import torch
+
+    left, top, right, bottom = box
+    w, h = right - left, bottom - top
+    reference = contours[0]
+    starts, ends = [], []
+    for control in contours:
+        points = torch.cat((_polyline(control, CHORD), control[-1:, 3]))
+        points = points - points.new_tensor((left, top))
+        starts.append(points[:-1])
+        ends.append(points[1:])
+    a, b = torch.cat(starts), torch.cat(ends)
+    radius = width / 2
+    with torch.no_grad():
+        low = torch.minimum(a, b) - radius - 1
+        high = torch.maximum(a, b) + radius + 1
+        x0 = low[:, 0].floor().clamp(0, w - 1).long()
+        x1 = high[:, 0].ceil().clamp(-1, w - 1).long()
+        y0 = low[:, 1].floor().clamp(0, h - 1).long()
+        y1 = high[:, 1].ceil().clamp(-1, h - 1).long()
+        spans = (x1 - x0 + 1).clamp_min(0)
+        counts = spans * (y1 - y0 + 1).clamp_min(0)
+        segment = torch.repeat_interleave(torch.arange(len(a), device=a.device), counts)
+        first = counts.cumsum(0) - counts
+        index = torch.arange(len(segment), device=a.device) - first[segment]
+        px = x0[segment] + index % spans[segment]
+        py = y0[segment] + index // spans[segment]
+        pixel = py * w + px
+    center = torch.stack((px, py), dim=-1).to(a.dtype) + 0.5
+    start, end = a[segment], b[segment]
+    edge = end - start
+    t = ((center - start) * edge).sum(-1) / (edge * edge).sum(-1).clamp_min(1e-12)
+    delta = center - (start + t.clamp(0, 1)[:, None] * edge)
+    distance = (delta.square().sum(-1) + 1e-12).sqrt()
+    nearest = reference.new_full((w * h,), 1e4).scatter_reduce(
+        0, pixel, distance, "amin", include_self=True
+    )
+    return (radius + 0.5 - nearest.reshape(h, w)).clamp(0, min(1, width))

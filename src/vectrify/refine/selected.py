@@ -6,7 +6,8 @@ Cairo again, so renderer approximation cannot turn a worse fit into a result.
 No candidate crosses itself more than the path did: where the fit folds the
 outline, the nodes of the crossing segments are pulled back and it goes on.
 The fit runs on CUDA with the native analytic kernel when it can, and otherwise
-on the CPU with the portable polyline coverage; outlines still need CUDA.
+on the CPU with portable polyline coverage for fills and round strokes.
+Miter outlines require CUDA.
 """
 
 from __future__ import annotations
@@ -14,6 +15,7 @@ from __future__ import annotations
 import functools
 import math
 import re
+import time
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -50,12 +52,17 @@ class FitOptions:
     steps: int = 8
     displacement: float = 2.0
     resolution: int = 768
-    # Stop once a check (every tenth step) improves the best so far by less
+    # Stop once a check (every tenth step) improves the previous check by less
     # than this share of it: the fit has stalled. 0 runs every step.
     stall: float = 0.0
+    # Compare a bounded edge-seeking proposal alongside gradient fitting.
+    snap: bool = True
 
     def __post_init__(self):
-        if any(type(v) is not bool for v in (self.nodes, self.handles, self.color)):
+        if any(
+            type(v) is not bool
+            for v in (self.nodes, self.handles, self.color, self.snap)
+        ):
             raise DocumentError("Edit permissions must be on or off")
         if not (self.nodes or self.handles or self.color):
             raise DocumentError("Allow nodes, handles or fill color to change")
@@ -86,7 +93,7 @@ class FitResult:
 
     @property
     def changed(self) -> bool:
-        return bool(self.values or self.fill is not None)
+        return bool(self.values or self.fill is not None or self.stroke is not None)
 
     def write(self, tx: Transaction) -> None:
         """Record the fitted values in *tx*; committing it applies them."""
@@ -140,24 +147,37 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
             "Select a visible path; detach an instance to edit its path"
         )
     style = path_style(document, element)
-    if style["fill"] == "none":
+    stroke_only = style["fill"] == "none"
+    if stroke_only and style["stroke"] == "none":
         raise DocumentError("This editor path fitter currently requires a filled path")
     if options.color and "url(" in style["fill"] + style["stroke"]:
         raise DocumentError("Gradient fills are fitted with Fit colours")
-    if style["stroke"] != "none" and (
-        color(style["stroke"]) != color(style["fill"])
-        or float(style["fill-opacity"]) != 1
-        or float(style["stroke-opacity"]) != 1
-        or style["stroke-linejoin"] not in {"round", "miter"}
-        or any(not s.closed for s in document.geometry_for(oid).subpaths)
+    if stroke_only and (
+        style["stroke-linejoin"] != "round" or style["stroke-linecap"] != "round"
+    ):
+        raise DocumentError("Stroke-only fitting currently needs round caps and joins")
+    if (
+        not stroke_only
+        and style["stroke"] != "none"
+        and (
+            color(style["stroke"]) != color(style["fill"])
+            or float(style["fill-opacity"]) != 1
+            or float(style["stroke-opacity"]) != 1
+            or style["stroke-linejoin"] not in {"round", "miter"}
+            or any(not s.closed for s in document.geometry_for(oid).subpaths)
+        )
     ):
         raise DocumentError(
             "Outlined fills need closed contours, round or miter joins, "
             "and matching opaque fill/stroke colors"
         )
-    if style["stroke"] != "none" and gpu_problem():
+    if (
+        style["stroke"] != "none"
+        and style["stroke-linejoin"] == "miter"
+        and gpu_problem()
+    ):
         raise DocumentError("Fitting an outlined shape needs an NVIDIA GPU")
-    rgba = color(style["fill"])
+    rgba = color(style["stroke"] if stroke_only else style["fill"])
     if rgba[3] != 1:
         raise DocumentError("Use a solid fill with fill opacity for path fitting")
     geometry = document.geometry_for(oid)
@@ -190,7 +210,10 @@ def validate_selection(document: Document, selection: Selection, options: FitOpt
 
 
 class FitContext:
-    """A bounded crop and the affine compositing response of a selected fill."""
+    """A bounded crop and the compositing response of a selected path.
+
+    Transparent references include opacity alongside colour over white.
+    """
 
     def __init__(
         self,
@@ -202,6 +225,7 @@ class FitContext:
         self.oid, self.geometry, self.style = validate_selection(
             document, selection, options
         )
+        self.stroke_only = self.style["fill"] == "none"
         self.document = document
         self.root = ET.fromstring(export_svg(document))
         self.path = next(e for e in self.root.iter() if e.get("id") == self.oid)
@@ -247,7 +271,12 @@ class FitContext:
         )
         # The UI stretches the reference over the artboard, including
         # nonzero viewBox origins.
-        self.target = on_white(target).resize(
+        self.alpha = target.has_transparency_data and bool(
+            np.asarray(target.convert("RGBA").getchannel("A")).min() < 255
+        )
+        self.target = (
+            target.convert("RGBA") if self.alpha else on_white(target)
+        ).resize(
             self.size,
             Image.Resampling.BICUBIC,
             box=(
@@ -269,6 +298,8 @@ class FitContext:
         self.path.set("fill", "none")
         self.path.set("stroke", "none")
         self.base = self.array(self.render())
+        if self.stroke_only:
+            self.path.set("fill-opacity", self.style["stroke-opacity"])
         # Cover the whole crop in the path's local frame; keep ancestor clips,
         # opacity, isolated groups, and all later objects exactly as exported.
         corners = np.array([[left, top], [right, top], [right, bottom], [left, bottom]])
@@ -283,12 +314,15 @@ class FitContext:
         self.path.attrib.clear()
         self.path.attrib.update(self.original_attrs)
 
-    @staticmethod
-    def array(image: Image.Image) -> np.ndarray:
-        return np.asarray(image, dtype=np.float32) / 255
+    def array(self, image: Image.Image) -> np.ndarray:
+        if not self.alpha:
+            return np.asarray(image, dtype=np.float32) / 255
+        rgb = np.asarray(on_white(image), dtype=np.float32) / 255
+        opacity = np.asarray(image.convert("RGBA").getchannel("A"), dtype=np.float32)
+        return np.dstack((rgb, opacity / 255))
 
     def render(self) -> Image.Image:
-        return render_image(ET.tostring(self.root))
+        return render_image(ET.tostring(self.root), alpha=self.alpha)
 
     def reshaped(self, coordinates: np.ndarray):
         """(the changed node values, the whole geometry) for *coordinates*."""
@@ -324,7 +358,8 @@ class FitContext:
             else None
         )
         if fill is not None:
-            self.path.set("fill", fill)
+            if not self.stroke_only:
+                self.path.set("fill", fill)
             if self.style["stroke"] != "none":
                 self.path.set("stroke", fill)
         return fill, self.render()
@@ -434,6 +469,49 @@ def fit_selected_path(
         mask.extend([selected and options.handles] * (len(node.values) // 2 - 1))
         mask.append(selected and options.nodes and not node.pinned)
     movable = original.new_tensor(mask)[:, None]
+    seed = original
+    if options.snap and (options.nodes or options.handles) and not stop.is_set():
+        from vectrify.operations.generate import Region
+        from vectrify.refine.frozen import Frozen, Paths, frozen
+        from vectrify.refine.lines import fit_lines
+        from vectrify.refine.snap import snap
+
+        paths = Paths({context.oid: context.geometry})
+        held = frozen(paths).endpoints | frozenset(
+            node.id
+            for node in context.nodes
+            if not options.nodes
+            or (selection.node_ids and node.id not in selection.node_ids)
+        )
+        fixed = Frozen(held)
+        left, top, right, bottom = context.crop
+        region = Region(left, top, right - left, bottom - top, on_white(context.target))
+        if context.stroke_only:
+            prepared = fit_lines(
+                document, [context.oid], region, fixed, False
+            ).geometry_for(context.oid)
+        else:
+            prepared = snap(
+                document,
+                paths,
+                region,
+                fixed,
+                detail=False,
+                deadline=min(
+                    getattr(stop, "deadline", float("inf")), time.monotonic() + 0.25
+                ),
+            ).geometries[context.oid]
+        by_id = {n.id: n for sub in prepared.subpaths for n in sub.nodes}
+        rows = []
+        for node in context.nodes:
+            values = by_id.get(node.id, node).values
+            if len(values) != len(node.values):
+                # Fixed-topology fitting never adds handles to a straight node.
+                values = values[-2:] if len(node.values) == 2 else node.values
+            rows.extend(zip(values[::2], values[1::2], strict=True))
+        delta = (original.new_tensor(rows) - original) * movable
+        distance = delta.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+        seed = original + delta * (options.displacement / distance).clamp(max=1)
     # Every original node keeps its ID and command. Straight edges and implicit
     # closures remain straight even though the fitter represents them as cubics.
     definitions = []
@@ -451,8 +529,10 @@ def fit_selected_path(
         # starts. A zero-length closing cubic is not harmless: it takes
         # 16-cubic contours past the native renderer's width, onto a winding
         # rasteriser whose coverage has no gradient, and nothing moves.
-        if previous != head and not np.array_equal(
-            context.local[previous], context.local[head]
+        if (
+            (not context.stroke_only or subpath.closed)
+            and previous != head
+            and not np.array_equal(context.local[previous], context.local[head])
         ):
             segments.append((previous, (head,)))
         if not segments:
@@ -495,10 +575,23 @@ def fit_selected_path(
             g[:, 1:3],
         )
         cubics = torch.cat((a[:, None], middle, b[:, None]), 1)
-        return list(torch.split(cubics, counts))
+        contours = list(torch.split(cubics, counts))
+        if context.stroke_only:
+            # The fill optimizer stores closed contours. An open stroke is
+            # represented by its centreline and its reverse, with projection
+            # tying the copies. Stroke coverage reads only the forward half.
+            contours = [
+                contour
+                if subpath.closed
+                else torch.cat((contour, contour.flip((0, 1))))
+                for contour, subpath in zip(
+                    contours, context.geometry.subpaths, strict=True
+                )
+            ]
+        return contours
 
     def local_from_controls(paths):
-        cubics = torch.cat(list(paths[0]))
+        cubics = torch.cat([c[:n] for c, n in zip(paths[0], counts, strict=True)])
         values = ((cubics / scale + origin - offset) @ inverse.T).reshape(-1, 2)
         local = original.clone()
         local[written] = values[sources]
@@ -512,6 +605,14 @@ def fit_selected_path(
             dest.copy_(source)
 
     work = ET.Element("svg", width=str(context.size[0]), height=str(context.size[1]))
+    # The low-level fitter reads six-digit colours. Editor paths can also use
+    # CSS names, short hex or rgb(), all already validated as solid paint.
+    working_fill = "#" + "".join(
+        f"{round(channel * 255):02x}"
+        for channel in color(
+            context.style["stroke"] if context.stroke_only else context.style["fill"]
+        )[:3]
+    )
     ET.SubElement(
         work,
         "path",
@@ -520,7 +621,7 @@ def fit_selected_path(
                 to_path_d(c.cpu().tolist(), precision=9) + " Z"
                 for c in controls_from_local(original)
             ),
-            "fill": context.style["fill"],
+            "fill": working_fill,
             "fill-rule": context.style["fill-rule"],
         },
     )
@@ -530,7 +631,7 @@ def fit_selected_path(
             np.mean((context.array(image) - context.array(context.target)) ** 2)
         )
 
-    before = best = score(context.before_image)
+    before = best = checked = score(context.before_image)
     best_values, best_fill, best_image = {}, None, context.before_image
     completed = folded = 0
     folds = crossings(context.geometry)
@@ -559,9 +660,23 @@ def fit_selected_path(
             values, geometry = context.reshaped(coordinates)
         return coordinates, values, geometry
 
+    # Keep edge-seeking as a candidate within this fit. Gradient descent starts
+    # from the original geometry so a poor heuristic cannot trap it in a worse
+    # basin; exact rendering chooses between both approaches.
+    if seed is not original:
+        coordinates = context.local + (seed - original).cpu().numpy()
+        _, values, geometry = unfold(coordinates)
+        paint = color(
+            context.style["stroke"] if context.stroke_only else context.style["fill"]
+        )
+        fill, image = context.candidate(geometry, paint[:3], options)
+        actual = score(image)
+        if actual < best:
+            best, best_values, best_fill, best_image = actual, values, fill, image
+
     def observe(step, paths, colors):
         nonlocal completed, folded, best, best_values, best_fill, best_image
-        nonlocal unfolded
+        nonlocal unfolded, checked
         completed = step
         report(step, f"Fitting path · step {step}/{options.steps}")
         if step and (step % 10 == 0 or step == options.steps or stop.is_set()):
@@ -585,10 +700,13 @@ def fit_selected_path(
                 geometry, colors[0].detach().clamp(0, 1).cpu().numpy(), options
             )
             actual = score(image)
-            stalled = actual > best * (1 - options.stall)
+            # A strong edge proposal must not stop the gradient fit before it
+            # has had time to improve on its own starting geometry.
+            stalled = actual > checked * (1 - options.stall)
+            checked = actual
             if actual < best:
                 best, best_values, best_fill, best_image = actual, values, fill, image
-            if options.stall and stalled:
+            if step and options.stall and stalled:
                 return False
         return not stop.is_set()
 
@@ -605,7 +723,10 @@ def fit_selected_path(
         reach = stroke_width / 2 * limit + options.displacement * float(singular[0]) + 2
         # Fixed conservative tiles include all permitted movement. Most contours
         # in a landscape are tiny; never evaluate each one over the whole crop.
-        for contour_index, contour in enumerate(controls_from_local(original)):
+        for contour_index, contour in (
+            enumerate(controls_from_local(original)) if device == "cuda" else []
+        ):
+            contour = contour[: counts[contour_index]]
             for start in range(0, len(contour), 16):
                 chunk = contour[start : start + 16].cpu().numpy().reshape(-1, 2)
                 low = np.floor(chunk.min(0) - reach).astype(int)
@@ -626,6 +747,16 @@ def fit_selected_path(
                 )
 
     def include_stroke(paths, alphas):
+        if device == "cpu":
+            from vectrify.refine.soft_coverage import soft_stroke_coverage
+
+            contours = [c[:n] for c, n in zip(paths[0], counts, strict=True)]
+            stroke = soft_stroke_coverage(contours, (0, 0, *context.size), stroke_width)
+            return (
+                stroke[None]
+                if context.stroke_only
+                else (1 - (1 - alphas[0]) * (1 - stroke))[None]
+            )
         from vectrify.refine.cuda_renderer import stroke_coverage
         from vectrify.refine.miter import incoming_directions, miter_stroke_coverage
 
@@ -675,7 +806,11 @@ def fit_selected_path(
             .scatter_reduce(0, torch.cat(indices), torch.cat(samples), reduce="amax")
             .reshape(context.size[1], context.size[0])
         )
-        return (1 - (1 - alphas[0]) * (1 - stroke))[None]
+        return (
+            stroke[None]
+            if context.stroke_only
+            else (1 - (1 - alphas[0]) * (1 - stroke))[None]
+        )
 
     fit_filled_svg(
         ET.tostring(work, encoding="unicode"),
@@ -699,7 +834,7 @@ def fit_selected_path(
     return FitResult(
         context.oid,
         best_values,
-        best_fill,
+        None if context.stroke_only else best_fill,
         before,
         best,
         preview_urls(context.target, context.before_image, best_image),

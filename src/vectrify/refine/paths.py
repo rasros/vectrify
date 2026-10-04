@@ -1040,7 +1040,8 @@ def fit_filled_svg(
     displacement from its seed in working-raster pixels. This limits contour
     drift without restricting fill colours; ``None`` retains the unbounded fit.
     ``fit_context`` supplies the editor's frozen affine compositing response
-    for one selected path (base, black-minus-base, white-minus-black).
+    for one selected path (base, black-minus-base, white-minus-black), in
+    white-backed RGB or white-backed RGB plus alpha for transparent references.
     ``project_controls`` enforces editor coordinate constraints after each Adam
     update; ``observe`` reports/retains candidates and returns False to stop.
     These optional hooks leave the automatic path-fit mutation unchanged.
@@ -1174,13 +1175,20 @@ def fit_filled_svg(
             device=device,
         )
     )
-    goal = torch.tensor(
-        np.asarray(
-            target.convert("RGB").resize((work_width, work_height)), dtype=np.float32
+    channels = 4 if fit_context is not None and fit_context[0].shape[-1] == 4 else 3
+    goal_image = target.resize((work_width, work_height))
+    if channels == 4:
+        from vectrify.image_utils import on_white
+
+        goal_array = np.dstack(
+            (
+                np.asarray(on_white(goal_image)),
+                np.asarray(goal_image.convert("RGBA"))[:, :, 3],
+            )
         )
-        / 255.0,
-        device=device,
-    )
+    else:
+        goal_array = np.asarray(goal_image.convert("RGB"))
+    goal = torch.tensor(goal_array.astype(np.float32) / 255.0, device=device)
     under = (
         None
         if backdrop is None
@@ -1222,7 +1230,7 @@ def fit_filled_svg(
             raise ValueError(
                 "Selected-path context requires one unscaled monolithic path"
             )
-        if any(array.shape != (height, width, 3) for array in fit_context):
+        if any(array.shape != (height, width, channels) for array in fit_context):
             raise ValueError("Selected-path context must match the target raster")
         context_tensors = tuple(
             torch.tensor(array, dtype=torch.float32, device=device)
@@ -1749,8 +1757,10 @@ def fit_filled_svg(
                 # Avoid compiling an unused full-document composite for every
                 # crop size (which can exhaust Torch's recompilation cache).
                 base, delta, transmission = context_tensors
+                rgb = color_storage[0].clamp(0, 1)
+                paint = torch.cat((rgb, rgb.new_ones(1))) if channels == 4 else rgb
                 rendered = base + alpha_stack[0, ..., None] * (
-                    delta + transmission * color_storage[0].clamp(0, 1)
+                    delta + transmission * paint
                 )
             else:
                 composite = (
