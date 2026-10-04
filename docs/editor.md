@@ -451,7 +451,10 @@ you choose a saved browser recovery copy from a new tab.
 The **Reference** panel, below the objects on the left, is where the
 reference lives, whichever tool is active: **Load…** (or **Replace…**) takes
 a PNG, JPEG or WebP image, shown as a thumbnail with its name, and × removes
-it. With a reference loaded the panel picks the view (**Drawing**,
+it. The reference always covers the artboard, so a new image is fitted to it
+without distortion: an empty drawing takes the image's size as its artboard
+(one undoable edit), and a drawing with content keeps its artboard while the
+image is centred on a transparent canvas of the artboard's shape. With a reference loaded the panel picks the view (**Drawing**,
 **Overlay** or **Reference** alone, as `W` cycles them) and the overlay's
 opacity; its heading gives the state. Below are the tools that compare the
 drawing with it: **Generate…**, **Tidy…**, **Fit colours…** and **Fit

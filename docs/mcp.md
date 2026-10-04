@@ -256,8 +256,9 @@ JSON text, followed by `Image: <name>` and the PNG for each image.
 
 **Targets**: `open(path)`, `connect(url?, token?)`, `save(path?)` (a
 `.svg` path writes plain SVG, a `.vectrify` path a project; no path saves to
-the opened file), `load_reference(path?)` (PNG, JPEG or WebP, stretched over
-the artboard as the editor shows it; no path removes the reference).
+the opened file), `load_reference(path?)` (PNG, JPEG or WebP, fitted to
+the artboard as the editor does: an empty drawing takes its size, otherwise it
+is padded to the artboard's shape; no path removes the reference).
 
 All coordinates are document coordinates (the root's user space) and every
 region is `[x, y, w, h]`; a region that edits (`extract`, `delete`) may also

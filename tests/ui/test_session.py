@@ -816,3 +816,58 @@ def test_a_new_group_is_labelled_by_kind_and_number_not_by_its_id():
     assert groups[0]["label"] == "Group 2"
     # A named or hand-written id still shows as itself.
     assert next(o for o in result["objects"] if o["id"] == "layer")["label"] == "layer"
+
+
+def png_url(width, height, colour=(200, 40, 40)):
+    buffer = io.BytesIO()
+    Image.new("RGB", (width, height), colour).save(buffer, "PNG")
+    return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode()
+
+
+def kept_reference(session) -> dict:
+    assert session.reference is not None
+    return session.reference
+
+
+def reference_image(session) -> Image.Image:
+    data = base64.b64decode(kept_reference(session)["data_url"].split(",", 1)[1])
+    return Image.open(io.BytesIO(data)).convert("RGBA")
+
+
+def pixel(image: Image.Image, xy) -> tuple:
+    value = image.getpixel(xy)
+    assert isinstance(value, tuple)
+    return value
+
+
+def test_an_empty_drawing_takes_a_reference_s_shape_as_its_artboard():
+    session = Session(import_svg('<svg width="100" height="100"/>'))
+    reference = {"name": "wide.png", "data_url": png_url(300, 150)}
+    send(session, "reference", reference=reference)
+    assert session.editor.snapshot.document.artboard() == (0, 0, 300, 150)
+    assert reference_image(session).size == (300, 150)
+
+
+def test_a_reference_of_another_shape_is_padded_not_stretched_over_a_drawing():
+    session = Session(import_svg(SVG))
+    reference = {"name": "wide.png", "data_url": png_url(300, 150)}
+    send(session, "reference", reference=reference)
+    # The drawing and its 100 x 100 artboard stay; the image is centred on a
+    # transparent square, every pixel of it kept.
+    assert session.editor.snapshot.document.artboard()[2:] == (100, 100)
+    image = reference_image(session)
+    assert image.size == (300, 300)
+    assert pixel(image, (150, 10))[3] == 0
+    assert pixel(image, (150, 150))[:3] == (200, 40, 40)
+    # Changing the opacity sends the kept image back and changes nothing else.
+    kept = kept_reference(session)["data_url"]
+    send(session, "reference", reference={**kept_reference(session), "opacity": 0.8})
+    assert kept_reference(session)["data_url"] == kept
+    assert kept_reference(session)["opacity"] == 0.8
+
+
+def test_a_reference_of_the_artboard_s_shape_is_kept_as_it_is():
+    session = Session(import_svg(SVG))
+    url = png_url(200, 200)
+    send(session, "reference", reference={"name": "square.png", "data_url": url})
+    assert kept_reference(session)["data_url"] == url
