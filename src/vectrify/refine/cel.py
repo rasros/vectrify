@@ -1095,15 +1095,20 @@ def _ink_of(palette: np.ndarray, middle: np.ndarray, surface: np.ndarray) -> int
         span = float(away @ away)
         if span < 1:
             continue
-        cover = float(np.clip((surface - middle) @ away / span, 0.05, 1))
+        raw = float((surface - middle) @ away / span)
+        cover = float(np.clip(raw, 0.05, 1))
         miss = float(np.linalg.norm(surface - cover * away - middle))
-        fits.append((miss, cover, index))
+        fits.append((miss, cover, index, raw > 0))
     if not fits:
         return int(np.square(palette - middle).sum(1).argmin())
     least = min(f[0] for f in fits)
     # Of the inks that explain it about as well, the one covering least: a
-    # thin line of dark ink, not a grey one as wide as its antialiasing.
-    return min((f for f in fits if f[0] <= least + INK_SLACK), key=lambda f: f[1])[2]
+    # thin line of dark ink, not a grey one as wide as its antialiasing. An
+    # ink the line is not darkened toward at all, such as a grey lighter
+    # than the navy fill a black line runs over, explains none of it.
+    close = [f for f in fits if f[0] <= least + INK_SLACK]
+    close = [f for f in close if f[3]] or close
+    return min(close, key=lambda f: f[1])[2]
 
 
 def silhouette(target: np.ndarray) -> np.ndarray | None:
