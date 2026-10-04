@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import json
+
 import anyio
 from mcp import Client
 
@@ -247,5 +249,63 @@ def test_without_a_target_the_agent_is_told_how_to_get_one():
             message = error(await client.call_tool("describe", {}))
             assert "open(path)" in message
             assert "connect()" in message
+
+    anyio.run(session)
+
+
+def test_fit_colours_linear_creates_private_fill_and_round_trips(tmp_path):
+    from tests.operations.test_gradient_fit import DOC, ramp_reference
+    from vectrify.document import import_svg, load_project
+
+    drawing = tmp_path / "ramp.svg"
+    drawing.write_text(DOC.format(stroke=""))
+    reference = tmp_path / "ramp.png"
+    ramp_reference().save(reference)
+    saved = tmp_path / "ramp.vectrify"
+    exported = tmp_path / "export.svg"
+
+    async def session():
+        async with Client(build_server()) as client:
+
+            async def call(name, **kwargs):
+                return data(await client.call_tool(name, kwargs))
+
+            await call("open", path=str(drawing))
+            await call("load_reference", path=str(reference))
+            job = await call("fit_colours", ids=["a"], fill="linear", resolution=100)
+            ready = await call("job", id=job["id"], wait_seconds=30)
+            assert ready["status"] == "ready", ready
+            assert ready["result"]["metrics"]["gradients"] == 1
+            await call("job", id=job["id"], action="apply")
+            shown = await call("describe")
+            rows = {o["id"]: o for o in shown["objects"]}
+            assert rows["a"]["fill_gradient"]["private"]
+            assert all(
+                o["tag"] not in {"defs", "linearGradient", "stop"}
+                for o in rows.values()
+            )
+            fill = rows["a"]["paint"]["fill"]
+            await call("save", path=str(saved))
+            await call("save", path=str(exported))
+            for document in (
+                load_project(json.dumps(json.loads(saved.read_text())["document"]))[0],
+                import_svg(exported.read_text()),
+            ):
+                assert document.element("a").get("fill") == fill
+                assert document.element(fill[5:-1]).paint_owner == "a"
+            await call("undo")
+            assert (
+                next(o for o in (await call("describe"))["objects"] if o["id"] == "a")[
+                    "paint"
+                ]["fill"]
+                == "#808080"
+            )
+            await call("redo")
+            assert (
+                next(o for o in (await call("describe"))["objects"] if o["id"] == "a")[
+                    "paint"
+                ]["fill"]
+                == fill
+            )
 
     anyio.run(session)

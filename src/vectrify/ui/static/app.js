@@ -912,9 +912,10 @@ function renderInspector() {
     picker.style.background = ramp || '';
     const sources = [...new Set(selected.map(id=>paintSource(id,kind)))];
     const source = !value ? 'Mixed colors' : sources.length === 1 ? sources[0] : 'Different paint sources';
-    $(`${kind}-source`).textContent = ramp ? `Linear gradient · ${source}. Pick a colour to make it flat.` : source;
+    $(`${kind}-source`).textContent = ramp ? ` ${paintGradient(value)?.getAttribute('data-vectrify-paint-owner') ? 'Private linear gradient' : 'Shared linear gradient'} · ${source}. Pick a colour to make it flat.`.trim() : source;
     picker.title = `${kind === 'fill' ? 'Fill' : 'Stroke'}: ${ramp ? 'linear gradient' : hex || value || 'mixed'} · ${source}`;
   }
+  renderFillGradient(item);
   const strokeWidth = paintValue('stroke-width', '1');
   $('stroke-width').value = strokeWidth ? parseFloat(strokeWidth) : '';
   const opacity = paintValue('opacity', '1'); $('opacity').value = opacity === '' ? '' : Math.round(Number(opacity) * 100);
@@ -925,6 +926,40 @@ function renderInspector() {
   renderCommands();
   scheduleStrip();
 }
+// Private ramps are edited with the owning shape's fill properties.
+function renderFillGradient(item) {
+  const gradient = item?.fill_gradient;
+  // Fit Color makes ordinary user-space ramps. Other imported paints keep
+  // their SVG coordinate system until the user fits a new ramp.
+  const editable = gradient?.private && gradient.attributes.gradientUnits === 'userSpaceOnUse' && !gradient.attributes.gradientTransform;
+  $('fill-gradient').hidden = !editable;
+  if (!editable) return;
+  for (const key of ['x1', 'y1', 'x2', 'y2']) $('gradient-' + key).value = gradient.attributes[key] || 0;
+  const container = $('gradient-stops'); container.replaceChildren();
+  gradient.stops.forEach((stop, index) => {
+    const row = document.createElement('div'); row.className = 'gradient-stop';
+    const offset = document.createElement('input'); offset.type = 'number'; offset.min = 0; offset.max = 100; offset.step = 'any'; offset.value = stop.offset?.endsWith('%') ? parseFloat(stop.offset) : 100 * Number(stop.offset || 0); offset.setAttribute('aria-label', `Stop ${index + 1} position %`);
+    const colour = document.createElement('input'); colour.type = 'color'; colour.value = colorHex(cssColour(stop['stop-color'] || 'black'))?.slice(0, 7) || '#000000'; colour.setAttribute('aria-label', `Stop ${index + 1} colour`);
+    const opacity = document.createElement('input'); opacity.type = 'number'; opacity.min = 0; opacity.max = 100; opacity.value = 100 * Number(stop['stop-opacity'] || 1); opacity.setAttribute('aria-label', `Stop ${index + 1} opacity %`);
+    const remove = document.createElement('button'); remove.textContent = '×'; remove.title = `Remove stop ${index + 1}`; remove.disabled = gradient.stops.length === 1;
+    for (const input of [offset, colour, opacity]) input.onchange = saveFillGradient;
+    remove.onclick = () => { row.remove(); saveFillGradient(); };
+    row.append(offset, colour, opacity, remove); container.append(row);
+  });
+}
+function fillGradientValue() {
+  const stops = [...$('gradient-stops').children].map(row => {
+    const [offset, colour, opacity] = row.querySelectorAll('input');
+    return {offset: Number(offset.value) / 100, colour: colour.value, opacity: Number(opacity.value) / 100};
+  }).sort((a, b) => a.offset - b.offset);
+  return {start: ['x1', 'y1'].map(key => Number($('gradient-' + key).value)), end: ['x2', 'y2'].map(key => Number($('gradient-' + key).value)), stops};
+}
+function saveFillGradient() { paint({fill: fillGradientValue()}); }
+for (const key of ['x1', 'y1', 'x2', 'y2']) $('gradient-' + key).onchange = saveFillGradient;
+$('gradient-add-stop').onclick = () => {
+  const fill = fillGradientValue(); fill.stops.push({offset: 0.5, colour: '#808080', opacity: 1}); fill.stops.sort((a, b) => a.offset - b.offset); paint({fill});
+};
+
 // The context menu offers the selection's commands where the pointer is.
 const MENU_GROUPS = {objects: ['Select', 'Arrange', 'Object', 'Actions'], points: ['Points', 'Actions']};
 function openContextMenu(x, y) {

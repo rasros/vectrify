@@ -233,7 +233,7 @@ def test_topology_preview_cannot_commit_after_undo_even_with_matching_document()
 def test_project_reads_older_versions_and_drops_stored_boundaries():
     doc = import_svg(CONTOURS)
     data = json.loads(save_project(doc))
-    assert data["version"] == 3
+    assert data["version"] == 4
     assert "boundaries" not in data
     data["version"] = 1
     assert load_project(json.dumps(data))[0] == doc
@@ -262,7 +262,7 @@ def test_project_reads_older_versions_and_drops_stored_boundaries():
     ]
     loaded, _ = load_project(json.dumps(data))
     assert loaded == doc
-    data["version"] = 4
+    data["version"] = 5
     with pytest.raises(DocumentError, match="version"):
         load_project(json.dumps(data))
 

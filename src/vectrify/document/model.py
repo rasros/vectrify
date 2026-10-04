@@ -124,6 +124,8 @@ class Element:
     geometry_id: str | None = None
     locks: frozenset[str] = frozenset()
     name: str = ""
+    # Private paint definitions are properties of their graphic owner.
+    paint_owner: str | None = None
 
     def __post_init__(self) -> None:
         object.__setattr__(
@@ -398,6 +400,21 @@ class Document:
                     raise DocumentError("Path must reference existing geometry")
             elif element.geometry_id is not None:
                 raise DocumentError("Only paths may own geometry")
+            if element.paint_owner is not None:
+                if (
+                    element.tag != "linearGradient"
+                    or element.paint_owner not in object_ids
+                    or self.element(element.paint_owner).tag
+                    not in {"path", "rect", "circle", "ellipse", "line", "use"}
+                ):
+                    raise DocumentError("Private gradients need a graphic owner")
+                if element.id not in references(self.element(element.paint_owner)):
+                    raise DocumentError("Private gradients must be used by their owner")
+                if any(
+                    e.id != element.paint_owner and element.id in references(e)
+                    for e in elements
+                ):
+                    raise DocumentError("Private gradients cannot be shared directly")
             refs = references(element)
             if any(ref not in object_ids for ref in refs):
                 raise DocumentError(f"Dangling reference on {element.id}")

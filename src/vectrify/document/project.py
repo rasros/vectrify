@@ -30,13 +30,14 @@ def save_project(document: Document, selection: Selection | None = None) -> str:
             "name": element.name,
             "attributes": dict(element.attributes),
             "geometry_id": element.geometry_id,
+            "paint_owner": element.paint_owner,
             "locks": sorted(element.locks),
             "children": [element_data(child) for child in element.children],
         }
 
     return json.dumps(
         {
-            "version": 3,
+            "version": 4,
             "root": element_data(document.root),
             "geometries": [asdict(geometry) for geometry in document.geometries],
             "selection": {
@@ -56,13 +57,14 @@ def load_project(source: str) -> tuple[Document, Selection]:
         # Version 2 also stored shared boundary links between edges. Editing
         # no longer links paths, so those are dropped: the contours they
         # joined already meet exactly.
-        if data["version"] not in {1, 2, 3}:
+        if data["version"] not in {1, 2, 3, 4}:
             raise DocumentError("Unsupported project version")
 
         def element_data(item: Any) -> Element:
             return Element(
                 id=item["id"],
                 name=item.get("name", ""),
+                paint_owner=item.get("paint_owner"),
                 tag=item["tag"],
                 attributes=tuple(item["attributes"].items()),
                 children=tuple(element_data(child) for child in item["children"]),

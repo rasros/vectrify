@@ -727,6 +727,8 @@ class Agent:
             if bounds
             else None,
         }
+        if row.get("fill_gradient"):
+            item["fill_gradient"] = row["fill_gradient"]
         if row["name"]:
             item["name"] = row["name"]
         if attributes.get("transform"):

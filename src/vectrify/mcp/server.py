@@ -811,7 +811,7 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         resolution: int | None = None,
     ) -> CallToolResult:
         """Fit the fills of objects to the reference, flat or as linear
-        gradients, as a job."""
+        private per-object gradients, as a job."""
         return state.call(
             "fit_colours",
             {"ids": ids, "fill": fill, "passes": passes, "resolution": resolution},
