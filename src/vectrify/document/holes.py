@@ -11,13 +11,10 @@ from shapely.geometry.base import BaseGeometry
 from shapely.ops import unary_union
 
 from vectrify.document.hit_test import (
-    IDENTITY,
     HitIndex,
     _filled,
     _flatten,
     mapped,
-    multiply,
-    transform,
 )
 from vectrify.document.join import path_style
 from vectrify.document.model import (
@@ -28,6 +25,7 @@ from vectrify.document.model import (
     Subpath,
     new_id,
 )
+from vectrify.document.transforms import root_matrix
 
 
 def ring_points(sub: Subpath) -> list[tuple[float, float]]:
@@ -165,9 +163,7 @@ def find_holes(document: Document, object_id: str) -> tuple[Hole, ...]:
 def document_hole_shape(
     document: Document, object_id: str, holes: tuple[Hole, ...]
 ) -> BaseGeometry:
-    matrix = IDENTITY
-    for ancestor in document.ancestry(object_id):
-        matrix = multiply(matrix, transform(ancestor.get("transform")))
+    matrix = root_matrix(document, object_id)
     return mapped(unary_union([h.shape for h in holes]), matrix)
 
 

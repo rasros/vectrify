@@ -19,7 +19,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
-from vectrify.ui.agent import MCP_PORT, AgentChannel, answer
+from vectrify.ui.agent_channel import MCP_PORT, AgentChannel, answer
 from vectrify.ui.session import MAX_SOURCE, Session
 
 STATIC = Path(__file__).with_name("static")
@@ -217,6 +217,7 @@ class Handler(BaseHTTPRequestHandler):
         files = {
             "/": "index.html",
             "/app.js": "app.js",
+            "/gestures.js": "gestures.js",
             "/snap.js": "snap.js",
             "/tree.js": "tree.js",
             "/redraw.js": "redraw.js",

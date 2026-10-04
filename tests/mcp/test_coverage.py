@@ -1,6 +1,6 @@
 """Every editor command is reachable from some MCP tool, or left out on purpose.
 
-The commands are read from ``Session``'s source, and the test records which
+The commands are read from ``Session``'s dispatch registries, and the test records which
 of them actually arrive at ``Session.action`` (and ``Session.operation``)
 while an MCP client calls the tools. A command added to the session without
 a tool, or a tool that stops sending its command, fails here. There is no
@@ -10,18 +10,14 @@ choosing its own targets before the person's selection is given back.
 
 from __future__ import annotations
 
-import ast
-import inspect
-
 import anyio
 import pytest
 from mcp import Client
 
 from tests.mcp.helpers import data, reference_png
 from vectrify.mcp.server import build_server
-from vectrify.ui import session as session_module
 from vectrify.ui.agent import EDITS, LEFT_OUT
-from vectrify.ui.session import Session
+from vectrify.ui.session import ACTION_COMMANDS, OPERATION_COMMANDS, Session
 
 SVG = """<svg xmlns="http://www.w3.org/2000/svg" \
 xmlns:xlink="http://www.w3.org/1999/xlink" \
@@ -41,49 +37,22 @@ stroke-width="3"/>
 """
 
 
-def commands(functions: list[str], names: dict[str, set[str]]) -> set[str]:
-    """String literals *command* is compared against in Session's methods."""
-    found: set[str] = set()
-    for name in functions:
-        tree = ast.parse(inspect.getsource(getattr(Session, name)).strip())
-        for node in ast.walk(tree):
-            if not (
-                isinstance(node, ast.Compare)
-                and isinstance(node.left, ast.Name)
-                and node.left.id == "command"
-            ):
-                continue
-            for right in node.comparators:
-                if isinstance(right, ast.Constant) and isinstance(right.value, str):
-                    found.add(right.value)
-                elif isinstance(right, ast.Set | ast.Tuple | ast.List):
-                    found.update(
-                        e.value
-                        for e in right.elts
-                        if isinstance(e, ast.Constant) and isinstance(e.value, str)
-                    )
-                elif isinstance(right, ast.Name):
-                    found.update(names[right.id])
-    return found
-
-
-ACTION_COMMANDS = commands(
-    ["action", "_edit_points", "_edit", "_lines"],
-    {"POINT_COMMANDS": set(session_module.POINT_COMMANDS)},
-)
-OPERATION_COMMANDS = commands(["operation"], {})
-
-
 def test_the_session_commands_are_found():
-    # A sanity check of the parsing above.
+    # The inventory used here is the inventory dispatch actually uses.
     assert {"paint", "knife", "join_two_ends", "convert_lines", "undo"} <= (
-        ACTION_COMMANDS
+        ACTION_COMMANDS.keys()
     )
-    assert {"start", "apply", "discard", "status", "stop"} == (OPERATION_COMMANDS)
+    assert {"start", "apply", "discard", "status", "stop"} == OPERATION_COMMANDS.keys()
+    assert all(
+        callable(getattr(Session, spec.handler)) for spec in ACTION_COMMANDS.values()
+    )
+    assert all(
+        callable(getattr(Session, handler)) for handler in OPERATION_COMMANDS.values()
+    )
 
 
 def test_left_out_commands_exist_and_say_why():
-    assert set(LEFT_OUT) <= ACTION_COMMANDS
+    assert set(LEFT_OUT) <= ACTION_COMMANDS.keys()
     assert all(len(why) > 20 for why in LEFT_OUT.values())
 
 
@@ -188,14 +157,14 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             await call("job", id=job["id"], action="discard")
 
     anyio.run(session)
-    missing = ACTION_COMMANDS - set(LEFT_OUT) - actions
+    missing = ACTION_COMMANDS.keys() - set(LEFT_OUT) - actions
     assert not missing, f"Editor commands no MCP tool sends: {sorted(missing)}"
-    missing = OPERATION_COMMANDS - operations
+    missing = OPERATION_COMMANDS.keys() - operations
     assert not missing, f"Operation commands no MCP tool sends: {sorted(missing)}"
     sent = {c for tool in EDITS.values() for c in tool}
-    assert sent <= ACTION_COMMANDS, sorted(sent - ACTION_COMMANDS)
+    assert sent <= ACTION_COMMANDS.keys(), sorted(sent - ACTION_COMMANDS.keys())
 
 
 @pytest.mark.parametrize("tool", sorted(EDITS))
 def test_each_edit_names_commands_the_session_has(tool):
-    assert set(EDITS[tool]) <= ACTION_COMMANDS
+    assert set(EDITS[tool]) <= ACTION_COMMANDS.keys()

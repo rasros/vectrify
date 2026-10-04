@@ -20,7 +20,7 @@ from itertools import pairwise
 
 import numpy as np
 
-from vectrify.document.hit_test import IDENTITY, multiply, transform
+from vectrify.document.hit_test import IDENTITY
 from vectrify.document.model import (
     Document,
     DocumentError,
@@ -30,6 +30,7 @@ from vectrify.document.model import (
     new_id,
 )
 from vectrify.document.topology import mapped_point, subdivide
+from vectrify.document.transforms import root_matrix as root_matrix
 
 Point = tuple[float, float]
 # Samples per segment when looking for the nearest place and measuring length.
@@ -61,14 +62,6 @@ class _Segment:
         return PathNode(
             self.id, command, tuple(v for p in self.controls[1:] for v in p)
         )
-
-
-def root_matrix(document: Document, object_id: str) -> tuple[float, ...]:
-    """Maps the object's local coordinates into root user space."""
-    matrix = IDENTITY
-    for ancestor in document.ancestry(object_id):
-        matrix = multiply(matrix, transform(ancestor.get("transform")))
-    return matrix
 
 
 def _segments(subpath: Subpath) -> list[_Segment]:

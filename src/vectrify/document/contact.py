@@ -13,7 +13,7 @@ from scipy.spatial import KDTree
 from shapely import STRtree
 from shapely.geometry import LineString, Point
 
-from vectrify.document.hit_test import IDENTITY, multiply, transform
+from vectrify.document.hit_test import IDENTITY
 from vectrify.document.model import DocumentError
 from vectrify.document.topology import (
     EdgeRef,
@@ -22,6 +22,7 @@ from vectrify.document.topology import (
     mapped_point,
     split_edges,
 )
+from vectrify.document.transforms import ancestry_matrix
 
 
 def edges(document, gid, matrix=IDENTITY):
@@ -161,13 +162,13 @@ def regions(document, object_ids):
             raise DocumentError("Detach shared geometry before snapping edges")
         if any(not s.closed for s in geometry.subpaths):
             raise DocumentError("Snap edges of closed contours only")
-        matrix = IDENTITY
-        for ancestor in document.ancestry(element.id):
+        ancestry = document.ancestry(element.id)
+        for ancestor in ancestry:
             if ancestor.get("clip-path"):
                 raise DocumentError(
                     "Clipped paths are not supported by edge snapping yet"
                 )
-            matrix = multiply(matrix, transform(ancestor.get("transform")))
+        matrix = ancestry_matrix(ancestry)
         inverse_matrix(matrix)
         frames[geometry.id] = matrix
     return frames

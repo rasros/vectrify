@@ -4,6 +4,7 @@ import {attach, contourLines, stretch} from './redraw.js';
 import {matchCommands, moveHighlight} from './palette.js';
 import {TOOL_LEVEL, boxSelect, clickPoint, clickPointPath, dragBox, escapeStep, instancePoints, pickTarget, pointInside, pointKey, pointOwners, pointTargets, pointerTarget, rectInside, scopeChain, selectionStatus, splitKey, switchTool} from './selection.js';
 import {HeldGesture, inputQueue} from './input.js';
+import {canvasGestures} from './gestures.js';
 import {overflowLayout} from './strip.js';
 import {CURSORS, frameHandle, nearestEdge, resizeScale} from './resize.js';
 import {breakable, freeEnd, segmentAmong} from './lines.js';
@@ -1390,7 +1391,7 @@ function pressFrame(event, common, handle) {
   // The edge follows the pointer from where it was grabbed.
   const offset = {x: handle.includes('w') ? box.left - grab.x : handle.includes('e') ? box.right - grab.x : 0,
     y: handle.includes('n') ? box.top - grab.y : handle.includes('s') ? box.bottom - grab.y : 0};
-  drag = {...common, kind: 'resize', handle, box, members, offset, result: null};
+  startGesture('resize', event, common, {handle, box, members, offset, result: null});
 }
 // Other objects' bounds and the artboard's edges, which a dragged edge snaps
 // to, in the overlay's frame.
@@ -1904,15 +1905,14 @@ function pressPoint(event, common) {
     if (!node || node.pinned || once.has(twin)) return false;
     once.add(twin); return true;
   }) : [key];
-  if (part === 'endpoint' && (!points.includes(key) || nodeAt(key)?.pinned)) { drag = {...common, kind: 'point-click'}; renderInspector(); drawOverlay(); return; }
+  if (part === 'endpoint' && (!points.includes(key) || nodeAt(key)?.pinned)) { startGesture('point-click', event, common); return; }
   const paths = new Set(moving.map(k => splitKey(k)[0]));
   const saved = new Map([...paths].filter(p => geometries.has(p)).map(p => [p, valuesById(geometries.get(p))]));
   const node = nodeAt(key), offset = part === 'endpoint' ? node.values.length - 2 : Number(part);
   const start = new DOMPoint(node.values[offset], node.values[offset+1]).matrixTransform(localToOverlay(svgElement(id)));
   // A click on one of several selected points, without dragging, selects it alone.
   const collapse = part === 'endpoint' && !common.shift && current.includes(key) && current.length > 1;
-  drag = {...common, kind: 'node', key, part, moving, saved, start, collapse, objects};
-  renderInspector(); drawOverlay();
+  startGesture('node', event, common, {key, part, moving, saved, start, collapse, objects});
 }
 // Box select: objects wholly inside the box at the entered group's level, or
 // in point tools the points of the selected paths.
@@ -1936,6 +1936,39 @@ async function finishBox(finished) {
   }).map(item => item.id);
   focusPoint = null;
   return action('select', {objects: boxSelect(state.selection.objects, found, finished.shift)}, 'Selecting…');
+}
+// Each gesture owns its press, preview, completion and cancellation. The
+// canvas retains hit testing, pointer capture and the shared input queue.
+const gestures = canvasGestures({
+  point, drawOverlay,
+  view: {
+    pan: () => pan, zoom: () => zoom,
+    setPan: value => { pan = value; }, update: updateView,
+    setPanning: value => stage.classList.toggle('panning', value),
+  },
+  path: {draft: () => pathDraft, setHover: value => { pathHover = value; }, finish: finishPath},
+  selection: {
+    pick: selectAtPoint, box: finishBox, renderDrawing,
+    move: offsets => action('move', {dx: 0, dy: 0, offsets}, 'Moving selection…'),
+  },
+  nodes: {
+    preview: previewPointDrag, snap: snappedDrag, finish: finishPointDrag,
+    select: selectPoints, renderInspector, renderNodeInspector,
+    restore: gesture => {
+      for (const [id, saved] of gesture.saved) if (geometries.has(id)) restoreValues(geometries.get(id), saved);
+    },
+  },
+  resize: {
+    result: resizeDrag, preview: previewResize,
+    finish: result => action('resize', {anchor: result.anchor, scale: [result.sx, result.sy]}, 'Resizing…'),
+  },
+  knife: {end: knifeEnd, finish: cutWithKnife},
+  redraw: {setHover: value => { redrawHover = value; }, finish: redrawOutline},
+});
+function startGesture(kind, event, common, details = {}) {
+  const controller = gestures[kind];
+  drag = {...common, kind, ...details};
+  controller.press?.(drag, event);
 }
 // A press on the canvas while an edit runs, or input waits, is held: its
 // events are recorded and replayed once the edit is done, finding again what
@@ -1971,15 +2004,14 @@ function pressStage(event) {
   common.deselectOutside = !middle && !space && (event.clientX < bounds.left || event.clientX > bounds.right ||
     event.clientY < bounds.top || event.clientY > bounds.bottom);
   if (middle || space || tool === 'hand') {
-    drag = {...common,kind:'pan',pan:{...pan}}; stage.classList.add('panning'); return;
+    startGesture('pan', event, common); return;
   }
   if (tool === 'path' && !common.deselectOutside) {
     const p=point(event), first=pathDraft[0];
     if (first && pathDraft.length>=3 && Math.hypot(p.x-first.x,p.y-first.y)*zoom<8) {
-      drag={...common,kind:'closePath'}; return;
+      startGesture('closePath', event, common); return;
     }
-    const anchor={x:p.x,y:p.y}; pathDraft.push(anchor); pathHover=null;
-    drag={...common,kind:'drawPath',anchor}; drawOverlay(); return;
+    startGesture('drawPath', event, common); return;
   }
   const near = tool === 'nodes' && !middle && !space ? nearestPoint(event.clientX, event.clientY) : null;
   if (near) { pressPoint({target: near}, common); return; }
@@ -1989,12 +2021,10 @@ function pressStage(event) {
   common.hits = hits;
   const id = hits[0] || null;
   if (tool === 'knife') {
-    const p=point(event);
-    drag={...common,kind:'knife',id,start:{x:p.x,y:p.y},end:{x:p.x,y:p.y}}; return;
+    startGesture('knife', event, common, {id}); return;
   }
   if (tool === 'redraw') {
-    const p=point(event);
-    drag={...common,kind:'redraw',id,points:[[p.x,p.y]],longWay:event.shiftKey}; redrawHover=null; drawOverlay(); return;
+    startGesture('redraw', event, common, {id}); return;
   }
   // In Select, dragging a selected object, or the empty canvas inside the
   // selection's frame, moves the selection; a click picks what is under the
@@ -2006,10 +2036,10 @@ function pressStage(event) {
       (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
     if (selectedHit && !common.shift) {
       const members=topSelection().map(oid => ({id:oid,element:svgElement(oid),before:object(oid).attributes.transform || ''})).filter(m=>m.element);
-      drag={...common,kind:'move',id,members}; return;
+      startGesture('move', event, common, {id, members}); return;
     }
   }
-  drag = {...common, kind: 'box', id, end: {x: event.clientX, y: event.clientY}};
+  startGesture('box', event, common, {id});
 }
 // In Nodes the unselected path under the pointer shows its points faintly.
 let hoverFrame = 0;
@@ -2060,30 +2090,7 @@ function moveStage(event) {
     return;
   }
   drag.moved ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>3;
-  if (drag.kind === 'box') { drag.end = {x: event.clientX, y: event.clientY}; if (drag.moved) drawOverlay(); }
-  if (drag.kind === 'knife' && drag.moved) { drag.end=knifeEnd(event); drawOverlay(); }
-  if (drag.kind === 'redraw') {
-    const p=point(event), last=drag.points.at(-1);
-    drag.longWay=event.shiftKey;
-    if (Math.hypot(p.x-last[0],p.y-last[1])*zoom>=1.5) drag.points.push([p.x,p.y]);
-    if (drag.moved) drawOverlay();
-  }
-  if (drag.kind === 'pan') { pan={x:drag.pan.x+event.clientX-drag.x,y:drag.pan.y+event.clientY-drag.y}; updateView(); }
-  if (drag.kind === 'drawPath' && drag.moved) {
-    const p=point(event), a=drag.anchor;
-    a.out={x:p.x,y:p.y}; a.in={x:2*a.x-p.x,y:2*a.y-p.y}; drawOverlay();
-  }
-  if (drag.kind === 'node' && drag.moved) { previewPointDrag(snappedDrag(event)); drawOverlay(); renderNodeInspector(); }
-  if (drag.kind === 'resize' && drag.moved) { drag.result = resizeDrag(event); previewResize(); drawOverlay(); }
-  if (drag.kind === 'move' && drag.moved) {
-    for (const member of drag.members) {
-      const matrix=member.element.parentElement.getScreenCTM(); if (!matrix) continue;
-      const inverse=matrix.inverse(), start=new DOMPoint(drag.x,drag.y).matrixTransform(inverse), end=new DOMPoint(event.clientX,event.clientY).matrixTransform(inverse);
-      member.offset=[end.x-start.x,end.y-start.y];
-      member.element.setAttribute('transform',`translate(${member.offset.join(' ')}) ${member.before}`);
-    }
-    drawOverlay();
-  }
+  gestures[drag.kind].move?.(drag, event);
 }
 // A point drag sends the moved values: one point or handle as a node edit the
 // server carries the handles of, several points with their handles moved.
@@ -2111,25 +2118,13 @@ stage.addEventListener('pointerup', event => {
 });
 async function releaseStage(event) {
   if (!drag) return;
-  const finished=drag; drag=null; stage.classList.remove('panning');
+  const finished = drag, controller = gestures[finished.kind];
+  drag = null; stage.classList.remove('panning');
   if (stage.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
-  if (finished.kind === 'box' && finished.moved) { drawOverlay(); await finishBox(finished); return; }
   // A click outside the artboard clears the selection in every tool.
   if (finished.deselectOutside && !finished.moved) { await clickEmpty(false); return; }
-  if (['move','knife','redraw','box'].includes(finished.kind) && !finished.moved) await selectAtPoint(finished);
-  if (finished.moved) clickCycle = null;
-  if (finished.kind === 'knife' && finished.moved) {drawOverlay();await cutWithKnife(finished);return;}
-  if (finished.kind === 'redraw' && finished.moved) {drawOverlay();await redrawOutline(finished);return;}
-  if (finished.kind === 'drawPath') {pathHover=null;drawOverlay();return;}
-  if (finished.kind === 'closePath') {if (!finished.moved) await finishPath(true);return;}
-  if (finished.kind === 'node' && finished.moved) await finishPointDrag(finished);
-  else if (finished.kind === 'node' && finished.collapse) await selectPoints(finished.objects, [finished.key]);
-  if (finished.kind === 'resize') {
-    const result = finished.moved && finished.result;
-    if (result && (result.sx !== 1 || result.sy !== 1)) await action('resize', {anchor: result.anchor, scale: [result.sx, result.sy]}, 'Resizing…');
-    else { renderDrawing(); drawOverlay(); }
-  }
-  if (finished.kind === 'move' && finished.moved) await action('move',{dx:0,dy:0,offsets:Object.fromEntries(finished.members.map(m=>[m.id,m.offset||[0,0]]))},'Moving selection…');
+  if (finished.moved && !controller.keepClickCycle) clickCycle = null;
+  await controller.release?.(finished);
 }
 // Double-click a group to pick within it, or a path to edit its points.
 stage.addEventListener('dblclick', event => {
@@ -2168,13 +2163,15 @@ stage.addEventListener('pointercancel', event => {
   cancelStage();
 });
 function cancelStage() {
-  if (drag?.kind === 'drawPath') pathDraft.pop();
+  if (drag) gestures[drag.kind].cancel?.(drag);
   stage.classList.remove('panning'); clickCycle = null; drag = null; geometries = new Map();
   if (state) { renderDrawing(); loadGeometries().then(drawOverlay).catch(() => {}); }
   drawOverlay();
 }
 stage.addEventListener('auxclick',event=>{if(event.button===1)event.preventDefault();});
-stage.addEventListener('lostpointercapture',()=>{if(drag?.kind==='pan'){drag=null;stage.classList.remove('panning');}});
+stage.addEventListener('lostpointercapture', () => {
+  if (drag?.kind === 'pan') { gestures.pan.cancel(drag); drag = null; }
+});
 stage.addEventListener('wheel',event=>{event.preventDefault();if(!state)return;const b=stage.getBoundingClientRect();zoomAt(Math.exp(-event.deltaY*.0015),event.clientX-b.left,event.clientY-b.top);},{passive:false});
 new ResizeObserver(()=>{if(state)updateView();}).observe(stage);
 $('fit').onclick=fit; $('zoom-in').onclick=()=>zoomAt(1.25); $('zoom-out').onclick=()=>zoomAt(.8);
@@ -2464,12 +2461,12 @@ function stripKeys(name) {
 // drawn or a held gesture. Whether there was one.
 function cancelGesture() {
   const busy = !!(drag || pathDraft.length || (holding && !holding.released));
-  pathDraft=[];pathHover=null;stage.classList.remove('panning');
   if (holding && !holding.released) { holding.cancel(); holding = null; }
   if (drag) {
-    if (drag.saved) for (const [id, saved] of drag.saved) if (geometries.has(id)) restoreValues(geometries.get(id), saved);
+    gestures[drag.kind].cancel?.(drag);
     drag = null; if (state) renderDrawing();
   }
+  pathDraft=[];pathHover=null;stage.classList.remove('panning');
   if (state) renderInspector();
   drawOverlay();
   return busy;

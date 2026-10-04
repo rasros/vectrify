@@ -94,7 +94,7 @@ def _indices(ring: _Ring) -> range:
 def links(document: Document, oids, candidates) -> list[Link]:
     """The runs of segments the paths *oids* share with the paths
     *candidates*, the same segments drawn either way, in the same frame."""
-    from vectrify.document.regions import object_matrix
+    from vectrify.document.transforms import object_matrix
 
     owned: dict[tuple, list[tuple[str, str, int, bool]]] = {}
     matrices = {}

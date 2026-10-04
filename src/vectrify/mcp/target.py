@@ -16,15 +16,14 @@ from typing import Any
 
 from vectrify.document import StaleRevisionError
 from vectrify.ui.agent import (
-    OFF,
     REFUSALS,
     Agent,
-    AgentChannel,
     RefusedError,
     Reply,
-    discovery_file,
     reason,
 )
+from vectrify.ui.agent_channel import OFF, AgentChannel
+from vectrify.ui.agent_setup import discovery_file
 from vectrify.ui.server import Backend
 
 

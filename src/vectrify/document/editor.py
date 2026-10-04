@@ -55,7 +55,7 @@ from vectrify.document.model import (
     references,
 )
 from vectrify.document.paint import LinearGradient
-from vectrify.document.redraw import redrawn, root_matrix
+from vectrify.document.redraw import redrawn
 from vectrify.document.svg import GEOMETRY, GRADIENTS, PAINT, validate_attributes
 from vectrify.document.topology import (
     EdgeRef,
@@ -63,6 +63,7 @@ from vectrify.document.topology import (
     mapped_point,
     split_edges,
 )
+from vectrify.document.transforms import ancestry_matrix, object_matrix, root_matrix
 
 # Initial values of inherited paint, written onto a moved object that would
 # otherwise inherit something else from its new group.
@@ -477,6 +478,50 @@ class Transaction:
             self._node_remap[old] = set().union(*(mapping.get(n, {n}) for n in targets))
         for old, targets in mapping.items():
             self._node_remap.setdefault(old, set()).update(targets)
+
+    def _record_removed_nodes(
+        self, before: Iterable[Subpath], after: Iterable[Subpath]
+    ) -> None:
+        """Record vanished node identities after an authorized geometry edit."""
+        original = {n.id for subpath in before for n in subpath.nodes}
+        surviving = {n.id for subpath in after for n in subpath.nodes}
+        self._record_remap({node_id: set() for node_id in original - surviving})
+
+    def _add_geometries(self, geometries: Iterable[Geometry]) -> None:
+        """Register new geometry; the enclosing change validates IDs and users."""
+        self._working = replace(
+            self._working, geometries=(*self._working.geometries, *geometries)
+        )
+
+    def _insert_siblings(
+        self,
+        object_id: str,
+        children: tuple[Element, ...],
+        geometries: Iterable[Geometry],
+    ) -> tuple[str, ...]:
+        """Insert authorized pieces above their source and extend edit scope.
+
+        Callers authorize the source and decide whether the pieces replace it
+        in selection. This helper changes only document storage and edit scope.
+        """
+        parent = self._working.ancestry(object_id)[-2]
+        index = next(
+            i for i, child in enumerate(parent.children) if child.id == object_id
+        )
+        self._working = self._working.replace_element(
+            replace(
+                parent,
+                children=(
+                    *parent.children[: index + 1],
+                    *children,
+                    *parent.children[index + 1 :],
+                ),
+            )
+        )
+        self._add_geometries(geometries)
+        ids = tuple(child.id for child in children)
+        self._ids |= frozenset(ids)
+        return ids
 
     @property
     def object_remapping(self) -> tuple[tuple[str, tuple[str, ...]], ...]:
@@ -1269,12 +1314,7 @@ class Transaction:
             # only drawn lines', never a filled shape's.
             if not ends:
                 paths = [p for p in paths if path_style(document, p)["fill"] == "none"]
-            frames = {}
-            for path in paths:
-                matrix = IDENTITY
-                for ancestor in document.ancestry(path.id):
-                    matrix = multiply(matrix, transform(ancestor.get("transform")))
-                frames[path.id] = matrix
+            frames = {path.id: root_matrix(document, path.id) for path in paths}
             contours: list[tuple[PathNode, ...]] = []
             owners: list[str] = []
             for path in paths:
@@ -1455,9 +1495,7 @@ class Transaction:
                 style = path_style(document, element)
                 if style["fill"] == "none" and style["stroke"] == "none":
                     continue
-                matrix = IDENTITY
-                for ancestor in ancestry:
-                    matrix = multiply(matrix, transform(ancestor.get("transform")))
+                matrix = ancestry_matrix(ancestry)
                 inverse = inverse_matrix(matrix)
                 geometry = document.geometry_for(element.id)
                 local = mapped_point(start, inverse), mapped_point(end, inverse)
@@ -1483,53 +1521,19 @@ class Transaction:
                     raise EditRejectedError("Detach shared geometry before cutting")
                 if any(n.pinned for s in geometry.subpaths for n in s.nodes):
                     raise EditRejectedError("Unpin endpoints before cutting a path")
-                kept = {n.id for s in cut.first.subpaths for n in s.nodes}
                 if not cut.second.subpaths:
                     # A closed line cut once only opens up.
                     self._working = self._working.replace_geometry(cut.first)
-                    self._record_remap(
-                        {
-                            n.id: set()
-                            for s in geometry.subpaths
-                            for n in s.nodes
-                            if n.id not in kept
-                        }
-                    )
+                    self._record_removed_nodes(geometry.subpaths, cut.first.subpaths)
                     pieces.append(element.id)
                     continue
                 piece = replace(element, id=new_id("object"), geometry_id=cut.second.id)
-                parent = self._working.ancestry(element.id)[-2]
-                self._working = self._working.replace_element(
-                    replace(
-                        parent,
-                        children=tuple(
-                            child
-                            for c in parent.children
-                            for child in ((c, piece) if c.id == element.id else (c,))
-                        ),
-                    )
-                )
-                self._working = replace(
-                    self._working,
-                    geometries=(
-                        *(
-                            cut.first if g.id == geometry.id else g
-                            for g in self._working.geometries
-                        ),
-                        cut.second,
-                    ),
-                )
-                moved = kept | {n.id for s in cut.second.subpaths for n in s.nodes}
-                self._record_remap(
-                    {
-                        n.id: set()
-                        for s in geometry.subpaths
-                        for n in s.nodes
-                        if n.id not in moved
-                    }
+                self._working = self._working.replace_geometry(cut.first)
+                self._insert_siblings(element.id, (piece,), (cut.second,))
+                self._record_removed_nodes(
+                    geometry.subpaths, (*cut.first.subpaths, *cut.second.subpaths)
                 )
                 self._record_object_remap({element.id: {element.id, piece.id}})
-                self._ids |= {piece.id}
                 pieces.extend((element.id, piece.id))
             if not pieces:
                 raise EditRejectedError(
@@ -1952,24 +1956,7 @@ class Transaction:
                 )
                 for g in shapes
             )
-            parent = self._working.ancestry(object_id)[-2]
-            index = next(i for i, c in enumerate(parent.children) if c.id == object_id)
-            self._working = replace(
-                self._working.replace_element(
-                    replace(
-                        parent,
-                        children=(
-                            *parent.children[: index + 1],
-                            *children,
-                            *parent.children[index + 1 :],
-                        ),
-                    )
-                ),
-                geometries=(*self._working.geometries, *shapes),
-            )
-            ids = tuple(c.id for c in children)
-            self._ids |= frozenset(ids)
-            return ids
+            return self._insert_siblings(object_id, children, shapes)
 
     def _remove_holes(
         self, object_id: str, hole_ids: frozenset[str], verb: str
@@ -1983,16 +1970,14 @@ class Transaction:
         self._authorize(document.geometry_users(geometry.id), EditKind.GEOMETRY)
         self._authorize(document.geometry_users(geometry.id), EditKind.STRUCTURE)
         removed = set().union(*(holes[hid].subpath_ids for hid in hole_ids))
-        nodes = {n.id for s in geometry.subpaths if s.id in removed for n in s.nodes}
         if any(n.pinned for s in geometry.subpaths if s.id in removed for n in s.nodes):
             raise EditRejectedError(f"Unpin the selected hole contours to {verb}")
-        self._working = document.replace_geometry(
-            replace(
-                geometry,
-                subpaths=tuple(s for s in geometry.subpaths if s.id not in removed),
-            )
+        updated = replace(
+            geometry,
+            subpaths=tuple(s for s in geometry.subpaths if s.id not in removed),
         )
-        self._record_remap({nid: set() for nid in nodes})
+        self._working = document.replace_geometry(updated)
+        self._record_removed_nodes(geometry.subpaths, updated.subpaths)
         return holes
 
     def cut_out_hole(self, object_ids: frozenset[str]) -> str:
@@ -2019,12 +2004,7 @@ class Transaction:
         styles = [path_style(document, e) for e in elements]
         if any(style["fill"] == "none" for style in styles):
             raise EditRejectedError("Both paths need a fill to cut a hole")
-        matrices = []
-        for e in elements:
-            matrix = IDENTITY
-            for ancestor in document.ancestry(e.id):
-                matrix = multiply(matrix, transform(ancestor.get("transform")))
-            matrices.append(matrix)
+        matrices = [root_matrix(document, e.id) for e in elements]
         geometries = [document.geometry_for(e.id) for e in elements]
         regions = [
             mapped(filled_region(g, style["fill-rule"]), matrix)
@@ -2114,7 +2094,6 @@ class Transaction:
         from vectrify.document.regions import (
             SHAPES,
             as_path,
-            object_matrix,
             shape_geometry,
             split_geometry,
         )
@@ -2169,47 +2148,28 @@ class Transaction:
                         self._remove_objects(frozenset({element.id}))
                         changed.append((element.id, None))
                     continue
-                before = {n.id for s in geometry.subpaths for n in s.nodes}
-                after = {n.id for s in split.outside for n in s.nodes}
+                surviving = split.outside
                 if shape:
                     # Cut: the shape becomes the path of what is left of it.
                     kept = Geometry(new_id("geometry"), split.outside)
                     element = as_path(element, kept)
-                    self._working = replace(
-                        self._working, geometries=(*self._working.geometries, kept)
-                    ).replace_element(element)
-                    # Its outline's points were never the document's.
-                    before = set(after)
+                    self._add_geometries((kept,))
+                    self._working = self._working.replace_element(element)
                 else:
                     kept = replace(geometry, subpaths=split.outside)
                     self._working = self._working.replace_geometry(kept)
                 made: str | None = None
                 if not delete:
                     taken = Geometry(new_id("geometry"), split.inside)
-                    after |= {n.id for s in split.inside for n in s.nodes}
+                    surviving += split.inside
                     piece = replace(
                         element, id=new_id("object"), geometry_id=taken.id, name=""
                     )
-                    parent = self._working.ancestry(element.id)[-2]
-                    self._working = self._working.replace_element(
-                        replace(
-                            parent,
-                            children=tuple(
-                                child
-                                for c in parent.children
-                                for child in (
-                                    (c, piece) if c.id == element.id else (c,)
-                                )
-                            ),
-                        )
-                    )
-                    self._working = replace(
-                        self._working,
-                        geometries=(*self._working.geometries, taken),
-                    )
-                    self._ids |= {piece.id}
+                    self._insert_siblings(element.id, (piece,), (taken,))
                     made = piece.id
-                self._record_remap({n: set() for n in before - after})
+                if not shape:
+                    # A basic shape's generated outline never had document node IDs.
+                    self._record_removed_nodes(geometry.subpaths, surviving)
                 changed.append((element.id, made))
             if not changed:
                 raise EditRejectedError(
@@ -2240,9 +2200,7 @@ class Transaction:
             index = len(parent.children) if index is None else index
             if not 0 <= index <= len(parent.children):
                 raise EditRejectedError("Insertion index is outside the container")
-            self._working = replace(
-                self._working, geometries=(*self._working.geometries, *geometries)
-            )
+            self._add_geometries(geometries)
             self._working = self._working.replace_element(
                 replace(
                     parent,
@@ -2469,9 +2427,7 @@ class Transaction:
                     raise EditRejectedError(
                         f"{object_id}: {name} is locked; unlock it to resize"
                     )
-            frame = IDENTITY
-            for ancestor in ancestry[:-1]:
-                frame = multiply(frame, transform(ancestor.get("transform")))
+            frame = ancestry_matrix(ancestry[:-1])
             local = multiply(inverse_matrix(frame), multiply(page, frame))
             element = ancestry[-1]
             changes.append(
@@ -2566,12 +2522,7 @@ class Transaction:
             for key, value in before.items()
             if key not in attrs and after[key] != value
         }
-        frames = []
-        for ancestors in (old, new):
-            matrix = IDENTITY
-            for ancestor in ancestors:
-                matrix = multiply(matrix, transform(ancestor.get("transform")))
-            frames.append(matrix)
+        frames = [ancestry_matrix(ancestors) for ancestors in (old, new)]
         # The local transform that keeps the object where it was on the page.
         delta = tuple(
             0.0 if abs(v) < 1e-12 else v

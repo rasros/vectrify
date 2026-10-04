@@ -33,8 +33,8 @@ from vectrify.document import (
     export_svg,
 )
 from vectrify.document.editor import Transaction
-from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.join import path_style
+from vectrify.document.transforms import ancestry_matrix, root_matrix
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.refine.crossings import crossed_nodes, crossings
 
@@ -207,9 +207,7 @@ class FitContext:
         self.root = ET.fromstring(export_svg(document))
         self.path = next(e for e in self.root.iter() if e.get("id") == self.oid)
         vx, vy, vw, vh = document.artboard()
-        matrix = IDENTITY
-        for ancestor in document.ancestry(self.oid):
-            matrix = multiply(matrix, transform(ancestor.get("transform")))
+        matrix = root_matrix(document, self.oid)
         a, b, c, d, e, f = matrix
         self.linear = np.array([[a, c], [b, d]], dtype=np.float64)
         self.offset = np.array([e, f])
@@ -375,9 +373,7 @@ def pruned(root: ET.Element, document: Document, crop, keep: str) -> None:
         ]
         if not values:
             continue
-        matrix = IDENTITY
-        for ancestor in ancestry:
-            matrix = multiply(matrix, transform(ancestor.get("transform")))
+        matrix = ancestry_matrix(ancestry)
         a, b, c, d, e, f = matrix
         x, y = np.asarray(values[::2], float), np.asarray(values[1::2], float)
         wx, wy = a * x + c * y + e, b * x + d * y + f

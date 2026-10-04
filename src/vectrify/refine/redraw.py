@@ -26,7 +26,7 @@ from scipy.sparse.csgraph import dijkstra
 
 from vectrify.document import Document, Geometry, PathNode, Subpath
 from vectrify.document.model import new_id
-from vectrify.document.redraw import root_matrix
+from vectrify.document.transforms import root_matrix
 from vectrify.image_utils import on_white
 from vectrify.refine.frozen import Frozen
 from vectrify.refine.simplify import simplified_geometry, straightened
