@@ -1,7 +1,7 @@
 [project]
 name = "vectrify"
 dynamic = ["version"]
-description = "Vectorizes raster images (PNG/JPG) in a local SVG editor, with segmentation and local-search tools. Outputs editable SVG."
+description = "Vectorizes raster images (PNG/JPG) in a local SVG editor, with automated generate, improve and simplify operations. Outputs editable SVG."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
@@ -13,7 +13,6 @@ keywords = [
     "svg",
     "vectorization",
     "raster-to-vector",
-    "hill-climbing",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -42,10 +41,7 @@ dependencies = [
 
 [project.optional-dependencies]
 vision = [
-    "scikit-learn>=1.3.0",
     "torch>=2.0.0",
-    "torchvision>=0.28.0",
-    "transformers>=4.49.0",
 ]
 # A native window instead of a browser tab. Linux uses pywebview's Qt backend,
 # which installs from PyPI without system packages.
@@ -66,7 +62,6 @@ dev = [
     "ruff",
     "pyrefly",
     "py-spy",
-    "matplotlib>=3.10.8",
     # CI installs dev, and the MCP server's tests need the SDK.
     "mcp>=2.2",
 ]
@@ -114,7 +109,6 @@ explicit = true
 
 [tool.uv.sources]
 torch = [{ index = "pytorch-cu126" }]
-torchvision = [{ index = "pytorch-cu126" }]
 
 [tool.ruff]
 target-version = "py310"
