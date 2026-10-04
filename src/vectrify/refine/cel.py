@@ -16,14 +16,16 @@ so neighbours meet at the line's middle and share one traced edge, smoothed
 between its corners before it is fitted. Each region's colour is then
 fitted in closed form to the image under the lines as drawn, and a region
 whose colour clearly ramps takes a linear gradient. The lines are thinned to
-centrelines, each moved onto the middle of its ink, and drawn over the
-fills as strokes in their ink: a thin
+centrelines, each moved onto the middle of its ink, loose ends too, and
+drawn over the fills as strokes in their ink, one the line is darkened
+toward (a black line on navy is not a grey lighter than the navy): a thin
 line's antialiased middle is a mix of ink and surface, so it is drawn
 darker and thinner than its pixels look,
 though never under 0.8 px wide, solid (in a grainy image a hairline that is
-not a line's tapering end is drawn a pixel wide and fainter).
+not a line's tapering end is drawn a pixel wide and fainter, and a line's
+width counts the ink its blur spreads a pixel beyond it).
 There is one path per line colour and width, a line cut where its width
-steps so each part has its own.
+steps so each part has its own, and pieces drawn at one width fitted as one.
 Optionally one unbroken stroke runs round the drawing's silhouette in place
 of the traced outer line, in its ink, down the middle of that ink at its
 width, and open where the edge has none.
