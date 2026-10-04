@@ -250,12 +250,16 @@ def _apart(a: np.ndarray, b: np.ndarray) -> float:
 
 
 def _furthest(points: np.ndarray, line: np.ndarray) -> float:
-    start, step = line[:-1], np.diff(line, axis=0)
-    length = np.maximum((step**2).sum(axis=1), 1e-12)
-    along = ((points[:, None, :] - start[None]) * step[None]).sum(axis=2) / length
-    nearest = start[None] + np.clip(along, 0, 1)[..., None] * step[None]
-    gaps = np.linalg.norm(points[:, None, :] - nearest, axis=2)
-    return float(gaps.min(axis=1).max())
+    # Each coordinate on its own, which spares the temporaries of a third
+    # axis; the square root, which keeps order, is taken of the result only.
+    x, y = points[:, 0, None], points[:, 1, None]
+    sx, sy = line[None, :-1, 0], line[None, :-1, 1]
+    dx, dy = np.diff(line[:, 0])[None], np.diff(line[:, 1])[None]
+    length = np.maximum(dx**2 + dy**2, 1e-12)
+    along = np.clip(((x - sx) * dx + (y - sy) * dy) / length, 0, 1)
+    gx = x - (sx + along * dx)
+    gy = y - (sy + along * dy)
+    return float(np.sqrt((gx * gx + gy * gy).min(axis=1).max()))
 
 
 def _cubic(start, first, second, end, old) -> np.ndarray | None:
