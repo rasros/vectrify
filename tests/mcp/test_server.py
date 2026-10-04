@@ -302,14 +302,16 @@ def test_fit_colours_linear_creates_private_fill_and_round_trips(tmp_path):
             ):
                 assert document.element("a").get("fill") == fill
                 assert document.element(fill[5:-1]).paint_owner == "a"
-            await call("undo")
+            history = await call("history")
+            edit_id = history["undo"][0]["id"]
+            await call("undo", ids=[edit_id])
             assert (
                 next(o for o in (await call("describe"))["objects"] if o["id"] == "a")[
                     "paint"
                 ]["fill"]
                 == "#808080"
             )
-            await call("redo")
+            await call("redo", ids=[edit_id])
             assert (
                 next(o for o in (await call("describe"))["objects"] if o["id"] == "a")[
                     "paint"
