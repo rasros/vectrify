@@ -122,13 +122,15 @@ unless `contours=True` (used by cleanup) turns it into
 ## Tidy (improve/nodes)
 
 `improve/nodes` needs selected paths (or groups containing them) whose geometry
-no other object shares. Its settings are the steps to use (`snap` and
-`simplify`, on by default, `shape`, off, and `detail` for Snap to add points,
+no other object shares. Its settings are the steps to use (`snap`,
+`simplify` and `shape`, on by default, and `detail` for Snap to add points,
 each of which has to fix `detail_gain` reference pixels), Simplify's error
 `budget` in percent (1 by default) and its `tolerance`, the most it may move
 an outline, in reference pixels (3 by default; without a reference, where
-no budget judges it, 1 unless set), each path fit's `steps`, `movement` (SVG
-units) and `resolution`, `workers` (1 by default), the `gain` in percent of the local
+no budget judges it, 1 unless set), each path fit's `steps` (20), `movement`
+(SVG units), `resolution` (384) and `stall` (0.5: the share in percent of
+its match a check, every tenth step, has to improve by for the fit to go
+on), `workers` (1 by default), the `gain` in percent of the local
 difference a step must fix (1 by default), the `allowance` in percent by
 which the match where the run acted may be worse than at its start (1 by
 default), `seconds`, the run's time limit
@@ -137,6 +139,8 @@ reference region extends past it; the budget's `steps` is the most rounds (4
 by default).
 `shape` and `snap` need a reference; without one the target is the drawing's
 own render of the region (`generate.drawing_region`) and only `simplify` runs.
+Without PyTorch `shape` is left out of the run, and refused only when it is
+the one step chosen.
 
 With `shared` (on by default) a selected path's edges that another path draws
 too move together (`refine.shared`): a cel trace draws the edge between two
@@ -197,7 +201,11 @@ path's `Geometry`), which leave `refine.frozen.Frozen` endpoints alone: the
 pinned ones.
 
 - Shape is `refine.selected.fit_selected_path`, one path at a time; paths it
-  refuses are skipped and reported under `skipped` in the metrics. Every
+  refuses (a gradient fill, say) are skipped and reported under `skipped` in
+  the metrics. Its many Cairo renders of the drawing around the path leave
+  out every path whose controls' hull, widened by its stroke, misses the
+  crop (`selected.pruned`; referenced paths and those under filters, markers,
+  clips or masks stay), which draws the same pixels for less. Every
   tenth step, before Cairo scores the candidate, the fit checks it for new
   self-crossings; the nodes at the ends of the crossing segments move halfway
   back to where they last did not cross (twice), then all the way, then the

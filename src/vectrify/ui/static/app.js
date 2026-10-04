@@ -2641,6 +2641,10 @@ async function openTidy() {
   // without one the tolerance decides alone, so its default is tighter.
   const tolerance = $('nodes-tolerance');
   if (tolerance.value === (reference ? '1' : '3')) tolerance.value = reference ? '3' : '1';
+  // With a reference the error budget decides and the tolerance is a cap;
+  // without one the tolerance decides alone, so its default is tighter.
+  const tolerance = $('nodes-tolerance');
+  if (tolerance.value === (reference ? '1' : '3')) tolerance.value = reference ? '3' : '1';
   $('nodes-reference-caption').textContent = reference ? 'Reference' : 'Original';
   syncNodeSteps();
   nodesDialog.open(targets ? selectionSummary() : 'The paths painting in view.');

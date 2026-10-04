@@ -70,7 +70,7 @@ claude mcp add vectrify -- uvx --from "vectrify[mcp]" vectrify-mcp
 | --- | --- | --- |
 | Generate | Cel art | Traces flat, outlined illustrations as regions inside their drawn lines, the lines as strokes |
 | Generate | Colour regions | Fits a colour palette on the GPU and traces its regions |
-| Improve | Tidy | Tidies the selected paths in seconds: snaps their points to the reference and simplifies, with Add detail and a gradient shape fit on request; simplifies without one |
+| Improve | Tidy | Tidies the selected paths, or what is in view, in seconds: snaps their points to the reference, fits their shape and simplifies within an error budget, never leaving the match worse, moving shared edges together and stroked lines onto their ink; simplifies without one |
 | Improve | Fit colours | Closed-form flat fill colours, geometry locked |
 | Simplify | Clean up | Drops redundant vertices and merges compatible paths |
 

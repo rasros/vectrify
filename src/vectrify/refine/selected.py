@@ -14,6 +14,7 @@ from __future__ import annotations
 import functools
 import io
 import math
+import re
 import xml.etree.ElementTree as ET
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -50,6 +51,9 @@ class FitOptions:
     steps: int = 8
     displacement: float = 2.0
     resolution: int = 768
+    # Stop once a check (every tenth step) improves the best so far by less
+    # than this share of it: the fit has stalled. 0 runs every step.
+    stall: float = 0.0
 
     def __post_init__(self):
         if any(type(v) is not bool for v in (self.nodes, self.handles, self.color)):
@@ -60,6 +64,8 @@ class FitOptions:
             raise DocumentError("Choose 1 to 1000 fitting steps")
         if type(self.resolution) is not int or not 64 <= self.resolution <= 2048:
             raise DocumentError("Choose a preview resolution from 64 to 2048")
+        if not math.isfinite(self.stall) or not 0 <= self.stall < 1:
+            raise DocumentError("The stall share must be from 0 to below 1")
         if not math.isfinite(self.displacement) or not 0 <= self.displacement <= 100:
             raise DocumentError("Maximum movement must be between 0 and 100 SVG units")
 
@@ -254,6 +260,9 @@ class FitContext:
                 (bottom - vy) * target.height / vh,
             ),
         )
+        # Paths that paint nowhere near the crop draw nothing in it: left
+        # out, each of the many renders below costs a fraction.
+        pruned(self.root, document, self.crop, keep=self.oid)
         self.root.set("viewBox", f"{left} {top} {right - left} {bottom - top}")
         self.root.set("width", str(self.size[0]))
         self.root.set("height", str(self.size[1]))
@@ -326,6 +335,77 @@ class FitContext:
             if self.style["stroke"] != "none":
                 self.path.set("stroke", fill)
         return fill, self.render()
+
+
+# Elements that draw what others refer to, or change how what is in them is
+# drawn beyond their own outline: nothing in or under them is left out.
+_KEPT = frozenset({"defs", "clipPath", "mask", "pattern", "symbol", "marker"})
+
+
+def pruned(root: ET.Element, document: Document, crop, keep: str) -> None:
+    """Take out of the exported *root* every path of *document* (but
+    *keep*) whose painted bounds, its controls' hull widened by its stroke,
+    miss the box *crop* (left, top, right, bottom, in root units): it draws
+    nothing there. Referenced paths, those under a filter or with markers,
+    and anything in defs, clips, masks or patterns stay."""
+    left, top, right, bottom = crop
+    text = ET.tostring(root, encoding="unicode")
+    referenced = set(re.findall(r"url\(#([^)]+)\)", text)) | set(
+        re.findall(r'href="#([^"]+)"', text)
+    )
+    gone = set()
+    for element in document.elements():
+        if element.tag != "path" or element.id == keep or element.id in referenced:
+            continue
+        ancestry = document.ancestry(element.id)
+        if any(
+            a.tag in _KEPT
+            or a.get("filter")
+            or a.get("marker-start")
+            or a.get("marker-mid")
+            or a.get("marker-end")
+            for a in ancestry
+        ):
+            continue
+        values = [
+            v
+            for sub in document.geometry_for(element.id).subpaths
+            for n in sub.nodes
+            for v in n.values
+        ]
+        if not values:
+            continue
+        matrix = IDENTITY
+        for ancestor in ancestry:
+            matrix = multiply(matrix, transform(ancestor.get("transform")))
+        a, b, c, d, e, f = matrix
+        x, y = np.asarray(values[::2], float), np.asarray(values[1::2], float)
+        wx, wy = a * x + c * y + e, b * x + d * y + f
+        style = path_style(document, element)
+        reach = 0.0
+        if style["stroke"] != "none":
+            try:
+                width = float(style["stroke-width"])
+                limit = float(style["stroke-miterlimit"])
+            except ValueError:
+                continue
+            reach = (
+                width / 2 * max(1.0, limit) * float(np.linalg.norm([[a, c], [b, d]], 2))
+            )
+        reach += 1.0
+        if (
+            wx.max() + reach < left
+            or wx.min() - reach > right
+            or wy.max() + reach < top
+            or wy.min() - reach > bottom
+        ):
+            gone.add(element.id)
+    if not gone:
+        return
+    for parent in list(root.iter()):
+        for child in list(parent):
+            if child.get("id") in gone:
+                parent.remove(child)
 
 
 def fit_selected_path(
@@ -495,8 +575,11 @@ def fit_selected_path(
                 geometry, colors[0].detach().clamp(0, 1).cpu().numpy(), options
             )
             actual = score(image)
+            stalled = actual > best * (1 - options.stall)
             if actual < best:
                 best, best_values, best_fill, best_image = actual, values, fill, image
+            if options.stall and stalled:
+                return False
         return not stop.is_set()
 
     stroke_tiles = {}
