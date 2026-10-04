@@ -2,6 +2,7 @@
 
 import time
 from dataclasses import replace
+from types import SimpleNamespace
 
 import numpy as np
 import pytest
@@ -516,6 +517,145 @@ def test_shared_edges_follow_when_both_paths_are_selected():
     assert edge("left") == edge("right")
     assert all(x > 33 for x, _y in edge("left"))
     assert result["metrics"]["followed"] == 0
+
+
+def test_individual_and_group_selection_use_the_same_drawing_order():
+    # IDs deliberately sort in the opposite order to the drawing.
+    document = import_svg(
+        NEIGHBOURS.replace('<path id="left"', '<g id="pair"><path id="z"')
+        .replace('id="right"', 'id="a"')
+        .replace("</svg>", "</g></svg>")
+    )
+    for ids in ({"pair"}, {"z", "a"}):
+        ed = Editor(document, selection=Selection(object_ids=frozenset(ids)))
+        assert nodes_method.selected_paths(request(ed)) == ["z", "a"]
+
+
+@pytest.mark.parametrize("first_spends", [1, 5])
+def test_a_slow_fill_cannot_spend_the_later_fills_time(first_spends, monkeypatch):
+    from vectrify.refine import selected
+
+    now = [0.0]
+    calls = []
+
+    def slow(_document, selection, _reference, _options, *, stop, progress):
+        assert progress is None
+        oid = next(iter(selection.object_ids))
+        calls.append((oid, stop.deadline))
+        now[0] += first_spends if oid == "left" else stop.deadline - now[0]
+        return SimpleNamespace(values={})
+
+    monkeypatch.setattr(nodes_method.time, "monotonic", lambda: now[0])
+    monkeypatch.setattr(selected, "fit_selected_path", slow)
+    document = import_svg(NEIGHBOURS)
+    target = neighbours_reference()
+    task = nodes_method._Task(
+        document,
+        Region(0, 0, 64, 64, target),
+        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        ("left", "right"),
+        target,
+    )
+    after, skipped = nodes_method._fit(task, nodes_method._Until(10), None)
+    assert calls == [("left", 5), ("right", 10)]
+    assert not skipped
+    assert after == document
+
+
+def test_fitting_a_later_path_sees_the_already_followed_shared_edge(monkeypatch):
+    from vectrify.refine import selected
+    from vectrify.refine.shared import frozen_points
+
+    def fit(document, selection, *_args, **_kwargs):
+        oid = next(iter(selection.object_ids))
+        geometry = document.geometry_for(oid)
+        if oid == "right":
+            assert any(
+                n.values[-2:] == (36.0, 24.0)
+                for subpath in geometry.subpaths
+                for n in subpath.nodes
+            )
+            return SimpleNamespace(values={})
+        values = {}
+        for subpath in geometry.subpaths:
+            for node in subpath.nodes:
+                if node.values[-2:] in {(32.0, 24.0), (32.0, 40.0)}:
+                    values[node.id] = (*node.values[:-2], 36.0, node.values[-1])
+        return SimpleNamespace(values=values)
+
+    monkeypatch.setattr(selected, "fit_selected_path", fit)
+    document = import_svg(NEIGHBOURS)
+    target = neighbours_reference()
+    shared = nodes_method._shared_edges(document, ("left", "right"))
+    task = nodes_method._Task(
+        document,
+        Region(0, 0, 64, 64, target),
+        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        ("left", "right"),
+        target,
+        held=frozen_points(document, shared),
+        shared=tuple(shared),
+    )
+    after, skipped = nodes_method._fit(task, None, None)
+    assert not skipped
+    assert after != document
+    assert (
+        nodes_method._pixels(after, task.region).tolist()
+        != nodes_method._pixels(document, task.region).tolist()
+    )
+
+
+def test_a_bad_later_fit_does_not_discard_an_earlier_improvement(monkeypatch):
+    from vectrify.refine import selected
+
+    document = import_svg(
+        '<svg width="64" height="64">'
+        '<path id="first" fill="black" d="M8 8 L24 8 L24 24 L8 24 Z"/>'
+        '<path id="last" fill="black" d="M40 40 L56 40 L56 56 L40 56 Z"/>'
+        "</svg>"
+    )
+    first = document.geometry_for("first")
+    target_document = document.replace_geometry(
+        replace(
+            first,
+            subpaths=tuple(
+                replace(
+                    s,
+                    nodes=tuple(
+                        replace(n, values=tuple(v + 2 for v in n.values))
+                        for n in s.nodes
+                    ),
+                )
+                for s in first.subpaths
+            ),
+        )
+    )
+    region = Region(0, 0, 64, 64, Image.new("RGB", (64, 64)))
+    target = Image.fromarray(nodes_method._pixels(target_document, region))
+
+    def misplaced(current, selection, *_args, **_kwargs):
+        oid = next(iter(selection.object_ids))
+        shift = 2 if oid == "first" else 8
+        return SimpleNamespace(
+            values={
+                n.id: tuple(v + shift for v in n.values)
+                for s in current.geometry_for(oid).subpaths
+                for n in s.nodes
+            }
+        )
+
+    monkeypatch.setattr(selected, "fit_selected_path", misplaced)
+    task = nodes_method._Task(
+        document,
+        replace(region, image=target),
+        nodes_method.read_settings({}, nodes_method.SETTINGS, "Tidy"),
+        ("first", "last"),
+        target,
+    )
+    after, skipped = nodes_method._fit(task, None, None)
+    assert not skipped
+    assert after.geometry_for("first") == target_document.geometry_for("first")
+    assert after.geometry_for("last") == document.geometry_for("last")
 
 
 @pytest.mark.parametrize("device", ["cpu", "cuda"])

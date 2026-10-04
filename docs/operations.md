@@ -148,8 +148,8 @@ the one step chosen.
 With `shared` (on by default) a selected path's edges that another path draws
 too move together (`refine.shared`): a cel trace draws the edge between two
 regions in both, the same segments run either way. Before the run, `links`
-finds the maximal runs of segments a selected path has in common with an
-unselected path whose geometry is its own and unlocked (same points, in the
+finds the maximal runs of segments a selected path has in common with another
+path whose geometry is its own and unlocked (same points, in the
 same frame, either direction; a contour drawn back to its start is read as a
 ring). The points the runs end at, where a third region meets the two, are
 frozen, so every step leaves them; after each step `follow` redraws each
@@ -163,6 +163,14 @@ unchanged. The shape fit judges the selected path in that frozen surrounding
 artwork, so an edge hidden behind a later path need not move; a better fit
 may change another visible edge instead.
 
+Whole-path and region selections are fitted in drawing order. The shape step
+divides its remaining time among the remaining fills, so an expensive early
+path cannot consume the whole selection's fitting time. After each path fit,
+curves are straightened where appropriate and shared neighbours follow before
+the result is rendered and judged against the reference. A path fit that no
+longer improves this actual result is discarded independently, preserving
+earlier improvements and giving the next fit the updated surrounding artwork.
+
 `region` ([x, y, w, h] or a polygon [[x, y], ...] in document units) confines
 a run to an area: it acts on the selected paths, or with nothing selected on
 every path, that paint inside it (`HitIndex` areas), leaving out paths whose
@@ -172,23 +180,6 @@ others, as `fit_selected_path` does for selected nodes), and the run is
 judged over the area's bounds widened by `margin`. The transaction selects
 the paths it found. The MCP `tidy` tool takes `region` in place of, or with,
 `ids`.
-
-`layout` (on by default) treats a complete group of opaque filled paths and
-one nearly symmetric open enclosing outline as a covered silhouette. The two
-outline runs must have matching reversed commands, with their controls already
-within 15% of the width of reflecting about the tip/base axis; the fills must
-cover at least 90% of the outline and largely lie inside it. Paired controls
-are averaged with their reflections. Every step clips the fills to the resulting
-outline and gives the backmost fill its full silhouette, closing both holes and
-partially transparent antialiased seams. Colours, object IDs and stacking stay
-as they were. This repairs the initial layout before reference fitting, so it
-can raise RGB error; the allowance then applies relative to that repaired layout.
-Candidate fills are checked again after clipping, rejecting numerical leaks.
-The metrics report `layouts`, the initial `layout` step and rejected candidates
-under `constrained`. Structure permission and a reference are required. Partial
-regions, pins, locks, shared geometry, gradients, clips, translucent paint and
-nonuniform transforms disable inference. Turn `layout` off for an intentionally
-asymmetric outline or transparent group.
 
 Shared edges are also found between selected paths. The earlier path in drawing
 order owns a shared run, the later one follows it, and both ends are held.
@@ -202,8 +193,7 @@ not grow with the selection. Of the steps that pass, the one that lowers the
 region's mean squared difference (`generate.error`) most is kept; if none
 does, Simplify is kept when it removed points, and otherwise the run ends.
 With a reference, no step is eligible whose result, against the region's
-render at the start (after any layout repair), is worse over the pixels
-changed since then (widened by
+render at the start, is worse over the pixels changed since then (widened by
 `BAND`) by more than `allowance` of the squared difference there: a run never
 trades the match for fewer points beyond it, however many rounds Simplify
 gets. Without a reference Simplify is judged against the drawing itself and
