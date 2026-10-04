@@ -866,15 +866,17 @@ function pointHandles(count) { return action('node_handles', {points: pointPairs
 function renameObject() { $('object-name').focus(); $('object-name').select(); }
 // Buttons naming a command in data-command take its state and run it.
 function renderCommands() {
+  const actions = $('action-list');
   for (const button of document.querySelectorAll('[data-command]')) {
     const command = commandById.get(button.dataset.command); if (!command) continue;
     if (!button.dataset.title) button.dataset.title = button.title || `${commandName(command)}${command.keys ? ` (${command.keys})` : ''}`;
-    const reason = command.disabled?.() || '';
+    const reason = commandRefusal(command);
     enable(button, reason);
-    // A rare command is left out of the buttons while it does not apply.
-    if (command.rare) button.hidden = !!reason;
+    // Selection actions only show what applies, just like the context menu.
+    if (actions.contains(button) || command.rare) button.hidden = !!reason;
     if (button.dataset.label === 'command') button.firstChild.textContent = commandName(command);
   }
+  actions.closest('.inspector-section').hidden = !actions.querySelector('button:not([hidden])');
 }
 document.addEventListener('click', event => {
   const button = event.target.closest('[data-command]');
@@ -933,7 +935,7 @@ function openContextMenu(x, y) {
   for (const group of groups) {
     const commands = COMMANDS.filter(command => command.group === group && (!command.level || command.level === level()));
     // Only what applies here: the palette lists the rest, with the reason.
-    const shown = commands.filter(command => command.id !== 'step-up' && !command.disabled?.());
+    const shown = commands.filter(command => command.id !== 'step-up' && !commandRefusal(command));
     if (!shown.length) continue;
     if (menu.children.length) menu.append(Object.assign(document.createElement('div'), {className: 'menu-divider', role: 'separator'}));
     for (const command of shown) {
