@@ -20,6 +20,7 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import (
     binary_propagation,
+    find_objects,
     gaussian_filter,
     gaussian_filter1d,
     grey_closing,
@@ -199,11 +200,16 @@ def _fit_palette_cuda(pixels: np.ndarray, count: int, steps: int) -> np.ndarray:
 
 def remove_fragments(labels: np.ndarray, minimum: int) -> np.ndarray:
     valid = np.zeros(labels.shape, dtype=bool)
-    for index in np.unique(labels):
-        components, _ = label(labels == index)
+    _, inverse = np.unique(labels, return_inverse=True)
+    inverse = inverse.reshape(labels.shape)
+    # Each label's pieces, found within the box around it.
+    for index, box in enumerate(find_objects(inverse + 1)):
+        if box is None:
+            continue
+        components, _ = label(inverse[box] == index)
         sizes = np.bincount(components.ravel())
         sizes[0] = 0
-        valid |= sizes[components] >= minimum
+        valid[box] |= sizes[components] >= minimum
     if not valid.any():
         raise ValueError("minimum component size removes every region")
     if valid.all():
