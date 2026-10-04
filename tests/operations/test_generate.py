@@ -349,6 +349,33 @@ def test_cel_job_draws_a_continuous_outer_outline_when_asked():
         )
 
 
+def test_cel_leaves_a_transparent_margin_of_the_reference_empty():
+    from dataclasses import replace
+
+    # A red square on a transparent reference, as one padded to the artboard.
+    image = Image.new("RGBA", (400, 200), (0, 0, 0, 0))
+    image.paste((200, 0, 0, 255), (100, 50, 300, 150))
+    editor = Editor(import_svg(DOC))
+    req = replace(
+        request(editor, Selection.all(), settings={"regions": 3}), reference=image
+    )
+    region = target_region(req)
+    assert region.image.mode == "RGB"
+    assert region.alpha is not None
+    assert region.alpha.min() == 0
+    job = Job(method("generate", "cel"), req)
+    job.run()
+    assert job.state()["status"] == "ready", job.state()
+    job.apply()
+    fills = {
+        e.get("fill")
+        for e in editor.snapshot.document.elements()
+        if e.tag in ("path", "rect") and e.id != "bg"
+    }
+    # The square only: nothing white over the transparent margin.
+    assert fills == {"#c80000"}
+
+
 def test_cel_keeps_more_regions_in_a_larger_trace_by_default():
     from vectrify.operations.methods.cel import auto_regions
 

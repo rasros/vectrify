@@ -875,3 +875,48 @@ def test_a_stroke_of_closed_lines_only_has_no_ends_to_join():
     from vectrify.document.lines import end_pairs
 
     assert end_pairs([], 3.0) == []
+
+
+def transparent_badge() -> Image.Image:
+    """A red disc outlined in black with a blue bar, on a transparent
+    background, its edge antialiased into the transparency."""
+    from PIL import ImageDraw
+
+    image = Image.new("RGBA", (320, 240), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    draw.ellipse(
+        (60, 40, 260, 200), fill=(220, 60, 50, 255), outline=(20,) * 3, width=6
+    )
+    draw.rectangle((120, 100, 200, 140), fill=(60, 90, 210, 255))
+    return image.resize((160, 120), Image.Resampling.LANCZOS)
+
+
+def test_a_transparent_background_is_left_empty():
+    image = transparent_badge()
+    alpha = np.asarray(image.getchannel("A")) / 255
+    over_white = Image.alpha_composite(
+        Image.new("RGBA", image.size, "white"), image
+    ).convert("RGB")
+    # The image's own alpha, or the image over white with its alpha apart.
+    for svg, _ in (
+        cel.vectorize(image, regions=5),
+        cel.vectorize(over_white, regions=5, alpha=alpha),
+    ):
+        assert "<rect" not in svg
+        png = cairosvg.svg2png(bytestring=svg.encode())
+        assert png is not None
+        cover = np.asarray(Image.open(io.BytesIO(png)).convert("RGBA"))[..., 3] / 255
+        # Nothing over the transparency, the shape covered whole.
+        assert cover[alpha == 0].mean() < 0.01
+        inside = cel.binary_erosion(alpha == 1, np.ones((3, 3)))
+        assert cover[inside].min() > 0.99
+        # No pale sliver along the edge, a colour mixed with white.
+        fills = re.findall(r'fill="#([0-9a-f]{6})"', svg)
+        assert fills
+        assert all(min(int(f[i : i + 2], 16) for i in (0, 2, 4)) < 100 for f in fills)
+
+
+def test_an_opaque_image_with_an_alpha_channel_traces_as_without_one():
+    svg, _ = cel.vectorize(cel_image(), regions=3)
+    rgba, _ = cel.vectorize(cel_image().convert("RGBA"), regions=3)
+    assert rgba == svg

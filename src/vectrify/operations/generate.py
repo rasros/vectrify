@@ -43,6 +43,9 @@ class Region:
     width: float
     height: float
     image: Image.Image
+    # The crop's opacity, 0-1 by pixel, when the reference has transparent
+    # pixels in it; *image* is the crop over white either way.
+    alpha: np.ndarray | None = None
 
     @property
     def transform(self) -> str:
@@ -159,6 +162,12 @@ def target_region(request: OperationRequest, margin: float = REGION_MARGIN) -> R
     )
     if box[2] <= box[0] or box[3] <= box[1]:
         raise DocumentError("The selection is smaller than one reference pixel")
+    alpha = None
+    if request.reference.has_transparency_data:
+        rgba = request.reference.convert("RGBA")
+        opacity = np.asarray(rgba.getchannel("A").crop(box))
+        if opacity.min() < 255:
+            alpha = opacity.astype(np.float32) / 255
     # Snap the region to the crop's whole pixels so the transform is exact.
     return Region(
         vx + box[0] / sx,
@@ -166,6 +175,7 @@ def target_region(request: OperationRequest, margin: float = REGION_MARGIN) -> R
         (box[2] - box[0]) / sx,
         (box[3] - box[1]) / sy,
         reference.crop(box),
+        alpha,
     )
 
 
