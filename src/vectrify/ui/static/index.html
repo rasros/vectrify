@@ -87,7 +87,7 @@
     <fieldset class="step-card" data-step="simplify">
       <legend><label class="toggle"><input id="nodes-simplify" type="checkbox" checked> Simplify</label></legend>
       <p class="muted">Removes the points the outline does not need, and the handles that lie on their line. Runs when no other step helps.</p>
-      <div class="two-fields"><label title="How far removing points may move an outline, in reference pixels">Tolerance (px)<input id="nodes-tolerance" type="number" min="0" max="20" step="0.25" value="1"></label></div>
+      <div class="two-fields"><label title="How much removing points may worsen the match to the reference where it acts, in percent. Simplify removes points only while the match stays within it.">Error budget (%)<input id="nodes-budget" type="number" min="0" max="100" step="0.5" value="1"></label><label title="The most removing points may move an outline anywhere, in reference pixels">Tolerance (px)<input id="nodes-tolerance" type="number" min="0" max="20" step="0.25" value="3"></label></div>
     </fieldset>
     <fieldset class="step-card" data-step="shape">
       <legend><label class="toggle"><input id="nodes-shape" type="checkbox"> Fit shape</label></legend>

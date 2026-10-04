@@ -793,7 +793,8 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         rounds: int | None = None,
     ) -> CallToolResult:
         """Tidy paths as a job: snap to the reference, simplify, fit (steps
-        shape, snap, detail, simplify; tolerance, seconds, ...)."""
+        shape, snap, detail, simplify; budget: % simplify may worsen the
+        match, tolerance: px cap; allowance: % any step may; seconds, ...)."""
         return state.call("tidy", {"ids": ids, "settings": settings, "rounds": rounds})
 
     @tool(structured_output=False)

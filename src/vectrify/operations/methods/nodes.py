@@ -86,8 +86,13 @@ SETTINGS = {
         float, 12.0, minimum=1.0, maximum=500.0, label="detail gain"
     ),
     "simplify": Setting(bool, True),
-    # How far Simplify may move an outline, in the reference's pixels.
-    "tolerance": Setting(float, 1.0, minimum=0.0, maximum=20.0, label="tolerance"),
+    # How much Simplify may raise the difference where it acts, in percent:
+    # it removes points only while the match stays within this.
+    "budget": Setting(float, 1.0, minimum=0.0, maximum=100.0, label="error budget"),
+    # The most Simplify may move an outline at any point, in the
+    # reference's pixels: a cap, as the error budget decides how far it goes;
+    # without a reference it decides alone, and is NO_REFERENCE unless set.
+    "tolerance": Setting(float, 3.0, minimum=0.0, maximum=20.0, label="tolerance"),
     # Each path fit: gradient steps, how far a point may move in SVG units,
     # and the size it works at.
     "steps": Setting(int, 40, minimum=1, maximum=1000, label="steps"),
@@ -250,13 +255,53 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
                 deadline=deadline,
             )
         else:
-            from vectrify.refine.simplify import simplify
-
-            paths = simplify(
-                document, paths, region, fixed, settings["tolerance"], deadline
-            )
+            paths = _simplified(task, paths, fixed, deadline)
         document = _with(document, dict(paths.geometries))
     return document, _pixels(document, region), skipped
+
+
+# How many tolerances, up to the set one, Simplify's error budget picks from.
+LADDER = 8
+# Simplify's tolerance without a reference, unless one is set: no budget
+# judges it then.
+NO_REFERENCE = 1.0
+
+
+def _simplified(task: _Task, paths, fixed, deadline: float):
+    """*paths* simplified within the tolerance and, with a reference, within
+    the error budget: at the largest of LADDER tolerances up to the set one
+    whose result raises the difference where it acted by no more than the
+    budget, found by bisection. A larger tolerance removes more points."""
+    from vectrify.refine.simplify import simplify
+
+    document, region, settings = task.document, task.region, task.settings
+
+    def at(tolerance: float):
+        return simplify(document, paths, region, fixed, tolerance, deadline)
+
+    top = settings["tolerance"]
+    if task.reference is None or top <= 0:
+        return at(top)
+    budget = settings["budget"] / 100
+    start = _Scored.of(_pixels(document, region), region)
+
+    def within(candidate) -> bool:
+        after = _Scored.of(
+            _pixels(_with(document, dict(candidate.geometries)), region), region
+        )
+        return after.fixed(start) >= -budget
+
+    best = None
+    low, high = 0, LADDER
+    while low < high and time.monotonic() < deadline:
+        middle = (low + high + 1) // 2
+        candidate = at(top * middle / LADDER)
+        if within(candidate):
+            best, low = candidate, middle
+        else:
+            high = middle - 1
+    # At no tolerance only points that change nothing go.
+    return best if best is not None else at(0.0)
 
 
 def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
@@ -349,6 +394,8 @@ class OptimizeNodes:
 
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
         settings = read_settings(request.settings, SETTINGS, LABEL)
+        if request.reference is None and "tolerance" not in request.settings:
+            settings["tolerance"] = NO_REFERENCE
         rounds = request.budget.steps or DEFAULT_ROUNDS
         start = request.snapshot.document
         oids = tuple(selected_paths(request))

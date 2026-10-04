@@ -477,10 +477,12 @@ outline (R). Tick the steps it may use:
   past the selection, as a share of its size, the reference is read: a point
   can only reach that far. Add detail tries a limited number of new points per
   round, so on a large path it adds the ones that fix most first.
-- **Simplify** (on by default) removes the points the outline does not need,
-  moving it no more than the tolerance in reference pixels, and turns curves
-  whose handles lie on their line within the tolerance into straight
-  segments.
+- **Simplify** (on by default) removes the points the outline does not need
+  while the match to the reference where it acts gets no worse than the
+  **Error budget** (1% by default), moving the outline no more than the
+  **Tolerance** in reference pixels anywhere (3 by default), and turns curves
+  whose handles lie on their line within that into straight segments.
+  Without a reference the tolerance alone decides, 1 by default.
 - **Fit shape** (off by default: slow on large paths) moves points and curve
   handles by gradient descent, with a number of fitting steps and a maximum
   movement per fit in local SVG units. Straight segments are fitted as curves,
