@@ -214,6 +214,16 @@ pinned ones.
   the outline in numpy at pixel centres over a window around the blob rather
   than rendering it with Cairo, and finds each blob pixel's nearest point of
   the outline with a k-d tree.
+- For stroked lines (a stroke, no fill) Snap is `refine.lines.fit_lines`
+  instead: the reference's ink is each pixel's cover by the line (a black
+  top-hat of its brightest channel over how much darker the stroke's colour
+  is than the surface), read across the line at each point and curve middle
+  as far as it runs unbroken from the middle; each point moves onto the ink's
+  centre (at most `SHIFT`, 1.5 px) with its handles, each curve's handles then
+  bring its middle there, and an opaque line's stroke width becomes the
+  median of the ink's widths along it (its open ends left out) when that
+  differs by over 10%, which needs the `paint` permission. The path fit
+  leaves stroked lines to it.
 - Simplify is `refine.simplify.simplify`: the point whose removal moves the
   outline least goes first, the joined cubic keeping the tangents either side
   with least-squares handle lengths, until any removal would move it more than

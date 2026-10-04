@@ -3,9 +3,12 @@
 It mixes three steps and picks, round by round, whichever helps:
 
 - Snap puts the points on the reference's nearest edges; with Add detail it
-  also adds points where a piece of the shape is missing or too much.
-- Simplify removes the points the outline does not need, within a tolerance
-  in the reference's pixels.
+  also adds points where a piece of the shape is missing or too much. A
+  stroked line's points go onto the middle of its ink instead, and its
+  width to the ink's (refine.lines).
+- Simplify removes the points the outline does not need while the match
+  stays within an error budget, never moving it further than a tolerance in
+  the reference's pixels.
 - Shape fits the points and handles by gradient descent (the path fit),
   on the GPU when there is one and on the CPU otherwise. It is off unless
   asked for: Redraw outline reshapes a path far faster.
@@ -283,6 +286,8 @@ class _Task:
     held: frozenset[str] = frozenset()
     # The edges the selected paths share with neighbours, which follow them.
     shared: tuple = ()
+    # Whether Snap may set stroked lines' widths: a paint change.
+    widths: bool = False
 
 
 class _Until(threading.Event):
@@ -369,11 +374,17 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
         paths = _paths(document, task.oids)
         fixed = Frozen(frozen(paths).endpoints | task.held)
         if step == "snap":
+            from vectrify.refine.lines import fit_lines, is_line
             from vectrify.refine.snap import snap
 
+            # Stroked lines go onto their ink's middle; fills onto edges.
+            lines = [oid for oid in task.oids if is_line(document, oid)]
+            if lines:
+                document = fit_lines(document, lines, region, fixed, task.widths)
+            fills = [oid for oid in task.oids if oid not in lines]
             paths = snap(
                 document,
-                paths,
+                _paths(document, fills),
                 region,
                 fixed,
                 detail=settings["detail"],
@@ -452,9 +463,14 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         resolution=settings["resolution"],
     )
     skipped: dict[str, str] = {}
+    from vectrify.refine.lines import is_line
+
     for oid in task.oids:
         if stop is not None and stop.is_set():
             break
+        if is_line(document, oid):
+            # Snap fits a stroked line; the path fit fits fills.
+            continue
         original = document.geometry_for(oid)
         # In a region's tidy only the points inside it move.
         movable = frozenset(
@@ -603,6 +619,7 @@ class OptimizeNodes:
                     left / (len(steps) + 1),
                     held,
                     tuple(shared),
+                    "paint" in request.permissions.allowed,
                 )
                 results = _round(steps, task, pool, context.stop, report)
                 for _doc, _pixels_after, why in results.values():
@@ -667,6 +684,9 @@ class OptimizeNodes:
             geometry = document.geometry_for(oid)
             if geometry != start.geometry_for(oid):
                 tx.reshape_path(oid, geometry)
+            width = document.element(oid).get("stroke-width")
+            if width != start.element(oid).get("stroke-width"):
+                tx.set_attributes(oid, {"stroke-width": width})
         changed = bool(taken)
         message = None
         if not changed:

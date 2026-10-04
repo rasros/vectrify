@@ -2597,7 +2597,7 @@ const nodesDialog = jobDialog('nodes', {
     const steps = nodeSteps();
     const region = $('nodes-in-view').checked ? viewReport()?.region : null;
     return {action:'improve', method:'nodes', scope:'selection',
-      permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify},
+      permissions:{geometry:true, structure:(steps.snap && steps.detail) || steps.simplify, paint:true},
       settings:{...steps, tolerance:Number($('nodes-tolerance').value), steps:Number($('nodes-steps').value),
         movement:Number($('nodes-movement').value), workers:Number($('nodes-workers').value),
         detail_gain:Number($('nodes-detail-gain').value), gain:Number($('nodes-gain').value), margin:Number($('nodes-margin').value),

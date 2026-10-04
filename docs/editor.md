@@ -469,7 +469,8 @@ the points they do not need, in a few seconds; to reshape a path, use Redraw
 outline (R). Tick the steps it may use:
 
 - **Snap to reference** (on by default) moves the points onto the reference's
-  nearest edges. With **Add detail** it also adds points where the path
+  nearest edges, and a stroked line's points onto the middle of its ink, its
+  stroke width set to the ink's width along it. With **Add detail** it also adds points where the path
   misses a piece of the shape or covers too much: one point, two, or a spike
   of three whose base stays on the outline, reaching bit by bit along a strand
   that curls away. **Pixels per added point** is how many reference pixels
