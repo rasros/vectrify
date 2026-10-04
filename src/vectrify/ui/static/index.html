@@ -76,7 +76,7 @@
 </dialog>
 <dialog id="nodes-dialog" class="job-dialog" aria-labelledby="nodes-title">
   <h2 id="nodes-title">Tidy</h2>
-  <p id="nodes-summary"></p><p class="muted">A quick clean-up of the selected paths: snaps their points onto the reference's edges and removes the points they do not need. Each round tries every chosen step and keeps the one that fixes most where it acted; Simplify runs when nothing else helps. Without a reference, Simplify removes points while keeping the paths looking the same. To reshape a path, use Redraw outline (R).</p>
+  <p id="nodes-summary"></p><p class="muted">A quick clean-up of the selected paths: snaps their points onto the reference's edges and removes the points they do not need. Each round tries every chosen step and keeps the one that fixes most where it acted; Simplify runs when nothing else helps. No step is kept that leaves the match where Tidy acted worse than the allowed worsening. Without a reference, Simplify removes points while keeping the paths looking the same. To reshape a path, use Redraw outline (R).</p>
   <div id="nodes-settings" class="step-cards">
     <fieldset class="step-card" data-step="snap">
       <legend><label class="toggle"><input id="nodes-snap" type="checkbox" checked> Snap to reference</label></legend>
@@ -98,6 +98,7 @@
       <legend>Run</legend>
       <div class="two-fields"><label title="The most rounds to run. It stops sooner once no step helps.">Rounds<input id="nodes-rounds" type="number" min="1" max="100" value="4"></label><label title="How many steps of a round run at the same time, each in a process of its own that takes a moment to start. Only one shape fit runs at once.">Parallel workers<input id="nodes-workers" type="number" min="1" max="64" value="1"></label></div>
       <div class="two-fields"><label title="How much of the difference to the reference where a step changed the paths it has to fix to be kept, in percent. Lower keeps smaller gains.">Minimum improvement (%)<input id="nodes-gain" type="number" min="0" max="50" step="0.1" value="1"></label><label title="The most the whole run may take. When it runs out the best result so far is kept, as with Stop.">Time limit (s)<input id="nodes-seconds" type="number" min="0.5" max="3600" step="1" value="10"></label></div>
+      <div class="two-fields"><label title="How much worse the match where Tidy acted may get than it started, in percent, for a step to be kept. At 0 Tidy never trades the match for fewer points.">Allowed worsening (%)<input id="nodes-allowance" type="number" min="0" max="100" step="0.5" value="1"></label></div>
       <p class="muted">Pinned points stay fixed. Colour is left to Fit colours.</p>
     </fieldset>
   </div>

@@ -14,10 +14,13 @@ Every round tries each chosen step on the paths as they stand and keeps the
 one that lowers the difference to the reference most, if it fixes enough of
 the difference where it acted: over the pixels it changed and a thin band
 around them, so a small fix on a large selection counts as much as on a
-small one. When none does, Simplify gets its turn, and once nothing changes
-the run ends. A step that leaves an outline crossing itself more than
-before, a twist or a curve looped over itself, is never kept, however close
-it gets; concave outlines are fine. With several workers a round's steps run
+small one. When none does, Simplify gets its turn. No step is kept that
+leaves the difference where the run has acted (against the paths as they
+started) worse than a small allowance, so a Tidy never trades the match
+for fewer points beyond it; once nothing qualifies the run ends. A step
+that leaves an outline crossing itself more than before, a twist or a
+curve looped over itself, is never kept, however close it gets; concave
+outlines are fine. With several workers a round's steps run
 side by side, but only one path fit runs at a time.
 
 Every run has a time limit. Each round checks it and gives each step a share
@@ -94,6 +97,10 @@ SETTINGS = {
     # How much of the difference where a step acted it has to fix to be
     # kept, in percent.
     "gain": Setting(float, 1.0, minimum=0.0, maximum=50.0, label="minimum improvement"),
+    # How much worse than at the start, in percent, the difference where the
+    # run has acted may get for a step to be kept: a step that saves points
+    # but costs more than this is not.
+    "allowance": Setting(float, 1.0, minimum=0.0, maximum=100.0, label="allowance"),
     # The most the whole run may take, in seconds.
     "seconds": Setting(float, 10.0, minimum=0.5, maximum=3600.0, label="time limit"),
 }
@@ -404,7 +411,19 @@ class OptimizeNodes:
                     step: (after, _Scored.of(pixels, region))
                     for step, (after, pixels, _why) in results.items()
                 }
-                chosen = _choose(scored, current, points, oids, settings["gain"] / 100)
+                chosen = _choose(
+                    scored,
+                    current,
+                    points,
+                    oids,
+                    settings["gain"] / 100,
+                    # Without a reference Simplify is judged against the
+                    # drawing itself, which any change makes worse.
+                    _Scored.of(first, region)
+                    if request.reference is not None
+                    else None,
+                    settings["allowance"] / 100,
+                )
                 if chosen is None:
                     break
                 taken.append(chosen)
@@ -500,21 +519,39 @@ def _round(steps, task: _Task, pool, stop, report):
     return results
 
 
-def _choose(scored, current: _Scored, points: int, oids, gain: float) -> str | None:
+def _choose(
+    scored,
+    current: _Scored,
+    points: int,
+    oids,
+    gain: float,
+    start: _Scored | None = None,
+    allowance: float = 0.0,
+) -> str | None:
     """The step to keep: the one that lowers the difference most, fixing at
-    least *gain* of it where it acted, or else Simplify if it removed points."""
+    least *gain* of it where it acted, or else Simplify if it removed points.
+
+    With *start*, no step is kept that leaves the difference where the run
+    has acted, against *start*, worse by more than *allowance* of it: a run
+    never makes the match worse than that, however many points it saves.
+    """
+
+    def allowed(after: _Scored) -> bool:
+        return start is None or after.fixed(start) >= -allowance
+
     helping = [
         (after.difference, step)
         for step, (_doc, after) in scored.items()
         if step != "simplify"
         and after.difference < current.difference
         and after.fixed(current) >= gain
+        and allowed(after)
     ]
     if helping:
         return min(helping)[1]
     if "simplify" in scored:
-        simpler, _after = scored["simplify"]
-        if _count(simpler, oids) < points:
+        simpler, after = scored["simplify"]
+        if _count(simpler, oids) < points and allowed(after):
             return "simplify"
     return None
 

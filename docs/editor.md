@@ -494,7 +494,9 @@ that brings them closest to the reference, if it fixes at least the **Minimum
 improvement** (1% by default) of the difference where it acted: over the
 pixels it changed and a thin band around them, so a small fix on a large
 selection counts as much as on a small one. When none helps, Simplify gets its
-turn, and the run ends once nothing changes, the rounds (4 by default) run out
+turn. No step is kept that leaves the match where Tidy acted worse than it
+started by more than the **Allowed worsening** (1% by default; 0 never trades
+the match for fewer points), and the run ends once nothing qualifies, the rounds (4 by default) run out
 or the **Time limit** (10 s by default) passes. Each round gives each step a
 share of the time left, and a step that runs out hands back how far it got; a
 run that runs out of time keeps the best result so far, as Stop does, and says
