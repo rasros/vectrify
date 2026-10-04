@@ -20,7 +20,7 @@ from mcp import Client
 from tests.mcp.helpers import data, reference_png
 from vectrify.mcp.server import build_server
 from vectrify.ui import session as session_module
-from vectrify.ui.agent import EDITS, LEFT_OUT, OPERATIONS_LEFT_OUT
+from vectrify.ui.agent import EDITS, LEFT_OUT
 from vectrify.ui.session import Session
 
 SVG = """<svg xmlns="http://www.w3.org/2000/svg" \
@@ -79,16 +79,12 @@ def test_the_session_commands_are_found():
     assert {"paint", "knife", "join_two_ends", "convert_lines", "undo"} <= (
         ACTION_COMMANDS
     )
-    assert {"start", "apply", "discard", "status", "stop", "check"} == (
-        OPERATION_COMMANDS
-    )
+    assert {"start", "apply", "discard", "status", "stop"} == (OPERATION_COMMANDS)
 
 
 def test_left_out_commands_exist_and_say_why():
     assert set(LEFT_OUT) <= ACTION_COMMANDS
-    assert set(OPERATIONS_LEFT_OUT) <= OPERATION_COMMANDS
-    reasons = [*LEFT_OUT.values(), *OPERATIONS_LEFT_OUT.values()]
-    assert all(len(why) > 20 for why in reasons)
+    assert all(len(why) > 20 for why in LEFT_OUT.values())
 
 
 def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
@@ -194,7 +190,7 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
     anyio.run(session)
     missing = ACTION_COMMANDS - set(LEFT_OUT) - actions
     assert not missing, f"Editor commands no MCP tool sends: {sorted(missing)}"
-    missing = OPERATION_COMMANDS - set(OPERATIONS_LEFT_OUT) - operations
+    missing = OPERATION_COMMANDS - operations
     assert not missing, f"Operation commands no MCP tool sends: {sorted(missing)}"
     sent = {c for tool in EDITS.values() for c in tool}
     assert sent <= ACTION_COMMANDS, sorted(sent - ACTION_COMMANDS)

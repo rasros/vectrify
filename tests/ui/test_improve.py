@@ -376,28 +376,20 @@ def test_miter_geometry_fit_preserves_sharp_join_and_improves_reference_match():
     assert editor.undo().document == doc
 
 
-def test_check_reports_whether_an_operation_would_run_without_running_it():
+def test_start_refuses_a_request_the_operation_would_not_accept():
     session = Session(import_svg(SVG))
-
-    def check(method, **settings):
-        return session.operation(
+    with pytest.raises(DocumentError, match="Select the paths to optimize"):
+        session.operation(
             {
-                "command": "check",
+                "command": "start",
                 "action": "improve",
-                "method": method,
+                "method": "nodes",
                 "epoch": session.epoch,
                 "revision": session.editor.snapshot.revision,
                 "permissions": {"geometry": True, "structure": True},
-                "settings": settings,
+                "settings": {"shape": False, "snap": False, "simplify": True},
             }
         )
-
-    assert check("nodes", shape=False, snap=False, simplify=True) == {
-        "ok": False,
-        "error": "Select the paths to optimize",
-    }
-    session.editor.select(SELECTION)
-    assert check("nodes", shape=False, snap=False, simplify=True) == {"ok": True}
     assert not session.jobs
 
 
@@ -470,22 +462,24 @@ def test_cpu_fit_refuses_outlined_shapes_clearly():
 
 
 @pytest.mark.usefixtures("cpu_only")
-def test_path_fit_check_accepts_unstroked_fills_without_a_gpu():
+def test_path_fit_accepts_unstroked_fills_without_a_gpu():
     session = Session(import_svg(SVG), reference=reference(target()))
     session.editor.select(SELECTION)
 
     def check(checked):
-        return checked.operation(
-            {
-                "command": "check",
-                "action": "improve",
-                "method": "path-fit",
-                "epoch": checked.epoch,
-                "revision": checked.editor.snapshot.revision,
-                "permissions": {"geometry": True},
-                "settings": {"nodes": True, "handles": True, "color": False},
-            }
-        )
+        """Whether path-fit would accept the request, without starting it."""
+        from vectrify.operations import method
+
+        chosen = method("improve", "path-fit")
+        payload = {
+            "permissions": {"geometry": True},
+            "settings": {"nodes": True, "handles": True, "color": False},
+        }
+        try:
+            chosen.validate(checked._request(chosen, payload))
+        except DocumentError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True}
 
     assert check(session) == {"ok": True}
     outlined = Session(

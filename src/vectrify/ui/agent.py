@@ -131,12 +131,6 @@ LEFT_OUT = {
     "renamed to this inside the session.",
 }
 
-# Session.operation commands no agent tool sends, and why.
-OPERATIONS_LEFT_OUT = {
-    "check": "The dialog's probe of whether a start would be accepted; an "
-    "agent starts the job and reads the refusal instead.",
-}
-
 # Calls that only look, and so need no refresh of the window.
 LOOKS = frozenset(
     {
