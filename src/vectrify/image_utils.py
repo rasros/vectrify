@@ -23,14 +23,16 @@ def png_bytes_to_data_url(png_bytes: bytes) -> str:
     return f"data:image/png;base64,{b64}"
 
 
-def png_bytes(image: Image.Image) -> bytes:
+def png_bytes(image: Image.Image, *, compress_level: int = 6) -> bytes:
     stream = io.BytesIO()
-    image.save(stream, format="PNG")
+    image.save(stream, format="PNG", compress_level=compress_level)
     return stream.getvalue()
 
 
 def png_url(image: Image.Image) -> str:
-    return png_bytes_to_data_url(png_bytes(image))
+    # Previews are regenerated on every proposal; lighter compression keeps
+    # the exact same pixels while spending less time encoding them.
+    return png_bytes_to_data_url(png_bytes(image, compress_level=1))
 
 
 def preview_urls(

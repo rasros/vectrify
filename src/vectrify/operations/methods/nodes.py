@@ -65,6 +65,7 @@ from vectrify.operations.generate import (
     target_region,
 )
 from vectrify.operations.settings import Setting, read_settings
+from vectrify.svg_render import cached_rendering
 
 LABEL = "Optimize nodes"
 STEPS = ("shape", "snap", "simplify")
@@ -291,6 +292,8 @@ class _Task:
     shared: tuple = ()
     # Whether Snap may set stroked lines' widths: a paint change.
     widths: bool = False
+    # The current render, shared with steps that only need to compare to it.
+    pixels: np.ndarray | None = None
 
 
 class _Until(threading.Event):
@@ -362,6 +365,7 @@ class _Scored:
         return (base - now) / base
 
 
+@cached_rendering()
 def _run_step(step: str, task: _Task, stop=None, progress=None):
     """(document after *step*, its render of the region, why paths were
     skipped). The step stops at its share of the time, keeping how far it
@@ -401,7 +405,12 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
         from vectrify.refine.shared import follow
 
         document, _ = follow(document, list(task.shared))
-    return document, _pixels(document, region), skipped
+    pixels = (
+        task.pixels
+        if task.pixels is not None and document == task.document
+        else _pixels(document, region)
+    )
+    return document, pixels, skipped
 
 
 # How many tolerances, up to the set one, Simplify's error budget picks from.
@@ -419,21 +428,41 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
     from vectrify.refine.simplify import simplify
 
     document, region, settings = task.document, task.region, task.settings
+    initial_costs = {}
 
     def at(tolerance: float):
-        return simplify(document, paths, region, fixed, tolerance, deadline)
+        return simplify(
+            document,
+            paths,
+            region,
+            fixed,
+            tolerance,
+            deadline,
+            initial_costs=initial_costs,
+            cost_bound=settings["tolerance"],
+        )
 
     top = settings["tolerance"]
     if task.reference is None or top <= 0:
         return at(top)
     budget = settings["budget"] / 100
-    start = _Scored.of(_pixels(document, region), region)
+    start = _Scored.of(
+        task.pixels if task.pixels is not None else _pixels(document, region), region
+    )
+    judged = []
 
     def within(candidate) -> bool:
+        if candidate.geometries == paths.geometries:
+            return True
+        for previous, allowed in judged:
+            if candidate.geometries == previous.geometries:
+                return allowed
         after = _Scored.of(
             _pixels(_with(document, dict(candidate.geometries)), region), region
         )
-        return after.fixed(start) >= -budget
+        allowed = after.fixed(start) >= -budget
+        judged.append((candidate, allowed))
+        return allowed
 
     best = None
     low, high = 0, LADDER
@@ -554,6 +583,7 @@ class OptimizeNodes:
         if missing:
             raise DocumentError(f"Allow {', '.join(sorted(missing))} changes")
 
+    @cached_rendering()
     def run(self, request: OperationRequest, context: RunContext) -> OperationResult:
         settings = read_settings(request.settings, SETTINGS, LABEL)
         if request.reference is None and "tolerance" not in request.settings:
@@ -632,6 +662,7 @@ class OptimizeNodes:
                     held,
                     tuple(shared),
                     "paint" in request.permissions.allowed,
+                    current.pixels,
                 )
                 results = _round(steps, task, pool, context.stop, report)
                 for _doc, _pixels_after, why in results.values():

@@ -2,6 +2,7 @@
 
 from math import cos, pi, sin, tan
 
+import pytest
 from PIL import Image
 
 from vectrify.document import Editor, import_svg
@@ -110,3 +111,35 @@ def test_lines_are_curved_with_their_handles_at_the_thirds():
     assert [n.id for n in nodes] == [
         n.id for n in doc.geometry_for("p").subpaths[0].nodes
     ]
+
+
+@pytest.mark.parametrize("pinned", [False, True])
+@pytest.mark.parametrize(
+    "transform", ["matrix(1 0 0 1 0 0)", "scale(0.7 1.2) rotate(12)"]
+)
+def test_budget_ladder_reuses_costs_without_changing_removals(pinned, transform):
+    doc = import_svg(
+        '<svg width="100" height="100"><g transform="' + transform + '">'
+        '<path id="p" d="'
+        + circle(12)
+        + ' M10 10 L20 10 L30 10 L30 30 L10 30 Z"/></g></svg>'
+    )
+    if pinned:
+        editor = Editor(doc)
+        editor.pin_node("p", doc.geometry_for("p").subpaths[0].nodes[2].id)
+        doc = editor.snapshot.document
+    paths = Paths({"p": doc.geometry_for("p")})
+    fixed = frozen(paths)
+    costs = {}
+    for tolerance in (1.5, 0.75, 0.375, 0, 3, 1.5):
+        expected = simplify(doc, paths, REGION, fixed, tolerance)
+        actual = simplify(
+            doc,
+            paths,
+            REGION,
+            fixed,
+            tolerance,
+            initial_costs=costs,
+            cost_bound=3,
+        )
+        assert actual == expected

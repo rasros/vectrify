@@ -99,12 +99,33 @@ def links(document: Document, oids, candidates) -> list[Link]:
     owned: dict[tuple, list[tuple[str, str, int, bool]]] = {}
     matrices = {}
     sizes: dict[tuple[str, str], int] = {}
+    wanted: dict[tuple, set[tuple]] = {}
+    selected = []
+    for oid in oids:
+        matrix = object_matrix(document, oid)
+        wanted_ends = wanted.setdefault(matrix, set())
+        for subpath in document.geometry_for(oid).subpaths:
+            ring = _ring(subpath)
+            indices = list(_indices(ring))
+            keys = {k: tuple(map(_key, _controls(ring, k))) for k in indices}
+            for key in keys.values():
+                wanted_ends.add((key[0], key[-1]))
+                wanted_ends.add((key[-1], key[0]))
+            selected.append((oid, subpath.id, matrix, ring, indices, keys))
     for other in candidates:
-        matrices[other] = object_matrix(document, other)
+        matrix = matrices[other] = object_matrix(document, other)
+        if matrix not in wanted:
+            continue
         for subpath in document.geometry_for(other).subpaths:
             ring = _ring(subpath)
             sizes[other, subpath.id] = len(ring.ends)
+            ring_ends = [_key(_point(node)) for node in ring.ends]
             for k in _indices(ring):
+                # A shared segment must first have the same two endpoints.
+                # Most of the drawing cannot meet the selected path at all;
+                # avoid constructing and indexing all of its cubic controls.
+                if (ring_ends[k - 1], ring_ends[k]) not in wanted[matrix]:
+                    continue
                 points = _controls(ring, k)
                 owned.setdefault(tuple(map(_key, points)), []).append(
                     (other, subpath.id, k, False)
@@ -113,21 +134,13 @@ def links(document: Document, oids, candidates) -> list[Link]:
                     (other, subpath.id, k, True)
                 )
     found: list[Link] = []
-    for oid in oids:
-        matrix = object_matrix(document, oid)
-        for subpath in document.geometry_for(oid).subpaths:
-            ring = _ring(subpath)
-            indices = list(_indices(ring))
-            matches: dict[int, tuple[str, str, int, bool]] = {}
-            for k in indices:
-                hits = [
-                    h
-                    for h in owned.get(tuple(map(_key, _controls(ring, k))), ())
-                    if matrices[h[0]] == matrix
-                ]
-                if len(hits) == 1:
-                    matches[k] = hits[0]
-            found += _runs(oid, subpath.id, ring, indices, matches, sizes, document)
+    for oid, subpath_id, matrix, ring, indices, keys in selected:
+        matches: dict[int, tuple[str, str, int, bool]] = {}
+        for k in indices:
+            hits = [h for h in owned.get(keys[k], ()) if matrices[h[0]] == matrix]
+            if len(hits) == 1:
+                matches[k] = hits[0]
+        found += _runs(oid, subpath_id, ring, indices, matches, sizes, document)
     return found
 
 

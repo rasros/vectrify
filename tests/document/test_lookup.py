@@ -70,3 +70,19 @@ def test_lookup_keeps_first_match_before_duplicate_ids_are_validated():
     document = Document(Element("root", "svg", children=(first, second)))
     assert document.element("same") is first
     assert document.elements() == (document.root, first, second)
+
+
+def test_geometry_and_node_lookups_stay_independent_across_replacements():
+    document = import_svg('<svg><path id="p" d="M0 0 L5 5 L10 10"/></svg>')
+    geometry = document.geometry_for("p")
+    contour = geometry.subpaths[0]
+    last = contour.nodes[-1]
+    assert document.node_position(geometry.id, last.id) == (contour, 2)
+    shortened = replace(contour, nodes=(contour.nodes[0], last))
+    changed = document.replace_geometry(replace(geometry, subpaths=(shortened,)))
+    assert changed.geometry_for("p").subpaths == (shortened,)
+    assert changed.node_position(geometry.id, last.id) == (shortened, 1)
+    assert document.node_position(geometry.id, last.id) == (contour, 2)
+    assert changed.node_position(geometry.id, contour.nodes[1].id) is None
+    with pytest.raises(DocumentError, match="Unknown geometry"):
+        changed.node_position("missing", last.id)

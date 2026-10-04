@@ -191,6 +191,14 @@ counting once, so a bow-tie counts 1, a looped cubic 1 and a concave outline
 worker, Snap and Simplify run in spawned processes while the path fit runs in
 the job's thread, so only one fit runs at a time.
 
+Scoring reads Cairo's RGB pixels directly and reuses compiled unchanged paths
+within the operation. Paint servers, clips and markers retain CairoSVG's
+ordinary handling. Simplify reuses the original join costs across its budget
+search and judges identical candidates once. These shortcuts keep the same
+pixel error and outline tolerance checks. The native CUDA fill renderer
+partitions larger crops across GPU blocks while retaining analytic cubic
+coverage; parallel gradient sums can differ slightly in float32 rounding.
+
 The time limit is checked before each round, and each step of a round may
 take the time left divided by one more than the number of steps, from when it
 starts, the last share left for rendering and judging the results: the
