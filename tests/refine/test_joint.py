@@ -30,14 +30,22 @@ BACKGROUND
 
 
 @pytest.mark.parametrize("transparent", [False, True])
+@pytest.mark.parametrize("stroke", [False, True])
 def test_joint_compositing_matches_cairo_with_clipping_group_opacity_and_front_paint(
     transparent,
+    stroke,
 ):
     torch = pytest.importorskip("torch")
     svg = SVG.replace(
         "BACKGROUND",
         "" if transparent else '<rect width="64" height="64" fill="#eef"/>',
     )
+    if stroke:
+        svg = svg.replace(
+            'fill="#38b"',
+            'fill="none" stroke="#38b" stroke-width="0.7" '
+            'stroke-linejoin="round" stroke-linecap="round"',
+        )
     document = import_svg(svg)
     target = render_image(svg, (0, 0, 64, 64), (64, 64), alpha=transparent)
     context = _context(document, ("a", "b"), target, FitOptions())
@@ -65,7 +73,10 @@ def test_joint_compositing_matches_cairo_with_clipping_group_opacity_and_front_p
             alpha=True,
         )
         alphas.append(np.asarray(image)[..., 3] / 255)
-        colours.append(color(path_style(document, element)["fill"])[:3])
+        style = path_style(document, element)
+        colours.append(
+            color(style["stroke"] if style["fill"] == "none" else style["fill"])[:3]
+        )
     alphas = torch.tensor(np.array(alphas), dtype=torch.float32, requires_grad=True)
     reconstructed = _composite_in_context(
         alphas,
@@ -194,3 +205,43 @@ def test_an_empty_joint_contour_keeps_the_individually_verified_document():
     document = import_svg(PAIR.replace("M10 10 L30 10 L30 50 L10 50 Z", "M10 10"))
     target = render_image(PAIR, (0, 0, 64, 64), (64, 64), alpha=True)
     assert polish(document, ("a", "b"), target, FitOptions()) == document
+
+
+def test_joint_fit_moves_a_fill_and_open_round_outline_together():
+    pytest.importorskip("torch")
+    svg = (
+        '<svg width="64" height="64"><g id="g">'
+        '<path id="fill" fill="#a23" d="M10 10 L31.5 10 L31.5 50 L10 50 Z"/>'
+        '<path id="outline" fill="none" stroke="black" stroke-width="0.7" '
+        'stroke-linecap="round" stroke-linejoin="round" d="M32.6 10 L32.6 50"/>'
+        "</g></svg>"
+    )
+    target_svg = svg.replace("31.5", "32").replace("32.6", "32")
+    target = render_image(target_svg, (0, 0, 64, 64), (64, 64), alpha=True)
+    document = import_svg(svg)
+    result = polish(
+        document,
+        ("fill", "outline"),
+        target,
+        FitOptions(steps=30, resolution=64, displacement=2),
+    )
+    assert result.root == document.root
+    for oid in ("fill", "outline"):
+        assert result.geometry_for(oid) != document.geometry_for(oid)
+        assert {n.id for s in result.geometry_for(oid).subpaths for n in s.nodes} == {
+            n.id for s in document.geometry_for(oid).subpaths for n in s.nodes
+        }
+    assert not result.geometry_for("outline").subpaths[0].closed
+    context = _context(document, ("fill", "outline"), target, FitOptions())
+    left, top, right, bottom = context.crop
+    box = left, top, right - left, bottom - top
+
+    def error(d):
+        pixels = context.array(
+            render_image(export_svg(d), box, context.size, alpha=True)
+        )
+        expected = context.array(context.target)
+        squared = (pixels - expected) ** 2
+        return np.mean((squared[..., :3].sum(-1) + 3 * squared[..., 3]) / 6)
+
+    assert error(result) < error(document) * 0.65

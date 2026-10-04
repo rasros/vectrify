@@ -568,7 +568,7 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
 
 
 def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
-    """Fit paths in order, then jointly polish compatible sibling fills.
+    """Fit paths in order, then jointly polish compatible sibling paths.
 
     Straight segments are fitted as curves, so the fit can bend one where
     the reference needs; those it leaves straight go back to lines.

@@ -1032,6 +1032,7 @@ def fit_filled_svg(
     project_controls: Any = None,
     observe: Any = None,
     coverage_transform: Any = None,
+    loss_transform: Any = None,
     device: str | None = None,
 ) -> str:
     """Optimise filled cubic SVG paths against an RGB target.
@@ -1056,12 +1057,14 @@ def fit_filled_svg(
     displacement from its seed in working-raster pixels. This limits contour
     drift without restricting fill colours; ``None`` retains the unbounded fit.
     ``fit_context`` supplies the editor's frozen affine compositing response
-    for one selected path or a contiguous run of sibling fills
+    for one selected path or a contiguous run of sibling paths
     (base, black-minus-base, white-minus-black), in
     white-backed RGB or white-backed RGB plus alpha for transparent references.
     In the latter case mean colour error and opacity error have equal weight.
     ``project_controls`` enforces editor coordinate constraints after each Adam
     update; ``observe`` reports/retains candidates and returns False to stop.
+    ``loss_transform`` optionally prepares the rendered image and target for
+    monolithic fitting, for example a coarse image comparison before refinement.
     These optional hooks leave the automatic path-fit mutation unchanged.
     ``device`` overrides the default of CUDA whenever Torch sees a GPU.
     Without CUDA or the native extension, coverage comes from the portable
@@ -1242,6 +1245,8 @@ def fit_filled_svg(
     # An editor-selected path needs the original painter-order response,
     # including clipping and isolated group opacity, rather than a backdrop
     # with the selected path implicitly painted on top of everything.
+    if loss_transform is not None and not monolithic:
+        raise ValueError("Image loss transformation requires monolithic fitting")
     context_tensors = None
     if fit_context is not None:
         if not monolithic or scale != 1:
@@ -1789,7 +1794,12 @@ def fit_filled_svg(
                     if under is None
                     else _composite_opaque_fills(alpha_stack, color_storage, under)
                 )
-            error = (rendered - goal) ** 2
+            comparison, target_image = (
+                (rendered, goal)
+                if loss_transform is None
+                else loss_transform(rendered, goal, _step)
+            )
+            error = (comparison - target_image) ** 2
             loss = (
                 (error[..., :3].sum(-1) + 3 * error[..., 3]).mean() / 6
                 if channels == 4
