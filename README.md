@@ -85,7 +85,7 @@ writing new methods.
 Python 3.10 or newer. SVG rendering needs Cairo; on Debian/Ubuntu install it
 with `sudo apt install libcairo2`.
 
-The `vision` extra installs PyTorch and transformers, which colour regions
+The `vision` extra installs PyTorch, which colour regions
 and the shape fit of Tidy need; `all` installs it with the desktop and MCP
 extras. Colour regions need an NVIDIA GPU with CUDA. The shape fit runs on the
 GPU with the optional native CUDA extension (below) and on the CPU otherwise,
@@ -120,7 +120,5 @@ hard drawings made for the bench, in `scripts/bench_data`, and the line
 bench's Wikipe-tan drawings; `bench_trace.py --photos` runs a set of
 photographs from Wikimedia Commons instead, kept in
 `~/.cache/vectrify-bench/photos` and attributed in
-`scripts/bench_data/photos.json`), `subtle_screen.py`
-checks that the scorers in `vectrify.score` order graded path damage
-correctly, and
-`analyze_profile.py` summarises a py-spy profile.
+`scripts/bench_data/photos.json`), and `analyze_profile.py` summarises a
+py-spy profile.
