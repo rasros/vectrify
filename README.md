@@ -122,3 +122,15 @@ photographs from Wikimedia Commons instead, kept in
 `~/.cache/vectrify-bench/photos` and attributed in
 `scripts/bench_data/photos.json`), and `analyze_profile.py` summarises a
 py-spy profile.
+
+Tidy is benchmarked as it is used, a touch-up after tracing:
+`bench_trace.py --tidy` tidies the 20 largest traced paths (`--paths N`,
+or `--tidy-all`) and reports, before and after, the whole image's error,
+the error over the tidied paths' own area, their points, Tidy's time per
+path, how many paths it changed, left alone, refused or stopped at its
+time limit, and the self-crossings it left; each `--tidy-steps
+snap,simplify[,detail][,shape]` tidies the same trace once more,
+`--tidy-crops DIR` saves before/after crops, and `--summary RUN...`
+compares the configurations with sign tests across images and paths.
+`bench_lines.py --tidy STEPS` scores a tidied trace's lines (F, width)
+beside the trace's own.
