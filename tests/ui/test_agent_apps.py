@@ -9,9 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from vectrify.ui import agent
-from vectrify.ui.agent import (
-    AgentChannel,
+from vectrify.ui import agent_setup
+from vectrify.ui.agent_channel import AgentChannel
+from vectrify.ui.agent_setup import (
     app_setup,
     claude_desktop_snippet,
     codex_command,
@@ -37,11 +37,11 @@ def test_the_executable_is_this_installs():
 
 
 def test_the_executable_falls_back_to_path_then_the_bare_name(tmp_path, monkeypatch):
-    monkeypatch.setattr(agent.sys, "executable", str(tmp_path / "python"))
+    monkeypatch.setattr(agent_setup.sys, "executable", str(tmp_path / "python"))
     found = tmp_path / "bin" / "vectrify-mcp"
-    monkeypatch.setattr(agent.shutil, "which", lambda _name: str(found))
+    monkeypatch.setattr(agent_setup.shutil, "which", lambda _name: str(found))
     assert mcp_executable() == str(found)
-    monkeypatch.setattr(agent.shutil, "which", lambda _name: None)
+    monkeypatch.setattr(agent_setup.shutil, "which", lambda _name: None)
     assert mcp_executable() == "vectrify-mcp"
 
 
@@ -78,14 +78,14 @@ def test_the_claude_desktop_entry_is_json_with_the_command(command):
 
 def test_the_config_locations(monkeypatch, tmp_path):
     monkeypatch.delenv("CODEX_HOME", raising=False)
-    monkeypatch.setattr(agent.sys, "platform", "darwin")
+    monkeypatch.setattr(agent_setup.sys, "platform", "darwin")
     apps = app_setup()
     assert apps["codex_config"] == "~/.codex/config.toml"
     assert apps["claude_desktop_config"] == (
         "~/Library/Application Support/Claude/claude_desktop_config.json"
     )
     monkeypatch.setenv("CODEX_HOME", str(tmp_path))
-    monkeypatch.setattr(agent.sys, "platform", "linux")
+    monkeypatch.setattr(agent_setup.sys, "platform", "linux")
     apps = app_setup()
     assert apps["codex_config"] == str(tmp_path / "config.toml")
     assert apps["claude_desktop_config"] == (

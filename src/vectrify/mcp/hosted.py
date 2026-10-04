@@ -25,10 +25,10 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 from vectrify.mcp.server import Vectrify, build_window_server
 from vectrify.mcp.target import WindowTarget
-from vectrify.ui.agent import MAX_CALL, OFF
+from vectrify.ui.agent_channel import MAX_CALL, OFF
 
 if TYPE_CHECKING:
-    from vectrify.ui.agent import AgentChannel
+    from vectrify.ui.agent_channel import AgentChannel
 
 PATH = "/mcp"
 

@@ -23,11 +23,10 @@ from shapely.geometry import LineString, Point, Polygon
 from shapely.geometry.base import BaseGeometry
 from shapely.prepared import prep
 
-from vectrify.document.hit_test import IDENTITY, Matrix, multiply, transform
+from vectrify.document.hit_test import Matrix
 from vectrify.document.join import curve_path, path_geometry
 from vectrify.document.knife import _cut_open, _Line
 from vectrify.document.model import (
-    Document,
     DocumentError,
     Element,
     Geometry,
@@ -37,6 +36,7 @@ from vectrify.document.model import (
 )
 from vectrify.document.svg import GEOMETRY, parse_path
 from vectrify.document.topology import inverse_matrix, mapped_point, subdivide
+from vectrify.document.transforms import object_matrix as object_matrix
 
 Point2 = tuple[float, float]
 # The basic shapes a region edit turns into paths where it cuts them.
@@ -120,23 +120,6 @@ def as_path(element: Element, geometry: Geometry) -> Element:
     if element.tag == "line" and element.get("fill") is None:
         attributes = (*attributes, ("fill", "none"))
     return replace(element, tag="path", attributes=attributes, geometry_id=geometry.id)
-
-
-def object_matrix(document: Document, object_id: str) -> Matrix:
-    """What maps the coordinates of *object_id*'s geometry into root user
-    space: its and its groups' transforms, and for an instance the offset and
-    transform of what it shows."""
-    matrix: Matrix = IDENTITY
-    for ancestor in document.ancestry(object_id):
-        matrix = multiply(matrix, transform(ancestor.get("transform")))
-    element = document.element(object_id)
-    while element.tag == "use":
-        x = float(element.get("x", "0") or 0)
-        y = float(element.get("y", "0") or 0)
-        element = document.element((element.get("href") or "#")[1:])
-        matrix = multiply(matrix, (1, 0, 0, 1, x, y))
-        matrix = multiply(matrix, transform(element.get("transform")))
-    return matrix
 
 
 def region_polygon(region: Sequence) -> list[Point2]:

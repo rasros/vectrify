@@ -15,7 +15,6 @@ import xml.etree.ElementTree as ET
 from dataclasses import dataclass, replace
 from typing import Any
 
-import cairosvg
 import numpy as np
 from PIL import Image
 
@@ -30,6 +29,8 @@ from vectrify.document import (
 from vectrify.document.model import new_id
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import OperationRequest, OperationResult, Proposal
+from vectrify.svg_render import frame as frame
+from vectrify.svg_render import render_png
 
 log = logging.getLogger(__name__)
 
@@ -269,23 +270,12 @@ def snap_seams(tx, paths: frozenset[str], distance: float) -> int:
         return 0
 
 
-def frame(
-    root: ET.Element,
-    box: tuple[float, float, float, float],
-    size: tuple[int, int],
-) -> None:
-    """Aim *root*'s viewBox at *box*, stretched over *size* pixels."""
-    root.set("viewBox", " ".join(str(v) for v in box))
-    root.set("width", str(size[0]))
-    root.set("height", str(size[1]))
-    root.set("preserveAspectRatio", "none")
-
-
 def render_region(document: Document, region: Region) -> Image.Image:
-    root = ET.fromstring(export_svg(document))
-    frame(root, (region.x, region.y, region.width, region.height), region.image.size)
-    png = cairosvg.svg2png(bytestring=ET.tostring(root), background_color="white")
-    assert png is not None
+    png = render_png(
+        export_svg(document),
+        (region.x, region.y, region.width, region.height),
+        region.image.size,
+    )
     with Image.open(io.BytesIO(png)) as image:
         return image.convert("RGB")
 

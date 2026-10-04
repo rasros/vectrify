@@ -6,10 +6,8 @@ import base64
 import math
 import xml.etree.ElementTree as ET
 
-import cairosvg
-
 from vectrify.document import DocumentError, export_svg
-from vectrify.operations.generate import frame
+from vectrify.svg_render import render_png
 
 
 def render_previews(before, after, bounds, *, highlight=()):
@@ -25,31 +23,34 @@ def render_previews(before, after, bounds, *, highlight=()):
     ):
         raise DocumentError("Preview bounds must be finite with positive dimensions")
     scale = 900 / max(width, height)
+    size = (max(1, round(width * scale)), max(1, round(height * scale)))
+
+    def overlay(root):
+        from vectrify.document.topology import edge
+
+        for ref in highlight:
+            points = edge(after, ref).points
+            data = f"M{points[0][0]} {points[0][1]} "
+            data += "C" if len(points) == 4 else "L"
+            data += " ".join(str(v) for point in points[1:] for v in point)
+            ET.SubElement(
+                root,
+                "{http://www.w3.org/2000/svg}path",
+                {
+                    "d": data,
+                    "fill": "none",
+                    "stroke": "#00c8ff",
+                    "stroke-width": str(2 / scale),
+                },
+            )
 
     def render(document):
-        root = ET.fromstring(export_svg(document))
-        size = (max(1, round(width * scale)), max(1, round(height * scale)))
-        frame(root, (x, y, width, height), size)
-        if document is after:
-            from vectrify.document.topology import edge
-
-            for ref in highlight:
-                points = edge(document, ref).points
-                data = f"M{points[0][0]} {points[0][1]} "
-                data += "C" if len(points) == 4 else "L"
-                data += " ".join(str(v) for point in points[1:] for v in point)
-                ET.SubElement(
-                    root,
-                    "{http://www.w3.org/2000/svg}path",
-                    {
-                        "d": data,
-                        "fill": "none",
-                        "stroke": "#00c8ff",
-                        "stroke-width": str(2 / scale),
-                    },
-                )
-        png = cairosvg.svg2png(bytestring=ET.tostring(root), background_color="white")
-        assert png is not None
+        png = render_png(
+            export_svg(document),
+            (x, y, width, height),
+            size,
+            overlay=overlay if document is after else None,
+        )
         return "data:image/png;base64," + base64.b64encode(png).decode()
 
     return {"before": render(before), "after": render(after)}

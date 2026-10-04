@@ -10,7 +10,7 @@ import math
 import re
 import time
 from collections import Counter
-from dataclasses import asdict, replace
+from dataclasses import asdict, dataclass, replace
 from threading import RLock
 from typing import Any
 from uuid import uuid4
@@ -30,6 +30,7 @@ from vectrify.document import (
     load_project,
     save_project,
 )
+from vectrify.document.editor import Transaction
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.join import path_style
 from vectrify.document.lines import stroke_outline
@@ -73,6 +74,66 @@ POINT_COMMANDS = {
     "break_points": "Break at point",
     "delete_segment": "Delete segment",
     "join_two_ends": "Join ends",
+}
+
+
+@dataclass(frozen=True)
+class Command:
+    """A session action's handler, undo label, and selection requirement."""
+
+    handler: str
+    label: str = ""
+    needs_selection: bool = False
+
+
+# The dispatch table is also the command inventory used by MCP coverage tests.
+ACTION_COMMANDS = {
+    "open": Command("_command_open"),
+    "select": Command("_command_select"),
+    "undo": Command("_command_history"),
+    "redo": Command("_command_history"),
+    "rename": Command("_command_rename"),
+    "locks": Command("_command_locks"),
+    "pin": Command("_command_pin"),
+    "reference": Command("_command_reference"),
+    **{
+        name: Command("_command_points", label)
+        for name, label in POINT_COMMANDS.items()
+    },
+    "add_path": Command("_command_add_path", "Draw path"),
+    "move_objects": Command("_command_move_objects"),
+    "knife": Command("_knife", "Cut with knife"),
+    "redraw_outline": Command("_redraw_outline", "Redraw outline"),
+    "join_ends": Command("_command_lines", "Join ends", True),
+    "fill_to_line": Command("_command_lines", "Fill to line", True),
+    "line_to_fill": Command("_command_lines", "Line to fill", True),
+    "convert_lines": Command("_command_lines", "Convert line/fill", True),
+    "extract": Command("_command_extract", needs_selection=True),
+    "fill_holes": Command("_command_fill_holes", "Fill holes", True),
+    "holes_to_shapes": Command("_command_holes_to_shapes", "Holes to shapes", True),
+    "cut_hole": Command("_command_cut_hole", "Cut out as hole", True),
+    "paint": Command("_command_paint", "Change paint", True),
+    "move": Command("_command_move", "Move selection", True),
+    "resize": Command("_command_resize", "Resize", True),
+    "group": Command("_command_group", "Group objects", True),
+    "ungroup": Command("_command_ungroup", "Ungroup objects", True),
+    "delete": Command("_command_delete", "Delete selection", True),
+    "reorder": Command("_command_reorder", "Change stacking", True),
+    "to_front": Command("_command_restack", "Bring to front", True),
+    "to_back": Command("_command_restack", "Send to back", True),
+    "detach": Command("_command_detach", "Detach geometry", True),
+    "split_disconnected": Command(
+        "_command_split_disconnected", "Split disconnected parts", True
+    ),
+    "join_paths": Command("_command_join_paths", "Join outlines", True),
+}
+
+OPERATION_COMMANDS = {
+    "start": "_operation_start",
+    "status": "_operation_status",
+    "stop": "_operation_stop",
+    "discard": "_operation_discard",
+    "apply": "_operation_apply",
 }
 
 
@@ -158,41 +219,55 @@ class Session:
     def operation(self, payload: dict) -> dict:
         """Start, poll, stop, apply or discard one automated operation."""
         command = payload.get("command")
-        if command == "start":
-            self.check_revision(payload)
-            chosen = method(str(payload.get("action")), str(payload.get("method")))
-            request = self._request(chosen, payload)
-            if chosen.background and any(
-                j.method.background and j.status == "running"
-                for j in self.jobs.values()
-            ):
-                raise DocumentError("Another operation is already running")
-            job = Job(chosen, request, context_key=self._job_key(chosen))
-            job.start()
-            self.jobs = {k: v for k, v in self.jobs.items() if v.status == "running"}
-            self.jobs[job.id] = job
-            return job.state(preview=True)
+        handler = OPERATION_COMMANDS.get(command) if isinstance(command, str) else None
+        if handler is None:
+            raise DocumentError("Unknown operation command")
+        return getattr(self, handler)(payload)
+
+    def _operation_job(self, payload: dict) -> Job:
         job = self.jobs.get(str(payload.get("job")))
         if job is None:
             raise DocumentError("This operation preview has expired")
-        if command == "status":
-            return job.state(preview=bool(payload.get("preview")))
-        if command == "stop":
-            job.stop.set()
-            return job.state()
-        if command == "discard":
-            job.stop.set()
-            del self.jobs[job.id]
-            return {"discarded": True}
-        if command == "apply":
-            if job.context_key != self._job_key(job.method):
-                raise StaleRevisionError(
-                    "The drawing or reference changed. Run the operation again."
-                )
-            job.apply(payload.get("choice", 0))
-            del self.jobs[job.id]
-            return self.state()
-        raise DocumentError("Unknown operation command")
+        return job
+
+    def _operation_start(self, payload: dict) -> dict:
+        self.check_revision(payload)
+        chosen = method(str(payload.get("action")), str(payload.get("method")))
+        request = self._request(chosen, payload)
+        if chosen.background and any(
+            j.method.background and j.status == "running" for j in self.jobs.values()
+        ):
+            raise DocumentError("Another operation is already running")
+        job = Job(chosen, request, context_key=self._job_key(chosen))
+        job.start()
+        self.jobs = {k: v for k, v in self.jobs.items() if v.status == "running"}
+        self.jobs[job.id] = job
+        return job.state(preview=True)
+
+    def _operation_status(self, payload: dict) -> dict:
+        job = self._operation_job(payload)
+        return job.state(preview=bool(payload.get("preview")))
+
+    def _operation_stop(self, payload: dict) -> dict:
+        job = self._operation_job(payload)
+        job.stop.set()
+        return job.state()
+
+    def _operation_discard(self, payload: dict) -> dict:
+        job = self._operation_job(payload)
+        job.stop.set()
+        del self.jobs[job.id]
+        return {"discarded": True}
+
+    def _operation_apply(self, payload: dict) -> dict:
+        job = self._operation_job(payload)
+        if job.context_key != self._job_key(job.method):
+            raise StaleRevisionError(
+                "The drawing or reference changed. Run the operation again."
+            )
+        job.apply(payload.get("choice", 0))
+        del self.jobs[job.id]
+        return self.state()
 
     def _request(self, chosen: Method, payload: dict) -> OperationRequest:
         bounds = payload.get("bounds", self.state(svg=False)["bounds"])
@@ -497,59 +572,70 @@ class Session:
     def action(self, payload: dict) -> dict:
         self.check_revision(payload)
         command = payload["command"]
+        spec = ACTION_COMMANDS.get(command) if isinstance(command, str) else None
+        if spec is None:
+            raise DocumentError("Unknown editor command")
+        if spec.needs_selection and not self.editor.snapshot.selection.object_ids:
+            raise DocumentError("Select an object first")
         before = self.editor.snapshot.revision
-        if command == "open":
-            self.open(payload["source"], str(payload.get("name", "Untitled.svg")))
-            return self.state()
-        if command == "select":
-            self.editor.select(
-                Selection(
-                    object_ids=frozenset(payload.get("objects", [])),
-                    node_ids=frozenset(payload.get("nodes", [])),
-                )
+        getattr(self, spec.handler)(payload)
+        return self.state(
+            svg=command == "open" or self.editor.snapshot.revision != before
+        )
+
+    def _command_select(self, payload: dict) -> None:
+        self.editor.select(
+            Selection(
+                object_ids=frozenset(payload.get("objects", [])),
+                node_ids=frozenset(payload.get("nodes", [])),
             )
-        elif command in {"undo", "redo"}:
-            getattr(self.editor, command)()
-        elif command == "rename":
-            if self.editor.snapshot.selection.object_ids != frozenset(
-                {payload["object"]}
-            ):
-                raise DocumentError("Select one object to rename")
-            self.editor.rename_object(payload["object"], payload["name"])
-        elif command == "locks":
-            object_id = payload["object"]
-            if object_id not in self.editor.snapshot.document.selection_ids(
-                self.editor.snapshot.selection
-            ):
-                raise DocumentError("Select the object before changing its locks")
-            self.editor.set_locks(object_id, frozenset(payload["locks"]))
-        elif command == "pin":
-            self.editor.pin_nodes(self._points(payload), pinned=bool(payload["pinned"]))
-        elif command == "reference":
-            reference = (
-                self.validate_reference(payload["reference"])
-                if payload.get("reference")
-                else None
-            )
-            # A new image is fitted to the artboard; an opacity change sends
-            # the fitted one back and is kept as it is.
-            if reference and reference["data_url"] != (self.reference or {}).get(
-                "data_url"
-            ):
-                reference = self.fit_reference(reference)
-            self.reference = reference
-        elif command in POINT_COMMANDS:
-            chosen = self.editor.snapshot.selection
-            self._edit_points(command, payload)
-            # Deleting the last selected points keeps their paths selected.
-            if chosen.node_ids and self.editor.snapshot.selection == Selection():
-                existing = {e.id for e in self.editor.snapshot.document.elements()}
-                kept = chosen.object_ids & existing
-                if kept:
-                    self.editor.select(Selection(object_ids=kept))
-        else:
-            self._edit(command, payload)
-        return self.state(svg=self.editor.snapshot.revision != before)
+        )
+
+    def _command_open(self, payload: dict) -> None:
+        self.open(payload["source"], str(payload.get("name", "Untitled.svg")))
+
+    def _command_rename(self, payload: dict) -> None:
+        if self.editor.snapshot.selection.object_ids != frozenset({payload["object"]}):
+            raise DocumentError("Select one object to rename")
+        self.editor.rename_object(payload["object"], payload["name"])
+
+    def _command_locks(self, payload: dict) -> None:
+        object_id = payload["object"]
+        if object_id not in self.editor.snapshot.document.selection_ids(
+            self.editor.snapshot.selection
+        ):
+            raise DocumentError("Select the object before changing its locks")
+        self.editor.set_locks(object_id, frozenset(payload["locks"]))
+
+    def _command_pin(self, payload: dict) -> None:
+        self.editor.pin_nodes(self._points(payload), pinned=bool(payload["pinned"]))
+
+    def _command_reference(self, payload: dict) -> None:
+        reference = (
+            self.validate_reference(payload["reference"])
+            if payload.get("reference")
+            else None
+        )
+        # A new image is fitted to the artboard; an opacity change sends
+        # the fitted one back and is kept as it is.
+        if reference and reference["data_url"] != (self.reference or {}).get(
+            "data_url"
+        ):
+            reference = self.fit_reference(reference)
+        self.reference = reference
+
+    def _command_history(self, payload: dict) -> None:
+        getattr(self.editor, payload["command"])()
+
+    def _command_points(self, payload: dict) -> None:
+        chosen = self.editor.snapshot.selection
+        self._edit_points(payload["command"], payload)
+        # Deleting the last selected points keeps their paths selected.
+        if chosen.node_ids and self.editor.snapshot.selection == Selection():
+            existing = {e.id for e in self.editor.snapshot.document.elements()}
+            kept = chosen.object_ids & existing
+            if kept:
+                self.editor.select(Selection(object_ids=kept))
 
     def _points(self, payload: dict) -> list[tuple[str, str]]:
         """The (object, node) pairs a point command acts on, in selected paths.
@@ -679,243 +765,254 @@ class Session:
                     if has_node(tx.preview, oid, nid):
                         tx.delete_contour(oid, nid)
 
-    def _edit(self, command: str, payload: dict) -> None:
+    def _object_selection(self) -> Selection:
         # Object commands act on whole objects, whichever points are selected.
-        selection = replace(self.editor.snapshot.selection, node_ids=frozenset())
+        return replace(self.editor.snapshot.selection, node_ids=frozenset())
+
+    def _object_transaction(self, command: str) -> Transaction:
+        return self.editor.transaction(
+            ACTION_COMMANDS[command].label, selection=self._object_selection()
+        )
+
+    def _command_lines(self, payload: dict) -> None:
+        self._lines(payload["command"], payload, self._object_selection().object_ids)
+
+    def _command_add_path(self, payload: dict) -> None:
+        document = self.editor.snapshot.document
+        geometry = parse_path(str(payload.get("d", "")))
+        # One contour as drawn, or several (a shape and its holes) as an
+        # agent gives them.
+        if not geometry.subpaths or any(len(s.nodes) < 2 for s in geometry.subpaths):
+            raise DocumentError("Draw at least two path points")
+        closed = all(s.closed for s in geometry.subpaths)
+        width = number(payload.get("stroke_width", 2))
+        if width <= 0:
+            raise DocumentError("Stroke width must be positive")
+        element = Element(
+            new_id("object"),
+            "path",
+            (
+                ("fill", "#83b899" if closed else "none"),
+                ("stroke", "none" if closed else "#83b899"),
+                ("stroke-width", str(width)),
+            ),
+            geometry_id=geometry.id,
+        )
+        # Creation explicitly targets the drawing, independently of selection.
+        with self.editor.transaction("Draw path", selection=Selection.all()) as tx:
+            tx.insert_object(document.root.id, element, geometries=(geometry,))
+        self.editor.select(Selection(object_ids=frozenset({element.id})))
+
+    def _command_move_objects(self, payload: dict) -> None:
+        document = self.editor.snapshot.document
+        # Dragging rows in the tree names its objects, selected or not.
+        objects = payload.get("objects")
+        if not isinstance(objects, list) or not objects:
+            raise DocumentError("Choose objects to move")
+        moving = frozenset(str(oid) for oid in objects)
+        parent = str(payload["parent"])
+        if document.root.id in moving:
+            raise DocumentError("Cannot move the document root")
+        regrouped = any(
+            ancestry[-2].id != parent
+            for ancestry in map(document.ancestry, moving)
+            if not any(a.id in moving for a in ancestry[:-1])
+        )
+        with self.editor.transaction(
+            "Move into group" if regrouped else "Change stacking",
+            selection=Selection(object_ids=moving),
+        ) as tx:
+            tx.move_objects(moving, parent, int(payload["index"]))
+        self.editor.select(Selection(object_ids=moving))
+
+    def _command_extract(self, payload: dict) -> None:
+        selection = self._object_selection()
+        # The selected paths' contours inside a region, taken into paths
+        # of their own, or deleted.
+        region = payload.get("region")
+        if not isinstance(region, list | tuple):
+            raise DocumentError("Give the region as [x, y, w, h] or a polygon")
+        delete = bool(payload.get("delete"))
+        with self.editor.transaction(
+            "Delete in region" if delete else "Extract region", selection=selection
+        ) as tx:
+            pairs = tx.extract_region(
+                region_polygon(region),
+                cut=bool(payload.get("cut", True)),
+                delete=delete,
+            )
+        existing = {e.id for e in self.editor.snapshot.document.elements()}
+        result = {new or old for old, new in pairs} & existing
+        self.editor.select(Selection(object_ids=frozenset(result)))
+
+    def _command_fill_holes(self, payload: dict) -> None:
+        selection = self._object_selection()
         selected = selection.object_ids
         document = self.editor.snapshot.document
-        if command == "add_path":
-            geometry = parse_path(str(payload.get("d", "")))
-            # One contour as drawn, or several (a shape and its holes) as an
-            # agent gives them.
-            if not geometry.subpaths or any(
-                len(s.nodes) < 2 for s in geometry.subpaths
-            ):
-                raise DocumentError("Draw at least two path points")
-            closed = all(s.closed for s in geometry.subpaths)
-            width = number(payload.get("stroke_width", 2))
-            if width <= 0:
-                raise DocumentError("Stroke width must be positive")
-            element = Element(
-                new_id("object"),
-                "path",
-                (
-                    ("fill", "#83b899" if closed else "none"),
-                    ("stroke", "none" if closed else "#83b899"),
-                    ("stroke-width", str(width)),
-                ),
-                geometry_id=geometry.id,
-            )
-            # Creation explicitly targets the drawing, independently of selection.
-            with self.editor.transaction("Draw path", selection=Selection.all()) as tx:
-                tx.insert_object(document.root.id, element, geometries=(geometry,))
-            self.editor.select(Selection(object_ids=frozenset({element.id})))
-            return
-        if command == "move_objects":
-            # Dragging rows in the tree names its objects, selected or not.
-            objects = payload.get("objects")
-            if not isinstance(objects, list) or not objects:
-                raise DocumentError("Choose objects to move")
-            moving = frozenset(str(oid) for oid in objects)
-            parent = str(payload["parent"])
-            if document.root.id in moving:
-                raise DocumentError("Cannot move the document root")
-            regrouped = any(
-                ancestry[-2].id != parent
-                for ancestry in map(document.ancestry, moving)
-                if not any(a.id in moving for a in ancestry[:-1])
-            )
-            with self.editor.transaction(
-                "Move into group" if regrouped else "Change stacking",
-                selection=Selection(object_ids=moving),
-            ) as tx:
-                tx.move_objects(moving, parent, int(payload["index"]))
-            self.editor.select(Selection(object_ids=moving))
-            return
-        if command == "knife":
-            self._knife(payload)
-            return
-        if command == "redraw_outline":
-            self._redraw_outline(payload)
-            return
-        if not selected:
-            raise DocumentError("Select an object first")
-        if command in {"join_ends", "fill_to_line", "line_to_fill", "convert_lines"}:
-            self._lines(command, payload, selected)
-            return
-        if command == "extract":
-            # The selected paths' contours inside a region, taken into paths
-            # of their own, or deleted.
-            region = payload.get("region")
-            if not isinstance(region, list | tuple):
-                raise DocumentError("Give the region as [x, y, w, h] or a polygon")
-            delete = bool(payload.get("delete"))
-            with self.editor.transaction(
-                "Delete in region" if delete else "Extract region", selection=selection
-            ) as tx:
-                pairs = tx.extract_region(
-                    region_polygon(region),
-                    cut=bool(payload.get("cut", True)),
-                    delete=delete,
+        targets = self._hole_targets(payload, "be filled")
+        cleanup = frozenset(payload.get("delete_objects", []))
+        if cleanup:
+            if len(targets) != 1:
+                raise DocumentError("Delete enclosed shapes with one path's holes")
+            ((oid, requested),) = targets.items()
+            holes = tuple(h for h in find_holes(document, oid) if h.id in requested)
+            if not cleanup <= enclosed_objects(document, oid, holes):
+                raise DocumentError(
+                    "Only shapes fully inside the chosen holes can be deleted"
                 )
-            existing = {e.id for e in self.editor.snapshot.document.elements()}
-            result = {new or old for old, new in pairs} & existing
-            self.editor.select(Selection(object_ids=frozenset(result)))
-            return
-        if command == "fill_holes":
-            targets = self._hole_targets(payload, "be filled")
-            cleanup = frozenset(payload.get("delete_objects", []))
-            if cleanup:
-                if len(targets) != 1:
-                    raise DocumentError("Delete enclosed shapes with one path's holes")
-                ((oid, requested),) = targets.items()
-                holes = tuple(h for h in find_holes(document, oid) if h.id in requested)
-                if not cleanup <= enclosed_objects(document, oid, holes):
-                    raise DocumentError(
-                        "Only shapes fully inside the chosen holes can be deleted"
-                    )
-            with self.editor.transaction(
-                "Fill holes", selection=Selection(object_ids=selected | cleanup)
-            ) as tx:
-                for oid, requested in targets.items():
-                    tx.fill_holes(oid, requested)
-                if cleanup:
-                    tx.delete_objects(cleanup)
-            return
-        if command == "holes_to_shapes":
-            targets = self._hole_targets(payload, "become shapes")
-            shapes: list[str] = []
-            with self.editor.transaction("Holes to shapes", selection=selection) as tx:
-                for oid, requested in targets.items():
-                    shapes.extend(tx.holes_to_shapes(oid, requested))
-            self.editor.select(Selection(object_ids=frozenset(shapes)))
-            return
-        if command == "cut_hole":
-            with self.editor.transaction("Cut out as hole", selection=selection) as tx:
-                outer = tx.cut_out_hole(selected)
-            self.editor.select(Selection(object_ids=frozenset({outer})))
-            return
-        group_id = None
-        if command == "reorder" and payload.get("to") in {"front", "back"}:
-            command = f"to_{payload['to']}"
         with self.editor.transaction(
-            {
-                "paint": "Change paint",
-                "move": "Move selection",
-                "resize": "Resize",
-                "group": "Group objects",
-                "ungroup": "Ungroup objects",
-                "delete": "Delete selection",
-                "reorder": "Change stacking",
-                "to_front": "Bring to front",
-                "to_back": "Send to back",
-                "detach": "Detach geometry",
-                "split_disconnected": "Split disconnected parts",
-                "join_paths": "Join outlines",
-            }.get(command, command),
-            selection=selection,
+            "Fill holes", selection=Selection(object_ids=selected | cleanup)
         ) as tx:
-            if command == "paint":
-                changes = payload["changes"]
-                if not isinstance(changes, dict) or not changes.keys() <= {
-                    "fill",
-                    "stroke",
-                    "stroke-width",
-                    "opacity",
-                    "fill-opacity",
-                    "stroke-opacity",
-                }:
-                    raise DocumentError("Unsupported paint property")
-                others = {k: v for k, v in changes.items() if k != "fill"}
-                for oid in selected:
-                    if others:
-                        tx.set_attributes(oid, others)
-                    if "fill" in changes:
-                        # Its own gradient, if it had one, goes with a new fill.
-                        tx.set_fill(oid, changes["fill"])
-            elif command == "move":
-                dx, dy = number(payload["dx"]), number(payload["dy"])
-                # Avoid translating a selected child twice if its group is selected.
-                for oid in selected:
-                    if any(a.id in selected for a in document.ancestry(oid)[:-1]):
-                        continue
-                    offset = payload.get("offsets", {}).get(oid, (dx, dy))
-                    move_x, move_y = (number(v) for v in offset)
-                    previous = document.element(oid).get("transform", "") or ""
-                    transform = f"translate({move_x} {move_y}) {previous}".strip()
-                    tx.set_attributes(oid, {"transform": transform})
-            elif command == "resize":
-                anchor = tuple(number(v) for v in payload["anchor"])
-                scale = tuple(number(v) for v in payload["scale"])
-                if len(anchor) != 2 or len(scale) != 2:
-                    raise DocumentError("A resize needs an anchor and two scales")
-                tx.scale_objects(selected, (anchor[0], anchor[1]), (scale[0], scale[1]))
-            elif command == "group":
-                group_id = tx.group_objects(selected)
-            elif command == "ungroup":
-                for oid in selected:
-                    tx.ungroup_object(oid)
-            elif command == "delete":
-                tx.delete_objects(selected)
-            elif command in {"to_front", "to_back"}:
-                # Each container's selected children go to its front or back
-                # together, in their current order.
-                groups: dict[str, set[str]] = {}
-                for oid in selected:
-                    ancestry = document.ancestry(oid)
-                    if len(ancestry) < 2:
-                        raise DocumentError("Cannot restack the document root")
-                    if not any(a.id in selected for a in ancestry[:-1]):
-                        groups.setdefault(ancestry[-2].id, set()).add(oid)
-                for parent, children in groups.items():
-                    others = len(document.element(parent).children) - len(children)
-                    tx.move_objects(
-                        frozenset(children),
-                        parent,
-                        others if command == "to_front" else 0,
-                    )
-            elif command == "reorder":
-                if len(selected) != 1:
-                    raise DocumentError(
-                        "Select one object to change its stacking order"
-                    )
-                oid = next(iter(selected))
-                siblings = document.ancestry(oid)[-2].children
-                index = next(i for i, item in enumerate(siblings) if item.id == oid)
-                target = max(0, min(len(siblings) - 1, index + int(payload["step"])))
-                tx.reorder_object(oid, target)
-            elif command == "detach":
-                for oid in selected:
-                    tx.detach_geometry(oid)
-            elif command == "split_disconnected":
-                for oid in sorted(selected):
-                    tx.split_disconnected(oid)
-            elif command == "join_paths":
-                options = payload.get("options", {})
-                if not isinstance(options, dict) or set(options) - {
-                    "colors",
-                    "color_source",
-                }:
-                    raise DocumentError("Invalid join options")
-                mode = options.get("colors", "mix")
-                source = options.get("color_source")
-                if (
-                    not isinstance(mode, str)
-                    or mode not in {"mix", "source"}
-                    or (
-                        mode == "source" and (not isinstance(source, str) or not source)
-                    )
-                    or (mode == "mix" and source is not None)
-                ):
-                    raise DocumentError(
-                        "Choose mixed colors or a selected color source"
-                    )
-                tx.join_paths(selected, color_source=source)
-            else:
-                raise DocumentError("Unknown editor command")
+            for oid, requested in targets.items():
+                tx.fill_holes(oid, requested)
+            if cleanup:
+                tx.delete_objects(cleanup)
 
-        if group_id is not None:
-            self.editor.select(Selection(object_ids=frozenset({group_id})))
+    def _command_holes_to_shapes(self, payload: dict) -> None:
+        selection = self._object_selection()
+        targets = self._hole_targets(payload, "become shapes")
+        shapes: list[str] = []
+        with self.editor.transaction("Holes to shapes", selection=selection) as tx:
+            for oid, requested in targets.items():
+                shapes.extend(tx.holes_to_shapes(oid, requested))
+        self.editor.select(Selection(object_ids=frozenset(shapes)))
+
+    def _command_cut_hole(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            outer = tx.cut_out_hole(selected)
+        self.editor.select(Selection(object_ids=frozenset({outer})))
+
+    def _command_paint(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            changes = payload["changes"]
+            if not isinstance(changes, dict) or not changes.keys() <= {
+                "fill",
+                "stroke",
+                "stroke-width",
+                "opacity",
+                "fill-opacity",
+                "stroke-opacity",
+            }:
+                raise DocumentError("Unsupported paint property")
+            others = {k: v for k, v in changes.items() if k != "fill"}
+            for oid in selected:
+                if others:
+                    tx.set_attributes(oid, others)
+                if "fill" in changes:
+                    # Its own gradient, if it had one, goes with a new fill.
+                    tx.set_fill(oid, changes["fill"])
+
+    def _command_move(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        document = self.editor.snapshot.document
+        with self._object_transaction(payload["command"]) as tx:
+            dx, dy = number(payload["dx"]), number(payload["dy"])
+            # Avoid translating a selected child twice if its group is selected.
+            for oid in selected:
+                if any(a.id in selected for a in document.ancestry(oid)[:-1]):
+                    continue
+                offset = payload.get("offsets", {}).get(oid, (dx, dy))
+                move_x, move_y = (number(v) for v in offset)
+                previous = document.element(oid).get("transform", "") or ""
+                transform = f"translate({move_x} {move_y}) {previous}".strip()
+                tx.set_attributes(oid, {"transform": transform})
+
+    def _command_resize(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            anchor = tuple(number(v) for v in payload["anchor"])
+            scale = tuple(number(v) for v in payload["scale"])
+            if len(anchor) != 2 or len(scale) != 2:
+                raise DocumentError("A resize needs an anchor and two scales")
+            tx.scale_objects(selected, (anchor[0], anchor[1]), (scale[0], scale[1]))
+
+    def _command_group(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            group_id = tx.group_objects(selected)
+        self.editor.select(Selection(object_ids=frozenset({group_id})))
+
+    def _command_ungroup(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            for oid in selected:
+                tx.ungroup_object(oid)
+
+    def _command_delete(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            tx.delete_objects(selected)
+
+    def _command_restack(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        document = self.editor.snapshot.document
+        with self._object_transaction(payload["command"]) as tx:
+            command = payload["command"]
+            # Each container's selected children go to its front or back
+            # together, in their current order.
+            groups: dict[str, set[str]] = {}
+            for oid in selected:
+                ancestry = document.ancestry(oid)
+                if len(ancestry) < 2:
+                    raise DocumentError("Cannot restack the document root")
+                if not any(a.id in selected for a in ancestry[:-1]):
+                    groups.setdefault(ancestry[-2].id, set()).add(oid)
+            for parent, children in groups.items():
+                others = len(document.element(parent).children) - len(children)
+                tx.move_objects(
+                    frozenset(children),
+                    parent,
+                    others if command == "to_front" else 0,
+                )
+
+    def _command_reorder(self, payload: dict) -> None:
+        if payload.get("to") in {"front", "back"}:
+            self._command_restack({**payload, "command": f"to_{payload['to']}"})
+            return
+        selected = self._object_selection().object_ids
+        document = self.editor.snapshot.document
+        with self._object_transaction(payload["command"]) as tx:
+            if len(selected) != 1:
+                raise DocumentError("Select one object to change its stacking order")
+            oid = next(iter(selected))
+            siblings = document.ancestry(oid)[-2].children
+            index = next(i for i, item in enumerate(siblings) if item.id == oid)
+            target = max(0, min(len(siblings) - 1, index + int(payload["step"])))
+            tx.reorder_object(oid, target)
+
+    def _command_detach(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            for oid in selected:
+                tx.detach_geometry(oid)
+
+    def _command_split_disconnected(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            for oid in sorted(selected):
+                tx.split_disconnected(oid)
+
+    def _command_join_paths(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        with self._object_transaction(payload["command"]) as tx:
+            options = payload.get("options", {})
+            if not isinstance(options, dict) or set(options) - {
+                "colors",
+                "color_source",
+            }:
+                raise DocumentError("Invalid join options")
+            mode = options.get("colors", "mix")
+            source = options.get("color_source")
+            if (
+                not isinstance(mode, str)
+                or mode not in {"mix", "source"}
+                or (mode == "source" and (not isinstance(source, str) or not source))
+                or (mode == "mix" and source is not None)
+            ):
+                raise DocumentError("Choose mixed colors or a selected color source")
+            tx.join_paths(selected, color_source=source)
 
     def _knife(self, payload: dict) -> None:
         """Cut the paths the knife line crosses: the selected ones, or with
