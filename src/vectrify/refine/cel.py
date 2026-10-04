@@ -1932,16 +1932,18 @@ def _line_paths(
     if not line_width and strokes:
         # A line whose width changes a lot is drawn as a stroke per width.
         cut = []
-        for run in runs:
+        for number, run in enumerate(runs):
             pieces = width_pieces(
                 _widths_along(across, run), max(LINE_PIECE, LINE_PIECE_WIDTHS * typical)
             )
             body = float(np.median(style(run)[1])) if len(pieces) > 1 else 0.0
-            cut.extend((run[first : last + 1], body) for first, last in pieces)
-        runs = [run for run, _ in cut]
-        tips = np.array([not grainy or body >= TIP_LINE for _, body in cut], bool)
+            cut.extend((run[first : last + 1], body, number) for first, last in pieces)
+        runs = [run for run, _, _ in cut]
+        tips = np.array([not grainy or body >= TIP_LINE for _, body, _ in cut], bool)
+        parents = np.array([number for _, _, number in cut], dtype=np.int64)
     else:
         tips = np.zeros(len(runs), dtype=bool)
+        parents = np.arange(len(runs))
     measured = []
     for run in runs:
         index, widths = style(run)
@@ -1996,6 +1998,9 @@ def _line_paths(
                 group[own[members]] = number
         # Each ink's solid thin strokes are a path of their own.
         group[solid] = -1
+        # Pieces of one line that land in one path again are one run, fitted
+        # with curves across the step between them.
+        runs, colours, widths, group = _rejoined(runs, parents, colours, widths, group)
     grouped: dict[tuple[int, int], list[tuple[Subpath, float, int]]] = {}
     group_runs: dict[tuple[int, int], list[np.ndarray]] = {}
     for run, index, width, step in zip(runs, colours, widths, group, strict=True):
@@ -2051,6 +2056,42 @@ def _line_paths(
         "line_pieces": pieces_after,
         "line_runs_joined": pieces_before - pieces_after,
     }
+
+
+def _rejoined(
+    runs: list[np.ndarray],
+    parents: np.ndarray,
+    colours: np.ndarray,
+    widths: np.ndarray,
+    group: np.ndarray,
+) -> tuple[list[np.ndarray], np.ndarray, np.ndarray, np.ndarray]:
+    """*runs*, the pieces of the lines *parents* cut where their width
+    steps, with each two following pieces of one line, ink (*colours*) and
+    width *group* joined again; a joined run's width is its pieces', each
+    counted by its length."""
+    joined: list[list[int]] = []
+    for i in range(len(runs)):
+        last = joined[-1][-1] if joined else -1
+        if (
+            joined
+            and parents[last] == parents[i]
+            and colours[last] == colours[i]
+            and group[last] == group[i]
+        ):
+            joined[-1].append(i)
+        else:
+            joined.append([i])
+    if len(joined) == len(runs):
+        return runs, colours, widths, group
+    merged, merged_widths = [], []
+    for members in joined:
+        merged.append(
+            np.concatenate([runs[members[0]]] + [runs[i][1:] for i in members[1:]])
+        )
+        lengths = np.array([len(runs[i]) for i in members], dtype=float)
+        merged_widths.append(float(np.average(widths[members], weights=lengths)))
+    firsts = [members[0] for members in joined]
+    return merged, colours[firsts], np.array(merged_widths), group[firsts]
 
 
 def centred(run: np.ndarray, ink: np.ndarray, width: float) -> np.ndarray:
