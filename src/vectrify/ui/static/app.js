@@ -508,7 +508,6 @@ const filledPath = id => resolvedPaint(id, 'fill', 'black') !== 'none';
 const strokedPath = id => resolvedPaint(id, 'stroke', 'none') !== 'none';
 const linePaths = () => joinCandidates().filter(item => !filledPath(item.id) && strokedPath(item.id));
 const fillPaths = () => joinCandidates().filter(item => filledPath(item.id));
-const noLines = () => !linePaths().length && 'Select stroked lines (paths without a fill)';
 // How far apart, in screen pixels, two line ends may be for Join ends: zoom
 // out to join wider gaps.
 const JOIN_REACH = 12;
