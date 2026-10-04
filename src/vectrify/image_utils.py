@@ -1,7 +1,6 @@
 import base64
 import io
 
-import cairosvg
 from PIL import Image
 from PIL.Image import Resampling
 
@@ -50,34 +49,3 @@ def on_white(image: Image.Image) -> Image.Image:
     return Image.alpha_composite(
         Image.new("RGBA", image.size, "white"), image.convert("RGBA")
     ).convert("RGB")
-
-
-def rasterize_svg_to_png_bytes(svg_text: str, *, out_w: int, out_h: int) -> bytes:
-    """
-    Rasterizes SVG to PNG and composites it over a white background
-    to prevent transparency being treated as black borders/edges.
-    """
-    if out_w <= 0 or out_h <= 0:
-        raise ValueError(f"Invalid raster target size: {out_w}x{out_h}")
-
-    raw_png = cairosvg.svg2png(
-        bytestring=svg_text.encode("utf-8"),
-        output_width=out_w,
-        output_height=out_h,
-    )
-    if raw_png is None:
-        raise ValueError(f"Failed to rasterize SVG to PNG: {svg_text}")
-
-    return png_bytes(on_white(Image.open(io.BytesIO(raw_png))))
-
-
-def rasterize_svg_to_image(svg_text: str, *, out_w: int, out_h: int) -> Image.Image:
-    """The white-backed RGB render of *svg_text*, as an image."""
-    png = rasterize_svg_to_png_bytes(svg_text, out_w=out_w, out_h=out_h)
-    with Image.open(io.BytesIO(png)) as image:
-        return image.convert("RGB")
-
-
-def rasterize_svg(svg_text: str, width: int, height: int) -> bytes:
-    """Positional form, for APIs that take a (svg, width, height) rasterizer."""
-    return rasterize_svg_to_png_bytes(svg_text, out_w=width, out_h=height)

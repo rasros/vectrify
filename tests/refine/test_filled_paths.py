@@ -7,10 +7,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vectrify.image_utils import (
-    rasterize_svg_to_image,
-    rasterize_svg_to_png_bytes,
-)
+from tests.helpers import rasterize_svg_to_png_bytes
 from vectrify.refine.paths import (
     _composite_opaque_fills,
     _fill_batched_windings,
@@ -26,6 +23,13 @@ from vectrify.refine.paths import (
     fit_filled_svg,
     parse_filled_cubics,
 )
+
+
+def rasterize_svg_to_image(svg_text: str, *, out_w: int, out_h: int) -> Image.Image:
+    """The white-backed RGB render of *svg_text*, as an image."""
+    png = rasterize_svg_to_png_bytes(svg_text, out_w=out_w, out_h=out_h)
+    with Image.open(io.BytesIO(png)) as image:
+        return image.convert("RGB")
 
 
 # The unbatched coverage, kept as the oracle the batched path must match.
