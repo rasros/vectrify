@@ -138,14 +138,22 @@ def _simplified(
         for i in range(len(nodes)):
             if time.monotonic() >= deadline:
                 break
-            costs.append(_cost(nodes, spans, i, fixed, frame))
+            costs.append(_cost(nodes, spans, i, fixed, frame, tolerance))
         if len(costs) < len(nodes):
             subpaths.append(subpath)
             continue
+        # The closing cost, kept while the nodes it depends on stay.
+        closed_by: tuple = ()
+        closing = None
         while len(nodes) > least and time.monotonic() < deadline:
             choices = [(cost[0], i) for i, cost in enumerate(costs) if cost is not None]
             best = min(choices, default=None)
-            closing = _closing(nodes, subpath.closed, fixed, frame)
+            ends = (nodes[0], nodes[-2], nodes[-1])
+            if len(closed_by) != 3 or any(
+                a is not b for a, b in zip(ends, closed_by, strict=True)
+            ):
+                closing = _closing(nodes, subpath.closed, fixed, frame, tolerance)
+                closed_by = ends
             if (
                 closing is not None
                 and closing <= tolerance
@@ -155,7 +163,7 @@ def _simplified(
                 spans.pop()
                 costs.pop()
                 for j in (len(nodes) - 2, len(nodes) - 1):
-                    costs[j] = _cost(nodes, spans, j, fixed, frame)
+                    costs[j] = _cost(nodes, spans, j, fixed, frame, tolerance)
                 continue
             if best is None or best[0] > tolerance:
                 break
@@ -168,7 +176,7 @@ def _simplified(
             # Only the joins beside the new segment changed.
             for j in (i - 1, i):
                 if 0 <= j < len(nodes):
-                    costs[j] = _cost(nodes, spans, j, fixed, frame)
+                    costs[j] = _cost(nodes, spans, j, fixed, frame, tolerance)
         subpaths.append(replace(subpath, nodes=tuple(nodes)))
     return replace(geometry, subpaths=tuple(subpaths))
 
@@ -183,9 +191,10 @@ def _spans(nodes: list[PathNode], frame: _Frame) -> list[np.ndarray]:
     return spans
 
 
-def _cost(nodes, spans, i: int, fixed: Frozen, frame: _Frame):
+def _cost(nodes, spans, i: int, fixed: Frozen, frame: _Frame, bound: float = np.inf):
     """(how far removing point *i* moves the outline, the joined node), or
-    None where the point has to stay."""
+    None where the point has to stay; a move past *bound* is measured only
+    as far as it takes to know it is."""
     # The first and last points end the contour, or close it.
     if not 0 < i < len(nodes) - 1 or _stays(nodes[i], fixed):
         return None
@@ -193,12 +202,15 @@ def _cost(nodes, spans, i: int, fixed: Frozen, frame: _Frame):
     # A long merged span measures just as well from fewer of its points.
     if len(old) > MEASURED:
         old = old[np.linspace(0, len(old) - 1, MEASURED).round().astype(int)]
-    return _join(nodes[i - 1], nodes[i], nodes[i + 1], frame, old)
+    return _join(nodes[i - 1], nodes[i], nodes[i + 1], frame, old, bound)
 
 
-def _closing(nodes, closed: bool, fixed: Frozen, frame: _Frame) -> float | None:
+def _closing(
+    nodes, closed: bool, fixed: Frozen, frame: _Frame, bound: float = np.inf
+) -> float | None:
     """How far the outline moves if a closed contour's last point goes, the
-    closing line then running from the one before it; None if it cannot."""
+    closing line then running from the one before it (past *bound*, only as
+    far as it takes to know it is); None if it cannot."""
     last = nodes[-1]
     if not closed or _stays(last, fixed):
         return None
@@ -210,7 +222,7 @@ def _closing(nodes, closed: bool, fixed: Frozen, frame: _Frame) -> float | None:
     start = frame.pixels(nodes[-2].values)[-1]
     t = np.linspace(0, 1, SAMPLES)
     old = np.vstack([_bezier(_controls(start, last, frame), t)[0], first])
-    return _apart(old, np.vstack([start, first]))
+    return _apart(old, np.vstack([start, first]), bound)
 
 
 def _stays(node: PathNode, fixed: Frozen) -> bool:
@@ -222,11 +234,16 @@ def _controls(start: np.ndarray, node: PathNode, frame: _Frame) -> np.ndarray:
 
 
 def _join(
-    before: PathNode, middle: PathNode, after: PathNode, frame: _Frame, old
+    before: PathNode,
+    middle: PathNode,
+    after: PathNode,
+    frame: _Frame,
+    old,
+    bound: float = np.inf,
 ) -> tuple[float, PathNode] | None:
     """The segment replacing the two either side of *middle*, and how far it
-    strays from the outline *old* they stand for, in pixels; *after* keeps
-    its ID."""
+    strays from the outline *old* they stand for, in pixels (past *bound*,
+    only as far as it takes to know it is); *after* keeps its ID."""
     start = frame.pixels(before.values)[-1]
     first = _controls(start, middle, frame)
     second = _controls(first[-1], after, frame)
@@ -239,14 +256,18 @@ def _join(
         if control is None:
             return None
         command = "C"
-    moved = _apart(old, _bezier(control, np.linspace(0, 1, 2 * SAMPLES))[0])
+    moved = _apart(old, _bezier(control, np.linspace(0, 1, 2 * SAMPLES))[0], bound)
     values = frame.local(control[1:])
     return moved, replace(after, command=command, values=values)
 
 
-def _apart(a: np.ndarray, b: np.ndarray) -> float:
-    """How far apart two polylines are: the furthest either strays from the other."""
-    return max(_furthest(a, b), _furthest(b, a))
+def _apart(a: np.ndarray, b: np.ndarray, bound: float = np.inf) -> float:
+    """How far apart two polylines are: the furthest either strays from the
+    other. When *a* alone strays past *bound*, that is all it measures."""
+    first = _furthest(a, b)
+    if first > bound:
+        return first
+    return max(first, _furthest(b, a))
 
 
 def _furthest(points: np.ndarray, line: np.ndarray) -> float:
