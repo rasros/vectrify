@@ -232,6 +232,56 @@ def test_native_analytic_cubic_coverage_stays_cairo_validated():
     assert np.abs(native - real).mean() < 0.002
 
 
+@pytest.mark.parametrize("renderer", ["single", "compound"])
+def test_parallel_coverage_keeps_pixels_and_gradients_across_small_crops(renderer):
+    torch = pytest.importorskip("torch")
+    if not torch.cuda.is_available():
+        pytest.skip("CUDA is required")
+    from vectrify.refine.cuda_renderer import available, coverage, multi_coverage
+
+    if not available():
+        pytest.skip("optional CUDA renderer extension is not installed")
+    path = "M12 48 C12 5 84 5 84 48 C84 91 12 91 12 48 Z"
+    if renderer == "compound":
+        path += " M36 48 C36 64 60 64 60 48 C60 32 36 32 36 48 Z"
+    controls = torch.stack(
+        [
+            _pad_fused_cubics(
+                torch.tensor(contour, device="cuda", dtype=torch.float32)[None]
+            )[0]
+            for contour in parse_filled_cubics(path)
+        ]
+    ).requires_grad_()
+
+    def render(box):
+        if renderer == "single":
+            result = coverage(controls, box, subpixels=2, fill_rule="nonzero")
+        else:
+            result = multi_coverage(
+                controls, [0, len(controls)], box, subpixels=2, fill_rule="nonzero"
+            )
+        assert result is not None
+        return result[0]
+
+    # The full crop spans several blocks. Each 32-pixel crop uses one,
+    # giving an independent check of pixel indexing and gradient reduction.
+    full = render((0, 0, 96, 96))
+    tiled = torch.cat(
+        [
+            torch.cat([render((x, y, x + 32, y + 32)) for x in range(0, 96, 32)], dim=1)
+            for y in range(0, 96, 32)
+        ],
+        dim=0,
+    )
+    assert torch.equal(full, tiled)
+    weights = torch.linspace(-0.2, 1.0, 96 * 96, device="cuda").reshape(96, 96)
+    weights[:16] = 0
+    expected = torch.autograd.grad((full * weights).sum(), controls)[0]
+    actual = torch.autograd.grad((tiled * weights).sum(), controls)[0]
+    assert actual.abs().sum() > 0
+    assert torch.allclose(actual, expected, atol=2e-5, rtol=1e-5)
+
+
 def test_native_analytic_multi_contour_coverage_preserves_a_hole():
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():
@@ -552,7 +602,7 @@ def test_large_path_boundary_candidates_are_a_local_subset_of_ray_candidates():
     assert nearby == (0,)
 
 
-@pytest.mark.parametrize("size", [(64, 64), (61, 57)])
+@pytest.mark.parametrize("size", [(64, 64), (61, 57), (97, 83)])
 def test_tiled_analytic_large_path_matches_untiled_coverage_and_gradients(size):
     torch = pytest.importorskip("torch")
     if not torch.cuda.is_available():

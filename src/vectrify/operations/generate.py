@@ -8,7 +8,6 @@ new group, inserted at the front of the chosen container in one transaction.
 
 from __future__ import annotations
 
-import io
 import logging
 import re
 import xml.etree.ElementTree as ET
@@ -30,7 +29,7 @@ from vectrify.document.model import new_id
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import OperationRequest, OperationResult, Proposal
 from vectrify.svg_render import frame as frame
-from vectrify.svg_render import render_png
+from vectrify.svg_render import render_image
 
 log = logging.getLogger(__name__)
 
@@ -271,13 +270,11 @@ def snap_seams(tx, paths: frozenset[str], distance: float) -> int:
 
 
 def render_region(document: Document, region: Region) -> Image.Image:
-    png = render_png(
+    return render_image(
         export_svg(document),
         (region.x, region.y, region.width, region.height),
         region.image.size,
     )
-    with Image.open(io.BytesIO(png)) as image:
-        return image.convert("RGB")
 
 
 def error(image: Image.Image, reference: Image.Image) -> float:

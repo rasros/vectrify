@@ -216,7 +216,7 @@ class Document:
         return index
 
     def geometry(self, geometry_id: str) -> Geometry:
-        geometry = self._index()[0].get(geometry_id)
+        geometry = self._geometry_index().get(geometry_id)
         if geometry is None:
             raise DocumentError(f"Unknown geometry: {geometry_id}")
         return geometry
@@ -224,22 +224,24 @@ class Document:
     def node_position(self, geometry_id: str, node_id: str):
         """(subpath, index) of a geometry's node, or None if it has none."""
         self.geometry(geometry_id)
-        return self._index()[1].get((geometry_id, node_id))
-
-    def _index(self):
-        # A document never changes, so its lookups are built once, when first
-        # needed: edges are looked up thousands of times per edit.
-        index = self.__dict__.get("_lookup")
+        index = self.__dict__.get("_node_lookup")
         if index is None:
-            geometries = {g.id: g for g in self.geometries}
-            nodes = {
+            index = {
                 (g.id, node.id): (subpath, i)
                 for g in self.geometries
                 for subpath in g.subpaths
                 for i, node in enumerate(subpath.nodes)
             }
-            index = geometries, nodes
-            object.__setattr__(self, "_lookup", index)
+            object.__setattr__(self, "_node_lookup", index)
+        return index.get((geometry_id, node_id))
+
+    def _geometry_index(self):
+        # Candidate renders need geometry lookups, but rarely node positions.
+        # Build the much larger node index only when an edit asks for it.
+        index = self.__dict__.get("_geometry_lookup")
+        if index is None:
+            index = {g.id: g for g in self.geometries}
+            object.__setattr__(self, "_geometry_lookup", index)
         return index
 
     def geometry_for(self, element_id: str) -> Geometry:

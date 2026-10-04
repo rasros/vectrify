@@ -12,7 +12,6 @@ on the CPU with the portable polyline coverage; outlines still need CUDA.
 from __future__ import annotations
 
 import functools
-import io
 import math
 import re
 import xml.etree.ElementTree as ET
@@ -20,7 +19,6 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from threading import Event
 
-import cairosvg
 import numpy as np
 from cairosvg.colors import color
 from PIL import Image
@@ -37,6 +35,7 @@ from vectrify.document.join import path_style
 from vectrify.document.transforms import ancestry_matrix, root_matrix
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.refine.crossings import crossed_nodes, crossings
+from vectrify.svg_render import cached_rendering, render_image
 
 # How many times the nodes of crossing segments are moved halfway back before
 # they go all the way back, and then the whole outline does.
@@ -289,11 +288,7 @@ class FitContext:
         return np.asarray(image, dtype=np.float32) / 255
 
     def render(self) -> Image.Image:
-        data = cairosvg.svg2png(
-            bytestring=ET.tostring(self.root), background_color="white"
-        )
-        assert data is not None
-        return Image.open(io.BytesIO(data)).convert("RGB")
+        return render_image(ET.tostring(self.root))
 
     def reshaped(self, coordinates: np.ndarray):
         """(the changed node values, the whole geometry) for *coordinates*."""
@@ -404,6 +399,7 @@ def pruned(root: ET.Element, document: Document, crop, keep: str) -> None:
                 parent.remove(child)
 
 
+@cached_rendering()
 def fit_selected_path(
     document: Document,
     selection: Selection,

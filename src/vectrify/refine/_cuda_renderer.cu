@@ -2,10 +2,19 @@
 #include <c10/cuda/CUDAGuard.h>
 #include <ATen/cuda/CUDAContext.h>
 #include <cstdint>
+#include <algorithm>
 
 namespace {
 constexpr int kCubics = 16;
 constexpr int kSamples = 32;
+// A selected path is often one batch item. Partition its pixels across SMs
+// instead of making one block rasterise the entire crop. Small crops keep
+// their original single-block reduction order.
+dim3 coverage_grid(int64_t paths, int64_t height, int64_t width) {
+    const int64_t pixels = height * width;
+    const int64_t blocks = pixels <= 4096 ? 1 : std::min<int64_t>(128, (pixels + 1023) / 1024);
+    return dim3(paths, blocks);
+}
 
 __device__ inline void point(const float* control, int cubic, int sample, int samples, float& x, float& y) {
     const float t = float(sample) / float(samples - 1), u = 1.f - t;
@@ -75,6 +84,11 @@ __device__ inline int ray_winding(const float* path, float px, float py) {
     int winding = 0;
     for (int cubic = 0; cubic < kCubics; ++cubic) {
         const float* c = path + cubic * 8;
+        const float min_y = fminf(fminf(c[1], c[3]), fminf(c[5], c[7]));
+        const float max_y = fmaxf(fmaxf(c[1], c[3]), fmaxf(c[5], c[7]));
+        const float max_x = fmaxf(fmaxf(c[0], c[2]), fmaxf(c[4], c[6]));
+        const float slack = 1e-4f * (1.f + fmaxf(fabsf(max_x), fmaxf(fabsf(min_y), fabsf(max_y))));
+        if (py < min_y - slack || py > max_y + slack || px > max_x + slack) continue;
         // dy/dt = A t^2 + B t + C.  Its roots partition y(t) into monotonic
         // intervals, so this finds cubic intersections without tessellation.
         const float A = 3.f * (-c[1] + 3.f*c[3] - 3.f*c[5] + c[7]);
@@ -138,7 +152,7 @@ __global__ void coverage_forward_kernel(const float* controls, float* output, in
     const float* path = controls + batch * kCubics * 8;
     __shared__ float bounds[4];
     path_bounds(path, bounds);
-    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+    for (int pixel = blockIdx.y * blockDim.x + threadIdx.x; pixel < pixels; pixel += blockDim.x * gridDim.y) {
         float coverage = 0.f;
         for (int subpixel = 0; subpixel < subpixels * subpixels; ++subpixel) {
             const float px = x_base + float(pixel % width) + (float(subpixel % subpixels) + .5f) / subpixels;
@@ -163,8 +177,9 @@ __global__ void coverage_backward_kernel(const float* controls, const float* ups
     __shared__ float reduction[8][256];
     path_bounds(path, bounds);
     float accumulated[kCubics * 8] = {0.f};
-    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+    for (int pixel = blockIdx.y * blockDim.x + threadIdx.x; pixel < pixels; pixel += blockDim.x * gridDim.y) {
         const float d_output = upstream[batch * pixels + pixel] / float(subpixels * subpixels);
+        if (d_output == 0.f) continue;
         // The coverage derivative is local.  Interior pixels have constant
         // coverage, so only a one-pixel band around the control hull does
         // useful work in the gradient pass.
@@ -175,9 +190,7 @@ __global__ void coverage_backward_kernel(const float* controls, const float* ups
         for (int subpixel = 0; subpixel < subpixels * subpixels; ++subpixel) {
             const float px = base_x + (float(subpixel % subpixels) + .5f) / subpixels;
             const float py = base_y + (float(subpixel / subpixels) + .5f) / subpixels;
-            const int winding = ray_winding(path, px, py);
-            const float sign = winding == 0 ? 1.f : -1.f;
-            float best_distance = 1e20f, best_t = 0.f; int best_cubic = 0;
+            float best_distance = 1e20f, best_t = 0.f; int best_cubic = -1;
             for (int cubic = 0; cubic < kCubics; ++cubic) {
                 if (cubic_hull_distance_sq(path, cubic, px, py) >= best_distance) continue;
                 // A small fixed set of seeds, followed by Newton projection,
@@ -201,6 +214,9 @@ __global__ void coverage_backward_kernel(const float* controls, const float* ups
                     if (distance < best_distance) { best_distance = distance; best_t = t; best_cubic = cubic; }
                 }
             }
+            if (best_cubic < 0) continue;
+            const int winding = ray_winding(path, px, py);
+            const float sign = winding == 0 ? 1.f : -1.f;
             const float distance = sqrtf(best_distance + 1e-12f);
             const float alpha = 1.f / (1.f + expf(sign * distance / .25f));
             const float factor = d_output * (-sign) * alpha * (1.f-alpha) / .25f / distance;
@@ -227,7 +243,7 @@ __global__ void coverage_backward_kernel(const float* controls, const float* ups
         }
         if (threadIdx.x == 0)
             for (int component = 0; component < 8; ++component)
-                gradient[cubic * 8 + component] = reduction[component][0];
+                atomicAdd(gradient + cubic * 8 + component, reduction[component][0]);
         __syncthreads();
     }
 }
@@ -380,7 +396,7 @@ __global__ void multi_coverage_forward_kernel(const float* controls, const int64
     const int first = int(offsets[path_index]), last = int(offsets[path_index + 1]);
     __shared__ float bounds[4];
     contours_bounds(controls, first, last, bounds);
-    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+    for (int pixel = blockIdx.y * blockDim.x + threadIdx.x; pixel < pixels; pixel += blockDim.x * gridDim.y) {
         float coverage = 0.f;
         for (int subpixel = 0; subpixel < subpixels * subpixels; ++subpixel) {
             const float px = x_base + float(pixel % width) + (float(subpixel % subpixels) + .5f) / subpixels;
@@ -404,7 +420,7 @@ __global__ void multi_coverage_topology_forward_kernel(const float* controls, co
     const int first = int(offsets[path_index]), last = int(offsets[path_index + 1]);
     __shared__ float bounds[4];
     contours_bounds(controls, first, last, bounds);
-    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+    for (int pixel = blockIdx.y * blockDim.x + threadIdx.x; pixel < pixels; pixel += blockDim.x * gridDim.y) {
         float coverage = 0.f; uint16_t mask = 0;
         for (int subpixel = 0; subpixel < subpixels * subpixels; ++subpixel) {
             const float px = x_base + float(pixel % width) + (float(subpixel % subpixels) + .5f) / subpixels;
@@ -433,19 +449,16 @@ __global__ void multi_coverage_backward_kernel(const float* controls, const int6
     const int first = int(offsets[path_index]), last = int(offsets[path_index + 1]);
     __shared__ float bounds[4];
     contours_bounds(controls, first, last, bounds);
-    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+    for (int pixel = blockIdx.y * blockDim.x + threadIdx.x; pixel < pixels; pixel += blockDim.x * gridDim.y) {
         const float d_output = upstream[path_index * pixels + pixel] / float(subpixels * subpixels);
+        if (d_output == 0.f) continue;
         const float base_x = x_base + float(pixel % width), base_y = y_base + float(pixel / width);
         if (base_x < bounds[0] - 2.f || base_x > bounds[2] + 2.f ||
             base_y < bounds[1] - 2.f || base_y > bounds[3] + 2.f) continue;
         for (int subpixel = 0; subpixel < subpixels * subpixels; ++subpixel) {
             const float px = base_x + (float(subpixel % subpixels) + .5f) / subpixels;
             const float py = base_y + (float(subpixel / subpixels) + .5f) / subpixels;
-            int winding = 0;
-            for (int contour = first; contour < last; ++contour)
-                winding += ray_winding(controls + contour * kCubics * 8, px, py);
-            const float sign = winding == 0 ? 1.f : -1.f;
-            float best_distance = 1e20f, best_t = 0.f; int best_contour = first, best_cubic = 0;
+            float best_distance = 1e20f, best_t = 0.f; int best_contour = first, best_cubic = -1;
             for (int contour = first; contour < last; ++contour) {
                 const float* path = controls + contour * kCubics * 8;
                 for (int cubic = 0; cubic < kCubics; ++cubic) {
@@ -466,6 +479,11 @@ __global__ void multi_coverage_backward_kernel(const float* controls, const int6
                 }
                 }
             }
+            if (best_cubic < 0) continue;
+            int winding = 0;
+            for (int contour = first; contour < last; ++contour)
+                winding += ray_winding(controls + contour * kCubics * 8, px, py);
+            const float sign = winding == 0 ? 1.f : -1.f;
             const float distance = sqrtf(best_distance + 1e-12f);
             const float alpha = 1.f / (1.f + expf(sign * distance / .25f));
             const float factor = d_output * (-sign) * alpha * (1.f-alpha) / .25f / distance;
@@ -499,8 +517,9 @@ __global__ void multi_coverage_backward_topology_kernel(
     const int boundary_last = int(boundary_offsets[path_index + 1]);
     __shared__ float bounds[4];
     contours_bounds(controls, first, last, bounds);
-    for (int pixel = threadIdx.x; pixel < pixels; pixel += blockDim.x) {
+    for (int pixel = blockIdx.y * blockDim.x + threadIdx.x; pixel < pixels; pixel += blockDim.x * gridDim.y) {
         const float d_output = upstream[path_index * pixels + pixel] / float(subpixels * subpixels);
+        if (d_output == 0.f) continue;
         const float base_x = x_base + float(pixel % width), base_y = y_base + float(pixel / width);
         if (base_x < bounds[0] - 2.f || base_x > bounds[2] + 2.f ||
             base_y < bounds[1] - 2.f || base_y > bounds[3] + 2.f) continue;
@@ -510,7 +529,7 @@ __global__ void multi_coverage_backward_topology_kernel(
             const float px = base_x + (float(subpixel % subpixels) + .5f) / subpixels;
             const float py = base_y + (float(subpixel / subpixels) + .5f) / subpixels;
             const float sign = (mask & (uint16_t(1) << subpixel)) ? -1.f : 1.f;
-            float best_distance = 1e20f, best_t = 0.f; int best_contour = first, best_cubic = 0;
+            float best_distance = 1e20f, best_t = 0.f; int best_contour = first, best_cubic = -1;
             for (int candidate = boundary_first; candidate < boundary_last; ++candidate) {
                 const int local_contour = int(boundary_indices[candidate]);
                 // Boundary indices are local to this packed tile.  Keep the
@@ -537,6 +556,7 @@ __global__ void multi_coverage_backward_topology_kernel(
                     }
                 }
             }
+            if (best_cubic < 0) continue;
             const float distance = sqrtf(best_distance + 1e-12f);
             const float alpha = 1.f / (1.f + expf(sign * distance / .25f));
             const float factor = d_output * (-sign) * alpha * (1.f-alpha) / .25f / distance;
@@ -720,7 +740,7 @@ torch::Tensor coverage_forward(torch::Tensor controls, int64_t height, int64_t w
     TORCH_CHECK(subpixels >= 1 && subpixels <= 4);
     at::cuda::CUDAGuard guard(controls.device());
     auto output = torch::zeros({controls.size(0), height, width}, controls.options());
-    coverage_forward_kernel<<<controls.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+    coverage_forward_kernel<<<coverage_grid(controls.size(0), height, width), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
         controls.data_ptr<float>(), output.data_ptr<float>(), controls.size(0), height, width,
         subpixels, float(x_origin), float(y_origin), evenodd);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -732,7 +752,7 @@ torch::Tensor coverage_backward(torch::Tensor controls, torch::Tensor upstream, 
                                 double y_origin) {
     at::cuda::CUDAGuard guard(controls.device());
     auto gradients = torch::zeros_like(controls);
-    coverage_backward_kernel<<<controls.size(0), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+    coverage_backward_kernel<<<coverage_grid(controls.size(0), height, width), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
         controls.data_ptr<float>(), upstream.data_ptr<float>(), gradients.data_ptr<float>(),
         controls.size(0), height, width, subpixels, float(x_origin), float(y_origin));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -779,7 +799,7 @@ torch::Tensor multi_coverage_forward(torch::Tensor controls, torch::Tensor offse
     at::cuda::CUDAGuard guard(controls.device());
     const auto paths = offsets.size(0) - 1;
     auto output = torch::zeros({paths, height, width}, controls.options());
-    multi_coverage_forward_kernel<<<paths, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+    multi_coverage_forward_kernel<<<coverage_grid(paths, height, width), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
         controls.data_ptr<float>(), offsets.data_ptr<int64_t>(), output.data_ptr<float>(), paths,
         height, width, subpixels, float(x_origin), float(y_origin), evenodd);
     C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -798,7 +818,7 @@ std::vector<torch::Tensor> multi_coverage_forward_topology(
         topology.size(1) == height && topology.size(2) == width,
         "topology workspace has the wrong shape");
     auto output = torch::zeros({paths, height, width}, controls.options());
-    multi_coverage_topology_forward_kernel<<<paths, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+    multi_coverage_topology_forward_kernel<<<coverage_grid(paths, height, width), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
         controls.data_ptr<float>(), offsets.data_ptr<int64_t>(), output.data_ptr<float>(),
         topology.data_ptr<uint16_t>(), paths, height, width, subpixels, float(x_origin),
         float(y_origin), evenodd);
@@ -812,7 +832,7 @@ torch::Tensor multi_coverage_backward(torch::Tensor controls, torch::Tensor offs
     at::cuda::CUDAGuard guard(controls.device());
     auto gradients = torch::zeros_like(controls);
     const auto paths = offsets.size(0) - 1;
-    multi_coverage_backward_kernel<<<paths, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+    multi_coverage_backward_kernel<<<coverage_grid(paths, height, width), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
         controls.data_ptr<float>(), offsets.data_ptr<int64_t>(), upstream.data_ptr<float>(),
         gradients.data_ptr<float>(), paths, height, width, subpixels, float(x_origin), float(y_origin));
     C10_CUDA_KERNEL_LAUNCH_CHECK();
@@ -830,7 +850,7 @@ torch::Tensor multi_coverage_backward_topology(
     at::cuda::CUDAGuard guard(controls.device());
     auto gradients = torch::zeros_like(controls);
     const auto paths = offsets.size(0) - 1;
-    multi_coverage_backward_topology_kernel<<<paths, 256, 0, at::cuda::getCurrentCUDAStream()>>>(
+    multi_coverage_backward_topology_kernel<<<coverage_grid(paths, height, width), 256, 0, at::cuda::getCurrentCUDAStream()>>>(
         controls.data_ptr<float>(), offsets.data_ptr<int64_t>(),
         boundary_offsets.data_ptr<int64_t>(), boundary_indices.data_ptr<int64_t>(),
         topology.data_ptr<uint16_t>(), upstream.data_ptr<float>(), gradients.data_ptr<float>(),

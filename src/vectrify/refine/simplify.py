@@ -37,11 +37,16 @@ def simplify(
     fixed: Frozen,
     tolerance: float,
     deadline: float = float("inf"),
+    *,
+    initial_costs: dict | None = None,
+    cost_bound: float | None = None,
 ) -> Paths:
     """*paths* with the points removed that move no outline over *tolerance* px.
 
     Past *deadline* (time.monotonic()) no more points go, and each path
-    keeps those removed so far.
+    keeps those removed so far. An initial_costs cache may be shared only for
+    repeated calls with the same paths, frame and pins, and a cost_bound at
+    least as large as every requested tolerance.
     """
     geometries = dict(paths.geometries)
     for oid, geometry in paths.geometries.items():
@@ -49,7 +54,15 @@ def simplify(
         if frame is None:
             continue
         # Points go first: a curve drawn as a line joins its neighbours worse.
-        geometry = _simplified(geometry, frame, fixed, tolerance, deadline)
+        geometry = _simplified(
+            geometry,
+            frame,
+            fixed,
+            tolerance,
+            deadline,
+            initial_costs=initial_costs,
+            cost_bound=cost_bound,
+        )
         geometries[oid] = straightened(geometry, tolerance, frame)
     return replace(paths, geometries=geometries)
 
@@ -60,15 +73,18 @@ def curved(geometry: Geometry) -> Geometry:
     subpaths = []
     for subpath in geometry.subpaths:
         nodes = list(subpath.nodes)
-        for i in range(1, len(nodes)):
+        indices = [i for i in range(1, len(nodes)) if nodes[i].command == "L"]
+        if not indices:
+            subpaths.append(subpath)
+            continue
+        starts = np.asarray([nodes[i - 1].endpoint for i in indices])
+        ends = np.asarray([nodes[i].endpoint for i in indices])
+        step = ends - starts
+        controls = np.stack((starts + step / 3, starts + 2 * step / 3, ends), 1)
+        for i, control in zip(indices, controls, strict=True):
             node = nodes[i]
-            if node.command != "L":
-                continue
-            a = np.asarray(nodes[i - 1].values[-2:], dtype=np.float64)
-            b = np.asarray(node.values[-2:], dtype=np.float64)
-            values = (*(a + (b - a) / 3), *(a + 2 * (b - a) / 3), *b)
             nodes[i] = replace(
-                node, command="C", values=tuple(float(v) for v in values)
+                node, command="C", values=tuple(float(v) for v in control.ravel())
             )
         subpaths.append(replace(subpath, nodes=tuple(nodes)))
     return replace(geometry, subpaths=tuple(subpaths))
@@ -84,16 +100,27 @@ def straightened(
     subpaths = []
     for subpath in geometry.subpaths:
         nodes = list(subpath.nodes)
-        for i in range(1, len(nodes)):
-            node = nodes[i]
-            if node.command != "C":
-                continue
-            start = frame.pixels(nodes[i - 1].values)[-1]
-            c1, c2, end = frame.pixels(node.values)
-            if (
-                _off_line(start, end, c1) <= tolerance
-                and _off_line(start, end, c2) <= tolerance
-            ):
+        indices = [i for i in range(1, len(nodes)) if nodes[i].command == "C"]
+        if indices:
+            starts = frame.pixels(
+                tuple(v for i in indices for v in nodes[i - 1].endpoint)
+            )
+            controls = frame.pixels(tuple(v for i in indices for v in nodes[i].values))
+            controls = controls.reshape(-1, 3, 2)
+            step = controls[:, 2] - starts
+            length = (step * step).sum(-1)
+            offsets = controls[:, :2] - starts[:, None]
+            along = np.clip(
+                (offsets * step[:, None]).sum(-1) / np.maximum(length, 1e-12)[:, None],
+                0,
+                1,
+            )
+            along[length < 1e-12] = 0
+            distance = np.linalg.norm(
+                offsets - along[..., None] * step[:, None], axis=-1
+            )
+            for i in np.asarray(indices)[(distance <= tolerance).all(-1)]:
+                node = nodes[i]
                 nodes[i] = replace(node, command="L", values=node.values[-2:])
         subpaths.append(replace(subpath, nodes=tuple(nodes)))
     return replace(geometry, subpaths=tuple(subpaths))
@@ -122,6 +149,9 @@ def _simplified(
     fixed: Frozen,
     tolerance: float,
     deadline: float = float("inf"),
+    *,
+    initial_costs: dict | None = None,
+    cost_bound: float | None = None,
 ) -> Geometry:
     subpaths = []
     for subpath in geometry.subpaths:
@@ -134,14 +164,30 @@ def _simplified(
         # went: a join is fitted to and measured against it, so removals
         # never drift further than the tolerance from the original.
         spans = _spans(nodes, frame)
-        costs = []
-        for i in range(len(nodes)):
-            if time.monotonic() >= deadline:
-                break
-            costs.append(_cost(nodes, spans, i, fixed, frame, tolerance))
+        cached = initial_costs.get(subpath.id) if initial_costs is not None else None
+        costs = list(cached) if cached is not None else []
+        if cached is None:
+            for i in range(len(nodes)):
+                if time.monotonic() >= deadline:
+                    break
+                costs.append(
+                    _cost(
+                        nodes,
+                        spans,
+                        i,
+                        fixed,
+                        frame,
+                        tolerance if cost_bound is None else cost_bound,
+                    )
+                )
         if len(costs) < len(nodes):
             subpaths.append(subpath)
             continue
+        if initial_costs is not None and cached is None:
+            # The budget search repeats this same original geometry at several
+            # tolerances. Only its initial joins are shared; neighbours changed
+            # by a removal still have their costs recomputed below.
+            initial_costs[subpath.id] = tuple(costs)
         # The closing cost, kept while the nodes it depends on stay.
         closed_by: tuple = ()
         closing = None
