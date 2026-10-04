@@ -15,7 +15,7 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vectrify.image_utils import rasterize_svg as rasterize
+from tests.helpers import rasterize_svg_to_png_bytes
 from vectrify.refine.paths import (
     _SUPPORTED,
     _TOKEN,
@@ -123,7 +123,7 @@ def _real_ink(path_d: str) -> np.ndarray:
     blank = f"{head}</svg>"
 
     def ink(svg: str) -> np.ndarray:
-        png = rasterize(svg, SIZE, SIZE)
+        png = rasterize_svg_to_png_bytes(svg, out_w=SIZE, out_h=SIZE)
         grey = Image.open(io.BytesIO(png)).convert("L")
         return 1.0 - np.asarray(grey, dtype=np.float32) / 255.0
 

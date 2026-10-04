@@ -102,14 +102,6 @@ def _flat(dark: np.ndarray, coverage: np.ndarray, target: np.ndarray) -> str:
     return hex_colour(tuple(float(c) for c in np.clip(channels, 0, 1)))
 
 
-def best_fill(
-    document: Document, oid: str, region: Region, target: np.ndarray
-) -> str | None:
-    """The flat fill minimizing squared error in the region, or None if hidden."""
-    terms = _terms(document, oid, region)
-    return None if terms is None else _flat(*terms, target)
-
-
 def _solve(design: np.ndarray, values: np.ndarray) -> np.ndarray:
     """Least squares of *values* (n,) on *design* (n, k), robust to rank loss."""
     return np.linalg.lstsq(design, values, rcond=None)[0]
