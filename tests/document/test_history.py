@@ -114,10 +114,10 @@ def test_structural_undo_preserves_an_independent_deletion():
     editor = Editor(import_svg(SVG))
     original_geometry = editor.snapshot.document.geometry_for("a")
     with editor.transaction("Delete a", selection=Selection.all()) as tx:
-        tx.delete_objects(["a"])
+        tx.delete_objects(frozenset({"a"}))
     entry = editor.undo_entries[-1]
     with editor.transaction("Delete b", selection=Selection.all()) as tx:
-        tx.delete_objects(["b"])
+        tx.delete_objects(frozenset({"b"}))
     editor.undo([entry.id])
     assert [e.id for e in editor.snapshot.document.root.children] == ["a"]
     assert editor.snapshot.document.geometry_for("a") == original_geometry
@@ -170,7 +170,7 @@ def test_invalid_history_ids_change_nothing(ids):
 def test_undoing_creation_refuses_to_delete_later_work():
     editor = Editor(import_svg(SVG))
     with editor.transaction("Delete", selection=Selection.all()) as tx:
-        tx.delete_objects(["a"])
+        tx.delete_objects(frozenset({"a"}))
     entry = editor.undo_entries[-1]
     editor.undo([entry.id])
     editor.author = "agent"
@@ -184,7 +184,7 @@ def test_undoing_creation_refuses_to_delete_later_work():
 def test_redoing_deletion_refuses_to_hide_later_geometry_work():
     editor = Editor(import_svg(SVG))
     with editor.transaction("Delete", selection=Selection.all()) as tx:
-        tx.delete_objects(["a"])
+        tx.delete_objects(frozenset({"a"}))
     entry = editor.undo_entries[-1]
     editor.undo([entry.id])
     editor.author = "agent"
