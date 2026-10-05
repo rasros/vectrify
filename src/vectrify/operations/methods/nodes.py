@@ -300,6 +300,9 @@ class _Task:
     widths: bool = False
     # The current render, shared with steps that only need to compare to it.
     pixels: np.ndarray | None = None
+    # Inferred shared junctions hold endpoints; they may bend between them
+    # during overlapping joint fits. Region holds still protect all controls.
+    junctions: frozenset[str] = frozenset()
 
 
 class _Until(threading.Event):
@@ -699,6 +702,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
             held=task.held,
             shared=task.shared,
             overlaps=True,
+            junctions=task.junctions,
             score=lambda candidate: (
                 _Scored.of(_pixels(candidate, task.region), task.region).difference
             ),
@@ -889,6 +893,7 @@ class OptimizeNodes:
                     tuple(shared),
                     "paint" in request.permissions.allowed,
                     current.pixels,
+                    held - region_held,
                 )
                 results = _round(steps, task, pool, context.stop, report)
                 for _doc, _pixels_after, why in results.values():

@@ -134,7 +134,14 @@ def _context(document: Document, oids, target, options: FitOptions):
 
 class _Coordinates:
     def __init__(
-        self, document: Document, oid, context, options: FitOptions, held, device
+        self,
+        document: Document,
+        oid,
+        context,
+        options: FitOptions,
+        held,
+        device,
+        endpoint_only=frozenset(),
     ):
         import torch
 
@@ -164,7 +171,8 @@ class _Coordinates:
         mask = []
         for node in self.nodes:
             mask.extend(
-                [options.handles and node.id not in held] * (len(node.values) // 2 - 1)
+                [options.handles and (node.id not in held or node.id in endpoint_only)]
+                * (len(node.values) // 2 - 1)
             )
             mask.append(options.nodes and not node.pinned and node.id not in held)
         self.mapping = ControlMap(
@@ -315,6 +323,7 @@ def polish(
     held=frozenset(),
     shared: tuple[Link, ...] = (),
     overlaps: bool = False,
+    junctions=frozenset(),
     score: Callable[[Document], float] | None = None,
     stop: Event | None = None,
     progress=None,
@@ -329,6 +338,10 @@ def polish(
     coordinated fit. Held junctions, pins and shared runs to unselected
     neighbours remain protected. Exact rendering keeps the better candidate
     from either stage, with no change to paint or painter order.
+
+    ``junctions`` identifies inferred holds whose endpoints must stay fixed
+    but whose handles may move in that overlapping fit. Explicit region holds
+    and junctions linked to unselected paths retain all their controls.
     """
     if not (options.nodes or options.handles) or options.displacement == 0:
         return document
@@ -359,6 +372,7 @@ def polish(
             options,
             held=held | frozen_points(document, list(external)),
             shared=external,
+            junctions=junctions - frozen_points(document, list(external)),
             score=score,
             stop=stop,
             progress=progress,
@@ -391,7 +405,16 @@ def polish(
         within = _Within(now + (deadline - now) / (len(groups) - index), stop)
         try:
             document = _polish_group(
-                document, group, target, options, held, shared, score, within, progress
+                document,
+                group,
+                target,
+                options,
+                held,
+                shared,
+                score,
+                within,
+                progress,
+                junctions - frozen_points(document, list(external)),
             )
         except DocumentError:
             # Unsupported contours leave the individually verified fit intact.
@@ -400,7 +423,16 @@ def polish(
 
 
 def _polish_group(
-    document, group, target, options, held, shared, score, within, progress
+    document,
+    group,
+    target,
+    options,
+    held,
+    shared,
+    score,
+    within,
+    progress,
+    endpoint_only,
 ):
     import torch
 
@@ -424,7 +456,7 @@ def _polish_group(
     if progress:
         progress(0, f"Refining {len(group)} adjacent paths together…")
     coordinates = [
-        _Coordinates(prepared, oid, context, options, held, fit_device())
+        _Coordinates(prepared, oid, context, options, held, fit_device(), endpoint_only)
         for oid in group
     ]
     work = ET.Element("svg", width=str(context.size[0]), height=str(context.size[1]))

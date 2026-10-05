@@ -606,7 +606,8 @@ def test_shared_edges_follow_when_both_paths_are_selected():
     assert result["metrics"]["followed"] == 0
 
 
-def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers():
+@pytest.mark.parametrize("midpoint", [False, True])
+def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers(midpoint):
     pytest.importorskip("torch")
     svg = (
         '<svg width="64" height="64"><g id="pair">'
@@ -614,8 +615,13 @@ def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers():
         '<path id="front" fill="navy" d="M8 8 L32 32 L56 56 L8 56 L8 8 Z"/>'
         "</g></svg>"
     )
+    if not midpoint:
+        svg = svg.replace("L32 32 ", "")
     target = render_image(
-        svg.replace("L56 56 L32 32 L8 8", "L56 56 L8 56 L8 8"),
+        svg.replace(
+            "L56 56 " + ("L32 32 " if midpoint else "") + "L8 8",
+            "L56 56 L8 56 L8 8",
+        ),
         (0, 0, 64, 64),
         (64, 64),
         alpha=True,
@@ -664,6 +670,35 @@ def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers():
         state["result"]["metrics"]["after"]["difference"]
         < state["result"]["metrics"]["before"]["difference"]
     )
+
+
+def test_region_holds_shared_junction_handles_as_well_as_endpoints():
+    pytest.importorskip("torch")
+    svg = (
+        '<svg width="64" height="64"><g id="pair">'
+        '<path id="back" fill="white" d="M8 8 L56 8 L56 56 L8 8 Z"/>'
+        '<path id="front" fill="navy" d="M8 8 L56 56 L8 56 L8 8 Z"/>'
+        "</g></svg>"
+    )
+    original = import_svg(svg)
+    ed = Editor(original, selection=Selection(object_ids=frozenset({"pair"})))
+    target = render_image(
+        svg.replace("L56 56 L8 8", "L56 56 L8 56 L8 8"),
+        (0, 0, 64, 64),
+        (64, 64),
+        alpha=True,
+    )
+    job = Job(
+        method("improve", "nodes"),
+        replace(request(ed, steps=2, region=[16, 16, 32, 32]), reference=target),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    # Every endpoint lies outside the user region, so none of its controls
+    # may bend even though the shared edge crosses the region's interior.
+    assert not state["result"]["changed"]
+    assert ed.snapshot.document == original
 
 
 def test_individual_and_group_selection_use_the_same_drawing_order():
