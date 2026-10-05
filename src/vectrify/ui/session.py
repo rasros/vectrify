@@ -31,6 +31,7 @@ from vectrify.document import (
     load_project,
     save_project,
 )
+from vectrify.document.clipboard import copy_objects, paste_objects
 from vectrify.document.editor import Transaction
 from vectrify.document.holes import document_hole_shape, enclosed_objects, find_holes
 from vectrify.document.join import path_style
@@ -103,6 +104,8 @@ ACTION_COMMANDS = {
         for name, label in POINT_COMMANDS.items()
     },
     "add_path": Command("_command_add_path", "Draw path"),
+    "copy": Command("_command_copy", needs_selection=True),
+    "paste": Command("_command_paste", "Paste objects"),
     "move_objects": Command("_command_move_objects"),
     "knife": Command("_knife", "Cut with knife"),
     "redraw_outline": Command("_redraw_outline", "Redraw outline"),
@@ -170,6 +173,7 @@ class Session:
         reference: dict | None = None,
     ):
         self.editor = Editor(document)
+        self.clipboard: Document | None = None
         self.name = name
         self.reference = self.fit_reference(reference) if reference else None
         self.epoch = uuid4().hex
@@ -395,6 +399,7 @@ class Session:
             "revision": snapshot.revision,
             "name": self.name,
             "root": root.id,
+            "clipboard": self.clipboard is not None,
             "bounds": bounds,
             "objects": objects,
             "selection": {
@@ -932,6 +937,30 @@ class Session:
         with self.editor.transaction("Draw path", selection=Selection.all()) as tx:
             tx.insert_object(document.root.id, element, geometries=(geometry,))
         self.editor.select(Selection(object_ids=frozenset({element.id})))
+
+    def _command_copy(self, _payload: dict) -> None:
+        snapshot = self.editor.snapshot
+        self.clipboard = copy_objects(snapshot.document, snapshot.selection.object_ids)
+
+    def _command_paste(self, _payload: dict) -> None:
+        if self.clipboard is None:
+            raise DocumentError("Copy objects first")
+        copied = paste_objects(self.clipboard)
+        document = self.editor.snapshot.document
+        previous = self.editor.snapshot.selection
+        history = len(self.editor.undo_entries)
+        with self.editor.transaction("Paste objects", selection=Selection.all()) as tx:
+            tx.insert_objects(
+                document.root.id, copied.root.children, geometries=copied.geometries
+            )
+        self.editor.select(
+            Selection(
+                object_ids=frozenset(
+                    e.id for e in copied.root.children if e.tag != "defs"
+                )
+            )
+        )
+        self.editor.reselect(history, previous, self.editor.snapshot.selection)
 
     def _command_move_objects(self, payload: dict) -> None:
         document = self.editor.snapshot.document

@@ -93,7 +93,8 @@ function action(command, data = {}, label = 'Applying edit…') {
     try {
       const ids = command === 'undo' ? state.undo_ids?.slice(-1) : command === 'redo' ? state.redo_ids?.slice(0, 1) : undefined;
       const result = await request('/api/action', {command, ...data, ...(ids ? {ids} : {}), selection: state.selection, epoch: state.epoch, revision: state.revision});
-      if (command !== 'select') dirty = true;
+      if (!['select', 'copy'].includes(command)) dirty = true;
+      if (command === 'paste') { scope = null; focusPoint = null; pointMemory = null; }
       await applyState(result);
       return true;
     } catch (error) {
@@ -832,6 +833,9 @@ const COMMANDS = [
   {id: 'help', name: 'Keyboard shortcuts', group: 'Help', keys: '?', keywords: 'help keys', run: () => $('help-dialog').showModal()},
   {id: 'undo', name: 'Undo', label: () => state?.undo.length ? `Undo ${state.undo.at(-1).toLowerCase()}` : 'Undo', group: 'Edit', keys: 'Ctrl/⌘ Z', run: () => action('undo', {}, 'Undoing…'), disabled: () => !state.undo.length && 'Nothing to undo'},
   {id: 'redo', name: 'Redo', label: () => state?.redo.length ? `Redo ${state.redo[0].toLowerCase()}` : 'Redo', group: 'Edit', keys: 'Ctrl/⌘ Shift Z', run: () => action('redo', {}, 'Redoing…'), disabled: () => !state.redo.length && 'Nothing to redo'},
+  {id: 'copy', name: 'Copy objects', group: 'Object', keys: 'Ctrl/⌘ C', run: async () => { if (await action('copy', {}, 'Copying objects…')) toast('Objects copied. Ctrl/⌘ V pastes them.'); },
+    disabled: () => noSelection() || (state.selection.objects.some(id => object(id)?.resource) && 'Copy drawing objects, not definitions')},
+  {id: 'paste', name: 'Paste objects', group: 'Object', keys: 'Ctrl/⌘ V', run: () => action('paste', {}, 'Pasting objects…'), disabled: () => !state.clipboard && 'Copy objects first'},
   {id: 'fit', name: 'Fit the drawing', group: 'View', keys: 'F', keywords: 'zoom', run: fit},
   {id: 'zoom-selection', name: 'Zoom to selection', group: 'View', keys: 'Z', run: focusSelection, disabled: noSelection},
   {id: 'zoom-in', name: 'Zoom in', group: 'View', keys: 'Scroll', run: () => zoomAt(1.25)},
@@ -2667,7 +2671,7 @@ for (const controls of document.querySelectorAll('.tool-controls[data-tools]'))
 // Keys that edit wait for any edit under way, and run in order once it is
 // done; keys that only change the view act at once.
 window.addEventListener('keydown',event=>{
-  const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName), dialog=document.querySelector('dialog[open]');
+  const typing=['INPUT','TEXTAREA','SELECT'].includes(document.activeElement.tagName)||document.activeElement.isContentEditable, dialog=document.querySelector('dialog[open]');
   const mod=event.ctrlKey||event.metaKey, key=event.key.toLowerCase();
   if(event.key==='F2'&&!typing&&!dialog&&oneObject()){event.preventDefault();later(()=>{if(oneObject())renameObject();});return;}
   if(event.key==='Escape'&&treeDrag){event.preventDefault();endTreeDrag(false);return;}
@@ -2691,6 +2695,9 @@ window.addEventListener('keydown',event=>{
   }
   if(mod&&key==='s'){event.preventDefault();download(true);return;}
   if(mod&&key==='z'){event.preventDefault();const redo=event.shiftKey;later(()=>action(redo?'redo':'undo',{},redo?'Redoing…':'Undoing…'));return;}
+  if(mod&&!event.altKey&&!event.shiftKey&&['c','v'].includes(key)){
+    event.preventDefault();later(()=>runCommand(key==='c'?'copy':'paste'));return;
+  }
   // Ctrl/⌘ G groups (with Shift, ungroups) and J joins.
   if(mod&&!event.altKey&&['g','j'].includes(key)){
     event.preventDefault();

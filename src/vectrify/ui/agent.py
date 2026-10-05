@@ -134,6 +134,8 @@ EDITS: dict[str, tuple[str, ...]] = {
 
 # Editor commands no agent tool sends, and why.
 LEFT_OUT = {
+    "copy": "The person's local object clipboard is UI state, not an agent edit.",
+    "paste": "The person's local object clipboard is UI state, not an agent edit.",
     "undo": "MCP restores explicit history IDs through Editor.undo; the UI "
     "command restores only the person's latest change.",
     "redo": "MCP restores explicit history IDs through Editor.redo; the UI "

@@ -2438,6 +2438,19 @@ class Transaction:
         geometries: tuple[Geometry, ...] = (),
     ) -> str:
         """Insert an identified subtree into an explicitly selected container."""
+        return self.insert_objects(
+            parent_id, (element,), index=index, geometries=geometries
+        )[0]
+
+    def insert_objects(
+        self,
+        parent_id: str,
+        elements: tuple[Element, ...],
+        *,
+        index: int | None = None,
+        geometries: tuple[Geometry, ...] = (),
+    ) -> tuple[str, ...]:
+        """Insert a batch atomically, including references between its subtrees."""
         with self._change():
             self._whole_objects()
             parent = self._working.element(parent_id)
@@ -2453,13 +2466,15 @@ class Transaction:
                     parent,
                     children=(
                         *parent.children[:index],
-                        element,
+                        *elements,
                         *parent.children[index:],
                     ),
                 )
             )
-            self._ids |= frozenset(e.id for e in Document(element).elements())
-            return element.id
+            self._ids |= frozenset(
+                e.id for element in elements for e in Document(element).elements()
+            )
+            return tuple(element.id for element in elements)
 
     def delete_objects(self, object_ids: frozenset[str]) -> None:
         """Delete explicit subtrees; surviving references must never dangle."""

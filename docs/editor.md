@@ -471,7 +471,13 @@ whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins. Drag with
 the middle mouse button (in any tool), or hold Space and drag, to pan. Use the
 scroll wheel to zoom, and press `F` to fit. Ctrl/Command-Z undoes; add Shift
-to redo. Ctrl/Command-S saves a project.
+to redo. Ctrl/Command-S saves a project. Ctrl/Command-C copies the selected
+objects; Ctrl/Command-V pastes independent copies at the same position as one
+undoable edit and selects them. Copy includes groups, their styling and
+referenced shapes, and keeps the snapshot even if the originals are edited or
+deleted. The object clipboard belongs to this editor session. These shortcuts
+keep their normal text behavior while editing a field. Copy and Paste are also
+available in the command palette and the object context menu.
 
 Projects preserve object/node identities, locks, pins,
 selection and the reference image. SVG exports contain the drawing. Downloads
