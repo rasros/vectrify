@@ -186,6 +186,91 @@ def test_an_implicit_shared_closure_keeps_the_safe_fit_after_command_changes():
     assert result == document
 
 
+@pytest.mark.parametrize("external", [False, True])
+def test_two_point_shared_edge_bends_under_the_next_layer_with_fixed_endpoints(
+    external,
+):
+    pytest.importorskip("torch")
+    from vectrify.refine.shared import frozen_points, links
+
+    svg = (
+        '<svg width="64" height="64"><g>'
+        '<path id="a" fill="white" d="M8 8 L56 8 L56 56 L8 8 Z"/>'
+        '<path id="b" fill="navy" d="M8 8 L56 56 L8 56 L8 8 Z"/>'
+        "</g></svg>"
+    )
+    if external:
+        svg = svg.replace(
+            "</g>",
+            '<path id="c" fill="red" d="M8 2 L56 2 L56 8 L8 8 L8 2 Z"/></g>',
+        )
+    document = import_svg(svg)
+    shared = tuple(
+        links(document, ("a", "b"), ("a", "b", "c") if external else ("a", "b"))
+    )
+    held = frozen_points(document, list(shared))
+    target = render_image(
+        svg.replace("L56 56 L8 8", "L56 56 L8 56 L8 8"),
+        (0, 0, 64, 64),
+        (64, 64),
+        alpha=True,
+    )
+    options = FitOptions(snap=False, steps=40, displacement=1, resolution=64)
+    protected = polish(
+        document,
+        ("a", "b"),
+        target,
+        options,
+        shared=shared,
+        held=held,
+        overlaps=True,
+    )
+    fitted = polish(
+        document,
+        ("a", "b"),
+        target,
+        options,
+        shared=shared,
+        held=held,
+        overlaps=True,
+        junctions=held,
+    )
+
+    def opacity_error(d):
+        pixels = np.asarray(
+            render_image(export_svg(d), (0, 0, 64, 64), (64, 64), alpha=True)
+        )
+        return np.mean((255.0 - pixels[10:54, 10:54, 3]) ** 2)
+
+    # Whole-node holds freeze the only movable controls on the shared edge.
+    # An inferred junction needs to hold only the endpoint, not its handles.
+    if not external:
+        assert protected == document
+        assert opacity_error(fitted) < opacity_error(document) * 0.1
+    else:
+        # A junction shared with an unselected neighbour holds its incoming
+        # handles too; bending an internal edge must not disturb that corner.
+        outside = [link for link in shared if link.neighbour == "c"]
+        assert outside
+        frozen = frozen_points(document, outside)
+        for node in curved(document.geometry_for("a")).subpaths[0].nodes:
+            if node.id in frozen:
+                assert (
+                    curved(fitted.geometry_for("a")).node(node.id).values == node.values
+                )
+        # Following may express the straight run as cubics; its actual
+        # controls and endpoints must still describe the original shape.
+        assert curved(fitted.geometry_for("c")) == curved(document.geometry_for("c"))
+    for oid in ("a", "b"):
+        assert fitted.element(oid).attributes == document.element(oid).attributes
+        for sub in document.geometry_for(oid).subpaths:
+            for node in sub.nodes:
+                if node.id in held:
+                    assert (
+                        fitted.geometry_for(oid).node(node.id).endpoint == node.endpoint
+                    )
+
+
 @pytest.mark.parametrize("reverse_links", [False, True])
 def test_joint_shared_edge_uses_the_visible_neighbours_gradient(reverse_links):
     """An invisible selected copy must not overwrite its visible neighbour."""
