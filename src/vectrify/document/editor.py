@@ -1463,7 +1463,7 @@ class Transaction:
         """Align existing handles through their point, keeping their lengths.
 
         With a side (0 outgoing, 2 incoming), keep that handle fixed and
-        rotate the other. Otherwise use the two directions' bisector.
+        rotate the other. Otherwise minimize their total squared movement.
         Retracted handles stay retracted; no new handles are introduced.
         """
         if side not in {None, 0, 2}:
@@ -1497,16 +1497,25 @@ class Transaction:
                 return
             vin = ((point[0] - hin[0]) / lin, (point[1] - hin[1]) / lin)
             vout = ((hout[0] - point[0]) / lout, (hout[1] - point[1]) / lout)
+            if all(abs(a - b) < 1e-12 for a, b in zip(vin, vout, strict=True)):
+                return
+            # With lengths fixed, squared handle displacement is minimized
+            # by the sum of their directions weighted by squared length.
+            # When the handles belong to different cubics, this also
+            # minimizes their integrated squared curve displacement.
+            # Scale the lengths first to avoid overflowing their squares.
+            scale = max(lin, lout)
+            win, wout = (lin / scale) ** 2, (lout / scale) ** 2
             direction = (
                 vin
                 if side == 2
                 else vout
                 if side == 0
-                else (vin[0] + vout[0], vin[1] + vout[1])
+                else (win * vin[0] + wout * vout[0], win * vin[1] + wout * vout[1])
             )
             norm = math.hypot(*direction)
             if norm < 1e-12:
-                direction, norm = vout, 1.0
+                direction, norm = (vin if lin > lout else vout), 1.0
             ux, uy = direction[0] / norm, direction[1] / norm
             for segment, offset, length, sign in (
                 (incoming, 2, lin, -1),
