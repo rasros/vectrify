@@ -89,6 +89,42 @@ def test_straighten_preserves_lengths_endpoints_and_other_controls(side, closed)
     assert nodes(session) == after
 
 
+@pytest.mark.parametrize(("lin", "lout"), [(2, 20), (20, 2), (4, 4)])
+@pytest.mark.parametrize("angle", [math.pi / 2, math.pi])
+def test_straighten_minimizes_total_squared_handle_movement(lin, lout, angle):
+    hin = (-lin, 0)
+    hout = (lout * math.cos(angle), lout * math.sin(angle))
+    session = session_for(
+        f"M-30 -10 C-20 -5 {hin[0]} {hin[1]} 0 0 C{hout[0]} {hout[1]} 20 5 30 10"
+    )
+    target = nodes(session)[1]
+    send(session, "straighten_handles", points=[["p", target.id]])
+    after = nodes(session)
+    actual = (
+        math.dist(hin, after[1].values[2:4]) ** 2
+        + math.dist(hout, after[2].values[:2]) ** 2
+    )
+    # Independently compare with feasible alignments all around the anchor.
+    # Each adjacent cubic changes one control, so its integrated squared
+    # displacement is the handle's squared movement times the same constant.
+    for step in range(1440):
+        theta = math.tau * step / 1440
+        ux, uy = math.cos(theta), math.sin(theta)
+        candidate = (
+            math.dist(hin, (-lin * ux, -lin * uy)) ** 2
+            + math.dist(hout, (lout * ux, lout * uy)) ** 2
+        )
+        assert actual <= candidate + 1e-9
+
+
+def test_straighten_keeps_already_aligned_coordinates_exactly():
+    session = session_for("M-10 -10 C-5 -5 -1 -1 0 0 C2 2 5 5 10 10")
+    before = nodes(session)
+    send(session, "straighten_handles", points=[["p", before[1].id]])
+    assert [n.values for n in nodes(session)] == [n.values for n in before]
+    assert nodes(session)[1].handles_aligned
+
+
 def test_straighten_does_not_create_retracted_handles_or_nan():
     session = session_for("M0 0 C3 1 10 0 10 0 C14 2 17 9 20 10")
     before = nodes(session)

@@ -211,8 +211,11 @@ other handles. Escape clears the handle selection first. **Straighten** (`7`),
 available in the tool strip, point properties, context menu and command palette,
 toggles alignment for the selected points. When enabled, it aligns their existing
 handles through their anchors and keeps them aligned while either handle is
-dragged, preserving the opposite handle's length. With a handle selected, enabling
-the toggle keeps it fixed and aligns its opposite. Turn it off to move the handles
+dragged, preserving the opposite handle's length. Enabling alignment preserves
+both lengths and chooses the direction that minimizes the total squared movement
+of the handles, so longer handles rotate less. Already aligned handles stay where
+they are. With a handle selected, enabling the toggle keeps it fixed and aligns
+its opposite. Turn it off to move the handles
 independently. The toggle is saved per point in projects and supports undo/redo.
 Deleting a handle is also undoable.
 
