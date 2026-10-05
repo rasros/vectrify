@@ -308,6 +308,42 @@ def _segments(geometry: Geometry, link: Link):
     return [_controls(ring, (start + i) % count) for i in range(1, steps + 1)]
 
 
+def coordinate_indices(geometry: Geometry, subpath_id: str, start_id: str, end_id: str):
+    """Independent coordinate rows along a shared run, in contour order.
+
+    Rows index all the path's node values as pairs. An implicit closing line
+    has only its two endpoint rows; derived straight controls are not separate
+    editor coordinates. The same ring convention as following handles drawn
+    closures, wrapped runs and open contours.
+    """
+    rows, offset = {}, 0
+    for subpath in geometry.subpaths:
+        for node in subpath.nodes:
+            count = len(node.values) // 2
+            rows[node.id] = tuple(range(offset, offset + count))
+            offset += count
+    subpath = next((s for s in geometry.subpaths if s.id == subpath_id), None)
+    if subpath is None:
+        return None
+    ring = _ring(subpath)
+    ids = [n.id for n in ring.ends]
+    if start_id not in ids or end_id not in ids:
+        return None
+    start, end = ids.index(start_id), ids.index(end_id)
+    if not ring.closed and end <= start:
+        return None
+    count = len(ids)
+    steps = (end - start) % count or (count if ring.closed else 0)
+    segments = []
+    for i in range(1, steps + 1):
+        k = (start + i) % count
+        head = rows[ring.ends[k - 1].id][-1]
+        node = ring.segments[k]
+        tail = (rows[ring.ends[k].id][-1],) if node is None else rows[node.id]
+        segments.append((head, *tail))
+    return segments
+
+
 def _redrawn(geometry: Geometry, link: Link, segments) -> Geometry | None:
     """*geometry* with *link*'s run in its neighbour contour drawn as
     *segments* (the selected path's, from its start to its end)."""

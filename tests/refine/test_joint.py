@@ -98,6 +98,167 @@ PAIR = """<svg width="64" height="64"><g id="g">
 <path id="b" fill="#38b" d="M34 10 L54 10 L54 50 L34 50 Z"/>
 </g></svg>"""
 
+SHARED = """<svg width="64" height="64"><g>
+<path id="a" fill="maroon" fill-opacity="0"
+ d="M8 8 L48 8 L48 24 L28 24 L8 24 Z"/>
+<path id="b" fill="navy" d="M8 24 L28 24 L48 24 L48 48 L8 48 Z"/>
+</g></svg>"""
+
+
+@pytest.mark.parametrize("reverse_links", [False, True])
+def test_joint_shared_edge_uses_the_visible_neighbours_gradient(reverse_links):
+    """An invisible selected copy must not overwrite its visible neighbour."""
+    pytest.importorskip("torch")
+    from vectrify.refine.shared import follow, frozen_points, links
+
+    document = import_svg(SHARED)
+    for oid in ("a", "b"):
+        document = document.replace_geometry(curved(document.geometry_for(oid)))
+    shared = links(document, ("a", "b"), ("a", "b"))
+    assert len(shared) == 2
+    if reverse_links:
+        shared.reverse()
+    middle = next(
+        n
+        for n in document.geometry_for("b").subpaths[0].nodes
+        if n.endpoint == (28, 24)
+    )
+    held = frozenset(
+        node.id
+        for oid in ("a", "b")
+        for subpath in document.geometry_for(oid).subpaths
+        for node in subpath.nodes
+        if node.endpoint != (28, 24)
+    ) | frozen_points(document, shared)
+    geometry = document.geometry_for("b")
+    target_document = document.replace_geometry(
+        geometry.replace_node(replace(middle, values=(*middle.values[:-2], 28, 26)))
+    )
+    target = render_image(
+        export_svg(target_document), (0, 0, 64, 64), (64, 64), alpha=True
+    )
+    result = polish(
+        document,
+        ("a", "b"),
+        target,
+        FitOptions(snap=False, handles=False, steps=20, displacement=2, resolution=64),
+        held=held,
+        shared=tuple(shared),
+    )
+    assert result.geometry_for("b").node(middle.id).endpoint[1] > 24.5
+    # Either directed following order is now redundant: the fitted edge is
+    # already shared, with the original IDs and no changes to held points.
+    assert follow(result, shared)[0] == result
+    for oid in ("a", "b"):
+        original = document.geometry_for(oid)
+        fitted = result.geometry_for(oid)
+        for subpath in original.subpaths:
+            for node in subpath.nodes:
+                updated = fitted.node(node.id)
+                if node.id in held:
+                    # Opposite line-to-cubic conversions can differ by one
+                    # double rounding unit when following the shared edge.
+                    np.testing.assert_allclose(
+                        updated.values, node.values, atol=1e-12, rtol=0
+                    )
+                assert (
+                    np.linalg.norm(
+                        np.asarray(updated.endpoint) - np.asarray(node.endpoint)
+                    )
+                    <= 2.00001
+                )
+    pixels = np.asarray(
+        render_image(export_svg(result), (0, 0, 64, 64), (64, 64), alpha=True),
+        dtype=float,
+    )
+    before = np.asarray(
+        render_image(export_svg(document), (0, 0, 64, 64), (64, 64), alpha=True),
+        dtype=float,
+    )
+    expected = np.asarray(target, dtype=float)
+    assert np.mean((pixels - expected) ** 2) < np.mean((before - expected) ** 2) * 0.8
+
+
+@pytest.mark.parametrize("pinned_path", ["a", "b"])
+def test_joint_shared_point_obeys_a_pin_on_either_copy(pinned_path):
+    pytest.importorskip("torch")
+    from vectrify.refine.shared import frozen_points, links
+
+    document = import_svg(SHARED)
+    for oid in ("a", "b"):
+        document = document.replace_geometry(curved(document.geometry_for(oid)))
+    geometry = document.geometry_for(pinned_path)
+    middle = next(n for n in geometry.subpaths[0].nodes if n.endpoint == (28, 24))
+    document = document.replace_geometry(
+        geometry.replace_node(replace(middle, pinned=True))
+    )
+    shared = links(document, ("a", "b"), ("a", "b"))
+    held = frozenset(
+        node.id
+        for oid in ("a", "b")
+        for subpath in document.geometry_for(oid).subpaths
+        for node in subpath.nodes
+        if node.endpoint != (28, 24)
+    ) | frozen_points(document, shared)
+    target = render_image(
+        SHARED.replace("L28 24", "L28 26"), (0, 0, 64, 64), (64, 64), alpha=True
+    )
+    result = polish(
+        document,
+        ("a", "b"),
+        target,
+        FitOptions(snap=False, handles=False, steps=10, displacement=2, resolution=64),
+        held=held,
+        shared=tuple(shared),
+    )
+    assert result == document
+
+
+@pytest.mark.parametrize("opacity", [1.0, 0.6])
+@pytest.mark.parametrize("reference_alpha", [255, 253])
+def test_joint_fit_closes_a_thin_transparent_seam_between_white_fills(
+    opacity, reference_alpha
+):
+    """Opacity, rather than RGB over white, supplies the fitting direction."""
+    pytest.importorskip("torch")
+    svg = """<svg width="64" height="64"><g>
+    <path id="a" fill="white" d="M8 8 L31.8 8 L31.8 56 L8 56 Z"/>
+    <path id="b" fill="white" d="M32.2 8 L56 8 L56 56 L32.2 56 Z"/>
+    </g></svg>"""
+    svg = svg.replace('fill="white"', f'fill="white" fill-opacity="{opacity}"')
+    document = import_svg(svg)
+    target = render_image(
+        svg.replace("31.8", "33").replace("32.2", "31"),
+        (0, 0, 64, 64),
+        (64, 64),
+        alpha=True,
+    )
+    if reference_alpha != 255:
+        pixels = np.array(target)
+        pixels[..., 3] = np.rint(pixels[..., 3].astype(float) * reference_alpha / 255)
+        from PIL import Image
+
+        target = Image.fromarray(pixels)
+    result = polish(
+        document,
+        ("a", "b"),
+        target,
+        FitOptions(snap=False, steps=20, displacement=2, resolution=64),
+    )
+    before = np.asarray(
+        render_image(export_svg(document), (0, 0, 64, 64), (64, 64), alpha=True)
+    )
+    after = np.asarray(
+        render_image(export_svg(result), (0, 0, 64, 64), (64, 64), alpha=True)
+    )
+    seam = (slice(12, 52), slice(31, 33))
+    expected = np.asarray(target)[seam][..., 3].astype(float)
+    before_error = ((expected - before[seam][..., 3].astype(float)) ** 2).sum()
+    after_error = ((expected - after[seam][..., 3].astype(float)) ** 2).sum()
+    assert after_error < before_error * 0.2
+    for oid in ("a", "b"):
+        assert result.element(oid).attributes == document.element(oid).attributes
+
 
 def test_joint_fit_moves_a_join_when_only_its_outgoing_curve_is_visible():
     """The hidden incoming endpoint must not discard the visible side's signal."""

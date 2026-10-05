@@ -29,7 +29,7 @@ from vectrify.refine.selected import (
     fit_device,
     validate_selection,
 )
-from vectrify.refine.shared import Link, follow
+from vectrify.refine.shared import SAME, Link, coordinate_indices, follow
 from vectrify.refine.simplify import curved
 from vectrify.svg_render import render_image
 
@@ -224,6 +224,85 @@ class _Within(Event):
         )
 
 
+class _SharedCoordinates:
+    """One differentiable coordinate for each explicitly linked point."""
+
+    def __init__(self, coordinates, links):
+        import torch
+
+        self.counts = [len(p.original) for p in coordinates]
+        offsets = np.cumsum([0, *self.counts])
+        by_id = {p.oid: i for i, p in enumerate(coordinates)}
+        parents = list(range(int(offsets[-1])))
+
+        def root(i):
+            while parents[i] != i:
+                parents[i] = parents[parents[i]]
+                i = parents[i]
+            return i
+
+        for link in links:
+            if link.path not in by_id or link.neighbour not in by_id:
+                continue
+            a, b = by_id[link.path], by_id[link.neighbour]
+            source = coordinate_indices(
+                coordinates[a].geometry, link.subpath, link.start, link.end
+            )
+            target = coordinate_indices(
+                coordinates[b].geometry,
+                link.neighbour_subpath,
+                link.neighbour_end if link.reversed else link.neighbour_start,
+                link.neighbour_start if link.reversed else link.neighbour_end,
+            )
+            if source is None or target is None:
+                continue
+            if link.reversed:
+                target = [s[::-1] for s in target[::-1]]
+            if len(source) != len(target) or any(
+                len(x) != len(y) for x, y in zip(source, target, strict=True)
+            ):
+                continue
+            pairs = [
+                (x, y)
+                for s, t in zip(source, target, strict=True)
+                for x, y in zip(s, t, strict=True)
+            ]
+            if any(
+                not np.allclose(
+                    coordinates[a].local[x], coordinates[b].local[y], atol=SAME, rtol=0
+                )
+                for x, y in pairs
+            ):
+                continue
+            for x, y in pairs:
+                i, j = root(int(offsets[a]) + x), root(int(offsets[b]) + y)
+                parents[max(i, j)] = min(i, j)
+
+        self.active = any(root(i) != i for i in range(len(parents)))
+        if not self.active:
+            return
+        self.original = torch.cat([p.original for p in coordinates])
+        owners = [root(i) for i in range(len(parents))]
+        self.owners = torch.tensor(
+            owners, dtype=torch.long, device=self.original.device
+        )
+        mask = torch.cat([p.mapping.movable for p in coordinates])
+        # Every permission on a shared coordinate applies to the whole class.
+        class_mask = mask.clone().scatter_reduce(
+            0, self.owners[:, None], mask, reduce="amin", include_self=True
+        )
+        self.movable = class_mask[self.owners]
+
+    def __call__(self, values):
+        import torch
+
+        if not self.active:
+            return values
+        local = torch.cat(values)
+        delta = (local - self.original)[self.owners] * self.movable
+        return list(torch.split(self.original + delta, self.counts))
+
+
 def polish(
     document: Document,
     oids,
@@ -329,6 +408,19 @@ def _polish_group(
             },
         )
     links = [link for link in shared if link.path in group or link.neighbour in group]
+    shared_coordinates = _SharedCoordinates(coordinates, links)
+
+    def transformed(paths):
+        local = shared_coordinates(
+            [
+                p.mapping.local_from_controls(path)
+                for p, path in zip(coordinates, paths, strict=True)
+            ]
+        )
+        return [
+            p.mapping.controls_from_local(values)
+            for p, values in zip(coordinates, local, strict=True)
+        ]
 
     left, top, right, bottom = context.crop
     box = (left, top, right - left, bottom - top)
@@ -354,7 +446,7 @@ def _polish_group(
 
     def project(paths):
         current = prepared
-        for p, controls in zip(coordinates, paths, strict=True):
+        for p, controls in zip(coordinates, transformed(paths), strict=True):
             current = current.replace_geometry(
                 p.geometry_at(p.mapping.local_from_controls(controls))
             )
@@ -388,11 +480,35 @@ def _polish_group(
 
     def loss_transform(image, target_image, step):
         nonlocal blurred_target
-        if step >= coarse_steps:
-            return image, target_image
-        if blurred_target is None:
-            blurred_target = blur(target_image)
-        return blur(image), blurred_target
+        if step < coarse_steps:
+            if blurred_target is None:
+                blurred_target = blur(target_image)
+            image, target_image = blur(image), blurred_target
+        if image.shape[-1] == 4:
+            # Reweighted least squares retains a useful opacity derivative
+            # at narrow seams, where squared error otherwise loses it. The
+            # bounded, detached weights approximate a smooth absolute loss;
+            # the unchanged exact Cairo score still judges every candidate.
+            # Strengthen only the reference's opaque interior: boundary
+            # antialiasing and more translucent regions retain the normal loss.
+            alpha_error = (image[..., 3:] - target_image[..., 3:]).detach().abs()
+            uncertain = (target_image[..., 3] < 0.95).to(image.dtype)
+            interior = (
+                torch.nn.functional.max_pool2d(
+                    uncertain[None, None], 3, stride=1, padding=1
+                )[0, 0]
+                == 0
+            )
+            weight = torch.where(
+                interior[..., None],
+                (0.05 + alpha_error).rsqrt(),
+                1,
+            )
+            image = torch.cat((image[..., :3], image[..., 3:] * weight), -1)
+            target_image = torch.cat(
+                (target_image[..., :3], target_image[..., 3:] * weight), -1
+            )
+        return image, target_image
 
     last_score = best_score
 
@@ -458,13 +574,10 @@ def _polish_group(
             monolithic=True,
             fit_context=(context.base, context.delta, context.transmission),
             project_controls=project,
-            control_transform=lambda paths: [
-                p.mapping.controls_from_local(p.mapping.local_from_controls(path))
-                for p, path in zip(coordinates, paths, strict=True)
-            ],
+            control_transform=transformed,
             observe=observe,
             coverage_transform=coverage,
-            loss_transform=loss_transform if coarse_steps else None,
+            loss_transform=loss_transform,
             device=fit_device(),
         )
     except DocumentError:
