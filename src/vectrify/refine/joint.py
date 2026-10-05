@@ -261,6 +261,7 @@ class _SharedCoordinates:
         offsets = np.cumsum([0, *self.counts])
         by_id = {p.oid: i for i, p in enumerate(coordinates)}
         parents = list(range(int(offsets[-1])))
+        self.shared_rows = set()
 
         def root(i):
             while parents[i] != i:
@@ -302,6 +303,7 @@ class _SharedCoordinates:
             ):
                 continue
             for x, y in pairs:
+                self.shared_rows.update(((a, x), (b, y)))
                 i, j = root(int(offsets[a]) + x), root(int(offsets[b]) + y)
                 parents[max(i, j)] = min(i, j)
 
@@ -420,6 +422,7 @@ def polish(
                         groups.append(tuple(run))
                     run = []
         groups.append(group)
+    model_seeds = {}
     for index, group in enumerate(groups):
         if stop.is_set():
             break
@@ -427,6 +430,8 @@ def polish(
         deadline = getattr(stop, "deadline", math.inf)
         within = _Within(now + (deadline - now) / (len(groups) - index), stop)
         try:
+            initial = document
+            model_seeds[group] = {oid: initial.geometry_for(oid) for oid in group}
             document = _polish_group(
                 document,
                 group,
@@ -439,6 +444,34 @@ def polish(
                 progress,
                 junctions - frozen_points(document, list(external)),
             )
+            if (
+                models
+                and not within.is_set()
+                and any(
+                    path_style(initial, initial.element(oid))["fill"] == "none"
+                    for oid in group
+                )
+            ):
+                candidate = _polish_group(
+                    initial,
+                    group,
+                    target,
+                    options,
+                    held,
+                    shared,
+                    score,
+                    within,
+                    progress,
+                    junctions - frozen_points(initial, list(external)),
+                    supports=True,
+                )
+                context = (
+                    _context(initial, group, target, options) if score is None else None
+                )
+                if _exact_score(candidate, context, score) < _exact_score(
+                    document, context, score
+                ):
+                    document = candidate
         except DocumentError:
             # Unsupported contours leave the individually verified fit intact.
             continue
@@ -448,18 +481,27 @@ def polish(
         for group in groups:
             if stop.is_set():
                 break
+            if group not in model_seeds:
+                continue
+            # Compare model families from the same selected geometry as the
+            # free fit. Its endpoint changes can otherwise destroy a useful
+            # correspondence before the simpler model is even considered.
+            # Keep refinements to other groups in the surrounding document.
+            initial = document
+            for geometry in model_seeds[group].values():
+                initial = initial.replace_geometry(geometry)
             if not any(
-                path_style(document, document.element(oid))["fill"] == "none"
+                path_style(initial, initial.element(oid))["fill"] == "none"
                 and Bilateral.infer(
-                    curved(document.geometry_for(oid)), held, options.displacement
+                    curved(initial.geometry_for(oid)), held, options.displacement
                 )
                 is not None
                 for oid in group
             ):
                 continue
             try:
-                document = _polish_group(
-                    document,
+                candidate = _polish_group(
+                    initial,
                     group,
                     target,
                     options,
@@ -468,12 +510,61 @@ def polish(
                     score,
                     stop,
                     progress,
-                    junctions - frozen_points(document, list(external)),
+                    junctions - frozen_points(initial, list(external)),
                     bilateral=True,
                 )
+                context = (
+                    _context(initial, group, target, options) if score is None else None
+                )
+                if _exact_score(candidate, context, score) < _exact_score(
+                    document, context, score
+                ):
+                    document = candidate
+                if not stop.is_set():
+                    candidate = _polish_group(
+                        initial,
+                        group,
+                        target,
+                        options,
+                        held,
+                        shared,
+                        score,
+                        stop,
+                        progress,
+                        junctions - frozen_points(initial, list(external)),
+                        bilateral=True,
+                        supports=True,
+                    )
+                    context = (
+                        _context(initial, group, target, options)
+                        if score is None
+                        else None
+                    )
+                    if _exact_score(candidate, context, score) < _exact_score(
+                        document, context, score
+                    ):
+                        document = candidate
             except DocumentError:
                 continue
     return document
+
+
+def _exact_score(candidate, context, score):
+    if score is not None:
+        return score(candidate)
+    left, top, right, bottom = context.crop
+    image = render_image(
+        export_svg(candidate),
+        (left, top, right - left, bottom - top),
+        context.size,
+        alpha=context.alpha,
+    )
+    error = (context.array(image) - context.array(context.target)) ** 2
+    return (
+        float(np.mean((error[..., :3].sum(-1) + 3 * error[..., 3]) / 6))
+        if context.alpha
+        else float(error.mean())
+    )
 
 
 def _polish_group(
@@ -488,6 +579,7 @@ def _polish_group(
     progress,
     endpoint_only,
     bilateral=False,
+    supports=False,
 ):
     import torch
 
@@ -544,34 +636,43 @@ def _polish_group(
         )
     links = [link for link in shared if link.path in group or link.neighbour in group]
     shared_coordinates = _SharedCoordinates(coordinates, links)
+    stroke_supports = None
+    if supports:
+        from vectrify.refine.stroke_support import StrokeSupports
+
+        _vx, _vy, vw, vh = prepared.artboard()
+        stroke_supports = StrokeSupports(
+            coordinates,
+            (target.width / vw, target.height / vh),
+            shared_coordinates.shared_rows,
+            getattr(within, "deadline", math.inf),
+        )
+        if not stroke_supports.active:
+            return before
 
     def transformed(paths):
-        local = shared_coordinates(
-            [
-                p.mapping.local_from_controls(path)
-                for p, path in zip(coordinates, paths, strict=True)
+        local = [
+            p.mapping.local_from_controls(path)
+            for p, path in zip(coordinates, paths, strict=True)
+        ]
+        if stroke_supports is not None:
+            # Apply the stroke family before its subcurves reach the fills.
+            # Applying it only when building stroke coverage would leave the
+            # fill copies following an unrelated unrestricted curve.
+            local = [
+                p.bilateral.controls(values) if p.bilateral is not None else values
+                for p, values in zip(coordinates, local, strict=True)
             ]
-        )
+        local = shared_coordinates(local)
+        if stroke_supports is not None:
+            local = stroke_supports(local)
         return [
             p.controls_from_local(values)
             for p, values in zip(coordinates, local, strict=True)
         ]
 
-    left, top, right, bottom = context.crop
-    box = (left, top, right - left, bottom - top)
-
     def exact(candidate):
-        if score is not None:
-            return score(candidate)
-        image = render_image(
-            export_svg(candidate), box, context.size, alpha=context.alpha
-        )
-        error = (context.array(image) - context.array(context.target)) ** 2
-        return (
-            float(np.mean((error[..., :3].sum(-1) + 3 * error[..., 3]) / 6))
-            if context.alpha
-            else float(error.mean())
-        )
+        return _exact_score(candidate, context, score)
 
     best, best_score = before, exact(before)
     valid = {p.oid: p.original.clone() for p in coordinates}
@@ -677,8 +778,11 @@ def _polish_group(
                 actual = exact(current)
                 if actual < best_score:
                     best, best_score = current, actual
-                change = (last_score - best_score) / max(last_score, 1e-12)
-                last_score = best_score
+                # A model can be improving through initialization while still
+                # worse than the retained unrestricted fit. Judge its progress
+                # independently; the best exact render still decides retention.
+                change = (last_score - actual) / max(last_score, 1e-12)
+                last_score = actual
                 if options.stall and step > coarse_steps and change < options.stall:
                     return False
         return not within.is_set()
