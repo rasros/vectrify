@@ -841,7 +841,7 @@ const COMMANDS = [
   {id: 'handles-2', name: 'Two handles', group: 'Points', keys: '3', run: () => pointHandles(2), disabled: noPoints},
   {id: 'pin', name: 'Pin points', label: () => selectedPoints().length && selectedPoints().every(key => nodeAt(key)?.pinned) ? 'Unpin points' : 'Pin points', group: 'Points',
     run: () => action('pin', {points: pointPairs(), pinned: !selectedPoints().every(key => nodeAt(key)?.pinned)}), disabled: noPoints},
-  {id: 'split-edge', name: 'Split edge', group: 'Points', run: () => action('split', {points: pointPairs()}),
+  {id: 'split-edge', name: 'Add node', group: 'Points', keywords: 'split edge insert point vertex', run: () => action('split', {points: pointPairs()}),
     disabled: () => noPoints() || (selectedPoints().every(key => nodeAt(key)?.command === 'M' && !contourAt(key)?.closed) && 'A start point has no edge leading into it')},
   {id: 'delete-contour', name: 'Delete contour', group: 'Points', keys: 'Shift Delete', run: () => action('delete_contour', {points: pointPairs()}, 'Deleting contours…'),
     disabled: () => noPoints() || (selectedPoints().some(key => contourAt(key)?.nodes.some(n => n.pinned)) && 'Unpin the contour\'s points to delete it')},

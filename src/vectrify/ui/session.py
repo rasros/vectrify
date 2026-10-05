@@ -69,7 +69,7 @@ KNIFE_EDITS = frozenset({EditKind.GEOMETRY, EditKind.STRUCTURE})
 POINT_COMMANDS = {
     "node": "Edit node",
     "move_nodes": "Move points",
-    "split": "Split edge",
+    "split": "Add node",
     "node_handles": "Change handles",
     "delete_node": "Delete node",
     "delete_contour": "Delete contour",
