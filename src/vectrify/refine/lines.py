@@ -10,8 +10,11 @@ weighed: its centre is where the centreline belongs, its sum the line's
 width there. Each point moves onto the centre, at most `SHIFT` px, taking
 its handles along, and each curve's handles then fit its middle. An additional
 whole-span proposal fits the handles independently from multiple readings;
-Tidy judges it against the actual render after individual fits. Straight
-segments stay straight. The path's stroke width
+Tidy judges it against the actual render after individual fits.
+The whole-span proposal reads the colours on both sides independently, so a
+dark background is not mistaken for extra stroke ink. Colour contrast, rather
+than brightness alone, also lets it read light or coloured strokes.
+Straight segments stay straight. The path's stroke width
 becomes the median width measured along it, when that differs by more than
 `WIDTH_STEP`, and only for opaque strokes (a faint line's cover says how
 faint, not how wide). Pinned points stay. All of it in the reference's
@@ -83,21 +86,26 @@ def fit_lines(
             continue
         scale = math.sqrt(abs(np.linalg.det(frame.matrix)))
         width = float(style["stroke-width"]) * scale
-        ink = max(color(style["stroke"])[:3])
+        foreground = np.asarray(color(style["stroke"])[:3])
+        ink = float(foreground.max())
         radius = max(2, math.ceil(width) + 2)
         surface = grey_closing(light, size=2 * radius + 1)
         cover = np.clip(
             (surface - light) / np.maximum(surface - ink, CONTRAST), 0.0, 1.0
         )
         cover = np.where(surface - ink >= CONTRAST, cover, 0.0)
-        reader = _Reader(cover, width)
+        reader = _Reader(
+            cover, width, image=image if span else None, foreground=foreground
+        )
         geometry, measured = _fitted(
             document.geometry_for(oid), frame, reader, fixed, span=span
         )
         document = document.replace_geometry(geometry)
         opaque = (
             float(style["stroke-opacity"]) >= 1
-            and float(style["opacity"]) >= 1
+            and all(
+                float(a.get("opacity", "1") or "1") >= 1 for a in document.ancestry(oid)
+            )
             and color(style["stroke"])[3] >= 1
         )
         if widths and opaque and measured:
@@ -114,10 +122,22 @@ def fit_lines(
 class _Reader:
     """Reads a line's ink across it."""
 
-    def __init__(self, cover: np.ndarray, width: float):
+    def __init__(
+        self,
+        cover: np.ndarray,
+        width: float,
+        *,
+        image: np.ndarray | None = None,
+        foreground: np.ndarray | None = None,
+    ):
         self.cover = cover
+        self.image, self.foreground = image, foreground
+        self.width = width
         reach = width / 2 + REACH
-        self.offsets = np.arange(-reach, reach + 1e-9, STEP)
+        samples = math.ceil(reach / STEP)
+        # Include zero and both sides equally for every fractional width.
+        # Otherwise reversing a normal changes the sampled ink and its centre.
+        self.offsets = np.arange(-samples, samples + 1) * STEP
 
     def across(self, points: np.ndarray, normals: np.ndarray):
         """(how far the ink's middle is along each normal, the ink's width
@@ -127,20 +147,82 @@ class _Reader:
         weight = map_coordinates(
             self.cover, [ys.ravel(), xs.ravel()], order=1, mode="constant"
         ).reshape(xs.shape)
-        # Only the ink joined to the middle, not the next line over.
-        middle = len(self.offsets) // 2
-        inked = weight > INKED
-        joined = np.ones(weight.shape, dtype=bool)
-        joined[:, middle:] = np.cumprod(inked[:, middle:], axis=1).astype(bool)
-        joined[:, : middle + 1] = np.cumprod(inked[:, middle::-1], axis=1)[
-            :, ::-1
-        ].astype(bool)
-        weight = np.where(joined, weight, 0.0)
+        if self.image is not None:
+            assert self.foreground is not None
+            sampled = np.stack(
+                [
+                    map_coordinates(
+                        self.image[..., c],
+                        [ys.ravel(), xs.ravel()],
+                        order=1,
+                        mode="constant",
+                        cval=1,
+                    ).reshape(xs.shape)
+                    for c in range(3)
+                ],
+                -1,
+            )
+            # Read the two backgrounds beyond the stroke and antialias fringe.
+            fringe = self.width / 2 + REACH / 2
+            left = _background(sampled[:, self.offsets < -fringe], self.foreground)
+            right = _background(sampled[:, self.offsets > fringe], self.foreground)
+            contrast = np.minimum(
+                ((left - self.foreground) ** 2).sum(-1),
+                ((right - self.foreground) ** 2).sum(-1),
+            )
+            centre = np.zeros(len(points))
+            for _ in range(2):
+                # An antialiased colour boundary crosses one reference pixel.
+                # Recentring that boundary keeps the reading direction-neutral.
+                mix = np.clip((self.offsets - centre[:, None]) + 0.5, 0, 1)
+                background = (
+                    left[:, None] * (1 - mix[..., None])
+                    + right[:, None] * mix[..., None]
+                )
+                direction = background - self.foreground
+                # Least-squares cover by the known stroke colour in RGB space.
+                amount = ((background - sampled) * direction).sum(-1) / np.maximum(
+                    (direction**2).sum(-1), 1e-12
+                )
+                read = np.clip(amount, 0, 1)
+                weight = np.where((contrast >= 3 * CONTRAST**2)[:, None], read, weight)
+                weight = self._connected(weight)
+                total = weight.sum(1)
+                centre = (weight * self.offsets).sum(1) / np.maximum(total, 1e-9)
+                centre = np.clip(centre, -SHIFT, SHIFT)
+        weight = self._connected(weight)
         total = weight.sum(1)
         shift = np.where(
             total > 0, (weight * self.offsets).sum(1) / np.maximum(total, 1e-9), 0.0
         )
         return np.clip(shift, -SHIFT, SHIFT), total * STEP
+
+    def _connected(self, weight):
+        # Follow one connected ribbon. A colour-based candidate can also
+        # recover a thin ribbon missed by the current centre, within SHIFT.
+        middle = len(self.offsets) // 2
+        inked = weight > INKED
+        rows = np.arange(len(weight))
+        seeds = np.full(len(weight), middle)
+        if self.image is not None:
+            distances = np.where(inked, np.abs(self.offsets), np.inf)
+            nearest = distances.min(axis=1)
+            unique = (distances == nearest[:, None]).sum(axis=1) == 1
+            recover = ~inked[:, middle] & unique & (nearest <= SHIFT)
+            seeds[recover] = distances.argmin(axis=1)[recover]
+        gaps = (~inked).cumsum(axis=1)
+        joined = (
+            inked & (gaps == gaps[rows, seeds][:, None]) & inked[rows, seeds][:, None]
+        )
+        return np.where(joined, weight, 0.0)
+
+
+def _background(samples, foreground):
+    # A sample mixed with the known ink is closer to it than the background.
+    # Prefer the least-covered sample: a displaced thin line can contaminate
+    # most of the nearby samples, making their median the ink instead.
+    distances = ((samples - foreground) ** 2).sum(-1)
+    return samples[np.arange(len(samples)), distances.argmax(axis=1)]
 
 
 def _unit(vector: np.ndarray) -> np.ndarray | None:
