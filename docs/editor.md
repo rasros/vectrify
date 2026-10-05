@@ -275,6 +275,8 @@ and saved projects restore it.
   knife. Dragging a point moves every selected point by the same offset, each
   in its own path's frame, and each takes both of its handles along, so the
   curve keeps its shape around it; dragging a handle moves only that handle.
+  Hold Shift while dragging to constrain movement horizontally or vertically
+  from the starting position, following the larger pointer displacement.
   Typing a single point's coordinates does the same for it. Pinned points stay
   put, and no other path moves. While dragging, the point or handle under the
   pointer snaps to the points of every visible path (the other points of the
