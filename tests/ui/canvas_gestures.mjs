@@ -111,11 +111,14 @@ assert.deepEqual(named('nodeFinish'), [['nodeFinish', node]]);
 gestures.node.cancel(node);
 assert.deepEqual(named('nodeRestore'), [['nodeRestore', node]]);
 
-// No-op resize releases restore the drawing; changed scales commit once.
+// Frame clicks pick; no-op drags restore the drawing; changed scales commit once.
 const resized = begin('resize', {members: []});
 await gestures.resize.release(resized);
-assert.equal(named('drawing').length, 1);
+assert.deepEqual(named('pick'), [['pick', resized]]);
+assert.equal(named('drawing').length, 0);
 resized.moved = true;
+await gestures.resize.release(resized);
+assert.equal(named('drawing').length, 1);
 gestures.resize.move(resized, event(30, 40));
 await gestures.resize.release(resized);
 assert.deepEqual(named('resizeFinish'), [['resizeFinish', resized.result]]);

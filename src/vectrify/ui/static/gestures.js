@@ -115,10 +115,18 @@ export function canvasGestures({view, path, selection, nodes, resize, knife, red
     resize: {
       move(gesture, event) {
         if (!gesture.moved) return;
+        if (gesture.refusal) {
+          if (!gesture.warned) resize.refuse(gesture.refusal);
+          gesture.warned = true; return;
+        }
         gesture.result = resize.result(event); resize.preview(); drawOverlay();
       },
       async release(gesture) {
-        const result = gesture.moved && gesture.result;
+        // Grabbing the frame only resizes on a drag; clicks still pick and
+        // cycle the painted objects beneath it, including thin shapes.
+        if (!gesture.moved) return selection.pick(gesture);
+        if (gesture.refusal) return;
+        const result = gesture.result;
         if (result && (result.sx !== 1 || result.sy !== 1)) await resize.finish(result);
         else { selection.renderDrawing(); drawOverlay(); }
       },
