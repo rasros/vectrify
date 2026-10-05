@@ -105,6 +105,7 @@ export function canvasGestures({view, path, selection, nodes, resize, knife, red
       },
       async release(gesture) {
         if (gesture.moved) await nodes.finish(gesture);
+        else if (gesture.toggle) await nodes.select(gesture.objects, gesture.toggle);
         else if (gesture.collapse) await nodes.select(gesture.objects, [gesture.key]);
       },
       cancel: gesture => nodes.restore(gesture),

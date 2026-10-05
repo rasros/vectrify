@@ -1274,7 +1274,7 @@ function renderNodeInspector(commands = true) {
   $('point-section').hidden = !onPoints || (!paths.length && !instances);
   $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
-  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
+  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Hold Shift to move horizontally or vertically. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag without snapping.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
   // Points of shared geometry are points of every path drawing it.
   const sharing = new Set(points.flatMap(key => sharingPaths(splitKey(key)[0])));
   if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (Actions) to edit one path alone.`);
@@ -1848,10 +1848,12 @@ function snapTargets(moving, start) {
 // Where the dragged point or handle goes, in the overlay's frame.
 function snappedDrag(event) {
   let p = point(event);
+  const lockedAxis = event.shiftKey ? (Math.abs(p.x - drag.start.x) >= Math.abs(p.y - drag.start.y) ? 'y' : 'x') : null;
+  if (lockedAxis) p[lockedAxis] = drag.start[lockedAxis];
   drag.snap = null;
   if (!event.altKey && !event.ctrlKey && !event.metaKey) {
     drag.snaps ??= snapTargets(new Set(drag.part === 'endpoint' ? drag.moving : []), drag.start);
-    drag.snap = snapPoint(p.x, p.y, drag.snaps, state.bounds, SNAP_RADIUS / zoom);
+    drag.snap = snapPoint(p.x, p.y, drag.snaps, state.bounds, SNAP_RADIUS / zoom, lockedAxis);
     if (drag.snap) p = new DOMPoint(drag.snap.x, drag.snap.y);
   }
   return p;
@@ -2070,8 +2072,10 @@ function pressPoint(event, common) {
   const key = pointKey(id, nodeId), current = selectedPoints();
   const objects = clickPointPath(state.selection.objects, pointPaths(), id, common.shift);
   let points = current;
+  const toggle = part === 'endpoint' && common.shift && current.includes(key) ? clickPoint(current, key, true) : null;
   if (part === 'endpoint') {
-    points = current.includes(key) && !common.shift ? current : clickPoint(current, key, common.shift);
+    // Defer removing a selected point until release so Shift can also constrain a drag.
+    points = current.includes(key) ? current : clickPoint(current, key, common.shift);
     if (points !== current || objects !== state.selection.objects) selectPoints(objects, points, key);
     else focusPoint = key;
   }
@@ -2083,14 +2087,17 @@ function pressPoint(event, common) {
     if (!node || node.pinned || once.has(twin)) return false;
     once.add(twin); return true;
   }) : [key];
-  if (part === 'endpoint' && (!points.includes(key) || nodeAt(key)?.pinned)) { startGesture('point-click', event, common); return; }
+  if (part === 'endpoint' && (!points.includes(key) || nodeAt(key)?.pinned)) {
+    if (toggle) selectPoints(objects, toggle, key);
+    startGesture('point-click', event, common); return;
+  }
   const paths = new Set(moving.map(k => splitKey(k)[0]));
   const saved = new Map([...paths].filter(p => geometries.has(p)).map(p => [p, valuesById(geometries.get(p))]));
   const node = nodeAt(key), offset = part === 'endpoint' ? node.values.length - 2 : Number(part);
   const start = new DOMPoint(node.values[offset], node.values[offset+1]).matrixTransform(localToOverlay(svgElement(id)));
   // A click on one of several selected points, without dragging, selects it alone.
   const collapse = part === 'endpoint' && !common.shift && current.includes(key) && current.length > 1;
-  startGesture('node', event, common, {key, part, moving, saved, start, collapse, objects});
+  startGesture('node', event, common, {key, part, moving, saved, start, collapse, toggle, objects});
 }
 // Box select: objects wholly inside the box at the entered group's level, or
 // in point tools the points of the selected paths.

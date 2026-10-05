@@ -38,11 +38,12 @@ export function snapIndex(points, cell) {
 }
 
 // The closest indexed point within *radius* of (x, y), or null.
-export function nearestPoint(index, x, y, radius) {
+export function nearestPoint(index, x, y, radius, lockedAxis = null) {
   const reach = Math.ceil(radius / index.cell), cx = Math.floor(x/index.cell), cy = Math.floor(y/index.cell);
   let best = null, bestDistance = radius;
   for (let i = cx - reach; i <= cx + reach; i++) for (let j = cy - reach; j <= cy + reach; j++) {
     for (const [px, py] of index.grid.get(`${i},${j}`) || []) {
+      if (lockedAxis === 'x' && px !== x || lockedAxis === 'y' && py !== y) continue;
       const distance = Math.hypot(px - x, py - y);
       if (distance <= bestDistance) { best = {x: px, y: py}; bestDistance = distance; }
     }
@@ -54,11 +55,13 @@ export function nearestPoint(index, x, y, radius) {
 // axis on its own so an edge holds while sliding along it. *bounds* is
 // [x, y, width, height]; its corners count as points. Returns null when
 // nothing is within *radius*, otherwise the snapped point and its target:
-// {kind: 'point'} or {kind: 'edge', x?: edge x, y?: edge y}.
-export function snapPoint(x, y, index, bounds, radius) {
+// {kind: 'point'} or {kind: 'edge', x?: edge x, y?: edge y}. With a locked
+// axis, only targets that preserve that coordinate can snap.
+export function snapPoint(x, y, index, bounds, radius, lockedAxis = null) {
   const [left, top, width, height] = bounds, right = left + width, bottom = top + height;
-  let point = nearestPoint(index, x, y, radius);
+  let point = nearestPoint(index, x, y, radius, lockedAxis);
   for (const [cx, cy] of [[left, top], [right, top], [right, bottom], [left, bottom]]) {
+    if (lockedAxis === 'x' && cx !== x || lockedAxis === 'y' && cy !== y) continue;
     const distance = Math.hypot(cx - x, cy - y);
     if (distance <= radius && (!point || distance < Math.hypot(point.x - x, point.y - y))) point = {x: cx, y: cy};
   }
@@ -66,8 +69,8 @@ export function snapPoint(x, y, index, bounds, radius) {
   // An edge is a side of the artboard, not its whole line.
   const nearest = (value, edges) => edges.reduce((best, edge) =>
     Math.abs(value - edge) <= radius && (best === null || Math.abs(value - edge) < Math.abs(value - best)) ? edge : best, null);
-  const ex = y >= top - radius && y <= bottom + radius ? nearest(x, [left, right]) : null;
-  const ey = x >= left - radius && x <= right + radius ? nearest(y, [top, bottom]) : null;
+  const ex = lockedAxis !== 'x' && y >= top - radius && y <= bottom + radius ? nearest(x, [left, right]) : null;
+  const ey = lockedAxis !== 'y' && x >= left - radius && x <= right + radius ? nearest(y, [top, bottom]) : null;
   if (ex === null && ey === null) return null;
   const target = {kind: 'edge'};
   if (ex !== null) target.x = ex;
