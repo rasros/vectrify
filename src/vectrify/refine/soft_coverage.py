@@ -142,7 +142,49 @@ def _sample_coverage(contours, box, *, fill_rule, chord):
         0, 1
     )
     offset = centre - (sa + t[:, None] * edge)
-    distance = ((offset * offset).sum(-1) + 1e-12).sqrt()
+    squared = (offset * offset).sum(-1)
+    distance = (squared + 1e-12).sqrt()
+    boundary = squared <= 1e-10
+    if bool(boundary.any()):
+        # The norm has zero derivative at the edge itself. A diagonal can
+        # hit every antialiased sample centre exactly, leaving no direction
+        # for filling a seam. Use the filled side's oriented normal there,
+        # retaining the original coverage values and all other derivatives.
+        with torch.no_grad():
+            indices = torch.unique(segment[boundary])
+            vector = bd - ad
+            normal = torch.stack((-vector[:, 1], vector[:, 0]), -1)
+            normal /= vector.norm(dim=-1, keepdim=True).clamp_min(1e-12)
+            middle = (ad + bd) / 2
+            epsilon = torch.maximum(
+                middle.abs().amax(-1) * torch.finfo(a.dtype).eps * 8,
+                middle.new_tensor(1e-3),
+            )
+            side = torch.zeros(len(a), dtype=a.dtype, device=a.device)
+            for batch in indices.split(128):
+                probe = torch.stack(
+                    (
+                        middle[batch] + normal[batch] * epsilon[batch, None],
+                        middle[batch] - normal[batch] * epsilon[batch, None],
+                    ),
+                    1,
+                ).reshape(-1, 2)
+                y = probe[:, 1, None]
+                crossed = (ad[None, :, 1] <= y) != (bd[None, :, 1] <= y)
+                dy = vector[:, 1]
+                safe = torch.where(dy == 0, torch.ones_like(dy), dy)
+                x = ad[:, 0] + (y - ad[:, 1]) / safe * vector[:, 0]
+                winding = (
+                    (crossed & (probe[:, :1] < x)) * torch.where(dy > 0, 1, -1)
+                ).sum(-1)
+                filled = winding % 2 != 0 if fill_rule == "evenodd" else winding != 0
+                filled = filled.reshape(-1, 2).to(a.dtype)
+                side[batch] = filled[:, 0] - filled[:, 1]
+            inward = normal * side[:, None]
+        oriented = (offset * inward[segment]).sum(-1) * sign.flatten()[pixel]
+        distance = torch.where(
+            boundary, distance.detach() + (oriented - oriented.detach()), distance
+        )
     nearest = torch.full(
         (height * width,), 1e4, dtype=a.dtype, device=a.device
     ).scatter_reduce(0, pixel, distance, "amin", include_self=True)

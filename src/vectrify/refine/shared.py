@@ -290,6 +290,29 @@ def follow(document: Document, found: list[Link]) -> tuple[Document, set[str]]:
     return document, changed
 
 
+def intact(document: Document, link: Link) -> bool:
+    """Whether a recorded shared run still has the same controls on both sides.
+
+    A jointly fitted overlap intentionally stops being an exact shared edge.
+    Do not copy its earlier boundary back over that accepted improvement.
+    """
+    source = _segments(document.geometry_for(link.path), link)
+    other = replace(
+        link,
+        subpath=link.neighbour_subpath,
+        start=link.neighbour_end if link.reversed else link.neighbour_start,
+        end=link.neighbour_start if link.reversed else link.neighbour_end,
+    )
+    target = _segments(document.geometry_for(link.neighbour), other)
+    if source is None or target is None:
+        return False
+    if link.reversed:
+        target = [segment[::-1] for segment in target[::-1]]
+    return [tuple(map(_key, s)) for s in source] == [
+        tuple(map(_key, s)) for s in target
+    ]
+
+
 def _segments(geometry: Geometry, link: Link):
     """The selected path's run for *link*, as the segments' points from its
     start to its end, or None when its ends are gone."""

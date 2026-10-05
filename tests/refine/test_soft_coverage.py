@@ -50,6 +50,34 @@ def test_thin_fill_area_has_a_gradient_for_both_boundaries():
     assert float(width.grad) == pytest.approx(6, abs=0.05)
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize("hole", [False, True])
+def test_an_exact_diagonal_has_the_correct_coverage_derivative(reverse, hole):
+    torch = pytest.importorskip("torch")
+    shift = torch.tensor(0.0, dtype=torch.float64, requires_grad=True)
+    triangle = torch.tensor(
+        parse_filled_cubics("M2 2 L10 2 L10 10 Z")[0], dtype=torch.float64
+    )
+    if reverse:
+        triangle = triangle.flip((0, 1))
+    outer = torch.tensor(
+        parse_filled_cubics("M0 0 L12 0 L12 12 L0 12 Z")[0], dtype=torch.float64
+    )
+    normal = shift.new_tensor((1, -1)) / 2**0.5
+
+    def pixel(amount):
+        moved = triangle + amount * normal
+        contours = [outer, moved] if hole else [moved]
+        return soft_coverage(contours, (0, 0, 12, 12), fill_rule="evenodd")[6, 6]
+
+    coverage = pixel(shift)
+    coverage.backward()
+    numerical = float((pixel(1e-3) - pixel(-1e-3)) / 2e-3)
+    assert coverage.item() == pytest.approx(0.5, abs=1e-5)
+    assert numerical == pytest.approx(1 if hole else -1, abs=0.002)
+    assert shift.grad.item() == pytest.approx(numerical, abs=0.002)
+
+
 @pytest.mark.parametrize("width", [0.3, 0.7, 1.4])
 @pytest.mark.parametrize("end", [(5.5, 27.5), (27.5, 27.5), (27.5, 14.5)])
 def test_subpixel_strokes_match_cairo_across_orientations(width, end):

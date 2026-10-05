@@ -111,7 +111,8 @@ SETTINGS = {
     # The most the whole run may take, in seconds.
     "seconds": Setting(float, 10.0, minimum=0.5, maximum=3600.0, label="time limit"),
     # Where a selected path shares an edge with a neighbour, the neighbour's
-    # edge moves with it, so no gap or overlap opens between them.
+    # edge moves with it. Joint fitting may additionally overlap selected
+    # layers in painter order, keeping only an exact-render improvement.
     "shared": Setting(bool, True, label="move shared edges together"),
     # Only what lies in this area is tidied: [x, y, width, height] or a
     # polygon [[x, y], ...] in document units.
@@ -469,7 +470,10 @@ def _run_step(step: str, task: _Task, stop=None, progress=None):
     if task.shared:
         from vectrify.refine.shared import follow
 
-        document, _ = follow(document, list(task.shared))
+        document, _ = follow(
+            document,
+            list(_fit_shared(task, document) if step == "shape" else task.shared),
+        )
     pixels = (
         task.pixels
         if task.pixels is not None and document == task.document
@@ -501,6 +505,20 @@ def _improvement(task: _Task, before: Document, candidate: Document, current: _S
     if after.difference < current.difference and after.fixed(current) >= 0:
         return candidate, after
     return before, current
+
+
+def _fit_shared(task: _Task, document: Document):
+    """Retain external links and selected edges that still match exactly."""
+    from vectrify.refine.shared import intact
+
+    selected = set(task.oids)
+    return tuple(
+        link
+        for link in task.shared
+        if link.path not in selected
+        or link.neighbour not in selected
+        or intact(document, link)
+    )
 
 
 # How many tolerances, up to the set one, Simplify's error budget picks from.
@@ -680,6 +698,7 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
             options,
             held=task.held,
             shared=task.shared,
+            overlaps=True,
             score=lambda candidate: (
                 _Scored.of(_pixels(candidate, task.region), task.region).difference
             ),
@@ -696,9 +715,10 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 candidate = candidate.replace_geometry(
                     straightened(geometry, STRAIGHT, frame)
                 )
-        document, current = _improvement(task, before, candidate, current)
+        final_task = replace(task, shared=_fit_shared(task, raw))
+        document, current = _improvement(final_task, before, candidate, current)
         if document == before and raw != candidate:
-            document, current = _improvement(task, before, raw, current)
+            document, current = _improvement(final_task, before, raw, current)
     return document, skipped
 
 
@@ -800,6 +820,7 @@ class OptimizeNodes:
             )
             held = frozenset()
         shared = _shared_edges(start, oids) if settings["shared"] else []
+        region_held = held
         if shared:
             from vectrify.refine.shared import frozen_points
 
@@ -843,6 +864,12 @@ class OptimizeNodes:
                 left = deadline - time.monotonic()
                 if left <= 0:
                     break
+                if shared:
+                    from vectrify.refine.shared import frozen_points, intact
+
+                    # Accepted overlaps are no longer exact shared runs.
+                    shared = [link for link in shared if intact(document, link)]
+                    held = region_held | frozen_points(document, shared)
                 heading = f"Round {done + 1}/{rounds} · {points} points"
                 context.progress(done, heading, total=rounds)
 

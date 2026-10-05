@@ -5,7 +5,13 @@ from dataclasses import replace
 import pytest
 
 from vectrify.document import import_svg
-from vectrify.refine.shared import coordinate_indices, follow, frozen_points, links
+from vectrify.refine.shared import (
+    coordinate_indices,
+    follow,
+    frozen_points,
+    intact,
+    links,
+)
 
 # Two squares side by side sharing the edge x = 10 through a point at y = 5;
 # B runs it the other way, and is drawn back to its start as a cel trace is.
@@ -42,6 +48,24 @@ def test_a_shared_edge_is_found_and_its_ends_frozen():
     assert {nodes[link.start], nodes[link.end]} == {(10.0, 0.0), (10.0, 10.0)}
     held = frozen_points(document, [link])
     assert {nodes[i] for i in held if i in nodes} == {(10.0, 0.0), (10.0, 10.0)}
+
+
+def test_an_overlap_stops_being_an_intact_shared_run():
+    document = import_svg(SIDE)
+    forward = links(document, ["a"], ["b"])[0]
+    reverse = links(document, ["b"], ["a"])[0]
+    assert intact(document, forward)
+    assert intact(document, reverse)
+    geometry = document.geometry_for("a")
+    middle = next(
+        n for s in geometry.subpaths for n in s.nodes if n.endpoint == (10, 5)
+    )
+    overlap = document.replace_geometry(
+        geometry.replace_node(replace(middle, values=(10.5, 5)))
+    )
+    assert not intact(overlap, forward)
+    assert not intact(overlap, reverse)
+    assert intact(follow(overlap, [forward])[0], forward)
 
 
 def test_shared_coordinate_rows_include_a_drawn_closure():

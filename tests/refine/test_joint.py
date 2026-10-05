@@ -105,6 +105,87 @@ SHARED = """<svg width="64" height="64"><g>
 </g></svg>"""
 
 
+def test_joint_overlap_closes_an_antialiased_seam_without_changing_paint():
+    pytest.importorskip("torch")
+    from vectrify.refine.shared import frozen_points, intact, links
+
+    svg = (
+        '<svg width="64" height="64"><g>'
+        '<path id="a" fill="white" d="M8 8 L56 8 L56 56 L32 32 L8 8 Z"/>'
+        '<path id="b" fill="navy" d="M8 8 L32 32 L56 56 L8 56 L8 8 Z"/>'
+        "</g></svg>"
+    )
+    document = import_svg(svg)
+    shared = tuple(links(document, ("a",), ("b",)))
+    assert shared
+    held = frozen_points(document, list(shared))
+    # The white layer extends behind the navy layer. Its hidden boundary
+    # contributes opacity without changing the visible navy silhouette.
+    target = render_image(
+        svg.replace("L56 56 L32 32 L8 8", "L56 56 L8 56 L8 8"),
+        (0, 0, 64, 64),
+        (64, 64),
+        alpha=True,
+    )
+    options = FitOptions(snap=False, steps=30, displacement=1, resolution=64)
+    exact = polish(document, ("a", "b"), target, options, held=held, shared=shared)
+    result = polish(
+        document,
+        ("a", "b"),
+        target,
+        options,
+        held=held,
+        shared=shared,
+        overlaps=True,
+    )
+
+    def opacity_error(d):
+        pixels = np.asarray(
+            render_image(export_svg(d), (0, 0, 64, 64), (64, 64), alpha=True)
+        )
+        return np.mean((255.0 - pixels[10:54, 10:54, 3]) ** 2)
+
+    assert opacity_error(result) < opacity_error(exact) * 0.5
+    assert any(not intact(result, link) for link in shared)
+    for oid in ("a", "b"):
+        assert result.element(oid).attributes == document.element(oid).attributes
+        original = document.geometry_for(oid)
+        fitted = result.geometry_for(oid)
+        assert {n.id for s in fitted.subpaths for n in s.nodes} == {
+            n.id for s in original.subpaths for n in s.nodes
+        }
+        for s in original.subpaths:
+            for n in s.nodes:
+                if n.id in held:
+                    assert fitted.node(n.id).endpoint == n.endpoint
+
+
+def test_an_implicit_shared_closure_keeps_the_safe_fit_after_command_changes():
+    pytest.importorskip("torch")
+    from vectrify.refine.shared import frozen_points, links
+
+    svg = (
+        '<svg width="64" height="64"><g>'
+        '<path id="a" fill="white" d="M8 8 L56 8 L56 56 Z"/>'
+        '<path id="b" fill="navy" d="M8 8 L56 56 L8 56 Z"/>'
+        "</g></svg>"
+    )
+    document = import_svg(svg)
+    shared = tuple(links(document, ("a",), ("b",)))
+    target = render_image(svg, (0, 0, 64, 64), (64, 64), alpha=True)
+    result = polish(
+        document,
+        ("a", "b"),
+        target,
+        FitOptions(steps=10, resolution=64),
+        shared=shared,
+        held=frozen_points(document, list(shared)),
+    )
+    # Copying an implicit line onto an explicit cubic changes the number of
+    # coordinates despite retaining point IDs. The fixed map cannot accept it.
+    assert result == document
+
+
 @pytest.mark.parametrize("reverse_links", [False, True])
 def test_joint_shared_edge_uses_the_visible_neighbours_gradient(reverse_links):
     """An invisible selected copy must not overwrite its visible neighbour."""
