@@ -153,7 +153,7 @@ async function applyState(next) {
   $('undo').disabled = !state.undo.length; $('redo').disabled = !state.redo.length;
   $('undo').title = state.undo.length ? `Undo: ${state.undo.at(-1)}` : 'Nothing to undo';
   $('redo').title = state.redo.length ? `Redo: ${state.redo[0]}` : 'Nothing to redo';
-  if (replaced) { focusPoint = null; pointMemory = null; scope = null; fit(); }
+  if (replaced) { focusPoint = null; pointMemory = null; scope = null; collapsedGroups.clear(); fit(); }
   if (changed) { geometries = new Map(); pathHoles.clear(); clickCycle = null; lastPick = null; }
   if (scope && object(scope)?.tag !== 'g') scope = null;
   // Selection does not change the drawing or the tree's labels and swatches.
@@ -354,6 +354,15 @@ function objectContext(item) {
   return {source, clip, inClip, role};
 }
 let objectRows = new Map(), treeSelection = new Set();
+// View state only: folding a group never changes the drawing or selection.
+const collapsedGroups = new Set();
+function setGroupExpanded(id, expanded, disclosure = false) {
+  if (expanded) collapsedGroups.delete(id);
+  else collapsedGroups.add(id);
+  renderObjects();
+  const row = objectRows.get(id);
+  (disclosure ? row?.querySelector('.tree-toggle') : row)?.focus();
+}
 function updateObjectSelection() {
   const selected = new Set(state.selection.objects);
   for (const id of new Set([...treeSelection, ...selected])) {
@@ -366,7 +375,7 @@ function updateObjectSelection() {
   treeSelection = selected;
 }
 function renderObjects() {
-  const search = $('object-search').value.toLowerCase();
+  const search = $('object-search').value.trim().toLowerCase();
   const fragment = document.createDocumentFragment();
   objectRows = new Map();
   treeSelection = new Set(state.selection.objects);
@@ -377,17 +386,44 @@ function renderObjects() {
     // Retain parents in filtered results so indentation never implies a false parent.
     for (let ancestor = item; ancestor; ancestor = object(ancestor.parent)) visible.add(ancestor.id);
   }
+  const containers = new Set(state.objects.map(item => item.parent));
+  const folded = new Set();
   let count = 0;
   for (const item of state.objects) {
+    // Objects arrive in tree order. Search temporarily opens matching branches.
+    if (!search && (collapsedGroups.has(item.parent) || folded.has(item.parent))) {
+      folded.add(item.id); continue;
+    }
     if (!visible.has(item.id)) continue;
     const context = contexts.get(item.id);
     count++;
-    const row = document.createElement('button'); row.className = 'object-row';
+    const row = document.createElement('div'); row.className = 'object-row'; row.tabIndex = 0;
     row.classList.toggle('selected', treeSelection.has(item.id));
-    row.classList.toggle('resource', item.resource); row.setAttribute('role', 'option');
+    row.classList.toggle('resource', item.resource); row.setAttribute('role', 'treeitem');
+    row.setAttribute('aria-level', String(item.depth + 1));
+    row.setAttribute('aria-label', item.label);
     row.setAttribute('aria-selected', String(treeSelection.has(item.id)));
     row.dataset.object = item.id; row.title = `${item.tag} · ${item.id}`;
     row.style.paddingLeft = `${9 + item.depth * 9}px`;
+    const expandable = containers.has(item.id);
+    const expanded = !!search || !collapsedGroups.has(item.id);
+    const toggle = document.createElement(expandable ? 'button' : 'span');
+    toggle.className = expandable ? 'tree-toggle' : 'tree-toggle-spacer';
+    if (expandable) {
+      row.setAttribute('aria-expanded', String(expanded));
+      toggle.type = 'button'; toggle.textContent = expanded ? '▾' : '▸';
+      toggle.setAttribute('aria-label', `${expanded ? 'Collapse' : 'Expand'} ${item.label}`);
+      toggle.setAttribute('aria-expanded', String(expanded));
+      toggle.disabled = !!search;
+      toggle.title = search ? 'Clear search to collapse groups' : `${expanded ? 'Collapse' : 'Expand'} group`;
+      toggle.onpointerdown = event => event.stopPropagation();
+      toggle.ondblclick = event => event.stopPropagation();
+      toggle.onkeydown = event => { if (event.key === ' ' || event.key === 'Enter') event.stopPropagation(); };
+      toggle.onclick = event => {
+        event.stopPropagation();
+        if (!treeDragEnded) setGroupExpanded(item.id, !expanded, true);
+      };
+    } else toggle.setAttribute('aria-hidden', 'true');
     const swatch = document.createElement('span'); swatch.className = 'swatch';
     paintSwatch(swatch, item);
     row.title += ` · ${swatch.title}`;
@@ -399,7 +435,7 @@ function renderObjects() {
       const detail = document.createElement('small'); detail.textContent = context.role;
       label.append(detail); row.title += ` · ${context.role}`;
     }
-    row.append(swatch, label);
+    row.append(toggle, swatch, label);
     if (item.inherited_locks.length) { const mark = document.createElement('span'); mark.className = 'lock-mark'; mark.textContent = '◆'; mark.title = `Locked: ${item.inherited_locks.map(lock => lock === 'transform' ? 'position' : lock).join(', ')}`; row.append(mark); }
     row.onclick = event => {
       const additive = event.shiftKey || event.ctrlKey || event.metaKey;
@@ -407,6 +443,15 @@ function renderObjects() {
     };
     row.ondblclick = () => { if (!item.resource) later(() => object(item.id) && enterObject(item.id)); };
     row.onpointerdown = event => pressTreeRow(event, item);
+    row.onkeydown = event => {
+      if (event.target !== row) return;
+      if (event.key === 'Enter' || event.key === ' ') {
+        event.preventDefault(); event.stopPropagation(); row.onclick(event);
+      } else if (expandable && !search && ['ArrowLeft', 'ArrowRight'].includes(event.key)) {
+        event.preventDefault(); event.stopPropagation();
+        setGroupExpanded(item.id, event.key === 'ArrowRight');
+      }
+    };
     objectRows.set(item.id, row);
     fragment.append(row);
   }
@@ -1137,6 +1182,11 @@ function focusSelection() {
   updateView();
 }
 function revealObject(id) {
+  let unfolded = false;
+  for (let ancestor = object(object(id)?.parent); ancestor; ancestor = object(ancestor.parent)) {
+    if (collapsedGroups.delete(ancestor.id)) unfolded = true;
+  }
+  if (unfolded) renderObjects();
   let row = $('objects').querySelector(`[data-object="${CSS.escape(id)}"]`);
   if (!row && $('object-search').value) {
     $('object-search').value = ''; renderObjects();

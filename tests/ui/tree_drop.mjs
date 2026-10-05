@@ -18,6 +18,12 @@ assert.deepEqual(dropTarget(rows, 0, 58, 9), {parent: 'root', after: 'g', line: 
 assert.deepEqual(dropTarget(rows, 0, 200, 9), {parent: 'root', after: 'c', line: {y: 80, depth: 0}});
 assert.deepEqual(dropTarget(rows, 0, 1, 9), {parent: 'root', before: 'g', line: {y: 0, depth: 0}});
 assert.equal(dropTarget([], 0, 0, 9), null);
+// A collapsed group's hidden children are absent from the measured rows:
+// its middle still accepts objects, and its edges restack beside the group.
+const collapsed = [rows[0], {...rows[3], top: 20}];
+assert.deepEqual(dropTarget(collapsed, 0, 10, 9), {parent: 'g', into: true});
+assert.deepEqual(dropTarget(collapsed, 9, 18, 9), {parent: 'root', after: 'g', line: {y: 20, depth: 0}});
+assert.deepEqual(dropTarget(collapsed, 0, 2, 9), {parent: 'root', before: 'g', line: {y: 0, depth: 0}});
 
 const parents = new Map(spec.map(([id, parent]) => [id, parent]));
 assert.match(dropRefusal({parent: 'g', into: true}, new Set(['g']), parents, new Set()), /itself/);
