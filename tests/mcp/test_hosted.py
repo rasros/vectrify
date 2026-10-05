@@ -89,6 +89,8 @@ def test_a_client_over_http_edits_the_window(editor):
             assert {"describe", "render", "properties", "history"} <= tools
             # Always this window: nothing to open or connect to.
             assert not {"open", "connect"} & tools
+            assert "view" not in tools
+            assert "ungroup" not in tools
             refused = await mcp.call_tool(
                 "properties", {"ids": ["sun"], "fill": "#0f0"}
             )

@@ -247,7 +247,7 @@ def test_the_desktop_window_takes_connect_on_its_mcp_port_while_allowed():
         target.call("hello", {})
 
 
-def test_the_window_reports_its_view_with_its_poll_for_view(server):
+def test_the_window_reports_its_view_with_its_poll_for_describe(server):
     _, state = page(server, "/api/session", {})
     session_id = state["session"]
     page(server, "/api/agent", {"enabled": True}, session_id)
@@ -278,7 +278,9 @@ def test_the_window_reports_its_view_with_its_poll_for_view(server):
     status, bad = page(server, "/api/poll", {"view": {"zoom": 2}}, session_id)
     assert status == 400
     assert "region" in bad["error"]
-    status, body = agent(server, found["token"], {"tool": "view", "args": {}})
+    status, body = agent(
+        server, found["token"], {"tool": "describe", "args": {"objects": False}}
+    )
     assert status == 200
     view = body["data"]
     assert view["window"] is True
@@ -286,6 +288,7 @@ def test_the_window_reports_its_view_with_its_poll_for_view(server):
     assert view["zoom"] == 4
     assert view["tool"] == "select"
     assert view["selection"]["objects"] == ["sun"]
+    assert "objects" not in view
     status, body = agent(
         server, found["token"], {"tool": "render", "args": {"region": "view"}}
     )

@@ -111,8 +111,7 @@ EDITS: dict[str, tuple[str, ...]] = {
     "properties": ("paint", "rename", "locks"),
     "transform": ("resize", "move"),
     "arrange": ("reorder", "move_objects"),
-    "group": ("group",),
-    "ungroup": ("ungroup",),
+    "group": ("group", "ungroup"),
     "join": ("join_paths", "join_ends", "join_two_ends"),
     "split_parts": ("split_disconnected",),
     "cut_hole": ("cut_hole",),
@@ -159,7 +158,6 @@ LOOKS = frozenset(
         "points",
         "pick",
         "trace_reference",
-        "view",
         "history",
         "export",
     }
@@ -703,7 +701,7 @@ class Agent:
             raise DocumentError(
                 "No editor window has said what it shows: this is a file opened "
                 "headlessly, or the window has not reported yet. Give a region "
-                "[x, y, w, h] instead; view() says what the person sees."
+                "[x, y, w, h] instead; describe() says what the person sees."
             )
         return view
 
@@ -809,16 +807,38 @@ class Agent:
         page_size: int = PAGE_SIZE,
         within: str | None = None,
         region: Any = None,
+        objects: bool = True,
     ) -> Reply:
         session = self.session
         if type(page) is not int or page < 0:
             raise DocumentError("page is a whole number from 0")
         if type(page_size) is not int or not 1 <= page_size <= MAX_PAGE:
             raise DocumentError(f"page_size is from 1 to {MAX_PAGE}")
+        if type(objects) is not bool:
+            raise DocumentError("objects is true or false")
         with session.lock:
-            state = session.state(svg=False)
             document = session.editor.snapshot.document
-            rows = state["objects"]
+            picture = self._reference_image()
+            undo, redo = session.editor.undo_labels, session.editor.redo_labels
+            data = {
+                **self._where(),
+                "name": session.name,
+                "artboard": list(document.artboard()),
+                "reference": {
+                    "name": session.reference["name"],
+                    "pixels": [picture.width, picture.height] if picture else None,
+                }
+                if session.reference
+                else None,
+                "selection": self._selection(),
+                "root": document.root.id,
+                **self._view_context(),
+                "undo": undo[-1] if undo else None,
+                "redo": redo[0] if redo else None,
+            }
+            if not objects:
+                return Reply(data)
+            rows = session.state(svg=False)["objects"]
             if within is not None:
                 inside = {e.id for e in Document(document.element(within)).elements()}
                 rows = [r for r in rows if r["id"] in inside and r["id"] != within]
@@ -830,7 +850,7 @@ class Agent:
                 rows = [by_id[oid] for oid, _ in found if oid in by_id]
             chosen = rows[page * page_size : (page + 1) * page_size]
             hits = self._hits() if chosen else None
-            objects = []
+            listed = []
             for row in chosen:
                 assert hits is not None
                 item = self._object_row(row, hits)
@@ -840,28 +860,13 @@ class Agent:
                     )
                     if len(contours[row["id"]]) > CONTOURS:
                         item["contours_total"] = len(contours[row["id"]])
-                objects.append(item)
-            picture = self._reference_image()
-            undo, redo = session.editor.undo_labels, session.editor.redo_labels
-            data = {
-                **self._where(),
-                "name": session.name,
-                "artboard": state["bounds"],
-                "reference": {
-                    "name": state["reference"]["name"],
-                    "pixels": [picture.width, picture.height] if picture else None,
-                }
-                if state["reference"]
-                else None,
-                "selection": self._selection(),
-                "root": state["root"],
-                "objects": objects,
-                "page": page,
-                "pages": max(1, math.ceil(len(rows) / page_size)),
-                "total": len(rows),
-                "undo": undo[-1] if undo else None,
-                "redo": redo[0] if redo else None,
-            }
+                listed.append(item)
+            data.update(
+                objects=listed,
+                page=page,
+                pages=max(1, math.ceil(len(rows) / page_size)),
+                total=len(rows),
+            )
             if region is not None:
                 data["order"] = (
                     "front to back: the objects that paint inside the region, "
@@ -927,36 +932,31 @@ class Agent:
                 )
             return Reply(data)
 
-    def tool_view(self, _seen: Any) -> Reply:
-        """What the person is looking at: their selection, and what the
-        window shows."""
-        with self.session.lock:
-            session = self.session
-            data: dict[str, Any] = {**self._where(), "selection": self._selection()}
-            view = session.view
-            if view is None:
-                data.update(
-                    window=False,
-                    region=list(session.editor.snapshot.document.artboard()),
-                    note="No editor window has said what it shows (a file opened "
-                    "headlessly, or a window that has not reported yet): the "
-                    "region is the whole artboard.",
-                )
-                return Reply(data)
-            data.update(
-                window=True,
-                region=[round(v, 3) for v in view["region"]],
-                zoom=round(view["zoom"], 4),
-                pixels=view["pixels"],
-                tool=view["tool"],
-                entered_group=view["entered"],
-                reference_view=view["reference_view"],
-                reported_seconds_ago=round(time.monotonic() - session.view_time, 1),
-                note="zoom is screen pixels per document unit; region is "
-                "[x, y, w, h] of the drawing the window shows; "
-                'render(region="view") renders it.',
-            )
-            return Reply(data)
+    def _view_context(self) -> dict[str, Any]:
+        """The window context for describe, called under the session lock."""
+        session = self.session
+        view = session.view
+        if view is None:
+            return {
+                "window": False,
+                "region": list(session.editor.snapshot.document.artboard()),
+                "note": "No editor window has said what it shows (a file opened "
+                "headlessly, or a window that has not reported yet): the "
+                "region is the whole artboard.",
+            }
+        return {
+            "window": True,
+            "region": [round(v, 3) for v in view["region"]],
+            "zoom": round(view["zoom"], 4),
+            "pixels": view["pixels"],
+            "tool": view["tool"],
+            "entered_group": view["entered"],
+            "reference_view": view["reference_view"],
+            "reported_seconds_ago": round(time.monotonic() - session.view_time, 1),
+            "note": "zoom is screen pixels per document unit; region is "
+            "[x, y, w, h] of the drawing the window shows; "
+            'render(region="view") renders it.',
+        }
 
     def _compose(
         self, box: Box, side: int, overlay: str, opacity: float = 0.5
@@ -1555,11 +1555,14 @@ class Agent:
             seen, [self._select(_targets(ids)), {"command": command, **extra}]
         )
 
-    def tool_group(self, seen: Any, ids: Any) -> Reply:
-        return self._simple("group", seen, ids)
-
-    def tool_ungroup(self, seen: Any, ids: Any) -> Reply:
-        return self._simple("ungroup", seen, ids)
+    def tool_group(self, seen: Any, ids: Any, action: str = "create") -> Reply:
+        if action == "create":
+            command = "group"
+        elif action == "dissolve":
+            command = "ungroup"
+        else:
+            raise DocumentError("action is create or dissolve")
+        return self._simple(command, seen, ids)
 
     def _join_candidates(self, ids: list[str]) -> list[str]:
         """The paths *ids* name, themselves or inside the groups among them,

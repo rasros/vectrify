@@ -44,7 +44,7 @@ Point = Annotated[list[str], Field(min_length=2, max_length=2)]
 Points = Annotated[list[Point], Field(min_length=1)]
 # A region: [x, y, width, height] in document units.
 Region = list[float]
-# What the person's window shows, as view() reports it.
+# What the person's window shows, as describe() reports it.
 View = Literal["view"]
 # A region, or a polygon [[x, y], ...] around it.
 Area = list[float] | list[list[float]]
@@ -303,18 +303,29 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         page_size: int = 100,
         within: str | None = None,
         region: Region | None = None,
+        objects: bool = True,
     ) -> CallToolResult:
-        """The drawing: artboard, reference, selection and objects.
+        """The drawing: artboard, reference, selection, window view and objects.
 
         Objects (id, label, tag, parent, paint, bounds [x, y, w, h], locks)
         come a page at a time, in document order (later is in front);
         within lists one group's contents. With region [x, y, w, h], only the
         objects that paint inside it (not just their bounds), front to back,
         each path with the contours of it that do.
+        Window context includes visible region, zoom, canvas pixels, active
+        tool, entered group and reference view; without a reported window,
+        window=false and the visible region is the artboard. objects=false
+        skips object lookup and pagination for a lightweight context read.
         """
         reply = state.call(
             "describe",
-            {"page": page, "page_size": page_size, "within": within, "region": region},
+            {
+                "page": page,
+                "page_size": page_size,
+                "within": within,
+                "region": region,
+                "objects": objects,
+            },
         )
         target = state.target
         assert target is not None
@@ -394,15 +405,6 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
                 "min_area": min_area,
             },
         )
-
-    @look
-    def view() -> CallToolResult:
-        """What the person is looking at: their selection (objects and
-        points) and, in the editor window, the visible region [x, y, w, h],
-        the zoom (screen pixels per unit), the active tool, the entered
-        group and the reference view. Read-only: you never change them.
-        render(region="view") renders the same."""
-        return state.call("view", {})
 
     @look
     def get_svg(ids: list[str] | None = None) -> CallToolResult:
@@ -545,14 +547,13 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         )
 
     @tool(structured_output=False)
-    def group(ids: Ids) -> CallToolResult:
-        """Group two or more objects."""
-        return state.call("group", {"ids": ids})
-
-    @tool(structured_output=False)
-    def ungroup(ids: Ids) -> CallToolResult:
-        """Ungroup groups, keeping their children."""
-        return state.call("ungroup", {"ids": ids})
+    def group(
+        ids: Ids,
+        action: Literal["create", "dissolve"] = "create",
+    ) -> CallToolResult:
+        """Group two or more objects (action="create", the default), or
+        dissolve groups, keeping their children (action="dissolve")."""
+        return state.call("group", {"ids": ids, "action": action})
 
     @tool(structured_output=False)
     def join(

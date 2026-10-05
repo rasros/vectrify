@@ -294,14 +294,15 @@ def test_each_call_is_one_revision_and_new_paths_go_where_they_are_drawn(tmp_pat
     run(tmp_path, body)
 
 
-def test_view_reads_what_the_window_shows_and_render_draws_it(tmp_path):
+def test_describe_reads_what_the_window_shows_and_render_draws_it(tmp_path):
     state = Vectrify()
 
     async def body(call):
-        headless = data(await call("view"))
+        headless = data(await call("describe", objects=False))
         assert headless["window"] is False
         assert headless["region"] == [0, 0, 200, 200]
-        assert "view" in error(await call("render", region="view"))
+        assert "objects" not in headless
+        assert "describe()" in error(await call("render", region="view"))
         target = state.target
         assert isinstance(target, FileTarget)
         target.session.set_view(
@@ -314,12 +315,20 @@ def test_view_reads_what_the_window_shows_and_render_draws_it(tmp_path):
                 "reference_view": "overlay",
             }
         )
-        seen = data(await call("view"))
+        seen = data(await call("describe", objects=False))
         assert seen["window"] is True
         assert seen["region"] == [50, 60, 40, 30]
         assert seen["zoom"] == 8
         assert seen["tool"] == "nodes"
         assert seen["entered_group"] == "cel"
+        assert seen["pixels"] == [320, 240]
+        assert seen["reference_view"] == "overlay"
+        assert seen["reported_seconds_ago"] >= 0
+        # A region filter changes the object list, not the reported viewport.
+        described = data(await call("describe", region=[150, 0, 40, 40]))
+        assert described["region"] == seen["region"]
+        assert described["selection"] == seen["selection"]
+        assert "top" in [o["id"] for o in described["objects"]]
         rendered = await call("render", region="view")
         shown = data(rendered)
         assert shown["pixels"] == [320, 240]

@@ -671,7 +671,7 @@ function listenAgents() {
 }
 // The desktop window runs this with each pulse.
 window.vectrifyPulse = result => { if (result?.session === session) pulse(result); };
-// What the window shows, for an agent's view(): the visible part of the
+// What the window shows, for an agent's describe(): the visible part of the
 // drawing in its own units [x, y, w, h], the zoom (screen pixels per unit),
 // the canvas size, the tool, the entered group and the reference view.
 function viewReport() {
