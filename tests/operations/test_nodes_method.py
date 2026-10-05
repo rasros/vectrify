@@ -606,6 +606,66 @@ def test_shared_edges_follow_when_both_paths_are_selected():
     assert result["metrics"]["followed"] == 0
 
 
+def test_repeated_tidy_retains_an_improving_overlap_between_selected_layers():
+    pytest.importorskip("torch")
+    svg = (
+        '<svg width="64" height="64"><g id="pair">'
+        '<path id="back" fill="white" d="M8 8 L56 8 L56 56 L32 32 L8 8 Z"/>'
+        '<path id="front" fill="navy" d="M8 8 L32 32 L56 56 L8 56 L8 8 Z"/>'
+        "</g></svg>"
+    )
+    target = render_image(
+        svg.replace("L56 56 L32 32 L8 8", "L56 56 L8 56 L8 8"),
+        (0, 0, 64, 64),
+        (64, 64),
+        alpha=True,
+    )
+    original = import_svg(svg)
+    ed = Editor(original, selection=Selection(object_ids=frozenset({"pair"})))
+    job = Job(
+        method("improve", "nodes"),
+        OperationRequest(
+            "improve",
+            "nodes",
+            ed.snapshot,
+            ed,
+            Permissions(geometry=True, structure=True),
+            settings={
+                "snap": False,
+                "simplify": False,
+                "resolution": 64,
+                "steps": 30,
+                "seconds": 20,
+                "workers": 1,
+            },
+            budget=Budget(steps=2),
+            reference=target,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"]
+    job.apply()
+    result = ed.snapshot.document
+    before = np.asarray(
+        render_image(export_svg(original), (0, 0, 64, 64), (64, 64), alpha=True)
+    )
+    after = np.asarray(
+        render_image(export_svg(result), (0, 0, 64, 64), (64, 64), alpha=True)
+    )
+    interior = (slice(10, 54), slice(10, 54), 3)
+    assert ((255.0 - after[interior]) ** 2).sum() < (
+        (255.0 - before[interior]) ** 2
+    ).sum() * 0.3
+    for oid in ("back", "front"):
+        assert result.element(oid).attributes == original.element(oid).attributes
+    assert (
+        state["result"]["metrics"]["after"]["difference"]
+        < state["result"]["metrics"]["before"]["difference"]
+    )
+
+
 def test_individual_and_group_selection_use_the_same_drawing_order():
     # IDs deliberately sort in the opposite order to the drawing.
     document = import_svg(

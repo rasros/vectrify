@@ -29,7 +29,7 @@ from vectrify.refine.selected import (
     fit_device,
     validate_selection,
 )
-from vectrify.refine.shared import SAME, Link, coordinate_indices, follow
+from vectrify.refine.shared import SAME, Link, coordinate_indices, follow, frozen_points
 from vectrify.refine.simplify import curved
 from vectrify.svg_render import render_image
 
@@ -200,7 +200,10 @@ class _Coordinates:
 
     def local_at(self, geometry):
         by_id = {n.id: n for s in geometry.subpaths for n in s.nodes}
-        if set(by_id) != {n.id for n in self.nodes}:
+        if set(by_id) != {n.id for n in self.nodes} or any(
+            by_id[n.id].command != n.command or len(by_id[n.id].values) != len(n.values)
+            for n in self.nodes
+        ):
             raise DocumentError("Shared edge changed topology during joint refinement")
         return self.original.new_tensor(
             [
@@ -311,6 +314,7 @@ def polish(
     *,
     held=frozenset(),
     shared: tuple[Link, ...] = (),
+    overlaps: bool = False,
     score: Callable[[Document], float] | None = None,
     stop: Event | None = None,
     progress=None,
@@ -320,10 +324,45 @@ def polish(
     Pinned/held endpoints, point IDs, paint and movement bounds are preserved.
     Unsupported runs retain their individual fit. The common probe is never
     part of a returned document.
+
+    ``overlaps`` additionally permits selected layers to overlap after their
+    coordinated fit. Held junctions, pins and shared runs to unselected
+    neighbours remain protected. Exact rendering keeps the better candidate
+    from either stage, with no change to paint or painter order.
     """
     if not (options.nodes or options.handles) or options.displacement == 0:
         return document
+    oids = tuple(oids)
     stop = stop or Event()
+    selected = set(oids)
+    external = tuple(
+        link
+        for link in shared
+        if link.path not in selected or link.neighbour not in selected
+    )
+    if overlaps and len(external) < len(shared):
+        document = polish(
+            document,
+            oids,
+            target,
+            options,
+            held=held,
+            shared=shared,
+            score=score,
+            stop=stop,
+            progress=progress,
+        )
+        return polish(
+            document,
+            oids,
+            target,
+            options,
+            held=held | frozen_points(document, list(external)),
+            shared=external,
+            score=score,
+            stop=stop,
+            progress=progress,
+        )
     groups = []
     for group in _groups(document, oids, options):
         # Preserve the useful fill-only refinement before letting outlines
