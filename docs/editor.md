@@ -43,13 +43,13 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   · 3 selected" or "Points · 5 points in 3 paths". Select has the stacking
   buttons and, inside an entered group, a breadcrumb such as "Drawing › Trees"
   (click a part to pick at that level). Nodes has the handle buttons (None /
-  One / Two), **Break**, **Join**, **Split edge**, **Delete**, X / Y for a
+  One / Two), **Break**, **Join**, **Add node**, **Delete**, X / Y for a
   single point, and **Fill hole** / **Hole to shape** when the points are on
   holes. Numbered controls show their digit, and the keys 1-9 press them (see
   Keyboard shortcuts). Draw path has Finish, Close shape and Cancel. Knife,
   Redraw outline, Draw path and Pan show a one-line hint. The strip keeps to
   one row: when the window is too narrow for the tool's controls, the least
-  important of them (Split edge and the coordinates first, and so on) move
+  important of them (Add node and the coordinates first, and so on) move
   into a **⋯** menu at the end of the controls, which holds them until there
   is room again; the status stays in view. A command run from the menu closes
   it.
@@ -60,9 +60,9 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Then the
   objects' name, role and connections, paint (fill, stroke, stroke width,
   opacity), **Move by** an offset, locks, and the **Actions** on the
-  selection: Group, Ungroup, Join, Convert line/fill, Split parts, Cut out as
-  hole, Snap edges…, Clean up…, Detach and Delete. An action that cannot run
-  is dimmed, with the reason as its tooltip. Detach shows only for an instance
+  selection: Group, Ungroup, Join, Convert line/fill, Add node, Split parts,
+  Cut out as hole, Snap edges…, Clean up…, Detach and Delete. Only actions
+  that apply to the selection are shown. Detach shows only for an instance
   or a path that shares its geometry, and Delete deletes the selected points
   in a point tool, else the selected objects.
 - **Right-click** on the canvas or in the tree for a menu of the actions that
@@ -249,8 +249,9 @@ and saved projects restore it.
   the selected points into corners, points curved on one side (again to switch
   sides), or smooth points with their handles in line. The keys 1, 2 and 3 do
   the same. **Pinned** in the right panel (or **Pin points** in the command
-  palette) keeps them in place; **Split edge** (6) adds a point on the edge
-  leading into each selected point. For drawn lines the strip also has
+  palette) keeps them in place; **Add node** (6, also in Actions) adds a node
+  halfway along the edge leading into each selected node, preserving the
+  curve. For drawn lines the strip also has
   **Break** (4) and **Join** (5). **Break** cuts a line at the selected
   points: an open line comes apart there, each piece ending on its own copy of
   the point (both copies stay selected, so a drag moves them together; click
@@ -439,7 +440,7 @@ Select, `A` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip
-controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Split edge; in Select: 1-4
+controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Add node; in Select: 1-4
 the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins. Drag with
