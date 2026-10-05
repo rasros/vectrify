@@ -19,12 +19,16 @@ from pathlib import Path
 
 import cairosvg
 import numpy as np
-import pathops
+import shapely
 from PIL import Image
 from scipy.ndimage import binary_erosion
+from shapely.affinity import affine_transform
 
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
-from vectrify.document.join import curve_path, path_style
+from vectrify.document.hit_test import _filled, _flatten
+from vectrify.document.join import path_style
+from vectrify.document.topology import mapped_point
+from vectrify.document.transforms import object_matrix
 from vectrify.image_utils import on_white
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 
@@ -76,6 +80,47 @@ def _axis(document, outline):
     return np.array([(a * x + c * y + e, b * x + d * y + f) for x, y in (base, tip)])
 
 
+# A path's flattening error has a smaller area budget than the strict 0.05
+# checks. Bound displacement by the control-hull perimeter in document units.
+AREA_ERROR = 0.0001
+
+
+def _shape(document, oid):
+    """Double-precision fill region, avoiding unstable cubic XOR intersections."""
+    matrix = object_matrix(document, oid)
+    contours = []
+    length = 0.0
+    for sub in document.geometry_for(oid).subpaths:
+        first = mapped_point(sub.nodes[0].endpoint, matrix)
+        previous = first
+        spans = []
+        for node in sub.nodes[1:]:
+            points = (
+                previous,
+                *(
+                    mapped_point(p, matrix)
+                    for p in zip(node.values[::2], node.values[1::2], strict=True)
+                ),
+            )
+            length += float(np.linalg.norm(np.diff(points, axis=0), axis=1).sum())
+            spans.append(points)
+            previous = points[-1]
+        length += float(np.linalg.norm(np.array(previous) - first))
+        contours.append((first, spans))
+    tolerance = AREA_ERROR / max(2 * length, 1)
+    flattened = []
+    for first, spans in contours:
+        points = [first]
+        for controls in spans:
+            points.extend(
+                [controls[-1]] if len(controls) == 2 else _flatten(controls, tolerance)
+            )
+        flattened.append((tuple(points), True))
+    return _filled(
+        tuple(flattened), path_style(document, document.element(oid))["fill-rule"]
+    )
+
+
 def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     """Containment per fill, uncovered interior, and reflected silhouette error.
 
@@ -83,37 +128,24 @@ def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     Opaque coverage is also rendered alone,
     so an underlying hilt or background cannot hide a transparent blade gap.
     """
-    from vectrify.document.transforms import object_matrix
-
-    def shape(oid):
-        return curve_path(
-            document.geometry_for(oid),
-            path_style(document, document.element(oid))["fill-rule"],
-        ).transform(*object_matrix(document, oid))
-
-    interior = shape(outline)
+    interior = _shape(document, outline)
     fills = [
         e.id
         for e in document.element(group).children
         if e.tag == "path" and path_style(document, e)["fill"] != "none"
     ]
-    shapes = {oid: shape(oid) for oid in fills}
-    union = pathops.Path()
-    for path in shapes.values():
-        union = pathops.op(union, path, pathops.PathOp.UNION)
+    shapes = {oid: _shape(document, oid) for oid in fills}
+    union = shapely.union_all(tuple(shapes.values()))
     # This case's symmetry axis is a benchmark expectation, not a fitting rule.
     axis = _axis(document, outline) if axis is None else np.asarray(axis, dtype=float)
     direction = axis[1] - axis[0]
     direction /= np.linalg.norm(direction)
     linear = 2 * np.outer(direction, direction) - np.eye(2)
     offset = axis[0] - linear @ axis[0]
-    reflected = interior.transform(
-        linear[0, 0], linear[1, 0], linear[0, 1], linear[1, 1], *offset
+    reflected = affine_transform(
+        interior, (linear[0, 0], linear[0, 1], linear[1, 0], linear[1, 1], *offset)
     )
-    spill = {
-        oid: abs(pathops.op(s, interior, pathops.PathOp.DIFFERENCE).area)
-        for oid, s in shapes.items()
-    }
+    spill = {oid: s.difference(interior).area for oid, s in shapes.items()}
     # Measure transparency in the blade alone, independently of any objects
     # underneath. Exclude boundary antialiasing with a two-pixel interior band.
     blade = _render(_only(document, [group]))
@@ -131,9 +163,9 @@ def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     return {
         "outside_area": sum(spill.values()),
         "outside_each": spill,
-        "gap_area": abs(pathops.op(interior, union, pathops.PathOp.DIFFERENCE).area),
-        "symmetry_area": abs(pathops.op(interior, reflected, pathops.PathOp.XOR).area),
-        "interior_area": abs(interior.area),
+        "gap_area": interior.difference(union).area,
+        "symmetry_area": interior.symmetric_difference(reflected).area,
+        "interior_area": interior.area,
         "transparent_pixels": int(((blade[:, :, 3] < 255) & mask).sum()),
     }
 

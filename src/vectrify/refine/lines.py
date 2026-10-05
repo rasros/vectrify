@@ -8,8 +8,10 @@ finds lines), over how much darker the stroke's own colour is. Across the
 line at each point and segment middle, the ink joined to the middle is
 weighed: its centre is where the centreline belongs, its sum the line's
 width there. Each point moves onto the centre, at most `SHIFT` px, taking
-its handles along, and each curve's handles then bring its middle onto the
-centre there; straight segments stay straight. The path's stroke width
+its handles along, and each curve's handles then fit its middle. An additional
+whole-span proposal fits the handles independently from multiple readings;
+Tidy judges it against the actual render after individual fits. Straight
+segments stay straight. The path's stroke width
 becomes the median width measured along it, when that differs by more than
 `WIDTH_STEP`, and only for opaque strokes (a faint line's cover says how
 faint, not how wide). Pinned points stay. All of it in the reference's
@@ -43,6 +45,11 @@ INKED = 0.05
 WIDTH_STEP = 0.1
 # The least a line's surface has to be lighter than its ink to read it.
 CONTRAST = 0.08
+# Read the span of a curve, not just its midpoint: unequal handle errors can
+# cancel at the middle while leaving both quarters off the reference line.
+SAMPLE_SPACING = 8.0
+MIN_SAMPLES = 5
+MAX_SAMPLES = 33
 
 
 def is_line(document: Document, oid: str) -> bool:
@@ -57,10 +64,13 @@ def fit_lines(
     region: Region,
     fixed: Frozen,
     widths: bool = True,
+    *,
+    span: bool = False,
 ) -> Document:
     """*document* with the stroked lines *oids* fitted to *region*'s image:
     their centrelines on their ink's middle and, with *widths*, their stroke
-    widths to its cover."""
+    widths to its cover. With *span*, fit each curve's handles independently
+    from readings along it rather than a single midpoint reading."""
     image = np.asarray(region.image.convert("RGB"), dtype=np.float64) / 255
     light = image.max(-1)
     for oid in oids:
@@ -81,7 +91,9 @@ def fit_lines(
         )
         cover = np.where(surface - ink >= CONTRAST, cover, 0.0)
         reader = _Reader(cover, width)
-        geometry, measured = _fitted(document.geometry_for(oid), frame, reader, fixed)
+        geometry, measured = _fitted(
+            document.geometry_for(oid), frame, reader, fixed, span=span
+        )
         document = document.replace_geometry(geometry)
         opaque = (
             float(style["stroke-opacity"]) >= 1
@@ -141,9 +153,14 @@ def _normal(tangent: np.ndarray | None) -> np.ndarray | None:
 
 
 def _fitted(
-    geometry: Geometry, frame: _Frame, reader: _Reader, fixed: Frozen
+    geometry: Geometry,
+    frame: _Frame,
+    reader: _Reader,
+    fixed: Frozen,
+    *,
+    span: bool = False,
 ) -> tuple[Geometry, list[float]]:
-    """*geometry* with its points and curve middles on the ink's middle, and
+    """*geometry* with its points and curves on the ink's middle, and
     the widths measured along it, in pixels."""
     measured: list[float] = []
     subpaths = []
@@ -198,33 +215,16 @@ def _fitted(
                 if i + 1 < count and len(controls[i + 1]) == 3:
                     controls[i + 1] = controls[i + 1].copy()
                     controls[i + 1][0] = controls[i + 1][0] + delta
-        # The curves: their handles bring each middle onto the ink.
-        curves = [i for i in range(1, count) if len(controls[i]) == 3]
-        if curves:
-            middles, normals_mid = [], []
-            for i in curves:
-                cubic = np.vstack([controls[i - 1][-1], controls[i]])
-                point, tangent = _bezier(cubic, np.array([0.5]))
-                middles.append(point[0])
-                normals_mid.append(
-                    _normal(_unit(tangent[0])) if tangent is not None else None
-                )
-            usable = [k for k, n in enumerate(normals_mid) if n is not None]
-            if usable:
-                shift, width = reader.across(
-                    np.array([middles[k] for k in usable]),
-                    np.array([normals_mid[k] for k in usable]),
-                )
-                measured += [w for w in width if w > 0]
-                for k, s in zip(usable, shift, strict=True):
-                    i = curves[k]
-                    normal = normals_mid[k]
-                    assert normal is not None
-                    # A cubic's middle moves 3/4 of its handles' move.
-                    delta = 4 / 3 * s * normal
-                    controls[i] = controls[i].copy()
-                    controls[i][0] = controls[i][0] + delta
-                    controls[i][1] = controls[i][1] + delta
+        # The additional whole-span fit can move the handles independently;
+        # the midpoint initializer keeps its established proposal.
+        for i in range(1, count):
+            if len(controls[i]) != 3:
+                continue
+            cubic = np.vstack([controls[i - 1][-1], controls[i]])
+            delta, widths = _curve_shift(cubic, reader, span=span)
+            measured.extend(widths)
+            controls[i] = controls[i].copy()
+            controls[i][:2] += delta
         subpaths.append(
             replace(
                 subpath,
@@ -235,3 +235,44 @@ def _fitted(
             )
         )
     return replace(geometry, subpaths=tuple(subpaths)), measured
+
+
+def _curve_shift(cubic: np.ndarray, reader: _Reader, *, span: bool):
+    """Least-squares handle motion from the ink at several points on a curve."""
+    if not span:
+        point, tangent = _bezier(cubic, np.array([0.5]))
+        assert tangent is not None
+        normal = _normal(_unit(tangent[0]))
+        if normal is None:
+            return np.zeros((2, 2)), []
+        shift, widths = reader.across(point, np.array([normal]))
+        delta = 4 / 3 * shift[0] * normal
+        return np.array([delta, delta]), [w for w in widths if w > 0]
+    hull = np.linalg.norm(np.diff(cubic, axis=0), axis=1).sum()
+    count = min(MAX_SAMPLES, max(MIN_SAMPLES, math.ceil(hull / SAMPLE_SPACING)))
+    # Leave the end caps out: the anchors already followed their own readings.
+    t = np.linspace(0.125, 0.875, count)
+    points, tangents = _bezier(cubic, t)
+    assert tangents is not None
+    length = np.linalg.norm(tangents, axis=1)
+    usable = length > 1e-9
+    normals = np.column_stack((-tangents[:, 1], tangents[:, 0])) / np.maximum(
+        length[:, None], 1e-9
+    )
+    shift, widths = reader.across(points, normals)
+    usable &= widths > 0
+    if np.count_nonzero(usable) < 2:
+        return np.zeros((2, 2)), []
+    basis = np.column_stack((3 * (1 - t) ** 2 * t, 3 * (1 - t) * t**2))
+    weight = np.sqrt(widths[usable] / max(float(widths[usable].max()), 1e-9))
+    delta = np.linalg.lstsq(
+        basis[usable] * weight[:, None],
+        shift[usable, None] * normals[usable] * weight[:, None],
+        rcond=None,
+    )[0]
+    # Keep the old midpoint fit's maximum control motion. Anchors and path
+    # structure stay untouched here; the caller judges the exact render.
+    bound = 4 / 3 * SHIFT
+    length = np.linalg.norm(delta, axis=1)
+    delta *= np.minimum(1, bound / np.maximum(length, 1e-9))[:, None]
+    return delta, widths[usable].tolist()
