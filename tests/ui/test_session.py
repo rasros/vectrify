@@ -752,6 +752,26 @@ def node_ids(session, oid):
     ]
 
 
+def test_one_handle_switches_once_when_both_nodes_at_a_closed_join_are_selected():
+    session = Session(
+        import_svg('<svg><path id="p" d="M0 0 L20 0 L20 20 L0 0 Z"/></svg>')
+    )
+    ids = node_ids(session, "p")
+    send(session, "select", objects=["p"], nodes=[ids[0], ids[-1]])
+    points = [["p", ids[0]], ["p", ids[-1]]]
+    before = session.editor.snapshot.document.geometry_for("p")
+    send(session, "node_handles", points=points, count=1)
+    nodes = session.editor.snapshot.document.geometry_for("p").subpaths[0].nodes
+    assert (nodes[-1].command, nodes[1].command) == ("C", "L")
+    assert session.state()["undo"] == ["Change handles"]
+    send(session, "node_handles", points=points, count=1)
+    nodes = session.editor.snapshot.document.geometry_for("p").subpaths[0].nodes
+    assert (nodes[-1].command, nodes[1].command) == ("L", "C")
+    send(session, "undo")
+    send(session, "undo")
+    assert session.editor.snapshot.document.geometry_for("p") == before
+
+
 def test_points_selected_across_paths_are_edited_as_one_step():
     session = Session(import_svg(TWO_PATHS))
     p, q = node_ids(session, "p"), node_ids(session, "q")

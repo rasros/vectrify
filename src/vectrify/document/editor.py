@@ -1245,7 +1245,8 @@ class Transaction:
         both retracted becomes straight again. Two handles are set along the
         line from the previous point to the next, a third of each segment
         long. One handle keeps the curve coming in and straightens the way out;
-        asking again for one moves it to the other side.
+        asking again for one moves it to the other side. Closed contours wrap
+        through their closing segment; its endpoint and the moveto are one point.
         """
         if count not in {0, 1, 2}:
             raise EditRejectedError("A point has no handles, one or two")
@@ -1264,9 +1265,28 @@ class Transaction:
         index, subpath, position = found
         nodes = list(subpath.nodes)
         point = nodes[position].endpoint
-        # The closing line and a moveto hold no handles.
+        # Materialize an implicit closing line when it needs a handle. Keep
+        # existing IDs, including both representations of the closing point.
+        last = len(nodes) - 1
+        if (
+            subpath.closed
+            and last > 0
+            and position in {0, last}
+            and nodes[last].endpoint != nodes[0].endpoint
+            and count > 0
+        ):
+            nodes.append(PathNode(new_id("node"), "L", nodes[0].endpoint))
+            last += 1
+        seam = (
+            subpath.closed
+            and last > 0
+            and nodes[last].endpoint == nodes[0].endpoint
+            and position in {0, last}
+        )
         incoming = position if position > 0 else None
         outgoing = position + 1 if position + 1 < len(nodes) else None
+        if seam:
+            incoming, outgoing = last, 1
 
         def at(node_index: int) -> tuple[float, float]:
             return nodes[node_index].endpoint
@@ -1328,6 +1348,8 @@ class Transaction:
             raise EditRejectedError("This point has no segment to hold a handle")
         tail, head = (before or point), (after or point)
         dx, dy = head[0] - tail[0], head[1] - tail[1]
+        if dx == dy == 0:
+            dx, dy = head[0] - point[0], head[1] - point[1]
         norm = math.hypot(dx, dy) or 1.0
         ux, uy = dx / norm, dy / norm
 

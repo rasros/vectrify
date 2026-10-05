@@ -104,6 +104,91 @@ def test_one_handle_curves_the_way_in_and_switches_sides_when_asked_again():
     assert (point.command, end.command) == ("L", "C")
 
 
+@pytest.mark.parametrize("position", [0, -1])
+@pytest.mark.parametrize("explicit_close", [False, True])
+def test_closed_path_endpoints_change_both_sides_of_the_join(position, explicit_close):
+    path = "M0 0 L20 0 L20 20 L0 20" + (" L0 0" if explicit_close else "")
+    editor = Editor(
+        import_svg(f'<svg><path id="p" d="{path} Z"/></svg>'),
+        selection=select("p"),
+    )
+    original = middle(editor)
+    target = original[position]
+    seam = position == 0 or explicit_close
+
+    def change(count):
+        with editor.transaction("Handles") as tx:
+            tx.set_node_handles("p", target.id, count)
+        nodes = middle(editor)
+        incoming = nodes[-1] if seam else nodes[-2]
+        outgoing = nodes[1] if seam else nodes[-1]
+        return nodes, incoming, outgoing
+
+    nodes, incoming, outgoing = change(2)
+    assert nodes[-1].endpoint == nodes[0].endpoint
+    assert [n.id for n in nodes[: len(original)]] == [n.id for n in original]
+    assert incoming.command == outgoing.command == "C"
+    assert incoming.values[2:4] != target.endpoint
+    assert outgoing.values[:2] != target.endpoint
+    assert incoming.endpoint == target.endpoint
+    # Removing handles at either representation removes both visible handles.
+    _, incoming, outgoing = change(0)
+    assert incoming.command == outgoing.command == "L"
+    _, incoming, outgoing = change(1)
+    assert (incoming.command, outgoing.command) == ("C", "L")
+    _, incoming, outgoing = change(1)
+    assert (incoming.command, outgoing.command) == ("L", "C")
+
+
+@pytest.mark.parametrize("position", [0, -1])
+def test_open_endpoints_keep_their_only_handle_when_one_is_requested_again(position):
+    editor = Editor(import_svg(LINE), selection=select("p"))
+    target = middle(editor)[position]
+    for count in (1, 1, 2):
+        with editor.transaction("Handles") as tx:
+            tx.set_node_handles("p", target.id, count)
+        nodes = middle(editor)
+        segment = nodes[1] if position == 0 else nodes[-1]
+        offset = 0 if position == 0 else 2
+        assert segment.command == "C"
+        assert segment.values[offset : offset + 2] != target.endpoint
+        assert len(nodes) == 3
+    with editor.transaction("Handles") as tx:
+        tx.set_node_handles("p", target.id, 0)
+    assert all(n.command != "C" for n in middle(editor))
+
+
+@pytest.mark.parametrize("position", [0, -1])
+def test_removing_handles_at_a_curved_join_preserves_the_neighbours_handles(position):
+    editor = Editor(
+        import_svg(
+            '<svg><path id="p" d="M0 0 C5 -5 25 -5 20 0 C25 5 5 5 0 0 Z"/></svg>'
+        ),
+        selection=select("p"),
+    )
+    original = middle(editor)
+    with editor.transaction("Handles") as tx:
+        tx.set_node_handles("p", original[position].id, 0)
+    start, outgoing, incoming = middle(editor)
+    assert outgoing.values[:2] == incoming.values[2:4] == start.endpoint
+    assert outgoing.values[2:4] == original[1].values[2:4]
+    assert incoming.values[:2] == original[-1].values[:2]
+    editor.undo()
+    assert middle(editor) == original
+
+
+def test_a_two_point_closed_path_uses_its_neighbour_for_the_handle_direction():
+    editor = Editor(
+        import_svg('<svg><path id="p" d="M0 0 L20 0 Z"/></svg>'),
+        selection=select("p"),
+    )
+    with editor.transaction("Handles") as tx:
+        tx.set_node_handles("p", middle(editor)[0].id, 2)
+    start, outgoing, incoming = middle(editor)
+    assert incoming.values[2:4] != start.endpoint
+    assert outgoing.values[:2] != start.endpoint
+
+
 def test_handles_respect_permissions_and_ask_for_a_segment():
     editor = Editor(import_svg(LINE), selection=select("p"))
     tx = editor.transaction("Handles", allowed=frozenset({"paint"}))

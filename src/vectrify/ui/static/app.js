@@ -1191,13 +1191,23 @@ function focusedPoint() {
   const points = selectedPoints();
   return points.includes(focusPoint) ? focusPoint : points.length === 1 ? points[0] : null;
 }
-// How many handles a point has: its incoming one and the next segment's
-// outgoing one, where they are not retracted onto it.
+// A point's incoming and outgoing handle slots, wrapping at a closed join.
+function nodeHandles(key) {
+  const node = nodeAt(key), contour = contourAt(key); if (!node) return [];
+  const nodes = contour.nodes, i = nodes.indexOf(node), last = nodes.length - 1;
+  const seam = contour.closed && last > 0 && (i === 0 || i === last) && nodes[last].values.at(-2) === nodes[0].values.at(-2) && nodes[last].values.at(-1) === nodes[0].values.at(-1);
+  const incoming = seam ? nodes[last] : node, outgoing = nodes[seam ? 1 : i + 1];
+  const handles = [];
+  if (incoming.command === 'C') handles.push({node:incoming, offset:2});
+  if (outgoing?.command === 'C') handles.push({node:outgoing, offset:0});
+  return handles;
+}
+// Retracted handles do not count as handles in the inspector.
 function handleCount(key) {
-  const node = nodeAt(key), contour = contourAt(key); if (!node) return 0;
-  const point = node.values.slice(-2), next = contour.nodes[contour.nodes.indexOf(node) + 1];
+  const node = nodeAt(key); if (!node) return 0;
+  const point = node.values.slice(-2);
   const apart = handle => handle[0] !== point[0] || handle[1] !== point[1];
-  return Number(node.command === 'C' && apart(node.values.slice(2, 4))) + Number(next?.command === 'C' && apart(next.values.slice(0, 2)));
+  return nodeHandles(key).filter(({node, offset}) => apart(node.values.slice(offset, offset + 2))).length;
 }
 // The point section of the right panel and the Nodes strip.
 function renderNodeInspector(commands = true) {
@@ -1577,15 +1587,11 @@ function drawPoints() {
   $('node-count').textContent = `${count.toLocaleString()} / ${total.toLocaleString()}`;
 }
 function drawHandles(key) {
-  const [id] = splitKey(key), node = nodeAt(key), subpath = contourAt(key), matrix = localToOverlay(svgElement(id));
+  const [id] = splitKey(key), node = nodeAt(key), matrix = localToOverlay(svgElement(id));
   if (!node || !matrix) return;
-  const i = subpath.nodes.indexOf(node), handles = [];
-  if (node.command === 'C') handles.push({node, offset:2, anchor:node.values.slice(-2)});
-  const next = subpath.nodes[i+1];
-  if (next?.command === 'C') handles.push({node:next, offset:0, anchor:node.values.slice(-2)});
-  for (const handle of handles) {
+  for (const handle of nodeHandles(key)) {
     let p = new DOMPoint(...handle.node.values.slice(handle.offset, handle.offset+2)).matrixTransform(matrix);
-    const anchor = new DOMPoint(...handle.anchor).matrixTransform(matrix);
+    const anchor = new DOMPoint(...node.values.slice(-2)).matrixTransform(matrix);
     // A handle on its point is retracted: none. One closer than
     // HANDLE_SPREAD is drawn that far out along its direction, on a dashed
     // line, so it shows clear of the point; a drag puts it at the pointer.
