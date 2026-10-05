@@ -99,3 +99,54 @@ assert.equal(content.children.length, 1201);
 assert.ok(content.children.at(-1).class.includes('selected'));
 assert.equal(content.children.at(-1).dataset.node, 'n1999');
 assert.equal(handles, 1);
+
+// Either node at a closed join must count and draw both of its handles.
+const handlesSource = source.slice(source.indexOf('function nodeHandles('), source.indexOf('// The point section'));
+const drawHandlesSource = source.slice(source.indexOf('function drawHandles('), source.indexOf('// The rubber band'));
+const joinNodes = [
+ {id: 'start', command: 'M', values: [0, 0]},
+ {id: 'out', command: 'C', values: [10, -10, 30, -10, 20, 0]},
+ {id: 'end', command: 'C', values: [30, 10, -10, 10, 0, 0]},
+];
+const joinContour = {nodes: joinNodes, closed: true};
+const handleContent = {children: [], append(child) {this.children.push(child);}};
+class Point {
+ constructor(x, y) {this.x = x; this.y = y;}
+ matrixTransform() {return this;}
+}
+const handleContext = vm.createContext({
+ nodeAt: key => joinNodes.find(n => n.id === key.split(' ')[1]),
+ contourAt: () => joinContour, splitKey: key => key.split(' '),
+ localToOverlay: () => ({}), svgElement: () => ({}), DOMPoint: Point,
+ zoom: 1, HANDLE_SPREAD: 16, nearPoint: null,
+ overlayFrame: {content: handleContent},
+ xmlElement: (name, attrs) => ({name, ...attrs, dataset: {}}),
+});
+vm.runInContext(`${handlesSource}\n${drawHandlesSource}`, handleContext);
+const handleCount = vm.runInContext('handleCount', handleContext);
+const renderHandles = vm.runInContext('drawHandles', handleContext);
+for (const key of ['p start', 'p end']) {
+ assert.equal(handleCount(key), 2);
+ handleContent.children = [];
+ renderHandles(key);
+ const circles = handleContent.children.filter(n => n.name === 'circle');
+ assert.deepEqual(circles.map(n => [n.dataset.node, n.dataset.part]), [['end', '2'], ['out', '0']]);
+ assert.ok(handleContent.children.filter(n => n.name === 'line').every(n => n.x1 === 0 && n.y1 === 0));
+}
+joinNodes[2].values.splice(2, 2, 0, 0);
+assert.equal(handleCount('p start'), 1);
+assert.equal(handleCount('p end'), 1);
+handleContent.children = [];
+renderHandles('p end');
+assert.equal(handleContent.children.filter(n => n.name === 'circle').length, 1);
+// Coincident endpoints of an open path remain separate points.
+joinContour.closed = false;
+assert.equal(handleCount('p start'), 1);
+assert.equal(handleCount('p end'), 0);
+joinNodes[2].values.splice(2, 2, -10, 10);
+assert.equal(handleCount('p end'), 1);
+// An implicit close has no controls until the backend materializes it.
+joinContour.closed = true;
+joinNodes.pop();
+assert.equal(handleCount('p start'), 1);
+assert.equal(handleCount('p out'), 1);

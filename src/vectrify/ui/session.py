@@ -824,7 +824,25 @@ class Session:
                 for oid, nid in points:
                     tx.split_edge(oid, nid)
             elif command == "node_handles":
+                seen = set()
                 for oid, nid in points:
+                    geometry = document.geometry_for(oid)
+                    node = geometry.node(nid)
+                    contour = next(s for s in geometry.subpaths if node in s.nodes)
+                    first, last = contour.nodes[0], contour.nodes[-1]
+                    # A box selection can include both nodes at a closed
+                    # contour's join. Switch its one handle only once.
+                    canonical = (
+                        first.id
+                        if contour.closed
+                        and first.endpoint == last.endpoint
+                        and nid == last.id
+                        else nid
+                    )
+                    key = geometry.id, canonical
+                    if key in seen:
+                        continue
+                    seen.add(key)
                     tx.set_node_handles(oid, nid, int(payload["count"]))
             elif command == "delete_node":
                 # Deleting one point can take its contour, or its path, along.
