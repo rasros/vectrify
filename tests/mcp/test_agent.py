@@ -562,3 +562,18 @@ def test_convert_to_path_detaches_an_instance():
     assert reply["step"] == "Agent: Detach geometry"
     with pytest.raises(agent_module.DocumentError, match="action is"):
         call("job", id="nope", action="keep")
+
+
+def test_combine_preserves_overlaps_and_uses_source_style_in_one_step():
+    call = Calls()
+    before = call.agent.session.editor.snapshot.document
+    reply = call("combine", ids=["b", "a"], paint_source="a")
+    oid = reply["result"]["objects"][0]
+    after = call.agent.session.editor.snapshot.document
+    assert after.geometry_for(oid).subpaths == (
+        *before.geometry_for("a").subpaths,
+        *before.geometry_for("b").subpaths,
+    )
+    assert after.element(oid).get("fill") == "red"
+    assert reply["step"] == "Agent: Combine paths"
+    assert call.labels == ("Agent: Combine paths",)

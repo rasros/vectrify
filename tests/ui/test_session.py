@@ -1007,3 +1007,28 @@ def test_a_reference_of_the_artboard_s_shape_is_kept_as_it_is():
     url = png_url(200, 200)
     send(session, "reference", reference={"name": "square.png", "data_url": url})
     assert kept_reference(session)["data_url"] == url
+
+
+def test_combine_command_preserves_contours_and_restores_selection_with_undo():
+    doc = import_svg("""<svg width="100" height="100">
+    <path id="a" fill="red" d="M0 0H20V20H0Z"/>
+    <path id="b" fill="blue" d="M10 10H30V30H10Z"/></svg>""")
+    session = Session(doc)
+    send(session, "select", objects=["b", "a"])
+    before = session.editor.snapshot
+    for source in [[], "", "missing"]:
+        with pytest.raises(DocumentError):
+            send(session, "combine_paths", paint_source=source)
+        assert session.editor.snapshot == before
+    result = send(session, "combine_paths")
+    oid = result["selection"]["objects"][0]
+    after = session.editor.snapshot.document
+    assert after.geometry_for(oid).subpaths == (
+        *doc.geometry_for("a").subpaths,
+        *doc.geometry_for("b").subpaths,
+    )
+    assert after.element(oid).get("fill") == "blue"
+    assert result["undo"] == ["Combine paths"]
+    assert send(session, "undo")["selection"]["objects"] == ["a", "b"]
+    assert session.editor.snapshot.document == before.document
+    assert send(session, "redo")["selection"]["objects"] == [oid]

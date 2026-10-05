@@ -852,12 +852,16 @@ const COMMANDS = [
     run: () => enterObject(oneObject().id), disabled: () => !(oneObject()?.tag === 'g' || (oneObject()?.tag === 'path' && !oneObject().resource)) && 'Select one group or visible path'},
   {id: 'step-up', name: 'Select one level up', group: 'Select', keys: 'Escape', keywords: 'leave exit group', run: stepUp, disabled: () => !state.selection.objects.length && !scope && 'Nothing to step up from'},
   {id: 'rename', name: 'Rename…', group: 'Object', keys: 'F2', run: renameObject, disabled: () => !oneObject() && 'Select one object to rename'},
-  {id: 'group', name: 'Group', group: 'Actions', keys: 'Ctrl/⌘ G', keywords: 'combine', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
+  {id: 'group', name: 'Group', group: 'Actions', keys: 'Ctrl/⌘ G', keywords: 'group objects', run: () => action('group'), disabled: () => state.selection.objects.length < 2 && 'Select two or more objects to group'},
   {id: 'ungroup', name: 'Ungroup', group: 'Actions', keys: 'Ctrl/⌘ Shift G', run: () => action('ungroup'),
     disabled: () => noSelection() || (!state.selection.objects.every(id => object(id)?.tag === 'g') && 'Select one or more groups')},
-  {id: 'join', name: 'Join', label: () => joinOpensDialog() ? 'Join…' : 'Join', group: 'Actions', keys: 'Ctrl/⌘ J', keywords: 'merge union combine connect ends dashed broken lines strokes gaps close points', run: join,
+  {id: 'join', name: 'Join', label: () => joinOpensDialog() ? 'Join…' : 'Join', group: 'Actions', keys: 'Ctrl/⌘ J', keywords: 'merge union connect ends dashed broken lines strokes gaps close points', run: join,
     disabled: () => !twoEnds() && (level() === 'points' ? 'Select the two points to join, or paths in Select'
       : joinCandidates().length < 2 && !linePaths().length && 'Select two or more paths, or lines whose ends to join')},
+  {id: 'combine-paths', name: 'Combine paths', group: 'Actions', keywords: 'compound collect contours preserve geometry combine',
+    run: () => action('combine_paths', {}, 'Combining paths…'),
+    disabled: () => level() === 'points' ? 'Select paths in Select to combine them'
+      : joinCandidates().length < 2 && 'Select two or more paths, or groups containing them'},
   {id: 'convert-lines', name: 'Convert line/fill', label: () => ({fills: 'Fill to line', lines: 'Line to fill'})[!linePaths().length ? fillPaths().length && 'fills' : !fillPaths().length && 'lines'] || 'Convert line/fill', group: 'Actions',
     keywords: 'fill to line, line to fill, centreline centerline stroke outline expand skeleton thin', run: () => action('convert_lines', {}, 'Converting…'),
     disabled: () => !fillPaths().length && !linePaths().length && 'Select filled paths or stroked lines'},

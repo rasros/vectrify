@@ -1729,6 +1729,26 @@ class Transaction:
         self, object_ids: frozenset[str], *, color_source: str | None = None
     ) -> str:
         """Join regions at the frontmost position with mixed or source colors."""
+        return self._merge_paths(object_ids, color_source)
+
+    def combine_paths(
+        self, object_ids: frozenset[str], *, paint_source: str | None = None
+    ) -> str:
+        """Collect unchanged contours into one path, using the frontmost paint.
+
+        *paint_source* chooses another participating path's entire style.
+        Transforms are resolved when necessary; clipping is never cut into
+        the geometry. Overlaps retain the source style's compound fill rule.
+        """
+        return self._merge_paths(object_ids, paint_source, combine=True)
+
+    def _merge_paths(
+        self,
+        object_ids: frozenset[str],
+        color_source: str | None,
+        *,
+        combine: bool = False,
+    ) -> str:
         with self._change():
             self._whole_objects()
             document = self._working
@@ -1742,7 +1762,7 @@ class Transaction:
                 and selected[0].tag == "g"
                 and all(c.tag == "path" for c in selected[0].children)
             ):
-                return self._join_paths(object_ids, color_source)
+                return self._join_paths(object_ids, color_source, combine=combine)
             if any(set(references(e)) & groups for e in document.elements()):
                 raise EditRejectedError(
                     "Detach references to these groups before joining"
@@ -1752,6 +1772,7 @@ class Transaction:
             joined = self._join_paths(
                 frozenset(e.id for e in members.values() if e.tag == "path"),
                 color_source,
+                combine=combine,
             )
 
             def remove_empty(element: Element) -> Element:
@@ -1770,7 +1791,11 @@ class Transaction:
             return joined
 
     def _join_paths(
-        self, object_ids: frozenset[str], color_source: str | None = None
+        self,
+        object_ids: frozenset[str],
+        color_source: str | None = None,
+        *,
+        combine: bool = False,
     ) -> str:
         document = self._working
         selected = [document.element(oid) for oid in object_ids]
@@ -1784,7 +1809,7 @@ class Transaction:
             raise EditRejectedError("Choose a color source from the paths being joined")
         parents = {document.ancestry(p.id)[-2].id for p in paths}
         if len(parents) != 1:
-            return self._join_across_groups(paths, color_source)
+            return self._join_across_groups(paths, color_source, combine=combine)
         parent = document.element(next(iter(parents)))
         path_ids = {p.id for p in paths}
         paths = [p for p in parent.children if p.id in path_ids]
@@ -1801,6 +1826,8 @@ class Transaction:
             {k: v for k, v in p.attributes if k not in PAINT} != structural
             for p in paths
         ):
+            if combine:
+                return self._join_across_groups(paths, color_source, combine=True)
             raise EditRejectedError(
                 "Paths must have matching transforms and clipping to join"
             )
@@ -1809,11 +1836,24 @@ class Transaction:
                 "Move clipping to the containing group before joining"
             )
         styles = [path_style(document, p) for p in paths]
-        if len({s["fill"] != "none" for s in styles}) > 1:
+        if not combine and len({s["fill"] != "none" for s in styles}) > 1:
             raise EditRejectedError(
                 "Join filled regions separately from stroke-only outlines"
             )
-        if any(style != styles[-1] for style in styles):
+        if combine:
+            source_index = next(
+                (i for i, p in enumerate(paths) if p.id == color_source),
+                len(paths) - 1,
+            )
+            paint = dict(styles[source_index])
+            for path, style in zip(paths, styles, strict=True):
+                for key, value in paint.items():
+                    if value != style.get(key):
+                        self._authorize(
+                            document.dependents({path.id}), EditKind.PAINT, key
+                        )
+            attrs.update(paint)
+        elif any(style != styles[-1] for style in styles):
             paint = join_paint(
                 styles,
                 painted_weights(document, paths),
@@ -1840,7 +1880,7 @@ class Transaction:
             new_id("geometry"), tuple(s for g in originals for s in g.subpaths)
         )
         filled = paint.get("fill", "black") != "none"
-        if filled:
+        if filled and not combine:
             owners = {s.id: g.id for g in originals for s in g.subpaths}
             contact = any(
                 len({owners[s.id] for s in part}) > 1
@@ -1928,7 +1968,11 @@ class Transaction:
         return joined.id
 
     def _join_across_groups(
-        self, paths: list[Element], color_source: str | None
+        self,
+        paths: list[Element],
+        color_source: str | None,
+        *,
+        combine: bool = False,
     ) -> str:
         document = self._working
         path_ids = {p.id for p in paths}
@@ -1953,25 +1997,41 @@ class Transaction:
             for e in document.elements()
         ):
             raise EditRejectedError("Detach shared geometry before joining")
+        if combine:
+            for chain in ancestries:
+                start = next(i for i, a in enumerate(chain) if a.id == common.id) + 1
+                if any(a.get("clip-path", "none") != "none" for a in chain[start:]):
+                    raise EditRejectedError(
+                        "Move clipping to the common containing group before combining"
+                    )
         baked = [bake_group_path(document, p, common.id) for p in paths]
         styles = [style for _, style, _ in baked]
-        if len({s["fill"] != "none" for s in styles}) > 1:
+        if not combine and len({s["fill"] != "none" for s in styles}) > 1:
             raise EditRejectedError(
                 "Join filled regions separately from stroke-only outlines"
             )
-        paint = join_paint(
-            styles,
-            painted_weights(document, paths),
-            next((i for i, p in enumerate(paths) if p.id == color_source), None),
-            document,
-        )
+        if combine:
+            source_index = next(
+                (i for i, p in enumerate(paths) if p.id == color_source),
+                len(paths) - 1,
+            )
+            paint = dict(styles[source_index])
+        else:
+            paint = join_paint(
+                styles,
+                painted_weights(document, paths),
+                next((i for i, p in enumerate(paths) if p.id == color_source), None),
+                document,
+            )
         normalized = []
         updated = document
         for path, original, (geometry, style, changed) in zip(
             paths, originals, baked, strict=True
         ):
             if changed:
-                if any(n.pinned for s in original.subpaths for n in s.nodes):
+                if not combine and any(
+                    n.pinned for s in original.subpaths for n in s.nodes
+                ):
                     raise EditRejectedError(
                         "Unpin selected paths before resolving "
                         "group transforms or clipping"
@@ -1985,7 +2045,11 @@ class Transaction:
                         if n.id not in surviving
                     }
                 )
-            resolved = dict(paint, **{"fill-rule": style["fill-rule"]})
+            resolved = (
+                dict(paint)
+                if combine
+                else dict(paint, **{"fill-rule": style["fill-rule"]})
+            )
             before = path_style(document, path)
             for key, value in resolved.items():
                 if value != before[key]:
@@ -2060,7 +2124,7 @@ class Transaction:
                 children.append(prune(child))
         updated = updated.replace_element(replace(common, children=tuple(children)))
         self._working = updated
-        return self._join_paths(frozenset(path_ids), color_source)
+        return self._join_paths(frozenset(path_ids), color_source, combine=combine)
 
     def fill_holes(self, object_id: str, hole_ids: frozenset[str]) -> None:
         """Fill explicitly chosen holes, including their nested contour islands."""

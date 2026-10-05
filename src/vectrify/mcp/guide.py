@@ -31,6 +31,7 @@ For X use Y:
 - paint, name, locks: properties(ids, ...); move or scale: transform;
   stacking and groups: arrange
 - join anything (points, line ends, filled outlines): join
+- collect paths without changing their contours: combine
 - take a piece out of a path: extract(region); delete it: delete(region=...);
   delete objects, points or contours: delete(ids | points, contours=...)
 - holes: points(id) marks them (hole=true); holes(contours, action=...)
@@ -142,6 +143,11 @@ for `coords="local"`.
   `join(ids)` joins stroked lines at their ends within `reach`, or merges
   filled paths into one outline (`color_source` picks the paint). `joined`
   in the answer says which it did.
+- `combine(ids, paint_source?)` collects paths or path-only groups into one
+  compound path, preserving all contours without connecting or unioning them.
+  The entire paint comes from the frontmost path, or `paint_source`.
+  Transforms are resolved; move per-path clipping to the common containing
+  group first. Compound fill rules still apply to overlapping contours.
 - Holes: `points(id)` marks each contour of a filled path that is a hole
   (`hole=true`, with its `area`); `holes(contours=[[path, contour id]],
   action="fill")` fills them (`delete_enclosed` also deletes the shapes

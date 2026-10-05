@@ -581,6 +581,15 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         )
 
     @tool(structured_output=False)
+    def combine(ids: Ids, paint_source: str | None = None) -> CallToolResult:
+        """Combine paths or path-only groups into one compound path, keeping
+        every contour without connecting ends or unioning overlaps. Uses the
+        frontmost path's entire paint, or paint_source's; compound fill rules
+        still apply. Transforms are resolved; per-path clipping must first be
+        moved to the common containing group."""
+        return state.call("combine", {"ids": ids, "paint_source": paint_source})
+
+    @tool(structured_output=False)
     def split_parts(ids: Ids) -> CallToolResult:
         """Split paths into their disconnected parts; holes stay with theirs."""
         return state.call("split_parts", {"ids": ids})

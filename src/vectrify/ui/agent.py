@@ -113,6 +113,7 @@ EDITS: dict[str, tuple[str, ...]] = {
     "arrange": ("reorder", "move_objects"),
     "group": ("group", "ungroup"),
     "join": ("join_paths", "join_ends", "join_two_ends"),
+    "combine": ("combine_paths",),
     "split_parts": ("split_disconnected",),
     "cut_hole": ("cut_hole",),
     "holes": ("fill_holes", "holes_to_shapes"),
@@ -1574,6 +1575,14 @@ class Agent:
                 if element.tag == "path" and element.id not in found:
                     found.append(element.id)
         return found
+
+    def tool_combine(
+        self, seen: Any, ids: Any, paint_source: str | None = None
+    ) -> Reply:
+        """Collect paths into one compound path without connecting or unioning."""
+        return self._simple(
+            "combine_paths", seen, _targets(ids), paint_source=paint_source
+        )
 
     def tool_join(
         self,
