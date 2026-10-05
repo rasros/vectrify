@@ -16,8 +16,8 @@ without changing anything; inspect the conflicting object before deciding
 on another edit. You do not need to refresh after unrelated changes.
 
 For X use Y:
-- what the person is looking at: view() (their selection, zoom, visible
-  region); render(region="view") shows it
+- what the person is looking at: describe(objects=false) (their selection,
+  zoom, visible region); render(region="view") shows it
 - what is under a spot: pick(x, y, radius); in an area: describe(region=...)
   (objects and the contours of figure-wide paths that paint there)
 - a path's nodes: points(id, region=...) or points(id, contours=[i])
@@ -89,13 +89,16 @@ for `coords="local"`.
 ## The loop
 
 1. `describe()`: the artboard, the reference, the person's selection (for
-   context only), and the objects
+   context only), the window view, and the objects
    (id, label, tag, parent, paint, bounds, locks), a page at a time
    (`page`, `page_size`, or `within` a group id).
-2. Ask what the person is looking at: `view()` gives their selection
-   (objects, points), and in the editor window the visible region, the
-   zoom, the active tool, the entered group and the reference view.
-   `render(region="view")` renders exactly that. You never change them.
+2. `describe` also gives the person's selection (objects, points), and in
+   the editor window the visible region, zoom, canvas pixels, active tool,
+   entered group and reference view. `describe(objects=false)` skips object
+   lookup and pagination for a lightweight context read. Without a reported
+   window it returns `window=false` and the whole artboard as the region.
+   Once a window has reported, `render(region="view")` renders exactly
+   what it shows. You never change the person's selection or view.
 3. Find things by place, not by paging: `pick(x, y, radius)` lists what
    paints at a spot, front to back, each with its groups and, for a path,
    the contours there (index, first node, node count, bounds). Strokes
@@ -130,7 +133,8 @@ for `coords="local"`.
   name for one object, locks; one step), `transform(ids, dx, dy, scale,
   anchor)` (move and/or scale) or `transform(ids, box=...)` (fit to a box),
   `arrange(ids, to="front")` (restack) or `arrange(ids, parent, index)`
-  (move into a group), `group`, `ungroup`, `split_parts`, `cut_hole` (two
+  (move into a group), `group(ids)` (create), `group(ids, action="dissolve")`
+  (keep the groups' children), `split_parts`, `cut_hole` (two
   paths: the inner one cuts the outer), `convert(ids, to)` (`line`: fill to
   centre line, `fill`: stroke to fill, `path`: an instance or shared
   geometry into an editable path of its own), `delete(ids)`, `knife`.

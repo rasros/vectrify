@@ -181,8 +181,8 @@ The server edits one target at a time, with the same tools for both:
   before the client had its answer back (about 50 ms). The footer reads
   *Agents off*, *Agents allowed*, or *Agent connected · <last action>*
   (connected means a call in the last two minutes).
-- The page reports what the window shows, for `view()`: the visible part of
-  the drawing `[x, y, w, h]` in document units, the zoom (screen pixels per
+- The page reports what the window shows, for `describe()`: the visible part
+  of the drawing `[x, y, w, h]` in document units, the zoom (screen pixels per
   unit), the canvas size in pixels, the active tool, the entered group and
   the reference view and opacity. It sends it with each poll and, 250 ms
   after the view changes (zoom, pan, tool, entered group, reference view),
@@ -248,7 +248,7 @@ The server edits one target at a time, with the same tools for both:
   `points` pages nodes (300 a page, at most 2000) and says `more`;
   `pick` lists 20 objects and 30 contours of each; `trace_reference` gives
   at most 40 shapes and about 16,000 characters of path data.
-- Looking is read-only: `view()` reads the person's selection and viewport
+- Looking is read-only: `describe()` reads the person's selection and viewport
   and never changes them; `pick` and `trace_reference` change nothing.
 
 ## Tools
@@ -274,12 +274,20 @@ region is `[x, y, w, h]`; a region that edits (`extract`, `delete`) may also
 be a polygon `[[x, y], ...]`.
 
 **Looking**
-- `describe(page?, page_size?, within?, region?)`: target, artboard,
+- `describe(page?, page_size?, within?, region?, objects?)`: target, artboard,
   reference (name and pixel size), the person's selection (for context; no
   tool acts on it), and objects (id, label, name, tag, parent,
   depth, paint, painted bounds `[x, y, w, h]`, transform, locks), a page at a
   time, or one group's contents. With `region`, only the objects that paint
   inside it, front to back, each path with the contours of it that do.
+  It also reports what the person is looking at: the visible `region`,
+  `zoom`, canvas `pixels`, active `tool`, `entered_group`, `reference_view`
+  (drawing, overlay or reference) and how long ago the window reported it.
+  Headless (or before the window reports) it returns `window=false` and the
+  whole artboard as the visible region. This viewport is independent of the
+  object filter's `region`. `objects=false` skips object lookup and omits
+  `objects`, `page`, `pages`, `total`, `order` and `next` for a lightweight
+  context read; the default is `true`.
 - `pick(x, y, radius?)`: what paints at a document point, or within
   `radius` of it, front to back: each object with its groups and, for a
   path, its contours there (`index`, `id`, `first_node`, `count`, `closed`,
@@ -289,12 +297,6 @@ be a polygon `[[x, y], ...]`.
   clips; not bounding boxes. Its `colour` gives the drawing's and the
   reference's colour there (the mean over a disc of `radius`, at least half
   a unit) and their `difference` (RGB distance, 0 to 1).
-- `view()`: what the person is looking at: their selection (objects and
-  points) and, in the editor window, the visible `region`, the `zoom`, the
-  canvas `pixels`, the active `tool`, the `entered_group`, the
-  `reference_view` (drawing, overlay or reference) and how long ago the
-  window reported it. Headless (or before the window has reported) it says
-  there is no window and gives the whole artboard.
 - `render(region?, overlay?, max_side?, grid?)`: the drawing; `region` in
   document units, or `"view"` for exactly what the window shows (its region
   at its pixel size, with the reference over it or alone as the window
@@ -344,8 +346,9 @@ changes and locking after them, all one step), `transform(ids, dx?, dy?,
 scale?, anchor?, box?)` (move and/or scale about an anchor, or fit the
 painted bounds to `box`), `arrange(ids, to)` (front, back, forward,
 backward) or `arrange(ids, parent, index?)` (into a group, the front unless
-`index` says otherwise), `group(ids)`, `ungroup(ids)`, `join(ids? |
-points?, reach?, bridge?, color_source?)` (the editor's Join: two points
+`index` says otherwise), `group(ids, action?)` (`create`, the default, groups
+two or more objects; `dissolve` removes groups, keeping their children),
+`join(ids? | points?, reach?, bridge?, color_source?)` (the editor's Join: two points
 join each other; stroked lines join their ends within `reach`; filled
 paths merge by area; `joined` says which), `split_parts(ids)`,
 `cut_hole(ids)`, `holes(contours, action?, delete_enclosed?)` (`fill` or
@@ -413,8 +416,8 @@ recommended result's previews (reference, before, after) as images;
 `discard` drops it, `stop` stops it early.
 
 **Guide**: the server's instructions (what a client sees up front) give a
-short "for X use Y" list (what the person sees: `view`; what is under a
-spot and its colours: `pick`; a path's nodes: `points(id, region)`;
+short "for X use Y" list (what the person sees: `describe(objects=false)`;
+what is under a spot and its colours: `pick`; a path's nodes: `points(id, region)`;
 coordinates of an image: its `mapping` and `grid`; the shape to match:
 `trace_reference`; paint, names and locks: `properties`; joining: `join`;
 a piece of a path: `extract`; deleting: `delete`; holes, jobs, saving) and
@@ -442,7 +445,7 @@ Not exposed either: `improve/path-fit` (no dialog in the editor uses it),
 setting a gradient fill directly (the session's paint takes colours only;
 `fit_colours(fill="linear")` makes gradients), and the editor's view
 controls (zoom, overlay view, tools), which have no effect on the drawing:
-the agent reads them with `view()` and never sets them.
+the agent reads them with `describe()` and never sets them.
 
 ## Limits
 

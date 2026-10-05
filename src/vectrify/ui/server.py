@@ -111,7 +111,7 @@ class Backend:
                 elif path == "/api/poll":
                     # What the page checks for agents' edits, and the footer
                     # (pushed to it as they happen, polled now and then); it
-                    # says what it shows, for an agent's view().
+                    # says what it shows, for an agent's describe().
                     if data.get("view") is not None:
                         session.set_view(data["view"])
                     result = self.pulse(session, session_id or "")

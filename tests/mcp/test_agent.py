@@ -66,6 +66,40 @@ def test_describe_pages_and_lists_one_group():
     assert inside["objects"][1]["bounds"] == [4, 0, 2, 2]
 
 
+def test_describe_without_objects_skips_object_lookup_and_preserves_context(
+    monkeypatch,
+):
+    agent, seen = fresh()
+    agent.session.action(
+        {
+            "command": "select",
+            "objects": ["sun"],
+            "epoch": seen[0],
+            "revision": seen[1],
+        }
+    )
+    described = agent.call("describe").data
+
+    def no_lookup(*_args, **_kwargs):
+        pytest.fail("A context-only describe must not look up objects")
+
+    monkeypatch.setattr(agent.session, "state", no_lookup)
+    monkeypatch.setattr(agent, "_hits", no_lookup)
+    monkeypatch.setattr(agent, "_covering", no_lookup)
+    context = agent.call("describe", {"objects": False}).data
+    for key in ("objects", "page", "pages", "total", "order", "next"):
+        assert key not in context
+    assert context == {
+        key: value
+        for key, value in described.items()
+        if key not in {"objects", "page", "pages", "total"}
+    }
+    assert context["selection"]["objects"] == ["sun"]
+    assert agent.session.editor.snapshot.selection.object_ids == {"sun"}
+    assert agent.session.editor.snapshot.revision == 0
+    assert agent.changes == 0
+
+
 def test_resize_to_a_box_is_one_step():
     agent, seen = fresh()
     reply = agent.call(
@@ -165,9 +199,23 @@ def test_agent_edits_leave_the_persons_selection_and_add_one_step_each():
     # What the edit left to work on is the agent's, in its answer: the group.
     (group,) = reply["result"]["objects"]
     assert group in reply["created"]
+    # The same tool dissolves it as one step and returns the surviving children.
+    reply = agent.call(
+        "group", {"seen": seen, "ids": [group], "action": "dissolve"}
+    ).data
+    assert group in reply["removed"]
+    assert set(reply["result"]["objects"]) == {"sun", "sky"}
+    assert reply["revision"] == seen[1] + 1
+    assert len(editor.undo_entries) == len(edits) + 1
+    assert editor.snapshot.selection == chosen
+    seen = [reply["epoch"], reply["revision"]]
     # Undoing an agent's step keeps the person's selection too.
     agent.call("undo", {"seen": seen, "ids": [reply["edit_id"]]})
     assert editor.snapshot.selection == chosen
+    assert {child.id for child in editor.snapshot.document.element(group).children} == {
+        "sun",
+        "sky",
+    }
     person_selects(agent, [])
     editor.undo()
     assert editor.snapshot.selection == chosen

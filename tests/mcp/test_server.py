@@ -45,6 +45,7 @@ def test_open_look_edit_undo_and_save(tmp_path):
                 ("properties", {"ids": [], "fill": "red"}),
                 ("transform", {"dx": 1, "dy": 1}),
                 ("point_style", {"points": [], "handles": 0}),
+                ("group", {"ids": ["sun", "hill"], "action": "ungroup"}),
             ]:
                 assert "validation error" in error(await client.call_tool(tool, args))
             # delete takes ids, points or a region, and refuses none of them.
@@ -54,11 +55,22 @@ def test_open_look_edit_undo_and_save(tmp_path):
             tools = await client.list_tools()
             schemas = {t.name: t.input_schema for t in tools.tools}
             assert "select" not in schemas
+            assert "view" not in schemas
+            assert "ungroup" not in schemas
+            assert schemas["describe"]["properties"]["objects"]["default"] is True
+            assert schemas["group"]["properties"]["action"]["default"] == "create"
             for name in ("properties", "transform", "group", "cleanup", "undo", "redo"):
                 assert "ids" in schemas[name]["required"], name
             for name in ("undo", "redo"):
                 assert "steps" not in schemas[name]["properties"]
                 assert "validation error" in error(await client.call_tool(name, {}))
+
+            context = data(await client.call_tool("describe", {"objects": False}))
+            assert context["artboard"] == opened["artboard"]
+            assert context["target"] == f"the file {drawing}"
+            assert context["window"] is False
+            assert context["region"] == opened["artboard"]
+            assert "objects" not in context
 
             painted = data(
                 await client.call_tool(

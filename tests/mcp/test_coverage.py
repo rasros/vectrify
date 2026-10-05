@@ -106,7 +106,9 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
             await call("arrange", ids=["a"], to="backward")
             await call("arrange", ids=["a"], parent="grp", index=0)
             grouped = data(await call("group", ids=["line", "line2"]))
-            await call("ungroup", ids=grouped["result"]["objects"])
+            data(
+                await call("group", ids=grouped["result"]["objects"], action="dissolve")
+            )
             await call("join", ids=["a", "b"])
             await call("split_parts", ids=["ring"])
             await call("cut_hole", ids=["ring", "c"])
