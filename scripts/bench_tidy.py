@@ -160,6 +160,7 @@ def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     )
     mask = _render(_only(mask_document, [outline]))[:, :, 3] == 255
     mask = binary_erosion(mask, iterations=2)
+    visible = _render(document)
     return {
         "outside_area": sum(spill.values()),
         "outside_each": spill,
@@ -167,6 +168,7 @@ def properties(document, group=GROUP, outline=OUTLINE, axis=None):
         "symmetry_area": interior.symmetric_difference(reflected).area,
         "interior_area": interior.area,
         "transparent_pixels": int(((blade[:, :, 3] < 255) & mask).sum()),
+        "visible_transparent_pixels": int(((visible[:, :, 3] < 255) & mask).sum()),
     }
 
 
