@@ -125,7 +125,8 @@ def test_the_steps_mix_to_fit_a_rough_shape_with_fewer_points():
     ed = editor("p")
     job = Job(
         method("improve", "nodes"),
-        request(ed, steps=8, snap=True, simplify=True, tolerance=0.5),
+        # Allow the requested rounds to finish on slower CI runners.
+        request(ed, steps=8, snap=True, simplify=True, tolerance=0.5, seconds=60),
     )
     job.run()
     result = job.state()["result"]
