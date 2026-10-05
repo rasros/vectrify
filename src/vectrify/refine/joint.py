@@ -458,6 +458,10 @@ def _polish_group(
             monolithic=True,
             fit_context=(context.base, context.delta, context.transmission),
             project_controls=project,
+            control_transform=lambda paths: [
+                p.mapping.controls_from_local(p.mapping.local_from_controls(path))
+                for p, path in zip(coordinates, paths, strict=True)
+            ],
             observe=observe,
             coverage_transform=coverage,
             loss_transform=loss_transform if coarse_steps else None,
