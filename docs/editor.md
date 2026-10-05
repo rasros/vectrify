@@ -290,6 +290,11 @@ and saved projects restore it.
   of the Select strip) move one object a step; **Send to back**/**Bring to
   front** (add Shift, or ⇊ / ⇈) move the selection to the back or front of its
   group, keeping the selected objects' order.
+- Click the arrow beside a group in the Objects tree to collapse or expand
+  its children. With the group row focused, Left collapses and Right expands.
+  Folding keeps the selection and survives edits; opening a different drawing
+  starts with groups expanded. Search shows matching objects inside folded
+  groups, and selecting a hidden object on the canvas opens its parents.
 - Drag rows in the object tree to restack them. The tree lists objects back to
   front: a row paints over the rows above it. Dragging a selected row carries
   the whole selection, which keeps its order. A line shows where the objects

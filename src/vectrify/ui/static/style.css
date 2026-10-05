@@ -5,6 +5,11 @@
 #overlay .selection-halo .selection-contour{fill:none;fill-opacity:0;stroke:#163b50;stroke-width:calc(3.75px * var(--selection-scale,1));stroke-opacity:.85}
 
 .object-row{scroll-margin-block:8px}
+.object-row { cursor: pointer; }
+.object-row:focus-visible, .tree-toggle:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-toggle, .tree-toggle-spacer { width: 16px; height: 20px; flex-shrink: 0; }
+.object-row .tree-toggle { border: 0; border-radius: 3px; background: transparent; padding: 0; color: var(--muted); font-size: 14px; line-height: 20px; }
+.object-row .tree-toggle:hover { background: #ffffff14; color: #e2e7e4; }
 
 
 
