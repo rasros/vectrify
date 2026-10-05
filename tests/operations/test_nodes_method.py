@@ -9,6 +9,7 @@ import pytest
 from PIL import Image, ImageDraw
 
 from vectrify.document import DocumentError, Editor, Selection, export_svg, import_svg
+from vectrify.image_utils import on_white
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 from vectrify.operations.generate import Region
 from vectrify.operations.methods import nodes as nodes_method
@@ -1148,3 +1149,76 @@ def test_saving_handles_still_cannot_exceed_simplifys_reference_budget():
     assert np.array_equal(
         np.asarray(render_image(export_svg(result), alpha=True)), np.asarray(target)
     )
+
+
+@pytest.mark.parametrize("stroke_width", [0.2, 4])
+def test_stroke_supported_simplification_checks_the_actual_reference(
+    stroke_width, monkeypatch
+):
+    from vectrify.refine import simplify
+
+    document = import_svg(
+        '<svg width="64" height="64"><g id="pair">'
+        '<path id="fill" fill="blue" d="M8 16 L16 16.25 L24 15.75 '
+        'L32 16.25 L40 15.75 L48 16 L48 48 L8 48 Z"/>'
+        f'<path id="ink" fill="none" stroke="black" stroke-width="{stroke_width}" '
+        'd="M8 16 L48 16"/></g></svg>'
+    )
+    target = render_image(export_svg(document), alpha=True)
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"pair"})))
+    # Isolate the additional model: the ordinary joining model offers no change.
+    monkeypatch.setattr(
+        simplify, "simplify", lambda _d, paths, *_args, **_kwargs: paths
+    )
+    job = Job(
+        method("improve", "nodes"),
+        replace(
+            request(ed, steps=1, shape=False, snap=False, simplify=True),
+            reference=target,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"] == (stroke_width == 4)
+    if state["result"]["changed"]:
+        job.apply()
+        assert len(ed.snapshot.document.geometry_for("fill").subpaths[0].nodes) == 4
+        assert ed.snapshot.document.geometry_for("ink") == document.geometry_for("ink")
+        assert np.array_equal(
+            np.asarray(render_image(export_svg(ed.snapshot.document), alpha=True)),
+            np.asarray(target),
+        )
+
+
+def test_simplifys_budget_includes_an_unselected_shared_neighbour():
+    from vectrify.refine.frozen import Frozen, Paths
+    from vectrify.refine.shared import frozen_points
+
+    document = import_svg(
+        '<svg width="64" height="64">'
+        '<path id="ghost" fill="blue" fill-opacity="0" '
+        'd="M8 8 L32 8 L32.5 24 L31.5 40 L32 56 L8 56 Z"/>'
+        '<path id="visible" fill="navy" '
+        'd="M32 8 L56 8 L56 56 L32 56 L31.5 40 L32.5 24 Z"/></svg>'
+    )
+    target = render_image(export_svg(document), alpha=True)
+    region = Region(0, 0, 64, 64, on_white(target), np.asarray(target)[:, :, 3] / 255)
+    shared = nodes_method._shared_edges(document, ("ghost",))
+    assert shared
+    assert shared[0].neighbour == "visible"
+    task = nodes_method._Task(
+        document,
+        region,
+        nodes_method.read_settings({"tolerance": 3}, nodes_method.SETTINGS, "Tidy"),
+        ("ghost",),
+        target,
+        shared=tuple(shared),
+    )
+    original = Paths({"ghost": document.geometry_for("ghost")})
+    result = nodes_method._simplified(
+        task, original, Frozen(frozen_points(document, shared)), float("inf")
+    )
+    # The selected transparent path's pixels cannot expose the budget violation;
+    # its opaque neighbour following the simpler edge does.
+    assert result == original
