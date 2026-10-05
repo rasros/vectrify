@@ -622,3 +622,64 @@ def test_joint_fit_moves_a_fill_and_open_round_outline_together():
         return np.mean((squared[..., :3].sum(-1) + 3 * squared[..., 3]) / 6)
 
     assert error(result) < error(document) * 0.65
+
+
+@pytest.mark.parametrize("asymmetric_reference", [False, True])
+def test_joint_bilateral_family_is_retained_only_when_reference_error_improves(
+    asymmetric_reference,
+):
+    pytest.importorskip("torch")
+    from vectrify.image_utils import on_white
+    from vectrify.refine.bilateral import Bilateral
+
+    source = (
+        '<svg width="64" height="64">'
+        '<path id="h" fill="gray" d="M8 49 L56 49 L56 55 L8 55 Z"/>'
+        '<path id="s" fill="none" stroke="black" stroke-width="2" '
+        'stroke-linecap="round" stroke-linejoin="round" '
+        'd="M9 50 C13 38 26 19 32.2 8 C38.8 19 52 36 54.8 51"/></svg>'
+    )
+    reference = (
+        source
+        if asymmetric_reference
+        else source.replace(
+            "M9 50 C13 38 26 19 32.2 8 C38.8 19 52 36 54.8 51",
+            "M10 50 C10 38 26 18 32 8 C38 18 54 38 54 50",
+        )
+    )
+    document = import_svg(source)
+    target = render_image(reference, (0, 0, 64, 64), (64, 64), alpha=True)
+    target_rgb = np.asarray(on_white(target), float) / 255
+    target_alpha = np.asarray(target, float)[..., 3] / 255
+
+    def score(candidate):
+        image = render_image(
+            export_svg(candidate), (0, 0, 64, 64), (64, 64), alpha=True
+        )
+        rgb = np.asarray(on_white(image), float) / 255
+        alpha = np.asarray(image, float)[..., 3] / 255
+        return float(
+            np.mean(
+                ((rgb - target_rgb) ** 2).sum(-1) / 6 + (alpha - target_alpha) ** 2 / 2
+            )
+        )
+
+    options = FitOptions(snap=False, steps=20, displacement=4, resolution=64, stall=0)
+    ordinary = polish(document, ("h", "s"), target, options, score=score, models=False)
+    fitted = polish(document, ("h", "s"), target, options, score=score)
+    assert score(fitted) <= score(ordinary)
+    if asymmetric_reference:
+        # An exactly matching asymmetric drawing must remain asymmetric.
+        assert fitted == document
+    else:
+        assert score(fitted) < score(ordinary) * 0.85
+        geometry = fitted.geometry_for("s")
+        model = Bilateral.infer(geometry, frozenset(), 4)
+        assert model is not None
+        np.testing.assert_allclose(
+            model.original, model.average(model.original), atol=1e-10
+        )
+        assert fitted.element("s").attributes == document.element("s").attributes
+        assert [n.id for s in geometry.subpaths for n in s.nodes] == [
+            n.id for s in document.geometry_for("s").subpaths for n in s.nodes
+        ]

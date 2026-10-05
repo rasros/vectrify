@@ -142,6 +142,7 @@ class _Coordinates:
         held,
         device,
         endpoint_only=frozenset(),
+        bilateral=False,
     ):
         import torch
 
@@ -187,6 +188,16 @@ class _Coordinates:
             options.displacement,
             stroke_only=self.stroke_only,
         )
+        self.bilateral = None
+        if bilateral and self.stroke_only and options.nodes and options.handles:
+            from vectrify.refine.bilateral import Bilateral
+
+            self.bilateral = Bilateral.infer(self.geometry, held, options.displacement)
+
+    def controls_from_local(self, local):
+        if self.bilateral is not None:
+            local = self.bilateral.controls(local)
+        return self.mapping.controls_from_local(local)
 
     def geometry_at(self, local):
         # Restore untouched doubles exactly instead of round-tripping float32.
@@ -198,12 +209,17 @@ class _Coordinates:
                 float(v) for v in coordinates[index : index + length].reshape(-1)
             )
             index += length
-        return replace(
+        geometry = replace(
             self.geometry,
             subpaths=tuple(
                 replace(s, nodes=tuple(replace(n, values=rows[n.id]) for n in s.nodes))
                 for s in self.geometry.subpaths
             ),
+        )
+        return (
+            self.bilateral.geometry(geometry)
+            if self.bilateral is not None
+            else geometry
         )
 
     def local_at(self, geometry):
@@ -324,6 +340,7 @@ def polish(
     shared: tuple[Link, ...] = (),
     overlaps: bool = False,
     junctions=frozenset(),
+    models: bool = True,
     score: Callable[[Document], float] | None = None,
     stop: Event | None = None,
     progress=None,
@@ -342,6 +359,10 @@ def polish(
     ``junctions`` identifies inferred holds whose endpoints must stay fixed
     but whose handles may move in that overlapping fit. Explicit region holds
     and junctions linked to unselected paths retain all their controls.
+
+    Remaining time can try a bounded bilateral family for compatible open
+    strokes. This is another exact-scored proposal; the unrestricted fit stays
+    when the reference does not support the simpler family.
     """
     if not (options.nodes or options.handles) or options.displacement == 0:
         return document
@@ -361,6 +382,7 @@ def polish(
             options,
             held=held,
             shared=shared,
+            models=False,
             score=score,
             stop=stop,
             progress=progress,
@@ -373,6 +395,7 @@ def polish(
             held=held | frozen_points(document, list(external)),
             shared=external,
             junctions=junctions - frozen_points(document, list(external)),
+            models=models,
             score=score,
             stop=stop,
             progress=progress,
@@ -419,6 +442,37 @@ def polish(
         except DocumentError:
             # Unsupported contours leave the individually verified fit intact.
             continue
+    if models and options.nodes and options.handles:
+        from vectrify.refine.bilateral import Bilateral
+
+        for group in groups:
+            if stop.is_set():
+                break
+            if not any(
+                path_style(document, document.element(oid))["fill"] == "none"
+                and Bilateral.infer(
+                    curved(document.geometry_for(oid)), held, options.displacement
+                )
+                is not None
+                for oid in group
+            ):
+                continue
+            try:
+                document = _polish_group(
+                    document,
+                    group,
+                    target,
+                    options,
+                    held,
+                    shared,
+                    score,
+                    stop,
+                    progress,
+                    junctions - frozen_points(document, list(external)),
+                    bilateral=True,
+                )
+            except DocumentError:
+                continue
     return document
 
 
@@ -433,6 +487,7 @@ def _polish_group(
     within,
     progress,
     endpoint_only,
+    bilateral=False,
 ):
     import torch
 
@@ -456,7 +511,16 @@ def _polish_group(
     if progress:
         progress(0, f"Refining {len(group)} adjacent paths together…")
     coordinates = [
-        _Coordinates(prepared, oid, context, options, held, fit_device(), endpoint_only)
+        _Coordinates(
+            prepared,
+            oid,
+            context,
+            options,
+            held,
+            fit_device(),
+            endpoint_only,
+            bilateral,
+        )
         for oid in group
     ]
     work = ET.Element("svg", width=str(context.size[0]), height=str(context.size[1]))
@@ -472,7 +536,7 @@ def _polish_group(
             {
                 "d": " ".join(
                     to_path_d(c.cpu().tolist(), precision=9) + " Z"
-                    for c in p.mapping.controls_from_local(p.original)
+                    for c in p.controls_from_local(p.original)
                 ),
                 "fill": paint,
                 "fill-rule": style["fill-rule"],
@@ -489,7 +553,7 @@ def _polish_group(
             ]
         )
         return [
-            p.mapping.controls_from_local(values)
+            p.controls_from_local(values)
             for p, values in zip(coordinates, local, strict=True)
         ]
 
@@ -525,10 +589,10 @@ def _polish_group(
         for p, controls in zip(coordinates, paths, strict=True):
             # Reapply masks/bounds after neighbours have followed too.
             local = p.local_at(current.geometry_for(p.oid))
-            constrained = p.mapping.controls_from_local(local)
+            constrained = p.controls_from_local(local)
             local = p.mapping.local_from_controls(constrained)
             for dest, source in zip(
-                controls, p.mapping.controls_from_local(local), strict=True
+                controls, p.controls_from_local(local), strict=True
             ):
                 dest.copy_(source)
 
@@ -602,7 +666,7 @@ def _polish_group(
                 current = current.replace_geometry(geometry)
                 with torch.no_grad():
                     for dest, source in zip(
-                        controls, p.mapping.controls_from_local(local), strict=True
+                        controls, p.controls_from_local(local), strict=True
                     ):
                         dest.copy_(source)
             current, _ = follow(current, links)
