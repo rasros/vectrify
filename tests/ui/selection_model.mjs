@@ -18,6 +18,8 @@ assert.deepEqual(switchTool({objects: ['a'], points: [], memory: hidden.memory},
 // Between two point tools, or two object tools, nothing changes.
 assert.deepEqual(switchTool({objects: ['a'], points: ['a n1']}, 'nodes', 'redraw'), {points: ['a n1'], memory: null});
 assert.deepEqual(switchTool({objects: ['a'], points: [], memory: hidden.memory}, 'select', 'knife'), {points: [], memory: hidden.memory});
+assert.deepEqual(switchTool({objects: ['a', 'b'], points: [], memory: hidden.memory}, 'select', 'move'), {points: [], memory: hidden.memory});
+assert.deepEqual(switchTool({objects: ['a', 'b'], points: [], memory: hidden.memory}, 'move', 'nodes'), {points: ['a n1', 'b n2'], memory: null});
 
 // Clicks pick the outermost group, or within the entered one.
 assert.deepEqual(pickTarget('a', null, parents, 'root'), {id: 'trees', scope: null});
