@@ -13,6 +13,7 @@ class Point {
   constructor(x, y) { this.x = x; this.y = y; }
   matrixTransform() { return this; }
 }
+globalThis.DOMPoint = Point;
 const bounds = {left: 0, top: 0, right: 400, bottom: 400};
 const frame = {left: 100, top: 100, right: 300, bottom: 200};
 const edits = [], picked = [], warnings = [];
@@ -97,6 +98,41 @@ reset(); context.frame = {left: 100, top: 100, right: 104, bottom: 200};
 await click(102, 150, 0); vm.runInContext('selectionBox = frame', context);
 await click(102, 150, 600);
 assert.deepEqual(picked, [['front'], ['middle']]);
+
+// Move bypasses every resize edge, even on a zero-height/width line.
+for (const [box, x, y] of [
+  [{left: 100, top: 100, right: 300, bottom: 100}, 200, 100],
+  [{left: 100, top: 100, right: 100, bottom: 200}, 100, 150],
+  [{left: 100, top: 100, right: 104, bottom: 200}, 102, 150],
+  [frame, 300, 200],
+]) {
+  reset(); context.frame = box;
+  vm.runInContext("tool = 'move'; state.selection.objects = ['front', 'middle']; selectionBox = frame", context);
+  const event = {clientX: x, clientY: y, timeStamp: 0, pointerId: 1, button: 0};
+  press(event);
+  assert.equal(vm.runInContext('drag.kind', context), 'move');
+  context.end = {clientX: x + 30, clientY: y - 20};
+  vm.runInContext('drag.moved = true; gestures.move.move(drag, end)', context);
+  await release({pointerId: 1});
+  assert.deepEqual(edits, [['move', {front: [30, -20], middle: [30, -20]}]]);
+  assert.deepEqual(picked, [], 'moving preserves the whole selection');
+  vm.runInContext("tool = 'select'", context);
+}
+
+// Move still supports picking, Shift toggles, and empty-canvas box selection.
+reset();
+vm.runInContext("tool = 'move'", context);
+await click(200, 100, 0);
+assert.deepEqual(picked, [['front']]);
+context.frame = {left: 100, top: 100, right: 300, bottom: 100};
+vm.runInContext('selectionBox = frame', context);
+await click(200, 100, 600, {shiftKey: true});
+assert.deepEqual(picked.at(-1), []);
+hits = [];
+press({clientX: 350, clientY: 300, timeStamp: 1200, pointerId: 1, button: 0});
+assert.equal(vm.runInContext('drag.kind', context), 'box');
+await release({pointerId: 1});
+vm.runInContext("tool = 'select'", context);
 
 // Shift-click toggles even at the frame; the second click of a double-click stays put.
 reset(); context.frame = frame;

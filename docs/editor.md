@@ -234,7 +234,13 @@ and saved projects restore it.
   there and retain their existing references.
 - Fill/stroke/opacity, dragging and resizing the selected objects, and
   numeric offsets (**Move by**).
-- **Nodes (A)** edits the points of every selected path. Delete/Backspace
+- **Move (V)** selects and drags objects without resizing. Click to select,
+  then drag the object or any part of its selection frame. This works even
+  for horizontal, vertical or very thin lines whose frames leave no room
+  inside for dragging in Select. Shift adds or removes objects; dragging on
+  empty canvas outside the frame box-selects. **Select (M)** keeps its resize
+  edges and corners.
+- **Nodes (S)** edits the points of every selected path. Delete/Backspace
   deletes the selected points, a contour's start point included: the next
   point then starts the contour. A contour left with fewer than two points
   (three when closed) is deleted, and a path left without contours is deleted
@@ -440,12 +446,12 @@ and saved projects restore it.
 - Undo/redo; a drag is one transaction, not one undo entry per pointer move.
 
 Keyboard shortcuts are available from the `?` button. They come in three
-layers that never collide. Tool and view keys sit under the left hand: `V`
-Select, `A` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline switch
+layers that never collide. Tool and view keys: `M`
+Select, `V` Move, `S` Nodes, `D` Draw path, `C` Knife and `R` Redraw outline switch
 tools at once, even while an edit runs (cancelling a drag under way); `F` fits
 the drawing, `Z` zooms to the selection, `W` cycles the view forward and `Shift+W`
 cycles backward. The digits 1-9 press the active tool's numbered strip
-controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Add node; in Select: 1-4
+controls (in Nodes: 1-3 handles, 4 Break, 5 Join, 6 Add node; in Select or Move: 1-4
 the stacking buttons; in Draw path: 1 Finish, 2 Close shape, 3 Cancel),
 whether they are in the strip or its ⋯ menu. Commands use Ctrl/Command: K
 opens the command palette, G groups (with Shift, ungroups), J joins. Drag with

@@ -36,9 +36,9 @@ let selectionBox = null;
 const DOUBLE_CLICK = 400;
 let pending = 0, queue = Promise.resolve(), dirty = false, space = false, toastTimer;
 const drawing = $('drawing'), overlay = $('overlay'), stage = $('stage');
-const names = {select: 'Select', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
+const names = {select: 'Select', move: 'Move', nodes: 'Nodes', path: 'Draw path', knife: 'Knife', redraw: 'Redraw outline', hand: 'Pan'};
 // A one-line hint for the tools with few controls of their own.
-const hints = {select: '', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across shapes to cut them, only the selected ones if any are · Shift snaps to 15°', redraw: 'Draw along the reference edge from a path\'s outline back to it, a selected path if any are · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
+const hints = {select: '', move: 'Click to select · Drag the selection to move · Shift adds or removes', nodes: '', path: 'Click for corners · Drag for curves · Click the first point to close · Enter finishes', knife: 'Drag a line across shapes to cut them, only the selected ones if any are · Shift snaps to 15°', redraw: 'Draw along the reference edge from a path\'s outline back to it, a selected path if any are · Shift replaces the longer way round · Escape cancels', hand: 'Drag to pan · Scroll to zoom'};
 
 function toast(message, error = false) {
   clearTimeout(toastTimer); $('toast-message').textContent = message;
@@ -594,7 +594,7 @@ function enable(element, reason) {
 // cannot run now, or ''; *level* limits it to object or point tools; a *rare*
 // command's buttons hide while it cannot run.
 const noSelection = () => !state?.selection.objects.length && 'Select objects first';
-const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (A) first');
+const noPoints = () => !selectedPoints().length && (level() === 'points' ? 'Select points first' : 'Select points in Nodes (S) first');
 const visiblePaths = () => state.selection.objects.every(id => object(id)?.tag === 'path' && !object(id)?.resource);
 const noReference = () => !state.reference && 'Load a reference image first, under Reference below the objects';
 // Lines are paths that paint no fill; fills are paths that do.
@@ -817,8 +817,9 @@ for (const id of ['agent-url', 'agent-command', 'agent-codex', 'agent-codex-comm
 $('agent-popover').addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); closeAgentPopover(); $('agent-toggle').focus(); } });
 document.addEventListener('pointerdown', event => { if (!$('agent-popover').hidden && !event.target.closest('#agent-popover, #agent-toggle')) closeAgentPopover(); });
 const COMMANDS = [
-  {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'V', keywords: 'move arrow objects', run: () => setTool('select')},
-  {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'A', keywords: 'edit points handles', run: () => setTool('nodes')},
+  {id: 'tool-select', name: 'Select tool', group: 'Tools', keys: 'M', keywords: 'move arrow objects', run: () => setTool('select')},
+  {id: 'tool-move', name: 'Move tool', group: 'Tools', keys: 'V', keywords: 'translate position line objects', run: () => setTool('move')},
+  {id: 'tool-nodes', name: 'Nodes tool', group: 'Tools', keys: 'S', keywords: 'edit points handles', run: () => setTool('nodes')},
   {id: 'tool-path', name: 'Draw path tool', group: 'Tools', keys: 'D', keywords: 'pen draw path shape', run: () => setTool('path')},
   {id: 'tool-knife', name: 'Knife tool', group: 'Tools', keys: 'C', keywords: 'cut slice', run: () => setTool('knife')},
   {id: 'tool-redraw', name: 'Redraw outline tool', group: 'Tools', keys: 'R', keywords: 'lasso outline fix', run: () => setTool('redraw')},
@@ -1269,7 +1270,7 @@ function renderNodeInspector(commands = true) {
   $('point-section').hidden = !onPoints || (!paths.length && !instances);
   $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
-  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (A) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
+  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag freely.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
   // Points of shared geometry are points of every path drawing it.
   const sharing = new Set(points.flatMap(key => sharingPaths(splitKey(key)[0])));
   if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (Actions) to edit one path alone.`);
@@ -1480,9 +1481,9 @@ function drawOverlayContent() {
 }
 // Select resizes the selection like a window: its frame is the bounding box
 // of the selected objects, with small ticks at the corners; the cursor shows
-// what a drag does. Null when nothing that can be resized is selected.
+// what a drag does. Move shows the same frame without resize handles.
 function selectionFrame() {
-  if (tool !== 'select' || !state?.selection.objects.length) return null;
+  if (!['select', 'move'].includes(tool) || !state?.selection.objects.length) return null;
   const ids = topSelection();
   if (ids.some(id => !object(id) || object(id).resource || ['defs', 'clipPath', 'svg'].includes(object(id).tag))) return null;
   const xs = [], ys = [];
@@ -1510,19 +1511,20 @@ function resizeRefusal() {
 }
 function drawFrame() {
   if (!selectionBox) return;
-  const {left, top, right, bottom} = selectionBox, locked = !!resizeRefusal();
+  const {left, top, right, bottom} = selectionBox, locked = tool === 'select' && !!resizeRefusal();
   overlayFrame.content.append(xmlElement('rect', {x: left, y: top, width: right - left, height: bottom - top, class: `resize-frame${locked ? ' locked' : ''}`}));
-  if (locked) return;
+  if (locked || tool === 'move') return;
   const r = 2.5 / zoom;
   for (const [x, y] of [[left, top], [right, top], [right, bottom], [left, bottom]]) overlayFrame.content.append(xmlElement('rect', {x: x - r, y: y - r, width: 2 * r, height: 2 * r, class: 'resize-tick'}));
 }
 // The part of the frame at the screen point (x, y): an edge, a corner,
-// 'inside' or null.
+// 'inside' or null. Move treats the whole frame as inside, even for a line.
 function frameAt(x, y) {
   const matrix = selectionBox && overlay.getScreenCTM();
   if (!matrix) return null;
   const a = new DOMPoint(selectionBox.left, selectionBox.top).matrixTransform(matrix), b = new DOMPoint(selectionBox.right, selectionBox.bottom).matrixTransform(matrix);
-  return frameHandle({left: a.x, top: a.y, right: b.x, bottom: b.y}, x, y, FRAME_REACH);
+  const handle = frameHandle({left: a.x, top: a.y, right: b.x, bottom: b.y}, x, y, FRAME_REACH);
+  return tool === 'move' && handle ? 'inside' : handle;
 }
 // The cursor over the frame: a resize arrow on an edge or corner, and the
 // move cursor inside it, except over an unselected object, which a press
@@ -1540,7 +1542,7 @@ function hoverResize(event) {
   const x = event.clientX, y = event.clientY;
   frameHover = requestAnimationFrame(() => {
     frameHover = 0;
-    if (tool === 'select' && !drag && state) stage.style.cursor = frameCursor(x, y);
+    if (['select', 'move'].includes(tool) && !drag && state) stage.style.cursor = frameCursor(x, y);
   });
 }
 // A press on an edge or corner of the frame starts resizing the selection.
@@ -1974,7 +1976,7 @@ async function setTool(value) {
   });
   $('active-tool').dataset.tool = tool;
   $('tool-strip').dataset.tool = tool;
-  $('tool-shortcut').textContent = {select: 'V', nodes: 'A', path: 'D', knife: 'C', redraw: 'R', hand: 'Space'}[tool];
+  $('tool-shortcut').textContent = {select: 'M', move: 'V', nodes: 'S', path: 'D', knife: 'C', redraw: 'R', hand: 'Space'}[tool];
   $('tool-name').textContent = tool === 'select' ? 'Select objects' : tool === 'nodes' ? 'Edit points' : names[tool];
   $('canvas-hint').textContent=hints[tool];
   stage.style.cursor = tool === 'hand' ? 'grab' : ['path','knife','redraw'].includes(tool) ? 'crosshair' : 'default';
@@ -2190,7 +2192,7 @@ function pressStage(event) {
   if (near) { pressPoint({target: near}, common); return; }
   const hits = hitStack(event.clientX, event.clientY);
   common.hits = hits;
-  const handle = tool === 'select' ? frameAt(event.clientX, event.clientY) : null;
+  const handle = ['select', 'move'].includes(tool) ? frameAt(event.clientX, event.clientY) : null;
   if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
   const id = hits[0] || null;
   if (tool === 'knife') {
@@ -2199,11 +2201,11 @@ function pressStage(event) {
   if (tool === 'redraw') {
     startGesture('redraw', event, common, {id}); return;
   }
-  // In Select, dragging a selected object, or the empty canvas inside the
+  // In Select or Move, dragging a selected object, or empty canvas inside the
   // selection's frame, moves the selection; a click picks what is under the
   // pointer, and any other drag selects what lies inside its box. Knife only
   // selects.
-  if (tool === 'select' && (id || handle === 'inside')) {
+  if (['select', 'move'].includes(tool) && (id || handle === 'inside')) {
     const targets = id ? clickTargets(hits) : [], picked = targets[0];
     const selectedHit = !id || state.selection.objects.includes(picked) ||
       (sameClickSpot(event.clientX, event.clientY, targets) && state.selection.objects.includes(targets[clickCycle.index]));
@@ -2259,7 +2261,7 @@ function moveStage(event) {
     if (tool==='path' && pathDraft.length) {pathHover=point(event);drawOverlay();}
     if (tool==='redraw' && redrawLines()) {const p=point(event);redrawHover=[p.x,p.y];drawOverlay();}
     if (['nodes', 'redraw'].includes(tool) && state) hoverPoints(event);
-    if (tool==='select' && state) hoverResize(event);
+    if (['select', 'move'].includes(tool) && state) hoverResize(event);
     return;
   }
   drag.moved ||= Math.hypot(event.clientX-drag.x,event.clientY-drag.y)>3;
@@ -2621,8 +2623,8 @@ $('object-name').onkeydown = event => {
   if (event.key === 'Enter') {event.preventDefault();event.target.blur();}
   if (event.key === 'Escape') {event.preventDefault();event.target.value=oneObject()?.name || '';event.target.blur();}
 };
-// The tool keys, all under the left hand; Space held pans.
-const TOOL_KEYS = {v: 'select', a: 'nodes', d: 'path', c: 'knife', r: 'redraw'};
+// Tool shortcuts; Space held pans.
+const TOOL_KEYS = {m: 'select', v: 'move', s: 'nodes', d: 'path', c: 'knife', r: 'redraw'};
 // A tool strip's numbered controls, by digit.
 function stripKeys(name) {
   const keys = {};
