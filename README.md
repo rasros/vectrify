@@ -143,5 +143,8 @@ Path 80, uncovered interior, reflected outline area, and partially transparent
 interior pixels with the blade rendered alone. The fixture includes the reference
 and stays independent of the working `sword.vectrify` file. These are benchmark
 targets; the generic Tidy algorithm does not impose a blade layout or symmetry.
+Geometric checks use double-precision regions flattened with a 0.0001-square-unit
+error budget per path, below the 0.05-square-unit pass threshold. This avoids
+unstable cubic intersections when the outline nearly overlaps its reflection.
 `--check` fails when any target is unmet. For a longer fit:
 `uv run python scripts/bench_tidy.py --nodes '{"seconds":30,"rounds":8,"steps":40,"movement":4}' --out .bench/sword.json`.

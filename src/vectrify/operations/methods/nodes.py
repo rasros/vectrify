@@ -667,6 +667,8 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
                 document, current = fitted_document, fitted_score
                 continue
         document, current = simplified, simplified_score
+    if settings["snap"]:
+        document, current = _span_lines(task, document, current, stop)
     if stop is None or not stop.is_set():
         from vectrify.refine.joint import polish
 
@@ -698,6 +700,55 @@ def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
         if document == before and raw != candidate:
             document, current = _improvement(task, before, raw, current)
     return document, skipped
+
+
+def _span_lines(task: _Task, document: Document, current: _Scored, stop):
+    """Try whole-curve ink readings after the individual fits, before polish.
+
+    Unlike the midpoint initializer, these readings can separate opposite
+    handle errors. Background colours can bias them, so keep only an actual
+    improvement with the selection's current paint and followed neighbours.
+    """
+    from vectrify.refine.frozen import Frozen, Paths, frozen
+    from vectrify.refine.lines import fit_lines, is_line
+
+    for oid in task.oids:
+        if stop is not None and stop.is_set():
+            break
+        if not is_line(document, oid):
+            continue
+        geometry = document.geometry_for(oid)
+        if not any(n.command == "C" for s in geometry.subpaths for n in s.nodes):
+            continue
+        fixed = Frozen(frozen(Paths({oid: geometry})).endpoints | task.held)
+        proposed = fit_lines(
+            document, [oid], task.region, fixed, task.widths, span=True
+        )
+        bounded = []
+        for sub, new_sub in zip(
+            geometry.subpaths, proposed.geometry_for(oid).subpaths, strict=True
+        ):
+            nodes = []
+            for node, new in zip(sub.nodes, new_sub.nodes, strict=True):
+                values = np.asarray(node.values).reshape(-1, 2)
+                delta = np.asarray(new.values).reshape(-1, 2) - values
+                if node.id in task.held:
+                    delta[:] = 0
+                elif node.pinned:
+                    delta[-1] = 0
+                length = np.linalg.norm(delta, axis=1)
+                delta *= np.minimum(
+                    1, task.settings["movement"] / np.maximum(length, 1e-12)
+                )[:, None]
+                nodes.append(
+                    replace(
+                        new, values=tuple(float(v) for v in (values + delta).ravel())
+                    )
+                )
+            bounded.append(replace(new_sub, nodes=tuple(nodes)))
+        proposed = proposed.replace_geometry(replace(geometry, subpaths=tuple(bounded)))
+        document, current = _improvement(task, document, proposed, current)
+    return document, current
 
 
 class OptimizeNodes:
