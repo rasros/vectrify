@@ -365,7 +365,7 @@ def test_tidy_fits_white_shapes_using_reference_opacity(amount, in_view):
     )
     image = render_image(export_svg(expected), alpha=True)
     ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
-    settings = {
+    settings: dict[str, bool | int | list[int]] = {
         "shape": True,
         "snap": False,
         "simplify": False,
