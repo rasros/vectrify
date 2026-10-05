@@ -110,6 +110,7 @@ def test_every_command_arrives_from_some_tool(tmp_path, monkeypatch):
                 await call("group", ids=grouped["result"]["objects"], action="dissolve")
             )
             await call("join", ids=["a", "b"])
+            await call("combine", ids=["line", "line2"])
             await call("split_parts", ids=["ring"])
             await call("cut_hole", ids=["ring", "c"])
             listed = data(await call("points", id="ring", nodes=False))["contours"]

@@ -128,6 +128,7 @@ ACTION_COMMANDS = {
         "_command_split_disconnected", "Split disconnected parts", True
     ),
     "join_paths": Command("_command_join_paths", "Join outlines", True),
+    "combine_paths": Command("_command_combine_paths", "Combine paths", True),
 }
 
 OPERATION_COMMANDS = {
@@ -1151,6 +1152,14 @@ class Session:
         with self._object_transaction(payload["command"]) as tx:
             for oid in sorted(selected):
                 tx.split_disconnected(oid)
+
+    def _command_combine_paths(self, payload: dict) -> None:
+        selected = self._object_selection().object_ids
+        source = payload.get("paint_source")
+        if source is not None and (not isinstance(source, str) or not source):
+            raise DocumentError("Choose a paint source from the selected paths")
+        with self._object_transaction(payload["command"]) as tx:
+            tx.combine_paths(selected, paint_source=source)
 
     def _command_join_paths(self, payload: dict) -> None:
         selected = self._object_selection().object_ids

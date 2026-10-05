@@ -350,7 +350,10 @@ backward) or `arrange(ids, parent, index?)` (into a group, the front unless
 two or more objects; `dissolve` removes groups, keeping their children),
 `join(ids? | points?, reach?, bridge?, color_source?)` (the editor's Join: two points
 join each other; stroked lines join their ends within `reach`; filled
-paths merge by area; `joined` says which), `split_parts(ids)`,
+paths merge by area; `joined` says which), `combine(ids, paint_source?)`
+(collect unchanged contours into one compound path, using the frontmost path's
+entire style or `paint_source`'s; compound fill rules still apply; transforms
+are resolved, but clipping must be on the common containing group), `split_parts(ids)`,
 `cut_hole(ids)`, `holes(contours, action?, delete_enclosed?)` (`fill` or
 `shape`, of the holes `points()` marks), `convert(ids, to?)` (line, fill,
 either, or `path`: an instance, a basic shape or shared geometry made an

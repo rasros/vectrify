@@ -60,7 +60,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   Then the
   objects' name, role and connections, paint (fill, stroke, stroke width,
   opacity), **Move by** an offset, locks, and the **Actions** on the
-  selection: Group, Ungroup, Join, Convert line/fill, Add node, Split parts,
+  selection: Group, Ungroup, Join, Combine paths, Convert line/fill, Add node, Split parts,
   Cut out as hole, Snap edges…, Clean up…, Detach and Delete. Only actions
   that apply to the selection are shown. Detach shows only for an instance
   or a path that shares its geometry, and Delete deletes the selected points
@@ -361,6 +361,18 @@ and saved projects restore it.
   and keeps that path's paint; a path left without lines is deleted, and the
   paths holding joined lines are selected. Side-by-side ends of parallel lines
   do not join. Lines join at their ends rather than by area.
+- **Combine paths** (Actions, right-click menu or command palette) collects
+  selected paths and the paths in selected groups into one compound path.
+  Every contour, curve, node and pin is retained, including touching or
+  overlapping contours and open lines. The result uses the frontmost path's
+  entire paint, including stroke width and fill rule, and occupies its stacking
+  position. A compound path has one style: different original colours become
+  that style, and overlapping contours can form holes under its fill rule.
+  Transforms are resolved as needed without changing the contours' positions.
+  Per-path clipping or clipping in different groups must be moved to the common
+  containing group first; Combine never cuts clipping into the geometry.
+  Locks and shared-geometry guards apply. Undo restores the original paths
+  and selection in one step.
 - **Convert line/fill** (Actions) flips each selected path, as one edit; it
   reads **Fill to line** or **Line to fill** when the selection holds only one
   kind. Fill to line turns each selected thin filled shape, such as a part of
