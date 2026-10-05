@@ -35,6 +35,7 @@ class PathNode:
     command: str
     values: tuple[float, ...]
     pinned: bool = False
+    handles_aligned: bool = False
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "values", tuple(float(v) for v in self.values))

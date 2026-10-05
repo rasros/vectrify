@@ -43,7 +43,7 @@ For source checkouts, `PYTHONPATH=src python -m vectrify.ui` works too.
   · 3 selected" or "Points · 5 points in 3 paths". Select has the stacking
   buttons and, inside an entered group, a breadcrumb such as "Drawing › Trees"
   (click a part to pick at that level). Nodes has the handle buttons (None /
-  One / Two), **Break**, **Join**, **Add node**, **Delete**, X / Y for a
+  One / Two), **Break**, **Join**, **Add node**, **Straighten**, **Delete**, X / Y for a
   single point, and **Fill hole** / **Hole to shape** when the points are on
   holes. Numbered controls show their digit, and the keys 1-9 press them (see
   Keyboard shortcuts). Draw path has Finish, Close shape and Cancel. Knife,
@@ -204,6 +204,17 @@ all of them as one undoable edit.
   selected, out of an entered group.
 - A click outside the artboard clears the selection in every tool; in a point
   tool a click on empty canvas drops the points first.
+
+**Click a curve handle** in Nodes to select it; the handle is highlighted.
+**Delete** (or Backspace) retracts only that handle, keeping its anchor and the
+other handles. Escape clears the handle selection first. **Straighten** (`7`),
+available in the tool strip, point properties, context menu and command palette,
+toggles alignment for the selected points. When enabled, it aligns their existing
+handles through their anchors and keeps them aligned while either handle is
+dragged, preserving the opposite handle's length. With a handle selected, enabling
+the toggle keeps it fixed and aligns its opposite. Turn it off to move the handles
+independently. The toggle is saved per point in projects and supports undo/redo.
+Deleting a handle is also undoable.
 
 Selected geometry has a translucent blue interior and a blue contour on the
 canvas; holes stay clear and stroke-only paths remain unfilled. Highlights

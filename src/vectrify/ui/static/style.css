@@ -295,3 +295,8 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 .gradient-stop-head span:nth-child(1), .gradient-stop-head span:nth-child(3) { flex: 1; }
 .gradient-stop-head span:nth-child(2) { width: 30px; }
 .gradient-stop-head span:nth-child(4) { width: 20px; }
+
+#overlay .handle.selected { fill: #57b4ed; stroke: #e3f4ff; stroke-width: calc(2px * var(--selection-scale,1)); }
+
+button[data-command="straighten-handles"][aria-pressed=true] { background: #3e5948; border-color: #66816e; color: #c2e7cd; }
+button[data-command="straighten-handles"][aria-pressed=mixed] { border-color: #66816e; color: #c2e7cd; background: linear-gradient(90deg, #3e5948 50%, #2a332e 50%); }

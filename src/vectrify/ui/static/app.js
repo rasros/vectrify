@@ -16,6 +16,7 @@ let reference = null;
 // revision, the unselected path under the pointer, the point last clicked,
 // and the points hidden while an object tool is active.
 let geometries = new Map(), hoverPath = null, focusPoint = null, pointMemory = null;
+let activeHandle = null;
 // Which path each selected point was picked in: paths drawing one geometry
 // share its node ids, and only the path a point was picked in shows it
 // selected.
@@ -154,7 +155,7 @@ async function applyState(next) {
   $('undo').disabled = !state.undo.length; $('redo').disabled = !state.redo.length;
   $('undo').title = state.undo.length ? `Undo: ${state.undo.at(-1)}` : 'Nothing to undo';
   $('redo').title = state.redo.length ? `Redo: ${state.redo[0]}` : 'Nothing to redo';
-  if (replaced) { focusPoint = null; pointMemory = null; scope = null; collapsedGroups.clear(); fit(); }
+  if (replaced) { activeHandle = null; focusPoint = null; pointMemory = null; scope = null; collapsedGroups.clear(); fit(); }
   if (changed) { geometries = new Map(); pathHoles.clear(); clickCycle = null; lastPick = null; }
   if (scope && object(scope)?.tag !== 'g') scope = null;
   // Selection does not change the drawing or the tree's labels and swatches.
@@ -166,6 +167,7 @@ async function applyState(next) {
     if (missingGeometries().length) renderInspector();
     await loadGeometries();
   }
+  if (activeHandle && !selectedHandle()) activeHandle = null;
   renderInspector(); drawOverlay();
 }
 const level = () => TOOL_LEVEL[tool];
@@ -215,6 +217,7 @@ const selectedPoints = () => shownPoints().strong;
 // The other paths drawing the geometry of a shown path.
 function sharingPaths(id) { return (geometries.get(id)?.users || []).filter(user => user !== id); }
 function selectPoints(objects, keys, focus = keys.at(-1)) {
+  activeHandle = null;
   focusPoint = focus ?? null;
   owners = pointOwners(keys, id => geometries.get(id)?.id);
   return action('select', {objects: [...new Set(objects)], nodes: [...new Set(keys.map(key => splitKey(key)[1]))]}, 'Selecting…');
@@ -879,7 +882,8 @@ const COMMANDS = [
   {id: 'detach', name: 'Detach', rare: true, label: () => oneObject()?.tag === 'use' ? 'Detach to editable path' : 'Detach shared geometry', group: 'Actions', run: () => action('detach'),
     disabled: () => !(oneObject()?.tag === 'use' || oneObject()?.shared) && 'Select one instance, or a path that shares its geometry'},
   {id: 'delete', name: 'Delete', group: 'Actions', keys: 'Delete', keywords: 'remove points', run: deleteSelection,
-    disabled: () => level() === 'points' ? noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them') : noSelection()},
+    label: () => selectedHandle() ? 'Delete handle' : 'Delete',
+    disabled: () => level() === 'points' ? selectedHandle() ? false : noPoints() || (selectedPoints().some(key => nodeAt(key)?.pinned) && 'Unpin the points to delete them') : noSelection()},
   {id: 'load-reference', name: 'Load reference…', label: () => state?.reference ? 'Replace reference…' : 'Load reference…', group: 'Reference', run: () => $('reference-file').click()},
   {id: 'remove-reference', name: 'Remove reference', group: 'Reference', run: removeReference, disabled: noReference},
   {id: 'toggle-overlay', name: 'Cycle the view: drawing, overlay, reference only', group: 'Reference', keys: 'W', run: () => cycleReference(), disabled: noReference},
@@ -893,6 +897,8 @@ const COMMANDS = [
   {id: 'handles-0', name: 'No handles', group: 'Points', keys: '1', run: () => pointHandles(0), disabled: noPoints},
   {id: 'handles-1', name: 'One handle', group: 'Points', keys: '2', run: () => pointHandles(1), disabled: noPoints},
   {id: 'handles-2', name: 'Two handles', group: 'Points', keys: '3', run: () => pointHandles(2), disabled: noPoints},
+  {id: 'straighten-handles', name: 'Straighten handles', group: 'Points', keys: '7', keywords: 'align smooth tangent line', run: straightenHandles,
+    disabled: noPoints},
   {id: 'pin', name: 'Pin points', label: () => selectedPoints().length && selectedPoints().every(key => nodeAt(key)?.pinned) ? 'Unpin points' : 'Pin points', group: 'Points',
     run: () => action('pin', {points: pointPairs(), pinned: !selectedPoints().every(key => nodeAt(key)?.pinned)}), disabled: noPoints},
   {id: 'split-edge', name: 'Add node', group: 'Points', keywords: 'split edge insert point vertex', run: () => action('split', {points: pointPairs()}),
@@ -1130,8 +1136,12 @@ stage.addEventListener('contextmenu', event => {
       // Found again now: an edit before it may have changed what is there.
       const hits = hitStack(x, y), targets = hits.length ? clickTargets(hits) : [];
       const at = document.elementFromPoint(x, y);
-      const node = at?.dataset?.node && pointKey(at.dataset.object, at.dataset.node);
-      if (node && level() === 'points' && !selectedPoints().includes(node)) await selectPoints(clickPointPath(state.selection.objects, pointPaths(), splitKey(node)[0], false), [node]);
+      const node = at?.dataset?.node && (at.dataset.anchor || pointKey(at.dataset.object, at.dataset.node));
+      if (node && level() === 'points') {
+        if (!selectedPoints().includes(node)) await selectPoints(clickPointPath(state.selection.objects, pointPaths(), splitKey(node)[0], false), [node]);
+        activeHandle = at.dataset.part !== 'endpoint' ? {object: at.dataset.object, node: at.dataset.node, offset: Number(at.dataset.part), anchor: node} : null;
+        renderInspector(); drawOverlay();
+      }
       else if (!node && targets.length && !targets.some(id => state.selection.objects.includes(id) || pointPaths().includes(id))) await selectObject(targets[0]);
     }
     await queue;
@@ -1151,6 +1161,7 @@ $('objects').addEventListener('contextmenu', event => {
   });
 });
 async function selectObject(id, additive = false, focus = false) {
+  activeHandle = null;
   clickCycle = null;
   let selected = new Set(additive ? state.selection.objects : []);
   if (id) { if (additive && selected.has(id)) selected.delete(id); else selected.add(id); }
@@ -1268,6 +1279,21 @@ function handleCount(key) {
   const apart = handle => handle[0] !== point[0] || handle[1] !== point[1];
   return nodeHandles(key).filter(({node, offset}) => apart(node.values.slice(offset, offset + 2))).length;
 }
+// A handle selection belongs to its anchor, even when its control point is
+// stored on the following segment or the closing segment of a contour.
+function selectedHandle() {
+  if (!activeHandle || tool !== 'nodes' || !selectedPoints().includes(activeHandle.anchor)) return null;
+  const anchor = nodeAt(activeHandle.anchor);
+  const slot = nodeHandles(activeHandle.anchor).find(({node, offset}) => node.id === activeHandle.node && offset === activeHandle.offset);
+  if (!slot || slot.node.values.slice(slot.offset, slot.offset + 2).every((v, i) => v === anchor.values.at(i - 2))) return null;
+  return activeHandle;
+}
+function straightenHandles() {
+  const handle = selectedHandle();
+  const points = handle ? [handle.anchor] : selectedPoints();
+  const aligned = !points.every(key => nodeAt(key)?.handles_aligned);
+  return action('straighten_handles', {points: points.map(splitKey), aligned, ...(handle ? {side: handle.offset} : {})}, 'Changing handle alignment…');
+}
 // The point section of the right panel and the Nodes strip.
 function renderNodeInspector(commands = true) {
   const paths = pointPaths(), points = selectedPoints(), onPoints = level() === 'points';
@@ -1278,7 +1304,7 @@ function renderNodeInspector(commands = true) {
   $('point-section').hidden = !onPoints || (!paths.length && !instances);
   $('point-title').textContent = !chosen.length ? 'Points' : chosen.length > 1 ? `${chosen.length} points in ${count} ${count === 1 ? 'path' : 'paths'}` : node.command === 'M' ? 'Start point' : node.command === 'C' ? 'Curve endpoint' : 'Line endpoint';
   $('node-count').textContent = nodes.length ? nodes.length.toLocaleString() : '';
-  const hints = [!loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Hold Shift to move horizontally or vertically. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag without snapping.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
+  const hints = [selectedHandle() ? 'Handle selected: Delete removes this handle. Toggle Straighten to keep both handles in line while dragging.' : !loaded ? 'Loading path points…' : !chosen.length ? (tool === 'nodes' ? 'Click a point, or drag a box around several; Shift adds. Hold Shift to move horizontally or vertically. Dragged points snap to others; hold Alt or Ctrl/⌘ to drag without snapping.' : 'Points selected in Nodes (S) stay selected here.') : chosen.length > 1 ? 'Drag one to move them together.' : node.pinned ? 'Pinned: unpin it to move or delete it.' : ''];
   // Points of shared geometry are points of every path drawing it.
   const sharing = new Set(points.flatMap(key => sharingPaths(splitKey(key)[0])));
   if (sharing.size) hints.push(`Shared geometry: ${chosen.length === 1 ? 'this point is' : 'these points are'} also in ${plural(sharing.size, 'other path')}, marked faintly, and edits change ${sharing.size === 1 ? 'both' : 'them all'}. Detach (Actions) to edit one path alone.`);
@@ -1298,6 +1324,9 @@ function renderNodeInspector(commands = true) {
   }
   const handles = node ? handleCount(points[0]) : null;
   for (const button of document.querySelectorAll('[data-command^="handles-"]')) button.setAttribute('aria-pressed', String(handles === Number(button.dataset.command.slice(-1))));
+  const alignmentPoints = selectedHandle() ? [nodeAt(activeHandle.anchor)] : chosen;
+  const aligned = alignmentPoints.filter(n => n?.handles_aligned).length;
+  for (const button of document.querySelectorAll('[data-command="straighten-handles"]')) button.setAttribute('aria-pressed', aligned && aligned === alignmentPoints.length ? 'true' : aligned ? 'mixed' : 'false');
   const pinned = chosen.filter(n => n.pinned).length;
   $('node-pin').checked = chosen.length > 0 && pinned === chosen.length; $('node-pin').indeterminate = pinned > 0 && pinned < chosen.length;
   // Points on holes, in one path or several, offer to fill the holes or make
@@ -1663,8 +1692,9 @@ function drawHandles(key) {
     if (short) p = new DOMPoint(anchor.x + (p.x - anchor.x) * HANDLE_SPREAD / length, anchor.y + (p.y - anchor.y) * HANDLE_SPREAD / length);
     overlayFrame.content.append(xmlElement('line', {x1:anchor.x,y1:anchor.y,x2:p.x,y2:p.y,class:`handle-line${short ? ' short' : ''}`}));
     const near = nearPoint === `${id} ${handle.node.id} ${handle.offset}`;
-    const circle = xmlElement('circle', {cx:p.x,cy:p.y,r:3.8*(near ? 1.5 : 1)/zoom,class:`handle${near ? ' near' : ''}`});
-    circle.dataset.object = id; circle.dataset.node = handle.node.id; circle.dataset.part = String(handle.offset); overlayFrame.content.append(circle);
+    const picked = activeHandle?.object === id && activeHandle.node === handle.node.id && activeHandle.offset === handle.offset;
+    const circle = xmlElement('circle', {cx:p.x,cy:p.y,r:(picked ? 4.8 : 3.8)*(near ? 1.5 : 1)/zoom,class:`handle${picked ? ' selected' : ''}${near ? ' near' : ''}`});
+    circle.dataset.object = id; circle.dataset.node = handle.node.id; circle.dataset.part = String(handle.offset); circle.dataset.anchor = key; overlayFrame.content.append(circle);
   }
 }
 // The rubber band of a box select, in the overlay's frame.
@@ -1977,6 +2007,7 @@ async function setTool(value) {
   if (!state) return;
   const from = tool;
   const switched = switchTool({objects: state.selection.objects, points: selectedPoints(), memory: pointMemory}, from, value);
+  activeHandle = null;
   clickCycle = null; lastPick = null; pathDraft=[]; pathHover=null; redrawHover=null; hoverPath = null; tool=value; pointMemory = switched.memory;
   reportView();
   document.querySelectorAll('.tool[data-tool]').forEach(button => {
@@ -2063,6 +2094,21 @@ function previewPointDrag(target) {
       node.values[offset] = local.x; node.values[offset+1] = local.y;
     }
     carryHandles(g, saved);
+    if (drag.part !== 'endpoint' && id === grabbedPath) {
+      const anchor = nodeAt(drag.anchor);
+      if (anchor?.handles_aligned) {
+        const slots = nodeHandles(drag.anchor), offset = Number(drag.part);
+        const chosen = slots.find(h => h.node.id === grabbed && h.offset === offset);
+        const opposite = slots.find(h => h !== chosen);
+        if (chosen && opposite) {
+          const [ax, ay] = anchor.values.slice(-2);
+          const [hx, hy] = chosen.node.values.slice(offset, offset + 2);
+          const [ox, oy] = opposite.node.values.slice(opposite.offset, opposite.offset + 2);
+          const length = Math.hypot(ox - ax, oy - ay), norm = Math.hypot(hx - ax, hy - ay);
+          if (length && norm) opposite.node.values.splice(opposite.offset, 2, ax - (hx - ax) * length / norm, ay - (hy - ay) * length / norm);
+        }
+      }
+    }
     element.setAttribute('d', pathData(g));
     // The other paths drawing this geometry follow it.
     for (const other of sharingPaths(id)) if (!drag.saved.has(other)) svgElement(other)?.setAttribute('d', pathData(g));
@@ -2078,10 +2124,17 @@ function pressPoint(event, common) {
   let points = current;
   const toggle = part === 'endpoint' && common.shift && current.includes(key) ? clickPoint(current, key, true) : null;
   if (part === 'endpoint') {
+    activeHandle = null;
     // Defer removing a selected point until release so Shift can also constrain a drag.
     points = current.includes(key) ? current : clickPoint(current, key, common.shift);
     if (points !== current || objects !== state.selection.objects) selectPoints(objects, points, key);
     else focusPoint = key;
+  } else {
+    const anchor = event.target.dataset.anchor;
+    if (!anchor) return;
+    if (!current.includes(anchor) || objects !== state.selection.objects) selectPoints(objects, [anchor], anchor);
+    activeHandle = {object: id, node: nodeId, offset: Number(part), anchor};
+    renderNodeInspector(); drawOverlay();
   }
   // A handle moves alone; a point moves with the other selected points, and a
   // point of shared geometry picked in two paths moves once, as grabbed.
@@ -2101,7 +2154,7 @@ function pressPoint(event, common) {
   const start = new DOMPoint(node.values[offset], node.values[offset+1]).matrixTransform(localToOverlay(svgElement(id)));
   // A click on one of several selected points, without dragging, selects it alone.
   const collapse = part === 'endpoint' && !common.shift && current.includes(key) && current.length > 1;
-  startGesture('node', event, common, {key, part, moving, saved, start, collapse, toggle, objects});
+  startGesture('node', event, common, {key, part, anchor: part === 'endpoint' ? key : event.target.dataset.anchor, moving, saved, start, collapse, toggle, objects});
 }
 // Box select: objects wholly inside the box at the entered group's level, or
 // in point tools the points of the selected paths.
@@ -2298,7 +2351,7 @@ async function finishPointDrag(finished) {
   const [id, nodeId] = splitKey(finished.key);
   if (finished.part !== 'endpoint' || finished.moving.length === 1) {
     const values = changes[id]?.[nodeId];
-    if (values) await action('node', {object: id, node: nodeId, values}, 'Updating contour…');
+    if (values) await action('node', {object: id, node: nodeId, values, ...(finished.part !== 'endpoint' ? {handle_offset: Number(finished.part)} : {})}, 'Updating contour…');
     else { renderDrawing(); drawOverlay(); }
   } else await action('move_nodes', {changes}, 'Moving points…');
 }
@@ -2342,6 +2395,7 @@ async function enterObject(id, hits = []) {
 // Escape steps up one level: points to their paths, objects to their group,
 // then to nothing, and out of an entered group.
 async function stepUp() {
+  if (selectedHandle()) { activeHandle = null; renderInspector(); drawOverlay(); return; }
   const hadPoints = selectedPoints().length > 0;
   const next = escapeStep({objects: state.selection.objects, points: selectedPoints(), scope}, parents(), state.root);
   scope = next.scope; clickCycle = null; focusPoint = null;
@@ -2487,6 +2541,8 @@ async function splitParts() {
 // Delete works at the current level: the selected points in a point tool,
 // else the selected objects.
 function deleteSelection() {
+  const handle = selectedHandle();
+  if (handle) return action('delete_handle', {object: handle.object, node: handle.node, offset: handle.offset}, 'Deleting handle…');
   return level() === 'points' ? action('delete_node', {points: pointPairs()}, 'Deleting points…') : action('delete');
 }
 const segmentPicked = () => pointContours().some(({contour, ids}) => segmentAmong(contour, ids));

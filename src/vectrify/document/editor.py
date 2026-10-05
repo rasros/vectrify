@@ -1376,6 +1376,155 @@ class Transaction:
         subpaths = list(geometry.subpaths)
         subpaths[index] = replace(subpath, nodes=tuple(nodes))
         self.reshape_path(object_id, replace(geometry, subpaths=tuple(subpaths)))
+        if geometry.node(node_id).handles_aligned:
+            self.set_node_handle_alignment(object_id, node_id, True)
+
+    def delete_handle(self, object_id: str, node_id: str, offset: int) -> None:
+        """Retract just one control point, preserving the other handle."""
+        if offset not in {0, 2}:
+            raise EditRejectedError("Choose an incoming or outgoing handle")
+        geometry = self._working.geometry_for(object_id)
+        subpaths = list(geometry.subpaths)
+        for index, subpath in enumerate(subpaths):
+            nodes = list(subpath.nodes)
+            for position, node in enumerate(nodes):
+                if node.id != node_id:
+                    continue
+                if node.command != "C" or position == 0:
+                    raise EditRejectedError("This segment has no curve handle")
+                start, end = nodes[position - 1].endpoint, node.endpoint
+                values = list(node.values)
+                values[offset : offset + 2] = start if offset == 0 else end
+                nodes[position] = (
+                    replace(node, command="L", values=end)
+                    if tuple(values[:2]) == start and tuple(values[2:4]) == end
+                    else replace(node, values=tuple(values))
+                )
+                subpaths[index] = replace(subpath, nodes=tuple(nodes))
+                self.reshape_path(
+                    object_id, replace(geometry, subpaths=tuple(subpaths))
+                )
+                return
+        raise DocumentError(f"Unknown path node: {node_id}")
+
+    def set_node_handle_alignment(
+        self, object_id: str, node_id: str, aligned: bool, side: int | None = None
+    ) -> None:
+        """Toggle a point's aligned handles, straightening them when enabled."""
+        if aligned:
+            self.straighten_node_handles(object_id, node_id, side)
+        geometry = self._working.geometry_for(object_id)
+        geometry.node(node_id)
+        subpaths = []
+        for subpath in geometry.subpaths:
+            ids = {node_id}
+            first, last = subpath.nodes[0], subpath.nodes[-1]
+            if (
+                subpath.closed
+                and first.endpoint == last.endpoint
+                and node_id in {first.id, last.id}
+            ):
+                ids.update((first.id, last.id))
+            subpaths.append(
+                replace(
+                    subpath,
+                    nodes=tuple(
+                        replace(node, handles_aligned=aligned)
+                        if node.id in ids
+                        else node
+                        for node in subpath.nodes
+                    ),
+                )
+            )
+        self.reshape_path(object_id, replace(geometry, subpaths=tuple(subpaths)))
+
+    def move_handle(
+        self, object_id: str, node_id: str, offset: int, point: tuple[float, float]
+    ) -> None:
+        """Move one handle, keeping its opposite aligned when toggled on."""
+        if offset not in {0, 2}:
+            raise EditRejectedError("Choose an incoming or outgoing handle")
+        geometry = self._working.geometry_for(object_id)
+        node = geometry.node(node_id)
+        if node.command != "C":
+            raise EditRejectedError("This segment has no curve handle")
+        subpath = next(s for s in geometry.subpaths if node in s.nodes)
+        index = subpath.nodes.index(node)
+        anchor = subpath.nodes[index - 1] if offset == 0 else node
+        values = list(node.values)
+        values[offset : offset + 2] = point
+        self.update_node(object_id, node_id, tuple(values))
+        if anchor.handles_aligned:
+            self.straighten_node_handles(object_id, anchor.id, offset)
+
+    def straighten_node_handles(
+        self, object_id: str, node_id: str, side: int | None = None
+    ) -> None:
+        """Align existing handles through their point, keeping their lengths.
+
+        With a side (0 outgoing, 2 incoming), keep that handle fixed and
+        rotate the other. Otherwise use the two directions' bisector.
+        Retracted handles stay retracted; no new handles are introduced.
+        """
+        if side not in {None, 0, 2}:
+            raise EditRejectedError("Choose an incoming or outgoing handle")
+        geometry = self._working.geometry_for(object_id)
+        subpaths = list(geometry.subpaths)
+        for index, subpath in enumerate(subpaths):
+            nodes = list(subpath.nodes)
+            position = next((i for i, n in enumerate(nodes) if n.id == node_id), None)
+            if position is None:
+                continue
+            point = nodes[position].endpoint
+            last = len(nodes) - 1
+            seam = (
+                subpath.closed
+                and last > 0
+                and nodes[last].endpoint == nodes[0].endpoint
+                and position in {0, last}
+            )
+            incoming, outgoing = (last, 1) if seam else (position, position + 1)
+            if (
+                incoming == 0
+                or outgoing >= len(nodes)
+                or nodes[incoming].command != "C"
+                or nodes[outgoing].command != "C"
+            ):
+                return
+            hin, hout = nodes[incoming].values[2:4], nodes[outgoing].values[:2]
+            lin, lout = math.dist(point, hin), math.dist(point, hout)
+            if not lin or not lout:
+                return
+            vin = ((point[0] - hin[0]) / lin, (point[1] - hin[1]) / lin)
+            vout = ((hout[0] - point[0]) / lout, (hout[1] - point[1]) / lout)
+            direction = (
+                vin
+                if side == 2
+                else vout
+                if side == 0
+                else (vin[0] + vout[0], vin[1] + vout[1])
+            )
+            norm = math.hypot(*direction)
+            if norm < 1e-12:
+                direction, norm = vout, 1.0
+            ux, uy = direction[0] / norm, direction[1] / norm
+            for segment, offset, length, sign in (
+                (incoming, 2, lin, -1),
+                (outgoing, 0, lout, 1),
+            ):
+                if side == offset:
+                    continue
+                node = nodes[segment]
+                values = list(node.values)
+                values[offset : offset + 2] = (
+                    point[0] + sign * ux * length,
+                    point[1] + sign * uy * length,
+                )
+                nodes[segment] = replace(node, values=tuple(values))
+            subpaths[index] = replace(subpath, nodes=tuple(nodes))
+            self.reshape_path(object_id, replace(geometry, subpaths=tuple(subpaths)))
+            return
+        raise DocumentError(f"Unknown path node: {node_id}")
 
     def reshape_path(self, object_id: str, geometry: Geometry) -> None:
         """Give a path new contours while its surviving nodes keep their identity.

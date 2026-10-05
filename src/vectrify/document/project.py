@@ -84,6 +84,7 @@ def load_project(source: str) -> tuple[Document, Selection]:
                                 node["command"],
                                 tuple(node["values"]),
                                 node["pinned"],
+                                node.get("handles_aligned", False),
                             )
                             for node in subpath["nodes"]
                         ),

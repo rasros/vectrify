@@ -134,6 +134,10 @@ EDITS: dict[str, tuple[str, ...]] = {
 
 # Editor commands no agent tool sends, and why.
 LEFT_OUT = {
+    "delete_handle": "The UI's selected-handle deletion; agents can retract a "
+    "specific control point through set_points.",
+    "straighten_handles": "The UI's handle alignment command; agents can align "
+    "control points through set_points.",
     "copy": "The person's local object clipboard is UI state, not an agent edit.",
     "paste": "The person's local object clipboard is UI state, not an agent edit.",
     "undo": "MCP restores explicit history IDs through Editor.undo; the UI "
