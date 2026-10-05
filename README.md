@@ -140,8 +140,12 @@ beside the trace's own.
 `bench_tidy.py` benchmarks the fixed editable sword project, selecting all ten
 paths in its `blade` group in one operation. It measures each fill outside
 Path 80, uncovered interior, reflected outline area, and partially transparent
-interior pixels with the blade rendered alone. The fixture includes the reference
-and stays independent of the working `sword.vectrify` file. These are benchmark
+interior pixels with the blade rendered alone. It also reports transparent
+pixels in the complete drawing, distinguishing
+visible gaps from gaps covered by later artwork. The original quality gate uses
+the blade-only count.
+The fixture includes the reference and stays independent of the working
+`sword.vectrify` file. These are benchmark
 targets; the generic Tidy algorithm does not impose a blade layout or symmetry.
 Geometric checks use double-precision regions flattened with a 0.0001-square-unit
 error budget per path, below the 0.05-square-unit pass threshold. This avoids

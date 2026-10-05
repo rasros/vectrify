@@ -5,8 +5,26 @@ import pytest
 from shapely.affinity import affine_transform
 from shapely.geometry import Polygon
 
-from scripts.bench_tidy import _shape
+from scripts.bench_tidy import _shape, properties
 from vectrify.document import import_svg
+
+
+@pytest.mark.parametrize("covered", [False, True])
+def test_visible_transparency_distinguishes_a_gap_covered_by_later_artwork(covered):
+    front = '<rect x="0" y="13" width="20" height="7" fill="gold"/>' if covered else ""
+    document = import_svg(
+        '<svg width="20" height="20"><g id="g">'
+        '<path id="fill" fill="red" d="M1 1 L19 1 L19 19 L10 13 L1 19 Z"/>'
+        '<path id="outline" fill="none" stroke="black" stroke-width="0.2" '
+        f'd="M1 19 L1 1 L19 1 L19 19"/></g>{front}</svg>'
+    )
+    measured = properties(document, "g", "outline", [(10, 0), (10, 20)])
+    assert measured["transparent_pixels"] > 0
+    assert measured["gap_area"] > 0
+    if covered:
+        assert measured["visible_transparent_pixels"] == 0
+    else:
+        assert measured["visible_transparent_pixels"] == measured["transparent_pixels"]
 
 
 def test_transformed_evenodd_fill_area_and_small_spills():
