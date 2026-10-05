@@ -1305,6 +1305,9 @@ async function pointHolesToShapes() {
 // and hit testing read the live frames so optimistic transforms stay current.
 let overlayFrame = null;
 function localToOverlay(element) {
+  // Agent updates include paint resources such as gradients, which have no
+  // canvas frame. Only graphics elements can be positioned in the overlay.
+  if (typeof element?.getScreenCTM !== 'function') return null;
   if (overlayFrame?.matrices.has(element)) return overlayFrame.matrices.get(element);
   const from = element?.getScreenCTM(), to = overlayFrame ? overlayFrame.to : overlay.getScreenCTM();
   if (!from || !to) return null;

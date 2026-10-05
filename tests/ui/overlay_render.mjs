@@ -43,6 +43,50 @@ vm.runInContext('drawOverlayContent = () => { throw Error("render failed"); }', 
 assert.throws(drawOverlay, /render failed/);
 assert.equal(vm.runInContext('overlayFrame', context), null, 'a failed redraw must release its cache');
 
+// An agent edit may touch both a path and its gradient. Paint resources have
+// no screen CTM: ignore them while still flashing drawable changed objects.
+const flashSource = source.slice(source.indexOf('function flashTouched('), source.indexOf('function showAgent('));
+const flashContent = {children: [], append(child) {this.children.push(child);}};
+const path = {
+ getScreenCTM: () => matrix,
+ getBBox: () => ({x: 0, y: 0, width: 10, height: 20}),
+};
+const resources = new Map([
+ ['gradient', {localName: 'linearGradient'}],
+ ['stop', {localName: 'stop'}],
+ ['path', path],
+]);
+const flashContext = vm.createContext({
+ DOMMatrix: {fromMatrix: m => m},
+ DOMPoint: class {
+  constructor(x, y) {this.x = x; this.y = y;}
+  matrixTransform() {return this;}
+ },
+ overlay: {getScreenCTM: () => matrix},
+ svgElement: id => resources.get(id),
+ getComputedStyle: () => ({stroke: 'none'}),
+ xmlElement: (name, attrs) => ({name, ...attrs, style: {}}),
+ performance: {now: () => 100},
+ clearTimeout() {}, setTimeout: () => 1,
+ drawOverlay: () => vm.runInContext('drawFlash()', flashContext),
+});
+vm.runInContext(`${matrices}\n${flashSource}\n
+ const FLASH_MS = 1500;
+ let flash = {ids: [], start: 0, timer: null, seen: 0};
+`, flashContext);
+flashContext.content = flashContent;
+vm.runInContext('overlayFrame = {content, to: overlay.getScreenCTM(), matrices: new Map()}', flashContext);
+const flashTouched = vm.runInContext('flashTouched', flashContext);
+flashTouched([{change: 1, ids: ['gradient', 'stop', 'path', 'deleted']}]);
+assert.equal(flashContent.children.length, 1);
+assert.equal(flashContent.children[0]['data-object'], 'path');
+assert.equal(flashContent.children[0].class, 'agent-flash');
+assert.equal(flashContent.children[0].points, '0,0 10,0 10,20 0,20');
+const resourceFrame = vm.runInContext('localToOverlay', flashContext);
+for (const value of [undefined, null, ...resources.values()].filter(value => value !== path)) {
+ assert.equal(resourceFrame(value), null);
+}
+
 // Reuse node and contour lookups while values are previewed; reindex only
 // when the backend supplies a replacement geometry, including shared users.
 const lookupSource = source.slice(source.indexOf('const geometryIndexes ='), source.indexOf('// The selected points, from'));
