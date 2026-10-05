@@ -162,7 +162,7 @@ const handleContext = vm.createContext({
  nodeAt: key => joinNodes.find(n => n.id === key.split(' ')[1]),
  contourAt: () => joinContour, splitKey: key => key.split(' '),
  localToOverlay: () => ({}), svgElement: () => ({}), DOMPoint: Point,
- zoom: 1, HANDLE_SPREAD: 16, nearPoint: null,
+ zoom: 1, HANDLE_SPREAD: 16, nearPoint: null, activeHandle: null,
  overlayFrame: {content: handleContent},
  xmlElement: (name, attrs) => ({name, ...attrs, dataset: {}}),
 });

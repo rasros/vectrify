@@ -29,7 +29,7 @@ const context = vm.createContext({
   startGesture: (kind, event, common, details) => { context.drag = {kind, ...common, ...details}; },
 });
 vm.runInContext(`
-  let focusPoint = null;
+  let focusPoint = null, activeHandle = null;
   ${section('function snappedDrag(', 'function drawSnap(')}
   ${section('function pathData(', '// Press on a point:')}
   ${section('function pressPoint(', '// Box select:')}

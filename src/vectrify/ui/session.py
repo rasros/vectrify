@@ -72,6 +72,8 @@ POINT_COMMANDS = {
     "move_nodes": "Move points",
     "split": "Add node",
     "node_handles": "Change handles",
+    "delete_handle": "Delete handle",
+    "straighten_handles": "Toggle straight handles",
     "delete_node": "Delete node",
     "delete_contour": "Delete contour",
     "break_points": "Break at point",
@@ -801,7 +803,7 @@ class Session:
             )
         else:
             points = self._points(payload)
-        if command == "node" and len(points) != 1:
+        if command in {"node", "delete_handle"} and len(points) != 1:
             raise DocumentError("Drag one point at a time, or move them together")
         objects = frozenset(o for o, _ in points)
         # Editing a path's nodes changes every object drawing its geometry.
@@ -813,7 +815,16 @@ class Session:
         ) as tx:
             if command == "node":
                 oid, nid = points[0]
-                tx.update_node(oid, nid, tuple(number(v) for v in payload["values"]))
+                values = tuple(number(v) for v in payload["values"])
+                if "handle_offset" in payload:
+                    offset = payload["handle_offset"]
+                    if offset not in {0, 2} or len(values) != 6:
+                        raise DocumentError("Choose a curve handle to move")
+                    tx.move_handle(
+                        oid, nid, offset, (values[offset], values[offset + 1])
+                    )
+                else:
+                    tx.update_node(oid, nid, values)
             elif command == "move_nodes":
                 # The values already carry the handles each point takes along.
                 # A node of shared geometry moves once, as its first path has it.
@@ -829,7 +840,10 @@ class Session:
             elif command == "split":
                 for oid, nid in points:
                     tx.split_edge(oid, nid)
-            elif command == "node_handles":
+            elif command == "delete_handle":
+                oid, nid = points[0]
+                tx.delete_handle(oid, nid, payload["offset"])
+            elif command in {"node_handles", "straighten_handles"}:
                 seen = set()
                 for oid, nid in points:
                     geometry = document.geometry_for(oid)
@@ -849,7 +863,15 @@ class Session:
                     if key in seen:
                         continue
                     seen.add(key)
-                    tx.set_node_handles(oid, nid, int(payload["count"]))
+                    if command == "node_handles":
+                        tx.set_node_handles(oid, nid, int(payload["count"]))
+                    else:
+                        tx.set_node_handle_alignment(
+                            oid,
+                            nid,
+                            bool(payload.get("aligned", True)),
+                            payload.get("side"),
+                        )
             elif command == "delete_node":
                 # Deleting one point can take its contour, or its path, along.
                 for oid, nid in points:
