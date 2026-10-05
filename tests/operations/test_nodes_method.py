@@ -1086,3 +1086,65 @@ def test_tidy_fits_adjacent_fills_jointly_when_individual_fits_cannot_improve(
     assert metrics["after"]["difference"] < metrics["before"]["difference"] * 0.7
     job.apply()
     assert ed.snapshot.document.root == document.root
+
+
+@pytest.mark.parametrize("with_reference", [False, True])
+def test_simplify_retains_removing_handles_without_removing_nodes(with_reference):
+    document = import_svg(
+        '<svg width="64" height="64"><path id="p" fill="black" '
+        'd="M8 8 C20 8 32 8 44 8 C32 20 20 32 8 44 Z"/></svg>'
+    )
+    original = render_image(export_svg(document), alpha=True)
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
+    req = replace(
+        request(ed, steps=1, shape=False, snap=False, simplify=True),
+        reference=original if with_reference else None,
+    )
+    job = Job(method("improve", "nodes"), req)
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["changed"]
+    assert state["result"]["metrics"]["steps"] == ["simplify"]
+    job.apply()
+    result = ed.snapshot.document
+    before = document.geometry_for("p").subpaths[0].nodes
+    after = result.geometry_for("p").subpaths[0].nodes
+    assert [n.id for n in after] == [n.id for n in before]
+    assert [n.endpoint for n in after] == [n.endpoint for n in before]
+    assert [n.command for n in after] == ["M", "L", "L"]
+    assert np.array_equal(
+        np.asarray(render_image(export_svg(result), alpha=True)), np.asarray(original)
+    )
+
+
+def test_saving_handles_still_cannot_exceed_simplifys_reference_budget():
+    document = import_svg(
+        '<svg width="64" height="64"><path id="p" fill="black" '
+        'd="M8 8 C20 7.8 32 7.8 44 8 C32 20 20 32 8 44 Z"/></svg>'
+    )
+    ed = Editor(document, selection=Selection(object_ids=frozenset({"p"})))
+    target = render_image(export_svg(document), alpha=True)
+    job = Job(
+        method("improve", "nodes"),
+        replace(
+            request(ed, steps=1, shape=False, snap=False, simplify=True),
+            reference=target,
+        ),
+    )
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    # Straightening the first curve changes the reference pixels. With an
+    # exact starting match its error budget is zero, so that handle must stay.
+    assert state["result"]["changed"]
+    job.apply()
+    result = ed.snapshot.document
+    assert [n.command for n in result.geometry_for("p").subpaths[0].nodes] == [
+        "M",
+        "C",
+        "L",
+    ]
+    assert np.array_equal(
+        np.asarray(render_image(export_svg(result), alpha=True)), np.asarray(target)
+    )
