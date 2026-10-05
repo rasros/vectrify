@@ -1496,7 +1496,6 @@ function hoverResize(event) {
 // A press on an edge or corner of the frame starts resizing the selection.
 function pressFrame(event, common, handle) {
   const refusal = resizeRefusal();
-  if (refusal) { toast(refusal, true); return; }
   const members = topSelection().map(id => {
     const element = svgElement(id);
     return {id, element, before: object(id).attributes.transform || '', frame: element && localToOverlay(element.parentElement)};
@@ -1505,7 +1504,7 @@ function pressFrame(event, common, handle) {
   // The edge follows the pointer from where it was grabbed.
   const offset = {x: handle.includes('w') ? box.left - grab.x : handle.includes('e') ? box.right - grab.x : 0,
     y: handle.includes('n') ? box.top - grab.y : handle.includes('s') ? box.bottom - grab.y : 0};
-  startGesture('resize', event, common, {handle, box, members, offset, result: null});
+  startGesture('resize', event, common, {handle, box, members, offset, refusal, result: null});
 }
 // Other objects' bounds and the artboard's edges, which a dragged edge snaps
 // to, in the overlay's frame.
@@ -2083,6 +2082,7 @@ const gestures = canvasGestures({
   },
   resize: {
     result: resizeDrag, preview: previewResize,
+    refuse: message => toast(message, true),
     finish: result => action('resize', {anchor: result.anchor, scale: [result.sx, result.sy]}, 'Resizing…'),
   },
   knife: {end: knifeEnd, finish: cutWithKnife},
@@ -2138,10 +2138,10 @@ function pressStage(event) {
   }
   const near = tool === 'nodes' && !middle && !space ? nearestPoint(event.clientX, event.clientY) : null;
   if (near) { pressPoint({target: near}, common); return; }
-  const handle = tool === 'select' ? frameAt(event.clientX, event.clientY) : null;
-  if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
   const hits = hitStack(event.clientX, event.clientY);
   common.hits = hits;
+  const handle = tool === 'select' ? frameAt(event.clientX, event.clientY) : null;
+  if (handle && handle !== 'inside') { pressFrame(event, common, handle); return; }
   const id = hits[0] || null;
   if (tool === 'knife') {
     startGesture('knife', event, common, {id}); return;
