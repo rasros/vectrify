@@ -99,6 +99,56 @@ PAIR = """<svg width="64" height="64"><g id="g">
 </g></svg>"""
 
 
+def test_joint_fit_moves_a_join_when_only_its_outgoing_curve_is_visible():
+    """The hidden incoming endpoint must not discard the visible side's signal."""
+    pytest.importorskip("torch")
+    svg = """<svg width="64" height="64"><g>
+    <path id="a" fill="maroon" d="M8 23 L24 23 L24 48 L8 48 Z"/>
+    <path id="b" fill="navy" d="M0 0 L64 0 L64 26 L0 26 Z"/>
+    </g></svg>"""
+    document = import_svg(svg)
+    corner = document.geometry_for("a").subpaths[0].nodes[1]
+    held = frozenset(
+        node.id
+        for oid in ("a", "b")
+        for subpath in document.geometry_for(oid).subpaths
+        for node in subpath.nodes
+        if node.id != corner.id
+    )
+    target = render_image(
+        svg.replace("L24 23", "L26 23"), (0, 0, 64, 64), (64, 64), alpha=True
+    )
+    result = polish(
+        document,
+        ("a", "b"),
+        target,
+        FitOptions(snap=False, handles=False, steps=20, displacement=2, resolution=64),
+        held=held,
+    )
+    moved = result.geometry_for("a").node(corner.id).endpoint
+    assert moved[0] > corner.endpoint[0] + 0.5
+    before = np.asarray(
+        render_image(export_svg(document), (0, 0, 64, 64), (64, 64), alpha=True),
+        dtype=float,
+    )
+    after = np.asarray(
+        render_image(export_svg(result), (0, 0, 64, 64), (64, 64), alpha=True),
+        dtype=float,
+    )
+    expected = np.asarray(target, dtype=float)
+    assert np.mean((after - expected) ** 2) < np.mean((before - expected) ** 2) * 0.8
+    for oid in ("a", "b"):
+        original = document.geometry_for(oid)
+        fitted = result.geometry_for(oid)
+        assert {n.id for s in original.subpaths for n in s.nodes} == {
+            n.id for s in fitted.subpaths for n in s.nodes
+        }
+        for subpath in original.subpaths:
+            for node in subpath.nodes:
+                if node.id in held:
+                    assert fitted.node(node.id).endpoint == node.endpoint
+
+
 def test_joint_fit_closes_a_gap_without_changing_paint_structure_or_pinned_points():
     pytest.importorskip("torch")
     document = import_svg(PAIR)

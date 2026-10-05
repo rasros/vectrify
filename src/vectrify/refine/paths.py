@@ -1030,6 +1030,7 @@ def fit_filled_svg(
     max_point_displacement: float | None = None,
     fit_context: tuple[np.ndarray, np.ndarray, np.ndarray] | None = None,
     project_controls: Any = None,
+    control_transform: Any = None,
     observe: Any = None,
     coverage_transform: Any = None,
     loss_transform: Any = None,
@@ -1063,6 +1064,11 @@ def fit_filled_svg(
     In the latter case mean colour error and opacity error have equal weight.
     ``project_controls`` enforces editor coordinate constraints after each Adam
     update; ``observe`` reports/retains candidates and returns False to stop.
+    ``control_transform`` is the differentiable counterpart of that projection
+    in monolithic fits. Its Jacobian combines the gradients of tied endpoints,
+    implicit straight controls and reversed stroke copies before Adam updates
+    their independent coordinates. Projection runs before restoring duplicate
+    endpoints, so those copies do not overwrite the independent update.
     ``loss_transform`` optionally prepares the rendered image and target for
     monolithic fitting, for example a coarse image comparison before refinement.
     These optional hooks leave the automatic path-fit mutation unchanged.
@@ -1247,6 +1253,10 @@ def fit_filled_svg(
     # with the selected path implicitly painted on top of everything.
     if loss_transform is not None and not monolithic:
         raise ValueError("Image loss transformation requires monolithic fitting")
+    if control_transform is not None and not monolithic:
+        raise ValueError("Control transformation requires monolithic fitting")
+    if control_transform is not None and project_controls is None:
+        raise ValueError("Control transformation requires a control projection")
     context_tensors = None
     if fit_context is not None:
         if not monolithic or scale != 1:
@@ -1275,11 +1285,13 @@ def fit_filled_svg(
                     max_point_displacement / delta.norm(dim=-1).clamp_min(1e-12)
                 ).clamp_max(1)
                 control_storage.copy_(seed_controls + delta * factor[..., None])
+            if project_controls is not None and control_transform is not None:
+                project_controls(controls)
             for path in controls:
                 for contour in path:
                     contour[1:, 0].copy_(contour[:-1, 3])
                     contour[-1, 3].copy_(contour[0, 0])
-            if project_controls is not None:
+            if project_controls is not None and control_transform is None:
                 project_controls(controls)
 
     def tile_for(path: list[Any]) -> tuple[int, int, int, int]:
@@ -1807,6 +1819,21 @@ def fit_filled_svg(
             )
             loss = loss + xing_weight * _xing_loss(all_controls)
             loss.backward()
+            if control_transform is not None:
+                # The renderer sees duplicated cubic endpoints and derived
+                # controls. Sum their derivatives into the editor's actual
+                # coordinates instead of discarding them during projection.
+                assert control_storage.grad is not None
+                transformed = control_transform(controls)
+                outputs = [c for path in transformed for c in path]
+                gradients = [
+                    control_storage.grad[i, :n].detach().clone()
+                    for i, n in enumerate(contour_sizes)
+                ]
+                gradient = torch.autograd.grad(
+                    outputs, control_storage, grad_outputs=gradients
+                )[0]
+                control_storage.grad.copy_(gradient)
             point_optimizer.step()
             colour_optimizer.step()
             close_contours()
