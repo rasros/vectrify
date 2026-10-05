@@ -915,6 +915,7 @@ class OptimizeNodes:
                     # drawing itself, which any change makes worse.
                     start_score if request.reference is not None else None,
                     settings["allowance"] / 100,
+                    handles=_handles(document, oids),
                 )
                 if chosen is None:
                     break
@@ -974,8 +975,16 @@ class OptimizeNodes:
                 tx,
                 changed,
                 metrics={
-                    "before": {"difference": before, "nodes": _count(start, oids)},
-                    "after": {"difference": current.difference, "nodes": points},
+                    "before": {
+                        "difference": before,
+                        "nodes": _count(start, oids),
+                        "handles": _handles(start, oids),
+                    },
+                    "after": {
+                        "difference": current.difference,
+                        "nodes": points,
+                        "handles": _handles(document, oids),
+                    },
                     "steps": taken,
                     "seconds": round(spent, 3),
                     # The time limit ended the run, not the steps running out.
@@ -1025,6 +1034,15 @@ def _shared_edges(document: Document, oids) -> list:
 def _count(document: Document, oids) -> int:
     return sum(
         len(s.nodes) for oid in oids for s in document.geometry_for(oid).subpaths
+    )
+
+
+def _handles(document: Document, oids) -> int:
+    return sum(
+        len(n.values) // 2 - 1
+        for oid in oids
+        for s in document.geometry_for(oid).subpaths
+        for n in s.nodes
     )
 
 
@@ -1081,9 +1099,12 @@ def _choose(
     gain: float,
     start: _Scored | None = None,
     allowance: float = 0.0,
+    *,
+    handles: int | None = None,
 ) -> str | None:
     """The step to keep: the one that lowers the difference most, fixing at
-    least *gain* of it where it acted, or else Simplify if it removed points.
+    least *gain* of it where it acted, or else Simplify if it removed points
+    or unnecessary handles.
 
     With *start*, no step is kept that leaves the difference where the run
     has acted, against *start*, worse by more than *allowance* of it: a run
@@ -1105,7 +1126,10 @@ def _choose(
         return min(helping)[1]
     if "simplify" in scored:
         simpler, after = scored["simplify"]
-        if _count(simpler, oids) < points and allowed(after):
+        reduced = _count(simpler, oids) < points or (
+            handles is not None and _handles(simpler, oids) < handles
+        )
+        if reduced and allowed(after):
             return "simplify"
     return None
 

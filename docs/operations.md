@@ -159,7 +159,7 @@ ring). The points the runs end at, where a third region meets the two, are
 frozen, so every step leaves them; after each step `follow` redraws each
 neighbour's run as the selected path's outline between those points now
 runs (reversed when the neighbour runs it the other way), before the result
-is rendered and judged, so the judging sees no gap or overlap opening. A run
+is rendered and judged. A run
 whose ends are gone is left alone. The neighbours that changed are edited and
 selected too, counted under `followed` in the metrics, and their crossings
 are checked as the selected paths' are. With `shared` off, neighbours stay
@@ -188,6 +188,14 @@ the paths it found. The MCP `tidy` tool takes `region` in place of, or with,
 Shared edges are also found between selected paths. The earlier path in drawing
 order owns a shared run, the later one follows it, and both ends are held.
 Only unselected followers count in `followed` and are added to the selection.
+Compatible selected sibling fills and round strokes also receive joint fitting
+in painter order. After coordinating shared edges, this fit can extend one
+selected piece beneath another. An accepted overlap is no longer an exact
+shared run and is not copied back in subsequent rounds. Inferred junction
+endpoints stay fixed while their handles may bend; region holds and junctions
+linked to unselected paths retain all their controls. No edge labels are
+required. Remaining fitting time may try a bounded bilateral family for a
+compatible open stroke, retained only when exact reference error improves.
 
 Every round runs each chosen step on the paths as they stand and renders the
 region. A step is judged where it acted: over the pixels whose colour it
@@ -195,12 +203,15 @@ changed, widened by `BAND` (2) pixels, the share of the squared difference to
 the target there that it removed has to be at least `gain`, so the bar does
 not grow with the selection. Of the steps that pass, the one that lowers the
 region's mean squared difference (`generate.error`) most is kept; if none
-does, Simplify is kept when it removed points, and otherwise the run ends.
+does, Simplify is kept when it removed points or unnecessary handles, and
+otherwise the run ends. The `before` and `after` metrics report both `nodes`
+and `handles`; a straightened curve can simplify a path without removing a
+node. Handle removal obeys the same reference error budget as point removal.
 With a reference, no step is eligible whose result, against the region's
 render at the start, is worse over the pixels changed since then (widened by
 `BAND`) by more than `allowance` of the squared difference there: a run never
-trades the match for fewer points beyond it, however many rounds Simplify
-gets. Without a reference Simplify is judged against the drawing itself and
+trades the match for fewer points or handles beyond it, however many rounds
+Simplify gets. Without a reference Simplify is judged against the drawing itself and
 only its tolerance bounds it. A
 step's result is not eligible when any path crosses itself more than before
 the step (`refine.crossings.crossings`: each contour drawn as a polyline,
