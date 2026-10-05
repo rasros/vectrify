@@ -5,7 +5,7 @@ from dataclasses import replace
 import pytest
 
 from vectrify.document import import_svg
-from vectrify.refine.shared import follow, frozen_points, links
+from vectrify.refine.shared import coordinate_indices, follow, frozen_points, links
 
 # Two squares side by side sharing the edge x = 10 through a point at y = 5;
 # B runs it the other way, and is drawn back to its start as a cel trace is.
@@ -42,6 +42,54 @@ def test_a_shared_edge_is_found_and_its_ends_frozen():
     assert {nodes[link.start], nodes[link.end]} == {(10.0, 0.0), (10.0, 10.0)}
     held = frozen_points(document, [link])
     assert {nodes[i] for i in held if i in nodes} == {(10.0, 0.0), (10.0, 10.0)}
+
+
+def test_shared_coordinate_rows_include_a_drawn_closure():
+    document = import_svg(SIDE)
+    (link,) = links(document, ["a"], ["b"])
+    assert coordinate_indices(
+        document.geometry_for("a"), link.subpath, link.start, link.end
+    ) == [(1, 2), (2, 3)]
+    assert coordinate_indices(
+        document.geometry_for("b"),
+        link.neighbour_subpath,
+        link.neighbour_end,
+        link.neighbour_start,
+    ) == [(3, 4), (4, 5)]
+
+
+def test_shared_coordinate_rows_handle_holes_wrapped_cubics_and_implicit_closures():
+    geometry = import_svg(
+        '<svg><path id="a" d="M0 0 L30 0 L30 30 Z '
+        'M10 10 C12 12 18 12 20 10 L20 20 L10 20 Z"/></svg>'
+    ).geometry_for("a")
+    hole = geometry.subpaths[1]
+    head, cubic, _, end = hole.nodes
+    assert coordinate_indices(geometry, hole.id, end.id, cubic.id) == [
+        (8, 3),  # Implicit closing line back to the hole's head.
+        (3, 4, 5, 6),
+    ]
+    assert coordinate_indices(geometry, hole.id, head.id, head.id) == [
+        (3, 4, 5, 6),
+        (6, 7),
+        (7, 8),
+        (8, 3),
+    ]
+
+
+def test_shared_coordinate_rows_handle_open_curves_and_missing_ids():
+    geometry = import_svg(
+        '<svg><path id="a" d="M1 2 C3 4 5 6 7 8 L9 10"/></svg>'
+    ).geometry_for("a")
+    subpath = geometry.subpaths[0]
+    start, _, end = subpath.nodes
+    assert coordinate_indices(geometry, subpath.id, start.id, end.id) == [
+        (0, 1, 2, 3),
+        (3, 4),
+    ]
+    assert coordinate_indices(geometry, subpath.id, end.id, start.id) is None
+    assert coordinate_indices(geometry, subpath.id, start.id, "missing") is None
+    assert coordinate_indices(geometry, "missing", start.id, end.id) is None
 
 
 @pytest.mark.parametrize(
