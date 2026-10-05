@@ -125,7 +125,9 @@ def test_copy_of_a_child_and_an_instance_keeps_the_complete_referenced_group():
     (context,) = [e for e in selected if e.tag == "g"]
     (instance,) = [e for e in selected if e.tag == "use"]
     assert len(context.children) == 1
-    referenced = document.element(instance.get("href")[1:])
+    href = instance.get("href")
+    assert href is not None
+    referenced = document.element(href[1:])
     assert len(referenced.children) == 2
     assert referenced.id != context.id
     assert document.geometry_for(context.children[0].id).id != (
