@@ -284,7 +284,15 @@ pinned ones.
   the knob: of `LADDER` (8) tolerances up to the set one, bisection finds the
   largest whose result leaves the squared difference over the pixels it
   changed (widened by `BAND`) at most `budget` worse than before; if none
-  does, only the points whose removal moves nothing go.
+  does, only the points whose removal moves nothing go. The budget includes
+  shared neighbours after they have followed the candidate.
+  With a reference, `refine.support.supported` also proposes replacing a
+  nearby filled boundary run with fewer exact pieces of a selected stroke
+  drawn above it. This needs no shared-edge labels or closed outline. Runs
+  are recognized in reference pixels, with bounded monotone correspondence;
+  each is scored separately under the same budget. Pins, region holds,
+  clipping, translucent paint and incompatible group contexts are protected
+  or excluded. The stroke itself stays unchanged.
 
 The result is applied with `Transaction.reshape_path`, which keeps surviving
 node IDs and refuses to move or remove pinned endpoints.

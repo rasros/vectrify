@@ -537,6 +537,7 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
     whose result raises the difference where it acted by no more than the
     budget, found by bisection. A larger tolerance removes more points."""
     from vectrify.refine.simplify import simplify
+    from vectrify.refine.support import supported
 
     document, region, settings = task.document, task.region, task.settings
     initial_costs = {}
@@ -568,9 +569,12 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
         for previous, allowed in judged:
             if candidate.geometries == previous.geometries:
                 return allowed
-        after = _Scored.of(
-            _pixels(_with(document, dict(candidate.geometries)), region), region
+        from vectrify.refine.shared import follow
+
+        proposed, _ = follow(
+            _with(document, dict(candidate.geometries)), list(task.shared)
         )
+        after = _Scored.of(_pixels(proposed, region), region)
         allowed = after.fixed(start) >= -budget
         judged.append((candidate, allowed))
         return allowed
@@ -585,7 +589,24 @@ def _simplified(task: _Task, paths, fixed, deadline: float):
         else:
             high = middle - 1
     # At no tolerance only points that change nothing go.
-    return best if best is not None else at(0.0)
+    best = best if best is not None else at(0.0)
+    # A nearby stroke is a second simplification model, judged run by run.
+    # Independently simplifying that proposal again would discard its exact
+    # curves before the reference could judge their usefulness.
+    candidate = supported(document, paths, region, fixed, top, deadline, accept=within)
+
+    def complexity(value):
+        return (
+            value.nodes(),
+            sum(
+                len(n.values) // 2 - 1
+                for g in value.geometries.values()
+                for s in g.subpaths
+                for n in s.nodes
+            ),
+        )
+
+    return candidate if complexity(candidate) < complexity(best) else best
 
 
 def _fit(task: _Task, stop, progress) -> tuple[Document, dict[str, str]]:
