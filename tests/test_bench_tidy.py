@@ -5,7 +5,7 @@ import pytest
 from shapely.affinity import affine_transform
 from shapely.geometry import Polygon
 
-from scripts.bench_tidy import _shape, properties
+from scripts.bench_tidy import _covered_pixels, _shape, properties
 from vectrify.document import import_svg
 
 
@@ -25,6 +25,57 @@ def test_visible_transparency_distinguishes_a_gap_covered_by_later_artwork(cover
         assert measured["visible_transparent_pixels"] == 0
     else:
         assert measured["visible_transparent_pixels"] == measured["transparent_pixels"]
+
+
+def test_exact_adjacent_fills_can_have_transparency_without_geometric_gaps():
+    document = import_svg(
+        '<svg width="48" height="48"><g id="g">'
+        '<path fill="white" d="M0 0 L48 0 L48 48 Z"/>'
+        '<path fill="white" d="M0 0 L48 48 L0 48 Z"/>'
+        '<path id="outline" fill="none" stroke="black" stroke-width="0" '
+        'd="M0 48 L0 0 L48 0 L48 48"/></g></svg>'
+    )
+    measured = properties(document, "g", "outline")
+    assert measured["gap_area"] == 0
+    assert measured["visible_transparent_pixels"] > 0
+    assert (
+        measured["visible_transparent_pixels_inside_fills"]
+        == measured["visible_transparent_pixels"]
+    )
+
+
+@pytest.mark.parametrize(
+    ("aspect", "bounds"),
+    [
+        ("none", (10, 20, 10.5, 21)),
+        ("xMidYMid meet", (5, 20, 6, 21)),
+        ("xMaxYMax meet", (0, 20, 1, 21)),
+        ("xMidYMid slice", (10, 22.5, 10.5, 23)),
+    ],
+)
+def test_pixel_coverage_maps_svg_viewport(aspect, bounds):
+    document = import_svg(
+        '<svg width="20" height="10" viewBox="10 20 10 10" '
+        f'preserveAspectRatio="{aspect}"></svg>'
+    )
+    pixels = np.zeros((10, 20), bool)
+    pixels[0, 0] = True
+    left, top, right, bottom = bounds
+    box = Polygon([(left, top), (right, top), (right, bottom), (left, bottom)])
+    assert _covered_pixels(document, pixels, box) == 1
+    assert _covered_pixels(document, pixels, box.buffer(-0.01)) == 0
+
+
+def test_completed_symmetry_axis_distinguishes_translation_from_asymmetry():
+    document = import_svg(
+        '<svg width="40" height="40"><g id="g" transform="translate(4 0)">'
+        '<path fill="red" d="M5 35 L10 5 L15 35 Z"/>'
+        '<path id="outline" fill="none" stroke="black" stroke-width="0.2" '
+        'd="M5 35 L10 5 L15 35"/></g></svg>'
+    )
+    measured = properties(document, "g", "outline", [(10, 35), (10, 5)])
+    assert measured["symmetry_area"] > 0
+    assert measured["symmetry_area_completed_axis"] == pytest.approx(0)
 
 
 def test_transformed_evenodd_fill_area_and_small_spills():

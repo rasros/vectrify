@@ -121,12 +121,57 @@ def _shape(document, oid):
     )
 
 
+def _symmetry_area(interior, axis):
+    axis = np.asarray(axis, dtype=float)
+    direction = axis[1] - axis[0]
+    direction /= np.linalg.norm(direction)
+    linear = 2 * np.outer(direction, direction) - np.eye(2)
+    offset = axis[0] - linear @ axis[0]
+    reflected = affine_transform(
+        interior, (linear[0, 0], linear[0, 1], linear[1, 0], linear[1, 1], *offset)
+    )
+    return interior.symmetric_difference(reflected).area
+
+
+def _covered_pixels(document, pixels, union):
+    """Count transparent pixel squares fully covered by the fill geometry.
+
+    Coverage need not imply opacity: adjacent antialiased fills and deliberately
+    translucent paint can both leave transparency without a geometric gap.
+    Map the native SVG viewport, including its aspect-ratio alignment.
+    """
+    height, width = pixels.shape
+    vx, vy, vw, vh = document.artboard()
+    scale = np.array((width / vw, height / vh))
+    offset = np.zeros(2)
+    aspect = (document.root.get("preserveAspectRatio") or "xMidYMid meet").split()
+    if aspect[0] == "defer":
+        aspect = aspect[1:]
+    if aspect[0] != "none":
+        scale[:] = scale.max() if aspect[-1] == "slice" else scale.min()
+        extra = np.array((width, height)) - np.array((vw, vh)) * scale
+        alignment = aspect[0]
+        offset = extra * np.array(
+            [
+                1 if f"{a}Max" in alignment else 0.5 if f"{a}Mid" in alignment else 0
+                for a in ("x", "Y")
+            ]
+        )
+    y, x = np.nonzero(pixels)
+    left, top = (x - offset[0]) / scale[0] + vx, (y - offset[1]) / scale[1] + vy
+    boxes = shapely.box(left, top, left + 1 / scale[0], top + 1 / scale[1])
+    shapely.prepare(union)
+    return int(shapely.covers(union, boxes).sum())
+
+
 def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     """Containment per fill, uncovered interior, and reflected silhouette error.
 
     Reflect about the line from the outline's tip to the midpoint of its base.
     Opaque coverage is also rendered alone,
     so an underlying hilt or background cannot hide a transparent blade gap.
+    Report completed-axis symmetry and transparent pixels entirely inside the
+    fill union as diagnostics, independently of the original-axis quality gate.
     """
     interior = _shape(document, outline)
     fills = [
@@ -138,13 +183,6 @@ def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     union = shapely.union_all(tuple(shapes.values()))
     # This case's symmetry axis is a benchmark expectation, not a fitting rule.
     axis = _axis(document, outline) if axis is None else np.asarray(axis, dtype=float)
-    direction = axis[1] - axis[0]
-    direction /= np.linalg.norm(direction)
-    linear = 2 * np.outer(direction, direction) - np.eye(2)
-    offset = axis[0] - linear @ axis[0]
-    reflected = affine_transform(
-        interior, (linear[0, 0], linear[0, 1], linear[1, 0], linear[1, 1], *offset)
-    )
     spill = {oid: s.difference(interior).area for oid, s in shapes.items()}
     # Measure transparency in the blade alone, independently of any objects
     # underneath. Exclude boundary antialiasing with a two-pixel interior band.
@@ -161,14 +199,21 @@ def properties(document, group=GROUP, outline=OUTLINE, axis=None):
     mask = _render(_only(mask_document, [outline]))[:, :, 3] == 255
     mask = binary_erosion(mask, iterations=2)
     visible = _render(document)
+    visible_transparent = (visible[:, :, 3] < 255) & mask
     return {
         "outside_area": sum(spill.values()),
         "outside_each": spill,
         "gap_area": interior.difference(union).area,
-        "symmetry_area": interior.symmetric_difference(reflected).area,
+        "symmetry_area": _symmetry_area(interior, axis),
+        "symmetry_area_completed_axis": _symmetry_area(
+            interior, _axis(document, outline)
+        ),
         "interior_area": interior.area,
         "transparent_pixels": int(((blade[:, :, 3] < 255) & mask).sum()),
-        "visible_transparent_pixels": int(((visible[:, :, 3] < 255) & mask).sum()),
+        "visible_transparent_pixels": int(visible_transparent.sum()),
+        "visible_transparent_pixels_inside_fills": _covered_pixels(
+            document, visible_transparent, union
+        ),
     }
 
 
