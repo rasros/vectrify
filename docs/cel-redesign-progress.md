@@ -1600,6 +1600,156 @@ holes until richer representations are supported. Score/feature calibration is
 also required by the measured tuning regressions. These findings support work
 on proposal coverage and scheduling before learned selection.
 
+## Coherent material initialization before SVG export
+
+The next bounded proposal operates on original graph atoms before SVG export,
+instead of requiring thousands of individual SVG family edits. The new
+`cel_plan/materials.py` streams weighted moments of position and premultiplied
+RGBA, then compares a flat fit with a linear fit using one shared spatial axis.
+Two independent color axes cannot be represented as one SVG gradient and retain
+a residual. Discovery grows connected families using fit change and estimated
+boundary savings. Supported/unresolved ink ridges, explicit-width atoms,
+different components and strong ink-class changes remain barriers. Blocked
+contacts propagate through merges, so a weak alternate route cannot erase a
+supported ridge.
+
+A broad alpha range requires a linear model explaining at least 98% of alpha
+variance; a continuous ramp is eligible and an abrupt opacity step is excluded.
+These are proposal checks, not replacements for native coverage validation.
+Growth uses an optimistic fit without charging a complete gradient to every
+small merge. Charging that activation repeatedly caused a local minimum on a
+perfect banded ramp with a hole. Actual export still compares flat and gradient
+paints using their price, and the native frontier charges all actual contours,
+nodes, paths and gradients. `linear_estimate_families` describes the growth
+estimate, not the final paint count.
+
+Discovery caps the graph at 16,384 regions and 65,536 boundaries, and edge-model
+evaluations at 32,768. Pixel moments use two-dimensional chunks of at most
+65,536 pixels, including unusually wide inputs, with stop checks inside moment
+and adjacency loops. The orchestrator reserves a discovery slice, uses the
+fixed detailed normalizer and complexity-50 shared-pool context, exports one
+optional competitor and validates it before local search. Failed, interrupted
+or rejected work retains the independently validated frontier. No human data
+enters generation. This initial route runs only on partial-alpha evidence.
+
+Thirteen new cases check independent dense-versus-streamed moments, a shared
+gradient axis, band/alpha ramp compaction, holes, original ownership and
+save/reload, abrupt alpha steps, supported-ridge alternate routes, explicit
+width, discovery bounds, interruption and optional-fit failure. A synthetic
+export can select an actual gradient with a suitable fixed normalizer; at a
+small fixture's production cost scale it can select a flat instead. Neither
+result establishes score calibration on illustration artwork.
+
+The relevant evidence/policy/frontier/operator, planned operation, benchmark,
+legacy CEL and shared-boundary suite passed **396 tests in 30.74 seconds**.
+Ruff and formatting checks passed. Pyrefly reported zero source errors and 61
+existing warnings; project configuration excludes tests from its type-check
+scope.
+
+The native comparison command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-coherent-materials
+```
+
+Source SHA-256 is
+`99786f0f15a3aa97ba737959b6c2f962fd1ddd9a2a1ad1b972394c8752874c2b`,
+with the unchanged frozen mask
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The material route completes 2,933 merges and 14,931 edge-model evaluations
+from a graph of 8,502 atoms, leaving 5,214 visible result regions. Source graph
+counts include hidden atoms; subtracting merges from the total is therefore not
+the visible count. It records 4,133 alpha exclusions, 2,345 linear-model family
+estimates, 255 ridge proofs (252 supported, three shade interpretations) and
+6,556 unresolved boundary encounters. Discovery reaches neither graph nor model
+caps. Total proposal/export/validation time is 6.99 seconds, including 2.36
+seconds of validation.
+
+The native policy rejects this whole-drawing candidate for
+`translucent-component-lost`. The operation benchmark itself does not retain
+rejected SVGs. A follow-up observer capture is recorded below; its rejected
+counts must not be treated as an accepted result.
+
+Selected output remains **22,646 nodes, 4,026 contours, 3,991 paths, 544
+gradients, cost 53,260 and human MSE 439.75132**, pixel-identical to the prior
+nested-core run. Guard/jewel MSE remains 1,015.14/1,233.07. It passes the
+numerical human-error ceiling but fails the structural targets and combined
+milestone. The nominal cost target is 27,282 and the reported target 46,365
+including the unproven observed floor; achieved cost exceeds both.
+
+Pipeline time is 53.13 seconds and operation/apply time 57.61 seconds, within
+this requested 60-second run. This single run does not resolve runtime
+reservation across workloads or establish a speedup: completed candidate
+prefixes differ. Local search attempts five proposals, accepts four working
+alternatives and publishes one checkpoint, with zero score disagreements.
+Accounted retained SVG/raster peak is 11,660,344 bytes, not total process RSS.
+Refinement is disabled, so the result cannot establish automatic fitting's
+benefit.
+
+A diagnostic-only rerun with the same source/settings and 60-second budget
+captures the material SVG, then stops after its native validation. Artifacts
+are in `.bench/planned-coherent-materials-diagnosis`, with the capture command
+saved as `.bench/diagnose-coherent-materials.py`. Discovery reproduces the same
+merge/model/alpha/ridge counts. The rejected SVG key is
+`820271c4b4c07a6ca520851634f96acdbe576091d3315cc0e1e2f1334dad9469`.
+It has 29,540 nodes, 5,275 contours, 5,215 paths, 34 gradients and cost 61,478.
+The estimated 2,345 linear families therefore produce only 34 actual gradients.
+Its cost is below the conservative fallback's 103,482 but above the validated
+detailed seed's 54,564 and selected drawing's 53,260. Source-atom merge counts
+cannot stand in for improvement over an already merged SVG competitor.
+
+Independent native alpha checks identify eight failing components totaling 88
+pixels. None has an eroded core; sizes range from four to 21 pixels and peak
+alpha from 2/255 to 5/255. Their retained alpha mass ranges from 61.54% to 93.75%,
+below the existing 95% thin-component requirement. The first occupies
+`[361,74,365,77]` in source coordinates and retains 61.54%. The diagnostic uses
+the policy's summed-mass comparison, rather than comparing a rounded ratio at
+the 95% boundary. These measurements establish thin/faint coverage loss here;
+they do not authorize deleting those marks, identify its paint-versus-geometry
+cause, or prove the route would be selected after coverage repair. Full renders
+and per-component boxes/masses are retained in the diagnostic bundle. This run
+deliberately stops early and is not an end-to-end performance comparison.
+
+The opaque tuning controls were rerun using:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-coherent-materials-pairs
+```
+
+| Opaque tuning control | Nodes | Cost | Clean MSE | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 2,883 | 3,845 | 889.48 | 5.43 |
+| Anime face | 5,427 | 7,047 | 703.60 | 7.18 |
+| Western park | 4,435 | 5,791 | 1,281.92 | 6.43 |
+| Rubberhose band | 842 | 1,492 | 966.05 | 7.25 |
+
+All four report material initialization unavailable because the input is opaque;
+they are controls, not real-artwork tests of the new RGBA route. The first three
+selected counts/errors match the previous run. Rubberhose removes seven nodes
+and lowers MSE by 0.61 with a longer completed search prefix; this cannot be
+attributed to the new material route. Search attempts 35/15/25/45 proposals,
+accepts 30/12/23/38 working alternatives and publishes four checkpoints each,
+with zero score disagreements. Diagnostic pools are complete without omissions.
+Same-cost oracle gaps are zero; unconstrained gaps remain
+22.66/45.09/34.35/79.93. No score calibration, held-out, degradation or blind
+review gate is claimed.
+
+Next distinguish paint and geometry causes of the native alpha rejection,
+offer component/family competitors with preserved validated coverage, and add
+real partial-alpha tuning cases. Do not relax the retained-alpha gate or use a
+ranker to admit the rejected drawing. This proposal foundation completes none
+of the eight deliveries by itself.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

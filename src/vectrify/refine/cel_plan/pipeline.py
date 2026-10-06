@@ -14,6 +14,7 @@ from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.frontier import Frontier, Observation
 from vectrify.refine.cel_plan.graph import build
+from vectrify.refine.cel_plan.materials import coherent_labels
 from vectrify.refine.cel_plan.model import (
     Candidate,
     Options,
@@ -32,6 +33,56 @@ from vectrify.refine.cel_plan.score import (
     render,
 )
 from vectrify.refine.cel_plan.search import search as local_search
+
+
+def material_seed(frontier, evidence, graph, options, work, duration) -> dict:
+    """Optional coherent initialization, retained only by the native frontier."""
+    began = time.monotonic()
+    discovery = Work(
+        min(work.deadline, began + min(duration * 0.12, work.remaining * 0.3)),
+        work.stop,
+        work.timings,
+    )
+    try:
+        labels, details = coherent_labels(
+            evidence,
+            graph,
+            replace(options, complexity=50),
+            discovery,
+            normalizer=frontier.normalizer,
+        )
+    except StageInterruptedError:
+        return {"status": "discovery-interrupted", "seconds": time.monotonic() - began}
+    if not details["merges"] or work.interrupted:
+        return {**details, "seconds": time.monotonic() - began, "validation_seconds": 0}
+    try:
+        svg, exported = export(
+            evidence,
+            labels,
+            replace(options, complexity=50),
+            work,
+            layers=True,
+            cost_normalizer=frontier.normalizer,
+        )
+    except StageInterruptedError:
+        return {
+            **details,
+            "status": "export-interrupted",
+            "seconds": time.monotonic() - began,
+        }
+    if work.stop.is_set():
+        return {**details, "status": "stopped", "seconds": time.monotonic() - began}
+    validation = time.monotonic()
+    retained = frontier.add(
+        svg, "Coherent RGBA materials", {**exported, "material_models": details}
+    )
+    return {
+        **details,
+        "status": "retained" if retained else "rejected",
+        "generation_status": details["status"],
+        "seconds": time.monotonic() - began,
+        "validation_seconds": time.monotonic() - validation,
+    }
 
 
 def vectorize(
@@ -144,6 +195,11 @@ def vectorize(
         "seconds": 0.0,
     }
     search_ran = False
+    material_initialization: dict = {
+        "status": "unavailable",
+        "merges": 0,
+        "seconds": 0.0,
+    }
     for level, structure, layers in proposals:
         if search.interrupted or work.interrupted:
             break
@@ -208,6 +264,33 @@ def vectorize(
             except ValueError:
                 if frontier.baseline:
                     frontier.freeze_normalizer()
+            if (
+                evidence.opacity is not None
+                and frontier.normalizer_fixed
+                and not search.interrupted
+            ):
+                material_started = time.monotonic()
+                try:
+                    material_initialization = material_seed(
+                        frontier, evidence, graph, options, search, duration
+                    )
+                except (
+                    ValueError,
+                    RuntimeError,
+                    ArithmeticError,
+                    np.linalg.LinAlgError,
+                ) as exc:
+                    material_initialization = {
+                        "status": "failed",
+                        "detail": str(exc),
+                        "seconds": time.monotonic() - material_started,
+                    }
+                validation_seconds += material_initialization.get(
+                    "validation_seconds", 0
+                )
+                work.timings["material_initialization"] = material_initialization[
+                    "seconds"
+                ]
         if (
             not search_ran
             and frontier.normalizer_fixed
@@ -325,6 +408,7 @@ def vectorize(
         "cost_normalizer_source": normalizer_source,
         "refinement": refinement,
         "structural_search": structural_search,
+        "material_initialization": material_initialization,
         "refinement_complete": False,
         "fitting_time_reclaimed_after_compaction": dense_fallback and fitting_reserved,
     }

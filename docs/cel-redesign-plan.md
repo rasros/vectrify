@@ -36,13 +36,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the owned-overlay comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the coherent-material initialization comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental owned-family/overlay search, 60-second budget | 22,646 | 4,026 | 439.75 |
+| Experimental coherent-material initialization and local search, 60-second budget | 22,646 | 4,026 | 439.75 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -416,7 +416,7 @@ Continue from the experimental package in the following order. These changes com
 | --- | --- | --- |
 | Freeze and expand paired tuning evidence | `scripts/cel_pairs.py`, `scripts/bench_cel_pairs.py`, `scripts/bench_data/planned_pairs.json` | The runner exists; expand artwork coverage, freeze baseline tolerances and record clean/degraded hashes, native masks, line/feature metrics and candidate scores |
 | Complete bounded native evaluation | `cel_plan/local.py`, `search.py`, `families.py`, `opacity.py` | Long edits, streamed paint samples, cumulative edits, gradients and opacity groups agree with full scoring; interruption discards partial work and preserves the checkpoint |
-| Compact the valid opacity-aware starting drawing | `cel_plan/evidence.py`, `export.py`, `pipeline.py` and the generate operation | Connected flat/gradient RGBA and core/layer competitors avoid byte-level partitions while preserving empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope round trips |
+| Compact the valid opacity-aware starting drawing | `cel_plan/evidence.py`, `materials.py`, `export.py`, `pipeline.py` and the generate operation | Connected flat/gradient RGBA and core/layer competitors avoid byte-level partitions while preserving empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope round trips |
 | Extend individual exact acceptance to graph edits | `cel_plan/ownership.py`, `families.py`, `ink_replace.py`, `local.py`, `search.py`, `proposals.py`, `planning.py`, `frontier.py` | Owned families, paint/boundary/ink edits and initial filled/stroke replacements have a bounded working beam; complete split, richer surface/ink and order operators with native full-render agreement, independent rollback, bounded dependencies and stop within loops |
 | Complete the CPU refinement path | A focused `cel_plan/refine.py`, existing simplify/shared/paint helpers | Refinement on/off changes behavior; accepted edits improve or retain the common objective; primitive anchors, explicit width and best-checkpoint semantics survive |
 | Diagnose and improve facets, ink and compact outlines | `cel_plan/geometry.py`, `ink.py`, `strokes.py`, `layers.py` | Candidate-pool/oracle diagnosis, native feature crops, variable-width alternatives, supported joins and passing sword development gates |
@@ -666,6 +666,33 @@ Avoid relying exclusively on a few pairwise edits to compact an eight-thousand
 contour starting drawing. Keep discovery bounded by source pixels, paths,
 nodes, samples and time; reaching a bound records an exclusion rather than
 silently relaxing coverage.
+
+The initial pre-export material route is now implemented as an optional
+competitor. It uses streamed premultiplied RGBA moments and a common-axis linear
+fit, retains supported or unresolved ridges and explicit-width atoms, and lets
+the actual SVG paint and native frontier charge the final representation cost.
+Synthetic bands, continuous alpha ramps and holes compact correctly. On the
+native sword, it completes 2,933 merges but its whole-drawing candidate is
+rejected for `translucent-component-lost`; the selected drawing remains the
+dense result above. A separate capture identifies eight failing thin components
+covering 88 pixels, with peak alpha at most 5/255. The rejected drawing also
+costs 61,478, above the selected 53,260: merging source atoms alone does not
+establish compaction against existing alternatives. These are coverage and
+proposal-quality failures, not evidence for learned ranking. The material
+estimate's linear-family count is not the final SVG gradient count.
+
+Before expanding this route, save its rejected SVG and identify every native
+component that fails retained-alpha mass: its bounding box, eroded-core status,
+original/predicted alpha, source atoms and fitted paint. Do not assume the lost
+component is tiny or faint from the rejection code alone; the current capture
+establishes its size and alpha but not the paint/geometry cause. Compare paint
+loss with geometry/antialias loss on the same partition. Then offer bounded component
+or family alternatives that preserve the failing coverage using the validated
+detailed interpretation, while letting successful surfaces compete for
+compaction. Export ownership, gradient frames and local layers must remain
+consistent; independent full validation still decides retention. Add real
+partial-alpha tuning variants before claiming broad material quality: the four
+current clean tuning controls are opaque and do not execute this route.
 
 For D, a monotonic frontier that returns one identical drawing at every slider
 value is correct ordering but insufficient product evidence. Include fixtures
