@@ -439,10 +439,23 @@ class Frontier:
             ),
         )
 
+    def _achieved_budget(self, entry: Entry, complexity: int) -> dict:
+        budget = self.budget(complexity)
+        cost = entry.evaluation.cost
+        return {
+            **budget,
+            "achieved": cost,
+            "unmet": cost > budget["target"] + 1e-12,
+            # An observed search floor is not a proven lower bound. Clamping
+            # the effective target to it must not conceal a slider shortfall.
+            "nominal_unmet": cost > budget["nominal_target"] + 1e-12,
+            "nominal_overrun": max(0.0, cost - budget["nominal_target"]),
+            "search_floor_clamped": budget["floor"] > budget["nominal_target"] + 1e-12,
+        }
+
     def select(self, complexity: int, *, node_budget: int = 0) -> Candidate:
         self._published = True
         entry = self._pick(complexity, node_budget)
-        budget = self.budget(complexity)
         return Candidate(
             entry.svg,
             entry.label,
@@ -458,11 +471,7 @@ class Frontier:
                 "budget_unmet": bool(
                     node_budget and entry.evaluation.structure["nodes"] > node_budget
                 ),
-                "representation_budget": {
-                    **budget,
-                    "achieved": entry.evaluation.cost,
-                    "unmet": entry.evaluation.cost > budget["target"] + 1e-12,
-                },
+                "representation_budget": self._achieved_budget(entry, complexity),
             },
             tuple(self.decisions),
         )
@@ -492,12 +501,7 @@ class Frontier:
                         node_budget
                         and entry.evaluation.structure["nodes"] > node_budget
                     ),
-                    "representation_budget": {
-                        **self.budget(complexity),
-                        "achieved": entry.evaluation.cost,
-                        "unmet": entry.evaluation.cost
-                        > self.budget(complexity)["target"] + 1e-12,
-                    },
+                    "representation_budget": self._achieved_budget(entry, complexity),
                 },
             )
             for entry in entries

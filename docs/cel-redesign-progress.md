@@ -1906,6 +1906,97 @@ small ink details; prepare the declared same-pool calibration replay using
 these selection conflicts. Native validation establishes safety and exact
 agreement, not sufficient resemblance. None of the eight deliveries is complete.
 
+## Reset after comparison with legacy CEL
+
+The owner challenged the practical gain over baseline. The appropriate
+comparison is 19,528 nodes versus legacy CEL's 2,312 and the human fixture's
+523, not only the previous 22,646-node development result. The latest global
+human-reference MSE is approximately 29% lower than legacy's, but geometry is
+8.45 times larger. The most recent compaction also regresses all five feature
+crops. This is not the intended overhaul or a release-quality improvement.
+
+A source-only coverage experiment decomposed connected native opacity into
+15 nested envelope bands for the main component, and used legacy CEL
+(`regions=50`, `tolerance=1`, filled ink) on its near-modal opaque paint core.
+Other faint/unsupported components retained native pixel-level alpha paths.
+The generator never received the human geometry. This is an isolated diagnostic,
+without complete planning ownership, deadline/memory proofs or integration.
+
+Artifacts are in `.bench/alpha-envelope-diagnosis`, with the experiment source
+in `.bench/diagnose-alpha-envelope.py`. Executed production source hash is
+`e28f16a2013b9e7b647599aa082efad32dc01244fe9b818c99a297ec89abb354`, and
+the diagnostic script hash is
+`13ebde101942a8db758538bc5e72b761eaa6cbc25061e7292b569f1e57f22eeb`.
+The final diagnostic retains faint components; an earlier interrupted loop and
+two unsuccessful construction attempts did not yield selected drawings.
+
+The resulting 273 paths, 1,294 contours, 6,769 nodes and nine gradients cost
+12,599. Human MSE is 645.40, failing the 497.39 ceiling, with tip/facets/guard/
+wrapping/jewel errors 901.88/496.42/1,087.05/677.12/933.32. Native policy rejects
+five self-crossings, excess opacity and a lost protected hole. The inspected
+jewel remains irregular and its surrounding shades fragmented. Reducing alpha
+partitions alone, then tracing the interior as before, is insufficient. This
+result is not published through the operation or treated as an accepted proposal.
+
+### Native admission audit
+
+`.bench/diagnose-human-validation.py` reconstructed source evidence and graph
+with default options and refinement disabled. It exported and validated the
+actual conservative RGBA fallback, established that baseline, then evaluated
+the human, legacy and latest development SVGs only as benchmark diagnostics.
+The baseline has 54,320 nodes and zero missing/excess opacity pixels. The fixed
+native pixel allowance is 85. Its score uses source graph features and ink,
+matching production policy construction; a preliminary unbased audit did not
+include those fields and is retained separately.
+
+The authoritative report is `.bench/human-native-validation-baseline.json`.
+Its source hash is
+`672cc945d986665e6d75a683e324228d121bf7a049b1b90c9ffdcc0afdbbef77`.
+This differs from the envelope/source comparison because only frontier budget
+reporting changed before the audit; the admission policy and drawing algorithms
+were unchanged.
+
+| Diagnostic drawing | Missing / excess opacity pixels | Self-crossings | Native rejection |
+| --- | ---: | ---: | --- |
+| Human | 1,234 / 86 | 2 | Crossings, translucent gap/excess, protected hole and component loss |
+| Legacy CEL | 833 / 279 | 0 | Translucent gap/excess and component loss |
+| Latest development result | 80 / 38 | 0 | None |
+
+This does not establish that each rejected human/legacy discrepancy is visually
+acceptable or that the target is mathematically unattainable. It establishes
+that the current safeguards exclude the exact human drawing that motivates
+the requested abstraction. Locate and classify the failures before altering
+the policy. Tiny/faint source components cannot be presumed intentional or
+discardable solely from their area or alpha; true faint marks and meaningful
+holes need explicit regression coverage.
+
+With the latest detailed normalizer 54,564 at complexity 50, the audited
+human objective would be approximately 0.04627 versus 0.06698 for the latest
+development drawing. The fixed score can prefer that human drawing, but hard
+admission prevents its consideration. A learned ranker or reweighting does not
+remove this feasibility conflict. These values are diagnostic evaluations,
+not generated candidates, training examples or release gate passes.
+
+### Explicit nominal budget shortfalls
+
+Selected drawings and alternatives now share one budget-reporting helper.
+`representation_budget` adds `nominal_unmet`, `nominal_overrun` and
+`search_floor_clamped`. Existing effective `target`/`unmet` semantics and the
+separate explicit `node_budget` flag remain. An observed floor may clamp the
+effective target, but cannot hide an unmet nominal slider target. No selection,
+score weight, admission check or geometry changed.
+
+Regression coverage exercises all 101 slider positions, selected/alternative
+consistency, a clamped target with a genuine nominal shortfall, and a detailed
+target without a shortfall. The targeted frontier and operation suite passes
+35 tests; Ruff lint and formatting pass. Existing drawing benchmark numbers
+are not presented as fresh results from this metadata-only change.
+
+The plan now prioritizes admission compatibility, direct structural proposals
+before palette/alpha segmentation, then joint coverage/geometry/paint fitting.
+The sword gate and broader release criteria remain unchanged. Full delivery
+remains open.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

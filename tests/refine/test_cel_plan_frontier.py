@@ -68,6 +68,12 @@ def test_soft_budget_schedule_reports_target_floor_and_achieved_cost():
         )
         assert budget["achieved"] == selected.metrics["representation_cost"]
         assert budget["unmet"] == (budget["achieved"] > budget["target"])
+        assert budget["nominal_unmet"] == (
+            budget["achieved"] > budget["nominal_target"] + 1e-12
+        )
+        assert budget["nominal_overrun"] == pytest.approx(
+            max(0, budget["achieved"] - budget["nominal_target"])
+        )
         targets.append(budget["target"])
     assert targets == sorted(targets)
     for candidate in result.alternatives(50):
@@ -87,6 +93,27 @@ def test_node_ceiling_and_soft_representation_target_are_separate():
         == normal.metrics["representation_budget"]
     )
     assert unmet.svg == normal.svg
+
+
+def test_observed_floor_cannot_hide_the_slider_shortfall():
+    result = frontier()
+    selected = result.select(0)
+    budget = selected.metrics["representation_budget"]
+    assert not selected.metrics["budget_unmet"]  # No explicit node ceiling.
+    assert not budget["unmet"]  # Within the effective, clamped search target.
+    assert budget["nominal_unmet"]
+    assert budget["search_floor_clamped"]
+    assert budget["nominal_overrun"] > 0
+    assert not budget["floor_proven"]
+    alternatives = result.alternatives(0)
+    assert alternatives[0].metrics["representation_budget"] == budget
+    for alternative in alternatives:
+        report = alternative.metrics["representation_budget"]
+        assert report["nominal_unmet"]
+        assert report["search_floor_clamped"]
+    detailed = result.select(100).metrics["representation_budget"]
+    assert not detailed["nominal_unmet"]
+    assert not detailed["search_floor_clamped"]
 
 
 @pytest.mark.parametrize("complexity", [-1, 101])

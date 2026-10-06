@@ -49,6 +49,60 @@ The experimental row uses complexity 50, balanced quality and refinement disable
 
 Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
 
+### Reset after the baseline comparison
+
+The 19,528-node result is a structural regression against the 2,312-node legacy
+baseline, despite its approximately 29% lower human-reference error. Compare
+against legacy CEL and the human fixture, not only the previous dense prototype.
+Neither the slider nor a learned ranker is ready to present as a quality solution.
+
+A benchmark-only audit reconstructed the generator's evidence, graph, native
+policy and valid conservative baseline, then evaluated the human fixture and
+legacy output as diagnostics. The human fixture is rejected for crossings,
+translucent gaps/excess, a protected hole and a translucent component. Legacy
+CEL is rejected for translucent gaps/excess and component loss. These are
+admission conflicts with the requested abstraction, not proof that every
+rejected discrepancy is harmless. With the latest fixed detailed normalizer,
+the current objective would prefer the human fixture if it were admissible.
+Changing candidate ranking alone cannot resolve its hard rejection.
+
+The next work follows this order:
+
+1. **Audit admission against the intended abstraction.** Locate each rejected
+   crossing, hole, component and opacity residual on the source and diagnostic
+   drawings. Distinguish visible damage from fringe reconstruction, faint
+   isolated raster artifacts and deliberate redraw changes. Develop and test
+   evidence-based hard support for meaningful holes, ink and opacity marks;
+   keep uncertain reconstruction differences in the finite native visual score
+   where justified. Preserve explicit regression cases for genuine faint marks,
+   thin protrusions, holes and intentional opacity steps. Version any policy
+   change and validate on tuning fixtures before freezing it. Do not waive
+   failures or tune thresholds simply to admit this particular sword.
+2. **Propose structure before color/alpha partitions dictate geometry.** Build
+   competing silhouettes, continuous ink, compact closed contours and coherent
+   shade surfaces directly from boundary and ridge evidence. Let color regions
+   fit paint and support those choices. Palette fragmentation must not prevent
+   a closed contour or straight facet from reaching evaluation. Maintain whole
+   source ownership, or introduce explicit new atoms for a real split; a
+   majority assignment cannot claim complete ownership after splitting an atom.
+3. **Fit coverage, geometry and paint together.** Treat edge transparency as a
+   coverage interpretation separate from intrinsic material opacity. Prefer
+   bounded shared geometry over many nested traced alpha contours. The first
+   15-band envelope plus opaque interior tracing experiment produces 6,769
+   nodes and human MSE 645.40, and fails native checks; it is not an accepted
+   operator or a quality improvement. Test new interpretations on synthetic
+   antialiasing, genuine variable opacity and tuning artwork before integration.
+4. **Calibrate selection and expose complexity after compact faithful choices
+   exist.** Preserve the 800-node/140-contour/497.39 sword gate and feature
+   checks. Report nominal budget shortfalls separately from the observed,
+   unproven search floor. Then validate automatic fitting and slider behavior
+   on one common frontier. A small learned ranker remains conditional on useful
+   candidates and measurable held-out benefit.
+
+The audit and rejected envelope experiment are recorded in the progress
+document. They change implementation priority; no release gate is passed or
+relaxed by these findings.
+
 The bounded paired-ridge check now lets coarse line evidence compete with a
 surface interpretation when a sufficiently long chain lacks a dark ridge.
 Supported ridges remain barriers even when a weak adjacency route connects the
