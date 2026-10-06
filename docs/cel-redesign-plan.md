@@ -8,6 +8,25 @@ The recommended overhaul has three parts: CEL supplies ink and silhouette eviden
 
 The implementation status and measured experiments live in [CEL redesign progress](cel-redesign-progress.md). This plan defines the intended behavior and completion gates; experimental code is not evidence that those gates have passed.
 
+## Decisions and immediate priority
+
+The architecture decision is to combine CEL ink/silhouette evidence with color-region surface evidence in one owned graph. Choose surfaces, ink, shared boundaries and layers together, then automatically fit their geometry and paint. Keep the current editor representation and operation preview/apply contract.
+
+The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
+
+The latest committed native sword experiment (`8679895`, recorded in the progress document) shows why the next work must address structural compaction:
+
+| Drawing | Nodes | Contours | Error against the human render |
+| --- | ---: | ---: | ---: |
+| Completed human fixture | 523 | 93 | 0 |
+| Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
+| Experimental owned-family search, 60-second budget | 22,097 | 3,901 | 439.64 |
+| Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
+
+The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; two family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
+
+Complete bounded native evaluation, coherent surface models and ink replacement first. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. Uncommitted tile work is an implementation in progress and supplies no release evidence until checked independently.
+
 ## Evidence and success criteria
 
 The completed sword fixture merged on 6 October 2026 contains 80 paths, 93 contours, 523 nodes and six gradients. The current default CEL output contains 137 paths, 339 contours, 2,312 nodes and 24 gradients. Requesting 12 regions still produces 64 visible regions because protected shadows and features are exempt from the target. The default budget uses canvas area even though only about 10% of the sword reference is foreground.
@@ -164,6 +183,16 @@ Normalize cost by a reference-dependent structural estimate `C₀` computed once
 
 Use `B(c) = max(B_min, C₀ × 2^((c − 100)/50))` as the initial soft-budget schedule: one quarter, one half and one detailed-reference cost at complexity 0, 50 and 100 before the mandatory-feature floor. Estimate `B_min` from the simplest validated interpretation that preserves mandatory coverage and features. This is a search target to calibrate, not permission to remove features or a promised node count. Report the target and achieved cost. Frontier selection remains governed by the common objective; a positive `node_budget` adds its separately documented feasibility rule.
 
+| Complexity | Detail penalty relative to level 50 | Soft cost target before the feature floor |
+| --- | ---: | ---: |
+| 0 · Simple | 4× | 25% of `C₀` |
+| 25 | 2× | Approximately 35% of `C₀` |
+| 50 | 1× | 50% of `C₀` |
+| 75 | 0.5× | Approximately 71% of `C₀` |
+| 100 · Detailed | 0.25× | 100% of `C₀` |
+
+Use these targets to schedule useful proposals as well as report them. When a candidate is far above budget, prioritize coherent family and layer replacements by expected cost reduction subject to local visual risk. Reserve opportunities for ink, boundary and feature corrections even when their immediate cost savings are small. Once near budget, emphasize visual improvements within the retained tradeoff frontier. Bound all priorities and retain deterministic ties; the requested budget never relaxes a hard gate. A cheapest-so-far candidate is a conservative observed floor, not proof that a lower safe cost is impossible.
+
 Make the visual score's terms executable and separately inspectable:
 
 - Compare premultiplied colors and alpha at native scale and two coarser scales. Use a bounded robust color loss so isolated corruption cannot dominate the entire plan. Weight coarse surface evidence more where texture confidence is high, while retaining native ink and silhouette checks.
@@ -309,8 +338,9 @@ Continue from the experimental package in the following order. These changes com
 
 | Change | Main code boundary | Evidence required to retain it |
 | --- | --- | --- |
-| Complete the paired tuning runner and candidate logs | `scripts/cel_pairs.py`, a paired benchmark runner, `scripts/bench_data/planned_pairs.json` | Reproducible clean/degraded hashes, artwork-family split, native masks, baseline line/feature metrics and all evaluated candidate scores |
-| Correct fallback, opacity and coordinate handling | `cel_plan/evidence.py`, `export.py`, `pipeline.py` and the generate operation | Empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope apply/export/reload checks |
+| Freeze and expand paired tuning evidence | `scripts/cel_pairs.py`, `scripts/bench_cel_pairs.py`, `scripts/bench_data/planned_pairs.json` | The runner exists; expand artwork coverage, freeze baseline tolerances and record clean/degraded hashes, native masks, line/feature metrics and candidate scores |
+| Complete bounded native evaluation | `cel_plan/local.py`, `search.py`, `families.py`, `opacity.py` | Long edits, streamed paint samples, cumulative edits, gradients and opacity groups agree with full scoring; interruption discards partial work and preserves the checkpoint |
+| Compact the valid opacity-aware starting drawing | `cel_plan/evidence.py`, `export.py`, `pipeline.py` and the generate operation | Connected flat/gradient RGBA and core/layer competitors avoid byte-level partitions while preserving empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope round trips |
 | Extend individual exact acceptance to graph edits | `cel_plan/ownership.py`, `families.py`, `local.py`, `search.py`, `proposals.py`, `planning.py`, `frontier.py` | Owned family merges and paint/boundary/ink edits have a bounded working beam; add split, richer surface, ink replacement and order operators with native full-render agreement, independent rollback, bounded dependencies and stop within loops |
 | Complete the CPU refinement path | A focused `cel_plan/refine.py`, existing simplify/shared/paint helpers | Refinement on/off changes behavior; accepted edits improve or retain the common objective; primitive anchors, explicit width and best-checkpoint semantics survive |
 | Diagnose and improve facets, ink and compact outlines | `cel_plan/geometry.py`, `ink.py`, `strokes.py`, `layers.py` | Candidate-pool/oracle diagnosis, native feature crops, variable-width alternatives, supported joins and passing sword development gates |
@@ -320,7 +350,7 @@ Continue from the experimental package in the following order. These changes com
 | Run the ablations and decide whether ranking needs ML | Benchmark tools and optional versioned ranker | Matched runtime and evaluation counts, operator coverage separated from selection error, measured benefit meeting the learned-model gate |
 | Complete release evaluation | Held-out suite, review artifacts and default configuration | Fresh held-out results, independent blind review and all coverage/feature/editing gates before default migration |
 
-The paired tuning runner comes first because both local acceptance and automatic fitting need an independent quality check. CPU refinement can then proceed alongside structural work, but the sword milestone still depends on useful interpretations being proposed and selected. UI integration waits for real refinement and budget behavior rather than advertising schema-only controls. Learned ranking remains a conditional branch after deterministic ablations.
+The paired tuning runner is available for independent quality checks; expand and freeze its evidence while finishing bounded native evaluation. Structural compaction comes next because the current safe drawing is too dense. CPU refinement can proceed once it has compact eligible shapes, but the sword milestone still depends on useful interpretations being proposed and selected. UI integration waits for real refinement and budget behavior. Learned ranking remains a conditional branch after deterministic ablations.
 
 ### Structural compaction work packages
 
@@ -370,6 +400,30 @@ ink, feature and coverage checks. Passing only the error ceiling with a dense
 trace does not complete structural compaction or establish slider usefulness.
 
 For routine development, run the focused evidence/policy/frontier/operator tests and operation apply/stop/reload checks. Use `scripts/bench_cel_planned.py` for the native sword comparison and save its SVGs, feature crops and source/mask hashes. Its current `--check` covers the numerical sword targets only; extend it with the documented local-feature, hole and coverage gates before treating that exit status as full acceptance. Run full-corpus and hardware-sensitive benchmarks separately, with the same completed proposal effort or a clearly stated matched deadline.
+
+### Experiments that determine the next change
+
+Run each experiment on synthetic cases and tuning artwork before using the sword as a development check. Change one mechanism at a time and retain identical scoring supports, settings and source hashes. Save every exact candidate needed for the comparison, with explicit omission status when diagnostic storage is exhausted.
+
+| Question | Controlled comparison | Decision |
+| --- | --- | --- |
+| Can compact RGBA surfaces replace alpha/color fragments? | Current subdivisions versus connected flat RGBA, linear RGBA and core-with-overlays proposals | Retain models that reduce actual cost under the native objective and preserve holes, fringes and thin marks; fix missing models before changing weights |
+| Does ink replacement improve both structure and continuity? | Existing fragments versus a supported stroke and variable-width filled mark, each with restored underlay | Require fragment removal, supported complete gaps/junctions and valid compositing; additive strokes alone do not establish compaction |
+| Can fitting recover straight facets and compact outlines? | Unrestricted contour versus anchored straight/cubic and ellipse-like alternatives | Require corner/junction preservation and local boundary/ink evidence; retain the unrestricted interpretation when the prior is unsupported |
+| Is automatic optimization useful after planning? | The same retained candidate with refinement off and on | Compare geometry, paint and width stages separately; retained checkpoints must satisfy the common objective, and record time or interruption without assuming an improvement |
+| Is the score selecting the wrong drawing? | Production selection versus the clean-target oracle from the same hard-valid pool at the same cost ceiling | Calibrate selection only when a materially better alternative exists; otherwise extend proposal coverage |
+| Is search missing useful candidates within the deadline? | Fixed proposal order/evaluation count versus bounded deadline runs, with operator and parent coverage logs | Improve scheduling when useful proposals are available only late; a different completed prefix cannot prove a scoring gain |
+| Is a small learned ranker justified? | Deterministic ranking, linear ranking and compact MLP ranking at equal time and exact-evaluation caps | Proceed only after all core operators are represented and the held-out benefit meets the quality or 20% runtime gate |
+
+For each retained change, record the hypothesis, actual representation savings, score deltas, local feature results, hard rejections, runtime and memory. A negative result closes the tested hypothesis only; it does not authorize weakening coverage checks. The current evidence favors improving proposal coverage and compact opacity handling before ML.
+
+### Completion record and rollout
+
+Maintain one checklist row for each of the eight deliveries, linked to its implementation changes, reproducible evidence and unresolved failures. Mark a delivery complete only when its stated condition is met. A PR adding an operator can finish a work package while the containing delivery remains open.
+
+The first externally usable milestone is an experimental `cel-planned` method with working complexity/quality controls, automatic refinement, valid preview/stop/apply/reload behavior and truthful diagnostics. It can remain experimental while broader evaluation continues. Default migration requires the combined sword gates, frozen broader feature/coverage/line gates, runtime and editing checks, fresh held-out evaluation and independent blind review. Reviewer availability and licensed human redraws are external requirements; record them as pending until evidence exists.
+
+Initial scope is cel art and illustrations using ordinary editable SVG paths and supported gradients. Keep photo-specific abstraction, general semantic recognition, unrestricted layer ordering and generative coordinate prediction as later research. They do not need to be solved to complete this release. Preserve the explicit legacy method and make UI-default rollback a configuration change with no project-format migration.
 
 ## Main risks and responses
 
