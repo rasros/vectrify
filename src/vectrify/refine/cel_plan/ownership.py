@@ -18,9 +18,16 @@ from vectrify.refine.cel_plan.model import Evidence, Graph, StageInterruptedErro
 
 @dataclass(frozen=True)
 class Surface:
+    """Primary members and optional hidden overlap with other owned regions.
+
+    Covered membership records secondary paint support, not a containment proof.
+    Only actual geometry can establish an opacity core's complete coverage.
+    """
+
     id: str
     members: tuple[int, ...]
     role: str = "surface"
+    covered: tuple[int, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -48,10 +55,20 @@ class Partition:
                 raise ValueError("Surface needs sorted unique source regions")
             if min(surface.members) < 0:
                 raise ValueError("Source region identities must be nonnegative")
+            if (
+                surface.covered != tuple(sorted(set(surface.covered)))
+                or any(i < 0 for i in surface.covered)
+                or set(surface.covered).intersection(surface.members)
+                or (surface.role == "underlay" and surface.covered)
+            ):
+                raise ValueError("Hidden coverage needs distinct sorted source regions")
             if surface.role != "underlay":
                 members.extend(surface.members)
         if len(members) != len(set(members)):
             raise ValueError("A source region has multiple primary surface owners")
+        known = set(members)
+        if any(set(s.covered) - known for s in self.surfaces):
+            raise ValueError("Hidden coverage must reference owned source regions")
 
     @property
     def owners(self) -> dict[int, str]:
@@ -93,6 +110,10 @@ class Partition:
             raise ValueError(
                 "A structural edit must retain all source-region ownership"
             )
+        if {i for s in selected for i in s.covered} != {
+            i for s in surfaces for i in s.covered
+        }:
+            raise ValueError("A structural edit must retain hidden source coverage")
         return Partition(
             tuple(s for s in self.surfaces if s.id not in removed) + surfaces
         )
@@ -102,7 +123,12 @@ class Partition:
             "version": 1,
             "complete": True,
             "surfaces": [
-                {"id": s.id, "members": list(s.members), "role": s.role}
+                {
+                    "id": s.id,
+                    "members": list(s.members),
+                    "role": s.role,
+                    **({"covered": list(s.covered)} if s.covered else {}),
+                }
                 for s in self.surfaces
             ],
         }
@@ -113,7 +139,9 @@ class Partition:
             return None
         return cls(
             tuple(
-                Surface(s["id"], tuple(s["members"]), s["role"])
+                Surface(
+                    s["id"], tuple(s["members"]), s["role"], tuple(s.get("covered", ()))
+                )
                 for s in metadata["surfaces"]
             )
         )

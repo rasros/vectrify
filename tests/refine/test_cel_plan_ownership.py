@@ -86,6 +86,24 @@ def test_successive_merges_and_split_keep_members_and_sibling_ownership():
     assert Partition.from_metadata(second.metadata()) == second
     with pytest.raises(ValueError, match="retain all"):
         first.replace(("p1",), (Surface("p1", (1,)),))
+
+
+def test_hidden_neighbor_coverage_is_secondary_and_survives_atomic_replacement():
+    partition = Partition(
+        (Surface("base", (1,), covered=(2, 3)), Surface("mark", (2, 3), "overlay"))
+    )
+    assert partition.owners == {1: "base", 2: "mark", 3: "mark"}
+    assert Partition.from_metadata(partition.metadata()) == partition
+    with pytest.raises(ValueError, match="hidden source coverage"):
+        partition.replace(("base",), (Surface("new-base", (1,)),))
+    retained = partition.replace(
+        ("base",), (Surface("new-base", (1,), covered=(2, 3)),)
+    )
+    assert retained.surfaces[-1].covered == (2, 3)
+    with pytest.raises(ValueError, match="owned source regions"):
+        Partition((Surface("base", (1,), covered=(7,)),))
+    with pytest.raises(ValueError, match="distinct sorted"):
+        Partition((Surface("base", (1,), covered=(1,)),))
     with pytest.raises(ValueError, match="multiple primary"):
         Partition((Surface("a", (1,)), Surface("b", (1,))))
 

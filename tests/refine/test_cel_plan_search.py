@@ -159,7 +159,7 @@ def test_compaction_burst_keeps_each_reserved_operator_opportunity(
         {"search_budget": {"representation_target": entry.evaluation.cost / pressure}},
     )
     operators = Operators(evidence, build(evidence), options)
-    names = ("families", "paint", "geometry", "ink", "replacements")
+    names = ("families", "overlays", "paint", "geometry", "ink", "replacements")
     for name in names:
 
         def edits(state, _work, name=name):
@@ -168,11 +168,11 @@ def test_compaction_burst_keeps_each_reserved_operator_opportunity(
 
         monkeypatch.setattr(operators, name, edits)
     iterator = operators(state, Work.start(10))
-    first = list(islice(iterator, burst + 4))
+    first = list(islice(iterator, burst + 5))
     iterator.close()
     assert [p.operator for p in first] == ["families"] * burst + list(names[1:])
     assert operators.schedule_diagnostics["family_proposals"] == burst
-    assert operators.schedule_diagnostics["reserved_proposals"] == 4
+    assert operators.schedule_diagnostics["reserved_proposals"] == 5
     assert operators.schedule_diagnostics["compaction_parents"] == (pressure > 1.25)
 
 

@@ -46,6 +46,7 @@ MAX_GROUPS = 16
 MAX_PATHS = 128
 MAX_NODES = 6_000
 MAX_NEIGHBORS = 4
+MAX_CONTINUATION_NEIGHBORS = 64
 MAX_RUNS = 16
 
 
@@ -78,6 +79,7 @@ class InkReplacement:
             minlength=len(graph.regions),
         )
         self.light: np.ndarray | None = None
+        self.restoration_rejections: dict[str, int] = {}
         self.diagnostics = {
             "eligible_paths_peak": 0,
             "groups": 0,
@@ -88,6 +90,7 @@ class InkReplacement:
             "stroke_proposals": 0,
             "filled_proposals": 0,
             "time_bounded": 0,
+            "restoration_neighbors_peak": 0,
         }
 
     def groups(self, state: State, work: Work):
@@ -98,7 +101,7 @@ class InkReplacement:
         for surface in partition.surfaces:
             if work.interrupted:
                 return
-            if surface.role != "surface":
+            if surface.role != "surface" or surface.covered:
                 continue
             regions = [self.graph.regions[i] for i in surface.members]
             size = sum(r.area for r in regions)
@@ -220,7 +223,25 @@ class InkReplacement:
             proofs.append(ink)
         return proofs, ratio
 
-    def restorations(self, state, members, geometry, box, own, survivor, work):
+    def restorations(
+        self,
+        state,
+        members,
+        geometry,
+        box,
+        own,
+        survivor,
+        work,
+        *,
+        coverage=None,
+        require_core=False,
+        continue_neighbors=False,
+    ):
+        def reject(reason):
+            self.restoration_rejections[reason] = (
+                self.restoration_rejections.get(reason, 0) + 1
+            )
+
         partition = state.partition
         assert partition is not None
         document = state.document
@@ -235,14 +256,35 @@ class InkReplacement:
             if edge.right in selected and edge.left not in selected:
                 surrounding.add(edge.left)
         if -1 in surrounding or surrounding.intersection(self.graph.hidden):
-            return None
+            return reject("silhouette-or-hole-contact")
+        if surrounding - partition.owners.keys():
+            return reject("missing-neighbor-ownership")
         neighbors = sorted(
             {partition.owners[i] for i in surrounding if i in partition.owners}
         )
-        if not 1 <= len(neighbors) <= MAX_NEIGHBORS:
-            return None
+        self.diagnostics["restoration_neighbors_peak"] = max(
+            self.diagnostics["restoration_neighbors_peak"], len(neighbors)
+        )
+        limit = MAX_CONTINUATION_NEIGHBORS if continue_neighbors else MAX_NEIGHBORS
+        if not 1 <= len(neighbors) <= limit:
+            return reject("neighbor-count")
+        if (
+            continue_neighbors
+            and sum(
+                len(sub.nodes)
+                for oid in neighbors
+                for sub in document.geometry_for(oid).subpaths
+            )
+            > MAX_NODES
+        ):
+            return reject("neighbor-node-limit")
         primary = {s.id: s for s in partition.surfaces if s.role != "underlay"}
         original = curve_path(geometry, "nonzero")
+        required = original
+        if coverage is not None:
+            required = pathops.op(
+                original, curve_path(coverage, "nonzero"), pathops.PathOp.UNION
+            )
         inverse = inverse_matrix(root_matrix(document, survivor))
         covered = False
         for surface in partition.surfaces:
@@ -271,13 +313,15 @@ class InkReplacement:
                 multiply(inverse, root_matrix(document, surface.id)),
             )
             outside = pathops.op(
-                original,
+                required,
                 curve_path(shape, style["fill-rule"]),
                 pathops.PathOp.DIFFERENCE,
             )
             if not list(outside):
                 covered = True
                 break
+        if require_core and not covered:
+            return reject("unproved-core-coverage")
         for oid in neighbors:
             element = document.element(oid)
             style = path_style(document, element)
@@ -291,7 +335,7 @@ class InkReplacement:
                 or element.get("clip-path", "none") != "none"
                 or (not covered and float(style["fill-opacity"]) != 1)
             ):
-                return None
+                return reject("neighbor-style-or-frame")
         # Overlap is also safe inside an isolated uniform material whose
         # children are opaque. Otherwise adjacent translucency would double.
         material_opacity = _opacity(document, survivor)
@@ -303,7 +347,7 @@ class InkReplacement:
                 for i in (*members, *surrounding)
             )
         ):
-            return None
+            return reject("uncovered-variable-alpha")
         labels = self.graph.labels[box.slices]
         assignment = np.zeros(labels.shape, dtype=np.int32)
         for i, oid in enumerate(neighbors, 1):
@@ -314,7 +358,7 @@ class InkReplacement:
             & ~self.evidence.empty[box.slices]
         )
         if not valid.any():
-            return None
+            return reject("no-neighbor-paint-samples")
         nearest = cast(
             np.ndarray,
             distance_transform_edt(~valid, return_distances=False, return_indices=True),
@@ -323,7 +367,7 @@ class InkReplacement:
         counts = np.bincount(extended[own], minlength=len(neighbors) + 1)
         dominant = int(counts.argmax())
         if not dominant:
-            return None
+            return reject("no-neighbor-assignment")
         sx, sy = self.evidence.scale
         ox, oy = self.evidence.offset
         a, b, c, d, e, f = inverse
@@ -345,11 +389,12 @@ class InkReplacement:
             if work.interrupted:
                 return None
             oid = f"{survivor}-under-{index}"
-            if index == dominant:
+            if index == dominant and not continue_neighbors:
                 shape = geometry
             else:
                 contours = []
-                for i, loop in enumerate(_loops(own & (extended == index))):
+                support = (extended == index) & (True if continue_neighbors else own)
+                for i, loop in enumerate(_loops(support)):
                     points = cel.simplify(np.array([*loop, loop[0]]), 0)[:-1]
                     contours.append(
                         Subpath(
@@ -377,10 +422,19 @@ class InkReplacement:
                         pathops.PathOp.INTERSECTION,
                     )
                 )
+            if continue_neighbors:
+                oid = neighbors[index - 1]
+                shape = union_geometry(
+                    [document.geometry_for(oid), shape],
+                    [
+                        path_style(document, document.element(oid)),
+                        {"fill-rule": "nonzero"},
+                    ],
+                )
             shape = identified(shape, oid)
             node_count += sum(len(s.nodes) for s in shape.subpaths)
             if node_count > MAX_NODES:
-                return None
+                return reject("continuation-node-limit")
             attrs = path_style(document, document.element(neighbors[index - 1]))
             attrs.update({"stroke": "none", "fill-rule": "nonzero"})
             transform = document.element(survivor).get("transform")

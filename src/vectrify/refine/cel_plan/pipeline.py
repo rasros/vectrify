@@ -251,6 +251,10 @@ def vectorize(
                     "scheduling": dict(operators.schedule_diagnostics),
                     "surface_families": dict(operators.families.diagnostics),
                     "ink_replacement": dict(operators.replacements.diagnostics),
+                    "closed_overlays": dict(operators.overlays.diagnostics),
+                    "paint_restoration_rejections": dict(
+                        operators.replacements.restoration_rejections
+                    ),
                 }
             search_ran = True
             validation_seconds += structural_search.get("validation_seconds", 0)

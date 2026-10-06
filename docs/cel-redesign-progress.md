@@ -89,6 +89,13 @@ method remains experimental and the existing CEL default is unchanged.
   compact overlay. Small same-hue shade families can compete as one surface
   only with outline evidence. Shapes with holes or silhouette contacts remain
   unrestricted. This is an initial layer operator, not general layer inference.
+- Owned closed overlays now also compete in structural search, including RGBA
+  material inside a geometrically verified opacity core. Neighboring fills
+  continue beneath the replacement; primary region ownership and hidden paint
+  coverage are recorded separately. Bounded geometry proofs permit crossing a
+  disjoint sibling whose bounding box overlaps, while actual overlaps remain
+  barriers. Richer local order inference and nested surface interpretations are
+  still unfinished.
 - Automatic refinement now has a bounded CPU foundation: simplify, fit flat or
   gradient paint, propose edge positions and measured widths, then refit paint.
   Fixed complexity anchors feed the common frontier independently of the
@@ -1283,6 +1290,140 @@ Offer compact shape families with restored surrounding paint and retained
 primitive constraints under the same native policy. Source-fragment ambiguity,
 richer RGBA surfaces and the measured tuning selection conflict remain open;
 this scheduling change does not complete any of the eight deliveries.
+
+## Owned RGBA closed overlays and neighboring paint continuation
+
+`cel_plan/overlays.py` adds ellipse and anchored closed-contour competitors for
+small connected owned families and individual surfaces. Native boundary and
+paint samples supply the geometry and flat/linear RGBA models. Replacing the
+fragments retains their original source members on one overlay. It does not
+receive human geometry, evaluation rectangles or artwork-specific labels.
+
+The first implementation added separate underpaint paths. Synthetic tests
+showed that this duplicated the old outline and raised representation cost.
+The retained implementation instead partitions the old footprint by supported
+neighbor paint, clips continuation against the current exact footprint, and
+unions it into those neighboring fills. Extending assignment cells beyond the
+source mask before clipping avoids tiny gaps between a fitted contour and the
+pixel-grid mask. Existing gradient frames stay unchanged.
+
+Primary `Surface.members` remain a partition. Optional `covered` members record
+hidden overlap beneath other owned regions, without claiming complete geometric
+containment. Metadata round trips retain that distinction, and ordinary primary
+replacement cannot silently discard it. Family/ink regrouping currently skips
+surfaces with hidden coverage until those operators support layered replacement.
+The continued neighbors and accepted compact shape keep conservative geometry
+holds; replaced export-chain permissions are discarded.
+
+For translucent evidence, an existing opaque core inside the same isolated
+material group must geometrically contain both the old footprint and the fitted
+shape. Group-relative fill/gradient opacity applies translucency once. Holes,
+silhouette contacts and unproved cores retain their existing interpretation.
+Draw order places the overlay above its continued bases only across those bases
+or provably disjoint siblings. Overlapping bounds trigger a bounded exact fill
+intersection test; an actual overlap, unsupported stroke/clip, or exhausted
+proof limit excludes that order change.
+
+Discovery alternates family and individual-shape opportunities; it no longer
+spends all slots on hole-bearing families before reaching individual shapes.
+Limits are 32 eligible groups, 4,096 perimeter samples, a 262,144-pixel source
+crop, up to 64 raw neighboring paths and 6,000 total neighbor/continuation nodes.
+The pre-union neighbor count is checked as well as the resulting geometry.
+Order changes allow at most 16 intersection proofs per candidate, each bounded
+to 6,000 nodes. Discovery has its own quarter of remaining wall time. Existing
+dependency, raster, scan, evaluation and independent checkpoint limits still
+apply. The shared operator schedule now reserves closed overlays alongside
+paint, geometry, additive ink and owned ink replacement (schedule version 2).
+
+The final relevant suite passed **351 tests**. New cases cover alpha 253/128/64,
+flat/gradient continuation, actual versus merely bounding-box overlap, source
+label order, faint intentional marks, holes and irregular outlines, partial
+core exclusion, a missing core, bounded discovery, fragmented neighboring paint,
+source ownership and offset/scaled scope save/reload. A four-fragment translucent
+fixture goes from 61 nodes/cost 103 to 34 nodes/cost 58 for the ellipse, or 32
+nodes/cost 56 for the contour. Local/full score terms and native pixels agree.
+Ruff passed with 28 formatted files; Pyrefly reported zero source errors and
+61 existing warnings.
+
+The final tuning command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-overlay-order-pairs
+```
+
+Source SHA-256 was
+`cdbebfaea222a79f6a0f90b1574e5965775eecec327409fb6d42bb76182658b6`.
+
+| Tuning case | Nodes | Cost | Clean MSE | MSE change from budget-resume run | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,901 | 3,867 | 889.48 | -2.36 | 0.678 | 6.61 |
+| Anime face | 5,394 | 7,032 | 703.29 | 0 | 0.664 | 9.33 |
+| Western park | 4,295 | 5,661 | 1,304.12 | 0 | 0.670 | 8.15 |
+| Rubberhose band | 907 | 1,583 | 963.78 | -18.31 | 0.651 | 8.48 |
+
+All four returned ready with complete diagnostic storage and zero checkpoint
+disagreements. Closed-contour proposals now reach exact evaluation in three
+cases. Western park accepts working contour replacements of -54/-71 cost
+units; Rubberhose accepts a higher-cost visual alternative. None is in the
+final selected drawing, and no ellipse was offered on this subset. The final
+changes are selected family proposals from different completed pools. These
+results do not establish a general improvement, matched-effort speedup, or
+quality benefit attributable to the closed-overlay operator.
+
+The Western park same-cost oracle gap remains 16.88 raw MSE. Selection
+calibration, broader compact-family coverage, nested opaque-color holes versus
+intentional alpha holes, and richer supported local order remain open. No
+held-out or degradation evaluation was used for this iteration.
+
+The final native command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-overlay-order
+```
+
+It used the same final source hash and frozen mask
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The selected sword has 22,646 nodes, 4,026 contours, 3,991 paths, 544 gradients,
+cost 53,260 and human MSE 439.75132. It retains one family replacement, the
+same drawing as the earlier chain-permission prefix. This is denser than the
+budget-resume prefix and does not improve the sword or pass its structural
+targets. Guard/jewel error remains 1,015.14/1,233.07; blade-facet error is 230.02.
+
+Search evaluates seven proposals, accepts six working alternatives and
+publishes one independent checkpoint with zero disagreements. It visits nine
+family and sixteen single-shape overlay groups. Nine fail topology, one exceeds
+the perimeter bound and fourteen lack restoration; discovery then reaches its
+time slice. Restoration records four neighbor-count exclusions, nine
+silhouette/hole contacts and one unproved core. The shared restoration helper's
+peak neighbor count is 244. No closed overlay reaches native exact evaluation,
+so neither learned selection nor different score weights can select one from
+this prefix.
+
+Pipeline time is 51.21 seconds, operation/apply time 56.95 seconds, with zero
+pipeline overshoot. Structural search takes 11.46 seconds including 2.08 seconds
+of full validation. Accounted retained SVG/raster peak remains 12,607,690 bytes,
+excluding some metadata and process RSS. Nominal target is 27,282, reported
+target includes the unproven observed floor 46,365, and achieved cost remains
+above both. These are completed-prefix measurements, not a matched-effort
+speedup or a memory-limit pass.
+
+Next, provide coherent neighboring material and nested coverage competitors
+before widening raw path limits further. Diagnose whether hole-bearing families
+contain protected alpha holes or separately owned opaque marks that could stay
+above a continuing base. Keep genuine holes and source marks intact and prove
+the local order and complete footprint under native scoring. The initial closed
+operator does not complete richer layer inference, constrained primitive fitting,
+the sword gates or any of the eight deliveries.
 
 ## Remaining requirements
 

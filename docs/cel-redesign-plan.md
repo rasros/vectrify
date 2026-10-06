@@ -14,13 +14,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the budget-scheduling comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the owned-overlay comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental owned-family search, 60-second budget | 22,122 | 3,901 | 439.56 |
+| Experimental owned-family/overlay search, 60-second budget | 22,646 | 4,026 | 439.75 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -209,8 +209,9 @@ Using that observed floor to stop compaction would prevent exploring cheaper
 interpretations. A positive node ceiling supplies a separate scheduling signal.
 The selected slider value does not change this shared-pool scheduling context.
 Far above target, balanced/high quality offers two/three family opportunities
-before a reserved round; fast uses one. Paint, boundary, additive ink and owned
-ink interpretation keep rotating opportunities. Per-parent evaluation slices
+before a reserved round; fast uses one. Closed overlays, paint, boundary,
+additive ink and owned ink interpretation keep rotating opportunities.
+Per-parent evaluation slices
 now resume from bounded cursors rather than silently discarding the remaining
 proposals after a rejected prefix. This is initial budget-directed ordering,
 not complete visual-risk, spatial or learned ranking.
@@ -485,16 +486,18 @@ thin. Of those components, 110 contain fewer than four pixels, together only
 166 pixels, with peak alpha at most 7/255. These are source measurements, not
 permission to discard them; intentional faint marks still need independent
 tests and exact validation. Canonical-chain reason counts above must not be
-misread as component counts. Also, the initial compact closed-overlay helper
-runs in the opaque export branch; the RGBA branch currently offers opacity
-cores and per-chain models but no corresponding owned compact overlay family.
-Complete that RGBA competitor with restored surrounding paint and primitive
-constraints before concluding that primitive models or learned ranking cannot
-help the jewel/guard interpretations.
+misread as component counts. The initial compact closed-overlay export helper
+runs in the opaque branch. Structural search now also offers owned closed RGBA
+families, with continued neighboring paint, geometric core proofs and primitive
+holds. This closes an operator-availability gap but does not solve the sword:
+its measured prefix excludes every closed candidate before native scoring,
+through topology, restoration bounds or unproved coverage. Complete coherent
+neighboring material and supported nested coverage before concluding that
+primitive models or learned ranking cannot help the jewel/guard interpretations.
 
-### Next RGBA overlay change
+### Complete RGBA overlay interpretations
 
-Add a compact closed-overlay operator to the RGBA planning path. Its input is
+Extend the initial compact closed-overlay operator in the RGBA planning path. Its input is
 the current owned region family and native evidence, not a human outline or an
 artwork label. Start with connected families inside a geometrically verified
 opacity core, where neighboring material provides a supported underpaint model.
@@ -509,6 +512,17 @@ the former footprint. Reuse the ink-replacement restoration checks for paint
 frames, core coverage and isolated-group opacity. Preserve the overlay's draw
 order and primitive constraints. An additive outline that leaves all fragments
 in place does not complete this operator.
+
+The initial implementation continues neighboring fills rather than adding
+duplicate underpaint outlines. It records hidden source coverage separately
+from primary ownership and uses bounded geometric intersection proofs for
+local order changes. Its synthetic native-alpha cases compact correctly, and
+some tuning contours reach exact acceptance, but the native sword prefix
+offers no closed candidate. Next replace fragmented neighboring material with
+coherent paint models, and distinguish genuine alpha holes from interior opaque
+marks that may remain above a continuing base. Prove that interpretation's
+ownership, complete coverage and draw order; do not discard the interior marks
+or merely increase raw neighbor limits to force availability.
 
 Keep discovery, fitting, dependencies and raster evaluation within the existing
 bounded operator contracts. Record exclusion reasons and actual removed nodes,

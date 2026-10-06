@@ -27,6 +27,7 @@ from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.ink_replace import InkReplacement
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
+from vectrify.refine.cel_plan.overlays import ClosedOverlays
 from vectrify.refine.cel_plan.refine import (
     MAX_PATH_NODES,
     _bounds,
@@ -65,8 +66,15 @@ class Operators:
         self._ink_checked = set()
         self.families = Families(evidence, graph, options)
         self.replacements = InkReplacement(evidence, graph, options)
+        self.overlays = ClosedOverlays(
+            evidence,
+            graph,
+            options,
+            families=self.families,
+            restoration=self.replacements,
+        )
         self.schedule_diagnostics = {
-            "version": 1,
+            "version": 2,
             "compaction_parents": 0,
             "visual_parents": 0,
             "family_proposals": 0,
@@ -303,6 +311,7 @@ class Operators:
         ] += 1
         iterators = [
             iter(self.families(state, work)),
+            iter(self.overlays(state, work)),
             iter(self.paint(state, work)),
             iter(self.geometry(state, work)),
             iter(self.ink(state, work)),
@@ -313,8 +322,11 @@ class Operators:
             for cycle in range(MAX_OPERATOR_ITEMS):
                 # Fixed shared-frontier anchor; requested complexity never
                 # changes which pool these operators try to construct.
-                rotation = (len(state.edits) + cycle) % 4
-                reserved = [1 + (i + rotation) % 4 for i in range(4)]
+                reserved_count = len(iterators) - 1
+                rotation = (len(state.edits) + cycle) % reserved_count
+                reserved = [
+                    1 + (i + rotation) % reserved_count for i in range(reserved_count)
+                ]
                 for slot in [0] * burst + reserved:
                     if work.interrupted or not alive:
                         return

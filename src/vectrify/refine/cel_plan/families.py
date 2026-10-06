@@ -118,7 +118,7 @@ class Families:
         self.diagnostics["supported_ridges" if protected else "shade_boundaries"] += 1
         return protected
 
-    def _groups(self, state: State, work: Work):
+    def _groups(self, state: State, work: Work, *, thresholds=THRESHOLDS):
         partition = state.partition
         if partition is None:
             return
@@ -133,7 +133,11 @@ class Families:
         for surface in partition.surfaces:
             if work.interrupted:
                 return
-            if surface.role != "surface" or surface.id in constrained:
+            if (
+                surface.role != "surface"
+                or surface.covered
+                or surface.id in constrained
+            ):
                 continue
             regions = [self.graph.regions[index] for index in surface.members]
             if (
@@ -186,7 +190,7 @@ class Families:
             # No threshold can place colors farther than this in one family.
             # Avoid spending ridge work on pairs that cannot co-occur anyway.
             if float(np.linalg.norm(colors[left] - colors[right])) > 2 * max(
-                THRESHOLDS
+                thresholds
             ):
                 continue
             if self._protected(edge, work):
@@ -199,7 +203,7 @@ class Families:
         seen = set()
         emitted = 0
         for seed in seeds:
-            for threshold in THRESHOLDS:
+            for threshold in thresholds:
                 if work.interrupted or emitted >= MAX_GROUPS:
                     return
                 family = [seed]
