@@ -13,9 +13,9 @@ DETAILED = (
 )
 
 
-def frontier():
+def frontier(observe=None):
     policy = Policy(render(DETAILED, (40, 40)), weights=Weights(edges=0))
-    result = Frontier(policy)
+    result = Frontier(policy, observe)
     assert result.add(DETAILED, "Detailed")
     assert result.add(SIMPLE, "Simple")
     return result
@@ -81,4 +81,49 @@ def test_invalid_document_proposal_keeps_the_existing_checkpoint():
         "Nonfinite proposal",
     )
     assert result.decisions[-1]["rejections"] == ["invalid-candidate"]
+    assert result.select(50).svg == before.svg
+
+
+def test_observer_sees_valid_dominated_and_hard_rejected_proposals():
+    observed = []
+    result = frontier(observed.append)
+    redundant = DETAILED.replace("M4 4H20", "M4 4L12 4H20")
+    assert not result.add(redundant, "Redundant")
+    assert not result.add('<svg width="40" height="40"/>', "Missing")
+    assert [item.label for item in observed] == [
+        "Detailed",
+        "Simple",
+        "Redundant",
+        "Missing",
+    ]
+    assert observed[-2].evaluation.valid
+    assert observed[-2].decision["rejections"] == ["dominated"]
+    assert not observed[-1].evaluation.valid
+    assert observed[-1].svg not in {item.svg for item in result.alternatives(50)}
+
+
+def test_observer_mutations_cannot_change_production_scores_or_decisions():
+    def mutate(observation):
+        if observation.evaluation:
+            observation.evaluation.terms["visual"] = 1e6
+            observation.evaluation.structure["nodes"] = 0
+        observation.decision["accepted"] = False
+        observation.details["changed"] = True
+
+    result = frontier(mutate)
+    ordinary = frontier()
+    assert result.select(50).svg == ordinary.select(50).svg
+    assert result.select(50).metrics == ordinary.select(50).metrics
+    assert result.decisions == ordinary.decisions
+    assert result.baseline is not None
+    assert "changed" not in result.baseline.details
+
+
+def test_observer_reports_invalid_svg_without_a_fabricated_evaluation():
+    observed = []
+    result = frontier(observed.append)
+    before = result.select(50)
+    assert not result.add('<svg><path d="M0 0L1e999 3Z"/></svg>', "Invalid")
+    assert observed[-1].evaluation is None
+    assert observed[-1].decision["rejections"] == ["invalid-candidate"]
     assert result.select(50).svg == before.svg

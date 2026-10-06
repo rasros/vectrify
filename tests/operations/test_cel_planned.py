@@ -1,5 +1,6 @@
 """The planned generator uses normal operation transactions and typed settings."""
 
+import time
 from dataclasses import replace
 
 import numpy as np
@@ -145,3 +146,85 @@ def test_empty_transparent_reference_produces_no_edit():
     assert not state["result"]["changed"]
     assert state["result"]["metrics"]["nodes"] == 0
     assert not editor.undo_labels
+
+
+def test_valid_fallback_survives_rejected_fitted_candidates(monkeypatch):
+    from vectrify.refine.cel_plan import pipeline
+
+    original = pipeline.export
+
+    def reject_fitted(evidence, labels, options, work, **kwargs):
+        if kwargs.get("conservative"):
+            return original(evidence, labels, options, work, **kwargs)
+        return '<svg><path d="M0 0L1e999 4Z"/></svg>', {}
+
+    monkeypatch.setattr(pipeline, "export", reject_fitted)
+    editor = Editor(
+        import_svg('<svg width="80" height="80"/>'),
+        selection=Selection(whole_document=True),
+    )
+    job = Job(method("generate", "cel-planned"), request(editor))
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    metrics = state["result"]["metrics"]
+    assert metrics["conservative_geometry"]
+    assert metrics["validation_rejections"] == []
+    assert any(
+        "invalid-candidate" in item.get("rejections", [])
+        for item in metrics["candidate_decisions"]
+    )
+    job.apply()
+    assert editor.undo_labels == ("Generate planned cel drawing",)
+
+
+def test_expired_deadline_does_not_retry_without_a_valid_fallback(monkeypatch):
+    from vectrify.refine.cel_plan import pipeline
+
+    attempts = []
+
+    def failed_fallback(_evidence, _labels, _options, work, **kwargs):
+        attempts.append(kwargs)
+        work.deadline = time.monotonic() - 1
+        return '<svg><path d="M0 0L1e999 4Z"/></svg>', {}
+
+    monkeypatch.setattr(pipeline, "export", failed_fallback)
+    editor = Editor(
+        import_svg('<svg width="80" height="80"/>'),
+        selection=Selection(whole_document=True),
+    )
+    job = Job(method("generate", "cel-planned"), request(editor))
+    job.run()
+    assert job.state()["status"] == "failed"
+    assert len(attempts) == 1
+    assert attempts[0]["conservative"]
+    assert job.result is None
+    assert not editor.undo_labels
+
+
+def test_interrupted_fit_discards_partial_work_and_returns_the_checkpoint(monkeypatch):
+    from vectrify.refine.cel_plan import pipeline
+    from vectrify.refine.cel_plan.model import StageInterruptedError
+
+    original = pipeline.export
+
+    def interrupted_fit(evidence, labels, options, work, **kwargs):
+        if kwargs.get("conservative"):
+            return original(evidence, labels, options, work, **kwargs)
+        work.deadline = time.monotonic() - 1
+        raise StageInterruptedError("Unfinished shape")
+
+    monkeypatch.setattr(pipeline, "export", interrupted_fit)
+    editor = Editor(
+        import_svg('<svg width="80" height="80"/>'),
+        selection=Selection(whole_document=True),
+    )
+    job = Job(method("generate", "cel-planned"), request(editor))
+    job.run()
+    state = job.state()
+    assert state["status"] == "ready", state
+    assert state["result"]["metrics"]["conservative_geometry"]
+    assert state["result"]["metrics"]["out_of_time"]
+    assert state["result"]["metrics"]["validation_rejections"] == []
+    job.apply()
+    assert editor.undo_labels == ("Generate planned cel drawing",)

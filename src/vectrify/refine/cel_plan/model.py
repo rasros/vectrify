@@ -119,3 +119,7 @@ class Candidate:
 
 class PlanningStoppedError(RuntimeError):
     """Cancellation before a fully validated drawing exists."""
+
+
+class StageInterruptedError(RuntimeError):
+    """Discard an unfinished planning stage at its next bounded checkpoint."""

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import copy
 import hashlib
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from vectrify.refine.cel_plan.model import Candidate
@@ -22,14 +24,54 @@ class Entry:
     details: dict
 
 
+@dataclass(frozen=True)
+class Observation:
+    """A diagnostic copy of an evaluated proposal, including rejected ones.
+
+    An observer receives no policy or frontier reference and cannot supply a
+    score. Benchmark clean targets therefore stay outside planning decisions.
+    SVG retention belongs to the observer's separately bounded artifact sink.
+    """
+
+    svg: str
+    key: str
+    label: str
+    evaluation: Evaluation | None
+    details: dict
+    decision: dict
+
+
 class Frontier:
     """Retain nondominated drawings and one separate interruption fallback."""
 
-    def __init__(self, policy: Policy):
+    def __init__(
+        self, policy: Policy, observe: Callable[[Observation], None] | None = None
+    ):
         self.policy = policy
+        self.observe = observe
         self.entries: list[Entry] = []
         self.baseline: Entry | None = None
         self.decisions: list[dict] = []
+
+    def _record(
+        self,
+        svg: str,
+        decision: dict,
+        details: dict | None,
+        evaluation: Evaluation | None = None,
+    ) -> None:
+        self.decisions.append(decision)
+        if self.observe is not None:
+            self.observe(
+                Observation(
+                    svg,
+                    hashlib.sha256(svg.encode()).hexdigest(),
+                    decision["candidate"],
+                    copy.deepcopy(evaluation),
+                    copy.deepcopy(details or {}),
+                    copy.deepcopy(decision),
+                )
+            )
 
     @property
     def normalizer(self) -> float:
@@ -37,12 +79,14 @@ class Frontier:
 
     def add(self, svg: str, label: str, details: dict | None = None) -> bool:
         if len(svg.encode()) > MAX_BYTES:
-            self.decisions.append(
+            self._record(
+                svg,
                 {
                     "candidate": label,
                     "accepted": False,
                     "rejections": ["candidate-memory-limit"],
-                }
+                },
+                details,
             )
             return False
         key = hashlib.sha256(svg.encode()).hexdigest()
@@ -51,22 +95,27 @@ class Frontier:
         try:
             evaluation = self.policy.evaluate(svg)
         except ValueError as exc:
-            self.decisions.append(
+            self._record(
+                svg,
                 {
                     "candidate": label,
                     "accepted": False,
                     "rejections": ["invalid-candidate"],
                     "detail": str(exc),
-                }
+                },
+                details,
             )
             return False
         if not evaluation.valid:
-            self.decisions.append(
+            self._record(
+                svg,
                 {
                     "candidate": label,
                     "accepted": False,
                     "rejections": list(evaluation.rejections),
-                }
+                },
+                details,
+                evaluation,
             )
             return False
         entry = Entry(svg, label, evaluation, key, details or {})
@@ -78,8 +127,11 @@ class Frontier:
             and other.evaluation.visual <= evaluation.visual
             for other in self.entries
         ):
-            self.decisions.append(
-                {"candidate": label, "accepted": False, "rejections": ["dominated"]}
+            self._record(
+                svg,
+                {"candidate": label, "accepted": False, "rejections": ["dominated"]},
+                details,
+                evaluation,
             )
             return False
         self.entries = [
@@ -95,13 +147,16 @@ class Frontier:
             key=lambda item: (item.evaluation.cost, item.evaluation.visual, item.key)
         )
         self._bound()
-        self.decisions.append(
+        self._record(
+            svg,
             {
                 "candidate": label,
                 "accepted": True,
                 "visual": evaluation.visual,
                 "representation_cost": evaluation.cost,
-            }
+            },
+            details,
+            evaluation,
         )
         return True
 

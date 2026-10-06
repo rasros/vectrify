@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 from scipy.ndimage import binary_dilation, distance_transform_edt, gaussian_filter
 
+from vectrify.document import PathNode, Subpath
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import boundaries
@@ -20,6 +21,7 @@ def strokes(
     *,
     labels: np.ndarray | None = None,
     overlays: tuple[Overlay, ...] = (),
+    conservative: bool = False,
 ):
     scale = float(np.sqrt(np.prod(evidence.scale)))
     tolerance = options.boundary_tolerance * scale
@@ -38,6 +40,35 @@ def strokes(
     width = options.line_width * scale or (
         max(0.8, float(np.percentile(depth[skeleton], 65))) if skeleton.any() else 1.0
     )
+    if conservative:
+        # Preserve the detected ink as separate unsmoothed centreline runs.
+        # Curved outline projection and joins are structural competitors, not
+        # assumptions required to produce the initial safe checkpoint.
+        runs = cel.line_runs(skeleton, spur=0, depth=depth)
+        parts = []
+        for run in runs:
+            closed = len(run) > 3 and np.array_equal(run[0], run[-1])
+            points = cel.simplify(run, 0)
+            if closed:
+                points = points[:-1]
+            if len(points) < 2:
+                continue
+            contour = Subpath(
+                "ink",
+                tuple(
+                    PathNode(f"n{i}", "M" if i == 0 else "L", tuple(point))
+                    for i, point in enumerate(points)
+                ),
+                closed,
+            )
+            parts.append(cel._stroke([contour], paint, width, faint=False))
+        return parts, {
+            "line_paths": len(parts),
+            "line_pieces": len(parts),
+            "line_style": "strokes",
+            "outline": False,
+            "outline_width": width / scale,
+        }
     silhouette = evidence.foreground & ~evidence.empty
     # An outer stroke is allowed only where detected ink supports a meaningful
     # share of the component's edge. The outline has one stable width/model.

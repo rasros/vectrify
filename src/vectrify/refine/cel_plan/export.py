@@ -9,7 +9,12 @@ import numpy as np
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import Boundaries
 from vectrify.refine.cel_plan.layers import continued
-from vectrify.refine.cel_plan.model import Evidence, Options, Work
+from vectrify.refine.cel_plan.model import (
+    Evidence,
+    Options,
+    StageInterruptedError,
+    Work,
+)
 from vectrify.refine.cel_plan.strokes import strokes
 from vectrify.refine.colour_regions import colour
 
@@ -22,8 +27,15 @@ def export(
     *,
     structure: bool = False,
     layers: bool = False,
+    conservative: bool = False,
 ):
     started = time.monotonic()
+
+    def check():
+        if work.interrupted:
+            raise StageInterruptedError("Planning stage interrupted")
+
+    check()
     if evidence.empty.all():
         width, height = evidence.source_size
         work.timings["geometry"] = time.monotonic() - started
@@ -41,17 +53,44 @@ def export(
     hidden = set(np.unique(labels[evidence.empty]).tolist())
     fills = cel.region_medians(evidence.smooth, labels, evidence.line)
     boundary_models = Boundaries() if structure else None
-    outlines = cel.region_outlines(labels, tolerance, fit_boundary=boundary_models)
+
+    def pixels(
+        points: np.ndarray, _tolerance: float
+    ) -> list[tuple[str, tuple[float, ...]]]:
+        # Remove only collinear samples: no smoothing or curve overshoot can
+        # change the canonical pixel boundary in the conservative fallback.
+        check()
+        return [("L", (float(x), float(y))) for x, y in cel.simplify(points, 0)[1:]]
+
+    def fitted_boundary(
+        points: np.ndarray, tolerance: float
+    ) -> list[tuple[str, tuple[float, ...]]]:
+        check()
+        if boundary_models is not None:
+            return boundary_models(points, tolerance)
+        return cel.curve_nodes(
+            points, tolerance, smooth=cel.FILL_SMOOTH, fit=cel.FILL_FIT
+        )
+
+    outlines = cel.region_outlines(
+        labels, tolerance, fit_boundary=pixels if conservative else fitted_boundary
+    )
     order = np.argsort(-np.bincount(labels.ravel()))
     parts = []
     line_parts, line_metrics = strokes(
-        evidence, options, labels=labels if structure else None, overlays=overlays
+        evidence,
+        options,
+        labels=labels if structure else None,
+        overlays=overlays,
+        conservative=conservative,
     )
+    check()
     cover, painted = cel.line_layer(line_parts, labels.shape[1], labels.shape[0])
     fitted = cel.fitted_fills(evidence.target, labels, cover, painted, fills)
     ramps = {}
     if options.gradients and not work.interrupted:
         ramps = cel.ramps(evidence.target, labels, cover, painted, fitted)
+    check()
     definitions = [cel._gradient(f"ramp{i}", ramp) for i, ramp in ramps.items()]
     if definitions:
         parts.append(f"<defs>{''.join(definitions)}</defs>")
@@ -98,6 +137,7 @@ def export(
         "regions": len(outlines) - len(hidden),
         "gradients": len(ramps),
         "boundary_tolerance": options.boundary_tolerance,
+        "conservative_geometry": conservative,
         "geometry_models": boundary_models.decisions if boundary_models else [],
         "overlay_models": [
             {

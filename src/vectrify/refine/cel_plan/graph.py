@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import numpy as np
-from scipy.ndimage import label
+from scipy.ndimage import find_objects, label
 
 from vectrify.refine.cel_plan.model import Boundary, Evidence, Graph, Region
 from vectrify.refine.colour_regions import boundary_chains
@@ -15,12 +15,16 @@ def build(evidence: Evidence, labels: np.ndarray | None = None) -> Graph:
     components, _ = label(evidence.foreground)
     regions = []
     hidden = frozenset(int(i) for i in np.unique(labels[evidence.empty]))
-    for index in range(count):
-        mask = (labels == index) & ~evidence.empty
-        paint = mask & ~evidence.line
-        pixels = evidence.smooth[paint if paint.any() else mask]
+    # A label's statistics need only its bounding box. Full-canvas masks for
+    # every region made noisy artwork scale as pixels times region count.
+    boxes = find_objects(labels + 1, max_label=count)
+    for index, box in enumerate(boxes):
+        box = box or (slice(0, 0), slice(0, 0))
+        mask = (labels[box] == index) & ~evidence.empty[box]
+        paint = mask & ~evidence.line[box]
+        pixels = evidence.smooth[box][paint if paint.any() else mask]
         median = np.median(pixels, axis=0) if len(pixels) else np.full(3, 255)
-        residual = evidence.target[paint] - evidence.coarse[paint]
+        residual = evidence.target[box][paint] - evidence.coarse[box][paint]
         contrast = (
             float(np.linalg.norm(np.median(residual, axis=0))) if len(residual) else 0
         )
@@ -31,13 +35,13 @@ def build(evidence: Evidence, labels: np.ndarray | None = None) -> Graph:
             elongated = float(np.sqrt((values[-1] + 1) / (values[0] + 1)))
         else:
             elongated = 1
-        component = np.bincount(components[mask]).argmax() if mask.any() else 0
+        component = np.bincount(components[box][mask]).argmax() if mask.any() else 0
         regions.append(
             Region(
                 index,
                 int(mask.sum()),
                 (float(median[0]), float(median[1]), float(median[2])),
-                float(evidence.texture[mask].mean()) if mask.any() else 0,
+                float(evidence.texture[box][mask].mean()) if mask.any() else 0,
                 min(1.0, max(contrast / 60, elongated / 40)),
                 int(component),
             )

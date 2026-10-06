@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Callable
 from dataclasses import asdict, replace
 from threading import Event
 
@@ -11,12 +12,13 @@ from PIL import Image
 
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
-from vectrify.refine.cel_plan.frontier import Frontier
+from vectrify.refine.cel_plan.frontier import Frontier, Observation
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.model import (
     Candidate,
     Options,
     PlanningStoppedError,
+    StageInterruptedError,
     Work,
 )
 from vectrify.refine.cel_plan.planning import merged_labels
@@ -35,6 +37,7 @@ def vectorize(
     options: Options | None = None,
     seconds: float | None = None,
     stop: Event | None = None,
+    observe: Callable[[Observation], None] | None = None,
 ) -> Candidate:
     started = time.monotonic()
     options = options or Options()
@@ -46,7 +49,7 @@ def vectorize(
     if work.stop.is_set():
         raise PlanningStoppedError("Stopped before a validated candidate was available")
     policy = Policy.from_evidence(evidence, graph)
-    frontier = Frontier(policy)
+    frontier = Frontier(policy, observe)
     decisions = []
     # The same anchors feed every slider selection. Search effort can truncate
     # this sequence; selection on the resulting frozen frontier stays ordered.
@@ -62,34 +65,92 @@ def vectorize(
     reserve = max(0.25, image.width * image.height / 1_000_000 * 0.5)
     last_candidate_seconds = 0.0
     validation_seconds = 0.0
+    # A conservative, independently validated plan exists before optional
+    # fitting/search. Rejected traced curves must not trigger six expensive
+    # attempts after the deadline merely because no checkpoint exists yet.
+    if work.interrupted:
+        if work.stop.is_set():
+            raise PlanningStoppedError(
+                "Stopped before a validated candidate was available"
+            )
+        raise ValueError(
+            "Time limit reached before a validated candidate was available"
+        )
+    try:
+        fallback_svg, fallback_details = export(
+            evidence,
+            evidence.labels,
+            replace(options, complexity=100, gradients=False),
+            work,
+            conservative=True,
+        )
+    except StageInterruptedError as exc:
+        if work.stop.is_set():
+            raise PlanningStoppedError(
+                "Stopped before a validated candidate was available"
+            ) from exc
+        raise ValueError(
+            "Time limit reached before a validated candidate was available"
+        ) from exc
+    validated = time.monotonic()
+    if work.stop.is_set():
+        raise PlanningStoppedError("Stopped before a validated candidate was available")
+    frontier.add(fallback_svg, "Conservative CEL fallback", fallback_details)
+    validation_seconds += time.monotonic() - validated
     for level, structure, layers in proposals:
+        if work.interrupted:
+            break
         if frontier.baseline and (
             work.interrupted or work.remaining <= reserve + last_candidate_seconds
         ):
             break
         if work.stop.is_set():
-            raise PlanningStoppedError(
-                "Stopped before a validated candidate was available"
-            )
+            if frontier.baseline is None:
+                raise PlanningStoppedError(
+                    "Stopped before a validated candidate was available"
+                )
+            break
         began = time.monotonic()
         proposal_options = replace(options, complexity=level)
         labels, edits = merged_labels(graph, proposal_options, work)
         decisions.extend(edits)
-        svg, details = export(
-            evidence, labels, proposal_options, work, structure=structure, layers=layers
-        )
-        if work.stop.is_set() and frontier.baseline is None:
-            raise PlanningStoppedError(
-                "Stopped before a validated candidate was available"
+        try:
+            svg, details = export(
+                evidence,
+                labels,
+                proposal_options,
+                work,
+                structure=structure,
+                layers=layers,
             )
+        except StageInterruptedError:
+            break
+        if work.stop.is_set():
+            if frontier.baseline is None:
+                raise PlanningStoppedError(
+                    "Stopped before a validated candidate was available"
+                )
+            break
         validated = time.monotonic()
         label = f"{'Structured' if structure else 'Traced'} at complexity {level}"
         frontier.add(svg, label, details)
         validation_seconds += time.monotonic() - validated
         last_candidate_seconds = time.monotonic() - began
     if frontier.baseline is None:
+        if work.stop.is_set():
+            raise PlanningStoppedError(
+                "Stopped before a validated candidate was available"
+            )
+        reasons = sorted(
+            {
+                reason
+                for decision in frontier.decisions
+                for reason in decision.get("rejections", ())
+            }
+        )
         raise ValueError(
             "No CEL planning candidate passed exact coverage and topology checks"
+            + (f": {', '.join(reasons)}" if reasons else "")
         )
     selected = frontier.select(options.complexity, node_budget=options.node_budget)
     actual = render(selected.svg, image.size)
