@@ -28,15 +28,25 @@ method remains experimental and the existing CEL default is unchanged.
 - A bounded nondominated frontier selects by representation cost and visual
   score. One frozen frontier gives ordered total-cost choices as complexity
   rises. Explicit node budgets select feasible candidates or report infeasibility.
+  A lower-cost drawing with more nodes cannot erase a feasible lower-node
+  alternative; frontier bounds also protect the minimum-node candidate.
 - Stop before the first validated candidate cancels the operation. Stop after
   validation retains a preview that can be applied normally. A fully transparent
   reference returns no edit.
-- A conservative CEL checkpoint precedes fitted proposals, using unsmoothed
-  canonical fill boundaries and separate ink runs. Optional boundary fitting
+- A conservative CEL checkpoint precedes fitted proposals, using canonical
+  linear fill boundaries and separate ink runs. It first tries a 0.75 native
+  pixel polygon bound (or a smaller explicit tolerance), then 0.25 and zero
+  after rejection. Exact native checks determine which fallback is retained;
+  this bound does not establish a quality or runtime pass. Optional fitting
   checks interruption between chains and discards unfinished exports. Exhausting
   the deadline without a checkpoint cannot trigger repeated candidate attempts.
   Dense drawings can still make this checkpoint expensive; runtime, compactness
   and partial-alpha coverage remain open gates.
+- The representation normalizer now comes from the exactly validated detailed
+  candidate rather than the first pixel fallback, when that candidate finishes.
+  Coverage limits stay tied to the independent fallback. The scale freezes once
+  before fitting and selection; diagnostics identify fallback normalization
+  when the detailed candidate is unavailable.
 - Region statistics use bounding boxes instead of one full-canvas scan per
   region. Tests compare the resulting area, paint and texture statistics with
   full-canvas sampling, including an absent label slot.
@@ -50,6 +60,23 @@ method remains experimental and the existing CEL default is unchanged.
   compact overlay. Small same-hue shade families can compete as one surface
   only with outline evidence. Shapes with holes or silhouette contacts remain
   unrestricted. This is an initial layer operator, not general layer inference.
+- Automatic refinement now has a bounded CPU foundation: simplify, fit flat or
+  gradient paint, propose edge positions and measured widths, then refit paint.
+  Fixed complexity anchors feed the common frontier independently of the
+  requested slider. Each retained edit must improve or retain its anchor's full
+  native objective and pass coverage/topology checks. Initial frontier tradeoffs
+  survive pruning unless a new candidate dominates them at every complexity;
+  a replacement rejected for pool storage restores the previous entries.
+- CPU fitting holds accepted straight/ellipse paths, shared junctions, corners
+  and explicit widths. Whole-path model holds are conservative; parameterized
+  constrained joint fitting remains unfinished. A wrapped shared-edge redraw
+  preserves its canonical endpoint ID and pin state across the closing segment.
+- Search reserves 25% of the requested time for refinement when enabled and at
+  least 10% for final validation. Separate stage slices and per-path geometry
+  limits give fitting stages opportunities; oversized compounds are reported
+  as bounded work. Native rendering and some proposal helpers can still overrun
+  a deadline. Metrics distinguish search expiration, fitting status and total
+  deadline overshoot. CPU fitting works without Torch.
 
 ## Sword experiment: shared frontier
 
@@ -200,6 +227,76 @@ confirms that adding a safe checkpoint has not solved initialization cost,
 candidate availability or score calibration; it must not be described as a
 human-match improvement.
 
+## CPU refinement and compact fallback experiment
+
+Run the native sword benchmark in separate processes with refinement off and
+on, and the dense anime-face tuning subset without refinement. All runs used
+complexity 50, balanced quality, a 20-second operation limit and four OpenBLAS/OMP
+threads. The paired subset used a 1,000-pixel long side. Reproduce with:
+
+```sh
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-cpu-final-off
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":true}' \
+  --out .bench/planned-cpu-final-on
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_pairs.py --methods cel-planned --cases anime-face \
+  --degradations clean noise --long-side 1000 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-cpu-dense
+```
+
+| Run | Nodes | Contours | Seconds | Foreground MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Sword, refinement off | 1,181 | 106 | 18.92 | 861.49 against human | — |
+| Sword, refinement on | 1,180 | 106 | 17.89 | 861.64 against human | — |
+| Anime face, clean | 3,555 | 600 | 19.34 | 352.62 against clean | 0.951 |
+| Anime face, noise | 4,802 | 728 | 19.39 | 416.59 against clean | 0.953 |
+
+The algorithm source hash for all four final runs was
+`de5471da24b10ee8fdc8a9abd6bd8e482dc4169db0c75a9c7213d98f052ba2c8`.
+The sword mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The paired summary records input, clean-render, manifest and native-mask hashes.
+There was no measured pipeline deadline overshoot in these four runs. Their
+different completed search effort and runtime variation do not establish a
+speedup or a full matched-runtime ablation.
+
+Both sword runs retained the conservative fallback and complexity-100 traced
+candidate before fitting. The detailed candidate fixed the cost scale at 1,967,
+while the conservative candidate cost 11,828. CPU fitting attempted two native
+checkpoints, accepted one node-removal edit and rejected a paint refit for an
+objective regression. The selected objective changed from 0.088193278 to
+0.088183281; human error increased slightly. Fitting was reported as bounded,
+not complete. The sword still fails the 800-node and 497.39 human-error gates.
+Guard and jewel crops still show fragmented shade boundaries and interrupted
+ink. This result supports improving structural proposals and calibrating their
+score, not substituting fitting or learned ranking for missing interpretations.
+
+Both dense inputs now returned validated drawings. Previously, the clean case
+retained a 106,614-node raw fallback and the noisy case had no checkpoint. Each
+new pool contains the compact conservative candidate and a traced competitor;
+the traced competitor was selected. This is initialization progress. Clean
+MSE remains worse than the recorded legacy values, and clean line F1 is more
+than one percentage point below legacy's 0.965. Neither result establishes the
+broader quality gates; no held-out artwork was used.
+
+The relevant check run passed 199 tests. It covers CPU execution with Torch
+unavailable, real paint improvement, gradient competition and ownership during
+refits, injected flat-color noise, explicit-width preservation, shared
+edges/corners, stop after fitting,
+fixed cost scale, objective rejection, storage rollback and all 101 slider
+choices under pruning. A subsequent node-budget regression check also keeps a
+feasible drawing when a cheaper competitor has more nodes. Existing CEL,
+simplify/snap, operation apply/undo/reload
+and benchmark-isolation checks are included. Ruff passed and Pyrefly reported
+zero errors. Full runtime/memory, partial-alpha and release evaluation remain
+open requirements.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -209,13 +306,14 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime bounds; partial-alpha, transformed-scope and difficult-hole coverage |
 | 3 | Local exact acceptance of individual graph edits, beam search, split/paint operators, content-normalized soft budgets, bounded shared-frontier cache and resizing invariance |
-| 4 | Variable-width/fill ink alternatives, full join/feature checks, primitive constraints during fitting and passing sword/line/feature gates |
-| 5 | Broader local-layer/order inference, automatic refinement, geometric regularization, paint refits, spatial scheduling, memory/runtime measurements and optional acceleration ownership |
+| 4 | Variable-width/fill ink alternatives, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
+| 5 | Broader local-layer/order inference, joint geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
 | 7 | Expanded paired evaluation/corpus coverage, ablations and conditional learned-ranker experiment |
 | 8 | Independent blind review, fresh held-out results and default migration only after release gates pass |
 
-The operation still reports `refinement_complete: false`; accepting `refine`
-in its schema does not constitute implementing automatic refinement. The
-frontier currently receives complete merge/tolerance proposals, not the planned
-local beam search. These gaps must be resolved before completion is claimed.
+The operation still reports `refinement_complete: false`. The bounded CPU
+foundation implements real fitting behavior; it does not complete joint fitting
+or the required runtime/memory and quality gates. The frontier still receives
+complete merge/tolerance proposals rather than the planned local beam search.
+These gaps must be resolved before completion is claimed.

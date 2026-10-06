@@ -224,7 +224,9 @@ def test_interrupted_fit_discards_partial_work_and_returns_the_checkpoint(monkey
     state = job.state()
     assert state["status"] == "ready", state
     assert state["result"]["metrics"]["conservative_geometry"]
-    assert state["result"]["metrics"]["out_of_time"]
+    # Search has a shorter deadline so CPU fitting and final rendering retain
+    # their reserved time after an unfinished shape is discarded.
+    assert state["result"]["metrics"]["search_out_of_time"]
     assert state["result"]["metrics"]["validation_rejections"] == []
     job.apply()
     assert editor.undo_labels == ("Generate planned cel drawing",)

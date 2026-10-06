@@ -15,6 +15,17 @@ MAX_BYTES = 64 * 1024 * 1024
 CHECKPOINTS = (0, 25, 50, 75, 100)
 
 
+def _dominates(before: Evaluation, after: Evaluation) -> bool:
+    # Cost includes paths/contours/paint as well as nodes. A cheaper drawing
+    # can therefore have more nodes; keep the lower-node tradeoff so explicit
+    # node ceilings do not lose their feasible candidate.
+    return (
+        before.cost <= after.cost
+        and before.visual <= after.visual
+        and before.structure["nodes"] <= after.structure["nodes"]
+    )
+
+
 @dataclass(frozen=True)
 class Entry:
     svg: str
@@ -52,6 +63,10 @@ class Frontier:
         self.entries: list[Entry] = []
         self.baseline: Entry | None = None
         self.decisions: list[dict] = []
+        self._normalizer: float | None = None
+        self._published = False
+        self._validated_scale: tuple[str, float] | None = None
+        self._refinement_protected: set[str] | None = None
 
     def _record(
         self,
@@ -75,9 +90,78 @@ class Frontier:
 
     @property
     def normalizer(self) -> float:
+        if self._normalizer is not None:
+            return self._normalizer
         return max(1.0, self.baseline.evaluation.cost) if self.baseline else 1.0
 
+    @property
+    def normalizer_fixed(self) -> bool:
+        return self._normalizer is not None
+
+    def freeze_normalizer(self, svg: str | None = None) -> None:
+        """Fix cost scale from the validated detailed candidate before search.
+
+        The coverage baseline stays conservative. Only its representation scale
+        is replaced, once, before any selection/refinement is published. Pareto
+        retention does not use this scale and the initial pool is not truncated.
+        """
+        if self._normalizer is not None or self._published:
+            raise ValueError("The representation scale is already fixed or in use")
+        entry = next((entry for entry in self.entries if entry.svg == svg), None)
+        if svg is None:
+            entry = self.baseline
+        if (
+            svg is not None
+            and self._validated_scale is not None
+            and self._validated_scale[0] == hashlib.sha256(svg.encode()).hexdigest()
+        ):
+            self._normalizer = max(1.0, self._validated_scale[1])
+            return
+        if entry is None:
+            raise ValueError("A validated candidate is required for the cost scale")
+        self._normalizer = max(1.0, entry.evaluation.cost)
+
+    def seeds(self, limit: int) -> tuple[tuple[Entry, int], ...]:
+        """Fixed refinement anchors, independent of the requested slider value."""
+        found: list[tuple[Entry, int]] = []
+        for complexity in (50, 0, 100):
+            entry = self._pick(complexity)
+            if not any(previous.key == entry.key for previous, _ in found):
+                found.append((entry, complexity))
+            if len(found) == limit:
+                break
+        return tuple(found)
+
+    def reject(self, svg: str, label: str, reason: str, details: dict | None = None):
+        self._record(
+            svg,
+            {"candidate": label, "accepted": False, "rejections": [reason]},
+            details,
+        )
+
     def add(self, svg: str, label: str, details: dict | None = None) -> bool:
+        return self._add(svg, label, details)
+
+    def refine(
+        self, svg: str, label: str, details: dict, *, complexity: int, before: float
+    ) -> bool:
+        """An exact checkpoint that must retain or improve its anchor objective."""
+        if not self.normalizer_fixed:
+            raise ValueError("Freeze the representation scale before refinement")
+        if self._refinement_protected is None:
+            # Keep every pre-fitting tradeoff unless a new drawing dominates
+            # it at every complexity. Frontier pruning must not turn an
+            # improving anchor edit into a regression for another slider value.
+            self._refinement_protected = {entry.key for entry in self.entries}
+        return self._add(svg, label, details, maximum=(complexity, before))
+
+    def _add(
+        self,
+        svg: str,
+        label: str,
+        details: dict | None = None,
+        maximum: tuple[int, float] | None = None,
+    ) -> bool:
         if len(svg.encode()) > MAX_BYTES:
             self._record(
                 svg,
@@ -119,14 +203,31 @@ class Frontier:
             )
             return False
         entry = Entry(svg, label, evaluation, key, details or {})
+        if self._normalizer is None:
+            self._validated_scale = (key, evaluation.cost)
+        if maximum is not None:
+            complexity, before = maximum
+            objective = evaluation.objective(
+                complexity, self.normalizer, self.policy.weights.detail
+            )
+            if objective > before + 1e-12:
+                self._record(
+                    svg,
+                    {
+                        "candidate": label,
+                        "accepted": False,
+                        "rejections": ["objective-regression"],
+                        "objective": objective,
+                        "before_objective": before,
+                    },
+                    details,
+                    evaluation,
+                )
+                return False
         if self.baseline is None:
             self.policy.establish(evaluation)
             self.baseline = entry
-        if any(
-            other.evaluation.cost <= evaluation.cost
-            and other.evaluation.visual <= evaluation.visual
-            for other in self.entries
-        ):
+        if any(_dominates(other.evaluation, evaluation) for other in self.entries):
             self._record(
                 svg,
                 {"candidate": label, "accepted": False, "rejections": ["dominated"]},
@@ -134,31 +235,35 @@ class Frontier:
                 evaluation,
             )
             return False
+        previous = self.entries
         self.entries = [
             other
             for other in self.entries
-            if not (
-                evaluation.cost <= other.evaluation.cost
-                and evaluation.visual <= other.evaluation.visual
-            )
+            if not _dominates(evaluation, other.evaluation)
         ]
         self.entries.append(entry)
         self.entries.sort(
             key=lambda item: (item.evaluation.cost, item.evaluation.visual, item.key)
         )
         self._bound()
+        retained = entry in self.entries
+        if not retained:
+            # Pruning can reject a large replacement after it dominates old
+            # entries. Roll that edit back instead of losing the old frontier.
+            self.entries = previous
         self._record(
             svg,
             {
                 "candidate": label,
-                "accepted": True,
+                "accepted": retained,
+                "rejections": [] if retained else ["frontier-limit"],
                 "visual": evaluation.visual,
                 "representation_cost": evaluation.cost,
             },
             details,
             evaluation,
         )
-        return True
+        return retained
 
     def _objective(self, entry: Entry, complexity: int):
         return entry.evaluation.objective(
@@ -170,13 +275,27 @@ class Frontier:
         # remaining slots evenly across the representation-cost range.
         protected = {self._pick(complexity).key for complexity in CHECKPOINTS}
         protected.update((self.entries[0].key, self.entries[-1].key))
+        protected.add(
+            min(
+                self.entries,
+                key=lambda entry: (
+                    entry.evaluation.structure["nodes"],
+                    entry.evaluation.cost,
+                    entry.key,
+                ),
+            ).key
+        )
+        fixed = self._refinement_protected or set()
+        protected.update(fixed)
         while len(self.entries) > MAX_CANDIDATES or self._bytes() > MAX_BYTES:
             removable = [entry for entry in self.entries if entry.key not in protected]
             if not removable:
                 # Memory is a hard bound. Keep the baseline separately even if
                 # exceptionally large alternatives cannot fit the frontier.
                 removable = [
-                    entry for entry in self.entries if entry is not self.baseline
+                    entry
+                    for entry in self.entries
+                    if entry is not self.baseline and entry.key not in fixed
                 ]
             if not removable:
                 break
@@ -223,6 +342,7 @@ class Frontier:
         )
 
     def select(self, complexity: int, *, node_budget: int = 0) -> Candidate:
+        self._published = True
         entry = self._pick(complexity, node_budget)
         return Candidate(
             entry.svg,

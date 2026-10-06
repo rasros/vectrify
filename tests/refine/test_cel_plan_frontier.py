@@ -127,3 +127,97 @@ def test_observer_reports_invalid_svg_without_a_fabricated_evaluation():
     assert observed[-1].evaluation is None
     assert observed[-1].decision["rejections"] == ["invalid-candidate"]
     assert result.select(50).svg == before.svg
+
+
+def test_detailed_cost_scale_is_fixed_separately_from_coverage_baseline():
+    result = frontier()
+    baseline = result.baseline
+    # Valid but dominated detailed geometry still supplies its own cost scale.
+    redundant = DETAILED.replace("M4 4H20", "M4 4L12 4H20")
+    assert not result.add(redundant, "Detailed geometry")
+    result.freeze_normalizer(redundant)
+    assert result.normalizer == 21
+    assert result.baseline is baseline
+    assert result.normalizer_fixed
+    with pytest.raises(ValueError, match="already fixed"):
+        result.freeze_normalizer(SIMPLE)
+    costs = [
+        result.select(level).metrics["representation_cost"] for level in range(101)
+    ]
+    assert costs == sorted(costs)
+
+
+def test_invalid_or_unmeasured_geometry_cannot_set_the_cost_scale():
+    result = frontier()
+    with pytest.raises(ValueError, match="validated"):
+        result.freeze_normalizer('<svg width="40" height="40"/>')
+    result.select(50)
+    with pytest.raises(ValueError, match="already fixed or in use"):
+        result.freeze_normalizer()
+
+
+def test_refinement_requires_its_anchor_objective_to_improve():
+    result = frontier()
+    result.freeze_normalizer()
+    before = result.entries[-1].evaluation.objective(50, result.normalizer)
+    proposal = DETAILED.replace("#e08080", "#000000").replace("#808080", "#000000")
+    assert not result.refine(proposal, "Worse paint", {}, complexity=50, before=before)
+    assert result.decisions[-1]["rejections"] == ["objective-regression"]
+    assert result.decisions[-1]["objective"] > before
+
+
+def test_refinement_pruning_retains_every_initial_slider_tradeoff(monkeypatch):
+    from vectrify.refine.cel_plan import frontier as module
+
+    monkeypatch.setattr(module, "MAX_CANDIDATES", 2)
+    result = frontier()
+    result.freeze_normalizer()
+    before = [result.select(level).svg for level in range(101)]
+    proposal = SIMPLE.replace("#e08080", "#b08080").replace("H36", "L12 4L20 4L28 4H36")
+    assert not result.refine(proposal, "Intermediate", {}, complexity=50, before=1)
+    assert result.decisions[-1]["rejections"] == ["frontier-limit"]
+    assert len(result.entries) == 2
+    assert [result.select(level).svg for level in range(101)] == before
+
+
+def test_replacement_that_exceeds_pool_memory_restores_dominated_entries(monkeypatch):
+    from vectrify.refine.cel_plan import frontier as module
+
+    monkeypatch.setattr(
+        module, "MAX_BYTES", len(DETAILED.encode()) + len(SIMPLE.encode())
+    )
+    result = frontier()
+    result.freeze_normalizer()
+    before = tuple(result.entries)
+    # Better paint at the same geometric cost, but more serialized storage.
+    proposal = SIMPLE.replace("#e08080", "#b08080").replace(
+        "</svg>", "<!--" + "x" * 50 + "--></svg>"
+    )
+    assert not result.refine(proposal, "Large replacement", {}, complexity=50, before=1)
+    assert result.decisions[-1]["rejections"] == ["frontier-limit"]
+    assert tuple(result.entries) == before
+
+
+def test_lower_cost_with_more_nodes_cannot_destroy_node_budget_feasibility():
+    low_nodes = (
+        '<svg width="40" height="40">'
+        + "".join(
+            f'<path fill="#e08080" d="M{x} 4H{x + 8}V36H{x}Z"/>'
+            for x in (4, 12, 20, 28)
+        )
+        + "</svg>"
+    )
+    lower_cost = (
+        '<svg width="40" height="40"><path fill="#e08080" d="M4 4'
+        + "".join(f"L{x} 4" for x in range(6, 37, 2))
+        + 'V36H4Z"/></svg>'
+    )
+    result = Frontier(Policy(render(low_nodes, (40, 40)), weights=Weights(edges=0)))
+    assert result.add(low_nodes, "Fewer nodes")
+    result.freeze_normalizer()
+    assert result.refine(lower_cost, "Fewer contours", {}, complexity=50, before=1)
+    assert len(result.entries) == 2
+    assert result.select(50).svg == lower_cost
+    feasible = result.select(50, node_budget=16)
+    assert feasible.svg == low_nodes
+    assert not feasible.metrics["budget_unmet"]

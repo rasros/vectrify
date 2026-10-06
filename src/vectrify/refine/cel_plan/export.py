@@ -28,6 +28,7 @@ def export(
     structure: bool = False,
     layers: bool = False,
     conservative: bool = False,
+    conservative_tolerance: float = 0,
 ):
     started = time.monotonic()
 
@@ -53,21 +54,32 @@ def export(
     hidden = set(np.unique(labels[evidence.empty]).tolist())
     fills = cel.region_medians(evidence.smooth, labels, evidence.line)
     boundary_models = Boundaries() if structure else None
+    constrained_regions: set[int] = set()
 
     def pixels(
         points: np.ndarray, _tolerance: float
     ) -> list[tuple[str, tuple[float, ...]]]:
-        # Remove only collinear samples: no smoothing or curve overshoot can
-        # change the canonical pixel boundary in the conservative fallback.
+        # Linear fits retain canonical chain ends and have no curve overshoot.
+        # A positive bound is in native pixels; the raw fallback uses zero.
         check()
-        return [("L", (float(x), float(y))) for x, y in cel.simplify(points, 0)[1:]]
+        bound = conservative_tolerance * min(evidence.scale)
+        return [("L", (float(x), float(y))) for x, y in cel.simplify(points, bound)[1:]]
 
     def fitted_boundary(
         points: np.ndarray, tolerance: float
     ) -> list[tuple[str, tuple[float, ...]]]:
         check()
         if boundary_models is not None:
-            return boundary_models(points, tolerance)
+            result = boundary_models(points, tolerance)
+            if boundary_models.decisions[-1]["model"] != "curve":
+                middle = (points[0] + points[1]) / 2
+                direction = points[1] - points[0]
+                normal = np.array([-direction[1], direction[0]]) * 0.25
+                for side in (middle + normal, middle - normal):
+                    x, y = np.floor(side).astype(int)
+                    if 0 <= x < labels.shape[1] and 0 <= y < labels.shape[0]:
+                        constrained_regions.add(int(labels[y, x]))
+            return result
         return cel.curve_nodes(
             points, tolerance, smooth=cel.FILL_SMOOTH, fit=cel.FILL_FIT
         )
@@ -83,6 +95,7 @@ def export(
         labels=labels if structure else None,
         overlays=overlays,
         conservative=conservative,
+        conservative_tolerance=conservative_tolerance,
     )
     check()
     cover, painted = cel.line_layer(line_parts, labels.shape[1], labels.shape[0])
@@ -99,7 +112,8 @@ def export(
         if index not in hidden and index in outlines:
             paint = f"url(#ramp{index})" if index in ramps else colour(fitted[index])
             parts.append(
-                f'<path d="{outlines[index]}" fill="{paint}" fill-rule="evenodd"/>'
+                f'<path id="cel-fill-{index}" d="{outlines[index]}" '
+                f'fill="{paint}" fill-rule="evenodd"/>'
             )
     if overlays:
         original_labels = original_labels.copy()
@@ -116,16 +130,25 @@ def export(
         parts.append("<g>")
         for overlay in overlays:
             paint = colour(overlay_fills[overlay.region])
-            parts.append(f'<path d="{overlay.data}" fill="{paint}"/>')
+            parts.append(
+                f'<path id="cel-overlay-{overlay.region}" d="{overlay.data}" '
+                f'fill="{paint}"/>'
+            )
         parts.append("</g>")
-    parts.extend(line_parts)
+    parts.extend(
+        part.replace("<path ", f'<path id="cel-ink-{index}" ', 1)
+        for index, part in enumerate(line_parts)
+    )
     sx, sy = evidence.scale
     x, y = evidence.offset
     width, height = evidence.source_size
     backdrop = ""
     if evidence.background is not None:
         paint = colour(np.array(evidence.background) * 255)
-        backdrop = f'<rect width="{width}" height="{height}" fill="{paint}"/>'
+        backdrop = (
+            f'<rect id="cel-backdrop" width="{width}" height="{height}" '
+            f'fill="{paint}"/>'
+        )
     svg = (
         '<svg xmlns="http://www.w3.org/2000/svg" '
         f'width="{width}" height="{height}" viewBox="0 0 {width} {height}">'
@@ -138,6 +161,15 @@ def export(
         "gradients": len(ramps),
         "boundary_tolerance": options.boundary_tolerance,
         "conservative_geometry": conservative,
+        "conservative_tolerance": conservative_tolerance,
+        "geometry_constraints": [
+            *(f"cel-fill-{index}" for index in sorted(constrained_regions - hidden)),
+            *(f"cel-overlay-{overlay.region}" for overlay in overlays),
+            *(
+                f"cel-ink-{index}"
+                for index in line_metrics.get("constrained_lines", ())
+            ),
+        ],
         "geometry_models": boundary_models.decisions if boundary_models else [],
         "overlay_models": [
             {

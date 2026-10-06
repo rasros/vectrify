@@ -23,6 +23,7 @@ from vectrify.refine.cel_plan.model import (
 )
 from vectrify.refine.cel_plan.planning import merged_labels
 from vectrify.refine.cel_plan.policy import Policy
+from vectrify.refine.cel_plan.refine import refine
 from vectrify.refine.cel_plan.score import (
     foreground_mask,
     measurements,
@@ -62,7 +63,9 @@ def vectorize(
         (25, False, False),
         (75, False, False),
     )
-    reserve = max(0.25, image.width * image.height / 1_000_000 * 0.5)
+    duration = seconds if seconds is not None else options.seconds
+    reserve = max(0.25, duration * 0.1, image.width * image.height / 1_000_000 * 0.5)
+    refinement_reserve = duration * 0.25 if options.refine else 0
     last_candidate_seconds = 0.0
     validation_seconds = 0.0
     # A conservative, independently validated plan exists before optional
@@ -76,33 +79,38 @@ def vectorize(
         raise ValueError(
             "Time limit reached before a validated candidate was available"
         )
-    try:
-        fallback_svg, fallback_details = export(
-            evidence,
-            evidence.labels,
-            replace(options, complexity=100, gradients=False),
-            work,
-            conservative=True,
-        )
-    except StageInterruptedError as exc:
+    # A bounded linear approximation cuts pixel staircases, while native hard
+    # checks decide whether it is a safe fallback. Tighten only after rejection.
+    bound = min(0.75, options.tolerance) if options.tolerance else 0.75
+    for tolerance in (bound, min(bound, 0.25), 0):
+        if work.interrupted:
+            break
+        try:
+            fallback_svg, fallback_details = export(
+                evidence,
+                evidence.labels,
+                replace(options, complexity=100, gradients=False),
+                work,
+                conservative=True,
+                conservative_tolerance=tolerance,
+            )
+        except StageInterruptedError:
+            break
+        validated = time.monotonic()
         if work.stop.is_set():
             raise PlanningStoppedError(
                 "Stopped before a validated candidate was available"
-            ) from exc
-        raise ValueError(
-            "Time limit reached before a validated candidate was available"
-        ) from exc
-    validated = time.monotonic()
-    if work.stop.is_set():
-        raise PlanningStoppedError("Stopped before a validated candidate was available")
-    frontier.add(fallback_svg, "Conservative CEL fallback", fallback_details)
-    validation_seconds += time.monotonic() - validated
-    for level, structure, layers in proposals:
-        if work.interrupted:
+            )
+        frontier.add(fallback_svg, "Conservative CEL fallback", fallback_details)
+        validation_seconds += time.monotonic() - validated
+        if frontier.baseline:
             break
-        if frontier.baseline and (
-            work.interrupted or work.remaining <= reserve + last_candidate_seconds
-        ):
+    search = Work(work.deadline - reserve - refinement_reserve, work.stop, work.timings)
+    normalizer_source = "conservative-fallback"
+    for level, structure, layers in proposals:
+        if search.interrupted or work.interrupted:
+            break
+        if frontier.baseline and (search.remaining <= last_candidate_seconds):
             break
         if work.stop.is_set():
             if frontier.baseline is None:
@@ -112,14 +120,14 @@ def vectorize(
             break
         began = time.monotonic()
         proposal_options = replace(options, complexity=level)
-        labels, edits = merged_labels(graph, proposal_options, work)
+        labels, edits = merged_labels(graph, proposal_options, search)
         decisions.extend(edits)
         try:
             svg, details = export(
                 evidence,
                 labels,
                 proposal_options,
-                work,
+                search,
                 structure=structure,
                 layers=layers,
             )
@@ -136,6 +144,13 @@ def vectorize(
         frontier.add(svg, label, details)
         validation_seconds += time.monotonic() - validated
         last_candidate_seconds = time.monotonic() - began
+        if level == 100:
+            try:
+                frontier.freeze_normalizer(svg)
+                normalizer_source = "validated-detailed"
+            except ValueError:
+                if frontier.baseline:
+                    frontier.freeze_normalizer()
     if frontier.baseline is None:
         if work.stop.is_set():
             raise PlanningStoppedError(
@@ -152,7 +167,21 @@ def vectorize(
             "No CEL planning candidate passed exact coverage and topology checks"
             + (f": {', '.join(reasons)}" if reasons else "")
         )
+    if not frontier.normalizer_fixed:
+        frontier.freeze_normalizer()
+    before_refinement = frontier.select(
+        options.complexity, node_budget=options.node_budget
+    )
+    refinement = refine(
+        frontier,
+        evidence,
+        options,
+        Work(work.deadline - reserve, work.stop, work.timings),
+    )
+    validation_seconds += refinement.get("validation_seconds", 0)
     selected = frontier.select(options.complexity, node_budget=options.node_budget)
+    refinement["before_objective"] = before_refinement.metrics["objective"]
+    refinement["after_objective"] = selected.metrics["objective"]
     actual = render(selected.svg, image.size)
     measured = measurements(actual, evidence.rgba, foreground_mask(evidence.rgba))
     work.timings["validation"] = validation_seconds
@@ -175,8 +204,11 @@ def vectorize(
         "timings": work.timings,
         "seconds": time.monotonic() - started,
         "out_of_time": work.remaining == 0,
+        "search_out_of_time": search.remaining == 0,
         "stopped": work.stop.is_set(),
         "deadline_overshoot": max(0.0, time.monotonic() - work.deadline),
+        "cost_normalizer_source": normalizer_source,
+        "refinement": refinement,
         "refinement_complete": False,
     }
     alternatives = tuple(

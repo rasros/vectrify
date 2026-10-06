@@ -425,12 +425,17 @@ def _rotated(ring: _Ring, head: int) -> list[PathNode]:
     """A closed *ring*'s nodes starting from its point *head*, drawn back to
     it: a new moveto there, then every segment in turn."""
     count = len(ring.ends)
-    nodes = [PathNode(new_id("node"), "M", _point(ring.ends[head]))]
+    # The moveto is now the canonical occurrence of this endpoint. Keep its
+    # ID so existing junction/edge links still find it after rotation; the
+    # drawn closure below gets a separate segment ID.
+    nodes = [replace(ring.ends[head], command="M", values=_point(ring.ends[head]))]
     for i in range(1, count + 1):
         k = (head + i) % count
         segment = ring.segments[k]
         if segment is None:
             # The implicit closing line, drawn out.
             segment = PathNode(ring.ends[k].id, "L", _point(ring.ends[k]))
+        if i == count:
+            segment = replace(segment, id=new_id("node"))
         nodes.append(segment)
     return nodes

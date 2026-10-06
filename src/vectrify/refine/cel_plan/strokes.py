@@ -22,7 +22,8 @@ def strokes(
     labels: np.ndarray | None = None,
     overlays: tuple[Overlay, ...] = (),
     conservative: bool = False,
-):
+    conservative_tolerance: float = 0,
+) -> tuple[list[str], dict]:
     scale = float(np.sqrt(np.prod(evidence.scale)))
     tolerance = options.boundary_tolerance * scale
     skeleton = cel.thin(evidence.drawn)
@@ -48,9 +49,11 @@ def strokes(
         parts = []
         for run in runs:
             closed = len(run) > 3 and np.array_equal(run[0], run[-1])
-            points = cel.simplify(run, 0)
+            points = cel.simplify(run, conservative_tolerance * min(evidence.scale))
             if closed:
                 points = points[:-1]
+                if len(points) < 3:
+                    points = run[:-1]
             if len(points) < 2:
                 continue
             contour = Subpath(
@@ -76,6 +79,7 @@ def strokes(
     supported = edge & binary_dilation(evidence.drawn & (share >= 0.2), iterations=2)
     outer = bool(edge.any() and supported.sum() / edge.sum() >= 0.3)
     parts = []
+    constrained_lines: set[int] = set()
     if outer:
         smooth = gaussian_filter(silhouette.astype(float), 0.8) >= 0.5
         field = np.asarray(distance_transform_edt(smooth))
@@ -118,6 +122,7 @@ def strokes(
     if overlay_parts:
         covered, _ = cel.line_layer(overlay_parts, light.shape[1], light.shape[0])
         skeleton &= ~binary_dilation(covered[..., 0] > 0.1, iterations=1)
+        constrained_lines.update(range(len(parts), len(parts) + len(overlay_parts)))
         parts.extend(overlay_parts)
     if labels is not None:
         boundary_parts, boundary_decisions = boundaries(
@@ -127,10 +132,16 @@ def strokes(
         if boundary_parts:
             covered, _ = cel.line_layer(boundary_parts, light.shape[1], light.shape[0])
             skeleton &= ~binary_dilation(covered[..., 0] > 0.1, iterations=1)
+            constrained_lines.update(
+                len(parts) + index
+                for index, decision in enumerate(boundary_decisions)
+                if decision["model"] != "curve"
+            )
             parts.extend(boundary_parts)
     runs = cel.line_runs(skeleton, spur=2 * width + 1, depth=depth)
     contours = []
     rejected = 0
+    compact_runs = False
     for run in runs:
         x = np.clip(run[:, 0].astype(int), 0, light.shape[1] - 1)
         y = np.clip(run[:, 1].astype(int), 0, light.shape[0] - 1)
@@ -140,15 +151,18 @@ def strokes(
         if strength < 0.15 or (length < 4 and not closed):
             rejected += 1
             continue
-        contours.append(
-            fitted(run, tolerance).contour
-            if labels is not None
-            else cel._contour(run, tolerance)
-        )
+        if labels is not None:
+            model = fitted(run, tolerance)
+            compact_runs |= model.kind != "curve"
+            contours.append(model.contour)
+        else:
+            contours.append(cel._contour(run, tolerance))
     joined = cel._joined_runs(
         contours, max(2, 2 * width), light=gaussian_filter(light, 0.8)
     )
     if joined:
+        if compact_runs:
+            constrained_lines.add(len(parts))
         parts.append(cel._stroke(joined, paint, width, faint=False))
     return parts, {
         "line_paths": len(parts),
@@ -159,4 +173,5 @@ def strokes(
         "outline": outer,
         "outline_width": width / scale,
         "ink_models": ink_decisions,
+        "constrained_lines": sorted(constrained_lines),
     }
