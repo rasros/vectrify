@@ -33,6 +33,7 @@ from vectrify.refine.cel_plan.model import (
     StageInterruptedError,
     Work,
 )
+from vectrify.refine.cel_plan.ownership import exported as surface_ownership
 from vectrify.refine.colour_regions import fit_palette
 from vectrify.refine.crossings import crossings
 
@@ -433,6 +434,13 @@ def export(
         f"{''.join(parts)}</g></svg>"
     )
     return svg, {
+        "planning_surfaces": surface_ownership(
+            evidence,
+            labels,
+            frozenset(index for index in outlines if index not in hidden),
+            work,
+            bases=bases,
+        ),
         "regions": len(outlines) - len(hidden),
         "gradients": len(definitions),
         "alpha_model": "opacity-core-layers" if bases else "adjacent-rgba-surfaces",

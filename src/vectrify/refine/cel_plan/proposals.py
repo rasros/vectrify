@@ -20,6 +20,7 @@ from vectrify.document.model import paint_server
 from vectrify.document.paint import hex_colour, mean_colour
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
+from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.local import Box
@@ -60,6 +61,7 @@ class Operators:
         self._typical: float | None = None
         self._ink_models = {}
         self._ink_checked = set()
+        self.families = Families(evidence, graph, options)
 
     def paint(self, state: State, work: Work):
         document = state.document
@@ -257,6 +259,7 @@ class Operators:
 
     def __call__(self, state: State, work: Work):
         iterators = [
+            iter(self.families(state, work)),
             iter(self.paint(state, work)),
             iter(self.geometry(state, work)),
             iter(self.ink(state, work)),

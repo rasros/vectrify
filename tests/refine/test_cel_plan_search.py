@@ -65,6 +65,41 @@ def proposal(state, oid, value, *, operator="paint", parent=None):
     )
 
 
+def test_fast_search_reserves_evaluations_for_cumulative_edits():
+    definitions, paths, flat = [], [], []
+    for index in range(20):
+        x, y = 8 + (index % 10) * 14, 8 + (index // 10) * 56
+        definitions.append(
+            f'<linearGradient id="g{index}"><stop offset="0" stop-color="#ac5030"/>'
+            '<stop offset="1" stop-color="#b45030"/></linearGradient>'
+        )
+        shape = f'<path id="p{index:02}" fill="{{paint}}" d="M{x} {y}h10v40h-10Z"/>'
+        paths.append(shape.format(paint=f"url(#g{index})"))
+        flat.append(shape.format(paint="#b05030"))
+    initial = (
+        '<svg width="160" height="128"><defs>'
+        + "".join(definitions)
+        + "</defs>"
+        + "".join(paths)
+        + "</svg>"
+    )
+    target = '<svg width="160" height="128">' + "".join(flat) + "</svg>"
+    frontier, _evidence, options = setup(initial=initial, target=target)
+
+    def edits(state, _work):
+        for index in range(20):
+            oid = f"p{index:02}"
+            if state.document.element(oid).get("fill") != "#b05030":
+                yield proposal(state, oid, "#b05030")
+
+    result = search(frontier, replace(options, quality="fast"), Work.start(10), edits)
+    assert result["attempted"] == 16
+    assert result["bounded_expansions"] >= 3
+    assert result["expansion_evaluation_limit"] == 4
+    assert len(frontier.select(50).metrics["local_edits"]) >= 3
+    assert result["score_disagreements"] == 0
+
+
 def test_real_paint_operators_remove_two_noisy_gradients_one_edit_at_a_time():
     frontier, evidence, options = setup()
     before = frontier.select(50).metrics["objective"]

@@ -21,10 +21,12 @@ from vectrify.refine.cel_plan.local import (
     Snapshot,
 )
 from vectrify.refine.cel_plan.model import Options, Work
+from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import SCORE_VERSION, representation
 
 LIMITS = {"fast": (1, 16), "balanced": (4, 48), "high": (8, 128)}
+EXPANSIONS = {"fast": 4, "balanced": 8, "high": 16}
 ANCHORS = (50, 0, 100, 25, 75)
 MAX_BYTES = 64 * 1024 * 1024
 MAX_REJECTIONS = 256
@@ -41,6 +43,7 @@ class State:
     key: str
     details: dict
     edits: tuple[dict, ...] = ()
+    partition: Partition | None = None
 
 
 @dataclass(frozen=True)
@@ -54,6 +57,7 @@ class Proposal:
     estimate: float = 0
     details: dict | None = None
     dependencies: tuple[str, ...] = ()
+    partition: Partition | None = None
 
 
 def _revision(document: Document, oid: str) -> str:
@@ -255,7 +259,7 @@ def search(
     started = time.monotonic()
     width, limit = LIMITS[options.quality]
     decisions = []
-    attempted = accepted = cached = bounded = scanned = 0
+    attempted = accepted = cached = bounded = scanned = bounded_expansions = 0
     if work.interrupted:
         return {"status": "interrupted", "attempted": 0, "accepted": 0, "seconds": 0.0}
     if not frontier.normalizer_fixed:
@@ -285,7 +289,10 @@ def search(
             evaluator.start(entry.svg, entry.evaluation),
             entry.key,
             entry.details,
+            partition=Partition.from_metadata(entry.details.get("planning_surfaces")),
         )
+        if initial.partition is not None:
+            initial.partition.validate(initial.document)
     except LocalLimitError:
         return {
             "status": "bounded",
@@ -307,8 +314,14 @@ def search(
             if state.key in expanded:
                 continue
             expanded.add(state.key)
+            expansion_start = attempted
             for proposal in proposals(state, local_work):
                 if local_work.interrupted or attempted >= limit or scanned >= limit * 8:
+                    break
+                if attempted - expansion_start >= EXPANSIONS[options.quality]:
+                    # Preserve depth as well as alternative first edits. Cached
+                    # and invalid/stale scans retain their separate global cap.
+                    bounded_expansions += 1
                     break
                 scanned += 1
                 decision: dict = {
@@ -329,6 +342,20 @@ def search(
                     decision["rejections"] = ["stale-proposal"]
                     decisions.append(decision)
                     continue
+                partition = proposal.partition or state.partition
+                if partition is not None:
+                    try:
+                        partition.validate(proposal.document)
+                        if state.partition is not None and (
+                            partition.owners.keys() != state.partition.owners.keys()
+                        ):
+                            raise ValueError("Structural edit lost source regions")
+                    except ValueError as exc:
+                        decision.update(
+                            rejections=["invalid-surface-ownership"], detail=str(exc)
+                        )
+                        decisions.append(decision)
+                        continue
                 if len(proposal.ids) + len(proposal.dependencies) > MAX_EDIT_OBJECTS:
                     bounded += 1
                     decision.update(
@@ -413,6 +440,14 @@ def search(
                     decision["rejections"] = ["local-search-interrupted"]
                     decisions.append(decision)
                     break
+                decision["visual_delta"] = (
+                    updated.evaluation.visual - state.snapshot.evaluation.visual
+                )
+                decision["score_term_deltas"] = {
+                    term: value - state.snapshot.evaluation.terms[term]
+                    for term, value in updated.evaluation.terms.items()
+                    if term in state.snapshot.evaluation.terms
+                }
                 improvements = [
                     complexity
                     for complexity in ANCHORS
@@ -443,8 +478,17 @@ def search(
                     svg,
                     updated,
                     hashlib.sha256(svg.encode()).hexdigest(),
-                    {**state.details, **(proposal.details or {})},
+                    {
+                        **state.details,
+                        **(proposal.details or {}),
+                        **(
+                            {"planning_surfaces": partition.metadata()}
+                            if partition
+                            else {}
+                        ),
+                    },
                     (*state.edits, decision),
+                    partition,
                 )
                 if _bytes([*states, *additions, child]) > MAX_BYTES:
                     bounded += 1
@@ -455,8 +499,6 @@ def search(
                     accepted=True,
                     rejections=[],
                     improved_at=improvements,
-                    visual_delta=updated.evaluation.visual
-                    - state.snapshot.evaluation.visual,
                 )
                 decisions.append(decision)
                 additions.append(child)
@@ -503,12 +545,14 @@ def search(
         "status": "interrupted"
         if local_work.interrupted
         else "bounded"
-        if attempted >= limit or scanned >= limit * 8 or bounded
+        if attempted >= limit or scanned >= limit * 8 or bounded or bounded_expansions
         else "complete",
         "attempted": attempted,
         "accepted": accepted,
         "cached_rejections": cached,
         "bounded_proposals": bounded,
+        "bounded_expansions": bounded_expansions,
+        "expansion_evaluation_limit": EXPANSIONS[options.quality],
         "scanned": scanned,
         "beam_limit": width,
         "evaluation_limit": limit,

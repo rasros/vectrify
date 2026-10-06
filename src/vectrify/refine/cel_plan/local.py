@@ -92,6 +92,21 @@ class Canvas:
         values.flags.writeable = False
         return Canvas(self.root, (*self.patches, Patch(box, values)))
 
+    def samples(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
+        """Bounded proposal-estimate samples from the same immutable history."""
+        result = self.root[y, x].copy()
+        for patch in self.patches:
+            inside = (
+                (x >= patch.box.x)
+                & (x < patch.box.right)
+                & (y >= patch.box.y)
+                & (y < patch.box.bottom)
+            )
+            result[inside] = patch.pixels[
+                y[inside] - patch.box.y, x[inside] - patch.box.x
+            ]
+        return result.astype(np.float32) / 255
+
     def matches(self, actual: np.ndarray) -> bool:
         """Verify complete pixels without materializing another float canvas."""
         if actual.shape != self.root.shape:

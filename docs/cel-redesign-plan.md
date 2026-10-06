@@ -311,7 +311,7 @@ Continue from the experimental package in the following order. These changes com
 | --- | --- | --- |
 | Complete the paired tuning runner and candidate logs | `scripts/cel_pairs.py`, a paired benchmark runner, `scripts/bench_data/planned_pairs.json` | Reproducible clean/degraded hashes, artwork-family split, native masks, baseline line/feature metrics and all evaluated candidate scores |
 | Correct fallback, opacity and coordinate handling | `cel_plan/evidence.py`, `export.py`, `pipeline.py` and the generate operation | Empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope apply/export/reload checks |
-| Extend individual exact acceptance to graph edits | `cel_plan/local.py`, `search.py`, `proposals.py`, `planning.py`, `frontier.py` | Paint/boundary/ink edits already have a bounded working beam; add merge/split/surface/order operators with native full-render agreement, independent rollback, bounded dependencies and stop within loops |
+| Extend individual exact acceptance to graph edits | `cel_plan/ownership.py`, `families.py`, `local.py`, `search.py`, `proposals.py`, `planning.py`, `frontier.py` | Owned family merges and paint/boundary/ink edits have a bounded working beam; add split, richer surface, ink replacement and order operators with native full-render agreement, independent rollback, bounded dependencies and stop within loops |
 | Complete the CPU refinement path | A focused `cel_plan/refine.py`, existing simplify/shared/paint helpers | Refinement on/off changes behavior; accepted edits improve or retain the common objective; primitive anchors, explicit width and best-checkpoint semantics survive |
 | Diagnose and improve facets, ink and compact outlines | `cel_plan/geometry.py`, `ink.py`, `strokes.py`, `layers.py` | Candidate-pool/oracle diagnosis, native feature crops, variable-width alternatives, supported joins and passing sword development gates |
 | Calibrate scoring and complete common-frontier caching | `cel_plan/policy.py`, `frontier.py`, `model.py`, `pipeline.py` | Frozen tuning grid, cost progression on one frontier, padding/resizing checks, target/achieved budgets, bounded memory and reference/scope invalidation |
@@ -325,8 +325,10 @@ The paired tuning runner comes first because both local acceptance and automatic
 ### Structural compaction work packages
 
 The native opacity-aware drawing still contains thousands of color/alpha
-partitions. Individual paint and boundary edits now have an exact acceptance
-path, but those edits cannot turn that partitioning into a human-scale drawing.
+partitions. Owned family merges and individual paint/boundary edits now have an
+exact acceptance path, but the current alternatives still fail the structural
+targets. Original region ownership and atomic regrouping are implemented;
+splitting original graph atoms and rebuilding their canonical edges remain open.
 Complete the following work before spending effort on a learned ranker:
 
 1. Preserve stable region membership through merges and export. Maintain an

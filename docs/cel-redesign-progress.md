@@ -21,8 +21,9 @@ method remains experimental and the existing CEL default is unchanged.
   run through a bounded local beam. Working states share immutable native raster
   history. Local acceptance uses the complete policy's fixed denominators and
   feature aggregates; publication independently verifies the entire raster,
-  score and document checks. Graph merge/split, surface-family and order edits
-  still need this individual acceptance path.
+  score and document checks. Connected surface families now also have individual
+  merge proposals with retained source ownership. Region splits, ink replacement
+  and order edits still need this acceptance path.
 - The experimental operation validates settings, previews without mutation,
   applies as one undo entry and supports project save/reload.
 - Score version 3 measures robust multi-scale premultiplied color, contrasting
@@ -635,6 +636,137 @@ the initial weights. Ruff passed and Pyrefly reported zero source errors.
 These tests do not complete score calibration, structural quality, resizing,
 cross-job caching or the runtime/memory gates.
 
+## Owned region families and search depth
+
+The planner now retains immutable ownership of original source regions through
+label renumbering and SVG export. Primary fill/overlay paths partition those
+regions; opacity bases have an explicitly secondary coverage role. Canonical
+source boundary IDs remain stable: a merge removes internal edges from the
+active ownership view and changes both sides of exterior ownership together.
+Atomic regrouping supports membership-preserving merges and splits without
+mutating sibling states. A partition supplied independently that splits an
+original graph atom reports incomplete ownership; it requires new graph atoms
+before owned edits can proceed. The runtime split geometry operator is still
+unfinished. These values are temporary planning metadata, not a project-format
+or SVG geometry extension.
+
+`families.py` uses that membership to propose connected surfaces within a common
+component and coordinate/opacity group. Each proposal joins current curves,
+retains holes, refits flat RGBA or a linear color/opacity gradient, and removes
+the superseded paths. It retains the frontmost participating path identity and
+preserves unrelated geometry and accepted model holds. Gradient endpoints map
+through native reference coordinates into the retained path's user space;
+group opacity normalizes the child paint. Explicit-width ink and paint holds
+remain excluded from these surface edits.
+
+Family generation is bounded to 128 paths and 6,000 input nodes per group, 96
+provisional groups and 24 ranked paint alternatives per expansion. Relative
+premultiplied color/opacity thresholds and weaker boundary evidence propose
+families; they are engineering parameters, not acceptance exemptions. At most
+4,096 samples per fit compare approximate RGBA error with the current native
+raster. A cheap cost/error estimate ranks the alternatives before curve union
+and exact evaluation, using at most a quarter of the remaining local-stage
+time. It omits visibility/filter/feature terms and cannot accept an edit.
+Oversized native crops retain the existing bound pending tiled evaluation.
+
+Local decisions now record term deltas for rejected edits as well as accepted
+ones. Working states retain their edited ownership independently, and missing
+source ownership rejects a proposal before native evaluation. The same global
+beam/evaluation limits remain, with per-state exact evaluation limits of four,
+eight and sixteen for fast, balanced and high quality. This allows cumulative
+edits before one parent consumes the entire allowance. Stale/cached scans still
+have the independent global cap. Truncated expansions are reported explicitly.
+These bounds do not prove the complete process-RSS or candidate-metadata gate.
+
+An initial unranked 60-second sword run in `.bench/planned-families-first` used
+source hash
+`7939c974a3f99d8a90c61e95b9908b7228d7e936735953faeff72b241dc49cfa`.
+The two evaluated family proposals joined two and six paths, saving estimated
+geometry costs of 149 and 241 after export, but both failed the exact common
+objective. The selected paint edit retained 23,212 nodes, 4,147 contours and
+human MSE 442.34. The stage took 14.67 seconds against its 12-second slice,
+including 4.87 seconds of independent validation; pipeline time was 51.45
+seconds and operation/apply time was 57.87 seconds. This motivated bounded
+paint-fit ordering and better rejection diagnostics rather than relaxing the
+objective or assuming every family should merge.
+
+A subsequent ranked run in `.bench/planned-families-ranked` used source hash
+`5b5ad4941ed5441df894aeb06905be5b05299582a9bc14d8da52ca598463a705`.
+It selected one fully validated flat family edit replacing 128 paths with one
+surface. The result had 22,635 nodes, 4,026 contours, 3,991 paths, 544 gradients
+and human MSE 439.75. That edit saved 577 nodes, 121 contours and 1,315 units
+of representation cost. Its fixed visual score fell by approximately 0.000039;
+there were zero local/full raster or score disagreements. The edit also added
+47 pixels to the opacity-loss diagnostic within the existing hard allowance.
+This is not exact source-alpha equality or calibrated feature preservation.
+The run attempted ten exact evaluations and accepted six sibling alternatives;
+only one entered a full checkpoint. Stage time was 12.16 seconds, including
+2.30 seconds of full validation. Pipeline and operation/apply times were 50.14
+and 55.16 seconds, with no pipeline overshoot. The soft cost target was 46,365,
+achieved cost was 53,249, and the target remained unmet. Accounted SVG/raster
+peak bytes were 12,386,125; metadata/document/RSS remain separate open gates.
+
+The frozen sword mask is unchanged:
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The runs completed different proposal prefixes and do not prove a matched-effort
+speedup or a score-calibration improvement. The ranked run passes the numerical
+human-error ceiling but fails the node and contour targets by a wide margin.
+Guard and jewel MSEs remain approximately 1,015.14 and 1,233.07. No held-out
+artwork was used. Ink replacement, richer surface interpretations, new-region
+splits, large-area tiling, calibration and release evaluation remain necessary.
+
+The final-source native run enables the per-state expansion limits and reports
+current region counts after replacement. Reproduce it with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-families-depth
+```
+
+Its source hash was
+`c2ce7e383975006f7a1300c5cef407020ee22fa657ac64c23d3c3306fd6103bc`.
+The selected drawing has 22,097 nodes, 3,901 contours, 3,864 paths, 538 gradients
+and human MSE 439.64. Two cumulative family edits each replaced 128 paths with
+one; together they removed 1,115 nodes, 246 contours and 254 paths from the
+detailed seed. Representation cost fell from 54,564 to 51,885, still above the
+reported soft target/floor of 46,365. The second edit increased the fixed visual
+score by 0.0000951 but reduced cost by 1,364, improving the common objective at
+all five complexity anchors. This is an intended tradeoff under the initial
+weights, not evidence of corpus calibration. The edits added 47 and nine
+opacity-loss pixels within the existing hard allowance; the second also added
+15 opacity-excess pixels. Full validation accepted those measured differences.
+
+The stage evaluated ten proposals from two parents, accepted seven working
+alternatives, bounded two crops and one parent expansion, and published one
+full checkpoint. There were zero raster or score disagreements. Stage time was
+11.15 seconds, including 1.90 seconds of full validation; pipeline time was
+49.01 seconds and operation/apply time was 53.46 seconds, without pipeline
+overshoot. Accounted SVG/raster peak bytes were 12,040,628. Metadata reported
+3,863 primary regions, matching the retained ownership rather than the seed's
+4,117. These measurements do not establish a full memory gate or a matched-effort
+performance comparison.
+
+Inspection of the native crops confirms the remaining quality gap: blade facets
+still contain small shade fragments and irregular edges, guard shading remains
+subdivided, and the jewel lacks the human drawing's coherent circular ink rim.
+Guard and jewel errors remain 1,015.14 and 1,233.07. The frozen sword structural
+gates fail despite the passing numerical human-error ceiling. More coherent
+surface/outline interpretations and ink replacement remain the next work;
+learned ranking cannot supply those missing alternatives.
+
+The final relevant suite passed 302 tests using the previously recorded broad
+command. New coverage includes label renumbering, canonical ownership on both
+sides of edges, merge/split regrouping and sibling rollback, secondary opacity
+bases, incomplete atom subdivisions, exact family alpha/hole preservation,
+RGBA-gradient alternatives, scaled/translated gradient frames, retained neighbor
+geometry, rejection of missing members, fixed-width/component exclusions and
+cumulative edits within the fast evaluation cap. Native raster samples also
+agree after overlapping history patches. Ruff passed; Pyrefly reported zero
+source errors. Broader paired calibration, original-atom split geometry, joint
+ink/underlayer fitting, resizing, runtime/memory and release gates remain open.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -643,7 +775,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | Individual graph merge/split, family surface and richer paint operators beyond the working paint/boundary/ink beam; calibrated content normalization and budget-directed search, bounded shared-frontier cache, tiled long edits and resizing invariance |
+| 3 | Region splits, richer surface/paint interpretations beyond the initial owned family merges, calibrated content normalization and budget-directed search, bounded shared-frontier cache, tiled long edits and resizing invariance |
 | 4 | Variable-width/fill ink alternatives, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
@@ -652,7 +784,8 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 
 The operation still reports `refinement_complete: false`. The bounded CPU
 foundation implements real fitting behavior; it does not complete joint fitting
-or the required runtime/memory and quality gates. Individual paint/boundary/ink
-edits now have a bounded working beam and independent full checkpoints, while
-graph merges still arrive as complete merge/tolerance proposals. These gaps
-must be resolved before completion is claimed.
+or the required runtime/memory and quality gates. Owned family merges and
+individual paint/boundary/ink edits have a bounded working beam and independent
+full checkpoints. Complete merge/tolerance anchor proposals also remain;
+region splits, ink replacement, richer models and order edits are unfinished.
+These gaps must be resolved before completion is claimed.

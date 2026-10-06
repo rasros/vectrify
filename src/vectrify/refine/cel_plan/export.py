@@ -15,6 +15,7 @@ from vectrify.refine.cel_plan.model import (
     StageInterruptedError,
     Work,
 )
+from vectrify.refine.cel_plan.ownership import exported as surface_ownership
 from vectrify.refine.cel_plan.strokes import strokes
 from vectrify.refine.colour_regions import colour
 
@@ -65,6 +66,7 @@ def export(
     scale = float(np.sqrt(np.prod(evidence.scale)))
     tolerance = options.boundary_tolerance * scale
     original_labels = labels
+    input_labels = labels
     overlays = ()
     if layers:
         labels, overlays = continued(evidence, labels, options, work)
@@ -177,6 +179,13 @@ def export(
     )
     work.timings["geometry"] = time.monotonic() - started
     return svg, {
+        "planning_surfaces": surface_ownership(
+            evidence,
+            input_labels,
+            frozenset(index for index in outlines if index not in hidden),
+            work,
+            overlays=overlays,
+        ),
         "regions": len(outlines) - len(hidden),
         "gradients": len(ramps),
         "boundary_tolerance": options.boundary_tolerance,

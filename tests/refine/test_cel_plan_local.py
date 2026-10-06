@@ -109,6 +109,11 @@ def test_disjoint_and_overlapping_updates_do_not_mutate_other_beam_states():
     assert initial.canvas.root is final.canvas.root
     assert len(initial.canvas.patches) == 0
     assert len(final.canvas.patches) == 3
+    x = np.array([4, 24, 38, 112, 128])
+    y = np.array([4, 24, 38, 92, 104])
+    np.testing.assert_array_equal(
+        final.canvas.samples(x, y), render(third, (160, 128))[y, x]
+    )
     with pytest.raises(ValueError, match="read-only"):
         branch.canvas.patches[0].pixels[0, 0] = 0
 
