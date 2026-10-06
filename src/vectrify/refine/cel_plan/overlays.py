@@ -42,6 +42,8 @@ MAX_NODES = 6_000
 MIN_AREA = 64
 MAX_ENCLOSURE_PIXELS = 65_536
 ENCLOSURE_SCAN_PIXELS = 262_144
+MAX_ENCLOSURE_HINTS = 64
+MAX_ENCLOSURE_HINT_MEMBERS = 256
 
 
 class ClosedOverlays:
@@ -87,6 +89,9 @@ class ClosedOverlays:
             0,
         )
         self.nesting_rejections: dict[str, int] = {}
+        # Scheduling hints only. A changed state repeats every geometric,
+        # ownership, opacity, restoration and order proof before proposing it.
+        self.enclosure_hints: set[tuple[int, ...]] = set()
 
     def groups(self, state: State, work: Work):
         partition = state.partition
@@ -129,9 +134,13 @@ class ClosedOverlays:
                 geometry = state.document.geometry_for(surface.id)
                 nodes = sum(len(sub.nodes) for sub in geometry.subpaths)
                 if nodes <= MAX_NODES:
-                    priority = 1
+                    priority = -1 if surface.members in self.enclosure_hints else 1
                     boxes = [self.restoration.boxes[i] for i in surface.members]
-                    if len(geometry.subpaths) > 1 and all(b is not None for b in boxes):
+                    if (
+                        priority > 0
+                        and len(geometry.subpaths) > 1
+                        and all(b is not None for b in boxes)
+                    ):
                         x0 = min(b[1].start for b in boxes)
                         x1 = max(b[1].stop for b in boxes)
                         y0 = min(b[0].start for b in boxes)
@@ -158,12 +167,16 @@ class ClosedOverlays:
                     singles.append((priority, -nodes, surface.id))
             ranked = sorted(singles)
             for priority, _nodes, oid in ranked:
-                if priority == 0:
+                if priority <= 0:
                     self.diagnostics["enclosed_priorities"] += 1
+                    if priority < 0:
+                        self.diagnostics["enclosure_revisits"] = (
+                            self.diagnostics.get("enclosure_revisits", 0) + 1
+                        )
                     yield (oid,)
             groups = self.families._groups(state, work, thresholds=(24, 56, 96))
             try:
-                ordinary = [s for s in ranked if s[0]]
+                ordinary = [s for s in ranked if s[0] > 0]
                 for family, single in zip_longest(groups, ordinary):
                     if family is not None:
                         yield family[0]
@@ -375,6 +388,13 @@ class ClosedOverlays:
                     if proposed is None:
                         self.diagnostics["order_exclusions"] += 1
                         continue
+                    if (
+                        model.kind == "ellipse"
+                        and nesting.ids
+                        and len(self.enclosure_hints) < MAX_ENCLOSURE_HINTS
+                        and len(members) <= MAX_ENCLOSURE_HINT_MEMBERS
+                    ):
+                        self.enclosure_hints.add(members)
                     self.diagnostics[f"{model.kind}_proposals"] += 1
                     edited = (*ids, *(e.id for e, _ in continuations), *nesting.ids)
                     self.diagnostics["nested_proposals"] += int(bool(nesting.ids))
@@ -383,7 +403,7 @@ class ClosedOverlays:
                     )
                     holds.update(e.id for e, _ in continuations)
                     holds.add(survivor)
-                    yield Proposal(
+                    proposal = Proposal(
                         "closed-overlay",
                         edited,
                         (model.kind, "gradient" if paint.gradient else "flat", members),
@@ -411,3 +431,19 @@ class ClosedOverlays:
                         dependencies=(parent.id, *neighbors),
                         partition=changed,
                     )
+                    from vectrify.refine.cel_plan.enclosed_paint import proposals
+
+                    yield from proposals(
+                        state,
+                        proposal,
+                        survivor,
+                        nesting,
+                        box,
+                        own,
+                        self.families,
+                        self.options,
+                        work,
+                        self.diagnostics,
+                        rim_paint=paint,
+                    )
+                    yield proposal

@@ -81,6 +81,7 @@ class Operators:
             "family_proposals": 0,
             "reserved_proposals": 0,
             "native_boolean_failures": 0,
+            "composition_parents": 0,
         }
 
     def paint(self, state: State, work: Work):
@@ -329,7 +330,21 @@ class Operators:
                 reserved = [
                     1 + (i + rotation) % reserved_count for i in range(reserved_count)
                 ]
-                for slot in [0] * burst + reserved:
+                slots = [0] * burst + reserved
+                if cycle == 0 and state.edits:
+                    # Give a complementary layer interpretation an opportunity
+                    # before another broad family scan consumes this child's
+                    # discovery window. Every other slot remains in the cycle.
+                    preferred = {
+                        "ink-replacement": 1,
+                        "closed-overlay": 5,
+                        "closed-material": 5,
+                    }.get(state.edits[-1]["operator"])
+                    if preferred is not None:
+                        slots.remove(preferred)
+                        slots.insert(0, preferred)
+                        self.schedule_diagnostics["composition_parents"] += 1
+                for slot in slots:
                     if work.interrupted or not alive:
                         return
                     if slot not in alive:

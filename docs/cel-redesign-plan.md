@@ -36,13 +36,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the owned-ink and closed-mark comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the coupled material and ink comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental owned-ink initialization and validated local search, 60-second budget | 10,121 | 1,660 | 514.67 |
+| Experimental owned material/ink initialization and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -77,6 +77,16 @@ experiment must couple compact closed contours with coherent enclosed paint,
 preserved highlights and supported facet geometry, then measure whether those
 edits can compose within the search budget. A larger ranker cannot supply a
 missing compact drawing.
+
+The coupled closed-contour/material proposal now reaches local evaluation,
+retaining independent highlights and ink. It is not part of the latest selected
+drawing, which contains two ink replacements and remains at 10,009 nodes and
+human error 514.85. A depth-priority search experiment leaves that sword output
+unchanged and substantially worsens western-park lettering on a paired tuning
+control; the experiment was removed. This is evidence against treating search
+priority as the current quality solution. The next model work must address
+broad coherent shade/facet surfaces and their supported boundaries, while the
+candidate audit separates interpretation, admission and selection failures.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local
@@ -627,11 +637,13 @@ tests and exact validation. Canonical-chain reason counts above must not be
 misread as component counts. The initial compact closed-overlay export helper
 runs in the opaque branch. Structural search now also offers owned closed RGBA
 families, with continued neighboring paint, geometric core proofs and primitive
-holds. This closes an operator-availability gap but does not solve the sword:
-its measured prefix excludes every closed candidate before native scoring,
-through topology, restoration bounds or unproved coverage. Complete coherent
-neighboring material and supported nested coverage before concluding that
-primitive models or learned ranking cannot help the jewel/guard interpretations.
+holds. This closes an operator-availability gap but does not solve the sword.
+Earlier prefixes excluded every closed candidate through topology, restoration
+bounds or unproved coverage. The latest coupled material can reach native
+scoring, but its independent audit improves jewel error by only about 1.8% and
+still exceeds 10,000 nodes overall. Complete broader coherent material and
+supported boundaries before treating primitive models or learned ranking as a
+solution to the jewel/guard interpretations.
 
 ### Complete RGBA overlay interpretations
 
@@ -655,10 +667,12 @@ The initial implementation continues neighboring fills rather than adding
 duplicate underpaint outlines. It records hidden source coverage separately
 from primary ownership and uses bounded geometric intersection proofs for
 local order changes. Its synthetic native-alpha cases compact correctly, and
-some tuning contours reach exact acceptance, but the native sword prefix
-offers no closed candidate. Next replace fragmented neighboring material with
-coherent paint models, and distinguish genuine alpha holes from interior opaque
-marks that may remain above a continuing base. Prove that interpretation's
+some tuning contours reach exact acceptance. Later native sword experiments
+also admit a coupled ellipse/gradient interior while retaining highlights, but
+it is absent from the selected drawing and does not meet the structural gate.
+Extend this whole-material reasoning to broad shade/facet surfaces, and
+distinguish genuine alpha holes from interior opaque marks that may remain
+above a continuing base. Prove that interpretation's
 ownership, complete coverage and draw order; do not discard the interior marks
 or merely increase raw neighbor limits to force availability.
 

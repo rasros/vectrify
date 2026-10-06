@@ -96,6 +96,13 @@ method remains experimental and the existing CEL default is unchanged.
   disjoint sibling whose bounding box overlaps, while actual overlaps remain
   barriers. Richer local order inference and nested surface interpretations are
   still unfinished.
+- Closed contours now have a coupled interior-material competitor. Complete
+  owner residuals retain independent highlights, ink and constrained paint;
+  explicit coverage mixtures near their boundaries explain antialias samples.
+  Flat/gradient material and ellipse/contour geometry compete under unchanged
+  native local/full checks. Shared checkpoint budgeting,
+  complementary operator opportunities and bounded enclosure scheduling hints
+  improve access to cumulative edits. They do not establish a sword quality win.
 - Automatic refinement now has a bounded CPU foundation: simplify, fit flat or
   gradient paint, propose edge positions and measured widths, then refit paint.
   Fixed complexity anchors feed the common frontier independently of the
@@ -2251,7 +2258,7 @@ Reproduce the final operation/export comparison with:
 PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
   /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
   --methods cel-planned --seconds 60 \
-  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
   --out .bench/planned-closed-mark-checkpoints
 ```
 
@@ -2344,6 +2351,213 @@ current fixes prove that one ellipse can reach evaluation, not that the pool
 contains a faithful compact sword. A learned ranker and slider UI remain
 dependent on that missing structural milestone.
 
+## Coupled enclosed material and cumulative search
+
+`enclosed_paint.py` extends a proved closed-overlay proposal with a competing
+interior material. The largest eligible owner supplies the initial flat or
+linear RGBA model. Every analyzed source pixel of each eligible whole owner is
+checked against it; an owner with a strong unexplained residual stays separate.
+Fixed source atoms and constrained paint remain separate even when their color
+matches. Complete ownership is retained; no majority mask can claim an entire
+source atom. The operation has no human fixture or sword-specific region input.
+
+The material proposes a compact ellipse or fitted contour from the cavity's
+source boundary, with flat/gradient paint alternatives. Actual retained mark
+geometry must lie inside it, the material must lie inside the proposed rim, and
+its full new footprint must have an actual opaque core when RGBA requires one.
+Retained mark geometry and paint remain unchanged. Secondary covered membership
+is explicit and local order still uses strict disjointness proofs. A composite
+candidate is independently scored before it can become a published checkpoint.
+
+### Source availability diagnosis
+
+`.bench/enclosed-paint-inventory.json` at source hash
+`5b4c010af121892dd76aee987788fea89ecb30c281672d43f49a07cf8c386d29`
+finds 35 interior owners in the source-backed jewel cavity. The largest owns
+705 pixels across 16 original atoms; a shadow owner has 107 pixels and two
+highlight owners have 35 and 33 pixels. This identifies a real whole-material
+opportunity rather than a contour-only replacement.
+
+The first native combined-material run emits no combined candidate and retains
+the previous 10,121-node drawing. Its source-only availability audit,
+`.bench/enclosed-material-availability.json`, uses source hash
+`1580bd58b070da76baa56fb7b63d2786bb212c51e4d4b877e08e04f87aaf473a`.
+The dominant owner's maximum native color residual is 81.1 bytes, while its
+95th percentile is 26.1. A maximum-only material model cannot account for its
+edge samples, and relaxing that maximum would also swallow independent marks.
+
+The retained operator instead tests explicit convex color mixtures between the
+material and its enclosing rim or distinct neighboring owned paint. This is
+restricted to a 1.5-native-pixel boundary band, with compatible modeled alpha.
+An interior residual remains protected; a lone outlier in a matching owner
+cannot serve as its own paint context. All source samples still participate in
+the screen, and all changed native pixels participate in acceptance. Distance
+sampling follows the evidence scale. This changes proposal evidence, not the
+hard policy, score weights, normalizer or frozen sword targets.
+
+Inspection is capped at 65,536 analysis pixels, bounded paint fits at 4,096
+samples and source perimeters at 4,096 vertices. Existing enclosure limits cap
+the owner count at 64 and its original geometry at 6,000 nodes. Each proposed
+material also has a 6,000-node limit. Checks observe stop/deadline between
+contexts, models and native proofs; incomplete work is never published.
+
+### Search composition
+
+Balanced search retains the existing eight evaluated alternatives per parent
+and the 48-evaluation total cap. Following an ink replacement, a closed interpretation receives the first complementary
+opportunity; following a closed interpretation, ink replacement does. Every
+other operator remains in that cycle. These are shared-pool scheduling choices,
+independent of the requested complexity anchor.
+
+A previously feasible enclosed ellipse also supplies a scheduling hint keyed
+by its complete original members. Storage is bounded to 64 hints with at most
+256 members each. Changed parents repeat every ownership, style, core,
+restoration, containment and order proof; no admission decision is cached.
+Tests invalidate an actual core after a hint is recorded and require rejection.
+
+When the pipeline supplies a separate live full-checkpoint budget, local
+discovery now uses its complete allotted phase. Standalone search still keeps
+its own 25% validation reservation. This removes the duplicated reservation;
+the global search deadline, final validation/fitting reserves, minimum full
+checkpoint estimate and cancellation behavior remain. A controlled-clock
+regression proves that a useful proposal in the last quarter is evaluated only
+under the supplied shared reserve and then independently validated.
+
+### Experiments that did not improve the drawing
+
+All native trials below use the frozen sword mask, complexity 50, balanced
+quality, refinement disabled and a 60-second operation budget. No human
+geometry enters proposal generation. The initial three trials isolate proposal
+availability; none selects the combined material.
+
+| Local experiment directory under `.bench/` | Source SHA-256 | Selected nodes / contours | Human MSE | Generation seconds |
+| --- | --- | ---: | ---: | ---: |
+| `planned-enclosed-material` | `1580bd58b070da76baa56fb7b63d2786bb212c51e4d4b877e08e04f87aaf473a` | 10,121 / 1,660 | 514.67 | 53.51 |
+| `planned-enclosed-material-coverage` | `bfd6f4d7d7ec64a46f74e3465235e18339a963a162080e224984a6edabe762ad` | 10,121 / 1,660 | 514.67 | 52.07 |
+| `planned-enclosed-material-mark-coverage` | `6c1c0463607eb3840a0e75993c8a4ad477eeab8f8661a04d4dded13b78062276` | 10,121 / 1,660 | 514.67 | 52.33 |
+| `planned-enclosed-material-composition` | `b85c122dda54a896c4706b3eb553a44095f577072d4de5dc4febc0b63f7d4586` | 10,009 / 1,630 | 514.85 | 51.82 |
+| `planned-enclosed-material-revisits` | `e59339fd8f688b77b3a7ebb6969e666e4a0e9609dc78fa450cc47f741d94c4ac` | 10,009 / 1,630 | 514.85 | 54.49 |
+| `planned-enclosed-material-shared-reserve` | `6c1b192674c16a6b7745cb764f13af756dc7e7540ec1a255982976f3eca52dc3` | 10,009 / 1,630 | 514.85 | 54.11 |
+| `planned-enclosed-material-priority-depth` | `89b5c21da059b7ccf010a7b75342a4d15f43050364c83fc4b239dd402a5704c6` | 10,009 / 1,630 | 514.85 | 51.50 |
+
+The mark-coverage interpretation allows one combined material candidate to
+reach native local evaluation. It saves 387 representation cost and increases
+native visual error by about 0.000248, improving the objective at anchors
+0/25/50. Hints and the shared reserve allow another such candidate on a parent
+with one ink replacement. The selected five-expansion trial instead contains
+two ink replacements, costs 20,055 and has 31 gradients. Its human
+blade-tip/facets/guard/wrapping/jewel errors are
+560.66/254.12/1,167.78/882.61/1,332.64. The jewel remains fragmented; this is
+not a whole-surface quality win. It has zero crossings and native policy
+rejections and still fails every numerical sword target.
+
+The depth-priority experiment immediately bounded the beam after expanding one
+parent, usually following the fixed anchor 50 and rotating other fixed anchors
+every third turn. A controlled-clock native test reached three cumulative
+edits, and another retained a useful faithful branch behind a rejected prefix.
+The full 523-test relevant suite passed in 48.55 seconds. This verifies
+mechanics, not quality. At native sword size the four parent expansions still
+exhausted discovery before a combined material entered the selected drawing;
+16 evaluations led to 12 local acceptances and four independent checkpoints,
+with zero score disagreements. The output PNG is unchanged from the previous
+two-ink result.
+
+At the same existing four half-opacity tuning inputs, 192-pixel long side,
+20 seconds, complexity 50, balanced quality and refinement disabled, the
+priority schedule regresses western-park clean MSE from 178.72 to 204.43 and
+lettering from 483.85 to 683.50, while saving 63 representation cost. Its
+same-cost oracle gap grows from zero to 9.00. The other outputs are anime-girl
+177 nodes/cost 327/MSE 178.09, anime-face 175/271/206.73 and rubberhose-band
+407/765/167.85. Every case reaches 48 evaluations and four full checkpoints,
+with complete diagnostic pools and zero score disagreements. Line F1 remains
+0.270/0.600/0.652/0.641; measured feature failures persist. The prior
+five-expansion schedule also worsened anime-girl eye error from 842.31 to
+928.92. These regressions are recorded, not treated as acceptable progress.
+
+The priority experiment and the five-evaluation per-parent change were removed.
+Final production search retains the established eight-evaluation parent
+expansion. The coupled material, complementary operator opportunity, bounded
+source-membership hints and corrected checkpoint reservation remain for final
+validation. Scheduling changes cannot substitute for useful interpretations or
+calibrated feature selection. No policy threshold, score weight, normalizer,
+release gate or default method was changed.
+
+### Final source and candidate audit
+
+The retained source hash is
+`84fe778a9e7da258a8ed9b73f445422bc4b4da5ed4052f6fc6d89e1050739c02`.
+The final native run in `.bench/planned-enclosed-material-original-width`
+uses the same settings and mask as the table above and takes 52.45 seconds.
+It selects the same two-ink drawing: 10,009 nodes, 1,630 contours, 1,577 paths,
+31 gradients, cost 20,055 and human MSE 514.85. There are zero crossings or
+native policy rejections. Twelve local evaluations lead to nine acceptances
+and four full checkpoints with zero score disagreements. Local search and
+validation take 21.04 seconds, including 4.15 seconds for the full checkpoints.
+Only one combined material is emitted before discovery expires. The drawing
+has 4.33 times the legacy node count and more than twelve times the gate's
+node limit. The nominal slider budget and all frozen targets are unchanged.
+
+Reproduce the retained native and paired runs with the commands above, using
+`.bench/planned-enclosed-material-original-width` and
+`.bench/planned-enclosed-material-original-width-rgba-pairs` respectively.
+The four final half-opacity tuning inputs have identical source, clean and
+mask hashes to the prior controls, and all selected drawing PNGs are
+byte-identical to `.bench/planned-closed-mark-checkpoints-rgba-pairs`.
+
+| Final tuning variant | Nodes / cost | Clean MSE | Same-cost oracle gap | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 15.60 | 10.36 |
+| Anime face | 176 / 272 | 206.86 | 0.25 | 15.85 |
+| Western park | 547 / 987 | 178.72 | 0 | 9.19 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.39 | 11.77 |
+
+All four again reach 48 local evaluations and four full checkpoints, with
+complete diagnostic pools and zero score disagreements. Feature scores and
+line F1 are restored exactly. These unchanged controls remove the observed
+scheduling regressions; they do not establish a quality or runtime improvement.
+
+A separate source-only availability audit in
+`.bench/enclosed-material-candidate-audit/summary.json` reconstructs immutable
+evidence, the owned initialization and the native policy using a 180-second
+diagnostic limit. It evaluates the first combined material independently and
+only then compares it with the human fixture. This is an availability check,
+not a matched-effort selection result. The candidate is native-valid and
+compacts 32 interior paths into an ellipse with a gradient, retaining the two
+highlight owners. It reduces the core initialization from 10,286 to 10,115
+nodes and cost 20,818 to 20,431. Human MSE decreases from 512.81 to 511.84;
+jewel error decreases from 1,302.62 to 1,279.26. Other measured feature errors
+are unchanged. The raster agrees exactly with the native local update; the
+largest full/local score-term difference is 2.31e-10, within the existing
+checkpoint tolerance. The candidate still fails all numerical sword targets
+and makes only a small local improvement. It is not the published drawing.
+
+The audit also tests the possible straight-chain corner blocker without
+changing generation. Of 21,454 bounded open source chains, 5,283 already meet
+the current straight-distance and monotonicity bounds. Fourteen are rejected
+by the raw corner classifier; smoothing removes only seven exclusions, all
+with endpoint spans under twelve native pixels. This does not substantiate a
+claim that staircase-corner filtering blocks long facets. Leave that classifier
+unchanged until a representative supported case demonstrates the need.
+
+The next structural milestone therefore needs broad material/shade proposals
+and supported boundaries across fragmented graph junctions, with explicit
+whole-atom ownership or canonical atom splits. Continue comparing available
+compact candidates with production selection and protected feature crops.
+Neither a larger ranker, a deeper beam, nor a slider mapping supplies that
+missing drawing. General joint fitting, calibration and release evaluation
+remain open.
+
+### Retained-source verification
+
+After removing the unsuccessful scheduling experiments, the full relevant
+planner, legacy CEL, shared fitting, operation and benchmark suite passes
+521 tests in 49.57 seconds. This includes 12 new enclosed-material cases and
+five new composition/checkpoint-reservation cases. Ruff lint passes and all
+59 checked files are formatted. Project Pyrefly reports zero errors and 61
+existing warnings; its configured exclusions omit tests, which are exercised
+by pytest. The final native benchmark, paired controls and source-only
+candidate audit all record the same retained source hash above.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -2352,7 +2566,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | Region splits, richer surface/paint interpretations beyond the initial owned family merges, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
+| 3 | Region splits, broader coherent surface/paint interpretations beyond owned family and enclosed-material proposals, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
 | 4 | Fitting variable-width filled ink beyond retained unions, broader stroke replacement/underlayer coverage, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |

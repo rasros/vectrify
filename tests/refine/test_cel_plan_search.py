@@ -116,6 +116,32 @@ def color(document, oid, value):
     return editor.snapshot.document
 
 
+@pytest.mark.parametrize("shared", [False, True])
+def test_shared_checkpoint_reserve_keeps_useful_tail_discovery_time(
+    shared, monkeypatch
+):
+    frontier, _, options = setup()
+    tick = [0.0]
+    monkeypatch.setattr(beam.time, "monotonic", lambda: tick[0])
+    phase, checkpoint = Work.start(4), Work.start(8)
+
+    def edits(state, work):
+        if state.edits:
+            return
+        yield proposal(state, "left", "#b05030")
+        tick[0] = 3.8
+        if not work.interrupted:
+            yield proposal(state, "right", "#409080")
+
+    report = search(
+        frontier, options, phase, edits, checkpoint_work=checkpoint if shared else None
+    )
+    assert report["accepted"] == (2 if shared else 1)
+    assert report["checkpointed"] == (2 if shared else 1)
+    assert report["score_disagreements"] == 0
+    assert frontier.policy.evaluate(frontier.select(50).svg).valid
+
+
 def proposal(state, oid, value, *, operator="paint", parent=None):
     document = color(state.document, oid, value)
     return Proposal(
@@ -235,6 +261,43 @@ def test_compaction_burst_keeps_each_reserved_operator_opportunity(
     assert operators.schedule_diagnostics["family_proposals"] == burst
     assert operators.schedule_diagnostics["reserved_proposals"] == 5
     assert operators.schedule_diagnostics["compaction_parents"] == (pressure > 1.25)
+
+
+@pytest.mark.parametrize(
+    ("previous", "first"),
+    [
+        ("ink-replacement", "overlays"),
+        ("closed-overlay", "replacements"),
+        ("closed-material", "replacements"),
+    ],
+)
+def test_composition_opportunity_keeps_every_other_operator_in_the_cycle(
+    previous, first, monkeypatch
+):
+    frontier, evidence, options = setup()
+    entry = frontier.entries[0]
+    state = State(
+        import_svg(entry.svg),
+        entry.svg,
+        beam.LocalPolicy(frontier.policy).start(entry.svg, entry.evaluation),
+        entry.key,
+        {},
+        edits=({"operator": previous},),
+    )
+    operators = Operators(evidence, build(evidence), options)
+    names = ("families", "overlays", "paint", "geometry", "ink", "replacements")
+    for name in names:
+
+        def edits(state, _work, name=name):
+            yield proposal(state, "left", "#b05030", operator=name)
+
+        monkeypatch.setattr(operators, name, edits)
+    iterator = operators(state, Work.start(10))
+    cycle = list(islice(iterator, 6))
+    iterator.close()
+    assert cycle[0].operator == first
+    assert sorted(p.operator for p in cycle) == sorted(names)
+    assert operators.schedule_diagnostics["composition_parents"] == 1
 
 
 def test_node_ceiling_can_prioritize_compaction_without_changing_acceptance(
