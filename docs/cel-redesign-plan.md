@@ -6,6 +6,8 @@ This is an implementation plan. The experimental method remains separate from th
 
 The recommended overhaul has three parts: CEL supplies ink and silhouette evidence; color segmentation supplies surface and shading evidence; a structural planner chooses an editable drawing from both. Automatic path optimization follows those choices. A small learned model may later rank the planner's proposals, after the deterministic version establishes a measurable baseline. The complexity slider controls the drawing's representation cost; quality controls how much time the planner spends finding it.
 
+The implementation status and measured experiments live in [CEL redesign progress](cel-redesign-progress.md). This plan defines the intended behavior and completion gates; experimental code is not evidence that those gates have passed.
+
 ## Evidence and success criteria
 
 The completed sword fixture merged on 6 October 2026 contains 80 paths, 93 contours, 523 nodes and six gradients. The current default CEL output contains 137 paths, 339 contours, 2,312 nodes and 24 gradients. Requesting 12 regions still produces 64 visible regions because protected shadows and features are exempt from the target. The default budget uses canvas area even though only about 10% of the sword reference is foreground.
@@ -25,6 +27,18 @@ The current development prototype is evidence for the next steps, not a complete
 The small difference between the original diagnostic's 663.19 and the operation benchmark's 663.31 comes from its rendering/export path. Freeze the operation benchmark, mask and renderer for future comparisons, and retain the conservative 497.39 target. Version source hashes as well as commits for experiments on a dirty worktree.
 
 Prioritize cleaner boundary interpretations and local ink/feature preservation before further aggressive merging. Do not use this prototype to justify default migration. In particular, accepting `refine` or a budget setting in the operation schema does not complete that setting until it changes behavior and has validation evidence.
+
+A later structured candidate measured 449 nodes, 87 contours and human-reference MSE 744.49. When additional merge candidates finished, the score instead selected 329 nodes and MSE 816.46. Both fail the human-match target. Time-limited searches completed different candidate sets, so these runs cannot establish a quality improvement at equal search effort. The guard, jewel and blade-tip crops show why global counts are insufficient:
+
+| Observation | Likely mechanism to investigate | Required competing proposal |
+| --- | --- | --- |
+| Small shade fragments remain within broad blade facets | Segmentation retains raster variation; curve fitting preserves its bends | One coherent shade surface with straight facet boundaries and a preserved tip |
+| Ink breaks around the guard and jewel | Initial line detection, region boundaries and later ink reconstruction disagree | Continuous locally supported ink, with a filled mark when stroke width varies |
+| The jewel remains subdivided despite its compact outline | Whole-shape proposals depend on fragmented region families | A closed compact outline fitted from boundary evidence across adjacent shades |
+| Lower-cost output scores well while human resemblance worsens | The visual score and detail penalty may reward the wrong simplification | Individually validated edits and score calibration against clean paired targets |
+| Selected output changes with the completed search prefix | Candidate availability changes under the deadline | A recorded common frontier, deterministic proposal order and explicit search completion status |
+
+These are development hypotheses, not semantic rules for recognizing swords. Test each mechanism on synthetic and tuning artwork. A learned ranker cannot choose a clean facet or continuous outline if the proposal generator never offers it.
 
 ## Product and API decisions
 
@@ -97,6 +111,16 @@ Use a two-stage proposal test. An inexpensive local estimate prioritizes edits; 
 
 For the initial search, cap the beam at one, four and eight states for fast, balanced and high quality. Start with exact local evaluation caps of 16, 48 and 128 proposals per run, subject to the deadline; measure and revise these caps on the tuning corpus. Do not spend that allowance only on merges. Reserve proposals for stroke interpretation, boundary geometry and paint models. Beam states must share immutable evidence, while graph edits and geometry are independently owned. Deterministic ordering breaks ties by operator and stable region/boundary IDs.
 
+### Local proposal contract
+
+Each proposal records its operator, stable planning IDs, parent revision, affected geometry and paint, native-coordinate bounds, representation delta and evidence features. Its affected area includes the union of old and new visible bounds, stroke expansion, renderer antialiasing, score filter support and dependent layers. A gradient or order change can affect an entire shape; evaluating only its boundary is insufficient.
+
+Render before and after with the same surrounding layers and coordinate mapping. Compute changed score contributions using the full policy's fixed denominators. Update cached feature contributions and their worst-feature aggregate; do not normalize a crop independently or average away damage to one feature. Count representation changes over the complete plan. Cheap graph estimates determine evaluation order, while exact local objective improvement determines whether an edit enters a working beam state.
+
+Keep a separate fully validated checkpoint. Before publishing a beam state to the frontier, export and render the complete candidate and run document, coverage, topology, shared-edge and feature checks. If the local estimate disagrees with full scoring, reject the checkpoint and record the disagreement. This also tests whether crop margins or dependency tracking are incomplete.
+
+Rejected proposals are reusable only while their dependency revisions and relevant settings remain unchanged. Cache by neighborhood revisions, operator parameters and score version, with a bounded entry count. Changes to a shared edge invalidate both adjacent regions and their ink; changes to draw order invalidate affected visibility dependencies. A candidate owns its edited geometry so rollback never mutates another beam state.
+
 Stroke-versus-fill proposals compare local width variation, paired-edge support, junction topology and ink color. Keep tapered or strongly varying marks as filled ink shapes when constant-width strokes cannot explain them. Estimate ink and width locally rather than forcing one global style. For joins, measure tangent continuity and evidence across the entire connecting gap; reject unsupported bridges even when endpoints are close. A continuous exterior stroke is a competing interpretation only where ink supports it, including separate decisions for holes.
 
 For boundary fitting, retain evidence-supported corners and graph junctions as fixed anchors. Compare straight runs, cubic fits and unrestricted contours between anchors. An ellipse proposal needs low fit residual, stable support at multiple scales and no supported corner that it would remove. The accepted model's constraint remains active during later refinement. These operators address the sword's straight blade facets, pointed tip and compact jewel without naming or recognizing those objects in algorithm code.
@@ -123,9 +147,11 @@ Hard validation rejects nonfinite geometry, new unintended self-crossings, broke
 
 ### Initial score and slider implementation
 
-Start with representation cost `C = nodes + 4 × contours + 2 × paths + 12 × gradients`. Count every contour inside a compound path and every rendered use of reused geometry; exclude unused definitions. Report the raw counts alongside this cost. These weights are initial engineering choices to calibrate on the tuning set, not inferred human preferences.
+Start with representation cost `C = nodes + 4 × contours + 2 × (paths + primitive objects) + 12 × gradients`. Primitive objects are visible SVG elements such as rectangles, circles and ellipses that do not store path nodes; they still pay object and contour costs. Compact models exported as ordinary paths pay their actual path/node costs. Count every contour inside a compound path and every rendered use of reused geometry; exclude unused definitions. Report the raw counts alongside this cost. These weights are initial engineering choices to calibrate on the tuning set, not inferred human preferences.
 
 Normalize cost by a reference-dependent structural estimate `C₀` computed once from the detailed candidate and foreground evidence, with a positive lower bound for empty or tiny images. Keep that normalizer fixed across slider levels and search states. Use `λ(c) = λ₅₀ × 2^((50 − c)/25)` as the initial detail-penalty schedule. Calibrate `λ₅₀` against the tuning corpus, freeze it with the score version, and do not tune it against held-out human drawings. Derive a soft representation budget from the same structural estimate; it increases with complexity and excludes transparent padding. Mandatory features establish a budget floor. A requested node ceiling is a separate, explicitly reported constraint.
+
+Use `B(c) = max(B_min, C₀ × 2^((c − 100)/50))` as the initial soft-budget schedule: one quarter, one half and one detailed-reference cost at complexity 0, 50 and 100 before the mandatory-feature floor. Estimate `B_min` from the simplest validated interpretation that preserves mandatory coverage and features. This is a search target to calibrate, not permission to remove features or a promised node count. Report the target and achieved cost. Frontier selection remains governed by the common objective; a positive `node_budget` adds its separately documented feasibility rule.
 
 Make the visual score's terms executable and separately inspectable:
 
@@ -140,6 +166,16 @@ Normalize each term by its fixed evidence support, not by the candidate's area o
 Build one nondominated frontier using visual score and representation cost. For a fixed evidence/settings key, choose candidates by `visual score + λ(c) × C/C₀`, breaking ties toward lower cost. This gives a consistent ordering of total cost as complexity increases. Prune dominated candidates only after exact validation. Keep at most 12 frontier candidates and three user-facing alternatives; retain a valid baseline even if it is dominated so interrupted runs have a known fallback. A separately generated frontier for each slider level cannot establish the promised ordering.
 
 Generate the shared frontier from a bounded range of merge penalties and geometry tolerances, including the five slider checkpoints, then evaluate its candidates under the common score. Complexity-dependent proposal settings cannot change the scoring evidence or normalizer. With an explicit tolerance override, use that tolerance for all those candidates. Test monotonic selection against the same frozen frontier; do not compare unrelated time-limited searches and claim a monotonicity guarantee.
+
+Refinement proposals also enter the common frontier before it is published. For a cached slider preview, reselect from that frozen frontier and expose its version. Independent fitting of each selected slider result creates different candidate sets and therefore does not support a monotonic cost promise. A later Generate run may extend the frontier; report the new version and completed search stages. Quality and time limits can change candidate availability, but do not change what complexity means.
+
+### Score calibration and candidate diagnosis
+
+Separate three failures before changing the score or training a model. Candidate coverage fails when no generated proposal resembles the clean target. Candidate selection fails when such a proposal exists but the production objective selects a worse one. Search scheduling fails when the useful proposal exists in a longer run but is unavailable at the matched deadline. Record the best clean-target result within each generated candidate pool as a benchmark-only oracle; it never guides production generation.
+
+For tuning, retain clean target renders, all exactly evaluated candidates, production score terms, local feature metrics, representation counts and elapsed search effort. Compare production selection with the oracle at each complexity checkpoint. Inspect explicit conflicts such as a smooth but missing outline, lost small mark, flattened intentional gradient, or retained injected noise. Correct evidence and operator coverage before attempting to learn an ordering over inadequate candidates.
+
+Declare the calibration grid in a versioned benchmark artifact before running it. Include color/alpha/edge/feature weights, geometric regularization, the detail penalty and soft-budget schedule. Choose parameters by aggregate clean-target quality subject to per-case feature, hole, coverage and line gates, then representation cost; do not optimize only the pooled average. The current initial weights supply the center of this grid, not a trained policy. Run each configuration against the same candidate pools for selection diagnosis, then rerun bounded search to measure the effects on proposal generation and runtime. Freeze the chosen grid result, metric tolerances and score version before held-out evaluation.
 
 ## Automatic refinement and runtime
 
@@ -166,6 +202,16 @@ The shared-frontier cache omits the selected complexity, but includes quality/se
 Assign an initial 96 MiB limit to immutable evidence and a separate 64 MiB limit to candidate/preview data. Bound analysis to a 1,536-pixel long side; use source-resolution crops for thin features and final checks. Use at least 10% of the run budget for validation, with a measured minimum needed to export and render one candidate. Do not begin another fitting round if it would consume that reserve. Check cancellation during graph loops, proposal evaluation and optimizer iterations, not only at stage boundaries. Measure uncancellable renderer/export calls and report their deadline overshoot explicitly.
 
 Maintain `best_validated` separately from the current working state. A stopped or failed optional fitting step returns that checkpoint; a partially edited graph never becomes a preview. Disabling refinement still runs structural planning, paint selection and final validation. The CPU path provides geometric simplification, local paint fitting and bounded proposal search. Optional PyTorch fitting is an additional stage, with a single owner of the existing GPU admission gate for each accelerated section. It must not acquire that gate again inside helpers or hold it during CPU evidence/search.
+
+### Refinement acceptance and fallback
+
+Every refinement stage proposes an independently owned document, preserves fixed corners, junctions and accepted compact-model constraints, and uses the same objective and validation policy as planning. CPU paint fitting compares flat and gradient candidates locally, charging the gradient's actual representation cost. Geometry fitting runs on connected spatial groups, followed by a paint refit because changing coverage changes the fitted color. An explicit line-width override stays fixed. Automatic width changes require local evidence and bounded exact acceptance.
+
+Reuse the joint fitter's injected score callback for exact checkpoints rather than its legacy raster-MSE acceptance. Preserve the manual operation's existing defaults. Until compact models can be optimized in their own parameter space, hold their constrained geometry fixed during unrestricted fitting. Follow shared-edge links after a geometry change and reject the result if the links or anchored junctions no longer agree.
+
+Record whether refinement was disabled, completed, interrupted, skipped for lack of time, or limited by missing optional dependencies. Also record attempted and accepted edits and before/after objective values. A returned checkpoint need not improve in every run, but an accepted refinement cannot worsen the defined objective or break a hard gate. A constant `refinement_complete: false` does not implement this contract.
+
+Produce and independently validate a conservative CEL-derived fallback before expensive search. Preserve partial opacity and intentional holes in that path, and test it in transformed target groups. If the structured initial candidate fails, try this fallback without weakening hard checks. If neither can be validated, report generation failure with its reasons and leave the document unchanged. Cancellation before a checkpoint remains cancellation. A deadline before a checkpoint must not publish unfinished geometry; report the unavailable result and measured unavoidable overshoot. Once a checkpoint exists, stop or optional-stage failure returns it.
 
 ## Small learned planning model
 
@@ -245,6 +291,27 @@ Complete the deliveries in order of their dependencies, with these explicit deci
 8. Collect independent review and held-out evidence. Promote the new UI default only after the gates pass; retain the explicit legacy API method and an easy default rollback.
 
 Each delivery records changed files, reproducible commands, settings, input/mask/source hashes, results and remaining failures. A test passing, a schema accepting a setting, or a small SVG is not by itself evidence that an entire delivery is complete.
+
+### Next implementation changes
+
+Continue from the experimental package in the following order. These changes complete missing behavior within the eight deliveries; they do not replace their broader release gates.
+
+| Change | Main code boundary | Evidence required to retain it |
+| --- | --- | --- |
+| Complete the paired tuning runner and candidate logs | `scripts/cel_pairs.py`, a paired benchmark runner, `scripts/bench_data/planned_pairs.json` | Reproducible clean/degraded hashes, artwork-family split, native masks, baseline line/feature metrics and all evaluated candidate scores |
+| Correct fallback, opacity and coordinate handling | `cel_plan/evidence.py`, `export.py`, `pipeline.py` and the generate operation | Empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope apply/export/reload checks |
+| Replace bundled proposals with individual exact acceptance | `cel_plan/planning.py`, `policy.py`, `frontier.py` | Accepted and rejected local edits agree with complete renders; rollback preserves shared geometry; proposal caps and stop work within loops |
+| Complete the CPU refinement path | A focused `cel_plan/refine.py`, existing simplify/shared/paint helpers | Refinement on/off changes behavior; accepted edits improve or retain the common objective; primitive anchors, explicit width and best-checkpoint semantics survive |
+| Diagnose and improve facets, ink and compact outlines | `cel_plan/geometry.py`, `ink.py`, `strokes.py`, `layers.py` | Candidate-pool/oracle diagnosis, native feature crops, variable-width alternatives, supported joins and passing sword development gates |
+| Calibrate scoring and complete common-frontier caching | `cel_plan/policy.py`, `frontier.py`, `model.py`, `pipeline.py` | Frozen tuning grid, cost progression on one frontier, padding/resizing checks, target/achieved budgets, bounded memory and reference/scope invalidation |
+| Add optional joint fitting and spatial scheduling | `cel_plan/refine.py`, `joint.py`, `gpu.py` | CPU works without Torch; gate contention is cancellable; exact acceptance, minimum spatial opportunities and measured runtime/memory limits |
+| Expose and document the stable contract | Generate UI, MCP `generate`, operation docs | Slider/quality/overrides round trips, preview invalidation, truthful counts and alternatives, one Apply/undo flow |
+| Run the ablations and decide whether ranking needs ML | Benchmark tools and optional versioned ranker | Matched runtime and evaluation counts, operator coverage separated from selection error, measured benefit meeting the learned-model gate |
+| Complete release evaluation | Held-out suite, review artifacts and default configuration | Fresh held-out results, independent blind review and all coverage/feature/editing gates before default migration |
+
+The paired tuning runner comes first because both local acceptance and automatic fitting need an independent quality check. CPU refinement can then proceed alongside structural work, but the sword milestone still depends on useful interpretations being proposed and selected. UI integration waits for real refinement and budget behavior rather than advertising schema-only controls. Learned ranking remains a conditional branch after deterministic ablations.
+
+For routine development, run the focused evidence/policy/frontier/operator tests and operation apply/stop/reload checks. Use `scripts/bench_cel_planned.py` for the native sword comparison and save its SVGs, feature crops and source/mask hashes. Its current `--check` covers the numerical sword targets only; extend it with the documented local-feature, hole and coverage gates before treating that exit status as full acceptance. Run full-corpus and hardware-sensitive benchmarks separately, with the same completed proposal effort or a clearly stated matched deadline.
 
 ## Main risks and responses
 
