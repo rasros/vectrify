@@ -256,9 +256,17 @@ def search(
     options: Options,
     work: Work,
     proposals: Callable[[State, Work], Iterator[Proposal]],
+    *,
+    checkpoint_work: Work | None = None,
+    minimum_checkpoint_seconds: float = 0,
 ) -> dict:
-    """Accept individual local improvements; publish only complete checkpoints."""
+    """Accept local edits; publish full checkpoints within their live reserve.
+
+    A pipeline can supply its remaining global search time for checkpoints
+    after the bounded local phase expires. Cancellation still prevents publish.
+    """
     started = time.monotonic()
+    validation_work = checkpoint_work or work
     width, limit = LIMITS[options.quality]
     decisions = []
     attempted = accepted = cached = bounded = scanned = bounded_expansions = 0
@@ -558,7 +566,12 @@ def search(
     checkpoints = 0
     disagreements = 0
     for state in states:
-        if not state.edits or work.interrupted:
+        if (
+            not state.edits
+            or work.stop.is_set()
+            or validation_work.interrupted
+            or validation_work.remaining < minimum_checkpoint_seconds
+        ):
             continue
         began = time.monotonic()
         frontier.checkpoint(
@@ -580,7 +593,9 @@ def search(
             ["local-raster-disagreement"],
         ):
             disagreements += 1
-        if work.remaining <= validation_seconds / checkpoints:
+        if validation_work.remaining <= max(
+            minimum_checkpoint_seconds, validation_seconds / checkpoints
+        ):
             break
     return {
         "status": "interrupted"
@@ -602,6 +617,9 @@ def search(
         "evaluation_limit": limit,
         "beam_states": len(states),
         "checkpointed": checkpoints,
+        "checkpoint_scope": "shared-search"
+        if checkpoint_work is not None
+        else "local-phase",
         "score_disagreements": disagreements,
         "rejection_cache_entries": len(cache.values),
         "dependency_index_entries": len(cache.indices),

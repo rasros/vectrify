@@ -14,6 +14,7 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.model import Work
 
 MAX_PROOFS = 16
+MAX_GROUP_PROOFS = 64
 MAX_NODES = 6_000
 
 
@@ -55,7 +56,20 @@ def ordered(
         )
         paths[oid] = curve_path(shape, style["fill-rule"])
         native[oid] = bounds(document, document, (oid,))
-    proofs = 0
+    # A group of enclosed marks often crosses the same unrelated paint cells.
+    # Prove the union of actually crossing marks disjoint once per child, instead of
+    # exhausting the bound on repeated mark/child pairs. If the union overlaps,
+    # preserve the original individual proof; union overlap is not a waiver.
+    nodes = sum(len(s.nodes) for s in footprint.subpaths) + sum(
+        len(s.nodes) for oid in marks for s in document.geometry_for(oid).subpaths
+    )
+    if nodes > MAX_NODES:
+        diagnostics["order_proof_limits"] += 1
+        return None
+    group_disjoint: dict[str, bool] = {}
+    child_paths: dict[str, pathops.Path] = {}
+    group_proofs = 0
+    pair_proofs = 0
     for oid in sorted(moving, key=positions.__getitem__):
         for child in children:
             if work.interrupted:
@@ -65,6 +79,11 @@ def ordered(
             if (positions[oid] < positions[child.id]) == (
                 target[oid] < target[child.id]
             ):
+                continue
+            if group_disjoint.get(child.id):
+                diagnostics["order_proof_reuses"] = (
+                    diagnostics.get("order_proof_reuses", 0) + 1
+                )
                 continue
             if child.tag != "path":
                 return None
@@ -76,22 +95,55 @@ def ordered(
                 continue
             style = path_style(document, child)
             shape = document.geometry_for(child.id)
-            if (
-                proofs >= MAX_PROOFS
-                or sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES
-            ):
+            if sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES:
                 diagnostics["order_proof_limits"] += 1
                 return None
             if style["stroke"] != "none" or child.get("clip-path", "none") != "none":
                 return None
-            proofs += 1
+            if child.id not in child_paths:
+                shape = transformed_geometry(
+                    shape, multiply(inverse, root_matrix(document, child.id))
+                )
+                child_paths[child.id] = curve_path(shape, style["fill-rule"])
+            child_path = child_paths[child.id]
+            if child.id not in group_disjoint:
+                if group_proofs >= MAX_GROUP_PROOFS:
+                    diagnostics["order_proof_limits"] += 1
+                    return None
+                group_proofs += 1
+                diagnostics["order_proofs"] += 1
+                diagnostics["order_group_proofs"] = (
+                    diagnostics.get("order_group_proofs", 0) + 1
+                )
+                # Only objects whose order changes relative to this child
+                # belong in its proof. Including a stationary enclosing base
+                # can falsely defeat a shared proof for disjoint inner marks.
+                crossing = [
+                    item
+                    for item in sorted(moving, key=positions.__getitem__)
+                    if (positions[item] < positions[child.id])
+                    != (target[item] < target[child.id])
+                ]
+                combined = paths[crossing[0]]
+                for item in crossing[1:]:
+                    if work.interrupted:
+                        return None
+                    combined = pathops.op(combined, paths[item], pathops.PathOp.UNION)
+                overlap = pathops.op(combined, child_path, pathops.PathOp.INTERSECTION)
+                group_disjoint[child.id] = abs(overlap.area) <= 1e-8
+                if group_disjoint[child.id]:
+                    continue
+            if pair_proofs >= MAX_PROOFS:
+                diagnostics["order_proof_limits"] += 1
+                return None
+            pair_proofs += 1
             diagnostics["order_proofs"] += 1
-            shape = transformed_geometry(
-                shape, multiply(inverse, root_matrix(document, child.id))
+            diagnostics["order_pair_proofs"] = (
+                diagnostics.get("order_pair_proofs", 0) + 1
             )
             overlap = pathops.op(
                 paths[oid],
-                curve_path(shape, style["fill-rule"]),
+                child_path,
                 pathops.PathOp.INTERSECTION,
             )
             if abs(overlap.area) > 1e-8:

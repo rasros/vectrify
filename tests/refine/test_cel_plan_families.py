@@ -394,7 +394,7 @@ def test_supported_ridge_cannot_be_removed_by_a_weak_alternate_route():
     assert factory.diagnostics["shade_boundaries"] == 0
 
 
-@pytest.mark.parametrize("limit", ["points", "proofs", "short"])
+@pytest.mark.parametrize("limit", ["points", "proofs", "fragments"])
 def test_unresolved_strong_boundaries_remain_protected(limit, monkeypatch):
     evidence = stripes()
     _frontier, state, options = prepared(evidence)
@@ -404,6 +404,7 @@ def test_unresolved_strong_boundaries_remain_protected(limit, monkeypatch):
     elif limit == "proofs":
         monkeypatch.setattr(families, "MAX_BOUNDARY_PROOFS", 0)
     else:
+        monkeypatch.setattr(families, "MAX_FRAGMENT_PROOFS", 0)
         graph = replace(
             graph,
             boundaries=tuple(
@@ -414,6 +415,22 @@ def test_unresolved_strong_boundaries_remain_protected(limit, monkeypatch):
     assert list(factory._groups(state, Work.start(10))) == []
     assert factory.diagnostics["ridge_proofs"] == 0
     assert factory.diagnostics["unresolved_boundaries"] == 7
+
+
+def test_short_monotone_contacts_can_propose_a_coherent_surface():
+    evidence = stripes()
+    _frontier, state, options = prepared(evidence)
+    graph = strong_boundaries(build(evidence))
+    graph = replace(
+        graph,
+        boundaries=tuple(
+            replace(edge, points=edge.points[:4]) for edge in graph.boundaries
+        ),
+    )
+    factory = Families(evidence, graph, options)
+    assert any(len(ids) == 8 for ids, _ in factory._groups(state, Work.start(10)))
+    assert factory.diagnostics["shade_fragments"] == 7
+    assert factory.diagnostics["protected_fragments"] == 0
 
 
 def test_interrupted_ridge_proof_is_not_cached_as_a_shade_boundary(monkeypatch):

@@ -22,6 +22,7 @@ from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
+from vectrify.refine.cel_plan.boundary_evidence import shade_fragment
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.layer_order import ordered
@@ -43,6 +44,10 @@ MAX_FAMILIES = 24
 MAX_GROUPS = 96
 MAX_BOUNDARY_PROOFS = 512
 MAX_BOUNDARY_POINTS = 2_048
+MAX_FRAGMENT_PROOFS = 4_096
+MAX_INK_CONTACTS = 4_096
+MAX_INK_SAMPLE_PIXELS = 65_536
+INK_COLOR_SPREAD = 24.0
 THRESHOLDS = (12, 28, 56)
 
 
@@ -80,12 +85,27 @@ class Families:
         self.evidence, self.graph, self.options = evidence, graph, options
         self.boxes = find_objects(graph.labels + 1, max_label=len(graph.regions))
         self.ridges: dict[int, bool] = {}
+        self.fragments: dict[int, bool] = {}
+        self.ink_contacts: set[int] = set()
+        self.ink_consistency: dict[int, bool] = {}
+        ink_pixels = np.bincount(
+            graph.labels.ravel(),
+            weights=evidence.drawn.ravel(),
+            minlength=len(graph.regions),
+        )
+        self.ink_regions = (
+            ink_pixels >= np.array([max(1, r.area) for r in graph.regions]) * 0.6
+        )
         self.light: np.ndarray | None = None
         self.diagnostics = {
             "ridge_proofs": 0,
             "supported_ridges": 0,
             "shade_boundaries": 0,
             "unresolved_boundaries": 0,
+            "fragment_proofs": 0,
+            "shade_fragments": 0,
+            "protected_fragments": 0,
+            "compatible_ink_contacts": 0,
             "nested_proposals": 0,
             "nested_crop_limits": 0,
             "nested_core_exclusions": 0,
@@ -96,21 +116,102 @@ class Families:
         }
         self.nesting_rejections: dict[str, int] = {}
 
+    def _same_ink(self, edge: Boundary, work: Work) -> bool:
+        """An internal paint partition is not a gap in a continuous dark mark.
+
+        Complete native atom samples must agree with their dark paint model.
+        A small dark ridge hidden inside a broad shade atom therefore cannot
+        use its median color to claim that erasing the ridge is harmless.
+        """
+        indices = (edge.left, edge.right)
+        if any(
+            i < 0
+            or i in self.graph.hidden
+            or not self.ink_regions[i]
+            or self.graph.regions[i].fixed
+            for i in indices
+        ):
+            return False
+        paints = np.array([self.graph.regions[i].paint for i in indices])
+        if (
+            cel.lightness(paints).max() > 96
+            or np.linalg.norm(paints[0] - paints[1]) > INK_COLOR_SPREAD
+        ):
+            return False
+        for i, paint in zip(indices, paints, strict=True):
+            if work.interrupted:
+                return False
+            if i not in self.ink_consistency:
+                box = self.boxes[i]
+                if (
+                    box is None
+                    or (box[0].stop - box[0].start) * (box[1].stop - box[1].start)
+                    > MAX_INK_SAMPLE_PIXELS
+                ):
+                    self.ink_consistency[i] = False
+                else:
+                    own = (self.graph.labels[box] == i) & ~self.evidence.empty[box]
+                    samples = self.evidence.target[box][own]
+                    consistent = bool(
+                        len(samples)
+                        and (
+                            np.linalg.norm(samples - paint, axis=1) <= INK_COLOR_SPREAD
+                        ).all()
+                    )
+                    if work.interrupted:
+                        return False
+                    self.ink_consistency[i] = consistent
+            if not self.ink_consistency[i]:
+                return False
+        return True
+
     def _protected(self, edge: Boundary, work: Work) -> bool:
         """Coarse ink can be a shade step; only bounded ridge tests relax it.
 
-        Short, large or unexamined chains keep the conservative restriction.
+        Short chains require complete monotone native cross-sections to relax.
+        Large or unexamined chains keep the conservative restriction.
         Evidence is immutable, so cached decisions survive ownership changes.
         Absence of a ridge permits a proposal, never acceptance of its pixels.
         """
         if edge.line_support <= 0.5:
             return False
+        if edge.id in self.ink_contacts:
+            return False
+        if (
+            len(self.ink_contacts) < MAX_INK_CONTACTS
+            and not work.interrupted
+            and self._same_ink(edge, work)
+        ):
+            if work.interrupted:
+                return True
+            self.ink_contacts.add(edge.id)
+            self.diagnostics["compatible_ink_contacts"] += 1
+            return False
         if edge.id in self.ridges:
             return self.ridges[edge.id]
+        if edge.id in self.fragments:
+            return self.fragments[edge.id]
         points = edge.points
+        short = (
+            len(points) < 4 or np.linalg.norm(np.diff(points, axis=0), axis=1).sum() < 8
+        )
+        if short and len(points) <= MAX_BOUNDARY_POINTS:
+            if len(self.fragments) >= MAX_FRAGMENT_PROOFS or work.interrupted:
+                self.diagnostics["unresolved_boundaries"] += 1
+                return True
+            if self.light is None:
+                self.light = gaussian_filter(cel.lightness(self.evidence.target), 0.5)
+            protected = not shade_fragment(points, self.evidence, self.light)
+            if work.interrupted:
+                return True
+            self.fragments[edge.id] = protected
+            self.diagnostics["fragment_proofs"] += 1
+            self.diagnostics[
+                "protected_fragments" if protected else "shade_fragments"
+            ] += 1
+            return protected
         if (
             not 4 <= len(points) <= MAX_BOUNDARY_POINTS
-            or np.linalg.norm(np.diff(points, axis=0), axis=1).sum() < 8
             or len(self.ridges) >= MAX_BOUNDARY_PROOFS
             or work.interrupted
         ):

@@ -36,16 +36,16 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the coherent-material initialization comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the owned-ink and closed-mark comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental coherent-material initialization and local search, 60-second budget | 19,528 | 3,176 | 472.73 |
+| Experimental owned-ink initialization and validated local search, 60-second budget | 10,121 | 1,660 | 514.67 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
-The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
+The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
 
 Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
 
@@ -64,6 +64,19 @@ current nominal slider budget only because that budget is normalized by a
 54,564-cost detailed trace; that is not evidence of useful product complexity.
 Admission-compatible coverage and source ownership are necessary foundations,
 but reducing alpha partitions does not produce the human's coherent contours.
+
+Subsequent bounded shade-contact and internal-ink proofs reduce the drawing to
+10,286 nodes. Reusing strict geometric order proofs lets a source-contained
+jewel ellipse reach local evaluation, and a separate live checkpoint reserve
+publishes four validated local alternatives. The selected ink replacement
+reaches 10,121 nodes and human error 514.67; the isolated ellipse alternative is
+dominated and does not reach the selected drawing. The jewel paint remains
+fragmented. These fixes expose useful alternatives but do not establish the
+required whole-surface abstraction or a combined structural solution. The next
+experiment must couple compact closed contours with coherent enclosed paint,
+preserved highlights and supported facet geometry, then measure whether those
+edits can compose within the search budget. A larger ranker cannot supply a
+missing compact drawing.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local

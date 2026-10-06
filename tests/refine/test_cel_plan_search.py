@@ -1,5 +1,6 @@
 """Individual edits enter bounded beams and independent native checkpoints."""
 
+import time
 from dataclasses import replace
 from itertools import islice
 
@@ -83,6 +84,29 @@ def setup(initial=INITIAL, target=TARGET, *, size=(160, 128)):
     assert frontier.add(initial, "Initial")
     frontier.freeze_normalizer()
     return frontier, evidence, options
+
+
+@pytest.mark.parametrize("stop", [False, True])
+def test_expired_local_slice_can_checkpoint_only_with_live_shared_validation_time(stop):
+    frontier, _evidence, options = setup()
+    phase = Work.start(10)
+    checkpoint = Work(phase.deadline + 5, phase.stop, phase.timings)
+
+    def edits(state, local_work):
+        yield proposal(state, "left", "#b05030")
+        local_work.deadline = time.monotonic() - 1
+        phase.deadline = time.monotonic() - 1
+        if stop:
+            phase.stop.set()
+
+    report = search(frontier, options, phase, edits, checkpoint_work=checkpoint)
+    assert phase.interrupted
+    assert report["accepted"] == 1
+    assert report["checkpointed"] == (0 if stop else 1)
+    assert report["score_disagreements"] == 0
+    selected = frontier.select(50)
+    assert selected.metrics["gradients"] == (2 if stop else 1)
+    assert frontier.policy.evaluate(selected.svg).valid
 
 
 def color(document, oid, value):
@@ -628,7 +652,7 @@ def test_optional_search_failure_retains_the_independent_validated_checkpoint(
 
     _frontier, evidence, options = setup()
 
-    def failed(*_args):
+    def failed(*_args, **_kwargs):
         raise ValueError("Injected optional search failure")
 
     monkeypatch.setattr(pipeline, "local_search", failed)

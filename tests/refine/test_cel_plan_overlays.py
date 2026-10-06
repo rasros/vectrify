@@ -98,6 +98,48 @@ def test_closed_family_removes_fragments_with_native_checkpoint_agreement(alpha)
     )
 
 
+def test_closed_rgb_mark_precedes_complex_paint_and_reaches_native_evaluation():
+    evidence = source()
+    y, x = np.mgrid[:120, :120]
+    radius = np.hypot(x - 60, y - 60)
+    labels = (x >= 60).astype(np.int32)
+    labels[radius <= 14] = 2
+    labels[radius <= 11] = 3
+    labels[(x >= 10) & (x < 38) & (y >= 70) & (y < 106) & (y % 4 < 2)] = 4
+    target = np.array(
+        [(200, 150, 100), (140, 100, 65), (32, 32, 32), (60, 150, 110), (160, 105, 70)],
+        dtype=np.float32,
+    )[labels]
+    rgba = np.concatenate((target / 255, evidence.opacity[..., None]), axis=-1)
+    evidence = replace(evidence, labels=labels, target=target, rgba=rgba)
+    frontier, state, options = prepared(evidence, layers=True)
+    factory = ClosedOverlays(evidence, build(evidence), options)
+    groups = factory.groups(state, Work.start(10))
+    ids, members = next(groups)
+    groups.close()
+    assert members == (2,)
+    assert ids == (state.partition.owners[2],)
+    assert factory.diagnostics["enclosed_priorities"] == 1
+    edits = list(factory(state, Work.start(10)))
+    ellipses = [
+        p for p in edits if p.parameters[0] == "ellipse" and p.parameters[2] == (2,)
+    ]
+    assert ellipses
+    for edit in ellipses:
+        svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(svg)
+        updated = LocalPolicy(frontier.policy).update(
+            state.snapshot, svg, edit.bounds, full.structure
+        )
+        assert full.valid
+        assert updated.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        assert edit.partition.owners.keys() == state.partition.owners.keys()
+        np.testing.assert_array_equal(
+            render(svg, evidence.source_size)[60, 60],
+            render(state.svg, evidence.source_size)[60, 60],
+        )
+
+
 def test_underpaint_continues_both_neighbor_shades_in_the_old_footprint():
     evidence = source()
     _frontier, state, options = prepared(evidence, layers=True)

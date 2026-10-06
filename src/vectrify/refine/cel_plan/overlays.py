@@ -12,6 +12,7 @@ from dataclasses import replace
 from itertools import zip_longest
 
 import numpy as np
+from scipy.ndimage import binary_fill_holes
 
 from vectrify.document import Editor, Geometry, Selection
 from vectrify.document.join import (
@@ -39,6 +40,8 @@ MAX_GROUPS = 32
 MAX_PERIMETER = 4_096
 MAX_NODES = 6_000
 MIN_AREA = 64
+MAX_ENCLOSURE_PIXELS = 65_536
+ENCLOSURE_SCAN_PIXELS = 262_144
 
 
 class ClosedOverlays:
@@ -79,6 +82,7 @@ class ClosedOverlays:
                 "ellipse_proposals",
                 "contour_proposals",
                 "time_bounded",
+                "enclosed_priorities",
             ),
             0,
         )
@@ -95,6 +99,7 @@ class ClosedOverlays:
 
         def families():
             singles = []
+            scanned = 0
             for surface in partition.surfaces:
                 if work.interrupted:
                     return
@@ -121,19 +126,49 @@ class ClosedOverlays:
                     != "none"
                 ):
                     continue
-                nodes = sum(
-                    len(sub.nodes)
-                    for sub in state.document.geometry_for(surface.id).subpaths
-                )
+                geometry = state.document.geometry_for(surface.id)
+                nodes = sum(len(sub.nodes) for sub in geometry.subpaths)
                 if nodes <= MAX_NODES:
-                    singles.append((-nodes, surface.id))
+                    priority = 1
+                    boxes = [self.restoration.boxes[i] for i in surface.members]
+                    if len(geometry.subpaths) > 1 and all(b is not None for b in boxes):
+                        x0 = min(b[1].start for b in boxes)
+                        x1 = max(b[1].stop for b in boxes)
+                        y0 = min(b[0].start for b in boxes)
+                        y1 = max(b[0].stop for b in boxes)
+                        pixels = (x1 - x0) * (y1 - y0)
+                        if (
+                            pixels <= MAX_ENCLOSURE_PIXELS
+                            and scanned + pixels <= ENCLOSURE_SCAN_PIXELS
+                        ):
+                            scanned += pixels
+                            box = np.s_[y0:y1, x0:x1]
+                            own = (
+                                np.isin(self.graph.labels[box], surface.members)
+                                & ~self.evidence.empty[box]
+                            )
+                            inside = binary_fill_holes(own) & ~own
+                            if work.interrupted:
+                                return
+                            if (
+                                inside.any()
+                                and not self.evidence.empty[box][inside].any()
+                            ):
+                                priority = 0
+                    singles.append((priority, -nodes, surface.id))
+            ranked = sorted(singles)
+            for priority, _nodes, oid in ranked:
+                if priority == 0:
+                    self.diagnostics["enclosed_priorities"] += 1
+                    yield (oid,)
             groups = self.families._groups(state, work, thresholds=(24, 56, 96))
             try:
-                for family, single in zip_longest(groups, sorted(singles)):
+                ordinary = [s for s in ranked if s[0]]
+                for family, single in zip_longest(groups, ordinary):
                     if family is not None:
                         yield family[0]
                     if single is not None:
-                        yield (single[1],)
+                        yield (single[2],)
             finally:
                 groups.close()
 

@@ -2153,6 +2153,197 @@ existing warnings. A separate legacy CEL/shared fitting/generation regression
 batch passes 112 tests, for 482 relevant tests across the two batches. Numerical
 acceptance and these tests do not complete delivery.
 
+## Owned ink, short shade contacts and closed-mark checkpoints
+
+The preceding material candidate still depended on thousands of partitions.
+This work removes three specific proposal/publication barriers without changing
+the native admission policy, score weights, detailed normalizer or release
+targets. All changes remain in the experimental method.
+
+### Evidence and implementation
+
+The source-only audit in `.bench/material-boundary-audit.json` reconstructs the
+committed evidence and graph at source hash
+`7868624b1c222ac1b5276293c185e14a9aef3e8b4b6befc46a704c0f538026f6`.
+The core-material adjacency has 2,497 short high-line-support contacts and 211
+testable long contacts. Every such contact joins two ink-majority atoms. These
+are graph contacts, not unique semantic edges; coarse line support alone cannot
+distinguish a continuous mark's internal palette divisions from its boundary.
+
+`boundary_evidence.py` now requires complete monotone source cross-sections
+before a short contact permits a competing shade merge. Dark troughs, pale
+marks, empty support and large opacity discontinuities keep the contact
+protected. At most 64 segment profiles are sampled per proof, with a four-pixel
+reach. `families.py` caps short proofs at 4,096 and permits compatible internal
+dark-ink contacts only when both complete, bounded native atom samples agree
+with their paint models. Each sample rectangle is capped at 65,536 pixels;
+fixed-width atoms keep their existing protection. Interrupted proofs are never
+cached as successful. Eligibility does not replace native geometry/paint
+acceptance or complete source ownership.
+
+The closed-mark availability diagnosis at source hash
+`9f68962db83f575966603f1b40a5a0e683aac8833e973c8c8bc0b2abd3b22424`
+finds a source-backed ring with 76 nodes, a 239-pixel owned rim, a 952-pixel RGB
+cavity and fit residual 1.7293 against a 2.125 tolerance. Its 35 interior paths
+are geometrically contained in the proposed ellipse. Direct proposal generation
+exhausts the previous 16 individual order proofs. This is an order-proof barrier,
+not an ellipse containment failure. Other larger cavities protrude outside
+their material base and remain correctly excluded. Diagnostic artifacts include
+`.bench/closed-material-ellipse-availability.json`,
+`.bench/closed-ellipse-containment.json` and
+`.bench/closed-ellipse-direct-proposals.json`. Human geometry is not an operator
+input, and the generator has no sword-specific region rules.
+
+`layer_order.py` now proves the union of objects actually crossing each
+unrelated child disjoint once, reusing that proof for the remaining crossings.
+Stationary enclosing surfaces are excluded from that child's crossing union.
+This preserves the strict geometric disjointness requirement; overlaps still
+require individual proofs and are rejected when real. The independent bounds
+are 64 group proofs, 16 fallback pair proofs and 6,000 moving geometry nodes.
+The caches are local to one immutable order operation and stop is checked
+between native unions. Native tests cover transformed half-opacity scenes,
+more than 16 moved marks, actual overlaps and unchanged rendered pixels.
+
+`overlays.py` prioritizes bounded, source-backed RGB cavities ahead of ordinary
+complex patches. Per-cavity inspection is capped at 65,536 pixels and aggregate
+inspection at 262,144 pixels. A cavity is not treated as an alpha hole or an
+admission exception. All restoration, core support, containment, topology and
+order checks remain.
+
+`search.py` accepts a separate live checkpoint budget from `pipeline.py`.
+Useful local states can receive independent full validation after their local
+discovery slice expires, using remaining global search time. The pipeline's
+final validation/fitting reserve remains separate. Explicit cancellation still
+prevents publication, and observed full-validation time limits subsequent
+checkpoint attempts. Tests cover phase expiration and shared cancellation.
+
+### Native sword experiments
+
+All rows use complexity 50, balanced quality, refinement disabled and a
+60-second requested limit. Times are actual generation times, not matched
+completed proposal effort. Each source stayed fixed during its benchmark.
+
+| Experiment | Nodes / contours | Human MSE | Seconds | Full local checkpoints |
+| --- | ---: | ---: | ---: | ---: |
+| Prior ink-aware material candidate | 12,618 / 2,229 | 517.60 | See preceding record | 0 |
+| Monotone short contacts | 11,086 / 1,917 | 513.11 | 54.18 | 0 |
+| Compatible internal ink | 10,286 / 1,711 | 512.81 | 54.30 | 0 |
+| First group-order proofs and cavity priority | 10,286 / 1,711 | 512.81 | 59.37 | 0 |
+| Actual crossing unions and live checkpoints | 10,121 / 1,660 | 514.67 | 51.17 | 4 |
+| Legacy operation baseline | 2,312 / 339 | 663.31 | See baseline record | — |
+| Human fixture | 523 / 93 | 0 | — | — |
+| Frozen development gate | ≤800 / ≤140 | ≤497.39 | — | — |
+
+Artifact directories and source hashes, in experiment order:
+
+- `.bench/planned-monotone-fragments`:
+  `5fdcc619e925c5e9c3bafbc3663c3f5b51505f7532ed20a366d2063cd5143e85`.
+- `.bench/planned-compatible-ink`:
+  `9f68962db83f575966603f1b40a5a0e683aac8833e973c8c8bc0b2abd3b22424`.
+- `.bench/planned-closed-mark-order`:
+  `038af0b9f6071b72f393760b8a0e203117fb2a5c3ad73696387cb03a467edae1`.
+- `.bench/planned-closed-mark-checkpoints`:
+  `5b4c010af121892dd76aee987788fea89ecb30c281672d43f49a07cf8c386d29`.
+
+Reproduce the final operation/export comparison with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-closed-mark-checkpoints
+```
+
+The final source has 1,281 core-material merges, 1,657 visible regions, 432
+compatible internal-ink contacts, 148 proven short shade contacts and 1,917
+protected short contacts. No encountered short contact remains unresolved.
+Local search reaches five evaluations, accepts four states and fully checks
+four checkpoints, with zero local/full score disagreements. Closed overlays
+emit one nested ellipse, with 25 group proofs, 519 proof reuses and no order
+proof limit. The isolated closed-overlay state saves 55 representation cost
+and passes local checks; its full checkpoint is dominated. It is not part of
+the selected drawing. The selected filled-ink replacement saves 471 cost and
+slightly improves native visual score. Full frontier cost is 20,347, with 31
+gradients, zero crossings and no native policy rejections.
+
+The final human tip/facets/guard/wrapping/jewel errors are
+560.66/254.12/1,166.23/882.61/1,332.64. The jewel crop remains patchy and its
+human error worsens from the compatible-ink initialization. All three numerical
+sword targets still fail; meeting the nominal 27,282 slider budget is not a
+product quality win. The result has 4.38 times the legacy node count and more
+than twelve times the gate's node limit. `refinement_complete` remains false.
+
+### Final-source translucent controls
+
+The four existing half-opacity tuning variants use the same input/clean/mask
+hashes as `.bench/planned-material-silhouettes-rgba-pairs`. The summary in
+`.bench/planned-closed-mark-checkpoints-rgba-pairs` records final source hash
+`5b4c010af121892dd76aee987788fea89ecb30c281672d43f49a07cf8c386d29`.
+Reproduce with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-closed-mark-checkpoints-rgba-pairs
+```
+
+| Tuning variant | Nodes / cost | Clean MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 0.270 | 9.49 |
+| Anime face | 176 / 272 | 206.86 | 0.600 | 16.06 |
+| Western park | 547 / 987 | 178.72 | 0.652 | 8.62 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.641 | 11.17 |
+
+Selected PNGs remain byte-identical for anime girl, anime face and rubberhose
+band. Western park changes from 532 nodes/cost 936 and MSE 193.63. Lettering
+error improves from 684.38 to 483.85, ball from 258.69 to 254.46 and face from
+522.42 to 521.55; animal-face error is unchanged. No measured feature worsens.
+Its line F1 is unchanged. All four reach 48 local evaluations and four full
+checkpoints, retain complete diagnostic pools and have zero score disagreements.
+Same-cost clean-oracle gaps remain 15.60/0.25/0/0.39. This small tuning benefit
+does not resolve existing feature/line failures, expand the corpus or pass
+held-out/release evaluation. Runtime differences are observations, not a
+separate matched-effort performance claim.
+
+### Verification
+
+The full relevant planner, legacy CEL, shared fitting, operation and benchmark
+suite passes 503 tests in 47.47 seconds. A subsequent focused run passes all
+five layer-order tests, including an added regression where a stationary outer
+surface overlaps an unrelated child but the moving inner marks are disjoint.
+That brings coverage to 504 distinct relevant tests across these runs; no
+production source changed after the benchmark or full suite.
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest -q \
+  tests/refine/test_cel*.py tests/refine/test_shared.py \
+  tests/refine/test_simplify.py tests/refine/test_snap.py \
+  tests/operations/test_cel_planned.py tests/operations/test_generate.py \
+  tests/test_bench_cel_planned.py tests/test_cel_pairs.py tests/test_bench_cel_pairs.py
+```
+
+Ruff lint/format and `git diff --check` pass. Pyrefly, explicitly using the
+workspace virtualenv interpreter, reports zero errors and 61 existing warnings.
+The final production source hash still matches both final benchmark summaries.
+These checks validate the implementation slice, not completion of a delivery.
+
+### Next structural experiment
+
+Couple compact closed contours with coherent enclosed paint and retained
+highlights; propose long supported facet boundaries with their paint models.
+Measure candidate availability separately from selection and whether useful
+edits can compose within the beam's bounded time, rather than remaining isolated
+alternatives. Keep complete atom ownership and native local/full checks. The
+current fixes prove that one ellipse can reach evaluation, not that the pool
+contains a faithful compact sword. A learned ranker and slider UI remain
+dependent on that missing structural milestone.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

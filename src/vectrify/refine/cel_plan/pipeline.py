@@ -389,6 +389,10 @@ def vectorize(
                     options,
                     local_work,
                     operators,
+                    checkpoint_work=search,
+                    minimum_checkpoint_seconds=max(
+                        0.05, validation_seconds / max(1, len(frontier.decisions))
+                    ),
                 )
             except (ValueError, RuntimeError, ArithmeticError) as exc:
                 # Optional search never replaces the independently validated
