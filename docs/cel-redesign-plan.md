@@ -56,6 +56,24 @@ baseline, despite its approximately 29% lower human-reference error. Compare
 against legacy CEL and the human fixture, not only the previous dense prototype.
 Neither the slider nor a learned ranker is ready to present as a quality solution.
 
+The subsequent material-silhouette experiment reinforces that conclusion. A
+color-only initialization reaches 3,818 nodes but worsens human-reference error
+to 683.61 and loses the jewel rim. Keeping ink and ridge barriers yields 12,618
+nodes and error 517.60. Both fail the frozen sword gate. The latter meets the
+current nominal slider budget only because that budget is normalized by a
+54,564-cost detailed trace; that is not evidence of useful product complexity.
+Admission-compatible coverage and source ownership are necessary foundations,
+but reducing alpha partitions does not produce the human's coherent contours.
+
+The next structural milestone must propose long supported facet boundaries and
+closed ink contours across color fragments, with underlying paint and local
+draw order included in each replacement. Validate the jewel rim/highlight,
+tip and handle marks before accepting a cost reduction. Compare the generated
+pool's best faithful compact candidate with the selected candidate to distinguish
+missing interpretations from bad selection. Hold the 800-node/140-contour/
+497.39 target and local feature checks. Automatic fitting follows these viable
+structural choices; slider UI and learned ranking still depend on that milestone.
+
 A benchmark-only audit reconstructed the generator's evidence, graph, native
 policy and valid conservative baseline, then evaluated the human fixture and
 legacy output as diagnostics. The human fixture is rejected for crossings,

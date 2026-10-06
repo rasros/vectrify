@@ -277,11 +277,23 @@ def export(
         int(index) for index in np.unique(labels[thin_components[visible_components]])
     }
     bases = (
-        propose_bases(evidence, labels, visible_components, work)
+        propose_bases(
+            evidence,
+            labels,
+            visible_components,
+            work,
+            geometry_tolerance=options.boundary_tolerance
+            * float(np.sqrt(np.prod(evidence.scale))),
+        )
         if layers and not conservative
         else ()
     )
     base_for_region = {index: base for base in bases for index in base.members}
+    coverage_regions = (
+        {int(index) for index in np.unique(labels[evidence.coverage_fit])}
+        if evidence.coverage_fit is not None
+        else set()
+    )
     alpha_levels = np.zeros(len(boxes))
     for index, box in enumerate(boxes):
         check()
@@ -326,14 +338,23 @@ def export(
         check()
         regions = sides(points)
         reasons = []
-        if any(index == -1 or index in hidden for index in regions):
+        visible_regions = [
+            index for index in regions if index >= 0 and index not in hidden
+        ]
+        coverage_boundary = bool(visible_regions) and all(
+            index in coverage_regions for index in visible_regions
+        )
+        if (
+            any(index == -1 or index in hidden for index in regions)
+            and not coverage_boundary
+        ):
             reasons.append("transparent-contact")
         if any(index in thin for index in regions):
             reasons.append("thin-component")
         if any(index in fixed_ink_regions for index in regions):
             reasons.append("explicit-width")
         native = bool(reasons)
-        if not native:
+        if not native and len(visible_regions) == 2:
             low, high = sorted(alpha_levels[index] for index in regions)
             native = high > low * 1.25 + 1e-7
             if native:

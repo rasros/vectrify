@@ -312,15 +312,15 @@ class LocalPolicy:
         self.mask_count = max(1, int(policy.mask.sum()))
         self.component_alpha = []
         self.component_retention = []
-        for feature in policy.opacity_components:
+        for feature, fraction in zip(
+            policy.opacity_components, policy.component_retention, strict=True
+        ):
             x, y, width, height = feature.box
             box = np.s_[y : y + height, x : x + width]
             self.component_alpha.append(
                 float(policy.truth[box][..., 3][feature.support].sum())
             )
-            self.component_retention.append(
-                0.75 if policy.opacity_inside[box][feature.support].any() else 0.95
-            )
+            self.component_retention.append(fraction)
 
     def start(self, svg: str, evaluation: Evaluation) -> Snapshot:
         shape = self.policy.truth.shape
@@ -625,7 +625,10 @@ class LocalPolicy:
             ceiling = policy.baseline.terms[term] if policy.baseline else 0
             if terms[term] > ceiling + allowance:
                 rejected.append(reason)
-        if any(value > 2 / 255 for value in holes):
+        if any(
+            value > ceiling
+            for value, ceiling in zip(holes, policy.hole_ceilings, strict=True)
+        ):
             rejected.append("protected-hole-lost")
         if any(
             value < expected * fraction

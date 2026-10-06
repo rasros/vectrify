@@ -11,6 +11,7 @@ import math
 from dataclasses import replace
 
 import numpy as np
+import pathops
 from PIL import Image
 from scipy.ndimage import distance_transform_edt, label
 
@@ -79,6 +80,7 @@ class Operators:
             "visual_parents": 0,
             "family_proposals": 0,
             "reserved_proposals": 0,
+            "native_boolean_failures": 0,
         }
 
     def paint(self, state: State, work: Work):
@@ -332,7 +334,15 @@ class Operators:
                         return
                     if slot not in alive:
                         continue
-                    proposal = next(iterators[slot], None)
+                    try:
+                        proposal = next(iterators[slot], None)
+                    except pathops.PathOpsError:
+                        # Optional curve booleans can fail even for renderable
+                        # SVGs. Reject this cursor, retaining validated states
+                        # and allowing the other operator families to compete.
+                        self.schedule_diagnostics["native_boolean_failures"] += 1
+                        alive.remove(slot)
+                        continue
                     if proposal is None:
                         alive.remove(slot)
                         continue

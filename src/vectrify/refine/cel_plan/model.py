@@ -79,6 +79,7 @@ class Evidence:
     grainy: bool
     opacity: np.ndarray | None = None
     filled_line_width: float = 0
+    coverage_fit: np.ndarray | None = None
 
 
 @dataclass(frozen=True)

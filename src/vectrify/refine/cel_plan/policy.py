@@ -15,7 +15,6 @@ from PIL import Image
 from scipy.ndimage import (
     binary_dilation,
     binary_erosion,
-    binary_fill_holes,
     distance_transform_edt,
     find_objects,
     gaussian_filter,
@@ -23,6 +22,7 @@ from scipy.ndimage import (
 )
 
 from vectrify.document import import_svg
+from vectrify.refine.cel_plan.coverage import COVERAGE_VERSION, from_alpha
 from vectrify.refine.cel_plan.model import Evidence, Graph
 from vectrify.refine.cel_plan.opacity import VISIBLE
 from vectrify.refine.cel_plan.score import (
@@ -196,11 +196,13 @@ class Policy:
         self.alpha = truth[..., 3] > VISIBLE
         self.mask = foreground_mask(truth) | binary_dilation(self.alpha, iterations=4)
         self.area = max(1, int(self.alpha.sum()))
-        self.opacity_inside = binary_erosion(self.alpha, iterations=2)
-        self.opacity_tolerance = np.maximum(0.5 / 255 + 1e-7, 0.25 * truth[..., 3])
+        visible_inside = binary_erosion(self.alpha, iterations=2)
+        self.coverage = from_alpha(truth[..., 3], self.alpha)
+        self.opacity_inside = self.coverage.interior
+        self.opacity_tolerance = np.maximum(0.5 / 255, 0.25 * truth[..., 3]) + 1e-7
         self.inside = binary_erosion(truth[..., 3] >= 0.99, iterations=2)
         self.outside = ~binary_dilation(self.alpha, iterations=2)
-        holes = np.asarray(binary_fill_holes(self.alpha)) & ~self.alpha
+        holes = self.coverage.holes
         components, count = label(holes)
         self.holes = tuple(
             feature
@@ -209,6 +211,18 @@ class Policy:
             if (components[box] == index).sum() >= 4
             if (feature := _boxed_feature(components, index, box)) is not None
         )
+        self.hole_ceilings = tuple(
+            float(truth[y : y + height, x : x + width, 3][feature.support].mean())
+            + max(
+                2 / 255,
+                0.25
+                * float(
+                    truth[y : y + height, x : x + width, 3][feature.support].mean()
+                ),
+            )
+            for feature in self.holes
+            for x, y, width, height in (feature.box,)
+        )
         components, count = label(self.alpha)
         self.opacity_components = tuple(
             feature
@@ -216,6 +230,15 @@ class Policy:
             if box is not None
             if (components[box] == index).sum() >= 4
             if (feature := _boxed_feature(components, index, box)) is not None
+        )
+        # Edge/core interpretation must not silently strengthen or weaken the
+        # independent component-mass contract, especially for thin faint ink.
+        self.component_retention = tuple(
+            0.75
+            if visible_inside[y : y + height, x : x + width][feature.support].any()
+            else 0.95
+            for feature in self.opacity_components
+            for x, y, width, height in (feature.box,)
         )
         self.features = features
         self.ink = _ink(truth) if ink is None else np.array(ink, dtype=bool, copy=True)
@@ -382,24 +405,19 @@ class Policy:
             ceiling = self.baseline.terms[term] if self.baseline else 0
             if terms[term] > ceiling + allowance:
                 rejected.append(reason)
-        for feature in self.holes:
+        for feature, ceiling in zip(self.holes, self.hole_ceilings, strict=True):
             x, y, width, height = feature.box
             opacity = actual[y : y + height, x : x + width, 3]
-            if float(opacity[feature.support].mean()) > 2 / 255:
+            if float(opacity[feature.support].mean()) > ceiling:
                 rejected.append("protected-hole-lost")
                 break
-        for feature in self.opacity_components:
+        for feature, retained in zip(
+            self.opacity_components, self.component_retention, strict=True
+        ):
             x, y, width, height = feature.box
             original = self.truth[y : y + height, x : x + width, 3][feature.support]
             predicted = actual[y : y + height, x : x + width, 3][feature.support]
             # Includes thin translucent components that have no eroded core.
-            retained = (
-                0.75
-                if self.opacity_inside[y : y + height, x : x + width][
-                    feature.support
-                ].any()
-                else 0.95
-            )
             if (
                 float(np.sum(np.minimum(predicted, original)))
                 < float(np.sum(original)) * retained
@@ -427,4 +445,8 @@ class Policy:
             "score_weights": asdict(self.weights),
             "feature_supports": len(self.features),
             "opacity_components": len(self.opacity_components),
+            "coverage_version": COVERAGE_VERSION,
+            "material_interior_pixels": int(self.opacity_inside.sum()),
+            "protected_holes": len(self.holes),
+            "plateau_holes": self.coverage.plateau_holes,
         }

@@ -35,6 +35,42 @@ from vectrify.refine.cel_plan.score import (
 from vectrify.refine.cel_plan.search import search as local_search
 
 
+def core_material_seed(frontier, evidence, graph, options, work, duration) -> dict:
+    """A fitted material silhouette competes with the native RGBA partitions."""
+    from vectrify.refine.cel_plan.core_materials import candidate
+
+    began = time.monotonic()
+    discovery = Work(
+        min(work.deadline, began + min(duration * 0.2, work.remaining * 0.35)),
+        work.stop,
+        work.timings,
+    )
+    try:
+        result, details = candidate(
+            evidence,
+            graph,
+            frontier.policy,
+            options,
+            work,
+            normalizer=frontier.normalizer,
+            discovery=discovery,
+        )
+    except StageInterruptedError:
+        return {"status": "discovery-interrupted", "seconds": time.monotonic() - began}
+    if result is None or work.interrupted:
+        return {**details, "seconds": time.monotonic() - began, "validation_seconds": 0}
+    svg, exported = result
+    validation = time.monotonic()
+    retained = frontier.add(svg, "Fitted material silhouettes", exported)
+    return {
+        **details,
+        "status": "retained" if retained else "rejected",
+        "generation_status": details.get("growth", {}).get("status", "complete"),
+        "seconds": time.monotonic() - began,
+        "validation_seconds": time.monotonic() - validation,
+    }
+
+
 def material_seed(
     frontier, evidence, graph, options, work, duration, *, starting_labels=None
 ) -> dict:
@@ -207,6 +243,7 @@ def vectorize(
         "merges": 0,
         "seconds": 0.0,
     }
+    core_initialization: dict = {"status": "unavailable", "seconds": 0.0}
     for level, structure, layers in proposals:
         if search.interrupted or work.interrupted:
             break
@@ -278,6 +315,26 @@ def vectorize(
                 and frontier.normalizer_fixed
                 and not search.interrupted
             ):
+                core_started = time.monotonic()
+                try:
+                    core_initialization = core_material_seed(
+                        frontier, evidence, graph, options, search, duration
+                    )
+                except (
+                    ValueError,
+                    RuntimeError,
+                    ArithmeticError,
+                    np.linalg.LinAlgError,
+                ) as exc:
+                    core_initialization = {
+                        "status": "failed",
+                        "detail": str(exc),
+                        "seconds": time.monotonic() - core_started,
+                    }
+                validation_seconds += core_initialization.get("validation_seconds", 0)
+                work.timings["core_material_initialization"] = core_initialization[
+                    "seconds"
+                ]
                 material_started = time.monotonic()
                 try:
                     material_initialization = material_seed(
@@ -424,6 +481,7 @@ def vectorize(
         "refinement": refinement,
         "structural_search": structural_search,
         "material_initialization": material_initialization,
+        "core_material_initialization": core_initialization,
         "refinement_complete": False,
         "fitting_time_reclaimed_after_compaction": dense_fallback and fitting_reserved,
     }

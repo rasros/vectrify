@@ -293,8 +293,9 @@ class InkReplacement:
             if work.interrupted:
                 return None
             if (
-                surface.role != "underlay"
-                or not selected.issubset(surface.members)
+                not selected.issubset(
+                    surface.members if surface.role == "underlay" else surface.covered
+                )
                 or document.ancestry(surface.id)[-2].id != parent.id
             ):
                 continue

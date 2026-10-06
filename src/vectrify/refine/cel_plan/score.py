@@ -18,7 +18,7 @@ from vectrify.document import Document, import_svg
 from vectrify.document.model import paint_server
 from vectrify.refine.crossings import crossings
 
-SCORE_VERSION = 3
+SCORE_VERSION = 4
 
 
 @dataclass(frozen=True)

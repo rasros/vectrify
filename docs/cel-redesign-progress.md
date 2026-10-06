@@ -1997,6 +1997,162 @@ before palette/alpha segmentation, then joint coverage/geometry/paint fitting.
 The sword gate and broader release criteria remain unchanged. Full delivery
 remains open.
 
+## Material coverage and an ink-aware silhouette competitor
+
+The admission audit was localized before changing production policy. The
+source's 69 raw alpha holes are mostly narrow gaps in weak perimeter coverage;
+the eight holes lost by the human are of that kind. The 25 omitted native
+components total approximately 2.35 fully opaque pixels of alpha mass. Two
+human self-crossings belong to filled shade shapes near the lower guard. These
+observations explain the conflicts, but do not justify deleting every faint
+mark or permitting arbitrary crossings.
+
+`coverage.py` now derives material interiors from each component's modal alpha
+and persistent holes from the half-modal support. A coherent weak enclosing
+plateau retains an intentional hole even when attached to a stronger body.
+Source color/alpha scoring still includes the entire fringe. Independent
+component mass retention, opaque interior, exterior spill and crossing checks
+remain. Reduced-opacity holes gain their own source-derived ceilings, and
+local/native evaluation uses the same fixed supports and component retention.
+The coverage interpretation is version 1; the admission/score version is now
+4. These development thresholds still require broader tuning and freezing.
+
+`core_materials.py` offers a competing fitted silhouette for a native-scale,
+near-uniform material. It accepts complete original source atoms, retains
+unsupported opacity and thin components, and records fringe ownership separately
+from secondary core coverage. The new evidence interpretation does not change
+the original pixels, labels or atom namespace. A promoted primary base's
+secondary coverage can support a replacement only when actual transformed
+geometry proves containment. Native independent validation admits the candidate;
+ownership metadata alone is insufficient.
+
+The hypothesis is bounded to 1,536² native analysis pixels and eight material
+components. Variable intrinsic alpha, protected partial-opacity holes, resized
+analysis and explicit filled width retain the existing interpretations. This
+does not implement joint coverage/geometry/paint fitting or primitive fitting.
+
+### Native sword comparisons
+
+All runs use complexity 50, balanced quality, refinement disabled, the same
+native mask and a 60-second generation limit. They complete different candidate
+pools and do not establish equal-quality speedups.
+
+| Drawing / control | Nodes | Contours | Human MSE | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Legacy CEL baseline | 2,312 | 339 | 663.31 | See frozen baseline |
+| Previous coherent native-paint search | 19,528 | 3,176 | 472.73 | 60-second limit |
+| Coverage v4 with core initialization disabled | 19,105 | 3,078 | 472.70 | 57.87 |
+| Initial color-only material silhouette | 3,818 | 296 | 683.61 | 58.43 |
+| Ink-aware material silhouette, separate export budget | 12,618 | 2,229 | 517.60 | 50.60 |
+| Frozen development gate | ≤800 | ≤140 | ≤497.39 | Balanced quality |
+
+The color-only run and disabled-core control use source hash
+`6bf4b7877b8d22b9b1169cae610b44ae4fa8286fc1dcdc2d79cf4eb2d77cb315`.
+Artifacts are `.bench/planned-material-silhouettes` and
+`.bench/planned-persistent-alpha-only`; the latter records its no-op monkeypatch
+and diagnostic script hash. The large compaction worsens all five human feature
+crops and erases much of the jewel's dark rim. It is a rejected development
+approach, despite passing native policy.
+
+The ink-aware run uses source hash
+`599c4758f6030d858830f497d4c65e63abf2c5c9283525cd85422015d654509c`
+and artifacts `.bench/planned-material-silhouettes-ink-live-export`. It retains
+the jewel rim but still produces patchy surrounding paint and jagged blade
+shading. Tip/facets/guard/wrapping/jewel human errors are
+542.09/259.79/1,164.70/896.53/1,308.24. It costs 26,176 and has zero
+self-crossings or native policy rejections. The core model uses alpha 253/255,
+2,608 core atoms and 5,240 fringe atoms. Ink-aware growth performs 762 merges,
+but 2,497 ridge encounters remain unresolved. These counts are not unique
+semantic edges. The candidate is still 5.46 times the legacy node count and
+fails every combined sword milestone; this is not a practical baseline win.
+
+An earlier ink-aware run discarded the optional candidate after its growth
+deadline also expired the export budget. It selected 20,078 nodes and human
+MSE 472.74; source hash
+`3aa6dee88ef65b66d092b183c7ac41a76fdd014b0d369d50a368cdf735415998`,
+artifacts `.bench/planned-material-silhouettes-ink`. Growth now has a separate
+bounded slice: a complete partition may export under the remaining search
+budget. Stop still discards it. Tests cover both cases.
+
+The first color-only operation crashed on an optional native curve boolean.
+The scheduler now catches only `pathops.PathOpsError`, records the failed
+operator cursor and continues other operators from validated states. Six
+regressions exercise each operator slot; programming exceptions remain visible.
+The completed color-only run records four such failures. Its initial crashed
+attempt did not produce a benchmark drawing.
+
+### Updated admission audit
+
+`.bench/human-native-validation-material-support.json` repeats the native audit
+with the original independently validated conservative baseline. Its source
+hash is
+`7868624b1c222ac1b5276293c185e14a9aef3e8b4b6befc46a704c0f538026f6`;
+the only source change after the successful ink-aware sword run adds a return
+type annotation. The policy has 148,322 material-interior pixels and no
+protected holes of at least four pixels on this sword. The 85-pixel allowance
+and original 26 component supports remain.
+
+| Diagnostic | Missing / excess opacity pixels | Remaining rejection |
+| --- | ---: | --- |
+| Human | 14 / 0 | Two crossings and faint component loss |
+| Legacy CEL | 8 / 0 | Faint component loss |
+| Ink-aware material candidate | 0 / 0 | None |
+
+This resolves the fringe/hole admission conflict without granting the human
+fixture an exception. The human is still diagnostic input only. Synthetic
+regressions preserve clear/reduced-opacity holes, weak attached rings, faint
+independent marks, opacity steps, closed dark ink and full/local agreement.
+Passing admission does not establish likeness, and the human drawing remains
+inadmissible under the unchanged crossing/component rules.
+
+The next implementation priority is whole contours and coherent shade surfaces
+across palette fragments, with bounded restoration of underlying paint. Diagnose
+candidate availability and selection at the frozen cost/feature gates. A dense
+trace's nominal complexity target is too weak to serve as a product milestone.
+No UI rollout, learned-model benefit or delivery completion is claimed here.
+
+### Translucent tuning controls
+
+The same four half-opacity, clean tuning variants were rerun at a 192-pixel long
+side, complexity 50, balanced quality, refinement disabled and a 20-second limit:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-material-silhouettes-rgba-pairs
+```
+
+The summary records source hash
+`7868624b1c222ac1b5276293c185e14a9aef3e8b4b6befc46a704c0f538026f6`.
+Input, clean SVG, clean pixel and mask hashes match
+`.bench/planned-coherent-native-paint-rgba-pairs`. All four selected PNGs are
+byte-identical to that previous production run, although candidate keys/pools
+change. The new core candidates are retained, but do not improve selection.
+
+| Tuning variant | Nodes / cost | Clean MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 0.270 | 11.60 |
+| Anime face | 176 / 272 | 206.86 | 0.600 | 17.97 |
+| Western park | 532 / 936 | 193.63 | 0.652 | 10.19 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.641 | 13.41 |
+
+Every run reaches 48 local evaluations and retains a complete diagnostic pool,
+without score disagreements. Same-cost clean oracle gaps remain
+15.60/0.25/0/0.39; the existing feature and line shortcomings remain. These
+controls establish neither a quality improvement nor independent corpus
+expansion. No held-out artwork or blind review was used.
+
+The focused planner, operation and benchmark suite passes 370 tests, including
+the new source-coverage, ownership, closed-ink, deadline/stop and native-boolean
+regressions. Ruff lint/format checks pass; Pyrefly reports zero errors with 61
+existing warnings. A separate legacy CEL/shared fitting/generation regression
+batch passes 112 tests, for 482 relevant tests across the two batches. Numerical
+acceptance and these tests do not complete delivery.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

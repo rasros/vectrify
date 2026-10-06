@@ -13,9 +13,11 @@ from dataclasses import dataclass
 import numpy as np
 from scipy.ndimage import binary_erosion, find_objects
 
+from vectrify.document import import_svg
 from vectrify.document.paint import hex_colour
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.model import Evidence, StageInterruptedError, Work
+from vectrify.refine.crossings import crossings
 
 
 @dataclass(frozen=True)
@@ -30,7 +32,12 @@ class Base:
 
 
 def propose(
-    evidence: Evidence, labels: np.ndarray, components: np.ndarray, work: Work
+    evidence: Evidence,
+    labels: np.ndarray,
+    components: np.ndarray,
+    work: Work,
+    *,
+    geometry_tolerance: float = 0,
 ) -> tuple[Base, ...]:
     assert evidence.opacity is not None
 
@@ -76,18 +83,41 @@ def propose(
         if fraction < 0.5:
             continue
 
-        def boundary(points, _bound):
+        may_fit = (
+            evidence.coverage_fit is not None and evidence.coverage_fit[box][own].all()
+        )
+
+        def boundary(points, bound, *, may_fit=may_fit):
             check()
+            if may_fit and len(points) >= 12:
+                return cel.curve_nodes(
+                    points, bound, smooth=cel.FILL_SMOOTH, fit=cel.FILL_FIT
+                )
             return [
                 ("L", tuple(float(v) for v in point))
                 for point in cel.simplify(points, 0)[1:]
             ]
 
         outlines = cel.region_outlines(
-            core.astype(np.int32), 0, fit_boundary=boundary, check=check
+            core.astype(np.int32),
+            geometry_tolerance if may_fit else 0,
+            fit_boundary=boundary,
+            check=check,
         )
         if 1 not in outlines:
             continue
+        if may_fit:
+            drawing = import_svg(f'<svg><path id="core" d="{outlines[1]}"/></svg>')
+            if crossings(drawing.geometry_for("core")):
+                outlines = cel.region_outlines(
+                    core.astype(np.int32),
+                    0.5,
+                    fit_boundary=lambda points, bound: [
+                        ("L", tuple(float(v) for v in point))
+                        for point in cel.simplify(points, bound)[1:]
+                    ],
+                    check=check,
+                )
         paint_support = core & ~evidence.drawn[box]
         samples = evidence.target[box][paint_support if paint_support.any() else core]
         color = hex_colour(tuple(np.median(samples, axis=0) / 255))

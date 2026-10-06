@@ -31,7 +31,7 @@ def export(
     conservative: bool = False,
     conservative_tolerance: float = 0,
     cost_normalizer: float | None = None,
-):
+) -> tuple[str, dict]:
     started = time.monotonic()
 
     def check():

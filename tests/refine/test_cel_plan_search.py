@@ -4,6 +4,7 @@ from dataclasses import replace
 from itertools import islice
 
 import numpy as np
+import pathops
 import pytest
 from PIL import Image
 
@@ -31,6 +32,42 @@ INITIAL = (
 TARGET = INITIAL.replace('fill="url(#a)"', 'fill="#b05030"').replace(
     'fill="url(#b)"', 'fill="#409080"'
 )
+
+
+@pytest.mark.parametrize(
+    "failed_slot", ["families", "overlays", "paint", "geometry", "ink", "replacements"]
+)
+def test_native_boolean_failure_does_not_lose_checkpoint_or_other_operators(
+    failed_slot, monkeypatch
+):
+    frontier, evidence, options = setup()
+    before = frontier.baseline
+    operators = Operators(evidence, build(evidence), options)
+    names = ("families", "overlays", "paint", "geometry", "ink", "replacements")
+    useful = "paint" if failed_slot != "paint" else "families"
+    closed = []
+    for name in names:
+
+        def edits(state, _work, name=name):
+            try:
+                if name == failed_slot:
+                    raise pathops.PathOpsError("Injected curve boolean failure")
+                if (
+                    name == useful
+                    and state.document.element("left").get("fill") != "#b05030"
+                ):
+                    yield proposal(state, "left", "#b05030", operator=name)
+            finally:
+                closed.append(name)
+
+        monkeypatch.setattr(operators, name, edits)
+    report = search(frontier, options, Work.start(10), operators)
+    assert operators.schedule_diagnostics["native_boolean_failures"] > 0
+    assert report["accepted"] == 1
+    assert report["score_disagreements"] == 0
+    assert frontier.baseline is before
+    assert frontier.select(50).metrics["gradients"] == 1
+    assert set(closed) == set(names)
 
 
 def setup(initial=INITIAL, target=TARGET, *, size=(160, 128)):
