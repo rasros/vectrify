@@ -14,13 +14,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the chain-constraint comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the budget-scheduling comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental owned-family search, 60-second budget | 22,646 | 4,026 | 439.75 |
+| Experimental owned-family search, 60-second budget | 22,122 | 3,901 | 439.56 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -201,6 +201,19 @@ Use `B(c) = max(B_min, C₀ × 2^((c − 100)/50))` as the initial soft-budget s
 | 100 · Detailed | 0.25× | 100% of `C₀` |
 
 Use these targets to schedule useful proposals as well as report them. When a candidate is far above budget, prioritize coherent family and layer replacements by expected cost reduction subject to local visual risk. Reserve opportunities for ink, boundary and feature corrections even when their immediate cost savings are small. Once near budget, emphasize visual improvements within the retained tradeoff frontier. Bound all priorities and retain deterministic ties; the requested budget never relaxes a hard gate. A cheapest-so-far candidate is a conservative observed floor, not proof that a lower safe cost is impossible.
+
+The initial shared-pool scheduler now uses the unclamped nominal target at
+complexity 50, with the fixed detailed normalizer. The reported budget still
+includes the cheapest observed validated floor, explicitly marked unproven.
+Using that observed floor to stop compaction would prevent exploring cheaper
+interpretations. A positive node ceiling supplies a separate scheduling signal.
+The selected slider value does not change this shared-pool scheduling context.
+Far above target, balanced/high quality offers two/three family opportunities
+before a reserved round; fast uses one. Paint, boundary, additive ink and owned
+ink interpretation keep rotating opportunities. Per-parent evaluation slices
+now resume from bounded cursors rather than silently discarding the remaining
+proposals after a rejected prefix. This is initial budget-directed ordering,
+not complete visual-risk, spatial or learned ranking.
 
 Make the visual score's terms executable and separately inspectable:
 
@@ -465,6 +478,58 @@ therefore cannot remove most of this cost. Complete the second output next:
 compact connected RGBA surface/coverage competitors, with preserved holes,
 supported fringes and intentional low-opacity marks. Measure their candidate
 availability under the deadline and reserve useful family opportunities.
+
+Two further development observations narrow that work. The native reference
+has 136 visible connected components: two have an eroded core, and 134 are
+thin. Of those components, 110 contain fewer than four pixels, together only
+166 pixels, with peak alpha at most 7/255. These are source measurements, not
+permission to discard them; intentional faint marks still need independent
+tests and exact validation. Canonical-chain reason counts above must not be
+misread as component counts. Also, the initial compact closed-overlay helper
+runs in the opaque export branch; the RGBA branch currently offers opacity
+cores and per-chain models but no corresponding owned compact overlay family.
+Complete that RGBA competitor with restored surrounding paint and primitive
+constraints before concluding that primitive models or learned ranking cannot
+help the jewel/guard interpretations.
+
+### Next RGBA overlay change
+
+Add a compact closed-overlay operator to the RGBA planning path. Its input is
+the current owned region family and native evidence, not a human outline or an
+artwork label. Start with connected families inside a geometrically verified
+opacity core, where neighboring material provides a supported underpaint model.
+Retain the existing unrestricted surface as a competitor. Defer families with
+unproved alpha variation, silhouette contacts or holes until their coverage can
+be represented and independently checked.
+
+Fit an ellipse-like ordinary SVG path and an anchored closed contour to the
+family's native boundary samples. Replace the owned fragments, assign their
+original members to the surviving overlay, and restore neighboring paint under
+the former footprint. Reuse the ink-replacement restoration checks for paint
+frames, core coverage and isolated-group opacity. Preserve the overlay's draw
+order and primitive constraints. An additive outline that leaves all fragments
+in place does not complete this operator.
+
+Keep discovery, fitting, dependencies and raster evaluation within the existing
+bounded operator contracts. Record exclusion reasons and actual removed nodes,
+contours and gradients. A failed or interrupted proposal leaves its parent's
+ownership, geometry and checkpoint intact. Native local acceptance and an
+independent full checkpoint decide retention; neither a successful fit nor a
+lower representation cost alone is sufficient.
+
+Verify translucent flat and gradient underpaint, an intentionally irregular
+closed shape, holes, faint intentional marks, transformed groups and successive
+replacement/rollback on sibling states. Compare the tuning drawings first, then
+the sword jewel and guard crops. Success means that a compact faithful
+alternative becomes available and survives the same checks; the combined sword
+gates still determine the structural milestone.
+
+In parallel with diagnosis, prepare the declared score-calibration grid and a
+same-pool replay runner. Use the measured Western Park selection conflict to
+check that the runner distinguishes score ordering from missing proposals.
+Choose weights on the tuning split with local feature and coverage constraints,
+then rerun generation under matched effort. Do not change production weights
+from the sword result alone.
 
 For routine development, run the focused evidence/policy/frontier/operator tests and operation apply/stop/reload checks. Use `scripts/bench_cel_planned.py` for the native sword comparison and save its SVGs, feature crops and source/mask hashes. Its current `--check` covers the numerical sword targets only; extend it with the documented local-feature, hole and coverage gates before treating that exit status as full acceptance. Run full-corpus and hardware-sensitive benchmarks separately, with the same completed proposal effort or a clearly stated matched deadline.
 

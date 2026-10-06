@@ -54,7 +54,9 @@ method remains experimental and the existing CEL default is unchanged.
   alternative; frontier bounds also protect the minimum-node candidate.
   It now reports the initial soft representation target, its simplest retained
   validated floor, achieved cost and whether the target is unmet, separately
-  from a hard node ceiling. This reporting does not yet drive local beam search.
+  from a hard node ceiling. Initial operator slots now use the fixed shared-pool
+  nominal target, independently of the unproven observed floor. Broader risk
+  ranking and spatial scheduling remain open.
 - Stop before the first validated candidate cancels the operation. Stop after
   validation retains a preview that can be applied normally. A fully transparent
   reference returns no edit.
@@ -1172,6 +1174,116 @@ atom splits/edge reconstruction and primitive-parameter fitting remain open.
 This implementation is a useful fitting foundation, not a sword improvement or
 a completed delivery.
 
+## Budget-directed operator slots and resumable parent discovery
+
+Local search now retains one bounded proposal cursor per retained parent, with
+a maximum equal to the quality's beam width. After its four/eight/sixteen exact
+evaluation slice, a parent can resume later if it remains in the beam. A rejected
+prefix with no accepted child no longer ends discovery. The slice check occurs
+before pulling the next proposal, so the first unevaluated tail edit is not
+silently consumed. Pruned/completed cursors and their operator generators close
+normally; stop after discovery prevents scoring or publication of that edit.
+Evaluation, scan, dependency, native raster and checkpoint bounds remain active.
+
+The initial state carries a fixed shared-pool budget context: complexity-50
+anchor, nominal representation target `C₀ / 2`, detailed normalizer and the
+separate explicit node ceiling. Requested complexity still selects from the
+common frontier and does not alter this context. Above 1.25 times either target,
+balanced/high quality offers two/three family proposals before the reserved
+operator round; fast keeps one. Each round reserves paint, shared geometry,
+additive ink and owned ink opportunities, rotating their order by edit depth
+and cycle. Existing sampled paint residuals rank family alternatives; exact
+native evaluation alone accepts them.
+
+Budget reports now include `nominal_target` and `floor_proven: false`. The
+existing clamped target/observed floor is still reported, but using the observed
+floor to schedule exploration would make the cheapest current drawing its own
+lower bound. It is neither a mandatory-feature proof nor a feasibility claim.
+The new ordering is an initial deterministic schedule, not calibrated risk
+prediction, full spatial scheduling or a completed complexity delivery.
+
+The full relevant suite passed **333 tests**, including a useful fifth proposal
+after four rejected fast-quality edits, cursor closure/bounds, reserved operator
+slots under pressure, a node ceiling that cannot admit visual regression,
+cancellation during discovery and nominal-versus-observed budget reporting.
+Ruff passed; Pyrefly reported zero source errors with 61 existing warnings.
+
+The final source was checked on the same small tuning subset before the sword:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-budget-resume-pairs
+```
+
+| Tuning case | Nodes | Cost | Clean MSE | MSE change from chain run | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,681 | 3,603 | 891.84 | -3.55 | 0.678 | 5.81 |
+| Anime face | 5,394 | 7,032 | 703.29 | -0.31 | 0.664 | 7.60 |
+| Western park | 4,295 | 5,661 | 1,304.12 | +23.31 | 0.670 | 6.72 |
+| Rubberhose band | 907 | 1,571 | 982.09 | -12.46 | 0.651 | 7.08 |
+
+All four returned ready with complete diagnostic storage and zero checkpoint
+disagreements. Different completed pools/evaluation counts prevent a
+matched-effort speedup or general quality claim. No held-out or degradation
+cases were evaluated. Western park is a concrete selection conflict: the same
+hard-valid pool contains clean MSE 1,287.24 at cost 5,658, better raw error and
+slightly lower cost than production selection. The selected face-region error
+also rises from 5,785.03 to 6,001.01. This calls for the declared score/feature
+calibration, not a claim that more compaction universally improves quality or
+that raw MSE alone establishes human preference.
+
+The native command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-budget-resume
+```
+
+Both final runs used source SHA-256
+`c99187ce156f4e60aeff5ce48e788f7807e92b31f836a01076b226906e52578c`.
+The native mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The sword again selects two family replacements (-1,304/-1,374 cost units):
+22,122 nodes, 3,901 contours, 3,864 paths, 536 gradients, cost 51,886 and human
+MSE 439.56173. This restores the preceding shade/ridge drawing after the denser
+chain-permission prefix, not a new quality or structural-target pass. Guard and
+jewel human errors remain 1,015.14 and 1,233.07.
+
+Search evaluated ten proposals, accepted eight working alternatives and
+published one full checkpoint with zero disagreements. Six generated proposals
+were families and four were reserved operators. Two compaction parents were
+visited. No parent cursor resumed on this native prefix; the resumed-tail
+behavior is demonstrated by the synthetic test, not attributed to this result.
+Stage time was 11.17 seconds including 1.89 seconds of validation. Pipeline
+time was 48.99 seconds; operation/apply time was 53.42 seconds with zero pipeline
+overshoot. Accounted retained SVG/raster peak was 12,607,690 bytes, excluding
+some metadata and process RSS. Nominal search target was 27,282; reported target
+46,365 includes the observed, unproven floor. Achieved cost remains above both.
+
+An independent native-reference inventory found 136 alpha-positive connected
+components: two with a two-pixel-eroded core and 134 thin components. There are
+110 components of fewer than four pixels, totaling 166 pixels; all have peak
+alpha at most 7/255 (median 1/255). This confirms a population of faint source
+fragments worth interpreting, but does not classify every fragment as noise or
+authorize dropping intentional low-opacity marks. The earlier thin-hold count
+545 measures canonical boundary encounters, not 545 distinct components.
+
+The next surface work also needs owned RGBA compact closed overlays: the
+existing `layers.continued` competitor is in the opaque export branch, while
+RGBA export currently supplies opacity cores and individual chain models.
+Offer compact shape families with restored surrounding paint and retained
+primitive constraints under the same native policy. Source-fragment ambiguity,
+richer RGBA surfaces and the measured tuning selection conflict remain open;
+this scheduling change does not complete any of the eight deliveries.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -1180,7 +1292,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | Region splits, richer surface/paint interpretations beyond the initial owned family merges, calibrated content normalization and budget-directed search, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
+| 3 | Region splits, richer surface/paint interpretations beyond the initial owned family merges, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
 | 4 | Fitting variable-width filled ink beyond retained unions, broader stroke replacement/underlayer coverage, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |

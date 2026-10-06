@@ -248,6 +248,7 @@ def vectorize(
                 }
             if operators is not None:
                 structural_search["operator_diagnostics"] = {
+                    "scheduling": dict(operators.schedule_diagnostics),
                     "surface_families": dict(operators.families.diagnostics),
                     "ink_replacement": dict(operators.replacements.diagnostics),
                 }

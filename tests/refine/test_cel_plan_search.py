@@ -1,6 +1,7 @@
 """Individual edits enter bounded beams and independent native checkpoints."""
 
 from dataclasses import replace
+from itertools import islice
 
 import numpy as np
 import pytest
@@ -101,6 +102,116 @@ def test_fast_search_reserves_evaluations_for_cumulative_edits():
     assert result["score_disagreements"] == 0
 
 
+def test_rejected_prefix_resumes_without_consuming_the_first_useful_tail_edit():
+    frontier, _evidence, options = setup()
+    closed = []
+
+    def edits(state, _work):
+        try:
+            if state.edits:
+                return
+            for value in ("#ffffff", "#fffffe", "#fffeff", "#feffff", "#b05030"):
+                yield proposal(state, "left", value)
+        finally:
+            closed.append(state.key)
+
+    result = search(frontier, replace(options, quality="fast"), Work.start(10), edits)
+    assert result["resumed_expansions"] >= 1
+    assert result["attempted"] == 5
+    assert result["accepted"] == 1
+    assert result["decisions"][-1]["parameters"] == ["#b05030"]
+    assert frontier.select(50).metrics["gradients"] == 1
+    assert result["score_disagreements"] == 0
+    assert result["proposal_cursor_peak"] == 1
+    assert len(closed) == 2  # The resumed seed and the completed child.
+
+
+def test_stop_during_proposal_discovery_prevents_scoring_and_closes_the_cursor():
+    frontier, _evidence, options = setup()
+    closed = []
+
+    def edits(state, work):
+        try:
+            work.stop.set()
+            yield proposal(state, "left", "#b05030")
+        finally:
+            closed.append(state.key)
+
+    result = search(frontier, options, Work.start(10), edits)
+    assert result["status"] == "interrupted"
+    assert result["attempted"] == result["scanned"] == 0
+    assert result["accepted"] == 0
+    assert frontier.select(50).svg == INITIAL
+    assert len(closed) == 1
+
+
+@pytest.mark.parametrize(("pressure", "burst"), [(2, 2), (1, 1)])
+def test_compaction_burst_keeps_each_reserved_operator_opportunity(
+    pressure, burst, monkeypatch
+):
+    frontier, evidence, options = setup()
+    entry = frontier.entries[0]
+    state = State(
+        import_svg(entry.svg),
+        entry.svg,
+        beam.LocalPolicy(frontier.policy).start(entry.svg, entry.evaluation),
+        entry.key,
+        {"search_budget": {"representation_target": entry.evaluation.cost / pressure}},
+    )
+    operators = Operators(evidence, build(evidence), options)
+    names = ("families", "paint", "geometry", "ink", "replacements")
+    for name in names:
+
+        def edits(state, _work, name=name):
+            for _ in range(4):
+                yield proposal(state, "left", "#b05030", operator=name)
+
+        monkeypatch.setattr(operators, name, edits)
+    iterator = operators(state, Work.start(10))
+    first = list(islice(iterator, burst + 4))
+    iterator.close()
+    assert [p.operator for p in first] == ["families"] * burst + list(names[1:])
+    assert operators.schedule_diagnostics["family_proposals"] == burst
+    assert operators.schedule_diagnostics["reserved_proposals"] == 4
+    assert operators.schedule_diagnostics["compaction_parents"] == (pressure > 1.25)
+
+
+def test_node_ceiling_can_prioritize_compaction_without_changing_acceptance(
+    monkeypatch,
+):
+    frontier, evidence, options = setup()
+    entry = frontier.entries[0]
+    state = State(
+        import_svg(entry.svg),
+        entry.svg,
+        beam.LocalPolicy(frontier.policy).start(entry.svg, entry.evaluation),
+        entry.key,
+        {
+            "search_budget": {
+                "representation_target": entry.evaluation.cost * 4,
+                "node_target": 1,
+            }
+        },
+    )
+    operators = Operators(evidence, build(evidence), options)
+
+    def family(state, _work):
+        for _ in range(2):
+            # Scheduling cannot admit this visually destructive paint edit.
+            yield proposal(state, "left", "#ffffff", operator="family-surface")
+
+    monkeypatch.setattr(operators, "families", family)
+    first = list(islice(operators(state, Work.start(10)), 2))
+    assert all(p.operator == "family-surface" for p in first)
+    assert operators.schedule_diagnostics["compaction_parents"] == 1
+    result = search(frontier, replace(options, node_budget=1), Work.start(10), family)
+    assert result["accepted"] == 0
+    assert all(
+        "local-objective-regression" in d["rejections"] for d in result["decisions"]
+    )
+    assert frontier.select(50, node_budget=1).metrics["budget_unmet"]
+
+
 def test_real_paint_operators_remove_two_noisy_gradients_one_edit_at_a_time():
     frontier, evidence, options = setup()
     before = frontier.select(50).metrics["objective"]
@@ -137,6 +248,7 @@ def test_quality_caps_and_common_frontier_selection(quality):
     assert result["beam_limit"] == beam.LIMITS[quality][0]
     assert result["evaluation_limit"] == beam.LIMITS[quality][1]
     assert result["beam_states"] <= result["beam_limit"]
+    assert result["proposal_cursor_peak"] <= result["beam_limit"]
     assert result["attempted"] <= result["evaluation_limit"]
     costs = [frontier.select(c).metrics["representation_cost"] for c in range(101)]
     assert costs == sorted(costs)

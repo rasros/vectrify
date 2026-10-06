@@ -62,6 +62,10 @@ def test_soft_budget_schedule_reports_target_floor_and_achieved_cost():
             max(floor, 20 * 2 ** ((complexity - 100) / 50))
         )
         assert budget["floor"] == floor
+        assert not budget["floor_proven"]
+        assert budget["nominal_target"] == pytest.approx(
+            20 * 2 ** ((complexity - 100) / 50)
+        )
         assert budget["achieved"] == selected.metrics["representation_cost"]
         assert budget["unmet"] == (budget["achieved"] > budget["target"])
         targets.append(budget["target"])

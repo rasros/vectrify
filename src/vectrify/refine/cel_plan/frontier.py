@@ -358,10 +358,13 @@ class Frontier:
         if not entries:
             raise ValueError("A validated drawing is required for the budget floor")
         floor = min(entry.evaluation.cost for entry in entries)
+        nominal = self.normalizer * 2 ** ((complexity - 100) / 50)
         return {
-            "target": max(floor, self.normalizer * 2 ** ((complexity - 100) / 50)),
+            "target": max(floor, nominal),
+            "nominal_target": nominal,
             "floor": floor,
             "floor_source": "simplest-validated-candidate",
+            "floor_proven": False,
             "schedule_version": 1,
         }
 

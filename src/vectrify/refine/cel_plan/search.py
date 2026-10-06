@@ -290,7 +290,15 @@ def search(
             entry.svg,
             evaluator.start(entry.svg, entry.evaluation),
             entry.key,
-            entry.details,
+            {
+                **entry.details,
+                "search_budget": {
+                    "anchor": 50,
+                    "representation_target": frontier.budget(50)["nominal_target"],
+                    "node_target": options.node_budget,
+                    "normalizer": frontier.normalizer,
+                },
+            },
             partition=Partition.from_metadata(entry.details.get("planning_surfaces")),
         )
         if initial.partition is not None:
@@ -305,7 +313,9 @@ def search(
         }
     states = [initial]
     cache = Rejections()
-    expanded = set()
+    finished = set()
+    cursors: dict[str, Iterator[Proposal]] = {}
+    cursor_peak = resumed = 0
     peak = _bytes(states)
     # Full validation has its own slice, in addition to the pipeline reserve.
     local_deadline = work.deadline - max(0.05, work.remaining * 0.25)
@@ -313,17 +323,27 @@ def search(
     while not local_work.interrupted and attempted < limit and scanned < limit * 8:
         additions = []
         for state in states:
-            if state.key in expanded:
+            if state.key in finished:
                 continue
-            expanded.add(state.key)
+            if state.key not in cursors:
+                cursors[state.key] = iter(proposals(state, local_work))
+                cursor_peak = max(cursor_peak, len(cursors))
+            else:
+                resumed += 1
             expansion_start = attempted
-            for proposal in proposals(state, local_work):
+            while True:
                 if local_work.interrupted or attempted >= limit or scanned >= limit * 8:
                     break
                 if attempted - expansion_start >= EXPANSIONS[options.quality]:
                     # Preserve depth as well as alternative first edits. Cached
                     # and invalid/stale scans retain their separate global cap.
                     bounded_expansions += 1
+                    break
+                proposal = next(cursors[state.key], None)
+                if local_work.interrupted:
+                    break
+                if proposal is None:
+                    finished.add(state.key)
                     break
                 scanned += 1
                 decision: dict = {
@@ -520,11 +540,20 @@ def search(
                 additions = _bound(additions, frontier, width)
             if local_work.interrupted or attempted >= limit or scanned >= limit * 8:
                 break
-        if not additions:
-            break
         states = _bound([*states, *additions], frontier, width)
-        if all(state.key in expanded for state in states):
+        retained = {state.key for state in states} - finished
+        for key in list(cursors):
+            if key not in retained:
+                cursor = cursors.pop(key)
+                close = getattr(cursor, "close", None)
+                if close is not None:
+                    close()
+        if not retained:
             break
+    for cursor in cursors.values():
+        close = getattr(cursor, "close", None)
+        if close is not None:
+            close()
     validation_seconds = 0.0
     checkpoints = 0
     disagreements = 0
@@ -564,6 +593,9 @@ def search(
         "cached_rejections": cached,
         "bounded_proposals": bounded,
         "bounded_expansions": bounded_expansions,
+        "resumed_expansions": resumed,
+        "proposal_cursor_peak": cursor_peak,
+        "search_budget": initial.details["search_budget"],
         "expansion_evaluation_limit": EXPANSIONS[options.quality],
         "scanned": scanned,
         "beam_limit": width,

@@ -65,6 +65,13 @@ class Operators:
         self._ink_checked = set()
         self.families = Families(evidence, graph, options)
         self.replacements = InkReplacement(evidence, graph, options)
+        self.schedule_diagnostics = {
+            "version": 1,
+            "compaction_parents": 0,
+            "visual_parents": 0,
+            "family_proposals": 0,
+            "reserved_proposals": 0,
+        }
 
     def paint(self, state: State, work: Work):
         document = state.document
@@ -277,6 +284,23 @@ class Operators:
             )
 
     def __call__(self, state: State, work: Work):
+        context = state.details.get("search_budget", {})
+        target = context.get("representation_target", state.snapshot.evaluation.cost)
+        pressure = state.snapshot.evaluation.cost / max(1, target)
+        if context.get("node_target", 0):
+            pressure = max(
+                pressure,
+                state.snapshot.evaluation.structure["nodes"] / context["node_target"],
+            )
+        compaction = pressure > 1.25
+        burst = (
+            {"fast": 1, "balanced": 2, "high": 3}[self.options.quality]
+            if compaction
+            else 1
+        )
+        self.schedule_diagnostics[
+            "compaction_parents" if compaction else "visual_parents"
+        ] += 1
         iterators = [
             iter(self.families(state, work)),
             iter(self.paint(state, work)),
@@ -284,10 +308,28 @@ class Operators:
             iter(self.ink(state, work)),
             iter(self.replacements(state, work)),
         ]
-        for _ in range(MAX_OPERATOR_ITEMS):
-            for iterator in iterators:
-                if work.interrupted:
-                    return
-                proposal = next(iterator, None)
-                if proposal is not None:
+        alive = set(range(len(iterators)))
+        try:
+            for cycle in range(MAX_OPERATOR_ITEMS):
+                # Fixed shared-frontier anchor; requested complexity never
+                # changes which pool these operators try to construct.
+                rotation = (len(state.edits) + cycle) % 4
+                reserved = [1 + (i + rotation) % 4 for i in range(4)]
+                for slot in [0] * burst + reserved:
+                    if work.interrupted or not alive:
+                        return
+                    if slot not in alive:
+                        continue
+                    proposal = next(iterators[slot], None)
+                    if proposal is None:
+                        alive.remove(slot)
+                        continue
+                    self.schedule_diagnostics[
+                        "family_proposals" if slot == 0 else "reserved_proposals"
+                    ] += 1
                     yield proposal
+        finally:
+            for iterator in iterators:
+                close = getattr(iterator, "close", None)
+                if close is not None:
+                    close()
