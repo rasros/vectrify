@@ -36,13 +36,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the coupled material and ink comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the broad material and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental owned material/ink initialization and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
+| Experimental broad material candidates and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -87,6 +87,19 @@ control; the experiment was removed. This is evidence against treating search
 priority as the current quality solution. The next model work must address
 broad coherent shade/facet surfaces and their supported boundaries, while the
 candidate audit separates interpretation, admission and selection failures.
+
+Broad whole-owner material hypotheses now compete across compatible shade
+fragments, including coarse ink labels that fit the complete source paint.
+Fixed atoms and selected ink overlays remain protected. Exact unions and
+batched geometric order proofs admit larger surfaces without changing native
+coverage or feature gates. A discovery deadline now preserves the measured
+full-check duration when the shared validation window is short. The retained
+60-second run publishes four independently validated alternatives, but still
+selects the same 10,009-node drawing with error 514.85. This closes a proposal
+availability and checkpoint timing gap; it supplies no sword quality gain.
+The operator keeps the existing exterior geometry, so coherent paint alone
+cannot remove its jagged or fragmented boundaries. General supported geometry
+and true atom splitting remain required before claiming structural compaction.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local

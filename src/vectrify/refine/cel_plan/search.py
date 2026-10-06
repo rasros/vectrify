@@ -325,11 +325,11 @@ def search(
     cursors: dict[str, Iterator[Proposal]] = {}
     cursor_peak = resumed = 0
     peak = _bytes(states)
-    # Standalone search reserves its own checkpoints. A pipeline supplying a
-    # separate live checkpoint budget already owns that reserve; subtracting
-    # it again strands useful discovery time before the local phase expires.
+    # Standalone search reserves its own checkpoints. A pipeline supplies a
+    # separate validation deadline; discovery may use its entire local slice
+    # only while that deadline still leaves the measured full-check duration.
     local_deadline = (
-        work.deadline
+        min(work.deadline, validation_work.deadline - minimum_checkpoint_seconds)
         if checkpoint_work is not None
         else work.deadline - max(0.05, work.remaining * 0.25)
     )

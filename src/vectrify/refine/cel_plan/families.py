@@ -13,6 +13,7 @@ from collections import deque
 from dataclasses import replace
 
 import numpy as np
+import pathops
 from cairosvg.colors import color
 from scipy.ndimage import find_objects, gaussian_filter
 
@@ -115,6 +116,7 @@ class Families:
             "order_proof_limits": 0,
         }
         self.nesting_rejections: dict[str, int] = {}
+        self._surface_models = None
 
     def _same_ink(self, edge: Boundary, work: Work) -> bool:
         """An internal paint partition is not a gap in a continuous dark mark.
@@ -536,7 +538,46 @@ class Families:
             return None
         return continued, nesting
 
+    @property
+    def surface_models(self):
+        from vectrify.refine.cel_plan.surface_models import MaterialSurfaces
+
+        if self._surface_models is None:
+            self._surface_models = MaterialSurfaces(self, self.options)
+        return self._surface_models
+
     def __call__(self, state: State, work: Work):
+        # Alternate material hypotheses with the established adjacency family.
+        # Both occupy the existing family slot; other operators keep their turn.
+        cursors = [
+            iter(self.surface_models(state, work)),
+            iter(self.adjacent(state, work)),
+        ]
+        alive = set(range(len(cursors)))
+        try:
+            while alive and not work.interrupted:
+                for index in tuple(sorted(alive)):
+                    try:
+                        proposal = next(cursors[index], None)
+                    except pathops.PathOpsError:
+                        self.diagnostics["family_boolean_failures"] = (
+                            self.diagnostics.get("family_boolean_failures", 0) + 1
+                        )
+                        alive.remove(index)
+                        continue
+                    if proposal is None:
+                        alive.remove(index)
+                    else:
+                        yield proposal
+                    if work.interrupted:
+                        return
+        finally:
+            for cursor in cursors:
+                close = getattr(cursor, "close", None)
+                if close is not None:
+                    close()
+
+    def adjacent(self, state: State, work: Work):
         # Import here keeps the bounds helper and the operator factory acyclic.
         from vectrify.refine.cel_plan.proposals import bounds
 

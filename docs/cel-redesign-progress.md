@@ -2558,6 +2558,205 @@ existing warnings; its configured exclusions omit tests, which are exercised
 by pytest. The final native benchmark, paired controls and source-only
 candidate audit all record the same retained source hash above.
 
+## Broad material models and measured checkpoint time
+
+The broad-model experiment adds `cel_plan/surface_models.py`, integrates it
+within the existing family slot in `families.py`, and reports its exclusions
+in `pipeline.py`. It offers coherent paint across complete source owners rather
+than requiring every neighbor to resemble one seed color. Existing adjacency,
+ink, geometry and enclosed-material operators keep their slots. It does not
+change score weights, coverage gates, slider normalization or the legacy default.
+
+### Model and safety bounds
+
+A source-supported seed proposes a flat or linear material model. Its linear
+hypothesis can extend beyond the seed's observed extent; the exported paint is
+refitted over the complete proposed family and screened with actual SVG
+clamping. Both gradient and flat competitors reach the same native objective.
+Every source pixel of every included owner must meet the paint residual screen,
+including distant atoms and isolated outliers. Fitting samples are bounded, but
+the eligibility proof streams complete owned source support in 65,536-pixel
+chunks. Interruption never publishes a partially screened owner.
+
+The model considers at most eight material seeds, 128 paths and 6,000 geometry
+nodes per family, sixteen emitted proposals per parent, 4,096 eligible owners
+and a 1,536-squared analysis grid. Residual proposal parameters are 24 and 48
+RGB byte values; these are eligibility screens, not relaxed native acceptance
+thresholds. Fixed atoms, chosen ink overlays, paint constraints, translucent
+current paints, strokes and clips are excluded. A partially translucent source
+requires proof that the entire actual replacement geometry lies in the existing
+opaque core of its supported opacity group.
+
+Coarse ink classification is evidence for an alternative interpretation, not a
+blanket veto of compatible shade owners. Coarse ink does not seed the material
+model; any such owner included in a family must satisfy the complete source RGB
+screen. A distinct dark mark stays independent when it fails that screen, and
+fixed atoms or already selected ink overlays cannot be absorbed. Tests explicitly
+exercise compatible coarse labels beside an unchanged black ink owner.
+
+Exact contour unions retain the exterior geometry. They prove local order by
+intersecting the actually moving earlier-fragment prefix with each intervening
+sibling union. Siblings crossing the same prefix share one exact geometric
+proof; the stationary last fragment is not part of the moving prefix. The
+128-proof and 6,000-node temporary geometry bounds remain. A real overlap,
+unproved stroke/clip, core failure or bounded proof rejects the proposal.
+Whole geometry holds remain held after union. This is paint/model availability,
+not fitted facet geometry or canonical source atom splitting.
+
+### Exclusion experiments
+
+Separate 180-second source-only audits explain the initial lack of candidates.
+They use immutable source evidence, owned initialization and native policy;
+the human render is consulted only after generating and evaluating a proposal.
+
+| Eligibility/order experiment | Eligible owners | Emitted proposals | Interpretation |
+| --- | ---: | ---: | --- |
+| Veto any source atom classified as coarse ink | 118 | 0 | Coarse labels prevent material connectivity |
+| Veto only owners with at least 60% coarse ink support | 118 | 0 | A whole-owner majority veto still blocks the same connectivity |
+| Allow compatible coarse labels, prove order per sibling | 1,403 | 1 | A larger family reaches the unchanged 128-proof limit |
+
+The audit directories are `.bench/broad-material-candidate-audit-atom-veto`,
+`.bench/broad-material-candidate-audit-owner-veto` and
+`.bench/broad-material-candidate-audit-before-group-proofs`. Their source hashes
+are respectively `5c6b66795cc23660a9cbd08af859ef5792db3a936a9f597f718e2dccd220a069`,
+`d36b3adeaa03f532612f2c6fe42e99f2bce8fedde9b910ffa124adf0faa03570` and
+`faf70bad17934a8068fdb91a5b6689c3005adb78e4c8b996e63bf261cc8a5499`.
+The per-sibling version emits one native-valid gray surface, removes 34 paths
+and lowers initialization cost from 20,818 to 20,530. Its human MSE rises from
+512.81 to 513.47. It is availability evidence with a negative visual tradeoff,
+not a quality improvement or the selected drawing.
+
+### Publication and final native comparison
+
+The first matched 60-second run with grouped order proofs, before the checkpoint
+time fix, is `.bench/planned-broad-material-surfaces` with source hash
+`d4cbefea36b8249bdcdd8ff23226579e4d369b019ed07ca22988179b1eb94649`.
+Nineteen evaluations and thirteen local acceptances receive no full checkpoints.
+It returns the 10,286-node initializer with human MSE 512.81 in 53.15 seconds.
+Local search could consume the time required by its own minimum full-check
+estimate, even with a separate shared validation deadline.
+
+`search.py` now caps discovery at the earlier of its local deadline and the
+shared validation deadline minus the measured minimum checkpoint duration.
+It does not subtract another fixed percentage when the caller already has a
+longer validation window. Two deterministic clock tests reproduce the short
+window failure and preserve full useful discovery with a longer window. Stop
+still prevents publication; incomplete working states remain unpublished.
+
+The retained source hash is
+`4999e6c766974d418a488784941aaf6ac7b354ce1fa2d971cbdd3cecaba89999`.
+The final matched run, `.bench/planned-broad-material-checkpoints`, uses the same
+native source/mask, complexity 50, balanced quality, refinement disabled and
+60-second time limit. It takes 53.24 seconds, evaluates 23 proposals, accepts
+sixteen locally and publishes four independently validated checkpoints. There
+are zero score disagreements, crossings or published native policy rejections.
+Local search and validation take 16.81 seconds, including 4.84 seconds for the
+full checkpoints. Three broad material proposals reach local evaluation.
+Initialization timings differ between runs, so this rerun does not isolate
+how much publication improvement comes from the deadline fix alone.
+
+| Native sword drawing | Nodes | Contours | Paths | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Human fixture | 523 | 93 | 80 | 1,127 | 0 |
+| Legacy CEL | 2,312 | 339 | 137 | 4,230 | 663.31 |
+| Previous retained material/ink run | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Broad models with full checkpoints | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Frozen sword gate | At most 800 | At most 140 | — | — | At most 497.39 |
+
+The selected drawing still contains the same two ink replacements and 31
+gradients. Tip/facets/guard/wrapping/jewel errors remain
+560.66 / 254.12 / 1,167.78 / 882.61 / 1,332.64. Out-of-time, search-out-of-time
+and stopped are false, and deadline overshoot is zero. Refinement remains
+incomplete. The detailed normalizer is still 54,564 and the nominal complexity
+50 representation target is 27,282. The selected result is more than four times
+the legacy node count and exceeds every numerical sword target. Broad paint
+models provide no improvement to the published sword.
+
+### Final paired controls and reproduction
+
+The four final half-opacity tuning controls in
+`.bench/planned-broad-material-checkpoints-rgba-pairs` use the same source,
+clean-target and mask hashes as
+`.bench/planned-enclosed-material-original-width-rgba-pairs`. Every selected PNG
+is byte-identical; all global, feature and line scores are unchanged. All four
+reach 48 local evaluations and four full checkpoints, with complete diagnostic
+pools and zero score disagreements.
+
+| Tuning variant | Nodes / cost | Clean MSE | Same-cost oracle gap | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 15.60 | 11.55 |
+| Anime face | 176 / 272 | 206.86 | 0.25 | 17.94 |
+| Western park | 547 / 987 | 178.72 | 0 | 10.29 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.39 | 13.38 |
+
+These are unchanged quality controls, not runtime improvements. No timed CPU
+tests overlap the native benchmark or paired controls. Reproduce with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-broad-material-checkpoints
+
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-broad-material-checkpoints-rgba-pairs
+```
+
+### Final source-only availability audit
+
+The final audit in `.bench/broad-material-candidate-audit/summary.json` records
+the retained source hash above, checks that it stays unchanged, and evaluates
+the first four broad proposals from the independently validated initializer.
+Its 180-second diagnostic limit is not matched-budget production selection.
+The human geometry never enters generation, screening, fitting or native policy.
+
+| Independent candidate | Removed paths | Nodes / contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initialization | — | 10,286 / 1,711 | 20,818 | 512.81 |
+| Broad blue-gray gradient | 50 | 10,098 / 1,661 | 20,342 | 513.22 |
+| Broad blue-gray flat | 50 | 10,098 / 1,661 | 20,330 | 512.06 |
+| Broad gray gradient | 34 | 10,202 / 1,677 | 20,530 | 513.47 |
+| Broad gray flat | 34 | 10,202 / 1,677 | 20,518 | 511.70 |
+
+All four pass the unchanged native policy and agree exactly with the independent
+local raster. The maximum full/local score-term difference is 2.32e-10, within
+the existing checkpoint tolerance. The audit inspects 579,894 source pixels,
+fits three seeds and uses 144 exact interval order proofs across the four
+proposals, with no core/order exclusion or proof-limit failure. It deliberately
+stops after four proposals; this is not an exhaustive pool or oracle.
+
+Flat blue-gray paint slightly improves the blade facet score from 254.12 to
+252.51 but worsens guard error from 1,166.23 to 1,169.40. Flat gray paint lowers
+guard error to 1,162.86 but raises facet error to 255.23. Wrapping and jewel scores are unchanged in all four candidates; the blue-gray
+models slightly lower tip error. Neither independent candidate meets the
+combined sword target. The best global MSE gain here is only 1.11 points,
+about 0.22%, while the largest node reduction is 188, about 1.83%. This is far
+below the required abstraction. The production selected PNG is byte-identical
+to the previous retained drawing. Candidate availability has expanded, but
+there is no material whole-drawing improvement to report.
+
+### Verification and remaining structural work
+
+The relevant planner, legacy CEL, shared fitting, operation and benchmark suite
+passes 541 tests in 62.55 seconds. This includes eighteen broad-material cases
+and two measured-checkpoint-time cases. Ruff lint passes and all 61 checked
+files are formatted. Project Pyrefly reports zero errors and 61 existing
+warnings; tests are excluded from that project check and are exercised by pytest.
+
+No complete delivery or sword gate passes because of this change. The next
+structural work must fit supported exterior boundaries across graph junctions,
+combine compact geometry with broad paint/retained marks, and introduce exact
+canonical source splits when whole atoms cannot represent the proposed drawing.
+Retaining jagged unions and merely recoloring them cannot deliver the intended
+human abstraction. General joint fitting, content normalization, UI controls,
+corpus expansion, conditional ranking and independent release review remain open.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

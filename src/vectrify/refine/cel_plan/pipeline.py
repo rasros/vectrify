@@ -409,6 +409,9 @@ def vectorize(
                 structural_search["operator_diagnostics"] = {
                     "scheduling": dict(operators.schedule_diagnostics),
                     "surface_families": dict(operators.families.diagnostics),
+                    "material_surfaces": dict(
+                        operators.families.surface_models.diagnostics
+                    ),
                     "ink_replacement": dict(operators.replacements.diagnostics),
                     "closed_overlays": dict(operators.overlays.diagnostics),
                     "nested_surface_rejections": dict(

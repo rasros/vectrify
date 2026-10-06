@@ -142,6 +142,42 @@ def test_shared_checkpoint_reserve_keeps_useful_tail_discovery_time(
     assert frontier.policy.evaluate(frontier.select(50).svg).valid
 
 
+@pytest.mark.parametrize(("validation_seconds", "expected"), [(4, 1), (8, 2)])
+def test_shared_search_preserves_measured_checkpoint_time(
+    validation_seconds, expected, monkeypatch
+):
+    frontier, _, options = setup()
+    tick = [0.0]
+    monkeypatch.setattr(beam.time, "monotonic", lambda: tick[0])
+    phase = Work.start(4)
+    checkpoint = Work.start(validation_seconds)
+
+    def edits(state, work):
+        if state.edits:
+            return
+        yield proposal(state, "left", "#b05030")
+        # Bounded discovery reaches its supplied deadline. A separate live
+        # validation budget must still have the measured full-check duration.
+        tick[0] = min(3.8, work.deadline)
+        if not work.interrupted:
+            yield proposal(state, "right", "#409080")
+
+    report = search(
+        frontier,
+        options,
+        phase,
+        edits,
+        checkpoint_work=checkpoint,
+        minimum_checkpoint_seconds=1,
+    )
+    assert report["accepted"] == expected
+    assert report["checkpointed"] == expected
+    assert report["score_disagreements"] == 0
+    selected = frontier.select(50)
+    assert selected.metrics["gradients"] == 1
+    assert frontier.policy.evaluate(selected.svg).valid
+
+
 def proposal(state, oid, value, *, operator="paint", parent=None):
     document = color(state.document, oid, value)
     return Proposal(
