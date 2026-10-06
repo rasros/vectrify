@@ -22,8 +22,9 @@ method remains experimental and the existing CEL default is unchanged.
   history. Local acceptance uses the complete policy's fixed denominators and
   feature aggregates; publication independently verifies the entire raster,
   score and document checks. Connected surface families now also have individual
-  merge proposals with retained source ownership. Region splits, ink replacement
-  and order edits still need this acceptance path.
+  merge proposals with retained source ownership. Owned ink replacement now
+  compares filled unions with strokes over restored neighboring paint. Region
+  splits, broader ink/layer interpretations and order edits remain unfinished.
 - The experimental operation validates settings, previews without mutation,
   applies as one undo entry and supports project save/reload.
 - Score version 3 measures robust multi-scale premultiplied color, contrasting
@@ -842,6 +843,108 @@ the previously recorded broad command. Ruff passed; Pyrefly reported zero
 source errors with 61 existing warnings. Broader paired calibration and complete
 runtime, memory and release evidence remain open.
 
+## Owned ink replacement and restored neighboring paint
+
+The new `cel_plan/ink_replace.py` operator connects owned dark regions with
+substantial detected-ink support, respecting component, parent, transform and
+color compatibility. A paired dark-ridge proof distinguishes ink from an
+ordinary shade step. It compares the current fragments with a filled union and,
+where width and coverage support it, a fitted stroke. The filled alternative
+retains the current exterior, holes and width variation; it does not yet fit a
+new variable-width outline. Constant-width strokes are excluded when measured
+width spread exceeds the initial 1.6 ratio, unless a positive user width supplies
+the explicit competing interpretation. These thresholds are engineering
+proposal rules, not calibrated human preferences.
+
+A stroke restores adjoining surface paint inside the old ink footprint before
+replacing the fragments. Neighbor labels extend by nearest supported exterior
+samples; their existing paint and gradient frames are retained. A dominant
+neighbor covers the complete old union, with other continuations clipped to
+that footprint. The stroke follows in the survivor's drawing position. Opaque
+material, matching isolated opacity, or a geometrically verified opaque core
+is required for overlap; membership alone cannot prove core coverage. Uncovered
+variable translucency retains the filled competitor. Silhouette/hole contacts,
+different parents/transforms and unsupported neighbor context exclude the
+initial stroke interpretation. General occlusion/order inference is still open.
+
+The surviving ink path owns all original members as an overlay. Restored paths
+have secondary underlay ownership; sibling states and the source graph stay
+unchanged. Geometry and explicit-width holds propagate, and ordinary SVG/project
+serialization remains the editing format. Exact local checks and independent
+full checkpoints remain the only acceptance path. No human geometry or sword
+recognition is supplied to the generator.
+
+Discovery is bounded by 16 families, 128 source paths and 6,000 source nodes;
+restoration has at most four neighbors and 6,000 total generated underlay nodes.
+Source masks retain the 262,144-pixel ceiling. At most 16 centerline runs are
+measured per family, with a cached immutable luminance field. Ink discovery has
+one quarter of the remaining search time and a slot after surface, paint,
+boundary and existing ink proposals. Diagnostics distinguish eligibility,
+missing ridge support, variable width, missing restoration, bounded areas,
+proposed models and time expiration. These bounds do not complete candidate
+metadata accounting or the full process-RSS gate.
+
+An initial run with ink discovery first in the cycle, without its own time
+slice, used source SHA-256
+`93d46d03dc23bf5917ef2912234b1faadbde3c606ac2c7d593b33796ff83dc26`
+in `.bench/planned-ink-replacement`. Its checkpoint retained one filled ink
+replacement and one family merge: 22,616 nodes, 4,023 contours and human MSE
+439.75101. The ink edit saved 37 cost units with visual change below 1e-9, but
+the completed search prefix lost the second larger family edit. That is a
+denser final drawing, not a quality improvement or reason to accept additive
+ink indiscriminately. It motivated the bounded discovery slice and scheduling
+change above.
+
+Reproduce the final-source native development run with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-ink-bounded
+```
+
+Source SHA-256 was
+`86f43bff68480441865501b3454f1992fcd3efc15abf6ddfc6b631c5fd83ff86`;
+the frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The final drawing again contains 22,097 nodes, 3,901 contours, 3,864 paths and
+538 gradients, with human MSE 439.64097. The two family edits remain its full
+checkpoint. An additional filled ink alternative entered the working beam,
+saving 37 cost units, but did not enter that checkpoint. No stroke replacement
+was offered in this completed prefix: nine families were scanned, seven lacked
+the required ridge proof, one source area was bounded, and one variable-width
+filled proposal was offered before discovery expired. This is not proof that
+all sword strokes are unsupported or that the full candidate set was searched.
+
+Search attempted ten evaluations, accepted seven working alternatives and
+published one checkpoint, with zero raster/score disagreements. Stage time was
+11.13 seconds including 1.92 seconds of independent validation. Pipeline time
+was 49.05 seconds; operation/apply time was 53.41 seconds without pipeline
+overshoot. Accounted retained SVG/raster peak bytes were 12,604,397. The soft
+cost target remains 46,365 against achieved cost 51,885, reported unmet. These
+different completed prefixes do not establish a matched-effort speedup. Guard
+and jewel MSEs remain 1,015.14 and 1,233.07, and the structural gates still fail.
+
+Tests cover flat/stroke replacement, exact alpha at 255/128/64, local/full
+agreement, restored two-shade paint, retained gradient coordinates, tapered
+filled marks, blank gaps, unsupported shade steps, component boundaries,
+uncovered translucency, transformed native widths, explicit width/hold
+propagation, project reload and cancellation/independent discovery deadlines.
+The broad relevant suite passed 338 tests; all 14 focused ink-replacement tests
+passed, including the additional discovery-deadline case. Ruff passed; Pyrefly
+reported zero source errors with 61 existing warnings. No held-out artwork was
+used. Broader joined/variable-width ink fitting and coverage remain open.
+
+The dense drawing also reports 3,986 native-alpha geometry holds across its
+regions. Source alpha is mostly byte 253, with weaker fringes and low-opacity
+pixels; this does not justify discarding them indiscriminately. The next
+compaction work must offer coherent surfaces and refinable internal chains
+while preserving supported native contacts. In particular, investigate region
+boundaries excluded by coarse line evidence when a paired ridge is absent,
+and compare those alternatives under the same full validation policy. A learned
+ranker cannot recover surface or outline models that are never proposed.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -851,7 +954,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
 | 3 | Region splits, richer surface/paint interpretations beyond the initial owned family merges, calibrated content normalization and budget-directed search, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
-| 4 | Variable-width/fill ink alternatives, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
+| 4 | Fitting variable-width filled ink beyond retained unions, broader stroke replacement/underlayer coverage, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
 | 7 | Expanded paired evaluation/corpus coverage, ablations and conditional learned-ranker experiment |
@@ -860,7 +963,8 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 The operation still reports `refinement_complete: false`. The bounded CPU
 foundation implements real fitting behavior; it does not complete joint fitting
 or the required runtime/memory and quality gates. Owned family merges and
-individual paint/boundary/ink edits have a bounded working beam and independent
-full checkpoints. Complete merge/tolerance anchor proposals also remain;
-region splits, ink replacement, richer models and order edits are unfinished.
+individual paint/boundary/ink edits, including initial owned replacements, have
+a bounded working beam and independent full checkpoints. Complete merge/tolerance
+anchor proposals also remain; region splits, broader ink replacement, richer
+models and order edits are unfinished.
 These gaps must be resolved before completion is claimed.

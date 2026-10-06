@@ -226,12 +226,14 @@ def vectorize(
                 work.timings,
             )
             local_started = time.monotonic()
+            operators = None
             try:
+                operators = Operators(evidence, graph, replace(options, complexity=50))
                 structural_search = local_search(
                     frontier,
                     options,
                     local_work,
-                    Operators(evidence, graph, replace(options, complexity=50)),
+                    operators,
                 )
             except (ValueError, RuntimeError, ArithmeticError) as exc:
                 # Optional search never replaces the independently validated
@@ -243,6 +245,10 @@ def vectorize(
                     "accepted": None,
                     "seconds": time.monotonic() - local_started,
                     "validation_seconds_unavailable": True,
+                }
+            if operators is not None:
+                structural_search["operator_diagnostics"] = {
+                    "ink_replacement": dict(operators.replacements.diagnostics)
                 }
             search_ran = True
             validation_seconds += structural_search.get("validation_seconds", 0)

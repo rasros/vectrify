@@ -30,7 +30,13 @@ class Ink:
     peak_gap: float
 
 
-def measure(points: np.ndarray, target: np.ndarray, width: float) -> Ink | None:
+def measure(
+    points: np.ndarray,
+    target: np.ndarray,
+    width: float,
+    *,
+    light: np.ndarray | None = None,
+) -> Ink | None:
     """Find a paired dark ridge, its centroid, color and integrated coverage."""
     if len(points) < 4:
         return None
@@ -44,10 +50,9 @@ def measure(points: np.ndarray, target: np.ndarray, width: float) -> Ink | None:
     offsets = np.arange(-reach, reach + 0.25, 0.5)
     samples = points[:, None, :] + offsets[None, :, None] * normal[:, None, :]
     coordinates = [samples[..., 1] - 0.5, samples[..., 0] - 0.5]
-    luminance = cel.lightness(target)
-    light = map_coordinates(
-        gaussian_filter(luminance, 0.5), coordinates, order=1, mode="nearest"
-    )
+    if light is None:
+        light = gaussian_filter(cel.lightness(target), 0.5)
+    light = map_coordinates(light, coordinates, order=1, mode="nearest")
     # Contrast must be darker than both adjacent surfaces, not just one side
     # of a shade discontinuity. Search only near the proposed centerline.
     surface = np.minimum(light[:, 0], light[:, -1])

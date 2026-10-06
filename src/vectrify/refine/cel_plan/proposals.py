@@ -23,6 +23,7 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
+from vectrify.refine.cel_plan.ink_replace import InkReplacement
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
 from vectrify.refine.cel_plan.refine import (
@@ -62,6 +63,7 @@ class Operators:
         self._ink_models = {}
         self._ink_checked = set()
         self.families = Families(evidence, graph, options)
+        self.replacements = InkReplacement(evidence, graph, options)
 
     def paint(self, state: State, work: Work):
         document = state.document
@@ -263,6 +265,7 @@ class Operators:
             iter(self.paint(state, work)),
             iter(self.geometry(state, work)),
             iter(self.ink(state, work)),
+            iter(self.replacements(state, work)),
         ]
         for _ in range(MAX_OPERATOR_ITEMS):
             for iterator in iterators:
