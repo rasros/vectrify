@@ -30,6 +30,7 @@ from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
+from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import Families, _opacity
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
@@ -550,6 +551,9 @@ class InkReplacement:
                     details={
                         "regions": sum(s.role != "underlay" for s in changed.surfaces),
                         "geometry_constraints": sorted(holds),
+                        "chain_constraints": discard(
+                            state.details.get("chain_constraints"), ids
+                        ),
                         "paint_constraints": sorted(
                             (set(state.details.get("paint_constraints", ())) - set(ids))
                             | (

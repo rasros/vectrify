@@ -20,6 +20,7 @@ from vectrify.document.model import paint_server
 from vectrify.document.paint import hex_colour, mean_colour
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
+from vectrify.refine.cel_plan import constraints as chains
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
@@ -104,10 +105,14 @@ class Operators:
     def geometry(self, state: State, work: Work):
         document = state.document
         constrained = frozenset(state.details.get("geometry_constraints", ()))
+        chain_constraints = state.details.get("chain_constraints")
         eligible = [
             oid
             for oid in _paths(document)
-            if oid not in constrained
+            if (
+                oid not in constrained
+                or chains.bind(document, oid, chain_constraints) is not None
+            )
             and sum(len(s.nodes) for s in document.geometry_for(oid).subpaths)
             <= MAX_PATH_NODES
         ]
@@ -119,7 +124,14 @@ class Operators:
             if work.interrupted:
                 return
             proposed = _geometry_proposal(
-                document, oid, self._image, self.options, work, constrained, move=False
+                document,
+                oid,
+                self._image,
+                self.options,
+                work,
+                constrained,
+                move=False,
+                chain_constraints=chain_constraints,
             )
             if proposed is None:
                 continue
@@ -137,6 +149,11 @@ class Operators:
                 state.key,
                 proposed,
                 bounds(document, proposed, ids),
+                details={
+                    "chain_constraints": chains.refresh(
+                        chain_constraints, document, proposed, ids
+                    )
+                },
             )
 
     def ink(self, state: State, work: Work):

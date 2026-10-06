@@ -33,6 +33,7 @@ from vectrify.operations.methods.colours import (
     local_gradient,
 )
 from vectrify.refine import shared
+from vectrify.refine.cel_plan import constraints as chains
 from vectrify.refine.cel_plan.frontier import Entry, Frontier
 from vectrify.refine.cel_plan.model import Evidence, Options, Work
 from vectrify.refine.cel_plan.score import composite
@@ -202,8 +203,12 @@ def _geometry_proposal(
     constraints: frozenset[str],
     *,
     move: bool,
+    chain_constraints: dict | None = None,
 ) -> Document | None:
-    if oid in constraints:
+    if work.interrupted:
+        return None
+    binding = chains.bind(document, oid, chain_constraints)
+    if oid in constraints and binding is None:
         return None
     region = _region(document, oid, image)
     if region is None:
@@ -211,8 +216,36 @@ def _geometry_proposal(
     oids = _paths(document)
     links = shared.links(document, [oid], oids)
     neighbours = {link.neighbour for link in links}
+    bindings = {
+        other: chains.bind(document, other, chain_constraints)
+        for other in {oid, *neighbours}
+        if other in constraints
+    }
+    protected = {
+        value
+        for other, hold in bindings.items()
+        for value in (
+            hold.protected
+            if hold is not None
+            else tuple(value for _a, _b, value in chains.segments(document, other))
+        )
+    }
+    native_points = frozenset(
+        endpoint
+        for other in {oid, *neighbours}
+        for a, b, value in chains.segments(document, other)
+        if value in protected
+        for endpoint in (a, b)
+    )
     held = Frozen(
-        shared.frozen_points(document, links)
+        native_points
+        | frozenset(
+            node
+            for hold in bindings.values()
+            if hold is not None
+            for node in hold.endpoints
+        )
+        | shared.frozen_points(document, links)
         | frozenset(
             node for other in {oid, *neighbours} for node in _anchors(document, other)
         )
@@ -231,8 +264,12 @@ def _geometry_proposal(
     if geometry == paths.geometries[oid]:
         return None
     proposed, changed = shared.follow(document.replace_geometry(geometry), links)
-    if changed & constraints:
+    if work.interrupted:
         return None
+    for other in {oid, *changed} & constraints:
+        hold = bindings.get(other)
+        if hold is None or not hold.intact(proposed, other):
+            return None
     if not _held_intact(document, proposed, held, {oid, *changed}):
         return None
     if not all(shared.intact(proposed, link) for link in links):
@@ -280,6 +317,18 @@ class _Session:
             f"CPU {stage} at complexity {self.complexity}",
             {
                 **self.entry.details,
+                "chain_constraints": chains.refresh(
+                    self.entry.details.get("chain_constraints"),
+                    self.document,
+                    proposed,
+                    (
+                        oid
+                        for oid in (
+                            self.entry.details.get("chain_constraints") or {}
+                        ).get("paths", {})
+                        if self.document.geometry_for(oid) != proposed.geometry_for(oid)
+                    ),
+                ),
                 "refined": True,
                 "refinement_stage": stage,
                 "refinement_object": oid,
@@ -391,7 +440,13 @@ def refine(
             for s in session.document.geometry_for(oid).subpaths
         )
         paint_constraints = frozenset(seed.details.get("paint_constraints", ()))
-        geometry_oids = [oid for oid in oids if oid not in constraints]
+        chain_constraints = seed.details.get("chain_constraints")
+        geometry_oids = [
+            oid
+            for oid in oids
+            if oid not in constraints
+            or chains.bind(session.document, oid, chain_constraints) is not None
+        ]
         paint_oids = [
             oid
             for oid in oids
@@ -489,6 +544,9 @@ def refine(
                         session.work,
                         constraints,
                         move=stage == "geometry",
+                        chain_constraints=session.entry.details.get(
+                            "chain_constraints"
+                        ),
                     )
                     session.accept(proposed, stage, oid)
             if seed_work.interrupted or session.attempts >= allowance:

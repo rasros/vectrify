@@ -29,6 +29,11 @@ method remains experimental and the existing CEL default is unchanged.
   coarse line support as an exclusion. Supported and unresolved strong edges
   remain barriers even when a weak alternate adjacency route connects their
   owners. Missing ridge evidence permits a surface proposal, not acceptance.
+- RGBA export can now carry bounded interior-chain permissions alongside a
+  whole-path native hold. Geometry and CPU refinement bind them to the exact
+  current path/frame, preserve all other segments and both shared-edge copies,
+  and refresh them after accepted fitting. Structural replacement discards
+  permissions and keeps its conservative whole-path hold.
 - The experimental operation validates settings, previews without mutation,
   applies as one undo entry and supports project save/reload.
 - Score version 3 measures robust multi-scale premultiplied color, contrasting
@@ -1052,6 +1057,120 @@ constraints at canonical-chain granularity and compares interior fitting and
 larger coherent surfaces separately. Whole-path native holds remain the safe
 fallback until that finer correspondence is proved. None of these results
 justifies exposing unfinished controls, training a ranker or changing defaults.
+
+## Interior-chain permissions and native hold diagnosis
+
+The RGBA exporter already fit safe interior chains separately from native
+alpha contacts, but its whole-path hold blocked later fitting of both. It now
+records the actually emitted interior segments on eligible held paths. Binding
+requires a matching geometry fingerprint, reference-to-document matrix and
+complete segment correspondence. Every segment outside those permissions,
+including an implicit closure or an unrecorded canvas contact, remains exact.
+
+`cel_plan/constraints.py` freezes protected endpoints, checks protected controls
+and segment multiplicity, and verifies the matrix again after editing. Existing
+corner/junction anchors remain active. A shared edit updates both copies and
+checks their agreement. Geometry simplification enters the native local beam;
+CPU refinement also consumes the permissions and independently validates its
+whole checkpoint. Accepted geometry gets an independently forked fingerprint
+and permissions, retaining export-chain identities and source membership.
+
+The bounds are 8,192 recorded canonical export chains, 32,768 emitted segments,
+4,096 source points per recorded chain and 512 nodes per eligible current path.
+Canonical records may be referenced by both owners. Missing, oversized or stale
+correspondence retains the whole-path restriction. Union and ink replacement
+explicitly discard affected permissions; a sibling's metadata is unchanged.
+This is initial export-chain correspondence, not original-atom subdivision or
+complete canonical-edge reconstruction. Compact primitive holds are unchanged.
+
+Twelve new tests cover a shared interior simplification inside transformed
+groups, exact protected segments, refreshed/sibling metadata, project reload,
+whole-held neighbors, stale geometry and ancestor transforms, native acceptance
+with holes and one-byte-alpha marks, CPU refinement, cubic handles,
+cancellation, replacement invalidation and each independent recording cap.
+The complete relevant suite passed **328 tests**; Ruff passed; Pyrefly reported
+zero source errors with 61 existing warnings. Tests remain excluded by its
+configured ignore rules.
+
+Before the native sword check, the four small clean tuning cases were rerun:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-chain-constraints-pairs
+```
+
+Their selected geometry, clean MSE and line scores exactly match the preceding
+shade/ridge diagnostic. Selected drawings do not carry these RGBA chain
+permissions, so that equality demonstrates no new fitting or quality benefit
+on this subset. All four returned ready, retained complete diagnostic pools and
+had zero checkpoint disagreements. Completed evaluation prefixes differed;
+no speedup is inferred. No held-out or degradation cases were run.
+
+The native development command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-chain-constraints
+```
+
+Both experiments used source SHA-256
+`2a9a38c79d4813007842d3376013870e860b5610d1c0b384616da05dcaae2aa5`.
+The native mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The sword result contains 22,646 nodes, 4,026 contours, 3,991 paths and 544
+gradients, with cost 53,260 and human MSE 439.75132. It is denser than the
+preceding 22,122-node/cost-51,886 result and still fails both structural gates.
+Its selected checkpoint contains one family merge, saving 1,304 cost units.
+The final large-family evaluation was interrupted; the different completed
+prefixes do not isolate a geometry-quality or runtime effect.
+
+Search attempted nine evaluations, accepted six working alternatives and
+published one full checkpoint with zero score/raster disagreements. Stage time
+was 11.33 seconds including 1.93 seconds of independent validation. Pipeline
+time was 49.13 seconds; operation/apply time was 53.60 seconds without pipeline
+overshoot. The accounted retained SVG/raster peak was 12,607,690 bytes and does
+not include all metadata or process RSS. The soft target remains 46,365 and is
+reported unmet. Guard and jewel human MSE remain 1,015.14 and 1,233.07; inspected
+crops still show the same poor contour/shading interpretations.
+
+The selected generation metadata contains 700 permission paths and 1,207
+refinable segments, with no omitted chain-cap records. JSON encoding occupies
+369,955 bytes before additional copies. These are planning IDs: operation Apply
+allocates editor IDs normally, so they are not directly bindable against the
+applied drawing using those original names. Planning constraints do not become
+a new persistent editor/project geometry model or a post-Apply fitting cache.
+
+The new hold-reason diagnostics count canonical callback chains/segments:
+
+| Reason | Chains | Emitted segments |
+| --- | ---: | ---: |
+| Transparent contact | 4,215 | 5,827 |
+| Thin component | 545 | 890 |
+| Explicit width | 0 | 0 |
+| Alpha step | 6,155 | 6,897 |
+| Repaired crossing | 0 | 0 |
+
+Reasons overlap and shared segments can appear in both visible owners; this is
+not an additive decomposition of all nodes. Canvas-border chains bypass this
+callback and are not included. The numbers do establish that protected native
+contacts dominate the recorded chain population, while few segments are
+eligible for interior fitting. Simply removing whole-path holds would neither
+solve the surface partitioning nor justify moving those contacts.
+
+The next compaction work must offer larger connected RGBA surface/coverage
+interpretations and schedule them usefully, while preserving intentional holes,
+thin marks and supported fringes through exact validation. Complete original
+atom splits/edge reconstruction and primitive-parameter fitting remain open.
+This implementation is a useful fitting foundation, not a sword improvement or
+a completed delivery.
 
 ## Remaining requirements
 

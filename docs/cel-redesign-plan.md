@@ -14,16 +14,16 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the bounded shade/ridge comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the chain-constraint comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental owned-family search, 60-second budget | 22,122 | 3,901 | 439.56 |
+| Experimental owned-family search, 60-second budget | 22,646 | 4,026 | 439.75 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
-The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; two family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
+The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
 
 Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
 
@@ -449,6 +449,22 @@ surface alternatives. Its result determines whether the next bottleneck is
 geometry, surface membership or search scheduling. Learned ranking waits for
 those alternatives to exist and for candidate-pool comparisons to demonstrate
 a selection or evaluation-cost problem.
+
+The first output now has an initial implementation: bounded export-chain
+permissions verify the current geometry and coordinate frame, freeze every
+other segment, update both shared-edge copies and refresh permissions after
+exactly accepted fitting. Unproved or replaced geometry retains whole-path
+holds. This does not yet rebuild original canonical edges after atom splits,
+or optimize compact primitives in their own parameter space.
+
+The sword diagnostics count 6,155 alpha-step chains and 4,215 transparent-contact
+chains, with 6,897 and 5,827 emitted canonical segments respectively. Reasons
+can overlap; these totals are not independent path counts. The retained plan
+has only 700 paths with interior permissions. Merely enabling interior fitting
+therefore cannot remove most of this cost. Complete the second output next:
+compact connected RGBA surface/coverage competitors, with preserved holes,
+supported fringes and intentional low-opacity marks. Measure their candidate
+availability under the deadline and reserve useful family opportunities.
 
 For routine development, run the focused evidence/policy/frontier/operator tests and operation apply/stop/reload checks. Use `scripts/bench_cel_planned.py` for the native sword comparison and save its SVGs, feature crops and source/mask hashes. Its current `--check` covers the numerical sword targets only; extend it with the documented local-feature, hole and coverage gates before treating that exit status as full acceptance. Run full-corpus and hardware-sensitive benchmarks separately, with the same completed proposal effort or a clearly stated matched deadline.
 

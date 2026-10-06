@@ -26,6 +26,7 @@ from vectrify.document import import_svg
 from vectrify.document.paint import GradientStop, LinearGradient, hex_colour
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.bases import propose as propose_bases
+from vectrify.refine.cel_plan.constraints import Chains
 from vectrify.refine.cel_plan.geometry import Boundaries
 from vectrify.refine.cel_plan.model import (
     Evidence,
@@ -294,6 +295,18 @@ def export(
     topology_regions: set[int] = set()
     rejected_regions: set[int] = set()
     fitted_regions: set[int] = set()
+    chains = Chains()
+    hold_reasons = dict.fromkeys(
+        (
+            "transparent-contact",
+            "thin-component",
+            "explicit-width",
+            "alpha-step",
+            "repaired-crossing",
+        ),
+        0,
+    )
+    hold_segments = dict.fromkeys(hold_reasons, 0)
 
     def sides(points):
         middle = (points[0] + points[1]) / 2
@@ -312,17 +325,24 @@ def export(
     def boundary(points, bound):
         check()
         regions = sides(points)
-        native = any(
-            index == -1
-            or index in hidden
-            or index in thin
-            or index in fixed_ink_regions
-            for index in regions
-        )
+        reasons = []
+        if any(index == -1 or index in hidden for index in regions):
+            reasons.append("transparent-contact")
+        if any(index in thin for index in regions):
+            reasons.append("thin-component")
+        if any(index in fixed_ink_regions for index in regions):
+            reasons.append("explicit-width")
+        native = bool(reasons)
         if not native:
             low, high = sorted(alpha_levels[index] for index in regions)
             native = high > low * 1.25 + 1e-7
+            if native:
+                reasons.append("alpha-step")
         repaired = any(index in rejected_regions for index in regions)
+        if repaired:
+            reasons.append("repaired-crossing")
+        for reason in reasons:
+            hold_reasons[reason] += 1
         if conservative or native or repaired:
             # A compact inner boundary cannot change native transparent space
             # or consume a thin component. Shared chains still have one owner.
@@ -332,13 +352,17 @@ def export(
                     index for index in regions if index not in hidden and index >= 0
                 )
             points = cel.simplify(points, polygon_bound)
+            for reason in reasons:
+                hold_segments[reason] += len(points) - 1
             return [("L", tuple(float(v) for v in point)) for point in points[1:]]
         fitted_regions.update(
             index for index in regions if index >= 0 and index not in hidden
         )
         if models is not None:
             return models(points, bound)
-        return cel.curve_nodes(points, bound, smooth=cel.FILL_SMOOTH, fit=cel.FILL_FIT)
+        nodes = cel.curve_nodes(points, bound, smooth=cel.FILL_SMOOTH, fit=cel.FILL_FIT)
+        chains.add(points, nodes, regions)
+        return nodes
 
     check()
     outlines = cel.region_outlines(
@@ -360,6 +384,9 @@ def export(
                 rejected_regions.add(index)
         if rejected_regions:
             models = Boundaries() if structure else None
+            chains = Chains()
+            hold_reasons = dict.fromkeys(hold_reasons, 0)
+            hold_segments = dict.fromkeys(hold_segments, 0)
             outlines = cel.region_outlines(
                 labels,
                 options.boundary_tolerance * float(np.sqrt(np.prod(evidence.scale))),
@@ -447,14 +474,23 @@ def export(
         f'{defs}<g transform="translate({x} {y}) scale({1 / sx} {1 / sy})">'
         f"{''.join(parts)}</g></svg>"
     )
+    ownership = surface_ownership(
+        evidence,
+        labels,
+        frozenset(index for index in outlines if index not in hidden),
+        work,
+        bases=bases,
+    )
+    chain_constraints = chains.metadata(
+        outlines,
+        topology_regions - fixed_ink_regions if not structure else set(),
+        ownership,
+        (1 / sx, 0, 0, 1 / sy, x, y),
+        work,
+    )
+    check()
     return svg, {
-        "planning_surfaces": surface_ownership(
-            evidence,
-            labels,
-            frozenset(index for index in outlines if index not in hidden),
-            work,
-            bases=bases,
-        ),
+        "planning_surfaces": ownership,
         "regions": len(outlines) - len(hidden),
         "gradients": len(definitions),
         "alpha_model": "opacity-core-layers" if bases else "adjacent-rgba-surfaces",
@@ -475,6 +511,9 @@ def export(
         "conservative_geometry": conservative,
         "conservative_tolerance": tolerance,
         "geometry_constraints": constraints,
+        "chain_constraints": chain_constraints,
+        "native_hold_reasons": hold_reasons,
+        "native_hold_segments": hold_segments,
         "paint_constraints": paint_constraints,
         "native_alpha_regions": len(topology_regions),
         "repaired_crossing_regions": sorted(rejected_regions),

@@ -21,6 +21,7 @@ from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
+from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.local import (
     MAX_CROP_PIXELS,
@@ -433,6 +434,9 @@ class Families:
                 details={
                     "regions": sum(s.role != "underlay" for s in changed.surfaces),
                     "geometry_constraints": sorted(holds),
+                    "chain_constraints": discard(
+                        state.details.get("chain_constraints"), ids
+                    ),
                     "family_estimate": {"priority": priority, "paint_delta": delta},
                 },
                 dependencies=(parent.id,),
