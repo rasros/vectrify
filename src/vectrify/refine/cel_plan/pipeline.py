@@ -27,6 +27,7 @@ from vectrify.refine.cel_plan.refine import refine
 from vectrify.refine.cel_plan.score import (
     foreground_mask,
     measurements,
+    opacity_measurements,
     render,
 )
 
@@ -46,7 +47,16 @@ def vectorize(
     if work.stop.is_set():
         raise PlanningStoppedError("Stopped before a validated candidate was available")
     evidence = collect(image, alpha, options, work)
-    graph = build(evidence)
+    try:
+        graph = build(evidence, work=work)
+    except StageInterruptedError as exc:
+        if work.stop.is_set():
+            raise PlanningStoppedError(
+                "Stopped before a validated candidate was available"
+            ) from exc
+        raise ValueError(
+            "Time limit reached before a validated candidate was available"
+        ) from exc
     if work.stop.is_set():
         raise PlanningStoppedError("Stopped before a validated candidate was available")
     policy = Policy.from_evidence(evidence, graph)
@@ -82,7 +92,10 @@ def vectorize(
     # A bounded linear approximation cuts pixel staircases, while native hard
     # checks decide whether it is a safe fallback. Tighten only after rejection.
     bound = min(0.75, options.tolerance) if options.tolerance else 0.75
-    for tolerance in (bound, min(bound, 0.25), 0):
+    # RGBA byte partitions first establish exact native coverage. A cheaper
+    # approximation competes later; repeated lossy fallbacks waste the reserve.
+    tolerances = (0,) if evidence.opacity is not None else (bound, min(bound, 0.25), 0)
+    for tolerance in dict.fromkeys(tolerances):
         if work.interrupted:
             break
         try:
@@ -184,6 +197,7 @@ def vectorize(
     refinement["after_objective"] = selected.metrics["objective"]
     actual = render(selected.svg, image.size)
     measured = measurements(actual, evidence.rgba, foreground_mask(evidence.rgba))
+    measured["opacity"] = opacity_measurements(actual, evidence.rgba)
     work.timings["validation"] = validation_seconds
     metrics = {
         **selected.metrics,

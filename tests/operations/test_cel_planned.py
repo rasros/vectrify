@@ -19,6 +19,7 @@ from vectrify.document import (
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
 from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.policy import Policy
+from vectrify.refine.cel_plan.score import render
 
 
 def request(editor, settings=None):
@@ -146,6 +147,35 @@ def test_empty_transparent_reference_produces_no_edit():
     assert not state["result"]["changed"]
     assert state["result"]["metrics"]["nodes"] == 0
     assert not editor.undo_labels
+
+
+def test_translucent_generation_into_transformed_group_round_trips_and_undoes():
+    editor = Editor(
+        import_svg(
+            '<svg width="80" height="80"><g id="layer" '
+            'transform="translate(12 18) scale(0.5)"/></svg>'
+        ),
+        selection=Selection(object_ids=frozenset({"layer"})),
+    )
+    before = export_svg(editor.snapshot.document)
+    values = np.zeros((80, 80, 4), dtype=np.uint8)
+    values[10:70, 10:70] = (210, 60, 40, 64)
+    values[25:55, 25:55] = 0
+    operation = replace(
+        request(editor, {"refine": False}), reference=Image.fromarray(values)
+    )
+    job = Job(method("generate", "cel-planned"), operation)
+    job.run()
+    assert job.state()["status"] == "ready", job.state()
+    job.apply()
+    actual = render(export_svg(editor.snapshot.document), (80, 80))
+    np.testing.assert_allclose(actual[14:24, 14:24, 3], 64 / 255, atol=1 / 255)
+    assert actual[28:52, 28:52, 3].max() == 0
+    document, _ = load_project(save_project(editor.snapshot.document))
+    np.testing.assert_array_equal(render(export_svg(document), (80, 80)), actual)
+    assert editor.undo_labels == ("Generate planned cel drawing",)
+    editor.undo()
+    assert export_svg(editor.snapshot.document) == before
 
 
 def test_valid_fallback_survives_rejected_fitted_candidates(monkeypatch):

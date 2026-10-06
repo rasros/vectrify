@@ -264,6 +264,8 @@ class _Session:
     def paint(self, oid: str, image: Image.Image, options: Options, stage: str) -> None:
         if not self.available:
             return
+        if oid in self.entry.details.get("paint_constraints", ()):
+            return
         style = path_style(self.document, self.document.element(oid))
         if style["fill"] == "none":
             return
@@ -315,11 +317,19 @@ def refine(
     sessions = []
     visited = 0
     bounded = 0
+    bounded_seeds = 0
     complete = True
     for seed_index, (seed, complexity) in enumerate(seeds):
         if work.interrupted:
             complete = False
             break
+        if seed.evaluation.structure["nodes"] > MAX_GEOMETRY_NODES:
+            # Parsing and visiting every path of a dense conservative fallback
+            # can consume the fitting reserve without one eligible proposal.
+            # Keep that validated seed; structural compaction must come first.
+            bounded_seeds += 1
+            complete = False
+            continue
         # Seed choice and objective are independent of the requested slider.
         # Later selection on the common refined frontier stays monotonic.
         allowance = max(
@@ -427,6 +437,7 @@ def refine(
         "accepted": sum(s.accepted for s in sessions),
         "visited": visited,
         "bounded_geometry": bounded,
+        "bounded_seeds": bounded_seeds,
         "anchors": len(sessions),
         "seconds": elapsed,
         "validation_seconds": sum(s.validation_seconds for s in sessions),

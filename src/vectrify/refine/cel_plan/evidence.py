@@ -12,10 +12,11 @@ from PIL import Image
 from scipy.ndimage import gaussian_filter, label, median_filter
 
 from vectrify.refine import cel
+from vectrify.refine.cel_plan import opacity as opacity_models
 from vectrify.refine.cel_plan.model import Evidence, Options, Work
 from vectrify.refine.colour_regions import fit_palette, nearest_indices
 
-EVIDENCE_VERSION = 1
+EVIDENCE_VERSION = 3
 MAX_ANALYSIS_SIDE = 1536
 CACHE_BYTES = 96 * 1024 * 1024
 _CACHE: OrderedDict[str, Evidence] = OrderedDict()
@@ -59,8 +60,18 @@ def collect(
                 1,
             )
         raw[..., 3] = opacity
+    partial = opacity_models.needed(raw[..., 3])
     digest = hashlib.sha256(raw.tobytes())
-    digest.update(str((image.size, options.palette_size, EVIDENCE_VERSION)).encode())
+    digest.update(
+        str(
+            (
+                image.size,
+                options.palette_size,
+                options.line_width if partial else 0,
+                EVIDENCE_VERSION,
+            )
+        ).encode()
+    )
     key = digest.hexdigest()
     with _LOCK:
         cached = _CACHE.get(key)
@@ -69,10 +80,10 @@ def collect(
             work.timings["evidence"] = time.monotonic() - started
             return cached
     source = raw[..., :3] * 255
-    opaque = raw[..., 3] >= 0.5
+    opaque = raw[..., 3] > (opacity_models.VISIBLE if partial else 0.5 - 1e-8)
     background = None
     foreground = opaque.copy()
-    if opaque.all():
+    if (raw[..., 3] >= 1 - 1 / 255).all():
         drawing = cel.silhouette(source)
         if drawing is not None:
             foreground = drawing
@@ -90,7 +101,15 @@ def collect(
     else:
         x0, y0, x1, y1 = 0, 0, image.width, image.height
     crop = raw[y0:y1, x0:x1]
-    scale = min(1.0, MAX_ANALYSIS_SIDE / max(crop.shape[:2]))
+    # Translucent topology needs native samples when a long, narrow crop still
+    # fits the same bounded analysis pixel allowance. Resizing its byte-alpha
+    # fringe can close holes and delete low-opacity connected marks.
+    scale = min(
+        1.0,
+        MAX_ANALYSIS_SIDE / np.sqrt(crop.shape[0] * crop.shape[1])
+        if partial
+        else MAX_ANALYSIS_SIDE / max(crop.shape[:2]),
+    )
     size = (max(1, round(crop.shape[1] * scale)), max(1, round(crop.shape[0] * scale)))
     if scale < 1:
         crop = (
@@ -102,7 +121,7 @@ def collect(
             )
             / 255
         )
-    shown = crop[..., 3] >= 0.5
+    shown = crop[..., 3] > opacity_models.VISIBLE if partial else crop[..., 3] >= 0.5
     target = np.where(shown[..., None], crop[..., :3] * 255, 255)
     foreground = np.asarray(
         Image.fromarray(foreground[y0:y1, x0:x1]).resize(size, Image.Resampling.NEAREST)
@@ -126,9 +145,28 @@ def collect(
     coarse = gaussian_filter(smooth, (4, 4, 0))
     residual = np.linalg.norm(target - smooth, axis=-1)
     texture = np.clip(gaussian_filter(residual, 3) / 24, 0, 1)
+    if partial and options.line_width > 0:
+        target, drawn = opacity_models.ink_width(
+            target,
+            smooth,
+            drawn,
+            shown,
+            options.line_width,
+            (size[0] / (x1 - x0), size[1] / (y1 - y0)),
+        )
     filled = cel.trapped_ball_fill(shown & ~line)
     free = shown & ~line & (filled > 0)
-    if free.any() and not work.interrupted:
+    if partial:
+        labels = opacity_models.labels(
+            target,
+            crop[..., 3],
+            shown,
+            options.palette_size,
+            work,
+            ink=drawn,
+            smooth=smooth,
+        )
+    elif free.any() and not work.interrupted:
         palette = np.zeros(shown.shape, dtype=np.int32)
         count = min(options.palette_size, int(free.sum()))
         palette[free] = fit_palette(smooth[free][:, None, :], count, 16, gpu=False)[
@@ -153,10 +191,11 @@ def collect(
             labels = filled
     else:
         labels = filled
-    if labels.any():
-        labels = labels[nearest_indices(labels == 0)]
-    labels = np.where(shown, labels + 1, 0)
-    _, labels = np.unique(labels, return_inverse=True)
+    if not partial:
+        if labels.any():
+            labels = labels[nearest_indices(labels == 0)]
+        labels = np.where(shown, labels + 1, 0)
+        _, labels = np.unique(labels, return_inverse=True)
     result = Evidence(
         raw,
         target,
@@ -174,6 +213,8 @@ def collect(
         (size[0] / (x1 - x0), size[1] / (y1 - y0)),
         background,
         grainy,
+        crop[..., 3].copy() if partial else None,
+        options.line_width if partial else 0,
     )
     _cache_put(key, result)
     work.timings["evidence"] = time.monotonic() - started

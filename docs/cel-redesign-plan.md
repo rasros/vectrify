@@ -40,6 +40,15 @@ A later structured candidate measured 449 nodes, 87 contours and human-reference
 
 These are development hypotheses, not semantic rules for recognizing swords. Test each mechanism on synthetic and tuning artwork. A learned ranker cannot choose a clean facet or continuous outline if the proposal generator never offers it.
 
+Opacity-aware validation subsequently exposed another initialization problem:
+most of the sword reference is slightly translucent. The conservative RGBA
+fallback reaches human MSE 446.79, but uses 54,320 nodes and 8,217 contours. It
+therefore fails the structural milestone despite passing the error ceiling.
+Compact proposals must preserve native low-opacity marks and holes while
+combining paint variation into coherent surfaces; treating each alpha byte as
+a separate region is not viable. The measured run and limitations are recorded
+in the implementation evidence. This does not change the rollout gates below.
+
 ## Product and API decisions
 
 Introduce `generate/cel-planned` as an experimental method using the existing operation contract. Preserve the existing `generate/cel` behavior and settings while comparing the methods. After rollout, the UI can recommend the planned method while API callers retain the legacy method during migration.

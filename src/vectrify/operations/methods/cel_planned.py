@@ -51,8 +51,8 @@ class CelPlanned:
         context.progress(0, "Reading ink and surface evidence…", total=3)
         try:
             candidate = vectorize(
-                region.image,
-                alpha=region.alpha,
+                region.rgba if region.rgba is not None else region.image,
+                alpha=None if region.rgba is not None else region.alpha,
                 options=options,
                 seconds=request.budget.seconds,
                 stop=context.stop,

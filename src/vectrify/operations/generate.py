@@ -25,7 +25,10 @@ from vectrify.document import (
     export_svg,
     import_svg,
 )
+from vectrify.document.hit_test import IDENTITY, multiply, transform
 from vectrify.document.model import new_id
+from vectrify.document.topology import inverse_matrix
+from vectrify.document.transforms import root_matrix
 from vectrify.image_utils import on_white, preview_urls
 from vectrify.operations.contract import OperationRequest, OperationResult, Proposal
 from vectrify.svg_render import frame as frame
@@ -46,6 +49,9 @@ class Region:
     # The crop's opacity, 0-1 by pixel, when the reference has transparent
     # pixels in it; *image* is the crop over white either way.
     alpha: np.ndarray | None = None
+    # Original unassociated color is needed by opacity-aware generators; at
+    # low alpha it cannot be recovered from an eight-bit white preview.
+    rgba: Image.Image | None = None
 
     @property
     def transform(self) -> str:
@@ -163,11 +169,13 @@ def target_region(request: OperationRequest, margin: float = REGION_MARGIN) -> R
     if box[2] <= box[0] or box[3] <= box[1]:
         raise DocumentError("The selection is smaller than one reference pixel")
     alpha = None
+    original = None
     if request.reference.has_transparency_data:
         rgba = request.reference.convert("RGBA")
         opacity = np.asarray(rgba.getchannel("A").crop(box))
         if opacity.min() < 255:
             alpha = opacity.astype(np.float32) / 255
+            original = rgba.crop(box)
     # Snap the region to the crop's whole pixels so the transform is exact.
     return Region(
         vx + box[0] / sx,
@@ -176,6 +184,7 @@ def target_region(request: OperationRequest, margin: float = REGION_MARGIN) -> R
         (box[3] - box[1]) / sy,
         reference.crop(box),
         alpha,
+        original,
     )
 
 
@@ -239,14 +248,20 @@ def insert_svg(tx, request: OperationRequest, svg: str, region: Region, name: st
     generated = import_svg(fresh_ids(svg))
     if not generated.root.children:
         return None, ()
+    parent = container(request)
+    placement = region.transform
+    frame = root_matrix(request.snapshot.document, parent)
+    if frame != IDENTITY:
+        local = multiply(inverse_matrix(frame), transform(placement))
+        placement = f"matrix({' '.join(repr(value) for value in local)})"
     group = Element(
         new_id("object"),
         "g",
-        (("transform", region.transform),),
+        (("transform", placement),),
         generated.root.children,
         name=name,
     )
-    tx.insert_object(container(request), group, geometries=generated.geometries)
+    tx.insert_object(parent, group, geometries=generated.geometries)
     shapes = tuple(e.id for e in Document(group).elements() if e.tag != "g")
     return group.id, shapes
 

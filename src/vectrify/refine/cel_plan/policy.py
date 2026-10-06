@@ -17,12 +17,14 @@ from scipy.ndimage import (
     binary_erosion,
     binary_fill_holes,
     distance_transform_edt,
+    find_objects,
     gaussian_filter,
     label,
 )
 
 from vectrify.document import import_svg
 from vectrify.refine.cel_plan.model import Evidence, Graph
+from vectrify.refine.cel_plan.opacity import VISIBLE
 from vectrify.refine.cel_plan.score import (
     SCORE_VERSION,
     composite,
@@ -123,6 +125,15 @@ def _feature(mask: np.ndarray) -> Feature | None:
     return Feature((x, y, right - x, bottom - y), support)
 
 
+def _boxed_feature(
+    components: np.ndarray, index: int, box: tuple[slice, ...]
+) -> Feature:
+    support = (components[box] == index).copy()
+    support.flags.writeable = False
+    y, x = box
+    return Feature((x.start, y.start, x.stop - x.start, y.stop - y.start), support)
+
+
 def graph_features(evidence: Evidence, graph: Graph) -> tuple[Feature, ...]:
     """Stable, high-contrast small regions are local score supports, never labels."""
     total = max(1, sum(region.area for region in graph.regions))
@@ -147,9 +158,14 @@ def graph_features(evidence: Evidence, graph: Graph) -> tuple[Feature, ...]:
 
 
 def _ink(rgba: np.ndarray) -> np.ndarray:
-    luminance = composite(rgba) @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
-    contrast = gaussian_filter(luminance, 2) - luminance
-    return (contrast >= 0.035) & (rgba[..., 3] >= 0.5)
+    # Opacity boundaries alone are not ink. Unassociated color supplies its
+    # contrast; opacity reduces confidence in a barely visible dark mark.
+    visible = rgba[..., 3] > VISIBLE
+    luminance = rgba[..., :3] @ np.array([0.2126, 0.7152, 0.0722], dtype=np.float32)
+    support = gaussian_filter(visible.astype(np.float32), 2)
+    neighborhood = gaussian_filter(luminance * visible, 2) / np.maximum(support, 1e-6)
+    contrast = (neighborhood - luminance) * rgba[..., 3]
+    return (contrast >= 0.035) & visible
 
 
 class Policy:
@@ -177,22 +193,33 @@ class Policy:
         self.truth = np.array(truth, dtype=np.float32, copy=True)
         self.truth.flags.writeable = False
         self.weights = weights or Weights()
-        self.mask = foreground_mask(truth)
-        self.alpha = truth[..., 3] >= 0.5
+        self.alpha = truth[..., 3] > VISIBLE
+        self.mask = foreground_mask(truth) | binary_dilation(self.alpha, iterations=4)
         self.area = max(1, int(self.alpha.sum()))
+        self.opacity_inside = binary_erosion(self.alpha, iterations=2)
+        self.opacity_tolerance = np.maximum(0.5 / 255 + 1e-7, 0.25 * truth[..., 3])
         self.inside = binary_erosion(truth[..., 3] >= 0.99, iterations=2)
-        self.outside = ~binary_dilation(truth[..., 3] > 0.01, iterations=2)
-        holes = np.asarray(binary_fill_holes(self.alpha)) & (truth[..., 3] < 0.01)
+        self.outside = ~binary_dilation(self.alpha, iterations=2)
+        holes = np.asarray(binary_fill_holes(self.alpha)) & ~self.alpha
         components, count = label(holes)
         self.holes = tuple(
             feature
-            for index in range(1, count + 1)
-            if (components == index).sum() >= 4
-            if (feature := _feature(components == index)) is not None
+            for index, box in enumerate(find_objects(components, max_label=count), 1)
+            if box is not None
+            if (components[box] == index).sum() >= 4
+            if (feature := _boxed_feature(components, index, box)) is not None
+        )
+        components, count = label(self.alpha)
+        self.opacity_components = tuple(
+            feature
+            for index, box in enumerate(find_objects(components, max_label=count), 1)
+            if box is not None
+            if (components[box] == index).sum() >= 4
+            if (feature := _boxed_feature(components, index, box)) is not None
         )
         self.features = features
         self.ink = _ink(truth) if ink is None else np.array(ink, dtype=bool, copy=True)
-        self.ink &= self.alpha
+        self.ink &= self.alpha & binary_dilation(_ink(truth), iterations=2)
         self.texture = (
             np.zeros(truth.shape[:2], dtype=np.float32)
             if texture is None
@@ -287,7 +314,14 @@ class Policy:
             (float(np.mean(features)) + max(features)) / 2 if features else 0.0
         )
         inside_missing = int((self.inside & (actual[..., 3] < 0.5)).sum())
-        outside_spill = int((self.outside & (actual[..., 3] >= 0.5)).sum())
+        outside_spill = int((self.outside & (actual[..., 3] > VISIBLE)).sum())
+        difference = actual[..., 3] - self.truth[..., 3]
+        opacity_missing = int(
+            (self.opacity_inside & (difference < -self.opacity_tolerance)).sum()
+        )
+        opacity_excess = int(
+            (self.opacity_inside & (difference > self.opacity_tolerance)).sum()
+        )
         visual = (
             self.weights.color * color
             + self.weights.alpha * float(alpha_error)
@@ -301,6 +335,8 @@ class Policy:
             "features": feature_error,
             "interior_missing_pixels": float(inside_missing),
             "outside_spill_pixels": float(outside_spill),
+            "opacity_missing_pixels": float(opacity_missing),
+            "opacity_excess_pixels": float(opacity_excess),
             "visual": visual,
         }
 
@@ -333,6 +369,8 @@ class Policy:
         for term, reason in (
             ("interior_missing_pixels", "opaque-interior-gap"),
             ("outside_spill_pixels", "silhouette-spill"),
+            ("opacity_missing_pixels", "translucent-interior-gap"),
+            ("opacity_excess_pixels", "translucent-opacity-excess"),
         ):
             ceiling = self.baseline.terms[term] if self.baseline else 0
             if terms[term] > ceiling + allowance:
@@ -340,8 +378,32 @@ class Policy:
         for feature in self.holes:
             x, y, width, height = feature.box
             opacity = actual[y : y + height, x : x + width, 3]
-            if float(opacity[feature.support].mean()) > 0.1:
+            if float(opacity[feature.support].mean()) > 2 / 255:
                 rejected.append("protected-hole-lost")
+                break
+        for feature in self.opacity_components:
+            x, y, width, height = feature.box
+            original = self.truth[y : y + height, x : x + width, 3][feature.support]
+            predicted = actual[y : y + height, x : x + width, 3][feature.support]
+            # Includes thin translucent components that have no eroded core.
+            retained = (
+                0.75
+                if self.opacity_inside[y : y + height, x : x + width][
+                    feature.support
+                ].any()
+                else 0.95
+            )
+            if (
+                float(np.sum(np.minimum(predicted, original)))
+                < float(np.sum(original)) * retained
+            ):
+                rejected.append("translucent-component-lost")
+                break
+            if (
+                float(predicted.sum())
+                > float(original.sum()) * 1.25 + len(original) / 255
+            ):
+                rejected.append("translucent-component-opacity-excess")
                 break
         return Evaluation(terms, structure, tuple(rejected))
 
@@ -357,4 +419,5 @@ class Policy:
             "score_version": SCORE_VERSION,
             "score_weights": asdict(self.weights),
             "feature_supports": len(self.features),
+            "opacity_components": len(self.opacity_components),
         }

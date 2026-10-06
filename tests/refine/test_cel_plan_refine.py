@@ -81,6 +81,31 @@ def test_disabled_refinement_retains_the_original_frontier():
     assert frontier.decisions == decisions
 
 
+def test_explicit_filled_ink_paint_constraint_is_preserved():
+    frontier, evidence, options = setup(constraints=("surface",))
+    frontier.entries[0].details["paint_constraints"] = ("surface",)
+    result = refine(frontier, evidence, options, Work.start(10))
+    assert result["attempted"] == 0
+    assert frontier.select(50).svg == INITIAL
+
+
+def test_dense_fallback_is_bounded_before_expensive_cpu_sessions(monkeypatch):
+    from vectrify.refine.cel_plan import refine as module
+
+    frontier, evidence, options = setup()
+    monkeypatch.setattr(module, "MAX_GEOMETRY_NODES", 3)
+
+    def unexpected_session(*_args):
+        raise AssertionError("Dense fallback entered CPU fitting")
+
+    monkeypatch.setattr(module, "_Session", unexpected_session)
+    result = module.refine(frontier, evidence, options, Work.start(10))
+    assert result["status"] == "bounded"
+    assert result["bounded_seeds"] == 1
+    assert result["attempted"] == 0
+    assert frontier.select(50).svg == INITIAL
+
+
 def test_stop_after_an_accepted_edit_retains_the_validated_checkpoint(monkeypatch):
     frontier, evidence, options = setup(constraints=("surface",))
     stop = Event()

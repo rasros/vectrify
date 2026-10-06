@@ -18,7 +18,7 @@ from vectrify.document import Document, import_svg
 from vectrify.document.model import paint_server
 from vectrify.refine.crossings import crossings
 
-SCORE_VERSION = 2
+SCORE_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -167,6 +167,25 @@ def measurements(
         "alpha_missing_pixels": int((source_alpha & ~actual_alpha).sum()),
         "alpha_spill_pixels": int((actual_alpha & ~source_alpha).sum()),
         "features": feature_metrics,
+    }
+
+
+def opacity_measurements(actual: np.ndarray, truth: np.ndarray) -> dict:
+    """Native translucent-content diagnostics, separate from frozen benchmarks."""
+    from vectrify.refine.cel_plan.opacity import VISIBLE
+
+    support = truth[..., 3] > VISIBLE
+    mask = binary_dilation(support, iterations=4)
+    return {
+        "support_pixels": int(support.sum()),
+        "alpha_mse": masked_mean(np.square(actual[..., 3] - truth[..., 3]), mask),
+        "premultiplied_mse": masked_mean(
+            np.square(premultiplied(actual) - premultiplied(truth)), mask
+        ),
+        "black_mse": masked_mean(
+            np.square(composite(actual, 0) - composite(truth, 0)), mask
+        ),
+        "white_mse": masked_mean(np.square(composite(actual) - composite(truth)), mask),
     }
 
 

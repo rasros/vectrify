@@ -16,7 +16,11 @@ def merged_labels(graph: Graph, options: Options, work: Work):
     regions = graph.regions
     count = len(regions)
     areas = np.array([max(1, r.area) for r in regions], dtype=float)
-    colors = np.array([r.paint for r in regions])
+    # Premultiplied RGB and opacity both contribute to merge evidence. An
+    # equal-color boundary can still be an intentional opacity discontinuity.
+    colors = np.array(
+        [(*[v * r.opacity for v in r.paint], 255 * r.opacity) for r in regions]
+    )
     sums = colors * areas[:, None]
     textured = np.array([r.texture for r in regions]) * areas
     features = np.array([r.feature for r in regions])
@@ -26,6 +30,8 @@ def merged_labels(graph: Graph, options: Options, work: Work):
     for boundary in graph.boundaries:
         a, b = boundary.left, boundary.right
         if min(a, b) < 0 or a in graph.hidden or b in graph.hidden:
+            continue
+        if regions[a].fixed or regions[b].fixed:
             continue
         length = float(np.linalg.norm(np.diff(boundary.points, axis=0), axis=1).sum())
         old_length, support, nodes = edges[a].get(b, (0, 0, 0))

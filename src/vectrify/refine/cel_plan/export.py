@@ -45,6 +45,20 @@ def export(
             f'width="{width}" height="{height}" viewBox="0 0 {width} {height}"/>',
             {"regions": 0, "gradients": 0, "line_paths": 0, "line_pieces": 0},
         )
+    if evidence.opacity is not None:
+        from vectrify.refine.cel_plan.opacity import export as rgba_export
+
+        result = rgba_export(
+            evidence,
+            labels,
+            options,
+            work,
+            structure=structure,
+            conservative=conservative,
+            tolerance=conservative_tolerance,
+        )
+        work.timings["geometry"] = time.monotonic() - started
+        return result
     scale = float(np.sqrt(np.prod(evidence.scale)))
     tolerance = options.boundary_tolerance * scale
     original_labels = labels
@@ -85,7 +99,10 @@ def export(
         )
 
     outlines = cel.region_outlines(
-        labels, tolerance, fit_boundary=pixels if conservative else fitted_boundary
+        labels,
+        tolerance,
+        fit_boundary=pixels if conservative else fitted_boundary,
+        check=check,
     )
     order = np.argsort(-np.bincount(labels.ravel()))
     parts = []

@@ -1034,6 +1034,7 @@ def region_outlines(
     *,
     fit_boundary: Callable[[np.ndarray, float], list[tuple[str, tuple[float, ...]]]]
     | None = None,
+    check: Callable[[], None] | None = None,
 ) -> dict[int, str]:
     """Each region's outline as path data, traced once per shared edge.
 
@@ -1043,7 +1044,7 @@ def region_outlines(
     """
     padded = np.pad(labels, 1, constant_values=-1)
     pieces: dict[int, list[tuple[tuple, list]]] = {}
-    for points in boundary_chains(padded):
+    for points in boundary_chains(padded, check=check):
         middle = (points[0] + points[1]) / 2
         direction = points[1] - points[0]
         normal = np.array([-direction[1], direction[0]]) * 0.25
@@ -1068,17 +1069,23 @@ def region_outlines(
             pieces.setdefault(right, []).append((end, _reversed(start, nodes)))
     outlines = {}
     for index, segments in pieces.items():
+        if check is not None:
+            check()
         starts: dict[tuple, list[int]] = {}
         for n, (start, _) in enumerate(segments):
             starts.setdefault(_key(start), []).append(n)
         unused = set(range(len(segments)))
         parts = []
         while unused:
+            if check is not None:
+                check()
             n = min(unused)
             unused.remove(n)
             start, nodes = segments[n]
             loop = list(nodes)
             while _key(loop[-1][1][-2:]) != _key(start):
+                if check is not None:
+                    check()
                 following = next(
                     m for m in starts[_key(loop[-1][1][-2:])] if m in unused
                 )

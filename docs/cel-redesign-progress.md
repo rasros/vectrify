@@ -19,9 +19,14 @@ method remains experimental and the existing CEL default is unchanged.
   protection and SVG export are implemented as an initial prototype.
 - The experimental operation validates settings, previews without mutation,
   applies as one undo entry and supports project save/reload.
-- Score version 2 measures robust multi-scale premultiplied color, contrasting
+- Score version 3 measures robust multi-scale premultiplied color, contrasting
   backdrops/alpha, ink distances and fixed local feature supports. It reports
   each term. Its weights are initial engineering values, not corpus-calibrated.
+- Translucent evidence keeps original RGBA and uses connected color/opacity
+  surfaces, with flat alpha or supported gradient stop opacity. Relative alpha
+  bands and smooth surface colors limit byte-level fragmentation; native checks
+  validate the resulting approximation. Low-opacity marks and holes have
+  separate hard safeguards. The frozen human benchmark mask is unchanged.
 - Exact checkpoint validation rejects new self-crossings, opaque interior
   gaps, distant silhouette spill and filled protected holes. The first valid
   candidate establishes immutable coverage limits for subsequent proposals.
@@ -34,12 +39,14 @@ method remains experimental and the existing CEL default is unchanged.
   validation retains a preview that can be applied normally. A fully transparent
   reference returns no edit.
 - A conservative CEL checkpoint precedes fitted proposals, using canonical
-  linear fill boundaries and separate ink runs. It first tries a 0.75 native
+  linear fill boundaries and separate ink runs for opaque evidence. It first tries a 0.75 native
   pixel polygon bound (or a smaller explicit tolerance), then 0.25 and zero
   after rejection. Exact native checks determine which fallback is retained;
   this bound does not establish a quality or runtime pass. Optional fitting
   checks interruption between chains and discards unfinished exports. Exhausting
   the deadline without a checkpoint cannot trigger repeated candidate attempts.
+  RGBA evidence starts with unsimplified canonical boundaries; its paint still
+  approximates each relative-alpha partition and must pass native checks.
   Dense drawings can still make this checkpoint expensive; runtime, compactness
   and partial-alpha coverage remain open gates.
 - The representation normalizer now comes from the exactly validated detailed
@@ -297,6 +304,85 @@ and benchmark-isolation checks are included. Ruff passed and Pyrefly reported
 zero errors. Full runtime/memory, partial-alpha and release evaluation remain
 open requirements.
 
+## Translucent evidence and native coverage experiment
+
+The opacity-aware path now retains content below 50% alpha, including marks at
+one byte of opacity. Original RGBA reference crops are passed to the planned
+method; reconstructing color from an eight-bit white preview loses information
+at low alpha. The existing preview and legacy CEL inputs retain their contracts.
+Four-connected horizontal-run graphs label the joint color/alpha partitions
+without a full-image component pass for each possible paint value. Ink receives
+its own palette so a one-color body palette cannot erase it. Region statistics
+use actual RGBA surface colors rather than a smoothed background under ink.
+
+Initial opacity bands have a ratio of 1.125, giving 49 possible levels, rather
+than one region class per alpha byte. Paint fitting uses original samples and
+compares flat RGBA against a shared-axis color/opacity gradient. Native
+validation checks premultiplied color on black and white, opacity excess and
+loss, translucent holes and connected-component retention. Thin components
+without an eroded interior need 95% retained opacity; broad components need
+75%, alongside interior pixel checks. These are engineering safeguards, not
+calibrated release tolerances. Alpha-only transitions do not count as ink.
+New opacity diagnostics include the full visible support without changing the
+frozen human-scoring mask.
+
+Long narrow translucent crops retain native samples when they fit the same
+1536-squared analysis pixel allowance. Downsampling larger content remains an
+open native-feature requirement. Positive widths generate fractional coverage
+for filled ink and protect its geometry and paint from merges/refinement.
+Floating ink with no underlying filled surface still needs a complete width
+override model. RGB-only CPU paint proposals also still need joint RGBA fitting.
+
+The transformed-group round-trip test found that insertion applied the selected
+group's transform twice. Shared generation now compensates for the container's
+coordinate frame. Translated/scaled group placement, project save/reload and one
+undo entry pass. An original RGBA crop is retained beside the white preview.
+
+The sword reference itself is mostly slightly translucent: 127,214 pixels have
+alpha 253, while only 627 have alpha 255. Treating every byte as a separate paint
+class created a very large fallback. Relative bands and smoother color evidence
+reduce that fragmentation, but do not solve structural compaction. Fitted curves
+can still lose low-opacity marks or holes, so rejected candidates retain the
+conservative checkpoint.
+
+Reproduce the final native development run with:
+
+```sh
+PYTHONPATH=src OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":true}' \
+  --out .bench/planned-opacity-final
+```
+
+The final source hash was
+`2b279d0a8428aa8573ccf192088451ae39203941eb55e800bdc4c10be183e87d`.
+The frozen sword mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The run retained 8,147 paths, 8,217 contours, 54,320 nodes and no gradients, with
+human MSE 446.79 and zero self-crossings. Pipeline time was 14.09 seconds;
+operation/apply/benchmark time was 16.59 seconds. It reported no pipeline
+overshoot. Native opacity MSE over visible support and its margin was
+0.00002838. Only the conservative candidate entered this pool. CPU refinement
+now bounds seeds above 32,000 nodes before expensive parsing/path visits; this
+run skipped one dense seed in 0.024 seconds and attempted no edits.
+
+The sword gate fails by a wide margin on nodes and contours. Human error meets
+its numerical ceiling because this is a detailed trace. This is not a cleaner
+editable drawing or a structural quality improvement. Complexity cannot offer
+meaningful alternatives on this one-candidate pool. Runtime variation and
+different completed proposal sets prevent a matched-effort ablation claim.
+The next required work is opacity-aware compact structural proposals with
+native topology preservation, followed by local acceptance and score calibration.
+No held-out artwork was used and the experimental method remains gated.
+
+The relevant suite passed 231 tests, including native flat/ramp opacity, a
+one-byte thin mark, holes, palette-one ink retention, filled-width constraints,
+relative bands, cancellation during boundary extraction, transformed placement
+and project/undo round trips. Existing CEL, shared boundaries, simplify/snap and
+benchmark isolation checks are included. Ruff passed and Pyrefly reported zero
+errors. These checks establish the tested fidelity behavior, not the release
+quality, calibration, resizing or memory gates.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -304,10 +390,10 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | Delivery | Remaining evidence or behavior |
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
-| 2 | Dense-input fallback/runtime bounds; partial-alpha, transformed-scope and difficult-hole coverage |
+| 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
 | 3 | Local exact acceptance of individual graph edits, beam search, split/paint operators, content-normalized soft budgets, bounded shared-frontier cache and resizing invariance |
 | 4 | Variable-width/fill ink alternatives, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
-| 5 | Broader local-layer/order inference, joint geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
+| 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
 | 7 | Expanded paired evaluation/corpus coverage, ablations and conditional learned-ranker experiment |
 | 8 | Independent blind review, fresh held-out results and default migration only after release gates pass |

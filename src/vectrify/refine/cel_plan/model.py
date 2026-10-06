@@ -77,6 +77,8 @@ class Evidence:
     scale: tuple[float, float]
     background: tuple[float, float, float] | None
     grainy: bool
+    opacity: np.ndarray | None = None
+    filled_line_width: float = 0
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,8 @@ class Region:
     texture: float
     feature: float
     component: int
+    opacity: float = 1.0
+    fixed: bool = False
 
 
 @dataclass(frozen=True)
