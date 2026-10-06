@@ -8,6 +8,28 @@ The recommended overhaul has three parts: CEL supplies ink and silhouette eviden
 
 The implementation status and measured experiments live in [CEL redesign progress](cel-redesign-progress.md). This plan defines the intended behavior and completion gates; experimental code is not evidence that those gates have passed.
 
+## Agreed release design
+
+The release has one planner and one generated drawing. CEL contributes line,
+silhouette and junction evidence; color regions contribute material and shade
+evidence. The planner considers both before selecting shapes, paint and local
+draw order. Automatic fitting then improves that representation. The complexity
+slider selects a tradeoff from the validated alternatives.
+
+| User proposal | Decision | Reason from the sword diagnosis |
+| --- | --- | --- |
+| Overhaul CEL | Build the experimental structural planner, then migrate after evaluation | The human drawing uses coherent surfaces and deliberate contours; the trace preserves many incidental raster partitions |
+| Combine CEL and color regions | Combine their evidence in an owned graph before export | Independently generated SVGs cannot resolve disagreement about whether an edge is ink, shading or texture |
+| Use path optimization automatically | Enable bounded geometry, paint and width fitting after structural choices | Tidy on the default trace did not recover the missing abstractions; fitting needs appropriate shapes and constraints |
+| Add a complexity slider | Ship 0–100, default 50, with Simple/Detailed endpoints | Requested region count does not control actual contour/node cost; protected subdivisions can overwhelm it |
+| Add a mini-ML planner | Reserve a local action ranker as a measured second-stage experiment | Ranking can improve evaluation allocation or selection only after useful compact alternatives exist |
+
+The first release covers cel art and illustrations, editable paths, flat and
+linear-gradient paint, supported ink and bounded local layers. A deterministic
+release is complete without a learned model when the documented no-go branch
+for that experiment is recorded. The learned branch cannot delay or substitute
+for the deterministic quality gates.
+
 ## Decisions and immediate priority
 
 The architecture decision is to combine CEL ink/silhouette evidence with color-region surface evidence in one owned graph. Choose surfaces, ink, shared boundaries and layers together, then automatically fit their geometry and paint. Keep the current editor representation and operation preview/apply contract.
@@ -190,6 +212,16 @@ Start with representation cost `C = nodes + 4 × contours + 2 × (paths + primit
 
 Normalize cost by a reference-dependent structural estimate `C₀` computed once from the detailed candidate and foreground evidence, with a positive lower bound for empty or tiny images. Keep that normalizer fixed across slider levels and search states. Use `λ(c) = λ₅₀ × 2^((50 − c)/25)` as the initial detail-penalty schedule. Calibrate `λ₅₀` against the tuning corpus, freeze it with the score version, and do not tune it against held-out human drawings. Derive a soft representation budget from the same structural estimate; it increases with complexity and excludes transparent padding. Mandatory features establish a budget floor. A requested node ceiling is a separate, explicitly reported constraint.
 
+Calibrate that structural estimate independently of the conservative fallback's
+raw path count. Byte-level alpha partitions must not inflate `C₀` until a
+50-percent budget still permits tens of thousands of nodes. Compare the initial
+detailed-candidate estimate with an evidence estimate based on foreground
+components, supported boundary length and stable shade/ink structure. Freeze
+the chosen estimator, its units and coefficients on tuning artwork; verify
+padding and scale behavior before declaring the slider implemented. Keep the
+dense fallback available for correctness without treating its complexity as the
+desired detailed representation.
+
 Use `B(c) = max(B_min, C₀ × 2^((c − 100)/50))` as the initial soft-budget schedule: one quarter, one half and one detailed-reference cost at complexity 0, 50 and 100 before the mandatory-feature floor. Estimate `B_min` from the simplest validated interpretation that preserves mandatory coverage and features. This is a search target to calibrate, not permission to remove features or a promised node count. Report the target and achieved cost. Frontier selection remains governed by the common objective; a positive `node_budget` adds its separately documented feasibility rule.
 
 | Complexity | Detail penalty relative to level 50 | Soft cost target before the feature floor |
@@ -239,6 +271,19 @@ Separate three failures before changing the score or training a model. Candidate
 For tuning, retain clean target renders, all exactly evaluated candidates, production score terms, local feature metrics, representation counts and elapsed search effort. Compare production selection with the oracle at each complexity checkpoint. Inspect explicit conflicts such as a smooth but missing outline, lost small mark, flattened intentional gradient, or retained injected noise. Correct evidence and operator coverage before attempting to learn an ordering over inadequate candidates.
 
 Declare the calibration grid in a versioned benchmark artifact before running it. Include color/alpha/edge/feature weights, geometric regularization, the detail penalty and soft-budget schedule. Choose parameters by aggregate clean-target quality subject to per-case feature, hole, coverage and line gates, then representation cost; do not optimize only the pooled average. The current initial weights supply the center of this grid, not a trained policy. Run each configuration against the same candidate pools for selection diagnosis, then rerun bounded search to measure the effects on proposal generation and runtime. Freeze the chosen grid result, metric tolerances and score version before held-out evaluation.
+
+Make the first replay grid explicit: hold color weight at 1; use alpha weights
+0.25/0.5/1, edge weights 0.075/0.15/0.3, feature weights 0.25/0.5/1 and
+`λ₅₀` values 0.02/0.04/0.08. This gives 81 inexpensive same-pool configurations.
+After implementing normalized geometric regularization, evaluate its declared
+three-value grid against the retained configurations; do not tune a term that
+the evaluator does not compute. Compare the current soft-budget curve with
+flatter and steeper exponent schedules on the same frozen frontier. Keep score
+selection separate from reruns that change proposal availability. Report
+per-artwork results, feasibility and feature failures for every finalist, then
+rerun at most three finalists with the same deterministic evaluation caps and
+matched deadlines. These are proposed experiment settings, not calibrated
+production weights.
 
 ## Automatic refinement and runtime
 
@@ -340,7 +385,15 @@ The MCP integration is `src/vectrify/mcp/server.py`: extend the generate method 
 
 Deliver each stage as a reviewable change with the required checks for its behavior. Keep conventional single-line commit messages without scopes, bodies or trailers. Start delivery 1 from current main so the compressed fixture loader is available.
 
-The critical path is benchmark → score and budget → structural operators → refinement → release evaluation. UI work can begin when the settings contract stabilizes. Training depends on recorded candidate decisions and clean paired data. Deterministic rollout does not depend on training a model.
+The critical path is benchmark → valid fallback and owned graph → coherent
+surfaces, ink and local layers → calibrated score and common frontier →
+automatic refinement → product integration → release evaluation. Use the
+initial executable score while developing operators, then calibrate it against
+the resulting candidate pools. Deliveries 4 and 5 share the sword gate: supported
+layers and fitting may be needed to pass it, so a failing delivery-4 checkpoint
+does not prohibit that delivery-5 work. UI work can begin when the settings
+contract stabilizes. Training depends on recorded candidate decisions and clean
+paired data. Deterministic rollout does not depend on training a model.
 
 Complete the deliveries in order of their dependencies, with these explicit decision points:
 
@@ -524,6 +577,16 @@ marks that may remain above a continuing base. Prove that interpretation's
 ownership, complete coverage and draw order; do not discard the interior marks
 or merely increase raw neighbor limits to force availability.
 
+Initial nested RGB interpretations now preserve wholly enclosed opaque mark
+owners above a continuing family or closed overlay. They use actual fill/order
+proofs and retain the adjacent interpretation as a competitor. Source-alpha
+variation is eligible only with opaque current mark paint and geometric core
+coverage of the old family and marks, followed by a complete proof for the new
+fill. True alpha holes, translucent current paints and partly enclosed owners
+remain excluded. These implemented restrictions are a foundation for broader
+RGBA material inference, not completion of that work or the sword gate. Inspect
+the progress record's final-source candidate availability before widening them.
+
 Keep discovery, fitting, dependencies and raster evaluation within the existing
 bounded operator contracts. Record exclusion reasons and actual removed nodes,
 contours and gradients. A failed or interrupted proposal leaves its parent's
@@ -570,6 +633,99 @@ Maintain one checklist row for each of the eight deliveries, linked to its imple
 The first externally usable milestone is an experimental `cel-planned` method with working complexity/quality controls, automatic refinement, valid preview/stop/apply/reload behavior and truthful diagnostics. It can remain experimental while broader evaluation continues. Default migration requires the combined sword gates, frozen broader feature/coverage/line gates, runtime and editing checks, fresh held-out evaluation and independent blind review. Reviewer availability and licensed human redraws are external requirements; record them as pending until evidence exists.
 
 Initial scope is cel art and illustrations using ordinary editable SVG paths and supported gradients. Keep photo-specific abstraction, general semantic recognition, unrestricted layer ordering and generative coordinate prediction as later research. They do not need to be solved to complete this release. Preserve the explicit legacy method and make UI-default rollback a configuration change with no project-format migration.
+
+### Execution order from the current prototype
+
+Work through these packages without treating the existing prototype or its
+unfinished working-tree experiments as completed deliveries. Each package
+produces a reviewable implementation and an evidence record; packages A–D are
+the immediate compaction work, before broad optimization or model training.
+
+| Package | Concrete output | Required exit evidence | Dependencies |
+| --- | --- | --- | --- |
+| A · Nested coverage | Classify enclosed transparent holes separately from separately owned opaque RGB marks; continue a base beneath retained marks with proved local order | Genuine holes, partial-alpha marks and unrelated overlap remain intact; owned marks keep their geometry/paint; changed antialiased boundaries pass native scoring and independent full checks | Existing ownership and native evaluator |
+| B · Coherent material | Replace fragment families and fragmented surrounding paint with bounded flat/linear RGBA surfaces, including eligible base-with-marks interpretations | Compact proposals reach exact evaluation on tuning artwork and the native sword; log exclusions by ownership, paint residual, alpha/core proof, geometry and work limit | A for nested material; flat families can proceed independently |
+| C · Constrained shapes and ink | Parameterized straight/cubic boundaries, ellipse-like outlines and supported stroke/variable-width filled replacements, with fragment removal and restored underlay | Native local/full agreement, preserved corners/junctions/width, and useful alternatives in the relevant feature crops; no artwork-specific detection | B plus existing canonical-chain constraints |
+| D · Selection and complexity | Same-pool replay, frozen score/normalizer and bounded common frontier/cache | Five-level cost progression, meaningful distinct tradeoffs on eligible cases, documented plateaus/infeasibility, padding/scale checks and reduced tuning selection conflicts | Candidate coverage from B/C |
+| E · Automatic fitting | CPU fitting sequence and optional joint fitter operating on the same retained plan and constraints | Refinement off/on comparison, exact checkpoint acceptance, best-result stop behavior and measured memory/runtime | Compact models from C and score from D |
+| F · Product integration | Experimental Generate panel, complexity/quality/refine controls, MCP settings and preview diagnostics | Browser/API setting round trips, preview invalidation, correct scope, one Apply/undo and save/reload | Stable D/E contract |
+| G · Release evidence | Expanded corpus, deterministic ablations, blind review and fresh held-out evaluation | Combined sword gate, frozen broader gates and documented performance/editing checks; optional ML decision recorded | A–F |
+
+Package A must not require unchanged RGB at the retained mark's antialiased
+edge: continuing a different base can correctly change those mixed pixels.
+Prove unchanged mark geometry and paint, check opaque interiors, and score the
+complete old/new visible context. Source coverage metadata alone is neither a
+containment proof nor a compositing proof. Unsupported nested translucency keeps
+the existing representation until a valid competing model exists.
+
+For B, compare three initialization routes under the same native policy:
+current detailed fallback; coherent surface fitting before SVG export; and
+coherent replacements after owned export. Choose a route by compact-candidate
+availability, valid-checkpoint latency and retained quality at matched effort.
+Avoid relying exclusively on a few pairwise edits to compact an eight-thousand
+contour starting drawing. Keep discovery bounded by source pixels, paths,
+nodes, samples and time; reaching a bound records an exclusion rather than
+silently relaxing coverage.
+
+For D, a monotonic frontier that returns one identical drawing at every slider
+value is correct ordering but insufficient product evidence. Include fixtures
+with removable texture and progressively useful fine detail; require at least
+two distinct retained tradeoffs on those fixtures. Simple must preserve their
+critical marks, Detailed must offer additional supported detail, and the
+preview must report plateaus when the available safe candidates coincide.
+Use a frozen frontier for ordering tests and separate Generate runs for
+runtime/repeatability tests.
+
+### Evaluation artifacts and pending inputs
+
+Before broad calibration, version the corpus manifest, metric definitions,
+per-case gates and benchmark environment. Use an initial collection target of
+at least 24 tuning artworks spanning eight illustration families, 12 fresh
+held-out artworks spanning at least four additional families, and six licensed
+human redraw comparisons. Include the development sword in the human collection
+but exclude it from held-out and ranker training. These are coverage targets,
+not claims of statistical power; record shortages as pending inputs. The current
+four tuning and four held-out paired fixtures are runner coverage, not the
+completed collection. Any new data used to fix a failure becomes development
+data before a subsequent release evaluation.
+
+Each retained experiment bundle contains:
+
+- Input, clean-target and source/mask hashes; split/provenance; settings and
+  score/graph/renderer versions; CPU/GPU/dependency details.
+- Selected and retained alternative SVGs, native full renders and fixed feature
+  crops; real counts, representation target/achievement, local feature/line/
+  alpha/coverage metrics and hard rejection reasons.
+- Completed operator/evaluation counts, parent revisions, exact score terms,
+  candidate-pool oracle with the selected cost ceiling, and explicit storage
+  omissions. Oracle target data remains outside generation.
+- Stage and operation/apply timing, stop latency, deadline overshoot, process
+  peak RSS, retained-cache bytes and optional-device memory. SVG/raster bytes
+  alone do not establish the memory limit.
+- A verdict for candidate coverage, selection, scheduling and release gates,
+  with negative findings and the next mechanism to investigate.
+
+Freeze performance gates on the recorded benchmark machine before release
+runs. Measure CPU runs at fast/balanced/high budgets, optional acceleration and
+contention, then cancel during evidence, discovery, rendering and fitting.
+Report the maximum uncancellable call separately; a stopped run must return its
+validated checkpoint or the documented no-checkpoint outcome. The proposed
+96/64 MiB cache limits are independent of unavoidable source-image and renderer
+memory; report both cache compliance and total peak memory. Do not describe a
+5/20/60-second budget as a measured latency guarantee.
+
+Blind review uses randomized method order, identical viewing scale and separate
+questions for resemblance and ease of editing. Start with five independent
+reviewers over at least 12 artworks, report per-artwork votes and uncertainty,
+and expand review if the comparison is inconclusive. Reviewer availability,
+licensed redraws and the enlarged corpus are explicit external inputs. Default
+migration remains pending until those inputs and the release gates are met.
+
+The completion record links each delivery to its implementation commits and
+experiment bundles. It also distinguishes the usable experimental milestone,
+the deterministic release gate, and the conditional learned-ranker decision.
+This document completes the plan; it does not assert that implementation or
+release evaluation is complete.
 
 ## Main risks and responses
 

@@ -252,6 +252,12 @@ def vectorize(
                     "surface_families": dict(operators.families.diagnostics),
                     "ink_replacement": dict(operators.replacements.diagnostics),
                     "closed_overlays": dict(operators.overlays.diagnostics),
+                    "nested_surface_rejections": dict(
+                        operators.families.nesting_rejections
+                    ),
+                    "nested_overlay_rejections": dict(
+                        operators.overlays.nesting_rejections
+                    ),
                     "paint_restoration_rejections": dict(
                         operators.replacements.restoration_rejections
                     ),

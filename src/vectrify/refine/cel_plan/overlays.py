@@ -12,12 +12,9 @@ from dataclasses import replace
 from itertools import zip_longest
 
 import numpy as np
-import pathops
 
 from vectrify.document import Editor, Geometry, Selection
-from vectrify.document.hit_test import multiply
 from vectrify.document.join import (
-    curve_path,
     path_style,
     transformed_geometry,
     union_geometry,
@@ -29,7 +26,9 @@ from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import Families, _gradient, _opacity
 from vectrify.refine.cel_plan.geometry import Model, ellipse
 from vectrify.refine.cel_plan.ink_replace import InkReplacement, identified
+from vectrify.refine.cel_plan.layer_order import ordered
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
+from vectrify.refine.cel_plan.nested import enclosed
 from vectrify.refine.cel_plan.opacity import fit_samples
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.search import Proposal, State
@@ -39,7 +38,6 @@ from vectrify.refine.tracing import _loops
 MAX_GROUPS = 32
 MAX_PERIMETER = 4_096
 MAX_NODES = 6_000
-MAX_ORDER_PROOFS = 16
 MIN_AREA = 64
 
 
@@ -75,12 +73,16 @@ class ClosedOverlays:
                 "order_exclusions",
                 "order_proofs",
                 "order_proof_limits",
+                "nested_exclusions",
+                "nested_mark_outside",
+                "nested_proposals",
                 "ellipse_proposals",
                 "contour_proposals",
                 "time_bounded",
             ),
             0,
         )
+        self.nesting_rejections: dict[str, int] = {}
 
     def groups(self, state: State, work: Work):
         partition = state.partition
@@ -181,7 +183,26 @@ class ClosedOverlays:
                 self.diagnostics["source_areas_bounded"] += 1
                 continue
             box, own = cropped
-            loops = _loops(own)
+            parent = document.ancestry(ids[0])[-2]
+            selected = [child for child in parent.children if child.id in ids]
+            survivor = selected[-1].id
+            nesting = enclosed(
+                self.evidence,
+                self.graph,
+                state,
+                ids,
+                box,
+                own,
+                survivor,
+                work,
+                rejections=self.nesting_rejections,
+            )
+            if work.interrupted:
+                return
+            if nesting is None:
+                self.diagnostics["nested_exclusions"] += 1
+                continue
+            loops = _loops(nesting.mask)
             if len(loops) != 1:
                 self.diagnostics["topology_exclusions"] += 1
                 continue
@@ -202,14 +223,13 @@ class ClosedOverlays:
                     None,
                 )
             )
-            parent = document.ancestry(ids[0])[-2]
-            selected = [child for child in parent.children if child.id in ids]
-            survivor = selected[-1].id
             original = union_geometry(
                 [document.geometry_for(p.id) for p in selected],
                 [path_style(document, p) for p in selected],
             )
-            if len(original.subpaths) != 1 or not original.subpaths[0].closed:
+            if (not nesting.ids and len(original.subpaths) != 1) or not all(
+                s.closed for s in original.subpaths
+            ):
                 self.diagnostics["topology_exclusions"] += 1
                 continue
             samples = self.families.samples(members, work)
@@ -236,6 +256,9 @@ class ClosedOverlays:
                 if crossings(shape):
                     self.diagnostics["topology_exclusions"] += 1
                     continue
+                if not nesting.contains(shape, work):
+                    self.diagnostics["nested_mark_outside"] += 1
+                    continue
                 restored = self.restoration.restorations(
                     state,
                     members,
@@ -247,6 +270,7 @@ class ClosedOverlays:
                     coverage=shape,
                     require_core=self.evidence.opacity is not None,
                     continue_neighbors=True,
+                    ignored_neighbors=nesting.members,
                 )
                 if work.interrupted:
                     return
@@ -262,6 +286,8 @@ class ClosedOverlays:
                     tuple(
                         replace(s, covered=tuple(sorted(set(s.covered) | set(members))))
                         if s.id in continued_ids
+                        else replace(s, covered=nesting.members)
+                        if s.id == survivor
                         else s
                         for s in changed.surfaces
                     )
@@ -297,79 +323,26 @@ class ClosedOverlays:
                                 element.id, {"fill-rule": "nonzero"}
                             )
                     proposed = editor.snapshot.document
-                    # Adjacency originally has no overdraw order. Continuing a
-                    # neighbor makes it a base; move the overlay above it only
-                    # across that neighbor or provably disjoint sibling bounds.
-                    children = proposed.element(parent.id).children
-                    positions = {child.id: i for i, child in enumerate(children)}
-                    old_position = positions[survivor]
-                    last_base = max(positions[oid] for oid in continued_ids)
-                    if last_base > old_position:
-                        footprint = bounds(document, proposed, ids)
-                        required = pathops.op(
-                            curve_path(original, "nonzero"),
-                            curve_path(shape, "nonzero"),
-                            pathops.PathOp.UNION,
-                        )
-                        proofs = 0
-                        blocked = False
-                        for child in children[old_position + 1 : last_base + 1]:
-                            if work.interrupted:
-                                return
-                            if child.id in continued_ids:
-                                continue
-                            if child.tag != "path":
-                                blocked = True
-                                break
-                            if (
-                                not bounds(proposed, proposed, (child.id,))
-                                .intersection(footprint)
-                                .area
-                            ):
-                                continue
-                            style = path_style(proposed, child)
-                            geometry = proposed.geometry_for(child.id)
-                            if (
-                                proofs >= MAX_ORDER_PROOFS
-                                or sum(len(s.nodes) for s in geometry.subpaths)
-                                > MAX_NODES
-                            ):
-                                self.diagnostics["order_proof_limits"] += 1
-                                blocked = True
-                                break
-                            if (
-                                style["stroke"] != "none"
-                                or child.get("clip-path", "none") != "none"
-                            ):
-                                blocked = True
-                                break
-                            proofs += 1
-                            self.diagnostics["order_proofs"] += 1
-                            transformed = transformed_geometry(
-                                geometry,
-                                multiply(inverse, root_matrix(proposed, child.id)),
-                            )
-                            overlap = pathops.op(
-                                required,
-                                curve_path(transformed, style["fill-rule"]),
-                                pathops.PathOp.INTERSECTION,
-                            )
-                            if abs(overlap.area) > 1e-8:
-                                blocked = True
-                                break
-                        if blocked:
-                            self.diagnostics["order_exclusions"] += 1
-                            continue
-                        editor = Editor(
-                            proposed, selection=Selection(whole_document=True)
-                        )
-                        with editor.transaction(
-                            "Order supported overlay above its bases"
-                        ) as transaction:
-                            transaction.reorder_object(survivor, last_base)
-                        proposed = editor.snapshot.document
+                    footprint = union_geometry(
+                        [original, shape], [{"fill-rule": "nonzero"}] * 2
+                    )
+                    proposed = ordered(
+                        proposed,
+                        survivor,
+                        continued_ids,
+                        nesting.ids,
+                        footprint,
+                        work,
+                        self.diagnostics,
+                    )
+                    if work.interrupted:
+                        return
+                    if proposed is None:
+                        self.diagnostics["order_exclusions"] += 1
+                        continue
                     self.diagnostics[f"{model.kind}_proposals"] += 1
-                    edited = (*ids, *(e.id for e, _ in continuations))
+                    edited = (*ids, *(e.id for e, _ in continuations), *nesting.ids)
+                    self.diagnostics["nested_proposals"] += int(bool(nesting.ids))
                     holds = set(state.details.get("geometry_constraints", ())) - set(
                         ids
                     )
@@ -396,6 +369,8 @@ class ClosedOverlays:
                                 "removed_paths": len(ids) - 1,
                                 "continued_neighbors": len(continuations),
                                 "source_members": members,
+                                "nested_marks": nesting.ids,
+                                "covered_members": nesting.members,
                             },
                         },
                         dependencies=(parent.id, *neighbors),

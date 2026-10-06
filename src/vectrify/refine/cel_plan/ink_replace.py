@@ -236,6 +236,7 @@ class InkReplacement:
         coverage=None,
         require_core=False,
         continue_neighbors=False,
+        ignored_neighbors=(),
     ):
         def reject(reason):
             self.restoration_rejections[reason] = (
@@ -255,6 +256,7 @@ class InkReplacement:
                 surrounding.add(edge.right)
             if edge.right in selected and edge.left not in selected:
                 surrounding.add(edge.left)
+        surrounding.difference_update(ignored_neighbors)
         if -1 in surrounding or surrounding.intersection(self.graph.hidden):
             return reject("silhouette-or-hole-contact")
         if surrounding - partition.owners.keys():

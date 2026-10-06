@@ -1425,6 +1425,181 @@ the local order and complete footprint under native scoring. The initial closed
 operator does not complete richer layer inference, constrained primitive fitting,
 the sword gates or any of the eight deliveries.
 
+## Continuing material beneath owned opaque marks
+
+`cel_plan/nested.py` distinguishes enclosed RGB paint from an intentional alpha
+hole using source ownership and actual SVG paint. Enclosed primary owners must
+be wholly inside the source cavity; a surface that also owns a distant mark is
+excluded. Their current geometry, attributes and gradient definitions remain
+unchanged. A continuing base records their regions as secondary `covered`
+members while their primary ownership remains intact.
+
+Closed overlays fit the filled outer mask and prove containment of every
+retained mark. Neighbor restoration excludes those inside owners. The coherent
+family operator now offers two independent interpretations: its previous
+adjacent union, and a union continuing beneath eligible enclosed marks. The
+second can remove hole contours without flattening the marks into base paint.
+Both enter the ordinary exact evaluator and independent full checkpoint path.
+
+`cel_plan/layer_order.py` shares the bounded order proof between these operators.
+Marks retain their relative order above the base; continued outside material
+stays beneath the closed overlay. An unrelated sibling can be crossed only
+when actual filled geometry is disjoint. Unsupported stroke/clip/non-path
+crossings, actual overlap and exhausted intersection limits exclude the edit.
+The affected IDs include retained marks whose order changes, so dependency and
+local-render bounds cover them as well as edited geometry.
+
+The first diagnostic used source SHA-256
+`f0c63262a51d2807e3ac17f7c687fd5b5d3fc68e158a221d4479b9a793ebd1aa`.
+Its 60-second sword run under `.bench/planned-nested-material` retained the
+same 22,646-node, 4,026-contour drawing, human MSE 439.75132. No closed or nested
+surface candidate reached native scoring. Its overlay exclusions included
+three source-alpha mismatches and one alpha hole; restoration still encountered
+neighbor-count failures. This result led to a compositing investigation rather
+than a weight change or a larger raw-path limit.
+
+The unapplied raw structured export inventory in
+`.bench/nested-core-diagnosis.json` inspected 17 hole-bearing groups. None of
+those source cavities contains alpha-empty pixels. A jewel-area ring surrounds
+960 pixels in 56 owned regions; its parent opacity is 253/255 and source alpha
+ranges from 253/255 to 254/255. Its actual child fills are opaque, and the
+existing core contains the family. Several guard/jewel families have the same
+small source-byte variation. Other handle families exceed the 64-mark bound
+and lack a proved core. This is a raw-export diagnostic, not the production
+selected drawing or a feature box supplied to generation.
+
+The retained implementation therefore permits source-alpha variation only when
+the existing marks' actual paints are opaque and an actual same-group core
+geometrically contains the entire old family and the retained marks. The
+proposed continued fill also needs its own complete core proof. This preserves
+the already rendered alpha through overlap; the native policy still scores
+changed edge colors and checks the source. Source alpha emptiness, current
+translucent fill/gradient paint, unproved cores and partly enclosed owners stay
+excluded. Merely matching an alpha byte or declaring hidden coverage is not a
+compositing proof.
+
+Nested discovery allows 64 marks and 6,000 total selected/mark nodes. Family
+source crops and continued geometry have separate pixel/node bounds; actual
+core geometry is bounded before intersection. The shared order helper retains
+the 16-proof, 6,000-node sibling limit. Existing deadline, evaluator, dependency
+and independent checkpoint limits apply. Metadata reports nested proposal
+counts and specific source ownership, style, alpha/core, geometry and order
+exclusions for both operator routes.
+
+The native synthetic tests cover alpha 253/128/64, source label order, retained
+opaque flat/gradient marks, faint/translucent marks, true holes, distant members,
+unrelated covering paint, source-alpha variation with and without a real core,
+discovery bounds, scaled/offset scope and save/reload. Geometry and paint remain
+identical for retained marks; opaque interior pixels stay unchanged. Mixed
+antialiased edge pixels may change when their underlying material changes, so
+the complete native visible context is scored instead of demanding byte
+equality across that edge. Local/full score terms and independent checkpoint
+pixels agree. On the four-fragment marked fixture, the initial 68 nodes/cost 116
+become 58/cost 92 for the adjacent family, 55/cost 85 for its continued version,
+40/cost 74 for the nested ellipse, or 38/cost 72 for the nested contour.
+
+The final relevant suite passed **383 tests in 37.39 seconds**. Ruff passed
+with 28 formatted files; Pyrefly reported zero source errors and 61 existing
+warnings. The final source SHA-256 is
+`71eb40b5b1208f1330500672a3bb56f863dbf621f95259b1919e57c8302b4932`.
+
+The follow-up raw-export proof in `.bench/nested-core-full-proof.json` uses this
+final source and checks the family **plus the actual retained mark geometries**.
+The jewel ring now qualifies with all 56 opaque mark owners and a proved core;
+its continued union has 39 nodes. A second jewel-area surface qualifies with
+three marks and a 43-node union. An inspected guard surface remains excluded
+because a mark's gradient is not opaque. These are availability and geometry
+proofs on the raw export, not accepted production proposals or a sword-quality
+pass.
+
+The final paired tuning command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-nested-core-pairs
+```
+
+| Tuning case | Nodes | Cost | Clean MSE | MSE change from owned-overlay run | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,883 | 3,845 | 889.48 | 0 | 0.678 | 6.22 |
+| Anime face | 5,427 | 7,047 | 703.60 | +0.31 | 0.664 | 8.13 |
+| Western park | 4,435 | 5,791 | 1,281.92 | -22.20 | 0.670 | 7.11 |
+| Rubberhose band | 849 | 1,505 | 966.66 | +2.88 | 0.651 | 8.42 |
+
+All four return ready with complete diagnostic candidate storage and zero
+checkpoint disagreements. Search attempts 24/14/21/38 proposals, accepts
+20/11/19/31 working alternatives and publishes four independent checkpoints per
+case. All four selected drawings contain a continued family; anime face selects
+two. Nested family proposal counts are 2/2/3/4. One nested closed contour reaches
+evaluation in anime face, but it is not selected; no ellipse is offered on this
+subset. The learned branch is still unnecessary to demonstrate these operators'
+availability.
+
+Counts and errors move in both directions. Anime girl removes 18 nodes at the
+same clean error. Western park improves its raw error while using 140 more
+nodes; its face-region error drops by 266.74, but lettering/animal-face errors
+rise by 81.05/183.46. Anime face's star-clip error rises by 18.51; Rubberhose's
+banjo error rises by 89.32. These are measured tuning regressions to address in
+the declared feature/score calibration, not a feature-gate or general-quality
+pass. The new pools' same-cost oracle gaps are zero, but their differing
+completed prefixes cannot establish that the earlier selection conflict was
+calibrated away. No held-out or degradation evaluation was used.
+
+These initial nested interpretations do not complete any of the eight deliveries
+or the sword gate. The final native comparison is recorded next.
+
+The final native command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-nested-core
+```
+
+It uses the final source hash above and frozen mask
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The selected sword still has 22,646 nodes, 4,026 contours, 3,991 paths, 544
+gradients, cost 53,260 and human MSE 439.75132. One -1,304-cost family replacement
+survives. Guard/jewel error remains 1,015.14/1,233.07; blade-facet error is 230.02.
+It passes only the numerical human-error ceiling, failing the node/contour
+targets and the combined structural milestone.
+
+Search attempts seven proposals, accepts six working alternatives and publishes
+one independent checkpoint, with zero score disagreements. Overlay discovery
+visits 28 groups (ten families/eighteen singles), but no closed or nested family
+candidate reaches native exact evaluation. Nested overlay exclusions are three
+nonopaque gradients and seven alpha holes; family exclusions include three
+alpha holes. Sixteen overlay models lack restoration. The shared restoration
+helper records four neighbor-count exclusions, eleven silhouette/hole contacts
+and one unproved core; peak neighbor count is 244. These production starting
+families differ from the raw-export probe, whose positive proofs must not be
+presented as accepted production results.
+
+Pipeline time is 53.77 seconds and operation/apply time is 60.67 seconds.
+Reported pipeline overshoot is zero, but operation/apply exceeds the requested
+60-second budget by about 0.67 seconds; end-to-end reservation remains a runtime
+requirement. Structural search takes 11.99 seconds, including 2.68 seconds of
+independent validation. Accounted retained SVG/raster peak is 12,607,690 bytes,
+excluding some metadata and process RSS. Nominal representation target is
+27,282; the reported target remains 46,365 including an unproven observed floor.
+Achieved cost is still above both. None of these timings or storage counts
+establishes the broader runtime/memory gates or a matched-effort speedup.
+
+Next provide coherent neighboring material and compact initialization under the
+same alpha/feature policy. The raw ring can now pass the ownership/compositing
+proof, but the production starting partition still prevents it from reaching
+evaluation. Retain exclusions for actual translucent gradient marks and alpha
+holes until richer representations are supported. Score/feature calibration is
+also required by the measured tuning regressions. These findings support work
+on proposal coverage and scheduling before learned selection.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

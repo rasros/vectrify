@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import time
 from collections import deque
+from dataclasses import replace
 
 import numpy as np
 from cairosvg.colors import color
@@ -23,6 +24,7 @@ from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.ink import measure
+from vectrify.refine.cel_plan.layer_order import ordered
 from vectrify.refine.cel_plan.local import (
     MAX_CROP_PIXELS,
     Box,
@@ -30,8 +32,9 @@ from vectrify.refine.cel_plan.local import (
     tile_boxes,
 )
 from vectrify.refine.cel_plan.model import Boundary, Evidence, Graph, Options, Work
+from vectrify.refine.cel_plan.nested import enclosed, in_core
 from vectrify.refine.cel_plan.opacity import Paint, fit_samples
-from vectrify.refine.cel_plan.ownership import Surface
+from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.search import Proposal, State
 
 MAX_PATHS = 128
@@ -83,7 +86,15 @@ class Families:
             "supported_ridges": 0,
             "shade_boundaries": 0,
             "unresolved_boundaries": 0,
+            "nested_proposals": 0,
+            "nested_crop_limits": 0,
+            "nested_core_exclusions": 0,
+            "nested_geometry_limits": 0,
+            "nested_order_exclusions": 0,
+            "order_proofs": 0,
+            "order_proof_limits": 0,
         }
+        self.nesting_rejections: dict[str, int] = {}
 
     def _protected(self, edge: Boundary, work: Work) -> bool:
         """Coarse ink can be a shade step; only bounded ridge tests relax it.
@@ -374,6 +385,56 @@ class Families:
             return None
         return np.concatenate(positions), np.concatenate(colors), offset
 
+    def _continued(self, state, ids, members, survivor, geometry, work):
+        """An adjacent family also competes as a base under enclosed marks.
+
+        Preserve all actual mark paint/geometry. Primary ownership is unchanged;
+        only a proved base receives secondary coverage and a local order edge.
+        """
+        boxes = [self.boxes[i] for i in members if self.boxes[i] is not None]
+        box = Box(
+            min(b[1].start for b in boxes),
+            min(b[0].start for b in boxes),
+            max(b[1].stop for b in boxes),
+            max(b[0].stop for b in boxes),
+        ).expand(1, self.graph.labels.shape)
+        if box.area > MAX_CROP_PIXELS:
+            self.diagnostics["nested_crop_limits"] += 1
+            return None
+        own = (
+            np.isin(self.graph.labels[box.slices], members)
+            & ~self.evidence.empty[box.slices]
+        )
+        nesting = enclosed(
+            self.evidence,
+            self.graph,
+            state,
+            ids,
+            box,
+            own,
+            survivor,
+            work,
+            rejections=self.nesting_rejections,
+        )
+        if nesting is None or not nesting.ids or work.interrupted:
+            return None
+        continued = nesting.continued(geometry)
+        if work.interrupted:
+            return None
+        if sum(len(s.nodes) for s in continued.subpaths) > MAX_NODES:
+            self.diagnostics["nested_geometry_limits"] += 1
+            return None
+        if self.evidence.opacity is not None and not in_core(
+            state,
+            tuple(sorted((*members, *nesting.members))),
+            survivor,
+            continued,
+            work,
+        ):
+            self.diagnostics["nested_core_exclusions"] += int(not work.interrupted)
+            return None
+        return continued, nesting
+
     def __call__(self, state: State, work: Work):
         # Import here keeps the bounds helper and the operator factory acyclic.
         from vectrify.refine.cel_plan.proposals import bounds
@@ -445,4 +506,69 @@ class Families:
                 },
                 dependencies=(parent.id,),
                 partition=changed,
+            )
+            if work.interrupted:
+                return
+            continuation = self._continued(
+                state, ids, members, survivor, geometry, work
+            )
+            if continuation is None:
+                continue
+            continued, nesting = continuation
+            editor = Editor(proposed, selection=Selection(whole_document=True))
+            with editor.transaction(
+                "Continue family beneath its owned marks"
+            ) as transaction:
+                transaction.replace_geometry(survivor, continued)
+            nested_document = ordered(
+                editor.snapshot.document,
+                survivor,
+                set(),
+                nesting.ids,
+                continued,
+                work,
+                self.diagnostics,
+            )
+            if work.interrupted:
+                return
+            if nested_document is None:
+                self.diagnostics["nested_order_exclusions"] += 1
+                continue
+            nested_partition = Partition(
+                tuple(
+                    replace(s, covered=nesting.members) if s.id == survivor else s
+                    for s in changed.surfaces
+                )
+            )
+            edited = (*ids, *nesting.ids)
+            self.diagnostics["nested_proposals"] += 1
+            yield Proposal(
+                "family-surface",
+                edited,
+                (
+                    "gradient" if paint.gradient else "flat",
+                    threshold,
+                    members,
+                    "continued",
+                ),
+                state.key,
+                nested_document,
+                bounds(document, nested_document, edited),
+                estimate=saving,
+                details={
+                    "regions": sum(
+                        s.role != "underlay" for s in nested_partition.surfaces
+                    ),
+                    "geometry_constraints": sorted(holds | {survivor}),
+                    "chain_constraints": discard(
+                        state.details.get("chain_constraints"), edited
+                    ),
+                    "family_estimate": {"priority": priority, "paint_delta": delta},
+                    "nested_surface": {
+                        "marks": nesting.ids,
+                        "covered_members": nesting.members,
+                    },
+                },
+                dependencies=(parent.id,),
+                partition=nested_partition,
             )
