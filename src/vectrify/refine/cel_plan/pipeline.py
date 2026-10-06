@@ -248,7 +248,8 @@ def vectorize(
                 }
             if operators is not None:
                 structural_search["operator_diagnostics"] = {
-                    "ink_replacement": dict(operators.replacements.diagnostics)
+                    "surface_families": dict(operators.families.diagnostics),
+                    "ink_replacement": dict(operators.replacements.diagnostics),
                 }
             search_ran = True
             validation_seconds += structural_search.get("validation_seconds", 0)

@@ -326,3 +326,106 @@ def test_partial_family_preserves_neighbor_geometry_and_canonical_boundary_ids()
     after = {edge.boundary for edge in edit.partition.edges(graph)}
     assert after < before
     assert {edge.id for edge in graph.boundaries}.issuperset(after)
+
+
+def strong_boundaries(graph):
+    return replace(
+        graph,
+        boundaries=tuple(
+            replace(edge, line_support=1) if min(edge.left, edge.right) > 0 else edge
+            for edge in graph.boundaries
+        ),
+    )
+
+
+def test_coarse_ink_on_shade_steps_can_offer_a_native_valid_surface():
+    evidence = stripes(alpha=128)
+    target = evidence.target.copy()
+    for region in range(1, 9):
+        target[evidence.labels == region, 0] += region
+    rgba = evidence.rgba.copy()
+    rgba[..., :3] = target / 255
+    evidence = replace(evidence, target=target, rgba=rgba)
+    frontier, state, options = prepared(evidence, layers=True)
+    graph = strong_boundaries(build(evidence))
+    factory = Families(evidence, graph, options)
+    groups = list(factory._groups(state, Work.start(10)))
+    assert any(len(ids) == 8 for ids, _ in groups)
+    assert factory.diagnostics["shade_boundaries"] == 7
+    assert factory.diagnostics["supported_ridges"] == 0
+    cached = dict(factory.diagnostics)
+    assert list(factory._groups(state, Work.start(10))) == groups
+    assert factory.diagnostics == cached
+    result = search(frontier, options, Work.start(10), factory)
+    assert result["accepted"] > 0
+    assert result["checkpointed"] > 0
+    assert result["score_disagreements"] == 0
+    selected = frontier.select(50)
+    assert selected.metrics["nodes"] < state.snapshot.evaluation.structure["nodes"]
+    np.testing.assert_array_equal(
+        render(selected.svg, evidence.source_size)[..., 3], evidence.rgba[..., 3]
+    )
+
+
+def test_supported_ridge_cannot_be_removed_by_a_weak_alternate_route():
+    evidence = stripes(alpha=128)
+    target = evidence.target.copy()
+    target[8:56, 16:20] = 30
+    evidence = replace(evidence, target=target)
+    _frontier, state, options = prepared(evidence, layers=True)
+    graph = build(evidence)
+    edge = next(e for e in graph.boundaries if {e.left, e.right} == {1, 2})
+    # Probe a triangular adjacency: a weak alternate route must not bypass
+    # the directly supported ink between the first two source owners.
+    graph = replace(
+        graph,
+        boundaries=(
+            replace(edge, line_support=1),
+            replace(edge, id=100, left=1, right=3, line_support=0),
+            replace(edge, id=101, left=2, right=3, line_support=0),
+        ),
+    )
+    factory = Families(evidence, graph, options)
+    groups = list(factory._groups(state, Work.start(10)))
+    first, second = state.partition.owners[1], state.partition.owners[2]
+    assert groups
+    assert all(not {first, second}.issubset(ids) for ids, _ in groups)
+    assert factory.diagnostics["supported_ridges"] == 1
+    assert factory.diagnostics["shade_boundaries"] == 0
+
+
+@pytest.mark.parametrize("limit", ["points", "proofs", "short"])
+def test_unresolved_strong_boundaries_remain_protected(limit, monkeypatch):
+    evidence = stripes()
+    _frontier, state, options = prepared(evidence)
+    graph = strong_boundaries(build(evidence))
+    if limit == "points":
+        monkeypatch.setattr(families, "MAX_BOUNDARY_POINTS", 4)
+    elif limit == "proofs":
+        monkeypatch.setattr(families, "MAX_BOUNDARY_PROOFS", 0)
+    else:
+        graph = replace(
+            graph,
+            boundaries=tuple(
+                replace(edge, points=edge.points[:4]) for edge in graph.boundaries
+            ),
+        )
+    factory = Families(evidence, graph, options)
+    assert list(factory._groups(state, Work.start(10))) == []
+    assert factory.diagnostics["ridge_proofs"] == 0
+    assert factory.diagnostics["unresolved_boundaries"] == 7
+
+
+def test_interrupted_ridge_proof_is_not_cached_as_a_shade_boundary(monkeypatch):
+    evidence = stripes()
+    _frontier, state, options = prepared(evidence)
+    factory = Families(evidence, strong_boundaries(build(evidence)), options)
+    work = Work.start(10)
+
+    def interrupted(*_args, **_kwargs):
+        work.stop.set()
+
+    monkeypatch.setattr(families, "measure", interrupted)
+    assert list(factory._groups(state, work)) == []
+    assert factory.ridges == {}
+    assert factory.diagnostics["shade_boundaries"] == 0

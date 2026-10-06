@@ -25,6 +25,10 @@ method remains experimental and the existing CEL default is unchanged.
   merge proposals with retained source ownership. Owned ink replacement now
   compares filled unions with strokes over restored neighboring paint. Region
   splits, broader ink/layer interpretations and order edits remain unfinished.
+- Surface families now test bounded paired-ridge evidence before treating
+  coarse line support as an exclusion. Supported and unresolved strong edges
+  remain barriers even when a weak alternate adjacency route connects their
+  owners. Missing ridge evidence permits a surface proposal, not acceptance.
 - The experimental operation validates settings, previews without mutation,
   applies as one undo entry and supports project save/reload.
 - Score version 3 measures robust multi-scale premultiplied color, contrasting
@@ -944,6 +948,110 @@ while preserving supported native contacts. In particular, investigate region
 boundaries excluded by coarse line evidence when a paired ridge is absent,
 and compare those alternatives under the same full validation policy. A learned
 ranker cannot recover surface or outline models that are never proposed.
+
+## Bounded shade-versus-ink family evidence
+
+The family operator previously excluded every canonical boundary with coarse
+line support above 0.5. It now checks a paired dark ridge on sufficiently long,
+bounded chains before excluding them. This offers a surface competitor for a
+shade discontinuity falsely marked as ink. The existing native/full objective
+and hard checks still decide whether any resulting merge can be retained.
+
+Each operator caches at most 512 immutable evidence decisions. A proof uses at
+most 2,048 original chain points, minimum chain length eight analysis pixels,
+and the existing ridge estimator at width 1.5 analysis pixels. Smoothed
+luminance is computed lazily once. Short or oversized chains, exhausted proof
+capacity and interruption retain the conservative exclusion. Cancelled proofs
+do not enter the cache. This is a bounded initial interpretation, not a complete
+multi-width or junction classifier.
+
+Family growth also respects every supported or unresolved strong-edge barrier
+between its members. Merely omitting that edge from adjacency was insufficient:
+a weak route through a third region could still absorb both sides. A family
+cannot take that detour around a protected pair. Pairs farther than twice the
+maximum family color threshold cannot belong to the same family and are
+excluded before ridge work. Existing ownership, alpha and native acceptance
+requirements are unchanged.
+
+The native sword development command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-shade-ridges
+```
+
+Its source SHA-256 is
+`0eaaea2fe269f368fd6cd0808f9fe3058d5e986bd954ffce096334fb9de21b7b`.
+The mask SHA-256 remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The result contains 22,122 nodes, 3,901 contours, 3,864 paths and 536 gradients,
+with representation cost 51,886 and human MSE 439.56173. It still fails the
+800-node/140-contour gates. The preceding bounded ink run had 22,097 nodes,
+cost 51,885 and human MSE 439.64097. This comparison does not establish a
+material quality gain, a structural improvement or a matched-effort speedup.
+
+The new evidence check evaluated 107 unique chains: 101 supported a ridge and
+six did not. There were 5,490 unresolved strong-edge encounters, counted across
+parent scans rather than as unique boundaries. The cache capacity was not
+reached. Diagnose short versus oversized chains and their cost contributions
+before changing these bounds. This result supports finer evidence/geometry
+diagnosis rather than assuming that most coarse ink is misclassified shading.
+
+Search attempted ten evaluations, accepted seven working alternatives and
+published one full checkpoint with zero raster/score disagreements. The final
+checkpoint contains two 128-path family replacements, with cost deltas -1,304
+and -1,374. Stage time was 11.15 seconds including 1.88 seconds of independent
+validation. Pipeline time was 50.25 seconds; operation/apply time was 54.72
+seconds with zero pipeline overshoot. Accounted retained SVG/raster peak bytes
+were 12,607,690; this is not process peak RSS. The soft target remains 46,365,
+reported unmet. Guard and jewel human MSEs remain 1,015.14 and 1,233.07.
+
+A small tuning diagnostic used the four declared tuning families, clean inputs,
+192-pixel long sides, complexity 50, balanced quality, refinement disabled and
+20-second operation limits:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-shade-ridges-pairs
+```
+
+| Tuning case | Nodes | Contours | Clean-target MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 2,677 | 150 | 895.39 | 0.678 | 5.95 |
+| Anime face | 5,467 | 270 | 703.60 | 0.664 | 7.59 |
+| Western park | 4,394 | 226 | 1,280.81 | 0.670 | 6.75 |
+| Rubberhose band | 900 | 123 | 994.56 | 0.651 | 7.77 |
+
+All four returned a validated ready result and complete diagnostic candidate
+storage. Their clean-target oracle at the selected cost found the selected
+candidate; unconstrained pools offered lower MSE at higher cost. This is neither
+an independent preference assessment nor proof that selection is correct.
+Important feature errors remain large, the first three normalizers used the
+conservative fallback, and only clean small renders were examined. No matched
+old/new or legacy comparison was run here, no degradation or held-out artwork
+was evaluated, and these are not calibrated release results.
+
+The 241-test planner/operation/benchmark suite passed, including 21 focused
+family tests. A separate 75-test legacy CEL/shared-boundary suite passed. New
+checks cover coarse false ink on shade steps with native acceptance, cached
+evidence, a protected ridge across an alternate route, conservative short/large
+and proof-bound behavior, and cancellation without caching an incomplete
+decision. Ruff passed; Pyrefly reported zero source errors with 61 existing
+warnings. Its configured exclusions do not type-check tests.
+
+The next concrete experiment in the plan diagnoses hold reasons, carries
+constraints at canonical-chain granularity and compares interior fitting and
+larger coherent surfaces separately. Whole-path native holds remain the safe
+fallback until that finer correspondence is proved. None of these results
+justifies exposing unfinished controls, training a ranker or changing defaults.
 
 ## Remaining requirements
 

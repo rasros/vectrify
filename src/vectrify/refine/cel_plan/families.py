@@ -13,20 +13,22 @@ from collections import deque
 
 import numpy as np
 from cairosvg.colors import color
-from scipy.ndimage import find_objects
+from scipy.ndimage import find_objects, gaussian_filter
 
 from vectrify.document import Editor, Selection
 from vectrify.document.join import path_style, union_geometry
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
+from vectrify.refine import cel
+from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.local import (
     MAX_CROP_PIXELS,
     Box,
     LocalLimitError,
     tile_boxes,
 )
-from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
+from vectrify.refine.cel_plan.model import Boundary, Evidence, Graph, Options, Work
 from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Surface
 from vectrify.refine.cel_plan.search import Proposal, State
@@ -35,6 +37,8 @@ MAX_PATHS = 128
 MAX_NODES = 6_000
 MAX_FAMILIES = 24
 MAX_GROUPS = 96
+MAX_BOUNDARY_PROOFS = 512
+MAX_BOUNDARY_POINTS = 2_048
 THRESHOLDS = (12, 28, 56)
 
 
@@ -71,6 +75,47 @@ class Families:
     def __init__(self, evidence: Evidence, graph: Graph, options: Options):
         self.evidence, self.graph, self.options = evidence, graph, options
         self.boxes = find_objects(graph.labels + 1, max_label=len(graph.regions))
+        self.ridges: dict[int, bool] = {}
+        self.light: np.ndarray | None = None
+        self.diagnostics = {
+            "ridge_proofs": 0,
+            "supported_ridges": 0,
+            "shade_boundaries": 0,
+            "unresolved_boundaries": 0,
+        }
+
+    def _protected(self, edge: Boundary, work: Work) -> bool:
+        """Coarse ink can be a shade step; only bounded ridge tests relax it.
+
+        Short, large or unexamined chains keep the conservative restriction.
+        Evidence is immutable, so cached decisions survive ownership changes.
+        Absence of a ridge permits a proposal, never acceptance of its pixels.
+        """
+        if edge.line_support <= 0.5:
+            return False
+        if edge.id in self.ridges:
+            return self.ridges[edge.id]
+        points = edge.points
+        if (
+            not 4 <= len(points) <= MAX_BOUNDARY_POINTS
+            or np.linalg.norm(np.diff(points, axis=0), axis=1).sum() < 8
+            or len(self.ridges) >= MAX_BOUNDARY_PROOFS
+            or work.interrupted
+        ):
+            self.diagnostics["unresolved_boundaries"] += 1
+            return True
+        if self.light is None:
+            self.light = gaussian_filter(cel.lightness(self.evidence.target), 0.5)
+        if work.interrupted:
+            return True
+        proof = measure(points, self.evidence.target, 1.5, light=self.light)
+        if work.interrupted:
+            return True
+        protected = proof is not None
+        self.ridges[edge.id] = protected
+        self.diagnostics["ridge_proofs"] += 1
+        self.diagnostics["supported_ridges" if protected else "shade_boundaries"] += 1
+        return protected
 
     def _groups(self, state: State, work: Work):
         partition = state.partition
@@ -124,6 +169,7 @@ class Families:
             parents[surface.id] = document.ancestry(surface.id)[-2].id
             components[surface.id] = regions[0].component
         neighbors: dict[str, set[str]] = {oid: set() for oid in eligible}
+        barriers: dict[str, set[str]] = {oid: set() for oid in eligible}
         for edge in self.graph.boundaries:
             if work.interrupted:
                 return
@@ -136,10 +182,15 @@ class Families:
                 "transform"
             ):
                 continue
-            # Strong ink still has a competing interpretation; this surface
-            # operator proposes across weaker boundaries first. Ink replacement
-            # with underlayer restoration is a separate missing operator.
-            if edge.line_support > 0.5:
+            # No threshold can place colors farther than this in one family.
+            # Avoid spending ridge work on pairs that cannot co-occur anyway.
+            if float(np.linalg.norm(colors[left] - colors[right])) > 2 * max(
+                THRESHOLDS
+            ):
+                continue
+            if self._protected(edge, work):
+                barriers[left].add(right)
+                barriers[right].add(left)
                 continue
             neighbors[left].add(right)
             neighbors[right].add(left)
@@ -164,6 +215,9 @@ class Families:
                     if total + nodes[oid] > MAX_NODES:
                         continue
                     if float(np.linalg.norm(colors[oid] - colors[seed])) > threshold:
+                        continue
+                    # A weak alternate route must not erase a supported ridge.
+                    if barriers[oid].intersection(family):
                         continue
                     family.append(oid)
                     total += nodes[oid]

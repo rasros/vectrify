@@ -14,18 +14,27 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest committed native sword experiment (`8679895`, recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the bounded shade/ridge comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental owned-family search, 60-second budget | 22,097 | 3,901 | 439.64 |
+| Experimental owned-family search, 60-second budget | 22,122 | 3,901 | 439.56 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; two family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
 
 Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
+
+The bounded paired-ridge check now lets coarse line evidence compete with a
+surface interpretation when a sufficiently long chain lacks a dark ridge.
+Supported ridges remain barriers even when a weak adjacency route connects the
+same regions. In the sword run, 107 chains were examined: 101 supported a ridge
+and six did not. Another 5,490 strong-edge encounters remained unresolved under
+the conservative bounds; these are encounters, not unique boundaries. This
+limited relaxation does not solve the fragmentation. Measure why chains remain
+unresolved before widening those bounds or changing the score.
 
 ## Evidence and success criteria
 
@@ -398,6 +407,48 @@ Each work package needs synthetic native-alpha cases and paired tuning evidence.
 The combined milestone remains the frozen sword count/error gates plus local
 ink, feature and coverage checks. Passing only the error ceiling with a dense
 trace does not complete structural compaction or establish slider usefulness.
+
+### Immediate geometry and surface experiment
+
+The next investigation separates oversegmentation from excessive geometry
+protection. The sword reports 3,986 regions with native-alpha geometry holds.
+The current hold applies to the whole path when any boundary touches protected
+transparent space, a thin component or a large opacity discontinuity. That can
+also prevent fitting an unrelated interior shade boundary. Do not remove these
+holds wholesale: diagnose the contacts and introduce finer constraints.
+
+1. Record hold reasons and affected canonical chains, their native lengths and
+   node counts, separately for exterior/hole contacts, thin components, explicit
+   width, alpha discontinuities and repaired crossings. Record unique unresolved
+   line boundaries by short-chain, large-chain and proof-limit reason. Compare
+   their contribution to cost with the cost of already refinable interiors.
+2. Preserve source-chain identity and ownership through SVG export, regrouping
+   and rollback. A surviving native contact retains its actual geometry; corner
+   and junction anchors stay fixed. A constraint on one chain must not authorize
+   movement of another constrained chain on the same object. Existing whole-path
+   holds remain the fallback when correspondence cannot be proved.
+3. Offer straight and smooth interior-chain competitors between fixed anchors,
+   updating both adjacent fills atomically. Compare unrestricted geometry on
+   the same current surface partition, so the geometry experiment does not
+   simultaneously change segmentation or paint. Test exterior contacts, holes,
+   partial alpha, transformed groups and subsequent family merges.
+4. Separately compare larger coherent surface proposals against the current
+   bounded families. Use paint residuals and supported separating edges, with
+   a bounded work allowance. Record why a large surface is unavailable: source
+   ownership, paint residual, protected ink, candidate bounds or scheduling.
+   A different family cap alone is not evidence of a useful surface model.
+5. Retain edits only through native local scoring and independent full checks.
+   Run the synthetic and tuning cases first, then save sword feature crops,
+   cost, alpha, line and human-error diagnostics. Compare candidate availability
+   and selection at matched effort; a lower global error or node count alone
+   cannot admit a missing outline or feature.
+
+This experiment has two reviewable outputs: chain-level constraint metadata and
+exactly validated interior fitting; and independently evaluated coherent
+surface alternatives. Its result determines whether the next bottleneck is
+geometry, surface membership or search scheduling. Learned ranking waits for
+those alternatives to exist and for candidate-pool comparisons to demonstrate
+a selection or evaluation-cost problem.
 
 For routine development, run the focused evidence/policy/frontier/operator tests and operation apply/stop/reload checks. Use `scripts/bench_cel_planned.py` for the native sword comparison and save its SVGs, feature crops and source/mask hashes. Its current `--check` covers the numerical sword targets only; extend it with the documented local-feature, hole and coverage gates before treating that exit status as full acceptance. Run full-corpus and hardware-sensitive benchmarks separately, with the same completed proposal effort or a clearly stated matched deadline.
 
