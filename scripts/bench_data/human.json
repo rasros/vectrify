@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "mask": {"alpha_threshold": 0.5, "dilation_pixels": 4},
+  "cases": [
+    {
+      "name": "sword",
+      "file": "projects/sword.vectrify",
+      "set": "development",
+      "provenance": "Human-edited Vectrify project supplied by the repository owner; merged fixture 4e93ccf",
+      "training": false,
+      "mask_sha256": "f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514",
+      "features": {
+        "blade tip": [320, 65, 90, 200],
+        "blade facets": [305, 300, 115, 1100],
+        "guard": [230, 1500, 265, 140],
+        "handle wrapping": [320, 1640, 80, 270],
+        "jewel": [320, 1930, 85, 105]
+      },
+      "targets": {"nodes": 800, "contours": 140, "human_mse": 497.39},
+      "baseline": {
+        "human": {"paths": 80, "contours": 93, "nodes": 523, "gradients": 6, "raster_mse": 415.65},
+        "cel": {"paths": 137, "contours": 339, "nodes": 2312, "gradients": 24, "raster_mse": 292.65, "human_mse": 663.19}
+      }
+    }
+  ]
+}
