@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import heapq
 import time
+from collections.abc import Callable
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
@@ -1027,7 +1028,13 @@ def _data(start, nodes, closed: bool) -> str:
     return " ".join(parts) + (" Z" if closed else "")
 
 
-def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
+def region_outlines(
+    labels: np.ndarray,
+    tolerance: float,
+    *,
+    fit_boundary: Callable[[np.ndarray, float], list[tuple[str, tuple[float, ...]]]]
+    | None = None,
+) -> dict[int, str]:
     """Each region's outline as path data, traced once per shared edge.
 
     Every edge between two regions is fitted once and used, forwards and
@@ -1050,6 +1057,8 @@ def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
             nodes: list[tuple[str, tuple[float, ...]]] = [
                 ("L", (float(x), float(y))) for x, y in simplify(points, 0)[1:]
             ]
+        elif fit_boundary is not None:
+            nodes = fit_boundary(points, tolerance)
         else:
             nodes = curve_nodes(points, tolerance, smooth=FILL_SMOOTH, fit=FILL_FIT)
         end = (float(points[-1, 0]), float(points[-1, 1]))

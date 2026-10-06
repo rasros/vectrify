@@ -51,11 +51,18 @@ def vectorize(
     # The same anchors feed every slider selection. Search effort can truncate
     # this sequence; selection on the resulting frozen frontier stays ordered.
     # Detailed geometry establishes the fixed representation normalizer first.
-    levels = (100, 0, 50, 25, 75)
+    proposals = (
+        (100, False, False),
+        (50, True, True),
+        (0, False, False),
+        (50, False, False),
+        (25, False, False),
+        (75, False, False),
+    )
     reserve = max(0.25, image.width * image.height / 1_000_000 * 0.5)
     last_candidate_seconds = 0.0
     validation_seconds = 0.0
-    for level in levels:
+    for level, structure, layers in proposals:
         if frontier.baseline and (
             work.interrupted or work.remaining <= reserve + last_candidate_seconds
         ):
@@ -68,13 +75,16 @@ def vectorize(
         proposal_options = replace(options, complexity=level)
         labels, edits = merged_labels(graph, proposal_options, work)
         decisions.extend(edits)
-        svg, details = export(evidence, labels, proposal_options, work)
+        svg, details = export(
+            evidence, labels, proposal_options, work, structure=structure, layers=layers
+        )
         if work.stop.is_set() and frontier.baseline is None:
             raise PlanningStoppedError(
                 "Stopped before a validated candidate was available"
             )
         validated = time.monotonic()
-        frontier.add(svg, f"Planned at complexity {level}", details)
+        label = f"{'Structured' if structure else 'Traced'} at complexity {level}"
+        frontier.add(svg, label, details)
         validation_seconds += time.monotonic() - validated
         last_candidate_seconds = time.monotonic() - began
     if frontier.baseline is None:
