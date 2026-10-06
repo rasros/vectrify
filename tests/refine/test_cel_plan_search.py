@@ -7,6 +7,7 @@ import pytest
 from PIL import Image
 
 from vectrify.document import Editor, Selection, export_svg, import_svg
+from vectrify.refine.cel_plan import local
 from vectrify.refine.cel_plan import search as beam
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.frontier import Frontier
@@ -241,6 +242,76 @@ def test_stop_after_local_acceptance_keeps_only_the_fully_validated_seed():
     assert result["accepted"] == 1
     assert result["checkpointed"] == 0
     assert frontier.select(50).svg == INITIAL
+
+
+def test_stop_between_native_tiles_keeps_the_validated_seed(monkeypatch):
+    monkeypatch.setattr(local, "MAX_CROP_PIXELS", 4096)
+    frontier, _evidence, options = setup()
+    work = Work.start(10)
+    original = beam.LocalPolicy._tile
+
+    def stop(self, *args):
+        result = original(self, *args)
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(beam.LocalPolicy, "_tile", stop)
+
+    def edits(state, _work):
+        yield proposal(state, "left", "#b05030")
+
+    result = search(frontier, options, work, edits)
+    assert result["status"] == "interrupted"
+    assert result["accepted"] == 0
+    assert result["tiles_scored"] == 1
+    assert result["checkpointed"] == 0
+    assert result["decisions"][-1]["rejections"] == ["local-search-interrupted"]
+    assert frontier.select(50).svg == INITIAL
+
+
+def test_empty_native_bounds_are_rejected_without_rendering_an_edit():
+    frontier, _evidence, options = setup()
+
+    def edits(state, _work):
+        yield replace(proposal(state, "left", "#b05030"), bounds=local.Box(0, 0, 0, 0))
+
+    result = search(frontier, options, Work.start(10), edits)
+    assert result["attempted"] == 0
+    assert result["decisions"][0]["rejections"] == ["invalid-local-bounds"]
+    assert frontier.select(50).svg == INITIAL
+
+
+def test_rejection_context_streams_bounded_bytes_and_keys_spatial_bounds(monkeypatch):
+    frontier, _evidence, _options = setup()
+    entry = frontier.entries[0]
+    evaluator = beam.LocalPolicy(frontier.policy)
+    state = State(
+        import_svg(entry.svg),
+        entry.svg,
+        evaluator.start(entry.svg, entry.evaluation),
+        entry.key,
+        entry.details,
+    )
+    edit = proposal(state, "left", "#ffffff")
+    calls = []
+    original = local.Canvas.values
+
+    def values(self, box):
+        calls.append(box.area)
+        return original(self, box)
+
+    monkeypatch.setattr(local.Canvas, "values", values)
+    monkeypatch.setattr(beam, "MAX_CROP_PIXELS", 128)
+    cache = Rejections()
+    key = cache.key(state, edit, -12)
+    assert len(calls) > 1
+    assert max(calls) <= 128
+    # Equal expanded context/pixels still represent different affected areas.
+    first = replace(edit, bounds=local.Box(0, 0, 160, 128))
+    second = replace(edit, bounds=local.Box(1, 1, 159, 127))
+    assert first.bounds.expand(32, (128, 160)) == second.bounds.expand(32, (128, 160))
+    assert cache.key(state, first, -12) != cache.key(state, second, -12)
+    assert cache.key(state, edit, -12) == key
 
 
 def test_rejection_cache_reuses_a_proof_and_invalidates_changed_dependencies():

@@ -15,12 +15,14 @@ from vectrify.refine.cel_plan.frontier import Entry, Frontier
 from vectrify.refine.cel_plan.local import (
     HALO,
     MAX_CROP_PIXELS,
+    MAX_TILES,
     Box,
     LocalLimitError,
     LocalPolicy,
     Snapshot,
+    tile_boxes,
 )
-from vectrify.refine.cel_plan.model import Options, Work
+from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import SCORE_VERSION, representation
@@ -144,14 +146,13 @@ class Rejections:
 
     def key(self, state: State, proposal: Proposal, delta: float) -> str:
         snapshot = state.snapshot
-        context = snapshot.canvas.crop(
-            proposal.bounds.expand(2 * HALO, snapshot.canvas.root.shape)
-        )
+        context = proposal.bounds.expand(2 * HALO, snapshot.canvas.root.shape)
         signature = (
             SCORE_VERSION,
             proposal.operator,
             proposal.ids,
             proposal.parameters,
+            proposal.bounds,
             tuple(
                 _revision(state.document, oid)
                 for oid in (*proposal.ids, *proposal.dependencies)
@@ -176,7 +177,8 @@ class Rejections:
             ),
         )
         digest = hashlib.sha256(repr(signature).encode())
-        digest.update(context.tobytes())
+        for chunk in context.chunks(MAX_CROP_PIXELS):
+            digest.update(snapshot.canvas.values(chunk).tobytes())
         return digest.hexdigest()
 
     def visible_ids(self, state: State, proposal: Proposal) -> frozenset[str]:
@@ -380,14 +382,19 @@ def search(
                         )
                     ).area
                 ]
-                if (
-                    proposal.bounds.expand(
-                        2 * HALO, state.snapshot.canvas.root.shape
-                    ).area
-                    > MAX_CROP_PIXELS
-                ):
+                try:
+                    decision["tiles"] = len(
+                        tile_boxes(proposal.bounds, state.snapshot.canvas.root.shape)
+                    )
+                except LocalLimitError:
                     bounded += 1
                     decision["rejections"] = ["local-buffer-limit"]
+                    decisions.append(decision)
+                    continue
+                except ValueError as exc:
+                    decision.update(
+                        rejections=["invalid-local-bounds"], detail=str(exc)
+                    )
                     decisions.append(decision)
                     continue
                 structure = representation(proposal.document).metrics()
@@ -422,7 +429,12 @@ def search(
                         proposal.bounds,
                         structure,
                         visible_ids=visible_ids,
+                        work=local_work,
                     )
+                except StageInterruptedError:
+                    decision["rejections"] = ["local-search-interrupted"]
+                    decisions.append(decision)
+                    break
                 except LocalLimitError:
                     bounded += 1
                     decision["rejections"] = ["local-buffer-limit"]
@@ -563,6 +575,8 @@ def search(
         "dependency_index_entries": len(cache.indices),
         "peak_retained_bytes": peak,
         "native_context_renders": evaluator.native_context_renders,
+        "tiles_scored": evaluator.tiles_scored,
+        "tile_limit": MAX_TILES,
         "seconds": time.monotonic() - started,
         "validation_seconds": validation_seconds,
         "decisions": decisions,

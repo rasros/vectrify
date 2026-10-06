@@ -9,7 +9,8 @@ Complete checkpoints independently verify this incremental score.
 from __future__ import annotations
 
 import io
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from xml.etree import ElementTree as ET
 
 import cairosvg
@@ -17,11 +18,13 @@ import numpy as np
 from PIL import Image
 from scipy.ndimage import binary_dilation, distance_transform_edt, gaussian_filter
 
+from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.policy import Evaluation, Feature, Policy, _ink, _robust
 from vectrify.refine.cel_plan.score import composite, premultiplied, render
 
 MAX_CROP_PIXELS = 256 * 1024
 MAX_RASTER_BYTES = 16 * 1024 * 1024
+MAX_TILES = 32
 HALO = 16  # Largest Gaussian radius (sigma 4, truncate 4); ink needs 8 + 4.
 SCORE_TOLERANCE = 2e-7
 
@@ -67,6 +70,43 @@ class Box:
             slice(self.x - outer.x, self.right - outer.x),
         )
 
+    def chunks(self, pixels: int):
+        """Nonoverlapping row-major chunks with a bounded pixel count."""
+        if not self.area:
+            return
+        width = min(self.right - self.x, max(1, pixels))
+        height = max(1, pixels // width)
+        for y in range(self.y, self.bottom, height):
+            for x in range(self.x, self.right, width):
+                yield Box(
+                    x, y, min(x + width, self.right), min(y + height, self.bottom)
+                )
+
+
+def tile_boxes(changed: Box, shape: tuple[int, ...]) -> tuple[Box, ...]:
+    """Disjoint output ownership with bounded input halos for every tile."""
+    changed = changed.expand(0, shape)
+    if not changed.area:
+        raise ValueError("A proposal needs visible native bounds")
+    output = changed.expand(HALO, shape)
+    if output.expand(HALO, shape).area <= MAX_CROP_PIXELS:
+        return (output,)
+    side = math.isqrt(MAX_CROP_PIXELS) - 2 * HALO
+    if side <= 0:
+        raise LocalLimitError("Native proposal crop limit cannot hold filter halos")
+    boxes = []
+    for x in range(output.x, output.right, side):
+        right = min(x + side, output.right)
+        width = min(shape[1], right - x + 2 * HALO)
+        height = MAX_CROP_PIXELS // width - 2 * HALO
+        if height <= 0:
+            raise LocalLimitError("Native proposal crop limit cannot hold filter halos")
+        for y in range(output.y, output.bottom, height):
+            boxes.append(Box(x, y, right, min(y + height, output.bottom)))
+            if len(boxes) > MAX_TILES:
+                raise LocalLimitError("Native proposal tile limit")
+    return tuple(boxes)
+
 
 @dataclass(frozen=True)
 class Patch:
@@ -79,13 +119,17 @@ class Canvas:
     root: np.ndarray
     patches: tuple[Patch, ...] = ()
 
-    def crop(self, box: Box) -> np.ndarray:
+    def values(self, box: Box) -> np.ndarray:
+        """Owned uint8 pixels, including all immutable patches."""
         result = self.root[box.slices].copy()
         for patch in self.patches:
             overlap = box.intersection(patch.box)
             if overlap.area:
                 result[overlap.within(box)] = patch.pixels[overlap.within(patch.box)]
-        return result.astype(np.float32) / 255
+        return result
+
+    def crop(self, box: Box) -> np.ndarray:
+        return self.values(box).astype(np.float32) / 255
 
     def changed(self, box: Box, pixels: np.ndarray) -> Canvas:
         values = np.rint(pixels * 255).astype(np.uint8)
@@ -131,12 +175,7 @@ class Snapshot:
     unsupported: float
 
 
-def _render_crop(
-    svg: str,
-    box: Box,
-    size: tuple[int, int],
-    visible_ids: frozenset[str] | None = None,
-) -> tuple[np.ndarray, bool]:
+def _render_tree(svg: str, visible_ids: frozenset[str] | None):
     inner = ET.fromstring(svg)
     if visible_ids is not None:
 
@@ -159,6 +198,30 @@ def _render_crop(
                     cull(child, definition)
 
         cull(inner)
+    return inner
+
+
+def _native_raster(inner, size: tuple[int, int]) -> Canvas:
+    if size[0] * size[1] * 4 > MAX_RASTER_BYTES:
+        raise LocalLimitError("Native local-search raster limit")
+    png = cairosvg.svg2png(
+        bytestring=ET.tostring(inner), output_width=size[0], output_height=size[1]
+    )
+    if png is None:
+        raise ValueError("The native renderer returned no pixels")
+    with Image.open(io.BytesIO(png)) as image:
+        values = np.asarray(image.convert("RGBA"))
+        values.flags.writeable = False
+        return Canvas(values)
+
+
+def _render_crop(
+    svg: str,
+    box: Box,
+    size: tuple[int, int],
+    visible_ids: frozenset[str] | None = None,
+) -> tuple[np.ndarray, bool]:
+    inner = _render_tree(svg, visible_ids)
     native = any(
         node.tag.rsplit("}", 1)[-1] in {"linearGradient", "pattern", "mask"}
         or (len(node) and float(node.get("opacity", "1")) < 1)
@@ -168,16 +231,7 @@ def _render_crop(
         # Changing an offscreen group or gradient's viewport can change Cairo's
         # intermediate rounding. Preserve the original native rasterization;
         # crop before converting the bounded buffer to floating-point pixels.
-        if size[0] * size[1] * 4 > MAX_RASTER_BYTES:
-            raise LocalLimitError("Native local-search raster limit")
-        png = cairosvg.svg2png(
-            bytestring=ET.tostring(inner), output_width=size[0], output_height=size[1]
-        )
-        if png is None:
-            raise ValueError("The native renderer returned no pixels")
-        with Image.open(io.BytesIO(png)) as image:
-            cropped = image.crop((box.x, box.y, box.right, box.bottom)).convert("RGBA")
-            return np.asarray(cropped, dtype=np.float32) / 255, True
+        return _native_raster(inner, size).crop(box), True
     root = ET.Element(
         "{http://www.w3.org/2000/svg}svg",
         {
@@ -252,6 +306,7 @@ class LocalPolicy:
     def __init__(self, policy: Policy):
         self.policy = policy
         self.native_context_renders = 0
+        self.tiles_scored = 0
         self.observed_support = binary_dilation(policy.mask, iterations=2)
         self.ink_count = int(policy.ink.sum())
         self.mask_count = max(1, int(policy.mask.sum()))
@@ -317,25 +372,72 @@ class LocalPolicy:
         structure: dict,
         *,
         visible_ids: frozenset[str] | None = None,
+        work: Work | None = None,
+    ) -> Snapshot:
+        shape = self.policy.truth.shape
+        changed = changed.expand(0, shape)
+        outputs = tile_boxes(changed, shape)
+
+        def check():
+            if work is not None and work.interrupted:
+                raise StageInterruptedError("Native tile evaluation interrupted")
+
+        check()
+        paint = (
+            _native_raster(_render_tree(svg, visible_ids), (shape[1], shape[0]))
+            if len(outputs) > 1
+            else None
+        )
+        self.native_context_renders += int(paint is not None)
+        check()
+        stats = before
+        patches = []
+        for output in outputs:
+            check()
+            input_box = output.expand(HALO, shape)
+            old = before.canvas.crop(input_box)
+            if paint is not None:
+                new = paint.crop(input_box)
+            else:
+                new, native = _render_crop(
+                    svg, input_box, (shape[1], shape[0]), visible_ids
+                )
+                self.native_context_renders += int(native)
+            check()
+            outside = np.ones(old.shape[:2], dtype=bool)
+            overlap = changed.intersection(input_box)
+            if overlap.area:
+                outside[overlap.within(input_box)] = False
+            if not np.array_equal(old[outside], new[outside]):
+                raise ValueError(
+                    "Proposal changed paint outside its declared native bounds"
+                )
+            own = changed.intersection(output)
+            if not own.area:
+                own = Box(output.x, output.y, output.x, output.y)
+            stats = self._tile(stats, own, structure, output, input_box, old, new)
+            self.tiles_scored += 1
+            if own.area:
+                values = np.rint(new[own.within(input_box)] * 255).astype(np.uint8)
+                values.flags.writeable = False
+                patches.append(Patch(own, values))
+            check()
+        return replace(
+            stats,
+            canvas=Canvas(before.canvas.root, (*before.canvas.patches, *patches)),
+        )
+
+    def _tile(
+        self,
+        before: Snapshot,
+        changed: Box,
+        structure: dict,
+        output: Box,
+        input_box: Box,
+        old: np.ndarray,
+        new: np.ndarray,
     ) -> Snapshot:
         policy = self.policy
-        shape = policy.truth.shape
-        changed = changed.expand(0, shape)
-        if not changed.area:
-            raise ValueError("A proposal needs visible native bounds")
-        output = changed.expand(HALO, shape)
-        input_box = output.expand(HALO, shape)
-        if input_box.area > MAX_CROP_PIXELS:
-            raise LocalLimitError("Native proposal crop limit")
-        old = before.canvas.crop(input_box)
-        new, native = _render_crop(svg, input_box, (shape[1], shape[0]), visible_ids)
-        self.native_context_renders += int(native)
-        outside = np.ones(old.shape[:2], dtype=bool)
-        outside[changed.within(input_box)] = False
-        if not np.array_equal(old[outside], new[outside]):
-            raise ValueError(
-                "Proposal changed paint outside its declared native bounds"
-            )
         selection = output.within(input_box)
         old_predicted, new_predicted = premultiplied(old), premultiplied(new)
         color = before.evaluation.terms["color"]
@@ -499,7 +601,7 @@ class LocalPolicy:
         )
         rejected = self._rejections(terms, holes, retained, opacity)
         return Snapshot(
-            before.canvas.changed(changed, new_local),
+            before.canvas,
             Evaluation(terms, structure, rejected),
             features,
             holes,

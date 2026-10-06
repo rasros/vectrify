@@ -171,13 +171,27 @@ def fit(
     step = max(1, (len(x) + 4095) // 4096)
     x, y = x[::step], y[::step]
     rgba = np.column_stack((target[y, x] / 255, alpha[y, x])).astype(np.float64)
+    xy = np.column_stack((x + origin[0] + 0.5, y + origin[1] + 0.5))
+    return fit_samples(xy, rgba, gradients=gradients, gradient_price=gradient_price)
+
+
+def fit_samples(
+    xy: np.ndarray,
+    rgba: np.ndarray,
+    *,
+    gradients: bool = True,
+    gradient_price: float = 0,
+) -> Paint:
+    """Fit already bounded samples in the supplied analysis coordinate frame."""
+    if len(xy) != len(rgba) or not 0 < len(rgba) <= 4096:
+        raise ValueError("Paint fitting needs between one and 4096 paired samples")
+    rgba = rgba.astype(np.float64, copy=False)
     median = np.median(rgba, axis=0)
     flat = Paint(hex_colour(tuple(median[:3])), float(median[3]))
-    if not gradients or len(x) < 4:
+    if not gradients or len(xy) < 4:
         return flat
-    xy = np.column_stack((x + origin[0] + 0.5, y + origin[1] + 0.5))
     center = xy.mean(axis=0)
-    design = np.column_stack((np.ones(len(x)), xy - center))
+    design = np.column_stack((np.ones(len(xy)), xy - center))
     weights = np.maximum(rgba[:, 3], 1 / 255)
     coefficients = np.linalg.lstsq(
         design * weights[:, None], rgba * weights[:, None], rcond=None
@@ -190,7 +204,7 @@ def fit(
     low, high = float(along.min()), float(along.max())
     if high - low < 1e-6:
         return flat
-    ramp_design = np.column_stack((np.ones(len(x)), along))
+    ramp_design = np.column_stack((np.ones(len(xy)), along))
     coefficients = np.linalg.lstsq(
         ramp_design * weights[:, None], rgba * weights[:, None], rcond=None
     )[0]
@@ -213,7 +227,7 @@ def fit(
             + np.square(values[:, 3] - rgba[:, 3]).mean()
         )
 
-    before, after = error(np.repeat(median[None], len(x), axis=0)), error(fitted)
+    before, after = error(np.repeat(median[None], len(xy), axis=0)), error(fitted)
     if after >= before * 0.9 or before - after < max(1 / 255**2, gradient_price):
         return flat
     start, end = center + axis * low, center + axis * high

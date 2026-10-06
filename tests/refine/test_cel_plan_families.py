@@ -8,12 +8,14 @@ from PIL import Image
 
 from tests.refine.test_cel_plan_ownership import stripes
 from vectrify.document import export_svg, import_svg
+from vectrify.refine.cel_plan import families
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.local import LocalPolicy
+from vectrify.refine.cel_plan.local import HALO, MAX_CROP_PIXELS, LocalPolicy
 from vectrify.refine.cel_plan.model import Options, Work
+from vectrify.refine.cel_plan.opacity import fit, fit_samples
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.score import render
@@ -108,6 +110,127 @@ def test_ownership_updates_after_native_acceptance_not_during_proposal_creation(
     assert len(state.partition.surfaces) == 8
     assert sum(e.tag == "path" for e in import_svg(state.svg).elements()) == 8
     assert len(frontier.entries) == 1
+
+
+@pytest.mark.parametrize("crop_pixels", [47, 113, 4096])
+def test_streamed_family_samples_match_dense_row_order_and_rgba_models(
+    crop_pixels,
+    monkeypatch,
+):
+    evidence = stripes(gradient=True, alpha=128, hole=True)
+    # More than 4096 matching pixels exercise the stride across chunk edges.
+    fields = (
+        "rgba",
+        "target",
+        "smooth",
+        "coarse",
+        "empty",
+        "foreground",
+        "line",
+        "drawn",
+        "darkness",
+        "texture",
+        "labels",
+        "opacity",
+    )
+    evidence = replace(
+        evidence,
+        **{name: np.repeat(getattr(evidence, name), 3, axis=0) for name in fields},
+        source_size=(96, 192),
+    )
+    graph = build(evidence)
+    factory = Families(evidence, graph, Options())
+    monkeypatch.setattr(families, "MAX_CROP_PIXELS", crop_pixels)
+    members = (1, 2, 4, 5, 7, 8)
+    own = np.isin(graph.labels, members) & ~evidence.empty
+    y, x = np.nonzero(own)
+    step = (len(x) + 4095) // 4096
+    expected_xy = np.column_stack((x[::step] + 0.5, y[::step] + 0.5))
+    expected_rgba = np.column_stack(
+        (
+            evidence.target[y[::step], x[::step]] / 255,
+            evidence.opacity[y[::step], x[::step]],
+        )
+    )
+    xy, rgba, count = factory.samples(members, Work.start(10))
+    assert count == len(x)
+    assert len(xy) <= 4096
+    np.testing.assert_array_equal(xy, expected_xy)
+    np.testing.assert_array_equal(rgba, expected_rgba)
+    assert fit_samples(xy, rgba) == fit(evidence.target, evidence.opacity, own)
+
+
+def test_interrupted_family_sampling_does_not_publish_partial_samples(monkeypatch):
+    evidence = stripes(gradient=True, alpha=128)
+    factory = Families(evidence, build(evidence), Options())
+    monkeypatch.setattr(families, "MAX_CROP_PIXELS", 113)
+    work = Work.start(10)
+    original = families.np.isin
+    calls = []
+
+    def stop(*args):
+        result = original(*args)
+        calls.append(1)
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(families.np, "isin", stop)
+    assert factory.samples(tuple(range(1, 9)), work) is None
+    assert len(calls) == 1
+
+
+def test_long_surface_family_reaches_native_tiled_acceptance_and_full_checkpoint():
+    evidence = stripes(gradient=True, alpha=128)
+    fields = (
+        "rgba",
+        "target",
+        "smooth",
+        "coarse",
+        "empty",
+        "foreground",
+        "line",
+        "drawn",
+        "darkness",
+        "texture",
+        "labels",
+        "opacity",
+    )
+    evidence = replace(
+        evidence,
+        **{
+            name: np.repeat(np.repeat(getattr(evidence, name), 32, axis=0), 2, axis=1)
+            for name in fields
+        },
+        source_size=(192, 2048),
+    )
+    frontier, state, options = prepared(evidence, layers=True)
+    factory = Families(evidence, build(evidence), options)
+    selected_proposal = []
+
+    def long_gradient(state, work):
+        for proposal in factory(state, work):
+            if proposal.parameters[0] == "gradient" and len(proposal.ids) == 8:
+                selected_proposal.append(proposal)
+                yield proposal
+                return
+
+    result = search(frontier, options, Work.start(20), long_gradient)
+    assert len(selected_proposal) == 1
+    assert (
+        selected_proposal[0]
+        .bounds.expand(2 * HALO, state.snapshot.canvas.root.shape)
+        .area
+        > MAX_CROP_PIXELS
+    )
+    assert result["accepted"] == 1
+    assert result["checkpointed"] == 1
+    assert result["tiles_scored"] > 1
+    assert result["score_disagreements"] == 0
+    selected = frontier.select(100)
+    assert selected.metrics["nodes"] < state.snapshot.evaluation.structure["nodes"]
+    assert selected.metrics["gradients"] == 1
+    assert selected.metrics["regions"] == 1
+    assert frontier.policy.evaluate(selected.svg).valid
 
 
 def test_fixed_width_ink_and_different_components_do_not_enter_surface_families():

@@ -767,6 +767,81 @@ agree after overlapping history patches. Ruff passed; Pyrefly reported zero
 source errors. Broader paired calibration, original-atom split geometry, joint
 ink/underlayer fitting, resizing, runtime/memory and release gates remain open.
 
+## Bounded native tiles and streamed family samples
+
+Long proposals no longer fail solely because their score crop exceeds 262,144
+pixels. The evaluator partitions output ownership into at most 32 disjoint
+tiles, with overlapping 16-pixel input halos bounded by that crop allowance.
+Every tile compares the original before-state with the same completed candidate
+render. Color/ink halo contributions and alpha/feature ownership are accumulated
+once using the complete policy's fixed denominators. Immutable raster patches
+are published together only after the entire edit finishes. Stop/deadline checks
+between rendering and tiles discard incomplete work, preserving the independent
+checkpoint. Search reports the tile count and invalid or bounded native areas.
+
+For multiple tiles, one native uint8 RGBA render retains the original viewport
+and opacity-group rounding. Only bounded tile windows convert to floats. The
+existing 16 MiB native raster ceiling remains; this is not arbitrary-resolution
+streaming or a complete process-RSS bound. Full checkpoint validation remains
+independent and includes a complete render and score.
+
+Family paint estimates now scan bounded source-label chunks, preserving the
+dense mask's row-major sample stride with at most 4,096 paired position/RGBA
+samples. No full family mask or float crop is needed. The same flat/gradient
+fitter accepts those samples in the analysis frame. Interrupted sampling returns
+no partial model. Rejection proofs hash bounded uint8 chunks and include the
+declared affected bounds, avoiding a spatially different proposal reusing the
+same pixel proof.
+
+New tests compare tile statistics, hard rejections and exact native pixels with
+full evaluation for gradients, transformed opacity groups, holes, one-byte
+marks, first/last ink, spill and opacity loss. They exercise disjoint/overlapping
+cumulative edits and sibling histories, stop between tiles, tile limits before
+rendering, invalid bounds and rejection-key chunk limits. Streaming family
+samples and paint models match dense sampling across chunk boundaries. A real
+160×2,000 gradient edit exceeds the default crop limit; a 192×2,048 RGBA surface
+family reaches both tiled acceptance and an independent full checkpoint.
+
+Reproduce the native development check with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-native-tiles
+```
+
+Source SHA-256 was
+`a9bf113637628776e4e22cc652844e25945beb404a98a3edfc7f214ed4fd6a4c`;
+the frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The former oversized blade boundary at native bounds `(311, 78, 417, 1558)`
+is now evaluated in two tiles. It enters a working state with four fewer nodes
+and visual delta −0.00005715. That alternative was not the published checkpoint;
+the final selection still retains the two cumulative family edits. Synthetic
+long-edit tests supply the independent complete agreement evidence for this
+new path, rather than claiming full validation of an unpublished sword sibling.
+
+The final drawing remains 22,097 nodes, 3,901 contours, 3,864 paths and 538
+gradients, with human MSE 439.64097. Search attempted ten evaluations, scored
+11 tiles, accepted seven working alternatives, bounded one parent expansion
+and published one checkpoint. No proposals hit the old crop-size rejection;
+there were zero checkpoint score/raster disagreements. Stage time was 11.15
+seconds, including 1.89 seconds of full validation. Pipeline time was 49.20
+seconds and operation/apply time 53.56 seconds, without pipeline overshoot.
+Accounted retained SVG/raster peak bytes were 12,662,465. The soft target remains
+46,365 against achieved cost 51,885, reported unmet. This is not a matched-effort
+speedup or a quality improvement over the previous development run.
+
+Native guard and jewel crops still show fragmented shading and a missing
+coherent jewel ink rim. Structural count gates remain failed. Compact opacity
+interpretations and ink replacement with restored underlayers are the next
+quality work; tiling enables their evaluation but does not supply those models.
+No held-out artwork was used. The final relevant suite passed 325 tests with
+the previously recorded broad command. Ruff passed; Pyrefly reported zero
+source errors with 61 existing warnings. Broader paired calibration and complete
+runtime, memory and release evidence remain open.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -775,7 +850,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | Region splits, richer surface/paint interpretations beyond the initial owned family merges, calibrated content normalization and budget-directed search, bounded shared-frontier cache, tiled long edits and resizing invariance |
+| 3 | Region splits, richer surface/paint interpretations beyond the initial owned family merges, calibrated content normalization and budget-directed search, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
 | 4 | Variable-width/fill ink alternatives, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |

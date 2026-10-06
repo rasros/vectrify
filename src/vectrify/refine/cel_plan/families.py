@@ -20,9 +20,14 @@ from vectrify.document.join import path_style, union_geometry
 from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
-from vectrify.refine.cel_plan.local import HALO, MAX_CROP_PIXELS
+from vectrify.refine.cel_plan.local import (
+    MAX_CROP_PIXELS,
+    Box,
+    LocalLimitError,
+    tile_boxes,
+)
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
-from vectrify.refine.cel_plan.opacity import Paint, fit
+from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Surface
 from vectrify.refine.cel_plan.search import Proposal, State
 
@@ -191,61 +196,23 @@ class Families:
             if estimate_work.interrupted:
                 break
             box = bounds(state.document, state.document, ids)
-            if (
-                box.expand(2 * HALO, state.snapshot.canvas.root.shape).area
-                > MAX_CROP_PIXELS
-            ):
+            try:
+                tile_boxes(box, state.snapshot.canvas.root.shape)
+            except LocalLimitError:
                 continue
             members = tuple(
                 sorted(member for oid in ids for member in surfaces[oid].members)
             )
-            boxes = [
-                self.boxes[index] for index in members if self.boxes[index] is not None
-            ]
-            left, top = (
-                min(box[1].start for box in boxes),
-                min(box[0].start for box in boxes),
-            )
-            right, bottom = (
-                max(box[1].stop for box in boxes),
-                max(box[0].stop for box in boxes),
-            )
-            crop = (slice(top, bottom), slice(left, right))
-            mask = (
-                np.isin(self.graph.labels[crop], members) & ~self.evidence.empty[crop]
-            )
-            if not mask.any():
+            samples = self.samples(members, estimate_work)
+            if samples is None:
+                break
+            xy, rgba, size = samples
+            if not size:
                 continue
-            alpha = (
-                self.evidence.opacity[crop]
-                if self.evidence.opacity is not None
-                else np.ones(mask.shape)
-            )
-            paint = fit(
-                self.evidence.target[crop],
-                alpha,
-                mask,
-                origin=(left, top),
-                gradients=self.options.gradients,
-            )
+            paint = fit_samples(xy, rgba, gradients=self.options.gradients)
             variants = [paint]
             if paint.gradient:
-                variants.append(
-                    fit(
-                        self.evidence.target[crop],
-                        alpha,
-                        mask,
-                        origin=(left, top),
-                        gradients=False,
-                    )
-                )
-            y, x = np.nonzero(mask)
-            step = max(1, (len(x) + 4095) // 4096)
-            x, y = x[::step], y[::step]
-            rgba = np.column_stack(
-                (self.evidence.target[crop][y, x] / 255, alpha[y, x])
-            )
-            xy = np.column_stack((x + left + 0.5, y + top + 0.5))
+                variants.append(fit_samples(xy, rgba, gradients=False))
             sx, sy = self.evidence.scale
             ox, oy = self.evidence.offset
             nx = np.clip(
@@ -287,10 +254,10 @@ class Families:
                 else:
                     predicted = np.repeat(
                         np.array([(*color(variant.color)[:3], variant.opacity)]),
-                        len(x),
+                        len(xy),
                         axis=0,
                     )
-                delta = (error(predicted) - before_error) * int(mask.sum()) / area
+                delta = (error(predicted) - before_error) * size / area
                 priority = delta - self.options.detail_cost * saved / max(
                     1, state.snapshot.evaluation.cost
                 )
@@ -306,6 +273,47 @@ class Families:
             )
         )
         yield from candidates[:MAX_FAMILIES]
+
+    def samples(self, members: tuple[int, ...], work: Work):
+        """Uniform row-major sampling without an unbounded family mask/crop."""
+        boxes = [
+            self.boxes[index] for index in members if self.boxes[index] is not None
+        ]
+        if not boxes:
+            return np.empty((0, 2)), np.empty((0, 4)), 0
+        bounds = Box(
+            min(box[1].start for box in boxes),
+            min(box[0].start for box in boxes),
+            max(box[1].stop for box in boxes),
+            max(box[0].stop for box in boxes),
+        )
+        size = sum(self.graph.regions[index].area for index in members)
+        step = max(1, (size + 4095) // 4096)
+        offset = 0
+        positions, colors = [], []
+        for chunk in bounds.chunks(MAX_CROP_PIXELS):
+            if work.interrupted:
+                return None
+            own = (
+                np.isin(self.graph.labels[chunk.slices], members)
+                & ~self.evidence.empty[chunk.slices]
+            )
+            indices = np.flatnonzero(own)
+            keep = indices[(-offset) % step :: step]
+            offset += len(indices)
+            y, x = np.unravel_index(keep, own.shape)
+            alpha = (
+                self.evidence.opacity[chunk.slices][y, x]
+                if self.evidence.opacity is not None
+                else np.ones(len(x))
+            )
+            positions.append(np.column_stack((x + chunk.x + 0.5, y + chunk.y + 0.5)))
+            colors.append(
+                np.column_stack((self.evidence.target[chunk.slices][y, x] / 255, alpha))
+            )
+        if work.interrupted:
+            return None
+        return np.concatenate(positions), np.concatenate(colors), offset
 
     def __call__(self, state: State, work: Work):
         # Import here keeps the bounds helper and the operator factory acyclic.
