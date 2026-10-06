@@ -22,7 +22,8 @@ from vectrify.refine.cel_plan.model import (
     Work,
 )
 from vectrify.refine.cel_plan.planning import merged_labels
-from vectrify.refine.cel_plan.policy import Policy
+from vectrify.refine.cel_plan.policy import Policy, Weights
+from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.refine import MAX_GEOMETRY_NODES, refine
 from vectrify.refine.cel_plan.score import (
     foreground_mask,
@@ -30,6 +31,7 @@ from vectrify.refine.cel_plan.score import (
     opacity_measurements,
     render,
 )
+from vectrify.refine.cel_plan.search import search as local_search
 
 
 def vectorize(
@@ -59,7 +61,11 @@ def vectorize(
         ) from exc
     if work.stop.is_set():
         raise PlanningStoppedError("Stopped before a validated candidate was available")
-    policy = Policy.from_evidence(evidence, graph)
+    policy = Policy.from_evidence(
+        evidence,
+        graph,
+        weights=Weights(features=Weights().features * options.protection),
+    )
     frontier = Frontier(policy, observe)
     decisions = []
     # The same anchors feed every slider selection. Search effort can truncate
@@ -131,6 +137,13 @@ def vectorize(
     )
     fitting_reserved = not dense_fallback
     normalizer_source = "conservative-fallback"
+    structural_search: dict = {
+        "status": "unavailable",
+        "attempted": 0,
+        "accepted": 0,
+        "seconds": 0.0,
+    }
+    search_ran = False
     for level, structure, layers in proposals:
         if search.interrupted or work.interrupted:
             break
@@ -195,6 +208,45 @@ def vectorize(
             except ValueError:
                 if frontier.baseline:
                     frontier.freeze_normalizer()
+        if (
+            not search_ran
+            and frontier.normalizer_fixed
+            and not search.interrupted
+            and any(
+                entry.evaluation.structure["nodes"] <= MAX_GEOMETRY_NODES
+                for entry in frontier.entries
+            )
+        ):
+            # Individual operators get an opportunity before complete anchor
+            # proposals consume the remaining search prefix. Fitting and final
+            # validation keep their independent reservations.
+            local_work = Work(
+                min(search.deadline, time.monotonic() + duration * 0.2),
+                work.stop,
+                work.timings,
+            )
+            local_started = time.monotonic()
+            try:
+                structural_search = local_search(
+                    frontier,
+                    options,
+                    local_work,
+                    Operators(evidence, graph, replace(options, complexity=50)),
+                )
+            except (ValueError, RuntimeError, ArithmeticError) as exc:
+                # Optional search never replaces the independently validated
+                # checkpoint with a partial working state after failure.
+                structural_search = {
+                    "status": "failed",
+                    "detail": str(exc),
+                    "attempted": None,
+                    "accepted": None,
+                    "seconds": time.monotonic() - local_started,
+                    "validation_seconds_unavailable": True,
+                }
+            search_ran = True
+            validation_seconds += structural_search.get("validation_seconds", 0)
+            work.timings["structural_search"] = structural_search["seconds"]
     if frontier.baseline is None:
         if work.stop.is_set():
             raise PlanningStoppedError(
@@ -254,6 +306,7 @@ def vectorize(
         "deadline_overshoot": max(0.0, time.monotonic() - work.deadline),
         "cost_normalizer_source": normalizer_source,
         "refinement": refinement,
+        "structural_search": structural_search,
         "refinement_complete": False,
         "fitting_time_reclaimed_after_compaction": dense_fallback and fitting_reserved,
     }

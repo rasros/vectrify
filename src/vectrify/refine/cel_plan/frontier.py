@@ -6,9 +6,14 @@ import copy
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from vectrify.refine.cel_plan.model import Candidate
 from vectrify.refine.cel_plan.policy import Evaluation, Policy
+from vectrify.refine.cel_plan.score import render
+
+if TYPE_CHECKING:
+    from vectrify.refine.cel_plan.local import Canvas
 
 MAX_CANDIDATES = 12
 MAX_BYTES = 64 * 1024 * 1024
@@ -142,6 +147,18 @@ class Frontier:
     def add(self, svg: str, label: str, details: dict | None = None) -> bool:
         return self._add(svg, label, details)
 
+    def checkpoint(
+        self,
+        svg: str,
+        label: str,
+        details: dict,
+        expected: Evaluation,
+        *,
+        raster: Canvas | None = None,
+    ) -> bool:
+        """Independently verify a local working state's full native score."""
+        return self._add(svg, label, details, expected=expected, expected_raster=raster)
+
     def refine(
         self, svg: str, label: str, details: dict, *, complexity: int, before: float
     ) -> bool:
@@ -161,6 +178,8 @@ class Frontier:
         label: str,
         details: dict | None = None,
         maximum: tuple[int, float] | None = None,
+        expected: Evaluation | None = None,
+        expected_raster: Canvas | None = None,
     ) -> bool:
         if len(svg.encode()) > MAX_BYTES:
             self._record(
@@ -174,10 +193,19 @@ class Frontier:
             )
             return False
         key = hashlib.sha256(svg.encode()).hexdigest()
-        if any(entry.key == key for entry in self.entries):
+        if expected is None and any(entry.key == key for entry in self.entries):
             return False
         try:
-            evaluation = self.policy.evaluate(svg)
+            pixels = (
+                render(svg, (self.policy.truth.shape[1], self.policy.truth.shape[0]))
+                if expected_raster is not None
+                else None
+            )
+            evaluation = (
+                self.policy.evaluate(svg, pixels=pixels)
+                if pixels is not None
+                else self.policy.evaluate(svg)
+            )
         except ValueError as exc:
             self._record(
                 svg,
@@ -190,6 +218,46 @@ class Frontier:
                 details,
             )
             return False
+        if (
+            expected_raster is not None
+            and pixels is not None
+            and not expected_raster.matches(pixels)
+        ):
+            self._record(
+                svg,
+                {
+                    "candidate": label,
+                    "accepted": False,
+                    "rejections": ["local-raster-disagreement"],
+                },
+                details,
+                evaluation,
+            )
+            return False
+        if expected is not None:
+            from vectrify.refine.cel_plan.local import SCORE_TOLERANCE
+
+            disagreement = {
+                term: evaluation.terms.get(term, 0.0) - value
+                for term, value in expected.terms.items()
+                if term not in evaluation.terms
+                or abs(evaluation.terms[term] - value) > SCORE_TOLERANCE
+            }
+            if disagreement or evaluation.cost != expected.cost:
+                self._record(
+                    svg,
+                    {
+                        "candidate": label,
+                        "accepted": False,
+                        "rejections": ["local-score-disagreement"],
+                        "term_disagreement": disagreement,
+                        "local_cost": expected.cost,
+                        "full_cost": evaluation.cost,
+                    },
+                    details,
+                    evaluation,
+                )
+                return False
         if not evaluation.valid:
             self._record(
                 svg,
@@ -197,6 +265,18 @@ class Frontier:
                     "candidate": label,
                     "accepted": False,
                     "rejections": list(evaluation.rejections),
+                },
+                details,
+                evaluation,
+            )
+            return False
+        if any(entry.key == key for entry in self.entries):
+            self._record(
+                svg,
+                {
+                    "candidate": label,
+                    "accepted": False,
+                    "rejections": ["duplicate-checkpoint"],
                 },
                 details,
                 evaluation,

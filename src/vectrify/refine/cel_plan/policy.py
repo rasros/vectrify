@@ -255,12 +255,19 @@ class Policy:
         self.baseline: Evaluation | None = None
 
     @classmethod
-    def from_evidence(cls, evidence: Evidence, graph: Graph) -> Policy:
+    def from_evidence(
+        cls,
+        evidence: Evidence,
+        graph: Graph,
+        *,
+        weights: Weights | None = None,
+    ) -> Policy:
         return cls(
             evidence.rgba,
             features=graph_features(evidence, graph),
             ink=source_field(evidence.drawn.astype(float), evidence) >= 0.5,
             texture=np.clip(source_field(evidence.texture, evidence), 0, 1),
+            weights=weights,
         )
 
     def _terms(self, actual: np.ndarray) -> dict[str, float]:

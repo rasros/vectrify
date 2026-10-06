@@ -311,7 +311,7 @@ Continue from the experimental package in the following order. These changes com
 | --- | --- | --- |
 | Complete the paired tuning runner and candidate logs | `scripts/cel_pairs.py`, a paired benchmark runner, `scripts/bench_data/planned_pairs.json` | Reproducible clean/degraded hashes, artwork-family split, native masks, baseline line/feature metrics and all evaluated candidate scores |
 | Correct fallback, opacity and coordinate handling | `cel_plan/evidence.py`, `export.py`, `pipeline.py` and the generate operation | Empty/partial-alpha/opaque inputs, thin features, holes and transformed-scope apply/export/reload checks |
-| Replace bundled proposals with individual exact acceptance | `cel_plan/planning.py`, `policy.py`, `frontier.py` | Accepted and rejected local edits agree with complete renders; rollback preserves shared geometry; proposal caps and stop work within loops |
+| Extend individual exact acceptance to graph edits | `cel_plan/local.py`, `search.py`, `proposals.py`, `planning.py`, `frontier.py` | Paint/boundary/ink edits already have a bounded working beam; add merge/split/surface/order operators with native full-render agreement, independent rollback, bounded dependencies and stop within loops |
 | Complete the CPU refinement path | A focused `cel_plan/refine.py`, existing simplify/shared/paint helpers | Refinement on/off changes behavior; accepted edits improve or retain the common objective; primitive anchors, explicit width and best-checkpoint semantics survive |
 | Diagnose and improve facets, ink and compact outlines | `cel_plan/geometry.py`, `ink.py`, `strokes.py`, `layers.py` | Candidate-pool/oracle diagnosis, native feature crops, variable-width alternatives, supported joins and passing sword development gates |
 | Calibrate scoring and complete common-frontier caching | `cel_plan/policy.py`, `frontier.py`, `model.py`, `pipeline.py` | Frozen tuning grid, cost progression on one frontier, padding/resizing checks, target/achieved budgets, bounded memory and reference/scope invalidation |
@@ -321,6 +321,51 @@ Continue from the experimental package in the following order. These changes com
 | Complete release evaluation | Held-out suite, review artifacts and default configuration | Fresh held-out results, independent blind review and all coverage/feature/editing gates before default migration |
 
 The paired tuning runner comes first because both local acceptance and automatic fitting need an independent quality check. CPU refinement can then proceed alongside structural work, but the sword milestone still depends on useful interpretations being proposed and selected. UI integration waits for real refinement and budget behavior rather than advertising schema-only controls. Learned ranking remains a conditional branch after deterministic ablations.
+
+### Structural compaction work packages
+
+The native opacity-aware drawing still contains thousands of color/alpha
+partitions. Individual paint and boundary edits now have an exact acceptance
+path, but those edits cannot turn that partitioning into a human-scale drawing.
+Complete the following work before spending effort on a learned ranker:
+
+1. Preserve stable region membership through merges and export. Maintain an
+   owned planning state linking each visible SVG surface, its source regions,
+   canonical edges and covering ink. A graph edit updates both adjacent edge
+   owners and records the original members; exporting must not lose that link
+   by renumbering labels. Test successive merges, splits and rollback on sibling
+   beam states, including opacity groups and shared gradient ownership.
+2. Propose coherent region families as one surface. Compare a flat RGBA model,
+   a linear color/opacity gradient and the existing subdivisions. Grow families
+   using connectivity, residuals, boundary contrast and stability across scales.
+   Retain supported shade breaks and corners. Pairwise merges remain useful,
+   but a fixed allowance of 48 evaluations cannot remove thousands of fragments
+   one pair at a time. Bound family size and model work; record the rejected
+   alternatives rather than exempting dark or small partitions from all merges.
+3. Reinterpret ink together with its underlying surface. Compare continuous
+   strokes, variable-width filled marks and the current fragmented fills.
+   An accepted replacement removes the corresponding fragments and restores
+   supported surface coverage beneath them. Simply adding a stroke can improve
+   pixels while increasing complexity. Validate entire connecting gaps, local
+   width and junction evidence, translucent compositing, holes and draw order.
+4. Evaluate long affected areas as bounded native tiles. Use identical renderer
+   coordinates and complete relevant layers, plus the score halo. Accumulate
+   each changed pixel contribution once with global denominators, then update
+   feature maxima and topology aggregates. Verify agreement against independent
+   complete renders for overlapping tiles, long gradients, opacity groups and
+   strokes crossing tile boundaries. Keep the existing safe checkpoint when a
+   renderer cannot meet the tile contract within the budget.
+5. Diagnose proposals separately from selection. Record the clean-target oracle
+   for the common candidate pool, including a cost ceiling, before calibrating
+   the score. If no compact faithful interpretation exists in the pool, improve
+   these operators. If it exists but loses selection, calibrate on the declared
+   tuning families. Compare identical pools and measured search effort; keep
+   the sword as development evidence and preserve held-out separation.
+
+Each work package needs synthetic native-alpha cases and paired tuning evidence.
+The combined milestone remains the frozen sword count/error gates plus local
+ink, feature and coverage checks. Passing only the error ceiling with a dense
+trace does not complete structural compaction or establish slider usefulness.
 
 For routine development, run the focused evidence/policy/frontier/operator tests and operation apply/stop/reload checks. Use `scripts/bench_cel_planned.py` for the native sword comparison and save its SVGs, feature crops and source/mask hashes. Its current `--check` covers the numerical sword targets only; extend it with the documented local-feature, hole and coverage gates before treating that exit status as full acceptance. Run full-corpus and hardware-sensitive benchmarks separately, with the same completed proposal effort or a clearly stated matched deadline.
 

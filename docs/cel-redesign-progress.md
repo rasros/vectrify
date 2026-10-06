@@ -17,6 +17,12 @@ method remains experimental and the existing CEL default is unchanged.
   pools are reported and do not produce an oracle claim.
 - CPU evidence collection, canonical region/boundary graph, finite merge
   protection and SVG export are implemented as an initial prototype.
+- Individual flat-paint, shared-boundary fitting and supported ink proposals now
+  run through a bounded local beam. Working states share immutable native raster
+  history. Local acceptance uses the complete policy's fixed denominators and
+  feature aggregates; publication independently verifies the entire raster,
+  score and document checks. Graph merge/split, surface-family and order edits
+  still need this individual acceptance path.
 - The experimental operation validates settings, previews without mutation,
   applies as one undo entry and supports project save/reload.
 - Score version 3 measures robust multi-scale premultiplied color, contrasting
@@ -418,8 +424,8 @@ Paint proposals now compare estimated gradient improvement with its extra
 representation price, using the fixed cost normalizer and visible support.
 Padding does not inflate that support. This inexpensive test orders/chooses
 paint models inside a proposal; complete native validation still determines
-candidate retention. Opaque paint pricing and individual exact local operator
-acceptance remain unfinished.
+candidate retention. Opaque paint pricing remains unfinished. The subsequent
+local-search stage adds individual acceptance for paint/boundary/ink operators.
 
 An exploratory 60-second run in `.bench/planned-alpha-bases-final`, before the
 detailed seed included the base interpretation, selected 22,883 nodes, 4,078
@@ -511,6 +517,124 @@ Existing CEL and operation/benchmark isolation checks are included. Ruff passed;
 Pyrefly reported zero source errors. These checks do not complete the remaining
 runtime, memory, local-search, calibration or release gates.
 
+## Native local scoring and bounded operator search
+
+`local.py` now maintains an immutable native RGBA raster with shared root data
+and bounded patches. Changed color, blur and ink-distance contributions retain
+the complete policy's denominators. The 16-pixel output halo and additional
+input halo cover the current finite filters. Feature errors, their maximum,
+hole opacity and component retention update alongside the global terms.
+Changing the first or last observed ink pixel preserves the full policy's
+empty-edge semantics. A declared edit that changes pixels outside its bounds
+is rejected locally; publication compares the entire accumulated raster byte
+for byte against an independently rendered candidate and compares score terms
+within `2e-7`. Document validity and topology checks still run at publication.
+
+Renderer experiments found that a cropped Cairo viewport could change gradient
+and opacity-group rounding by one or two bytes. Those cases retain the original
+native viewport and crop before conversion to floating-point pixels. Named
+paths outside conservative support bounds can be omitted, while containers,
+definitions, unknown geometry and all overlapping hidden layers remain. Uses,
+imported primitives and long miters have conservative full-canvas dependencies.
+This reduces irrelevant drawing work without claiming a crop-only renderer.
+Native rendering still allocates a full native buffer within the stage limit.
+
+`search.py` implements working beams of one, four and eight states, with exact
+evaluation caps of 16, 48 and 128. The available operators run round-robin:
+gradient-to-flat paint, shared-boundary simplification and locally supported
+continuous ink. They use the same proposal settings and complexity anchors for
+every requested slider value. Advanced feature protection also scales the
+fixed policy's feature weight. Individual improvements enter working states;
+only independent full checkpoints enter the published frontier. Cancellation
+or optional-stage failure preserves the previous validated drawing.
+
+Rejection proofs include operator parameters, geometry/paint and visibility
+dependencies, the native context and relevant global score aggregates. The
+per-run LRU retains at most 256 proofs and eight document dependency indexes.
+Hidden overlapping paint remains a dependency even when it contributes no
+current visible pixel. Independent remote color edits can reuse a rejection.
+Scan limits also bound stale, cached and otherwise unevaluated proposals.
+Current seed limits are 32,000 nodes and 8,192 painted objects; changed IDs and
+explicit dependencies are capped at 256. The local raster allowance is 16 MiB,
+and score input crops are capped at 262,144 pixels. The 64 MiB state accounting
+covers retained SVG bytes and unique shared raster/patch buffers, including
+parents and additions during expansion. It does **not** account for every
+document object, metadata allocation or process RSS; the complete memory gate
+remains open.
+
+Reproduce the final native development run with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-local-context
+```
+
+| Measurement | Result | Sword target |
+| --- | ---: | ---: |
+| Nodes | 23,194 | At most 800 |
+| Contours | 4,147 | At most 140 |
+| Gradients | 544 | No fixed ceiling |
+| Human foreground MSE | 438.92 | At most 497.39 |
+| Pipeline seconds | 53.86 | Explicit 60-second limit |
+| Operation/apply seconds | 59.12 | Outer runtime gate remains separate |
+
+The source hash was
+`7d4f474c5f39c8e662fcfc93618527ef432f8ab09af5cce35e660540038788d9`.
+The frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+The stage used 11.86 seconds, including 2.58 seconds of independent full
+validation. It attempted 11 exact evaluations, accepted six working edits,
+bounded one oversized crop, and published one checkpoint with zero raster or
+score disagreements. All six accepted edits were alternatives from the same
+parent, not six cumulative improvements. The selected boundary edit removed
+18 nodes and reduced the fixed visual score by approximately 0.000541. The
+requested soft representation target was 46,365; achieved cost was 54,546 and
+the target remained unmet. The hard node ceiling was automatic. Peak accounted
+SVG/raster state bytes were 12,956,991. No pipeline deadline overshoot was
+reported. These measurements do not establish the full RSS or memory gate.
+
+Before support-based rendering omission, an exploratory run in
+`.bench/planned-local-beam` used source hash
+`42e75356fc715f7753a2884f1744673a93b486c17498579a146c1b0a5904ef27`.
+It attempted seven local evaluations and published one paint edit, selecting
+23,212 nodes, 4,147 contours and human MSE 442.34. Its local stage took 12.73
+seconds against a 12-second slice. The final run completed a different search
+prefix; neither this comparison nor comparison with earlier runs proves a
+matched-effort speedup or a calibrated quality improvement.
+
+A separate final-source 20-second run in `.bench/planned-local-short` used the
+same settings, mask and source hash. It retained the detailed seed with 23,212
+nodes, 4,147 contours, 544 gradients and human MSE 439.75. The pipeline took
+21.21 seconds, reporting 1.21 seconds of deadline overshoot; operation/apply
+took 26.15 seconds. Local search was unavailable and attempted no edits because
+initialization and validation consumed the search allowance. Only two
+candidates were retained, so its soft floor/target of 54,564 is not evidence of
+useful low-complexity choices. This short-budget runtime failure remains open;
+the successful 60-second local checkpoint does not resolve it.
+
+The sword's structural gates still fail by a wide margin. Guard and jewel
+human MSEs remain approximately 1,015.70 and 1,233.07. Adding continuous ink
+alone does not remove the fragmented surface/ink fills. Family surface models,
+ink replacement with restored underlayers, and individually accepted graph
+merge/split/order edits remain necessary. A long facet edit also exceeded the
+crop allowance; bounded tiling remains unfinished. The complete plan now gives
+these structural compaction steps explicit state, operator and validation
+contracts. No held-out artwork was used; the method remains experimental.
+
+The final relevant suite passed 287 tests using the command above in the
+previous experiment section. New checks cover native local/full score and
+raster agreement, gradients/transforms/opacity, immutable overlapping edits,
+holes and one-byte marks, hidden-layer dependencies, cache epochs, evaluation
+and memory caps, stale proposals, failed full checkpoints, cancellation,
+operator acceptance and actual advanced protection. All 101 choices on a
+common frontier remain ordered by cost. A supported continuous-ink proposal
+is retained at complexity 100; cheaper drawings can correctly win at 50 under
+the initial weights. Ruff passed and Pyrefly reported zero source errors.
+These tests do not complete score calibration, structural quality, resizing,
+cross-job caching or the runtime/memory gates.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -519,7 +643,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | Local exact acceptance of individual graph edits, beam search, split/paint operators, calibrated content normalization and budget-directed search, bounded shared-frontier cache and resizing invariance |
+| 3 | Individual graph merge/split, family surface and richer paint operators beyond the working paint/boundary/ink beam; calibrated content normalization and budget-directed search, bounded shared-frontier cache, tiled long edits and resizing invariance |
 | 4 | Variable-width/fill ink alternatives, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
@@ -528,6 +652,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 
 The operation still reports `refinement_complete: false`. The bounded CPU
 foundation implements real fitting behavior; it does not complete joint fitting
-or the required runtime/memory and quality gates. The frontier still receives
-complete merge/tolerance proposals rather than the planned local beam search.
-These gaps must be resolved before completion is claimed.
+or the required runtime/memory and quality gates. Individual paint/boundary/ink
+edits now have a bounded working beam and independent full checkpoints, while
+graph merges still arrive as complete merge/tolerance proposals. These gaps
+must be resolved before completion is claimed.

@@ -83,8 +83,8 @@ def test_stop_before_first_checkpoint_cancels_without_a_proposal(monkeypatch):
     job = Job(method("generate", "cel-planned"), request(editor))
     original = Policy.from_evidence
 
-    def stop_after_evidence(evidence, graph):
-        result = original(evidence, graph)
+    def stop_after_evidence(evidence, graph, **kwargs):
+        result = original(evidence, graph, **kwargs)
         job.stop.set()
         return result
 
