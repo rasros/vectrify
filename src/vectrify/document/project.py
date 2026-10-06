@@ -22,6 +22,10 @@ def save_project(document: Document, selection: Selection | None = None) -> str:
     selection = selection or Selection()
     export_svg(document)  # Check both graph invariants and the supported SVG subset.
     document.selection_ids(selection)
+    # Deleted and replaced shapes can leave geometry in the immutable snapshot.
+    # Undo uses earlier snapshots; a saved drawing only needs geometry still
+    # owned by an element, including definitions and shared assets.
+    geometry_ids = {element.geometry_id for element in document.elements()}
 
     def element_data(element: Element) -> dict:
         return {
@@ -39,7 +43,11 @@ def save_project(document: Document, selection: Selection | None = None) -> str:
         {
             "version": 4,
             "root": element_data(document.root),
-            "geometries": [asdict(geometry) for geometry in document.geometries],
+            "geometries": [
+                asdict(geometry)
+                for geometry in document.geometries
+                if geometry.id in geometry_ids
+            ],
             "selection": {
                 "object_ids": sorted(selection.object_ids),
                 "node_ids": sorted(selection.node_ids),

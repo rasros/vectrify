@@ -2663,14 +2663,18 @@ $('restore-saved').onclick=async()=>{
     const unique=[...new Map(saved.map(item=>[item.source,item])).values()];
     unique.sort((a,b)=>(b.savedAt||0)-(a.savedAt||0));
     for(const item of unique){
-      const data=JSON.parse(item.source), doc=data.document||data;
-      let objects=0; const walk=e=>{objects++;(e.children||[]).forEach(walk);};walk(doc.root);
-      const nodes=(doc.geometries||[]).reduce((total,g)=>total+g.subpaths.reduce((n,s)=>n+s.nodes.length,0),0);
+      let summary=item.summary;
+      if(!summary){
+        const data=JSON.parse(item.source), doc=data.document||data;
+        let objects=0; const walk=e=>{objects++;(e.children||[]).forEach(walk);};walk(doc.root);
+        const nodes=(doc.geometries||[]).reduce((total,g)=>total+g.subpaths.reduce((n,s)=>n+s.nodes.length,0),0);
+        summary={objects:objects-1,nodes};
+      }
       const button=document.createElement('button');button.className='wide-button';
-      button.textContent=`${item.name} · ${objects-1} objects · ${nodes.toLocaleString()} points${item.savedAt?' · '+new Date(item.savedAt).toLocaleString():''}`;
+      button.textContent=`${item.name} · ${summary.objects} objects · ${summary.nodes.toLocaleString()} points${item.savedAt?' · '+new Date(item.savedAt).toLocaleString():''}`;
       button.onclick=async()=>{
         if(dirty&&!window.confirm('Replace this tab’s drawing with the saved copy?'))return;
-        if(await action('open',{name:item.name,source:item.source},'Restoring saved project…')){
+        if(await action('open',{name:item.name,source:item.source,encoding:item.encoding},'Restoring saved project…')){
           await recoveryStore('readwrite',session,item);dirty=false;$('dirty').textContent='';
           $('recovery-dialog').close();await loadReference();fit();
         }
@@ -2685,17 +2689,18 @@ $('recovery-close').onclick=()=>$('recovery-dialog').close();
 async function download(project) {
   await queue; setBusy(project?'Saving project…':'Exporting SVG…',1);
   try {
-    const result=await request('/api/export',{project,epoch:state.epoch,revision:state.revision});
+    const result=await request('/api/export',{project,compressed:project,epoch:state.epoch,revision:state.revision});
     const filename=state.name.replace(/\.(svg|json|vectrify)$/i,'')+(project?'.vectrify':'.svg');
     if(bridge){
       // A native save dialog; cancelling it saves nothing.
-      if(!await (await bridge).save(filename,result.content))return;
+      if(!await (await bridge).save(filename,result.content,result.encoding||null))return;
     }else{
-      const blob=new Blob([result.content],{type:project?'application/json':'image/svg+xml'}),url=URL.createObjectURL(blob);
+      const content=result.encoding==='base64'?Uint8Array.from(atob(result.content),char=>char.charCodeAt(0)):result.content;
+      const blob=new Blob([content],{type:project?'application/gzip':'image/svg+xml'}),url=URL.createObjectURL(blob);
       const link=document.createElement('a');link.href=url;link.download=filename;link.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
     }
     if(project){
-      await recoveryStore('readwrite',session,{source:result.content,name:state.name,savedAt:Date.now()});
+      await recoveryStore('readwrite',session,{source:result.content,encoding:result.encoding,summary:result.summary,name:state.name,savedAt:Date.now()});
       dirty=false;$('dirty').textContent='';
     }
     toast(project?'Project saved, with a browser recovery copy.':'SVG exported.');
@@ -2703,11 +2708,22 @@ async function download(project) {
 }
 $('save-project').onclick=()=>download(true);$('export-svg').onclick=()=>download(false);
 $('open-file').onclick=()=>$('svg-file').click();
+function fileSource(file) {
+  return new Promise((resolve,reject)=>{
+    const reader=new FileReader();
+    reader.onload=()=>resolve({source:reader.result.split(',')[1],encoding:'base64'});
+    reader.onerror=()=>reject(reader.error);
+    reader.readAsDataURL(file);
+  });
+}
 $('svg-file').onchange=async event=>{
   const file=event.target.files[0];event.target.value='';if(!file)return;
   if(dirty&&!window.confirm('Open another drawing? Save your project first if you want to keep these edits.'))return;
-  const success=await action('open',{name:file.name,source:await file.text()},'Opening drawing…');
-  if(success){dirty=false;$('dirty').textContent='';await loadReference();fit();}
+  try {
+    if(file.size>128*1024*1024)throw new Error('File exceeds the 128 MB editor limit');
+    const success=await action('open',{name:file.name,...await fileSource(file)},'Opening drawing…');
+    if(success){dirty=false;$('dirty').textContent='';await loadReference();fit();}
+  }catch(error){toast(error.message,true);}
 };
 // The Reference panel, below the objects, holds the reference image, the
 // view and the tools that match the drawing to it. The view is the drawing

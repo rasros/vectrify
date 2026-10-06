@@ -31,6 +31,7 @@ from vectrify.document.topology import mapped_point
 from vectrify.document.transforms import object_matrix
 from vectrify.image_utils import on_white
 from vectrify.operations import Budget, Job, OperationRequest, Permissions, method
+from vectrify.project_file import decode_source, encode_project
 
 FIXTURE = Path(__file__).parent / "bench_data/projects/sword.vectrify"
 GROUP = "group_343f776e97514ac39bd469b1143cc40a"
@@ -38,7 +39,7 @@ OUTLINE = "object_68f9c655457542db9c945eef1e192b0c"
 
 
 def load(path=FIXTURE):
-    project = json.loads(path.read_text())
+    project = json.loads(decode_source(path.read_bytes()))
     document, _selection = load_project(json.dumps(project["document"]))
     data = project["reference"]["data_url"].split(",", 1)[1]
     image = Image.open(io.BytesIO(base64.b64decode(data))).convert("RGBA")
@@ -288,11 +289,13 @@ def main():
         args.svg.write_text(export_svg(document))
     if args.save_project:
         args.save_project.parent.mkdir(parents=True, exist_ok=True)
-        project = json.loads(args.project.read_text())
+        project = json.loads(decode_source(args.project.read_bytes()))
         project["document"] = json.loads(
             save_project(document, Selection(object_ids=frozenset({args.group})))
         )
-        args.save_project.write_text(json.dumps(project, allow_nan=False) + "\n")
+        args.save_project.write_bytes(
+            encode_project(json.dumps(project, allow_nan=False, separators=(",", ":")))
+        )
     if args.check and not row["passed"]:
         raise SystemExit(1)
 

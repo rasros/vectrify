@@ -292,6 +292,27 @@ def test_explicit_shared_assets_survive_project_save_and_detach():
     )
 
 
+def test_project_save_drops_deleted_geometry_and_keeps_definitions_and_undo():
+    original = import_svg(
+        '<svg width="100" height="100"><defs>'
+        '<path id="asset" d="M0 0 L10 0 L10 10 Z"/></defs>'
+        '<use id="first" href="#asset"/><use id="second" href="#asset"/>'
+        '<path id="deleted" d="M20 20 L30 20 L30 30 Z"/></svg>'
+    )
+    editor = Editor(original, selection=Selection.all())
+    deleted_id = original.geometry_for("deleted").id
+    with editor.transaction("Delete") as tx:
+        tx.delete_objects(frozenset({"deleted"}))
+    before = editor.snapshot
+    assert deleted_id in {g.id for g in before.document.geometries}
+    restored, _ = load_project(save_project(before.document))
+    assert restored.root == before.document.root
+    assert {g.id for g in restored.geometries} == {original.geometry_for("asset").id}
+    assert export_svg(restored) == export_svg(before.document)
+    assert editor.snapshot == before
+    assert editor.undo().document == original
+
+
 def test_project_roundtrip_retains_all_identities_constraints_and_selection():
     editor = Editor(import_svg(SHARED), selection=Selection.all())
     node = editor.snapshot.document.geometry_for("first").subpaths[0].nodes[0]

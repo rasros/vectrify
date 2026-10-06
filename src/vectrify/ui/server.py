@@ -19,8 +19,9 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from vectrify.document import DocumentError, StaleRevisionError, import_svg
+from vectrify.project_file import MAX_SOURCE, decode_source, encode_project
 from vectrify.ui.agent_channel import MCP_PORT, AgentChannel, answer
-from vectrify.ui.session import MAX_SOURCE, Session
+from vectrify.ui.session import Session
 
 STATIC = Path(__file__).with_name("static")
 # How often an idle push channel says it is still there, in seconds.
@@ -37,11 +38,13 @@ class Backend:
 
     def __init__(
         self,
-        initial: str | None = None,
+        initial: str | bytes | None = None,
         name: str = "Untitled.svg",
         reference: dict | None = None,
     ):
-        self.document = import_svg(initial or BLANK)
+        source = decode_source(initial or BLANK)
+        self.project_source = source if source.lstrip().startswith("{") else None
+        self.document = import_svg(BLANK if self.project_source else source)
         self.name = name
         self.reference = reference
         self.sessions: dict[str, Session] = {}
@@ -83,9 +86,16 @@ class Backend:
                 session_id = data.get("session")
                 if session_id not in self.sessions:
                     session_id = secrets.token_urlsafe(24)
-                    self.sessions[session_id] = Session(
-                        self.document, self.name, self.reference
+                    session = Session(
+                        self.document,
+                        self.name,
+                        self.reference if not self.project_source else None,
                     )
+                    if self.project_source:
+                        session.open(self.project_source, self.name)
+                        if self.reference:
+                            session.reference = session.fit_reference(self.reference)
+                    self.sessions[session_id] = session
                 session = self.sessions[session_id]
                 with session.lock:
                     result = session.state()
@@ -131,6 +141,24 @@ class Backend:
                         if data.get("project")
                         else session.state()["svg"]
                     }
+                    if data.get("project") and data.get("compressed"):
+                        result["content"] = base64.b64encode(
+                            encode_project(result["content"])
+                        ).decode("ascii")
+                        result["encoding"] = "base64"
+                        document = session.editor.snapshot.document
+                        geometry_ids = {
+                            element.geometry_id for element in document.elements()
+                        }
+                        result["summary"] = {
+                            "objects": len(document.elements()) - 1,
+                            "nodes": sum(
+                                len(subpath.nodes)
+                                for geometry in document.geometries
+                                if geometry.id in geometry_ids
+                                for subpath in geometry.subpaths
+                            ),
+                        }
                 else:
                     return 404, {"error": "Not found"}
             return 200, result
@@ -154,7 +182,7 @@ class EditorServer(ThreadingHTTPServer):
     def __init__(
         self,
         address: tuple[str, int],
-        initial: str | None = None,
+        initial: str | bytes | None = None,
         name: str = "Untitled.svg",
         reference: dict | None = None,
         backend: Backend | None = None,
@@ -290,7 +318,9 @@ class Handler(BaseHTTPRequestHandler):
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Open the Vectrify SVG editor")
-    parser.add_argument("svg", nargs="?", type=Path, help="SVG to open initially")
+    parser.add_argument(
+        "svg", nargs="?", type=Path, help="SVG or .vectrify project to open initially"
+    )
     parser.add_argument("--reference", type=Path, help="PNG/JPEG/WebP reference image")
     parser.add_argument(
         "--serve",
@@ -318,7 +348,7 @@ def main() -> None:
             }
         )
     backend = Backend(
-        args.svg.read_text() if args.svg else None,
+        args.svg.read_bytes() if args.svg else None,
         args.svg.name if args.svg else "Untitled.svg",
         reference,
     )

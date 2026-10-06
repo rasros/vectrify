@@ -194,7 +194,27 @@ def test_open_invalid_document_preserves_current_edits():
     assert session.state() == before
 
 
-def test_project_roundtrip_preserves_reference_and_constraints():
+@pytest.mark.parametrize("data", [b"\x1f\x8bbroken", b"\xff\xfe"])
+def test_open_invalid_binary_file_preserves_current_edits(data):
+    session = Session(import_svg(SVG))
+    send(session, "select", objects=["a"])
+    send(session, "paint", changes={"fill": "green"})
+    before = session.state()
+    with pytest.raises(DocumentError):
+        send(
+            session,
+            "open",
+            source=base64.b64encode(data).decode(),
+            encoding="base64",
+            name="bad.vectrify",
+        )
+    assert session.state() == before
+
+
+@pytest.mark.parametrize("compressed", [False, True])
+def test_project_roundtrip_preserves_reference_and_constraints(compressed):
+    from vectrify.project_file import encode_project
+
     session = Session(import_svg(SVG))
     stream = io.BytesIO()
     Image.new("RGB", (10, 10), "red").save(stream, format="PNG")
@@ -209,7 +229,14 @@ def test_project_roundtrip_preserves_reference_and_constraints():
     send(session, "locks", object="a", locks=["geometry"])
     saved = session.project()
     restored = Session(import_svg(SVG))
-    send(restored, "open", source=saved, name="saved.vectrify")
+    source = base64.b64encode(encode_project(saved)).decode() if compressed else saved
+    send(
+        restored,
+        "open",
+        source=source,
+        encoding="base64" if compressed else None,
+        name="saved.vectrify",
+    )
     assert restored.reference == reference
     assert restored.editor.snapshot.document == session.editor.snapshot.document
     assert restored.editor.snapshot.selection == session.editor.snapshot.selection

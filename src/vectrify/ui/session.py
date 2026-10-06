@@ -49,10 +49,10 @@ from vectrify.operations import (
     Permissions,
     method,
 )
+from vectrify.project_file import MAX_SOURCE, decode_source
 from vectrify.refine.centreline import centreline
 from vectrify.refine.redraw import redraw_stretch
 
-MAX_SOURCE = 128 * 1024 * 1024
 # Aspect ratios this close (relatively) count as the same shape.
 ASPECT_SLACK = 0.005
 # How near, in screen pixels, a redraw stroke's ends attach to a point of the
@@ -582,9 +582,8 @@ class Session:
             self._svg_revision = -1
             self._objects_document = None
 
-    def open(self, source: str, name: str) -> None:
-        if len(source.encode()) > MAX_SOURCE:
-            raise DocumentError("File exceeds the 128 MB editor limit")
+    def open(self, source: str | bytes, name: str) -> None:
+        source = decode_source(source)
         reference = None
         if source.lstrip().startswith("{"):
             data = json.loads(source)
@@ -694,6 +693,7 @@ class Session:
                 "reference": self.reference,
             },
             allow_nan=False,
+            separators=(",", ":"),
         )
 
     def action(self, payload: dict) -> dict:
@@ -730,7 +730,15 @@ class Session:
         )
 
     def _command_open(self, payload: dict) -> None:
-        self.open(payload["source"], str(payload.get("name", "Untitled.svg")))
+        source = payload["source"]
+        encoding = payload.get("encoding")
+        if encoding == "base64":
+            if len(source) > 4 * ((MAX_SOURCE + 2) // 3):
+                raise DocumentError("File exceeds the 128 MB editor limit")
+            source = base64.b64decode(source, validate=True)
+        elif encoding is not None:
+            raise DocumentError("Unsupported file encoding")
+        self.open(source, str(payload.get("name", "Untitled.svg")))
 
     def _command_rename(self, payload: dict) -> None:
         if self.editor.snapshot.selection.object_ids != frozenset({payload["object"]}):
