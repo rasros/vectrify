@@ -56,7 +56,7 @@ from vectrify.document.model import (
     paint_server,
     references,
 )
-from vectrify.document.paint import LinearGradient
+from vectrify.document.paint import GradientStop, LinearGradient
 from vectrify.document.redraw import redrawn
 from vectrify.document.svg import GEOMETRY, GRADIENTS, PAINT, validate_attributes
 from vectrify.document.topology import (
@@ -788,6 +788,51 @@ class Transaction:
             validate_attributes(element.tag, attrs)
             self._working = self._working.replace_element(
                 replace(element, attributes=tuple(attrs.items()))
+            )
+
+    def set_gradient(
+        self,
+        gradient_id: str,
+        attributes: dict[str, str | None],
+        stops: tuple[GradientStop, ...],
+    ) -> None:
+        """Edit a paint server in place, preserving its coordinate system and users."""
+        with self._change():
+            element = self._working.element(gradient_id)
+            if element.tag != "linearGradient":
+                raise EditRejectedError("Select a linear gradient to edit")
+            if not attributes.keys() <= GRADIENTS["linearGradient"] or not stops:
+                raise DocumentError("A gradient needs valid attributes and stops")
+            if [stop.offset for stop in stops] != sorted(stop.offset for stop in stops):
+                raise DocumentError("Gradient stops must be in offset order")
+            affected = self._working.dependents({gradient_id})
+            self._authorize(affected, EditKind.PAINT)
+            if len(stops) != len(element.children):
+                for key in GRADIENTS["stop"]:
+                    self._authorize(affected, EditKind.PAINT, key)
+            attrs = dict(element.attributes)
+            for key, value in attributes.items():
+                if attrs.get(key) != value:
+                    self._authorize(affected, EditKind.PAINT, key)
+                if value is None:
+                    attrs.pop(key, None)
+                else:
+                    attrs[key] = value
+            validate_attributes(element.tag, attrs)
+            children = []
+            for index, stop in enumerate(stops):
+                old = element.children[index] if index < len(element.children) else None
+                made = stop.element(old.id if old else new_id("object"))
+                if old:
+                    for key in GRADIENTS["stop"]:
+                        if old.get(key) != made.get(key):
+                            self._authorize(affected, EditKind.PAINT, key)
+                    made = replace(old, attributes=made.attributes)
+                children.append(made)
+            self._working = self._working.replace_element(
+                replace(
+                    element, attributes=tuple(attrs.items()), children=tuple(children)
+                )
             )
 
     def set_fill(self, object_id: str, fill: str | LinearGradient | None) -> None:
