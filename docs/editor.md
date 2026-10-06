@@ -503,7 +503,12 @@ keep their normal text behavior while editing a field. Copy and Paste are also
 available in the command palette and the object context menu.
 
 Projects preserve object/node identities, locks, pins,
-selection and the reference image. SVG exports contain the drawing. Downloads
+selection and the reference image. New `.vectrify` files use lossless gzip
+compression, keeping the embedded reference's original bytes and all drawing
+data intact. Saves omit geometry left behind by deleted or replaced shapes.
+Existing uncompressed JSON projects still open; saving them again
+uses compression. Older Vectrify versions cannot open compressed projects.
+SVG exports contain the drawing. Downloads
 use the browser's download location and do not overwrite the original input.
 The server keeps sessions in memory; save a project before stopping it. Browser
 reloads reconnect to the current session, but undo history is not stored in

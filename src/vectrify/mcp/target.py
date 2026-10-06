@@ -45,7 +45,7 @@ class FileTarget:
     kind = "file"
 
     def __init__(self, path: Path):
-        source = path.read_text(encoding="utf-8")
+        source = path.read_bytes()
         self.path = path
         self.backend = Backend(name=path.name)
         status, state = self.backend.handle("/api/session", {}, None)

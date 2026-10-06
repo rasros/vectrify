@@ -35,6 +35,7 @@ from vectrify.mcp.target import (
     WindowTarget,
     read_discovery,
 )
+from vectrify.project_file import encode_project
 
 Target = FileTarget | LiveTarget | WindowTarget
 
@@ -247,7 +248,10 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         assert isinstance(text, TextContent)
         data = json.loads(text.text)
         try:
-            path.write_text(data["content"], encoding="utf-8")
+            if project:
+                path.write_bytes(encode_project(data["content"]))
+            else:
+                path.write_text(data["content"], encoding="utf-8")
         except OSError as exc:
             raise ToolError(f"Could not write {path}: {exc}") from None
         return result({"saved": str(path), "revision": data["revision"]})

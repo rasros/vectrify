@@ -11,6 +11,7 @@ Install with ``vectrify[desktop]``.
 
 from __future__ import annotations
 
+import base64
 import contextlib
 import importlib
 import importlib.util
@@ -98,7 +99,7 @@ class Api:
         status, body = self._backend.handle(path, data, session)
         return {"status": status, "body": body}
 
-    def save(self, name: str, content: str) -> str | None:
+    def save(self, name: str, content: str, encoding: str | None = None) -> str | None:
         """Ask where to save *content*; the chosen path, or None if cancelled."""
         webview = importlib.import_module("webview")
         chosen = self._window.create_file_dialog(
@@ -107,7 +108,12 @@ class Api:
         if not chosen:
             return None
         path = Path(chosen if isinstance(chosen, str) else chosen[0])
-        path.write_text(content, encoding="utf-8")
+        if encoding == "base64":
+            path.write_bytes(base64.b64decode(content, validate=True))
+        elif encoding is None:
+            path.write_text(content, encoding="utf-8")
+        else:
+            raise ValueError("Unsupported file encoding")
         return str(path)
 
 

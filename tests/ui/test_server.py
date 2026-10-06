@@ -1,5 +1,6 @@
 """HTTP integration checks for the local editor boundary and packaged assets."""
 
+import base64
 import http.client
 import json
 from pathlib import Path
@@ -8,7 +9,8 @@ from typing import Any
 
 import pytest
 
-from vectrify.ui.server import EditorServer
+from vectrify.project_file import decode_source
+from vectrify.ui.server import Backend, EditorServer
 
 
 @pytest.fixture
@@ -117,6 +119,74 @@ def test_external_origins_and_filesystem_paths_are_not_exposed(server):
     assert call(server, "/", headers={"Host": "example.com"})[0] == 403
     assert call(server, "/../../pyproject.toml")[0] == 404
     assert call(server, "/api/action", {"command": "undo"})[0] == 401
+
+
+def test_compressed_download_reopens_with_reference_and_recovery_metadata(server):
+    _, state = call(server, "/api/session", {})
+    headers = {"X-Vectrify-Session": state["session"]}
+    session = server.backend.sessions[state["session"]]
+    # The actual image bytes must survive download and restore unchanged.
+    import io
+
+    from PIL import Image
+
+    image = io.BytesIO()
+    Image.new("RGBA", (1200, 800), (20, 30, 40, 128)).save(image, format="PNG")
+    session.reference = {
+        "name": "original.png",
+        "data_url": "data:image/png;base64,"
+        + base64.b64encode(image.getvalue()).decode(),
+        "opacity": 0.35,
+    }
+    original = session.project()
+    status, saved = call(
+        server,
+        "/api/export",
+        {
+            "project": True,
+            "compressed": True,
+            "epoch": state["epoch"],
+            "revision": state["revision"],
+        },
+        headers,
+    )
+    assert status == 200
+    binary = base64.b64decode(saved["content"])
+    assert binary.startswith(b"\x1f\x8b")
+    assert decode_source(binary) == original
+    assert len(binary) < len(original.encode())
+    assert (
+        saved["summary"]["objects"]
+        == len(session.editor.snapshot.document.elements()) - 1
+    )
+    assert saved["summary"]["nodes"] > 0
+    reference = session.reference.copy()
+    for source in (original, binary):
+        restarted = Backend(source, "saved.vectrify")
+        status, fresh = restarted.handle("/api/session", {}, None)
+        assert status == 200
+        assert restarted.sessions[fresh["session"]].project() == original
+    for _ in range(2):  # A second restore models recovery after another restart.
+        restored = Backend()
+        _, fresh = restored.handle("/api/session", {}, None)
+        status, _ = restored.handle(
+            "/api/action",
+            {
+                "command": "open",
+                "source": saved["content"],
+                "encoding": saved["encoding"],
+                "name": "saved.vectrify",
+                "epoch": fresh["epoch"],
+                "revision": fresh["revision"],
+            },
+            fresh["session"],
+        )
+        assert status == 200
+        opened = restored.sessions[fresh["session"]]
+        assert opened.reference == reference
+        assert opened.project() == original
+
+
 
 
 def test_hole_inspection_fill_and_cleanup_follow_session_revision(server):

@@ -137,15 +137,15 @@ compares the configurations with sign tests across images and paths.
 `bench_lines.py --tidy STEPS` scores a tidied trace's lines (F, width)
 beside the trace's own.
 
-`bench_tidy.py` benchmarks the fixed editable sword project, selecting all ten
+`bench_tidy.py` benchmarks the fixed editable sword project, selecting all six
 paths in its `blade` group in one operation. It measures each fill outside
 Path 80, uncovered interior, reflected outline area, and partially transparent
 interior pixels with the blade rendered alone. It also reports transparent
 pixels in the complete drawing, distinguishing
 visible gaps from gaps covered by later artwork. The original quality gate uses
 the blade-only count.
-The fixture includes the reference and stays independent of the working
-`sword.vectrify` file. These are benchmark
+The fixture at `scripts/bench_data/projects/sword.vectrify` includes the
+reference and is stored with lossless project compression. These are benchmark
 targets; the generic Tidy algorithm does not impose a blade layout or symmetry.
 Geometric checks use double-precision regions flattened with a 0.0001-square-unit
 error budget per path, below the 0.05-square-unit pass threshold. This avoids

@@ -9,6 +9,7 @@ from mcp import Client
 
 from tests.mcp.helpers import SVG, data, error, images, png_size, reference_png
 from vectrify.mcp.server import build_server
+from vectrify.project_file import decode_source
 
 
 def test_open_look_edit_undo_and_save(tmp_path):
@@ -136,6 +137,8 @@ def test_open_look_edit_undo_and_save(tmp_path):
             assert saved["saved"] == str(drawing)
             project = tmp_path / "hills.vectrify"
             data(await client.call_tool("save", {"path": str(project)}))
+            reopened = data(await client.call_tool("open", {"path": str(project)}))
+            assert any(o["paint"].get("fill") == "#123456" for o in reopened["objects"])
             exported = tmp_path / "out.svg"
             data(await client.call_tool("save", {"path": str(exported)}))
             # The opened file is now out.svg: save() writes there.
@@ -145,12 +148,13 @@ def test_open_look_edit_undo_and_save(tmp_path):
     svg = drawing.read_text()
     assert "#ff0000" in svg
     assert "#123456" in svg
-    assert project_text(tmp_path).startswith('{"vectrify_editor": 1')
+    assert json.loads(project_text(tmp_path))["vectrify_editor"] == 1
+    assert (tmp_path / "hills.vectrify").read_bytes().startswith(b"\x1f\x8b")
     assert (tmp_path / "out.svg").read_text().startswith("<svg")
 
 
 def project_text(tmp_path) -> str:
-    return (tmp_path / "hills.vectrify").read_text()
+    return decode_source((tmp_path / "hills.vectrify").read_bytes())
 
 
 def test_an_edit_merges_after_someone_else_changes_another_object(tmp_path):
@@ -309,7 +313,11 @@ def test_fit_colours_linear_creates_private_fill_and_round_trips(tmp_path):
             await call("save", path=str(saved))
             await call("save", path=str(exported))
             for document in (
-                load_project(json.dumps(json.loads(saved.read_text())["document"]))[0],
+                load_project(
+                    json.dumps(
+                        json.loads(decode_source(saved.read_bytes()))["document"]
+                    )
+                )[0],
                 import_svg(exported.read_text()),
             ):
                 assert document.element("a").get("fill") == fill
