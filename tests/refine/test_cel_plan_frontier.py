@@ -50,6 +50,47 @@ def test_explicit_node_budget_selects_a_feasible_candidate():
     assert infeasible.svg in {SIMPLE, DETAILED}
 
 
+def test_soft_budget_schedule_reports_target_floor_and_achieved_cost():
+    result = frontier()
+    result.freeze_normalizer()
+    floor = min(entry.evaluation.cost for entry in result.entries)
+    targets = []
+    for complexity in range(101):
+        selected = result.select(complexity)
+        budget = selected.metrics["representation_budget"]
+        assert budget["target"] == pytest.approx(
+            max(floor, 20 * 2 ** ((complexity - 100) / 50))
+        )
+        assert budget["floor"] == floor
+        assert budget["achieved"] == selected.metrics["representation_cost"]
+        assert budget["unmet"] == (budget["achieved"] > budget["target"])
+        targets.append(budget["target"])
+    assert targets == sorted(targets)
+    for candidate in result.alternatives(50):
+        assert (
+            candidate.metrics["representation_budget"]["target"]
+            == result.budget(50)["target"]
+        )
+
+
+def test_node_ceiling_and_soft_representation_target_are_separate():
+    result = frontier()
+    normal = result.select(50)
+    unmet = result.select(50, node_budget=1)
+    assert unmet.metrics["budget_unmet"]
+    assert (
+        unmet.metrics["representation_budget"]
+        == normal.metrics["representation_budget"]
+    )
+    assert unmet.svg == normal.svg
+
+
+@pytest.mark.parametrize("complexity", [-1, 101])
+def test_soft_budget_rejects_out_of_range_complexity(complexity):
+    with pytest.raises(ValueError, match="Complexity"):
+        frontier().budget(complexity)
+
+
 def test_dominated_candidate_does_not_change_slider_choices():
     result = frontier()
     choices = [result.select(level).svg for level in (0, 25, 50, 75, 100)]

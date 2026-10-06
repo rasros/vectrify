@@ -103,6 +103,42 @@ def _region(
     return Region(x, y, end_x - x, end_y - y, crop)
 
 
+def _spatial_order(document: Document, oids: list[str], limit: int) -> list[str]:
+    """Largest supported shapes first, rotating through occupied spatial cells."""
+    bounds = {oid: _bounds(document, oid) for oid in oids}
+    if not bounds:
+        return []
+    left = min(box[0] for box in bounds.values())
+    top = min(box[1] for box in bounds.values())
+    width = max(1, max(box[2] for box in bounds.values()) - left)
+    height = max(1, max(box[3] for box in bounds.values()) - top)
+    cells: dict[tuple[int, int], list[str]] = {}
+    for oid, (x, y, right, bottom) in bounds.items():
+        cell = (
+            min(3, int(((y + bottom) / 2 - top) / height * 4)),
+            min(3, int(((x + right) / 2 - left) / width * 4)),
+        )
+        cells.setdefault(cell, []).append(oid)
+    for members in cells.values():
+        members.sort(
+            key=lambda oid: (
+                -(bounds[oid][2] - bounds[oid][0]) * (bounds[oid][3] - bounds[oid][1]),
+                bounds[oid][1],
+                bounds[oid][0],
+                oid,
+            )
+        )
+    result = []
+    for index in range(max(len(members) for members in cells.values())):
+        for cell in sorted(cells):
+            members = cells[cell]
+            if index < len(members):
+                result.append(members[index])
+                if len(result) >= limit:
+                    return result
+    return result
+
+
 def _anchors(document: Document, oid: str) -> frozenset[str]:
     """Open endpoints, pins and supported sharp joins in native coordinates."""
     a, b, c, d, _e, _f = root_matrix(document, oid)
@@ -318,6 +354,7 @@ def refine(
     visited = 0
     bounded = 0
     bounded_seeds = 0
+    bounded_spatial = 0
     complete = True
     for seed_index, (seed, complexity) in enumerate(seeds):
         if work.interrupted:
@@ -353,9 +390,45 @@ def refine(
             for oid in oids
             for s in session.document.geometry_for(oid).subpaths
         )
-        # Deterministic spatial order gives separate components an opportunity.
-        oids.sort(key=lambda oid: (*_bounds(session.document, oid)[:2], oid))
+        paint_constraints = frozenset(seed.details.get("paint_constraints", ()))
+        geometry_oids = [oid for oid in oids if oid not in constraints]
+        paint_oids = [
+            oid
+            for oid in oids
+            if oid not in paint_constraints
+            and path_style(session.document, session.document.element(oid))["fill"]
+            != "none"
+        ]
+        width_oids = [
+            oid
+            for oid in oids
+            if options.line_width == 0
+            and path_style(session.document, session.document.element(oid))["stroke"]
+            != "none"
+        ]
+        stage_paths = {
+            "simplify": geometry_oids,
+            "paint": paint_oids,
+            "geometry": geometry_oids,
+            "width": width_oids,
+            "paint-refit": paint_oids,
+        }
+        spatial_cache: dict[tuple[str, ...], list[str]] = {}
+        ordered = {}
+        for stage, paths in stage_paths.items():
+            if not paths:
+                continue
+            key = tuple(paths)
+            if key not in spatial_cache:
+                spatial_cache[key] = _spatial_order(session.document, paths, allowance)
+            ordered[stage] = spatial_cache[key]
+        omitted = sum(
+            len(stage_paths[stage]) - len(paths) for stage, paths in ordered.items()
+        )
+        bounded_spatial += omitted
+        complete &= omitted == 0
         stages = ("simplify", "paint", "geometry", "width", "paint-refit")
+        stages = tuple(stage for stage in stages if stage in ordered)
         for stage_index, stage in enumerate(stages):
             # Give paint refitting and width their own opportunities even if
             # one difficult geometry stage exhausts its slice.
@@ -373,7 +446,7 @@ def refine(
                 session.attempts
                 + max(1, (allowance - session.attempts) // (len(stages) - stage_index)),
             )
-            for oid in oids:
+            for oid in ordered[stage]:
                 if not session.available:
                     complete = False
                     break
@@ -438,6 +511,7 @@ def refine(
         "visited": visited,
         "bounded_geometry": bounded,
         "bounded_seeds": bounded_seeds,
+        "bounded_spatial_paths": bounded_spatial,
         "anchors": len(sessions),
         "seconds": elapsed,
         "validation_seconds": sum(s.validation_seconds for s in sessions),

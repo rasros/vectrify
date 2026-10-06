@@ -270,6 +270,21 @@ class Frontier:
             complexity, self.normalizer, self.policy.weights.detail
         )
 
+    def budget(self, complexity: int) -> dict:
+        """The initial content-dependent search target, never a coverage waiver."""
+        if not 0 <= complexity <= 100:
+            raise ValueError("Complexity must lie between zero and one hundred")
+        entries = self.entries or ([self.baseline] if self.baseline else [])
+        if not entries:
+            raise ValueError("A validated drawing is required for the budget floor")
+        floor = min(entry.evaluation.cost for entry in entries)
+        return {
+            "target": max(floor, self.normalizer * 2 ** ((complexity - 100) / 50)),
+            "floor": floor,
+            "floor_source": "simplest-validated-candidate",
+            "schedule_version": 1,
+        }
+
     def _bound(self):
         # Protect the choices at the five advertised checkpoints before filling
         # remaining slots evenly across the representation-cost range.
@@ -344,6 +359,7 @@ class Frontier:
     def select(self, complexity: int, *, node_budget: int = 0) -> Candidate:
         self._published = True
         entry = self._pick(complexity, node_budget)
+        budget = self.budget(complexity)
         return Candidate(
             entry.svg,
             entry.label,
@@ -359,6 +375,11 @@ class Frontier:
                 "budget_unmet": bool(
                     node_budget and entry.evaluation.structure["nodes"] > node_budget
                 ),
+                "representation_budget": {
+                    **budget,
+                    "achieved": entry.evaluation.cost,
+                    "unmet": entry.evaluation.cost > budget["target"] + 1e-12,
+                },
             },
             tuple(self.decisions),
         )
@@ -388,6 +409,12 @@ class Frontier:
                         node_budget
                         and entry.evaluation.structure["nodes"] > node_budget
                     ),
+                    "representation_budget": {
+                        **self.budget(complexity),
+                        "achieved": entry.evaluation.cost,
+                        "unmet": entry.evaluation.cost
+                        > self.budget(complexity)["target"] + 1e-12,
+                    },
                 },
             )
             for entry in entries

@@ -16,13 +16,16 @@ from scipy.ndimage import (
     binary_erosion,
     distance_transform_edt,
     find_objects,
+    label,
     maximum_filter,
 )
 from scipy.sparse import csr_matrix
 from scipy.sparse.csgraph import connected_components
 
+from vectrify.document import import_svg
 from vectrify.document.paint import GradientStop, LinearGradient, hex_colour
 from vectrify.refine import cel
+from vectrify.refine.cel_plan.bases import propose as propose_bases
 from vectrify.refine.cel_plan.geometry import Boundaries
 from vectrify.refine.cel_plan.model import (
     Evidence,
@@ -31,6 +34,7 @@ from vectrify.refine.cel_plan.model import (
     Work,
 )
 from vectrify.refine.colour_regions import fit_palette
+from vectrify.refine.crossings import crossings
 
 VISIBLE = 0.5 / 255
 SEED_RATIO = 1.125
@@ -159,6 +163,7 @@ def fit(
     *,
     origin: tuple[int, int] = (0, 0),
     gradients: bool = True,
+    gradient_price: float = 0,
 ) -> Paint:
     """Flat RGBA versus a shared-axis color/opacity ramp, bounded sample count."""
     y, x = np.nonzero(mask)
@@ -192,6 +197,10 @@ def fit(
         np.clip(np.array([1, low]) @ coefficients, 0, 1),
         np.clip(np.array([1, high]) @ coefficients, 0, 1),
     )
+    # Color variation can tilt the shared axis. Opacity must not extrapolate
+    # beyond its observed support merely to follow that color direction.
+    for end in ends:
+        end[3] = np.clip(end[3], rgba[:, 3].min(), rgba[:, 3].max())
     if float(np.max(np.abs(ends[0] - ends[1]))) < 2 / 255:
         return flat
     u = ((along - low) / (high - low))[:, None]
@@ -204,7 +213,7 @@ def fit(
         )
 
     before, after = error(np.repeat(median[None], len(x), axis=0)), error(fitted)
-    if after >= before * 0.9 or before - after < 1 / 255**2:
+    if after >= before * 0.9 or before - after < max(1 / 255**2, gradient_price):
         return flat
     start, end = center + axis * low, center + axis * high
     gradient = LinearGradient(
@@ -227,8 +236,10 @@ def export(
     structure: bool,
     conservative: bool,
     tolerance: float,
+    cost_normalizer: float | None = None,
+    layers: bool = False,
 ):
-    """Export adjacent RGBA surfaces without stacking translucent ink/fills."""
+    """Export RGBA surfaces, optionally inside a validated opacity-core group."""
     assert evidence.opacity is not None
 
     def check():
@@ -236,12 +247,80 @@ def export(
             raise StageInterruptedError("Opacity surface fitting interrupted")
 
     models = Boundaries() if structure and not conservative else None
+    hidden = {int(i) for i in np.unique(labels[evidence.empty])}
+    boxes = find_objects(labels + 1)
+    # Color/opacity partition strips are not mandatory thin features. Only a
+    # visible alpha component without an eroded core gets this topology hold;
+    # narrow shading within a broad component remains a scored interpretation.
+    visible_components, component_count = label(~evidence.empty)
+    core = binary_erosion(~evidence.empty, iterations=2)
+    has_core = np.bincount(visible_components[core], minlength=component_count + 1) > 0
+    thin_components = ~has_core
+    thin_components[0] = False
+    thin = {
+        int(index) for index in np.unique(labels[thin_components[visible_components]])
+    }
+    bases = (
+        propose_bases(evidence, labels, visible_components, work)
+        if layers and not conservative
+        else ()
+    )
+    base_for_region = {index: base for base in bases for index in base.members}
+    alpha_levels = np.zeros(len(boxes))
+    for index, box in enumerate(boxes):
+        check()
+        if index not in hidden and box is not None:
+            alpha_levels[index] = np.median(evidence.opacity[box][labels[box] == index])
+    fixed_ink_regions = (
+        {int(index) for index in np.unique(labels[evidence.drawn])}
+        if options.line_width > 0
+        else set()
+    )
+    topology_regions: set[int] = set()
+    rejected_regions: set[int] = set()
+    fitted_regions: set[int] = set()
+
+    def sides(points):
+        middle = (points[0] + points[1]) / 2
+        delta = points[1] - points[0]
+        normal = np.array([-delta[1], delta[0]]) * 0.25
+        result = []
+        for point in (middle + normal, middle - normal):
+            x, y = np.floor(point).astype(int)
+            result.append(
+                int(labels[y, x])
+                if 0 <= x < labels.shape[1] and 0 <= y < labels.shape[0]
+                else -1
+            )
+        return result
 
     def boundary(points, bound):
         check()
-        if conservative:
-            points = cel.simplify(points, tolerance * min(evidence.scale))
+        regions = sides(points)
+        native = any(
+            index == -1
+            or index in hidden
+            or index in thin
+            or index in fixed_ink_regions
+            for index in regions
+        )
+        if not native:
+            low, high = sorted(alpha_levels[index] for index in regions)
+            native = high > low * 1.25 + 1e-7
+        repaired = any(index in rejected_regions for index in regions)
+        if conservative or native or repaired:
+            # A compact inner boundary cannot change native transparent space
+            # or consume a thin component. Shared chains still have one owner.
+            polygon_bound = tolerance * min(evidence.scale) if conservative else 0
+            if native or repaired:
+                topology_regions.update(
+                    index for index in regions if index not in hidden and index >= 0
+                )
+            points = cel.simplify(points, polygon_bound)
             return [("L", tuple(float(v) for v in point)) for point in points[1:]]
+        fitted_regions.update(
+            index for index in regions if index >= 0 and index not in hidden
+        )
         if models is not None:
             return models(points, bound)
         return cel.curve_nodes(points, bound, smooth=cel.FILL_SMOOTH, fit=cel.FILL_FIT)
@@ -253,9 +332,28 @@ def export(
         fit_boundary=boundary,
         check=check,
     )
-    hidden = {int(i) for i in np.unique(labels[evidence.empty])}
-    boxes = find_objects(labels + 1)
+    if not conservative:
+        # One bad interior fit must not discard all other compact surfaces.
+        # Restore every canonical edge of the offending region, including the
+        # neighbor's copy, then let the whole-candidate checks decide retention.
+        for index, data in outlines.items():
+            check()
+            if index not in fitted_regions:
+                continue
+            drawing = import_svg(f'<svg><path id="check" d="{data}"/></svg>')
+            if crossings(drawing.geometry_for("check")):
+                rejected_regions.add(index)
+        if rejected_regions:
+            models = Boundaries() if structure else None
+            outlines = cel.region_outlines(
+                labels,
+                options.boundary_tolerance * float(np.sqrt(np.prod(evidence.scale))),
+                fit_boundary=boundary,
+                check=check,
+            )
     definitions, parts, constraints, paint_constraints = [], [], [], []
+    grouped: dict[int, list[str]] = {base.component: [] for base in bases}
+    area = max(1, int((~evidence.empty).sum()))
     for index, data in sorted(outlines.items()):
         check()
         box = boxes[index]
@@ -268,8 +366,22 @@ def export(
             own,
             origin=(box[1].start, box[0].start),
             gradients=options.gradients and not conservative,
+            # A local evidence estimate prioritizes a paint model. Retention
+            # still requires the same complete native objective and hard checks.
+            gradient_price=(
+                options.detail_cost
+                * 12
+                / cost_normalizer
+                * area
+                / max(1, int(own.sum()))
+                if cost_normalizer is not None
+                else 0
+            ),
         )
         fill, opacity = paint.color, f' fill-opacity="{paint.opacity:.9g}"'
+        base = base_for_region.get(index)
+        parent_opacity = base.opacity if base is not None else 1.0
+        opacity = f' fill-opacity="{min(1.0, paint.opacity / parent_opacity):.9g}"'
         if paint.gradient is not None:
             import xml.etree.ElementTree as ET
 
@@ -279,20 +391,36 @@ def export(
                 {"id": gradient_id, **dict(paint.gradient.attributes())},
             )
             for stop in paint.gradient.stops:
-                ET.SubElement(node, "stop", dict(stop.element("unused").attributes))
+                normalized = GradientStop(
+                    stop.offset, stop.colour, min(1.0, stop.opacity / parent_opacity)
+                )
+                ET.SubElement(
+                    node, "stop", dict(normalized.element("unused").attributes)
+                )
             definitions.append(ET.tostring(node, encoding="unicode"))
             fill, opacity = f"url(#{gradient_id})", ""
-        parts.append(
+        part = (
             f'<path id="cel-fill-{index}" d="{data}" fill="{fill}"{opacity} '
             'fill-rule="evenodd"/>'
         )
+        (grouped[base.component] if base is not None else parts).append(part)
         fixed_ink = options.line_width > 0 and evidence.drawn[box][own].any()
-        if structure or fixed_ink:
+        if structure or fixed_ink or index in topology_regions:
             # Whole-path holds preserve accepted compact geometry and explicit
             # filled-ink widths until parameterized fitting can refine them.
             constraints.append(f"cel-fill-{index}")
         if fixed_ink:
             paint_constraints.append(f"cel-fill-{index}")
+    for base in bases:
+        check()
+        x, y = base.origin
+        parts.append(
+            f'<g id="cel-component-{base.component}" opacity="{base.opacity:.9g}">'
+            f'<path id="cel-base-{base.component}" d="{base.data}" '
+            f'transform="translate({x} {y})" fill="{base.color}" fill-rule="evenodd"/>'
+            f"{''.join(grouped[base.component])}</g>"
+        )
+        constraints.append(f"cel-base-{base.component}")
     check()
     sx, sy = evidence.scale
     x, y = evidence.offset
@@ -305,16 +433,29 @@ def export(
         f"{''.join(parts)}</g></svg>"
     )
     return svg, {
-        "regions": len(parts),
+        "regions": len(outlines) - len(hidden),
         "gradients": len(definitions),
-        "alpha_model": "adjacent-rgba-surfaces",
+        "alpha_model": "opacity-core-layers" if bases else "adjacent-rgba-surfaces",
+        "base_models": [
+            {
+                "model": "uniform-alpha-core",
+                "component": base.component,
+                "opacity": base.opacity,
+                "core_fraction": base.core_fraction,
+                "members": list(base.members),
+            }
+            for base in bases
+        ],
         "alpha_seed_levels": int(np.ceil(np.log(255) / np.log(SEED_RATIO))) + 1,
         "alpha_seed_ratio": SEED_RATIO,
+        "paint_cost_normalizer": cost_normalizer,
         "boundary_tolerance": options.boundary_tolerance,
         "conservative_geometry": conservative,
         "conservative_tolerance": tolerance,
         "geometry_constraints": constraints,
         "paint_constraints": paint_constraints,
+        "native_alpha_regions": len(topology_regions),
+        "repaired_crossing_regions": sorted(rejected_regions),
         "geometry_models": models.decisions if models else [],
         "overlay_models": [],
         "line_paths": 0,

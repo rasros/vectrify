@@ -23,7 +23,7 @@ from vectrify.refine.cel_plan.model import (
 )
 from vectrify.refine.cel_plan.planning import merged_labels
 from vectrify.refine.cel_plan.policy import Policy
-from vectrify.refine.cel_plan.refine import refine
+from vectrify.refine.cel_plan.refine import MAX_GEOMETRY_NODES, refine
 from vectrify.refine.cel_plan.score import (
     foreground_mask,
     measurements,
@@ -65,8 +65,10 @@ def vectorize(
     # The same anchors feed every slider selection. Search effort can truncate
     # this sequence; selection on the resulting frozen frontier stays ordered.
     # Detailed geometry establishes the fixed representation normalizer first.
+    # Translucent subdivisions need a supported base interpretation here too;
+    # otherwise antialias gaps can reject every detailed normalization seed.
     proposals = (
-        (100, False, False),
+        (100, False, evidence.opacity is not None),
         (50, True, True),
         (0, False, False),
         (50, False, False),
@@ -92,7 +94,7 @@ def vectorize(
     # A bounded linear approximation cuts pixel staircases, while native hard
     # checks decide whether it is a safe fallback. Tighten only after rejection.
     bound = min(0.75, options.tolerance) if options.tolerance else 0.75
-    # RGBA byte partitions first establish exact native coverage. A cheaper
+    # RGBA partitions first establish native coverage. A cheaper
     # approximation competes later; repeated lossy fallbacks waste the reserve.
     tolerances = (0,) if evidence.opacity is not None else (bound, min(bound, 0.25), 0)
     for tolerance in dict.fromkeys(tolerances):
@@ -118,7 +120,16 @@ def vectorize(
         validation_seconds += time.monotonic() - validated
         if frontier.baseline:
             break
-    search = Work(work.deadline - reserve - refinement_reserve, work.stop, work.timings)
+    dense_fallback = (
+        frontier.baseline is not None
+        and frontier.baseline.evaluation.structure["nodes"] > MAX_GEOMETRY_NODES
+    )
+    search = Work(
+        work.deadline - reserve - (0 if dense_fallback else refinement_reserve),
+        work.stop,
+        work.timings,
+    )
+    fitting_reserved = not dense_fallback
     normalizer_source = "conservative-fallback"
     for level, structure, layers in proposals:
         if search.interrupted or work.interrupted:
@@ -143,6 +154,9 @@ def vectorize(
                 search,
                 structure=structure,
                 layers=layers,
+                cost_normalizer=frontier.normalizer
+                if frontier.normalizer_fixed
+                else None,
             )
         except StageInterruptedError:
             break
@@ -157,6 +171,23 @@ def vectorize(
         frontier.add(svg, label, details)
         validation_seconds += time.monotonic() - validated
         last_candidate_seconds = time.monotonic() - began
+        if (
+            options.refine
+            and not fitting_reserved
+            and any(
+                entry.evaluation.structure["nodes"] <= MAX_GEOMETRY_NODES
+                for entry in frontier.entries
+            )
+        ):
+            # Reclaim fitting time only after structural search has produced
+            # an eligible checkpoint. The native validation reserve stays fixed.
+            search.deadline = min(
+                search.deadline,
+                work.deadline
+                - reserve
+                - min(refinement_reserve, work.remaining * 0.35),
+            )
+            fitting_reserved = True
         if level == 100:
             try:
                 frontier.freeze_normalizer(svg)
@@ -224,6 +255,7 @@ def vectorize(
         "cost_normalizer_source": normalizer_source,
         "refinement": refinement,
         "refinement_complete": False,
+        "fitting_time_reclaimed_after_compaction": dense_fallback and fitting_reserved,
     }
     alternatives = tuple(
         candidate

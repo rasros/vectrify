@@ -91,6 +91,7 @@ class Region:
     component: int
     opacity: float = 1.0
     fixed: bool = False
+    opacity_range: tuple[float, float] | None = None
 
 
 @dataclass(frozen=True)

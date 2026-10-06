@@ -35,6 +35,9 @@ method remains experimental and the existing CEL default is unchanged.
   rises. Explicit node budgets select feasible candidates or report infeasibility.
   A lower-cost drawing with more nodes cannot erase a feasible lower-node
   alternative; frontier bounds also protect the minimum-node candidate.
+  It now reports the initial soft representation target, its simplest retained
+  validated floor, achieved cost and whether the target is unmet, separately
+  from a hard node ceiling. This reporting does not yet drive local beam search.
 - Stop before the first validated candidate cancels the operation. Stop after
   validation retains a preview that can be applied normally. A fully transparent
   reference returns no edit.
@@ -78,10 +81,14 @@ method remains experimental and the existing CEL default is unchanged.
   and explicit widths. Whole-path model holds are conservative; parameterized
   constrained joint fitting remains unfinished. A wrapped shared-edge redraw
   preserves its canonical endpoint ID and pin state across the closing segment.
-- Search reserves 25% of the requested time for refinement when enabled and at
+- Search reserves up to 25% of the requested time for refinement when enabled and at
   least 10% for final validation. Separate stage slices and per-path geometry
   limits give fitting stages opportunities; oversized compounds are reported
-  as bounded work. Native rendering and some proposal helpers can still overrun
+  as bounded work. A fallback above the CPU seed limit gives that fitting time
+  to structural search until a validated compact seed exists. Refinement orders
+  bounded eligible paths across spatial cells, starting with larger shapes;
+  this does not yet guarantee a fitting opportunity for every component.
+  Native rendering and some proposal helpers can still overrun
   a deadline. Metrics distinguish search expiration, fitting status and total
   deadline overshoot. CPU fitting works without Torch.
 
@@ -383,6 +390,127 @@ benchmark isolation checks are included. Ruff passed and Pyrefly reported zero
 errors. These checks establish the tested fidelity behavior, not the release
 quality, calibration, resizing or memory gates.
 
+## Compact RGBA coverage and complexity-budget experiment
+
+The compact opacity path now distinguishes a thin alpha component from a
+narrow color partition inside a broad component. Native exterior boundaries,
+holes, isolated thin components and large relative-opacity discontinuities
+retain their canonical polygon interpretation. Ordinary internal color edges
+can compete as fitted boundaries. A self-crossing fitted region restores all
+of its canonical edges, including the neighbor's copy, before full validation.
+Merge proposals carry observed opacity ranges; a flat interpretation cannot
+merge a large relative-alpha discontinuity merely because its absolute
+difference is small.
+
+For connected near-uniform translucent components, a native core base competes
+inside an ordinary SVG opacity group. Child fills and gradient stops normalize
+their opacity by the parent value. The core excludes intentional holes and
+weak fringes; thin components stay independent. Modal source alpha avoids
+fragmenting a nearly opaque material into many holes from byte variation.
+The current 5% core tolerance and 2% maximum-alpha allowance are engineering
+proposal parameters, subject to full native scoring and hard rejection.
+Broad variable-alpha components retain the adjacent RGBA interpretation.
+The first detailed normalization seed now includes this supported coverage
+interpretation for translucent evidence, while the conservative fallback
+remains independent. No human geometry or annotated benchmark crop guides it.
+
+Paint proposals now compare estimated gradient improvement with its extra
+representation price, using the fixed cost normalizer and visible support.
+Padding does not inflate that support. This inexpensive test orders/chooses
+paint models inside a proposal; complete native validation still determines
+candidate retention. Opaque paint pricing and individual exact local operator
+acceptance remain unfinished.
+
+An exploratory 60-second run in `.bench/planned-alpha-bases-final`, before the
+detailed seed included the base interpretation, selected 22,883 nodes, 4,078
+contours and 25 gradients, with human-reference MSE 500.33. Pipeline time was
+50.86 seconds and operation/apply time was 59.70 seconds. Its source hash was
+`51293269dbe829d5eb8af6891ddbd40328580e05a8fbe222544edfc7d8b59d5c`.
+The adjacent detailed candidate failed translucent-interior coverage; the
+structured base candidate passed. This is a failed sword milestone, although
+it establishes a usable coverage interpretation. Guard and jewel crops still
+show missing ink and excessive subdivision.
+
+Final-source short runs used complexity 50, balanced quality, a 20-second
+operation limit and four OpenBLAS/OMP threads, in separate processes:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-alpha-core-off
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 20 \
+  --settings '{"complexity":50,"quality":"balanced","refine":true}' \
+  --out .bench/planned-alpha-core-on
+```
+
+| Run | Nodes | Contours | Gradients | Human MSE | Pipeline seconds | Operation/apply seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Refinement off | 54,320 | 8,217 | 0 | 446.79 | 19.33 | 22.41 |
+| Refinement on | 23,212 | 4,147 | 544 | 439.75 | 19.89 | 23.90 |
+
+Both runs used source hash
+`2e41ce79865c4b874fee1a72b7c895a068ffa4969b28afa343635c96ebcc5081`.
+The frozen mask remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+Neither reported pipeline overshoot, but operation/apply exceeded the requested
+20 seconds by 2.41 and 3.90 seconds. That outer cost remains a runtime gap.
+No held-out artwork was used.
+
+The first run finished only the conservative fallback. The second finished a
+validated detailed base candidate, fixing its cost scale at 54,564, and reclaimed
+fitting time after compaction. CPU fitting visited three paths, attempted zero
+edits and reported interruption after 2.18 seconds. The different finished
+search prefixes and runtime variation explain the different outputs; these
+runs do not establish a refinement benefit or a matched-effort speedup.
+Both still fail the node and contour gates. The initial soft-budget floor is
+the cheapest available validated candidate, so a reported feasible target
+cannot establish that useful simple alternatives exist.
+
+A final-source 60-second run completed the six fitted competitors:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python scripts/bench_cel_planned.py --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-alpha-core-coverage
+```
+
+It selected the same 23,212-node detailed base drawing as the short refinement-on
+run, with 4,147 contours, 544 gradients and human MSE 439.75. Pipeline time was
+42.81 seconds; operation/apply time was 47.75 seconds, with no pipeline
+overshoot. The source and mask hashes are the same as the final short runs.
+The pool contained five retained candidates, including the fallback; two
+adjacent traced competitors failed translucent-interior coverage. The simpler
+structured candidate cost 47,517 and scored 0.043413, versus cost 54,564 and
+score 0.037217 for the selected detailed candidate. Its initial soft target and
+validated floor were 46,365; achieved cost was 54,564 and the budget was reported
+unmet. Meeting the human-error ceiling still leaves a very large structural
+failure. Guard and jewel feature MSEs were 1,015.14 and 1,233.07, respectively;
+their crops show irregular shade fragments and insufficiently coherent ink.
+This is development evidence for better surface/ink operators and selection
+calibration, not a release or held-out quality pass.
+
+The final relevant suite passed 254 tests:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  python -m pytest -q tests/refine/test_cel*.py tests/refine/test_shared.py \
+  tests/refine/test_simplify.py tests/refine/test_snap.py \
+  tests/operations/test_cel_planned.py tests/operations/test_generate.py \
+  tests/test_bench_cel_planned.py tests/test_bench_cel_pairs.py
+```
+
+New coverage includes diagonal subdivision seams, normalized gradient opacity,
+holes, weak fringes, disconnected materials, thin byte-opacity marks, variable
+alpha, modal cores, native project round trips and interrupted core extraction.
+It also checks all 101 soft-budget values, hard-node-ceiling separation, padding,
+spatial path limits and fitting-time reclamation after validated compaction.
+Existing CEL and operation/benchmark isolation checks are included. Ruff passed;
+Pyrefly reported zero source errors. These checks do not complete the remaining
+runtime, memory, local-search, calibration or release gates.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:
@@ -391,7 +519,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | Local exact acceptance of individual graph edits, beam search, split/paint operators, content-normalized soft budgets, bounded shared-frontier cache and resizing invariance |
+| 3 | Local exact acceptance of individual graph edits, beam search, split/paint operators, calibrated content normalization and budget-directed search, bounded shared-frontier cache and resizing invariance |
 | 4 | Variable-width/fill ink alternatives, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |

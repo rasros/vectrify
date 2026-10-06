@@ -8,6 +8,7 @@ from PIL import Image
 from scipy.ndimage import label
 
 from vectrify.document import export_svg, import_svg, load_project, save_project
+from vectrify.refine import cel
 from vectrify.refine.cel_plan import opacity
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
@@ -59,6 +60,101 @@ def test_almost_opaque_byte_variation_does_not_fragment_one_surface():
         target, alpha, np.ones_like(alpha, dtype=bool), 1, Work.start(10)
     )
     assert len(np.unique(labels)) == 1
+
+
+def test_flat_merges_preserve_relative_opacity_discontinuities():
+    source = pixels(4)
+    source[8:56, 32:56, 3] = 16
+    options = Options(complexity=0, palette=1, gradients=False, refine=False)
+    evidence = collect(Image.fromarray(source), None, options, Work.start(10))
+    graph = build(evidence)
+    labels, _ = merged_labels(graph, options, Work.start(10))
+    assert labels[30, 20] != labels[30, 40]
+    svg, _ = export(evidence, labels, options, Work.start(10))
+    actual = render(svg, (64, 64))
+    np.testing.assert_allclose(actual[12:52, 12:28, 3], 4 / 255, atol=1 / 255)
+    np.testing.assert_allclose(actual[12:52, 36:52, 3], 16 / 255, atol=1 / 255)
+    assert Policy(evidence.rgba).evaluate(svg).valid
+
+
+def test_native_alpha_holes_and_thin_marks_survive_compact_boundary_fitting():
+    source = pixels()
+    # A diagonal, one-pixel hole is very easy for a fitted closed curve to erase.
+    for index in range(20, 30):
+        source[index, index] = 0
+    source[2:6, 2:4] = (176, 80, 48, 1)
+    source[12:52, 32:52, :3] = (160, 72, 48)
+    options = Options(complexity=0, palette=4, refine=False)
+    evidence = collect(Image.fromarray(source), None, options, Work.start(10))
+    graph = build(evidence)
+    labels, _ = merged_labels(graph, options, Work.start(10))
+    svg, metadata = export(evidence, labels, options, Work.start(10), structure=True)
+    actual = render(svg, (64, 64))
+    assert actual[np.arange(20, 30), np.arange(20, 30), 3].max() == 0
+    np.testing.assert_allclose(actual[2:6, 2:4, 3], 1 / 255, atol=0.5 / 255)
+    assert metadata["native_alpha_regions"] > 0
+    assert metadata["geometry_constraints"]
+    assert Policy(evidence.rgba).evaluate(svg).valid
+
+
+def test_transparent_padding_does_not_raise_the_soft_representation_budget():
+    source = pixels()
+    source[20:44, 20:44, :3] = (160, 72, 48)
+    options = Options(palette=4, refine=False)
+    original = vectorize(Image.fromarray(source), options=options, seconds=10)
+    padded = vectorize(
+        Image.fromarray(np.pad(source, ((20, 20), (20, 20), (0, 0)))),
+        options=options,
+        seconds=10,
+    )
+    assert padded.metrics["cost_normalizer"] == original.metrics["cost_normalizer"]
+    assert (
+        padded.metrics["representation_budget"]
+        == original.metrics["representation_budget"]
+    )
+
+
+def test_gradient_alpha_does_not_extrapolate_beyond_sampled_opacity():
+    y, x = np.mgrid[:32, :32]
+    target = np.stack((x * 7, y * 5, x * 3), axis=-1).astype(float)
+    alpha = (60 + x % 3) / 255
+    paint = opacity.fit(target, alpha, np.ones_like(alpha, dtype=bool))
+    assert paint.gradient is not None
+    assert all(
+        alpha.min() <= stop.opacity <= alpha.max() for stop in paint.gradient.stops
+    )
+
+
+def test_gradient_proposal_competes_with_its_representation_price():
+    _y, x = np.mgrid[:32, :32]
+    target = np.stack((x * 7, x * 5, x * 3), axis=-1).astype(float)
+    alpha = np.full(x.shape, 64 / 255)
+    mask = np.ones_like(alpha, dtype=bool)
+    assert opacity.fit(target, alpha, mask).gradient is not None
+    priced = opacity.fit(target, alpha, mask, gradient_price=1)
+    assert priced.gradient is None
+    assert priced.opacity == pytest.approx(64 / 255)
+
+
+def test_complexity_prices_paint_using_one_fixed_normalizer():
+    source = pixels()
+    source[8:56, 8:56, 0] = np.linspace(150, 210, 48).round().astype(np.uint8)[None, :]
+    options = Options(palette=4, refine=False)
+    evidence = collect(Image.fromarray(source), None, options, Work.start(10))
+    labels = opacity.components((~evidence.empty).astype(np.int32))
+    counts = []
+    for complexity in (0, 50, 100):
+        svg, metadata = export(
+            evidence,
+            labels,
+            replace(options, complexity=complexity),
+            Work.start(10),
+            cost_normalizer=1500,
+        )
+        assert Policy(evidence.rgba).evaluate(svg).valid
+        counts.append(metadata["gradients"])
+        assert metadata["paint_cost_normalizer"] == 1500
+    assert counts == [0, 0, 1]
 
 
 def test_opaque_antialias_fringe_keeps_legacy_evidence_path():
@@ -290,3 +386,36 @@ def test_large_boundary_extraction_checks_cancellation_during_assembly():
     with pytest.raises(StageInterruptedError):
         boundary_chains(labels, check=check)
     assert checks == 3
+
+
+def test_bad_interior_curve_restores_both_sides_of_its_shared_boundary(monkeypatch):
+    source = pixels()
+    source[20:44, 20:44, :3] = (80, 120, 180)
+    options = Options(palette=4, refine=False, gradients=False)
+    evidence = collect(Image.fromarray(source), None, options, Work.start(10))
+    labels = np.zeros(evidence.empty.shape, dtype=np.int32)
+    labels[~evidence.empty] = 1
+    labels[20:44, 20:44] = 2
+    calls = []
+
+    def crossing(points, _bound, **_kwargs):
+        calls.append(points.copy())
+        left, top = points.min(axis=0)
+        right, bottom = points.max(axis=0)
+        return [
+            ("L", (right, bottom)),
+            ("L", (left, bottom)),
+            ("L", (right, top)),
+            ("L", tuple(points[-1])),
+        ]
+
+    monkeypatch.setattr(cel, "curve_nodes", crossing)
+    svg, metadata = export(evidence, labels, options, Work.start(10))
+    assert calls
+    assert metadata["repaired_crossing_regions"]
+    actual = render(svg, (64, 64))
+    np.testing.assert_allclose(actual[..., 3], source[..., 3] / 255, atol=1 / 255)
+    evaluation = Policy(evidence.rgba).evaluate(svg)
+    assert evaluation.structure["self_crossings"] == 0
+    assert evaluation.valid
+    assert actual[28:36, 28:36, 2].mean() > actual[12:18, 12:18, 2].mean()

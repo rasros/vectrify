@@ -13,7 +13,7 @@ from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.policy import Policy, Weights
-from vectrify.refine.cel_plan.refine import _geometry_proposal, refine
+from vectrify.refine.cel_plan.refine import _geometry_proposal, _spatial_order, refine
 from vectrify.refine.cel_plan.score import render, svg_metrics
 
 INITIAL = (
@@ -104,6 +104,44 @@ def test_dense_fallback_is_bounded_before_expensive_cpu_sessions(monkeypatch):
     assert result["bounded_seeds"] == 1
     assert result["attempted"] == 0
     assert frontier.select(50).svg == INITIAL
+
+
+def test_spatial_opportunities_start_with_large_shapes_in_separate_cells():
+    svg = (
+        '<svg width="128" height="128">'
+        '<path id="small" d="M4 4H6V6H4Z"/>'
+        '<path id="large" d="M8 8H40V40H8Z"/>'
+        '<path id="other" d="M88 88H120V120H88Z"/></svg>'
+    )
+    document = import_svg(svg)
+    assert _spatial_order(document, ["small", "other", "large"], 2) == [
+        "large",
+        "other",
+    ]
+    assert _spatial_order(document, ["other", "large", "small"], 3) == [
+        "large",
+        "other",
+        "small",
+    ]
+
+
+def test_spatial_path_limit_is_reported_without_mutating_untouched_shapes():
+    svg = (
+        '<svg width="64" height="64">'
+        + "".join(
+            f'<path id="p{i}" fill="#b05030" d="M{8 + i} 8H56V56H{8 + i}Z"/>'
+            for i in range(20)
+        )
+        + "</svg>"
+    )
+    frontier, evidence, options = setup(
+        target=svg, initial=svg, constraints=tuple(f"p{i}" for i in range(20))
+    )
+    options = replace(options, gradients=False)
+    result = refine(frontier, evidence, options, Work.start(10))
+    assert result["bounded_spatial_paths"] > 0
+    assert result["visited"] <= 2 * 16
+    assert frontier.select(50).svg == svg
 
 
 def test_stop_after_an_accepted_edit_retains_the_validated_checkpoint(monkeypatch):

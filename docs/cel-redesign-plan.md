@@ -138,6 +138,8 @@ Build component groups from connectivity and boundary evidence. Establish a base
 
 Maintain shared boundaries for truly adjacent visible fills. A base fill beneath adjacent subdivisions can close antialias seams without adding same-color strokes around every fill. Intentional overlaps are allowed; uncovered opaque interior and visible spill are not. Avoid introducing clip paths as a shortcut until the fitting and exact scoring paths support them consistently.
 
+For a nearly uniform translucent component, let an isolated opacity group with a native core fill compete against adjacent RGBA surfaces. Normalize child fill and gradient-stop opacity by the group opacity so the base does not double translucency. Keep intentional holes out of the core and retain weaker fringes outside it. Group only connected material evidence; disconnected components and thin marks keep independent coverage. Broad variable-alpha surfaces require their own RGBA interpretation. Core thresholds are proposal parameters that must pay the full native color/alpha and feature score, rather than exemptions from it. Test project export/reload as well as the initial renderer, and include this coverage interpretation when establishing a validated detailed cost normalizer.
+
 ## Scoring and complexity
 
 Use a normalized objective of the form:

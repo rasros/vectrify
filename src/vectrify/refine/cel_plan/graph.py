@@ -85,6 +85,12 @@ def build(
                 else 1.0,
                 evidence.filled_line_width > 0
                 and bool(evidence.drawn[box][mask].any()),
+                (
+                    float(evidence.opacity[box][mask].min()),
+                    float(evidence.opacity[box][mask].max()),
+                )
+                if evidence.opacity is not None and mask.any()
+                else (1.0, 1.0),
             )
         )
     padded = np.pad(labels, 1, constant_values=-1)

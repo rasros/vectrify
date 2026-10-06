@@ -24,6 +24,7 @@ def merged_labels(graph: Graph, options: Options, work: Work):
     sums = colors * areas[:, None]
     textured = np.array([r.texture for r in regions]) * areas
     features = np.array([r.feature for r in regions])
+    opacity = np.array([r.opacity_range or (r.opacity, r.opacity) for r in regions])
     parent = np.arange(count)
     versions = np.zeros(count, dtype=int)
     edges: list[dict[int, tuple[float, float, float]]] = [{} for _ in regions]
@@ -48,6 +49,12 @@ def merged_labels(graph: Graph, options: Options, work: Work):
 
     def proposal(a, b):
         length, lined, nodes = edges[a][b]
+        low, high = min(opacity[a, 0], opacity[b, 0]), max(opacity[a, 1], opacity[b, 1])
+        if high > low * 1.25 + 1e-7:
+            # This heuristic proposes uniform-opacity surfaces. A broad alpha
+            # ramp needs a separate gradient proposal; a tiny absolute alpha
+            # difference must not erase a low-opacity mark or fringe.
+            return float("inf"), 0.0, 0.0
         difference = sums[a] / areas[a] - sums[b] / areas[b]
         ward = areas[a] * areas[b] / (areas[a] + areas[b])
         color_error = ward * float(difference @ difference) / (total * 255**2)
@@ -91,6 +98,10 @@ def merged_labels(graph: Graph, options: Options, work: Work):
         sums[a] += sums[b]
         textured[a] += textured[b]
         features[a] = max(features[a], features[b])
+        opacity[a] = (
+            min(opacity[a, 0], opacity[b, 0]),
+            max(opacity[a, 1], opacity[b, 1]),
+        )
         del edges[a][b]
         for c, (length, support, nodes) in edges[b].items():
             if c == a:

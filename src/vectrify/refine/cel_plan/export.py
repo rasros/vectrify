@@ -29,6 +29,7 @@ def export(
     layers: bool = False,
     conservative: bool = False,
     conservative_tolerance: float = 0,
+    cost_normalizer: float | None = None,
 ):
     started = time.monotonic()
 
@@ -56,6 +57,8 @@ def export(
             structure=structure,
             conservative=conservative,
             tolerance=conservative_tolerance,
+            cost_normalizer=cost_normalizer,
+            layers=layers,
         )
         work.timings["geometry"] = time.monotonic() - started
         return result
