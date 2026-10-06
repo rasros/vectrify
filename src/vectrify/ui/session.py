@@ -347,13 +347,30 @@ class Session:
             and not e.locks
             and not e.name
         )
+        gradient_users: dict[str, int] = {}
         for element in document.elements():
             if element.tag == "svg" or element.id in hidden:
                 continue
             counters[element.tag] = counters.get(element.tag, 0) + 1
             ancestors = document.ancestry(element.id)
-            server = paint_server(element.get("fill"))
-            gradient = document.element(server) if server else None
+            server = paint_server(path_style(document, element)["fill"])
+            gradient = (
+                element
+                if element.tag == "linearGradient"
+                else document.element(server)
+                if server
+                else None
+            )
+            if gradient and gradient.id not in gradient_users:
+                gradient_users[gradient.id] = (
+                    1
+                    if gradient.paint_owner is not None
+                    else sum(
+                        document.element(oid).tag
+                        in {"path", "rect", "circle", "ellipse", "line", "use"}
+                        for oid in document.dependents({gradient.id})
+                    )
+                )
             objects.append(
                 {
                     "id": element.id,
@@ -375,7 +392,9 @@ class Session:
                     and users[element.geometry_id] > 1,
                     "attributes": dict(element.attributes),
                     "fill_gradient": {
+                        "id": gradient.id,
                         "private": gradient.paint_owner == element.id,
+                        "users": gradient_users[gradient.id],
                         "attributes": dict(gradient.attributes),
                         "stops": [dict(c.attributes) for c in gradient.children],
                     }
@@ -1065,6 +1084,9 @@ class Session:
         self.editor.select(Selection(object_ids=frozenset({outer})))
 
     def _command_paint(self, payload: dict) -> None:
+        if "gradient" in payload:
+            self._paint_gradient(payload["gradient"])
+            return
         selected = self._object_selection().object_ids
         with self._object_transaction(payload["command"]) as tx:
             changes = payload["changes"]
@@ -1105,14 +1127,52 @@ class Session:
                 if "fill" in changes:
                     # Its own gradient, if it had one, goes with a new fill.
                     old = tx.preview.element(oid)
-                    follows = isinstance(fill, LinearGradient) and old.get(
-                        "stroke"
-                    ) == old.get("fill")
+                    follows = (
+                        isinstance(fill, LinearGradient)
+                        and old.get("stroke") not in {None, "none"}
+                        and old.get("stroke") == old.get("fill")
+                    )
                     tx.set_fill(oid, fill)
                     if follows:
                         tx.set_attributes(
                             oid, {"stroke": tx.preview.element(oid).get("fill")}
                         )
+
+    def _paint_gradient(self, spec: dict) -> None:
+        """An explicit shared-paint edit authorizes its users without selecting them."""
+        document = self.editor.snapshot.document
+        selected = self._object_selection().object_ids
+        try:
+            gradient_id = spec["id"]
+            attributes = spec["attributes"]
+            stops = tuple(
+                GradientStop(
+                    number(stop["offset"]),
+                    stop["colour"],
+                    number(stop.get("opacity", 1)),
+                )
+                for stop in spec["stops"]
+            )
+        except (KeyError, TypeError, ValueError) as exc:
+            raise DocumentError("Invalid gradient edit") from exc
+        if not isinstance(attributes, dict) or any(
+            not isinstance(value, str) and value is not None
+            for value in attributes.values()
+        ):
+            raise DocumentError("Invalid gradient attributes")
+        # A shape may edit its inherited fill, or the resource can be selected.
+        if not any(
+            oid == gradient_id
+            or paint_server(path_style(document, document.element(oid))["fill"])
+            == gradient_id
+            for oid in selected
+        ):
+            raise DocumentError("Select the gradient or a shape using its fill")
+        affected = document.dependents({gradient_id})
+        with self.editor.transaction(
+            "Edit gradient", selection=Selection(object_ids=affected)
+        ) as tx:
+            tx.set_gradient(gradient_id, attributes, stops)
 
     def _command_move(self, payload: dict) -> None:
         selected = self._object_selection().object_ids

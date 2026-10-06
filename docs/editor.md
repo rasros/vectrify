@@ -241,11 +241,20 @@ and saved projects restore it.
   A gradient fill shows as its ramp, in the tree's swatch and the right
   panel's picker, with "Linear gradient" in place of a colour value; picking
   a colour or typing one makes the fill flat again and removes the object's
-  own gradient once its stroke no longer uses it. New gradient fills are
-  private to each shape: select the shape to edit endpoints, stop positions,
-  colours and opacity in its Fill properties, or add and remove stops. They
-  do not appear under Definitions. Imported/shared gradients remain listed
-  there and retain their existing references.
+  own gradient once its stroke no longer uses it. To create a gradient without
+  a reference, select one path or basic shape and choose **Paint → Fill type →
+  Linear gradient**. New gradients are private to each shape and do not appear
+  under Definitions. The Fill properties offer horizontal, vertical and
+  diagonal directions, editable stop positions, colours and opacity, adding
+  and removing stops, reversing colours, and a transparency preview.
+  **Endpoints & settings** accepts numeric or percentage coordinates and
+  controls the coordinate system, gradient transform and repeat behaviour.
+  Imported/shared gradients use the same editor: select a shape using the
+  gradient, including an inherited fill, or its entry under Definitions.
+  Shared edits update every user and retain the existing references; the
+  panel identifies whether changes apply to one shape or a shared gradient.
+  Locks on the gradient, its stops and its users still apply, and edits undo
+  and redo together.
 - Fill/stroke/opacity, dragging and resizing the selected objects, and
   numeric offsets (**Move by**).
 - **Move (V)** selects and drags objects without resizing. Click to select,

@@ -37,6 +37,18 @@ class GradientStop:
         if not SOLID.fullmatch(self.colour) or self.colour.lower() == "none":
             raise DocumentError("A gradient stop needs a solid colour")
 
+    def element(self, stop_id: str) -> Element:
+        """Store this stop with an existing or fresh identity."""
+        return Element(
+            stop_id,
+            "stop",
+            (
+                ("offset", repr(self.offset)),
+                ("stop-color", self.colour),
+                *((("stop-opacity", repr(self.opacity)),) if self.opacity < 1 else ()),
+            ),
+        )
+
 
 @dataclass(frozen=True)
 class LinearGradient:
@@ -73,22 +85,7 @@ class LinearGradient:
     def element(self, gradient_id: str, stop_ids: tuple[str, ...] = ()) -> Element:
         """The ``linearGradient`` element, reusing *stop_ids* in order."""
         ids = (*stop_ids, *(new_id("object") for _ in self.stops))
-        stops = tuple(
-            Element(
-                ids[i],
-                "stop",
-                (
-                    ("offset", repr(stop.offset)),
-                    ("stop-color", stop.colour),
-                    *(
-                        (("stop-opacity", repr(stop.opacity)),)
-                        if stop.opacity < 1
-                        else ()
-                    ),
-                ),
-            )
-            for i, stop in enumerate(self.stops)
-        )
+        stops = tuple(stop.element(ids[i]) for i, stop in enumerate(self.stops))
         return Element(gradient_id, "linearGradient", self.attributes(), stops)
 
 

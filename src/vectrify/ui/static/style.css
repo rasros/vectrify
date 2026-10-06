@@ -287,6 +287,12 @@ dialog.palette::backdrop { background: #07130d88; backdrop-filter: blur(2px); }
 @media (prefers-reduced-motion: reduce) { #overlay .agent-flash { animation: none; } }
 
 .gradient-stop { display: flex; gap: 5px; align-items: center; margin-top: 10px; }
+#fill-type { width: 100%; font-size: 11px; }
+#fill-gradient-preview { height: 24px; margin-top: 12px; border: 1px solid #718778; border-radius: 5px; background-color: #fff; background-size: 100% 100%, 8px 8px; }
+.gradient-directions > button { font-size: 9px; }
+.gradient-coordinates { margin-top: 14px; font-size: 10px; color: #97b0a0; }
+.gradient-coordinates summary { cursor: pointer; }
+.gradient-coordinates > input, .gradient-coordinates > select { width: 100%; font-size: 11px; }
 .gradient-stop input[type=number] { width: 65px; flex: 1; }
 .gradient-stop input[type=color] { width: 30px; height: 30px; padding: 3px; }
 .gradient-stop button { padding: 5px; }
