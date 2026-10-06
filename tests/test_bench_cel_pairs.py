@@ -79,10 +79,14 @@ def test_feature_rectangles_reject_out_of_canvas_annotations():
         bench.feature_boxes({"features": {"bad": [0.9, 0.9, 0.2, 0.2]}}, (100, 100))
 
 
+@pytest.mark.parametrize("composition_opacity", [1, 0.5])
 def test_paired_run_logs_actual_candidates_without_passing_clean_truth_to_planner(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, composition_opacity
 ):
-    clean = Image.fromarray((render(SVG, (96, 96)) * 255).round().astype(np.uint8))
+    from scripts.cel_pairs import composition
+
+    source = composition(SVG, composition_opacity)
+    clean = Image.fromarray((render(source, (96, 96)) * 255).round().astype(np.uint8))
     degraded = degrade(clean, "noise", 4)
     case = {
         "name": "synthetic",
@@ -90,7 +94,7 @@ def test_paired_run_logs_actual_candidates_without_passing_clean_truth_to_planne
         "set": "tuning",
         "features": {"mark": [0.25, 0.3, 0.5, 0.3]},
     }
-    monkeypatch.setattr(bench, "pair", lambda *_: (SVG, clean, degraded))
+    monkeypatch.setattr(bench, "pair", lambda *_: (source, clean, degraded))
     original = bench.vectorize
     supplied = []
 
@@ -106,8 +110,12 @@ def test_paired_run_logs_actual_candidates_without_passing_clean_truth_to_planne
         {"quality": "fast", "gradients": False},
         tmp_path,
         seconds=10,
+        composition_opacity=composition_opacity,
     )
     assert row["status"] == "ready"
+    assert row["composition_opacity"] == composition_opacity
+    assert row["family"] == "test"
+    assert row["split"] == "tuning"
     assert supplied == [(degraded.tobytes(), {"options", "seconds", "observe"})]
     assert row["clean_pixels_sha256"] != row["input_pixels_sha256"]
     assert row["clean"]["features"]["mark"] > 0

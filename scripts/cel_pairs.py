@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import io
 import json
+import math
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 import numpy as np
@@ -56,8 +58,39 @@ def degrade(image: Image.Image, kind: str, seed: int) -> Image.Image:
     return Image.fromarray(pixels)
 
 
-def pair(case: dict, kind: str, long_side: int = 1000):
+def composition(source: str, opacity: float = 1) -> str:
+    """Derive a uniform-opacity artwork before both clean and input renders.
+
+    The repository-authored fixtures use explicit paint attributes. Isolating
+    their rendering children applies opacity once to the complete composition,
+    including overlaps; definitions and original root attributes remain intact.
+    This is a target variant, not input corruption or a new artwork family.
+    """
+    if not math.isfinite(opacity) or not 0 < opacity <= 1:
+        raise ValueError("Composition opacity must be finite and between zero and one")
+    if opacity == 1:
+        return source
+    root = ET.fromstring(source)
+    namespace = root.tag.partition("}")[0] + "}" if root.tag.startswith("{") else ""
+    group = ET.Element(f"{namespace}g", {"opacity": str(opacity)})
+    for child in list(root):
+        if child.tag.rsplit("}", 1)[-1] in {
+            "defs",
+            "style",
+            "title",
+            "desc",
+            "metadata",
+        }:
+            continue
+        root.remove(child)
+        group.append(child)
+    root.append(group)
+    return ET.tostring(root, encoding="unicode")
+
+
+def pair(case: dict, kind: str, long_side: int = 1000, composition_opacity: float = 1):
     source = (DATA / case["file"]).read_text()
+    source = composition(source, composition_opacity)
     # Use the existing line benchmark's aspect-ratio calculation.
     from scripts.bench_lines import size
 

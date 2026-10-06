@@ -1750,6 +1750,162 @@ real partial-alpha tuning cases. Do not relax the retained-alpha gate or use a
 ranker to admit the rejected drawing. This proposal foundation completes none
 of the eight deliveries by itself.
 
+## Screening thin paint and growing from the detailed checkpoint
+
+The rejected material SVG established a paint mismatch. Growth could fit a
+linear alpha model across 1–5-byte marks, but cost-aware export could select a
+median flat instead. An initial analytic screen still rejected the sword:
+Cairo renders a 1.5-byte flat alpha as one byte, whereas ordinary numerical
+rounding predicted two. That intermediate run is retained in
+`.bench/planned-coherent-checkpoint` (source
+`d4720fed2e58674063192ffedcd72b6e8277055b71957704eca112ca141a4c03`).
+It restored nine families but did not repair native coverage.
+
+`materials.retain_thin_paint` now screens the actual fitted flat/linear paint
+with a native SVG rectangle in its analysis-coordinate frame. Each rectangle
+has at most 8,192 pixels; a larger bound restores source atoms instead of
+starting an oversized render. Thin families whose paint loses more than 5% of
+source alpha mass, or exceeds the existing opacity allowance, return to their
+original complete atoms. Supported uniform and gradient marks still compact.
+The screen checks paint only; it cannot prove geometry, transformed native
+coverage or compositing. Full candidate validation remains authoritative, and
+stop is checked between fitting/render calls.
+
+The optional seed also grows from the **validated detailed partition** rather
+than rebuilding a denser alternative from original atoms. Its graph statistics
+are recomputed, but exported ownership still names original evidence atoms.
+Repair can therefore restore atoms inside a coarser starting cohort without
+splitting or duplicating their primary ownership. A rejected/failed discovery
+leaves the detailed checkpoint available. No production score weights changed.
+
+Six additional cases cover faint-paint loss, native half-byte rounding,
+supported thin flat/gradient compaction, bounds/stop and growth from a coarser
+checkpoint with original owners. The expanded relevant suite passed **410
+tests in 45.15 seconds**. Ruff/formatting passed; Pyrefly reported zero source
+errors and 61 existing warnings.
+
+Final source SHA-256 is
+`e28f16a2013b9e7b647599aa082efad32dc01244fe9b818c99a297ec89abb354`.
+The native comparison command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_planned.py \
+  --methods cel-planned --seconds 60 \
+  --settings '{"complexity":50,"quality":"balanced","refine":false}' \
+  --out .bench/planned-coherent-native-paint
+```
+
+The frozen mask is unchanged. Material discovery starts with 4,472 graph atoms
+(including hidden atoms), completes 888 merges/3,990 edge-model evaluations and
+records 2,244 alpha exclusions. It checks 198 thin paints and restores 25
+families, leaving 3,256 visible regions versus 3,229 before paint repair. No
+paint rectangle hits the pixel bound. The seed passes full native validation
+with cost 40,096; subsequent local search selects cost 38,868. Seed stage time
+is 4.97 seconds, including 1.59 seconds of full validation.
+
+| Native selected result | Previous material run | Native paint screen |
+| --- | ---: | ---: |
+| Nodes | 22,646 | 19,528 |
+| Contours | 4,026 | 3,176 |
+| Paths | 3,991 | 3,138 |
+| Gradients | 544 | 30 |
+| Representation cost | 53,260 | 38,868 |
+| Human MSE | 439.75 | 472.73 |
+
+Cost falls by about 27%, but human error rises by 32.98. Blade tip/facets,
+guard/wrapping/jewel MSE becomes 580.57/241.84/1,106.97/680.73/1,370.95;
+all five regress. The result passes only the numerical human-error ceiling,
+failing the ≤800-node/≤140-contour targets and combined milestone. Visual
+inspection of the jewel crop shows fragmented shading and an irregular ring
+compared with the clean human outline. The current score's cost/error tradeoff
+is not a human-quality pass.
+
+Pipeline time is 51.33 seconds; operation/apply takes 54.77 seconds within this
+60-second run. No speedup at equal quality or completed proposal effort is
+claimed. Search attempts 12 proposals, accepts seven working alternatives and
+publishes one independent checkpoint with zero score disagreements. Accounted
+retained SVG/raster peak is 10,107,827 bytes, not process RSS. The observed floor
+and reported target fall to 38,868, so the clamped report says unmet false;
+the **nominal 27,282 target is still exceeded**, and the floor is unproven.
+Do not interpret that report as achieving the desired nominal budget.
+
+Remaining native constraints include 4,809 alpha-step and 3,710
+transparent-contact chain encounters, with 5,715/5,466 emitted segments.
+There are 3,027 geometry-constrained paths. These overlapping counts still
+point toward alpha-fringe/geometry interpretations rather than treating every
+alpha change as a distinct surface. No closed contour or ellipse reaches
+evaluation in this prefix. Six nested overlays are excluded (four mark
+style/frame, two alpha holes); restoration records four neighbor-count and one
+silhouette/hole exclusions. One filled-ink proposal becomes available.
+
+The paired benchmark now has version 2 and `--composition-opacity` (default
+one). It isolates the repository-authored fixtures' rendering children so the
+opacity multiplier applies once, including overlaps; definitions, holes and
+root attributes remain. Default one preserves exact original SVG bytes. Both
+clean and input renders derive from that target variant before deterministic
+input corruption. Reported variant/opacity fields and distinct artifact paths
+prevent confusing it with alpha degradation. Variants inherit the original
+family and split, and add no independent artworks to the corpus.
+
+New tests verify composition opacity, overlapping paint, existing root opacity,
+gradient definitions, holes, invalid values, actual pair construction and that
+clean pixels/geometry still never reach the generator. The final RGBA tuning
+command was:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_pairs.py \
+  --methods cel-planned \
+  --cases anime-girl anime-face western-park rubberhose-band \
+  --degradations clean --composition-opacity 0.5 --long-side 192 --seconds 20 \
+  --method-settings '{"cel-planned":{"complexity":50,"quality":"balanced","refine":false}}' \
+  --out .bench/planned-coherent-native-paint-rgba-pairs
+```
+
+A previous-production control was run from an isolated archive of `ce89446`,
+backporting only the same two version-2 paired benchmark scripts to construct
+identical targets. Its actual source hash is
+`c1535dd17d39210fc3a5b36c8ceb51a717cba7da9de501c61c85927ad5a5d06d`;
+results are in `.bench/planned-coherent-checkpoint-rgba-pairs-before`.
+The archive is not a Git checkout, so its report's revision is unavailable;
+the source hash identifies the executed combination. Input/clean SVG/clean
+pixel/mask hashes, families, splits, dimensions, settings and deadlines match
+the final run. Completed search prefixes differ; these are matched-deadline
+controls, not identical-pool or equal-quality speed comparisons.
+
+| Half-opacity tuning case | Previous nodes/cost | New nodes/cost | Previous → new clean MSE | New line F1 | New generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 266 / 454 | 175 / 319 | 139.48 → 177.70 | 0.270 | 8.83 |
+| Anime face | 433 / 825 | 176 / 272 | 133.69 → 206.86 | 0.600 | 15.93 |
+| Western park | 452 / 834 | 532 / 936 | 195.44 → 193.63 | 0.652 | 8.73 |
+| Rubberhose band | 527 / 895 | 407 / 765 | 162.90 → 167.23 | 0.641 | 10.36 |
+
+All four new material seeds are retained, with 29/30/26/43 merges from
+50/46/92/88 starting atoms. These opaque-canvas compositions have a translucent
+uniform background and no thin component requiring paint repair; they test
+material growth and selection, while synthetic/native sword cases test repair.
+New search reaches 48 evaluations each, accepts 14/22/22/21 alternatives and
+publishes four checkpoints per case, without score disagreements. Every
+diagnostic pool is complete with zero omissions. The earlier control reaches
+48/38/37/25 evaluations, so attribution cannot ignore scheduling.
+
+Three cases regress in global clean error. Anime girl's bag-clasp MSE rises by
+182.10 despite improvements in eyes/bow/hairclip. Anime face's eyes/necklace/
+star-clip errors rise by 166.93/313.67/366.77; its inspected eye crop loses iris
+and highlight structure. Rubberhose notes rise by 105.47 and left-eye error by
+31.34. Western park's reported feature errors improve. Same-cost oracle gaps
+are 15.60/0.25/0/0.39; unconstrained gaps are
+159.41/190.68/165.04/134.03 and favor much denser conservative drawings.
+These are explicit score/proposal-quality conflicts, not calibrated-away
+regressions or a broader feature gate pass. No held-out or blind-review data
+was used.
+
+Next produce faithful alpha-fringe/coherent-surface interpretations and preserve
+small ink details; prepare the declared same-pool calibration replay using
+these selection conflicts. Native validation establishes safety and exact
+agreement, not sufficient resemblance. None of the eight deliveries is complete.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

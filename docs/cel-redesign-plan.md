@@ -42,7 +42,7 @@ The latest native sword experiment (the coherent-material initialization compari
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental coherent-material initialization and local search, 60-second budget | 22,646 | 4,026 | 439.75 |
+| Experimental coherent-material initialization and local search, 60-second budget | 19,528 | 3,176 | 472.73 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It meets the numerical error ceiling but fails both structural targets. It is a development result, not a matched-runtime improvement over legacy CEL. Native partial-alpha safeguards currently lead to a very dense starting drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -667,32 +667,34 @@ contour starting drawing. Keep discovery bounded by source pixels, paths,
 nodes, samples and time; reaching a bound records an exclusion rather than
 silently relaxing coverage.
 
-The initial pre-export material route is now implemented as an optional
-competitor. It uses streamed premultiplied RGBA moments and a common-axis linear
-fit, retains supported or unresolved ridges and explicit-width atoms, and lets
-the actual SVG paint and native frontier charge the final representation cost.
-Synthetic bands, continuous alpha ramps and holes compact correctly. On the
-native sword, it completes 2,933 merges but its whole-drawing candidate is
-rejected for `translucent-component-lost`; the selected drawing remains the
-dense result above. A separate capture identifies eight failing thin components
-covering 88 pixels, with peak alpha at most 5/255. The rejected drawing also
-costs 61,478, above the selected 53,260: merging source atoms alone does not
-establish compaction against existing alternatives. These are coverage and
-proposal-quality failures, not evidence for learned ranking. The material
-estimate's linear-family count is not the final SVG gradient count.
+The initial pre-export material route is an optional competitor. It uses
+streamed premultiplied RGBA moments and a common-axis linear fit, retains
+supported or unresolved ridges and explicit-width atoms, and lets actual SVG
+paint and the native frontier charge the final representation cost. Synthetic
+bands, continuous alpha ramps and holes compact correctly. Its first sword
+proposal lost eight faint components and cost more than existing alternatives.
+Growth could accept a linear alpha estimate while export selected a flat, and
+analytic byte rounding disagreed with the native renderer on tiny alpha values.
 
-Before expanding this route, save its rejected SVG and identify every native
-component that fails retained-alpha mass: its bounding box, eroded-core status,
-original/predicted alpha, source atoms and fitted paint. Do not assume the lost
-component is tiny or faint from the rejection code alone; the current capture
-establishes its size and alpha but not the paint/geometry cause. Compare paint
-loss with geometry/antialias loss on the same partition. Then offer bounded component
-or family alternatives that preserve the failing coverage using the validated
-detailed interpretation, while letting successful surfaces compete for
-compaction. Export ownership, gradient frames and local layers must remain
-consistent; independent full validation still decides retention. Add real
-partial-alpha tuning variants before claiming broad material quality: the four
-current clean tuning controls are opaque and do not execute this route.
+Material growth now starts from the validated detailed partition. Bounded
+native paint rectangles screen thin families; unsupported paint restores their
+original source atoms. Full geometry, alpha, ownership and compositing checks
+still decide acceptance. On the sword this restores 25 families, makes the
+material seed eligible and lowers selected cost from 53,260 to 38,868. Its
+human error and all five feature-crop errors rise, while nodes/contours remain
+far above target. The linear-family estimate is not the final gradient count.
+Do not call this a completed fidelity or structural milestone.
+
+The paired runner now offers `--composition-opacity` variants applied to the
+clean SVG before both clean and input rendering. They retain original artwork
+families/splits and are distinct from input-only alpha degradation. Four
+half-opacity tuning variants exercise material growth; three regress in global
+clean error against the previous implementation, and local feature regressions
+include lost eye detail. They provide calibration and proposal diagnosis, not
+new independent corpus coverage or held-out evidence. Next test faithful
+alternatives for alpha fringes and broad surfaces, preserve small ink/feature
+detail, and run the declared same-pool scoring grid. Export ownership, gradient
+frames and local layers must remain consistent throughout.
 
 For D, a monotonic frontier that returns one identical drawing at every slider
 value is correct ordering but insufficient product evidence. Include fixtures

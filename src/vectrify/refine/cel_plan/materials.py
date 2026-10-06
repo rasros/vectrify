@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import heapq
 import time
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 
 import numpy as np
+from scipy.ndimage import binary_erosion, find_objects, label
 
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.local import Box
@@ -22,12 +24,15 @@ from vectrify.refine.cel_plan.model import (
     StageInterruptedError,
     Work,
 )
+from vectrify.refine.cel_plan.opacity import fit
+from vectrify.refine.cel_plan.score import render
 from vectrify.refine.colour_regions import simplified_indices
 
 MAX_REGIONS = 16_384
 MAX_EDGES = 65_536
 MAX_MODELS = 32_768
 CHUNK_PIXELS = 65_536
+MAX_THIN_PAINT_PIXELS = 8192
 
 
 @dataclass(frozen=True)
@@ -115,6 +120,103 @@ def moments(
                 if a != b:
                     result[:, b, a] += values
     return result
+
+
+def retain_thin_paint(
+    evidence: Evidence,
+    labels: np.ndarray,
+    options: Options,
+    work: Work,
+    *,
+    normalizer: float,
+) -> tuple[np.ndarray, dict]:
+    """Screen actual export paint; restore original atoms for unsupported marks.
+
+    A linear growth estimate is not necessarily the exported paint. Thin
+    components have no opacity base, and a cheaper median flat can destroy a
+    faint alpha ramp. Render its actual paint in a bounded rectangle before export.
+    This is conservative proposal repair, not a geometric or native proof.
+    """
+    details = {
+        "checked": 0,
+        "restored_families": 0,
+        "bounded_families": 0,
+        "paint_evaluation": "native-bounded-rectangle",
+    }
+    if evidence.opacity is None:
+        return labels, details
+    visible = ~evidence.empty
+    components, count = label(visible)
+    core = binary_erosion(visible, iterations=2)
+    has_core = np.bincount(components[core], minlength=count + 1) > 0
+    thin = ~has_core
+    thin[0] = False
+    ids = {int(i) for i in np.unique(labels[thin[components]])}
+    if not ids:
+        return labels, details
+    area = max(1, int(visible.sum()))
+    restored = []
+    for index, box in enumerate(find_objects(labels + 1)):
+        if work.interrupted:
+            raise StageInterruptedError("Thin material paint interrupted")
+        if index not in ids or box is None:
+            continue
+        own = labels[box] == index
+        size = int(own.sum())
+        if own.size > MAX_THIN_PAINT_PIXELS:
+            details["bounded_families"] += 1
+            restored.append(index)
+            continue
+        details["checked"] += 1
+        paint = fit(
+            evidence.target[box],
+            evidence.opacity[box],
+            own,
+            origin=(box[1].start, box[0].start),
+            gradients=options.gradients,
+            gradient_price=options.detail_cost * 12 / normalizer * area / max(1, size),
+        )
+        original = evidence.opacity[box][own]
+        y, x = box[0].start, box[1].start
+        height, width = own.shape
+        definitions = ""
+        if paint.gradient is None:
+            paint_attributes = (
+                f'fill="{paint.color}" fill-opacity="{paint.opacity:.9g}"'
+            )
+        else:
+            gradient = paint.gradient
+            node = ET.Element(
+                "linearGradient", {"id": "paint", **dict(gradient.attributes())}
+            )
+            for stop in gradient.stops:
+                ET.SubElement(node, "stop", dict(stop.element("unused").attributes))
+            definitions = f"<defs>{ET.tostring(node, encoding='unicode')}</defs>"
+            paint_attributes = 'fill="url(#paint)"'
+        svg = (
+            f'<svg width="{width}" height="{height}" '
+            f'viewBox="{x} {y} {width} {height}">'
+            f'{definitions}<rect x="{x}" y="{y}" width="{width}" height="{height}" '
+            f"{paint_attributes}/></svg>"
+        )
+        predicted = render(svg, (width, height))[..., 3][own]
+        original_mass = float(original.sum())
+        if (
+            float(np.minimum(predicted, original).sum()) < original_mass * 0.95
+            or float(predicted.sum()) > original_mass * 1.25 + size / 255
+        ):
+            restored.append(index)
+    if not restored:
+        return labels, details
+    # Keep complete source atoms, including when growth started from a coarser
+    # validated partition. Distinct namespaces prevent label identity clashes.
+    repair = np.isin(labels, restored)
+    keys = labels + int(evidence.labels.max()) + 1
+    keys[repair] = evidence.labels[repair]
+    _, mapping = np.unique(keys, return_inverse=True)
+    repaired = mapping.reshape(labels.shape).astype(np.int32)
+    details["restored_families"] = len(restored)
+    return repaired, details
 
 
 def coherent_labels(
@@ -265,11 +367,20 @@ def coherent_labels(
         parent[index] = root
     _, mapping = np.unique(parent, return_inverse=True)
     labels = mapping[graph.labels].astype(np.int32)
+    growth_regions = len(np.unique(labels[~evidence.empty]))
+    if not work.interrupted:
+        labels, paint_repair = retain_thin_paint(
+            evidence, labels, options, work, normalizer=normalizer
+        )
+    else:
+        paint_repair = {"status": "interrupted"}
     details.update(
         {
             "status": "interrupted" if work.interrupted else "complete",
             "model_limit_hit": details["model_evaluations"] >= MAX_MODELS,
             "result_regions": len(np.unique(labels[~evidence.empty])),
+            "growth_result_regions": growth_regions,
+            "thin_paint": paint_repair,
             "linear_estimate_families": sum(
                 losses[i].gradient for i in np.unique(parent)
             ),

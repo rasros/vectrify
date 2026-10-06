@@ -41,7 +41,7 @@ from vectrify.refine.cel_plan.score import (
     svg_metrics,
 )
 
-BENCH_VERSION = 1
+BENCH_VERSION = 2
 MAX_POOL_BYTES = 64 * 1024 * 1024
 MAX_POOL_ENTRIES = 256
 DEGRADATIONS = ("clean", "blur", "resized", "jpeg", "noise", "alpha")
@@ -207,8 +207,11 @@ def compare(
     *,
     long_side: int = 1000,
     seconds: float | None = None,
+    composition_opacity: float = 1,
 ) -> dict:
-    clean_svg, clean_image, reference = pair(case, degradation, long_side)
+    clean_svg, clean_image, reference = pair(
+        case, degradation, long_side, composition_opacity
+    )
     truth = np.asarray(clean_image, dtype=np.float32) / 255
     degraded = np.asarray(reference, dtype=np.float32) / 255
     mask = foreground_mask(truth)
@@ -224,6 +227,8 @@ def compare(
         "family": case["family"],
         "split": case["set"],
         "degradation": degradation,
+        "composition_opacity": composition_opacity,
+        "target_variant": "original" if composition_opacity == 1 else "uniform-opacity",
         "ranker_training_eligible": case["set"] == "tuning"
         and degradation in {"clean", "blur", "jpeg", "noise"},
         "method": name,
@@ -332,6 +337,12 @@ def main() -> None:
     parser.add_argument("--long-side", type=int, default=1000)
     parser.add_argument("--seconds", type=float)
     parser.add_argument(
+        "--composition-opacity",
+        type=float,
+        default=1,
+        help="Apply opacity to the target before clean/input renders (0 < value <= 1)",
+    )
+    parser.add_argument(
         "--method-settings",
         default="{}",
         help="JSON mapping from method names to setting objects",
@@ -343,6 +354,11 @@ def main() -> None:
         and (args.seconds <= 0 or not math.isfinite(args.seconds))
     ):
         parser.error("Long side must be at least 32 and time limit must be positive")
+    if (
+        not math.isfinite(args.composition_opacity)
+        or not 0 < args.composition_opacity <= 1
+    ):
+        parser.error("Composition opacity must be finite and between zero and one")
     selected = [
         case
         for case in cases(args.heldout)
@@ -382,6 +398,11 @@ def main() -> None:
     }
     args.out.mkdir(parents=True, exist_ok=True)
     for case in selected:
+        variant_name = (
+            case["name"]
+            if args.composition_opacity == 1
+            else f"{case['name']}-opacity-{args.composition_opacity:g}"
+        )
         for kind in args.degradations:
             for name in args.methods:
                 row = compare(
@@ -389,9 +410,10 @@ def main() -> None:
                     kind,
                     name,
                     settings.get(name, {}),
-                    args.out / case["name"] / kind / name,
+                    args.out / variant_name / kind / name,
                     long_side=args.long_side,
                     seconds=args.seconds,
+                    composition_opacity=args.composition_opacity,
                 )
                 report["rows"].append(row)
                 # Persist completed work after every case, including failures.

@@ -35,7 +35,9 @@ from vectrify.refine.cel_plan.score import (
 from vectrify.refine.cel_plan.search import search as local_search
 
 
-def material_seed(frontier, evidence, graph, options, work, duration) -> dict:
+def material_seed(
+    frontier, evidence, graph, options, work, duration, *, starting_labels=None
+) -> dict:
     """Optional coherent initialization, retained only by the native frontier."""
     began = time.monotonic()
     discovery = Work(
@@ -44,12 +46,17 @@ def material_seed(frontier, evidence, graph, options, work, duration) -> dict:
         work.timings,
     )
     try:
+        if starting_labels is not None:
+            graph = build(evidence, starting_labels, work=discovery)
         labels, details = coherent_labels(
             evidence,
             graph,
             replace(options, complexity=50),
             discovery,
             normalizer=frontier.normalizer,
+        )
+        details["initial_partition"] = (
+            "validated-detailed" if starting_labels is not None else "source-atoms"
         )
     except StageInterruptedError:
         return {"status": "discovery-interrupted", "seconds": time.monotonic() - began}
@@ -258,9 +265,11 @@ def vectorize(
             )
             fitting_reserved = True
         if level == 100:
+            detailed_valid = False
             try:
                 frontier.freeze_normalizer(svg)
                 normalizer_source = "validated-detailed"
+                detailed_valid = True
             except ValueError:
                 if frontier.baseline:
                     frontier.freeze_normalizer()
@@ -272,7 +281,13 @@ def vectorize(
                 material_started = time.monotonic()
                 try:
                     material_initialization = material_seed(
-                        frontier, evidence, graph, options, search, duration
+                        frontier,
+                        evidence,
+                        graph,
+                        options,
+                        search,
+                        duration,
+                        starting_labels=labels if detailed_valid else None,
                     )
                 except (
                     ValueError,

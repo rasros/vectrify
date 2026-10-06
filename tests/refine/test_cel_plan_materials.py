@@ -11,11 +11,140 @@ from vectrify.document import export_svg, import_svg, load_project, save_project
 from vectrify.refine.cel_plan import materials
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.materials import coherent_labels, model, moments
+from vectrify.refine.cel_plan.materials import (
+    coherent_labels,
+    model,
+    moments,
+    retain_thin_paint,
+)
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.pipeline import material_seed
+from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.score import render
+
+
+def thin_material(values):
+    original = stripes(alpha=128)
+    rgba = np.zeros_like(original.rgba)
+    rgba[8, 8 : 8 + len(values), :3] = (0.4, 0.2, 0.1)
+    rgba[8, 8 : 8 + len(values), 3] = np.array(values) / 255
+    shown = rgba[..., 3] > 0
+    target = np.where(shown[..., None], rgba[..., :3] * 255, 255)
+    labels = np.zeros_like(original.labels)
+    labels[8, 8 : 8 + len(values)] = np.arange(1, len(values) + 1)
+    return replace(
+        original,
+        rgba=rgba,
+        opacity=rgba[..., 3].copy(),
+        target=target,
+        smooth=target.copy(),
+        coarse=target.copy(),
+        labels=labels,
+        empty=~shown,
+        foreground=shown,
+    )
+
+
+def test_actual_flat_paint_screen_restores_faint_atoms_with_native_coverage():
+    evidence = thin_material([1, 1, 3, 4, 2, 3, 1, 1])
+    labels = (~evidence.empty).astype(np.int32)
+    options = Options()
+    unsafe, _ = export(evidence, labels, options, Work.start(10), cost_normalizer=5000)
+    assert (
+        "translucent-component-lost"
+        in Policy(evidence.rgba).evaluate(unsafe).rejections
+    )
+    repaired, details = retain_thin_paint(
+        evidence, labels, options, Work.start(10), normalizer=5000
+    )
+    assert details["restored_families"] == 1
+    assert len(np.unique(repaired[~evidence.empty])) == 8
+    svg, exported = export(
+        evidence, repaired, options, Work.start(10), cost_normalizer=5000
+    )
+    assert Policy(evidence.rgba).evaluate(svg).valid
+    np.testing.assert_array_equal(
+        render(svg, evidence.source_size)[..., 3], evidence.opacity
+    )
+    partition = Partition.from_metadata(exported["planning_surfaces"])
+    assert partition is not None
+    assert set(partition.owners) == set(range(1, 9))
+    np.testing.assert_array_equal(labels, (~evidence.empty).astype(np.int32))
+
+
+def test_renderer_half_byte_alpha_is_used_instead_of_rounding_an_analytic_fit():
+    evidence = thin_material([1, 2, 1, 2])
+    labels = (~evidence.empty).astype(np.int32)
+    options = Options(gradients=False)
+    svg, _ = export(evidence, labels, options, Work.start(10), cost_normalizer=5000)
+    # Cairo's native half-byte alpha is not np.rint(alpha * 255).
+    actual = render(svg, evidence.source_size)
+    assert actual[8, 8][3] == pytest.approx(1 / 255)
+    assert (
+        "translucent-component-lost" in Policy(evidence.rgba).evaluate(svg).rejections
+    )
+    repaired, details = retain_thin_paint(
+        evidence, labels, options, Work.start(10), normalizer=5000
+    )
+    assert details["restored_families"] == 1
+    safe, _ = export(evidence, repaired, options, Work.start(10), cost_normalizer=5000)
+    assert Policy(evidence.rgba).evaluate(safe).valid
+
+
+@pytest.mark.parametrize("values", [[1] * 8, list(range(64, 177, 16))])
+def test_thin_flat_and_actual_gradient_models_remain_compact_when_supported(values):
+    evidence = thin_material(values)
+    labels = (~evidence.empty).astype(np.int32)
+    repaired, details = retain_thin_paint(
+        evidence, labels, Options(), Work.start(10), normalizer=1e9
+    )
+    assert details["restored_families"] == 0
+    np.testing.assert_array_equal(repaired, labels)
+    svg, _ = export(evidence, repaired, Options(), Work.start(10), cost_normalizer=1e9)
+    evaluation = Policy(evidence.rgba).evaluate(svg)
+    assert evaluation.valid
+    assert evaluation.structure["paths"] == 1
+    assert evaluation.structure["gradients"] == int(max(values) > min(values))
+
+
+def test_thin_paint_work_bound_and_stop_keep_complete_original_atoms(monkeypatch):
+    evidence = thin_material([1] * 8)
+    labels = (~evidence.empty).astype(np.int32)
+    monkeypatch.setattr(materials, "MAX_THIN_PAINT_PIXELS", 2)
+    repaired, details = retain_thin_paint(
+        evidence, labels, Options(), Work.start(10), normalizer=5000
+    )
+    assert details["bounded_families"] == 1
+    assert len(np.unique(repaired[~evidence.empty])) == 8
+    stopped = Work.start(10)
+    stopped.stop.set()
+    with pytest.raises(StageInterruptedError):
+        retain_thin_paint(evidence, labels, Options(), stopped, normalizer=5000)
+    np.testing.assert_array_equal(labels, (~evidence.empty).astype(np.int32))
+
+
+def test_material_seed_grows_coarse_checkpoint_without_losing_original_owners():
+    evidence = stripes(alpha=128, gradient=True, hole=True)
+    frontier, state, options = prepared(evidence, layers=True)
+    graph = build(evidence)
+    starting = np.array([0, 1, 1, 2, 2, 3, 3, 4, 4])[evidence.labels]
+    before = starting.copy()
+    details = material_seed(
+        frontier, evidence, graph, options, Work.start(10), 10, starting_labels=starting
+    )
+    assert details["initial_partition"] == "validated-detailed"
+    assert details["source_regions"] == 5
+    assert details["merges"] == 3
+    assert details["status"] == "retained"
+    entry = next(e for e in frontier.entries if e.label == "Coherent RGBA materials")
+    partition = Partition.from_metadata(entry.details["planning_surfaces"])
+    assert partition is not None
+    assert set(partition.owners) == set(state.partition.owners)
+    assert entry.evaluation.valid
+    assert entry.evaluation.cost < state.snapshot.evaluation.cost
+    np.testing.assert_array_equal(starting, before)
+    np.testing.assert_array_equal(graph.labels, evidence.labels)
 
 
 @pytest.mark.parametrize("chunk_pixels", [47, 137, 65_536])
