@@ -36,13 +36,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the broad material and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the structured interior boundary and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental broad material candidates and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
+| Experimental structured interior fitting and validated local search, 60-second budget | 10,121 | 1,660 | 514.67 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -100,6 +100,19 @@ availability and checkpoint timing gap; it supplies no sword quality gain.
 The operator keeps the existing exterior geometry, so coherent paint alone
 cannot remove its jagged or fragmented boundaries. General supported geometry
 and true atom splitting remain required before claiming structural compaction.
+
+Structured RGBA export now grants bounded permissions to generic interior
+curves while retaining fitted primitives and native contacts as the exact
+protected complement. Exact surviving permissions can pass through a contour
+union; unproved boolean subdivisions remain frozen. Shared fitting skips
+redrawing an already identical neighbor run, preventing a false edit of a held
+underlayer. A source audit finds 1,233 paths with usable permissions and validates
+eight fitting alternatives, but the largest independent fit removes only 22
+nodes. The latest matched run publishes three checkpoints and selects one ink
+replacement, with 10,121 nodes and error 514.67. This is not a practical gain over
+the previous 10,009-node/514.85 drawing. Generic curve permissions alone do not
+rebuild compact canonical boundaries through fragmented junctions. That geometry
+and true source atom splitting remain the next structural work.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local

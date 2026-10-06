@@ -178,6 +178,35 @@ def test_shared_search_preserves_measured_checkpoint_time(
     assert frontier.policy.evaluate(selected.svg).valid
 
 
+def test_shared_checkpoint_guard_accounts_for_proposal_completion_latency(monkeypatch):
+    frontier, _, options = setup()
+    tick = [0.0]
+    monkeypatch.setattr(beam.time, "monotonic", lambda: tick[0])
+    phase, checkpoint = Work.start(4), Work.start(4)
+
+    def edits(state, work):
+        if state.edits:
+            return
+        tick[0] += 1.2
+        yield proposal(state, "left", "#b05030")
+        # A bounded opportunity finishes just after its last deadline poll.
+        tick[0] = work.deadline + 0.1
+
+    report = search(
+        frontier,
+        options,
+        phase,
+        edits,
+        checkpoint_work=checkpoint,
+        minimum_checkpoint_seconds=1,
+    )
+    assert report["accepted"] == 1
+    assert report["checkpointed"] == 1
+    assert report["checkpoint_guard_seconds"] >= 1.2
+    assert report["score_disagreements"] == 0
+    assert frontier.select(50).metrics["gradients"] == 1
+
+
 def proposal(state, oid, value, *, operator="paint", parent=None):
     document = color(state.document, oid, value)
     return Proposal(

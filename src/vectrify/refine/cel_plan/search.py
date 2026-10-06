@@ -334,6 +334,27 @@ def search(
         else work.deadline - max(0.05, work.remaining * 0.25)
     )
     local_work = Work(local_deadline, work.stop, work.timings)
+    checkpoint_guard = 0.0
+    proposal_started = None
+
+    def reserve_checkpoint():
+        nonlocal checkpoint_guard
+        if checkpoint_work is None or minimum_checkpoint_seconds <= 0:
+            return
+        # A renderer/boolean can finish after its last deadline check. Leave
+        # the longest observed proposal opportunity as well as full-check time.
+        # This changes the time bound, not candidate priority or acceptance.
+        checkpoint_guard = max(
+            checkpoint_guard,
+            0.05,
+            time.monotonic() - proposal_started if proposal_started is not None else 0,
+        )
+        local_work.deadline = min(
+            local_work.deadline,
+            validation_work.deadline - minimum_checkpoint_seconds - checkpoint_guard,
+        )
+
+    reserve_checkpoint()
     while not local_work.interrupted and attempted < limit and scanned < limit * 8:
         additions = []
         for state in states:
@@ -346,6 +367,7 @@ def search(
                 resumed += 1
             expansion_start = attempted
             while True:
+                reserve_checkpoint()
                 if local_work.interrupted or attempted >= limit or scanned >= limit * 8:
                     break
                 if attempted - expansion_start >= EXPANSIONS[options.quality]:
@@ -353,6 +375,7 @@ def search(
                     # and invalid/stale scans retain their separate global cap.
                     bounded_expansions += 1
                     break
+                proposal_started = time.monotonic()
                 proposal = next(cursors[state.key], None)
                 if local_work.interrupted:
                     break
@@ -564,6 +587,7 @@ def search(
                     close()
         if not retained:
             break
+    reserve_checkpoint()
     for cursor in cursors.values():
         close = getattr(cursor, "close", None)
         if close is not None:
@@ -623,6 +647,7 @@ def search(
         "evaluation_limit": limit,
         "beam_states": len(states),
         "checkpointed": checkpoints,
+        "checkpoint_guard_seconds": checkpoint_guard,
         "checkpoint_scope": "shared-search"
         if checkpoint_work is not None
         else "local-phase",

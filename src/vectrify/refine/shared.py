@@ -281,6 +281,19 @@ def follow(document: Document, found: list[Link]) -> tuple[Document, set[str]]:
             segments = _segments(document.geometry_for(link.path), link)
             if segments is None:
                 continue
+            other = replace(
+                link,
+                subpath=link.neighbour_subpath,
+                start=link.neighbour_end if link.reversed else link.neighbour_start,
+                end=link.neighbour_start if link.reversed else link.neighbour_end,
+            )
+            target = _segments(new, other)
+            if target is not None and link.reversed:
+                target = [segment[::-1] for segment in target[::-1]]
+            # Preserve node identities on an already identical run. Redrawing
+            # it creates a false geometry edit on an untouched held neighbor.
+            if segments == target:
+                continue
             redrawn = _redrawn(new, link, segments)
             if redrawn is not None:
                 new = redrawn

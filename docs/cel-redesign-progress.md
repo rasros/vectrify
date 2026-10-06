@@ -2757,6 +2757,168 @@ Retaining jagged unions and merely recoloring them cannot deliver the intended
 human abstraction. General joint fitting, content normalization, UI controls,
 corpus expansion, conditional ranking and independent release review remain open.
 
+## Structured interior fitting and union correspondence
+
+The previous goal turn was progress: `b56761b` added broad material competitors
+and independent availability evidence. This turn addresses the geometry blocker
+found in the source-only initialization rather than claiming a sword quality gain.
+The eight complete deliveries and their frozen gates remain open.
+
+### Diagnosed and changed behavior
+
+The inventory in `.bench/coherent-boundary-inventory-before-permissions.json`
+records source hash
+`4999e6c766974d418a488784941aaf6ac7b354ce1fa2d971cbdd3cecaba89999`.
+All 1,658 primary paths of the owned material initializer have whole geometry
+holds and no usable chain permissions, totaling 10,286 nodes. Some large
+surfaces nevertheless lie entirely inside the actual opaque core. Structured
+RGBA export held every path and omitted permissions even for generic interior
+curve models; this also blocked ordinary CPU fitting of those curves.
+
+`opacity.py` now records bounded chain permissions for generic curve models in
+structured export. Straight and ellipse primitives remain protected. Native
+transparent contacts, thin components, explicit widths, alpha steps, repaired
+crossings and unrecorded segments retain their exact complement. A path with
+both generic and protected chains can fit only its proved generic segments.
+The existing path/node/chain/segment caps and fingerprint/frame checks apply.
+
+`constraints.merged` transfers permissions through an owned exact contour union
+in `families.py` and `surface_models.py`. It matches surviving complete segment
+controls in the same current frame, retires internal edges, fingerprints the new
+geometry and keeps original chain identities as lineage. A protected coincident
+copy vetoes a free copy. Unknown, stale, differently framed, over-bound or
+interrupted paths cannot authorize new fitting. New or boolean-subdivided
+segments stay protected. Continued-under-mark geometry still discards replaced
+permissions because it changes more than an ordinary union.
+
+The shared fitter also redrew already identical neighbor runs, creating new
+node identities on a held underlayer and making a legal interior fit appear to
+edit that protected path. `shared.follow` now skips only an exactly identical
+run. It still follows an actual change as small as 0.000001 native coordinate
+units; rounded shared-edge equality is not used for this no-op check. Native
+regressions verify both adjacent surfaces change together while the underlayer
+geometry and complete alpha raster remain unchanged. Full/local scores and
+reload permissions agree.
+
+These changes preserve existing supported curves; they do not prove arbitrary
+boolean subcurves or rebuild the canonical graph after splitting source atoms.
+Parameterized primitive fitting and richer variable-width ink remain unfinished.
+
+### Discovery completion guard
+
+The first matched run with the geometry fixes but without a completion guard,
+`.bench/planned-structured-boundary-permissions`, records source hash
+`dd688a3928baa51b5906dbf4ff5b76787fbae1172400ea3894e110cb75370be0`.
+Eight evaluations and seven local acceptances include two boundary fits, but
+receive zero full checkpoints. It returns the 10,286-node initializer with human
+MSE 512.81 in 53.24 seconds. Reserving exactly the estimated full-check duration
+was insufficient when a proposal finished after its last deadline poll.
+
+Search now additionally leaves the longest observed proposal opportunity before
+the shared validation deadline, with a 0.05-second minimum guard when an explicit
+full-check estimate is supplied. This changes only the time bound; anchors,
+beam order, evaluation caps, native acceptance and score weights are unchanged.
+The report includes `checkpoint_guard_seconds`. A deterministic-clock test
+reproduces completion just after a deadline poll and verifies that the admitted
+state receives a full checkpoint. An observation-based guard is not a proof of
+worst-case latency for an unseen renderer/boolean; hardware runtime gates remain
+open.
+
+### Final matched native and paired evidence
+
+The retained source hash is
+`69f704de9bb688c279822826e008a273922e7ad9c1825602069b5f96173183f8`.
+The final sword run in `.bench/planned-structured-boundary-guarded` uses the same
+native source/mask and 60-second, complexity-50, balanced, refinement-disabled
+settings. It takes 53.61 seconds. Nine proposals are evaluated, seven are locally
+accepted and three receive independent full checkpoints, with zero score
+disagreements. The completion guard is 2.90 seconds. Local search and validation
+take 12.13 seconds, including 3.77 seconds for full checks. Two boundary fits
+are admitted locally; neither is selected.
+
+| Sword result | Nodes | Contours | Paths | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Human fixture | 523 | 93 | 80 | 1,127 | 0 |
+| Legacy CEL | 2,312 | 339 | 137 | 4,230 | 663.31 |
+| Previous retained broad-material run | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Structured permissions and guarded checkpoints | 10,121 | 1,660 | 1,607 | 20,347 | 514.67 |
+| Frozen gate | At most 800 | At most 140 | — | — | At most 497.39 |
+
+The selected drawing contains one ink replacement and 31 gradients. It has zero
+crossings or published native policy rejections. Tip/facets/guard/wrapping/jewel
+errors are 560.66 / 254.12 / 1,166.23 / 882.61 / 1,332.64. Out-of-time,
+search-out-of-time and stopped are false; deadline overshoot is zero and
+refinement remains incomplete. The normalizer stays 54,564 and the nominal
+complexity-50 cost target stays 27,282. Against the prior retained run, error
+decreases by just 0.18 while nodes increase by 112 and cost increases by 292.
+This is not a useful drawing improvement. Initialization times vary between
+runs, so the comparison does not isolate the guard's runtime effect.
+
+The final four half-opacity tuning controls in
+`.bench/planned-structured-boundary-guarded-rgba-pairs` have identical source,
+clean-target and mask hashes to `.bench/planned-broad-material-checkpoints-rgba-pairs`.
+All selected PNGs are byte-identical, and all global, feature and line scores
+remain unchanged. Each reaches 48 evaluations and four full checkpoints with
+complete diagnostic pools and zero score disagreements.
+
+| Tuning variant | Nodes / cost | Clean MSE | Same-cost oracle gap | Generation seconds |
+| --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 319 | 177.70 | 15.60 | 14.18 |
+| Anime face | 176 / 272 | 206.86 | 0.25 | 18.02 |
+| Western park | 547 / 987 | 178.72 | 0 | 10.16 |
+| Rubberhose band | 407 / 765 | 167.23 | 0.39 | 13.02 |
+
+The paired completion guards range from 0.11 to 0.25 seconds. This establishes
+unchanged quality on these controls, not a speedup or broader corpus coverage.
+Tests do not overlap timed benchmarks. Reproduce with the native and paired
+commands in the preceding section, replacing output directories with
+`.bench/planned-structured-boundary-guarded` and
+`.bench/planned-structured-boundary-guarded-rgba-pairs` respectively.
+
+### Final source-only boundary availability
+
+The final inventory in `.bench/coherent-boundary-inventory.json` uses the retained
+source hash. It finds 1,233 paths with usable permissions, containing 8,650 nodes
+and 5,794 free segments; 425 paths with 1,636 nodes retain their whole holds.
+The underlying initializer geometry is unchanged. The first broad material
+union merges 51 paths; its surviving `cel-fill-4295` retains exact permissions.
+Its whole metadata fork has 1,197 permission records. Retired source chains are
+lineage only, not evidence of rebuilt canonical boundaries.
+
+The 180-second diagnostic audit in
+`.bench/coherent-boundary-candidate-audit/summary.json` tests the first four
+boundary fits on the initializer and then on that broad union. It records the
+same source hash before and after. It uses only source evidence for proposals,
+and consults the human render afterward. All eight proposals pass native policy,
+match the independent local raster exactly and have a maximum full/local
+score-term difference of 2.32e-10. This bounded prefix is not an exhaustive
+candidate pool or matched-budget production result.
+
+| Fitting prefix | Resulting node counts | Human MSE range | Largest node saving within the prefix |
+| --- | --- | --- | ---: |
+| Initializer (10,286 nodes, MSE 512.81) | 10,285 / 10,286 / 10,286 / 10,264 | 512.25–512.83 | 22 |
+| Broad gradient union (10,098 nodes, MSE 513.22) | 10,097 / 10,098 / 10,098 / 10,098 | 513.18–513.27 | 1 |
+
+The best initializer fit reduces nodes by about 0.21% and MSE by about 0.11%.
+A usable permission is therefore not proof of a compact interpretation. The
+next geometry work must rebuild supported current boundary correspondence
+through fragmented junctions, including proved subdivisions and true canonical
+source atom splits, and compose those boundaries with coherent paint and ink.
+Do not substitute more generic curve fitting or a learned ranker for that
+missing representation.
+
+### Retained verification
+
+The full relevant planner, legacy CEL, shared fitting, operation and benchmark
+suite passes 554 tests in 61.44 seconds. New coverage includes structured export
+and CPU refinement with holes/faint marks; exact surviving union permissions
+with native joint fitting and reload; stale frames, bounds, stop and unproved
+boolean subdivisions; protected ellipses; exact no-op shared runs and tiny real
+changes; and the completion guard. Ruff lint passes and all 63 checked files
+are formatted. Project Pyrefly reports zero errors and 61 existing warnings;
+tests are excluded from that project check and exercised by pytest. No complete
+delivery or release gate is claimed finished.
+
 ## Remaining requirements
 
 None of the eight complete deliveries is claimed finished yet. In particular:

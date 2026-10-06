@@ -24,7 +24,7 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.boundary_evidence import shade_fragment
-from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.constraints import discard, merged
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.layer_order import ordered
 from vectrify.refine.cel_plan.local import (
@@ -641,8 +641,13 @@ class Families:
                 details={
                     "regions": sum(s.role != "underlay" for s in changed.surfaces),
                     "geometry_constraints": sorted(holds),
-                    "chain_constraints": discard(
-                        state.details.get("chain_constraints"), ids
+                    "chain_constraints": merged(
+                        state.details.get("chain_constraints"),
+                        document,
+                        proposed,
+                        ids,
+                        survivor,
+                        work,
                     ),
                     "family_estimate": {"priority": priority, "paint_delta": delta},
                 },

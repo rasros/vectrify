@@ -6,7 +6,15 @@ import numpy as np
 import pytest
 from PIL import Image
 
-from vectrify.document import export_svg, import_svg, load_project, save_project
+from vectrify.document import (
+    Editor,
+    Selection,
+    export_svg,
+    import_svg,
+    load_project,
+    save_project,
+)
+from vectrify.document.join import path_style, union_geometry
 from vectrify.document.redraw import root_matrix
 from vectrify.refine import shared
 from vectrify.refine.cel_plan import constraints as chains
@@ -18,7 +26,7 @@ from vectrify.refine.cel_plan.local import LocalPolicy
 from vectrify.refine.cel_plan.model import Evidence, Options, Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.policy import Policy
-from vectrify.refine.cel_plan.proposals import Operators
+from vectrify.refine.cel_plan.proposals import Operators, bounds
 from vectrify.refine.cel_plan.refine import _geometry_proposal, refine
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.search import State, search
@@ -174,10 +182,12 @@ def evidence():
     )
 
 
-def prepared():
+def prepared(*, structure=False):
     source = evidence()
     options = Options(tolerance=0.1, gradients=False, refine=False)
-    svg, details = export(source, source.labels, options, Work.start(10), layers=True)
+    svg, details = export(
+        source, source.labels, options, Work.start(10), layers=True, structure=structure
+    )
     frontier = Frontier(Policy(source.rgba))
     assert frontier.add(svg, "Native contacts", details)
     frontier.freeze_normalizer()
@@ -193,8 +203,11 @@ def prepared():
     return source, frontier, state, options
 
 
-def test_exported_permissions_reach_native_acceptance_with_holes_and_faint_marks():
-    source, frontier, state, options = prepared()
+@pytest.mark.parametrize("structure", [False, True])
+def test_exported_permissions_reach_native_acceptance_with_holes_and_faint_marks(
+    structure,
+):
+    source, frontier, state, options = prepared(structure=structure)
     metadata = state.details["chain_constraints"]
     assert state.details["native_hold_reasons"]["transparent-contact"] > 0
     assert state.details["native_hold_reasons"]["thin-component"] > 0
@@ -222,8 +235,11 @@ def test_exported_permissions_reach_native_acceptance_with_holes_and_faint_marks
     partition.validate(import_svg(selected.svg))
 
 
-def test_cpu_refinement_uses_chain_permissions_and_refreshes_accepted_geometry():
-    source, frontier, state, options = prepared()
+@pytest.mark.parametrize("structure", [False, True])
+def test_cpu_refinement_uses_chain_permissions_and_refreshes_accepted_geometry(
+    structure,
+):
+    source, frontier, state, options = prepared(structure=structure)
     # Isolate geometry in this test; separate tests exercise paint/width fitting.
     state.details["paint_constraints"] = [s.id for s in state.partition.surfaces]
     frontier.entries[0].details["paint_constraints"] = state.details[
@@ -292,6 +308,156 @@ def test_family_replacement_discards_permissions_but_preserves_its_whole_path_ho
     )
     assert survivor in proposal.details["geometry_constraints"]
     assert state.details["chain_constraints"]["paths"]
+
+
+def union_fixture():
+    document = import_svg(
+        '<svg width="64" height="64"><g opacity=".5" '
+        'transform="translate(4 2) scale(.8)">'
+        '<path id="base" fill="#b05030" d="M8 8H56V40H8Z"/>'
+        '<path id="a" fill="#b05030" d="M8 8H24V40H8Z"/>'
+        '<path id="b" fill="#b05030" d="M24 8H40C40 12 40 20 41 24'
+        'C42 28 42 36 42 40H24Z"/>'
+        '<path id="c" fill="#b05030" d="M40 8H56V40H42'
+        'C42 36 42 28 41 24C40 20 40 12 40 8Z"/></g></svg>'
+    )
+    records = {}
+    for oid in ("a", "b", "c"):
+        records[oid] = {
+            "geometry": chains.fingerprint(document.geometry_for(oid).path_data()),
+            "matrix": root_matrix(document, oid),
+            "free": [
+                value
+                for _a, _b, value in chains.segments(document, oid)
+                if len(value) == 4 or all(point[0] == 24 for point in value)
+            ],
+            "chains": [{"id": f"source-{oid}", "members": [ord(oid) - ord("a") + 1]}],
+        }
+    geometry = union_geometry(
+        [document.geometry_for(oid) for oid in ("a", "b")],
+        [path_style(document, document.element(oid)) for oid in ("a", "b")],
+    )
+    editor = Editor(document, selection=Selection(whole_document=True))
+    with editor.transaction("Owned material union") as transaction:
+        transaction.delete_objects(frozenset({"a"}))
+        transaction.replace_geometry("b", geometry)
+    return document, editor.snapshot.document, {"version": 1, "paths": records}
+
+
+def test_exact_union_keeps_surviving_permissions_for_native_shared_fitting():
+    before, document, metadata = union_fixture()
+    parent_metadata = repr(metadata)
+    updated = chains.merged(metadata, before, document, ("a", "b"), "b", Work.start(10))
+    assert repr(metadata) == parent_metadata
+    assert "a" not in updated["paths"]
+    assert len(updated["paths"]["b"]["free"]) == 2
+    hold = chains.bind(document, "b", updated)
+    assert hold is not None
+    svg = export_svg(document)
+    truth = render(svg, (64, 64))
+    proposed = _geometry_proposal(
+        document,
+        "b",
+        Image.fromarray(np.rint(truth[..., :3] * 255).astype(np.uint8)),
+        Options(tolerance=2),
+        Work.start(10),
+        frozenset({"base", "b", "c"}),
+        move=False,
+        chain_constraints=updated,
+    )
+    assert proposed is not None
+    assert proposed.geometry_for("c") != document.geometry_for("c")
+    assert proposed.geometry_for("base") == document.geometry_for("base")
+    assert hold.intact(proposed, "b")
+    actual = render(export_svg(proposed), (64, 64))
+    np.testing.assert_array_equal(actual[..., 3], truth[..., 3])
+    frontier = Frontier(Policy(truth))
+    assert frontier.add(svg, "Owned union")
+    full = frontier.policy.evaluate(export_svg(proposed))
+    assert full.valid
+    assert full.cost < frontier.baseline.evaluation.cost
+    evaluator = LocalPolicy(frontier.policy)
+    local = evaluator.update(
+        evaluator.start(svg, frontier.baseline.evaluation),
+        export_svg(proposed),
+        bounds(document, proposed, ("b", "c")),
+        full.structure,
+    )
+    assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+    assert local.canvas.matches(actual)
+    refreshed = chains.refresh(updated, document, proposed, ("b", "c"))
+    saved, _ = load_project(save_project(proposed))
+    assert chains.bind(saved, "b", refreshed) is not None
+    assert chains.bind(saved, "c", refreshed) is not None
+
+
+@pytest.mark.parametrize("failure", ["stale", "frame", "stop", "bound"])
+def test_union_never_recovers_stale_unframed_or_interrupted_permissions(
+    failure, monkeypatch
+):
+    before, after, metadata = union_fixture()
+    work = Work.start(10)
+    if failure == "stale":
+        metadata["paths"]["b"]["geometry"] = "stale"
+    elif failure == "frame":
+        editor = Editor(after, selection=Selection(whole_document=True))
+        with editor.transaction("Changed survivor frame") as transaction:
+            transaction.set_attributes("b", {"transform": "translate(1 0)"})
+        after = editor.snapshot.document
+    elif failure == "stop":
+        work.stop.set()
+    else:
+        monkeypatch.setattr(chains, "MAX_PATH_NODES", 1)
+    original = repr(metadata)
+    updated = chains.merged(metadata, before, after, ("a", "b"), "b", work)
+    assert "a" not in updated["paths"]
+    assert "b" not in updated["paths"]
+    assert updated["paths"]["c"] == metadata["paths"]["c"]
+    assert repr(metadata) == original
+
+
+def test_boolean_subdivisions_do_not_inherit_unproved_curve_permissions():
+    before, _after, metadata = union_fixture()
+    geometry = before.geometry_for("b")
+    nodes = list(geometry.subpaths[0].nodes)
+    curves = [i for i, n in enumerate(nodes) if n.command == "C"]
+    nodes[curves[0]] = replace(nodes[curves[0]], values=(42, 12, 38, 20, 40, 24))
+    nodes[curves[1]] = replace(nodes[curves[1]], values=(42, 28, 38, 36, 40, 40))
+    before = before.replace_geometry(
+        replace(geometry, subpaths=(replace(geometry.subpaths[0], nodes=tuple(nodes)),))
+    )
+    metadata["paths"]["b"]["geometry"] = chains.fingerprint(
+        before.geometry_for("b").path_data()
+    )
+    metadata["paths"]["b"]["free"] = [
+        value for _a, _b, value in chains.segments(before, "b") if len(value) == 4
+    ]
+    combined = union_geometry(
+        [before.geometry_for(oid) for oid in ("a", "b")],
+        [path_style(before, before.element(oid)) for oid in ("a", "b")],
+    )
+    after = before.replace_geometry(replace(combined, id=geometry.id))
+    assert sum(n.command == "C" for s in combined.subpaths for n in s.nodes) == 4
+    updated = chains.merged(metadata, before, after, ("a", "b"), "b", Work.start(10))
+    assert "b" not in updated["paths"]
+
+
+def test_structured_ellipse_stays_exact_beside_a_refinable_interior_curve():
+    source = evidence()
+    y, x = np.indices(source.labels.shape)
+    labels = source.labels.copy()
+    labels[(x - 26) ** 2 + (y - 52) ** 2 <= 10**2] = 4
+    source = replace(source, labels=labels)
+    options = Options(tolerance=1.2, gradients=False, refine=False)
+    svg, metadata = export(source, labels, options, Work.start(10), structure=True)
+    document = import_svg(svg)
+    assert any(m["model"] == "ellipse" for m in metadata["geometry_models"])
+    assert "cel-fill-4" in metadata["geometry_constraints"]
+    assert chains.bind(document, "cel-fill-4", metadata["chain_constraints"]) is None
+    assert sum(len(s.nodes) for s in document.geometry_for("cel-fill-4").subpaths) == 5
+    assert (
+        chains.bind(document, "cel-fill-1", metadata["chain_constraints"]) is not None
+    )
 
 
 @pytest.mark.parametrize("limit", ["chains", "segments", "source_points"])

@@ -26,7 +26,7 @@ from vectrify.document.model import paint_server
 from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
-from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.constraints import merged
 from vectrify.refine.cel_plan.families import Families, _gradient, _opacity
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Options, Work
@@ -439,8 +439,13 @@ class MaterialSurfaces:
                 details={
                     "regions": sum(s.role != "underlay" for s in partition.surfaces),
                     "geometry_constraints": sorted(holds),
-                    "chain_constraints": discard(
-                        state.details.get("chain_constraints"), ids
+                    "chain_constraints": merged(
+                        state.details.get("chain_constraints"),
+                        document,
+                        proposed,
+                        ids,
+                        survivor,
+                        work,
                     ),
                     "material_surface": {
                         "paint_model": "gradient" if paint.gradient else "flat",

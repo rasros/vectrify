@@ -50,6 +50,32 @@ def test_a_shared_edge_is_found_and_its_ends_frozen():
     assert {nodes[i] for i in held if i in nodes} == {(10.0, 0.0), (10.0, 10.0)}
 
 
+@pytest.mark.parametrize("selected", ["a", "b"])
+def test_follow_preserves_exactly_unchanged_runs_and_node_identities(selected):
+    document = import_svg(SIDE)
+    neighbour = "b" if selected == "a" else "a"
+    found = links(document, [selected], [neighbour])
+    followed, changed = follow(document, found)
+    assert changed == set()
+    assert followed is document
+    assert followed.geometry_for(neighbour) == document.geometry_for(neighbour)
+
+
+def test_follow_does_not_skip_a_small_actual_shared_edge_change():
+    document = import_svg(SIDE)
+    found = links(document, ["a"], ["b"])
+    geometry = document.geometry_for("a")
+    middle = next(
+        n for s in geometry.subpaths for n in s.nodes if n.endpoint == (10, 5)
+    )
+    updated = document.replace_geometry(
+        geometry.replace_node(replace(middle, values=(10.000001, 5)))
+    )
+    followed, changed = follow(updated, found)
+    assert changed == {"b"}
+    assert (10.000001, 5) in points(followed, "b")
+
+
 def test_an_overlap_stops_being_an_intact_shared_run():
     document = import_svg(SIDE)
     forward = links(document, ["a"], ["b"])[0]

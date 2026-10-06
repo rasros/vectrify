@@ -380,7 +380,12 @@ def export(
             index for index in regions if index >= 0 and index not in hidden
         )
         if models is not None:
-            return models(points, bound)
+            nodes = models(points, bound)
+            # Compact primitives remain exact. Generic fitted curves still
+            # have bounded interior permissions, even in structured export.
+            if models.decisions[-1]["model"] == "curve":
+                chains.add(points, nodes, regions)
+            return nodes
         nodes = cel.curve_nodes(points, bound, smooth=cel.FILL_SMOOTH, fit=cel.FILL_FIT)
         chains.add(points, nodes, regions)
         return nodes
@@ -504,7 +509,7 @@ def export(
     )
     chain_constraints = chains.metadata(
         outlines,
-        topology_regions - fixed_ink_regions if not structure else set(),
+        (set(outlines) - hidden if structure else topology_regions) - fixed_ink_regions,
         ownership,
         (1 / sx, 0, 0, 1 / sy, x, y),
         work,

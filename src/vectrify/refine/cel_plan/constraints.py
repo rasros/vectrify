@@ -135,6 +135,60 @@ def discard(metadata: dict | None, ids) -> dict | None:
     }
 
 
+def merged(metadata, before, after, ids, survivor, work: Work):
+    """Rebind only exact surviving permissions after an owned contour union.
+
+    Boolean operations can retire internal edges, subdivide curves or introduce
+    new serialization segments. Unmatched segments stay protected. A protected
+    copy vetoes a coincident free copy, and stale or differently framed paths
+    cannot authorize any new geometry. Source chain identities remain lineage;
+    the current fingerprint and explicit free segments supply the permission.
+    """
+    result = discard(metadata, ids)
+    if result is None or work.interrupted or result.get("version") != 1:
+        return result
+    shape = after.geometry_for(survivor)
+    if sum(len(s.nodes) for s in shape.subpaths) > MAX_PATH_NODES:
+        return result
+    matrix = tuple(root_matrix(after, survivor))
+    available, protected, lineage = Counter(), set(), {}
+    inspected = 0
+    for oid in ids:
+        if work.interrupted or tuple(root_matrix(before, oid)) != matrix:
+            return result
+        hold = bind(before, oid, metadata)
+        remaining = Counter(hold.protected) if hold is not None else None
+        for _a, _b, value in segments(before, oid):
+            inspected += 1
+            if inspected > MAX_SEGMENTS or work.interrupted:
+                return result
+            if remaining is None or remaining[value]:
+                protected.add(value)
+                if remaining is not None:
+                    remaining[value] -= 1
+            else:
+                available[value] += 1
+        if hold is not None:
+            for chain in metadata["paths"][oid]["chains"]:
+                identity = (chain["id"], tuple(chain["members"]))
+                lineage[identity] = chain
+    free = []
+    for _a, _b, value in segments(after, survivor):
+        if work.interrupted:
+            return result
+        if value not in protected and available[value]:
+            free.append(value)
+            available[value] -= 1
+    if free:
+        result["paths"][survivor] = {
+            "geometry": fingerprint(shape.path_data()),
+            "matrix": matrix,
+            "free": free,
+            "chains": list(lineage.values()),
+        }
+    return result
+
+
 class Chains:
     """Record export permissions within independent chain/segment caps."""
 
