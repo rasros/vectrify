@@ -36,7 +36,9 @@ def _sample(points: np.ndarray, count: int = 256) -> np.ndarray:
     )
 
 
-def _straight(points: np.ndarray, tolerance: float) -> Model | None:
+def _straight(
+    points: np.ndarray, tolerance: float, limits: np.ndarray | None = None
+) -> Model | None:
     if cel.run_corners(points, False):
         return None
     start, end = points[0], points[-1]
@@ -47,7 +49,11 @@ def _straight(points: np.ndarray, tolerance: float) -> Model | None:
     along = (points - start) @ direction / length2
     nearest = start + np.clip(along, 0, 1)[:, None] * direction
     distance = np.linalg.norm(points - nearest, axis=1)
-    if float(distance.max()) > tolerance or np.min(np.diff(along)) < -0.02:
+    if (
+        float(distance.max()) > tolerance
+        or (limits is not None and np.any(distance > limits))
+        or np.min(np.diff(along)) < -0.02
+    ):
         return None
     contour = Subpath(
         "model",
@@ -178,6 +184,49 @@ class Boundaries:
         return nodes
 
 
+def ink_limits(points: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    """Quarter-band movement bounds from local source ink, not paint area.
+
+    Only contiguous ink along either side of the source boundary contributes.
+    The short profile saturates at the 0.75-pixel maximum tolerance, so broad
+    shapes cannot lend their width to an attached narrow branch. Pixel stair
+    directions use a two-step tangent; neither gaps nor off-canvas pixels can
+    extend a profile. Callers keep long chains on the precise fallback.
+    """
+    if len(points) > 4096:
+        raise ValueError("Local ink profiles exceed the boundary point bound")
+    points = np.asarray(points, dtype=float)
+    if len(points) < 2:
+        return np.full(len(points), 0.25)
+    closed = len(points) > 3 and np.array_equal(points[0], points[-1])
+    source = points[:-1] if closed else points
+    if closed:
+        tangent = np.roll(source, -2, axis=0) - np.roll(source, 2, axis=0)
+    else:
+        index = np.arange(len(source))
+        tangent = source[np.minimum(index + 2, len(source) - 1)]
+        tangent -= source[np.maximum(index - 2, 0)]
+    length = np.linalg.norm(tangent, axis=1)
+    normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
+    normal /= np.maximum(length[:, None], 1e-12)
+    offsets = np.arange(0.25, 3.5, 0.25)
+    width = np.zeros(len(source))
+    for sign in (-1, 1):
+        samples = (
+            source[:, None, :] + sign * normal[:, None, :] * offsets[None, :, None]
+        )
+        x, y = np.floor(samples).astype(int).transpose(2, 0, 1)
+        valid = (x >= 0) & (y >= 0) & (x < mask.shape[1]) & (y < mask.shape[0])
+        inside = (
+            valid
+            & mask[np.clip(y, 0, mask.shape[0] - 1), np.clip(x, 0, mask.shape[1] - 1)]
+        )
+        width += np.cumprod(inside, axis=1).sum(axis=1) * 0.25
+    limits = np.clip(width * 0.25, 0.25, 0.75)
+    limits[length < 1e-8] = 0.25
+    return np.r_[limits, limits[0]] if closed else limits
+
+
 class InkBoundaries:
     """Fit unsmoothed source ink between supported corners and shared anchors.
 
@@ -189,7 +238,9 @@ class InkBoundaries:
     def __init__(self):
         self.decisions: list[dict] = []
 
-    def __call__(self, points: np.ndarray, tolerance: float):
+    def __call__(
+        self, points: np.ndarray, tolerance: float, *, limits: np.ndarray | None = None
+    ):
         closed = len(points) > 3 and np.array_equal(points[0], points[-1])
         if (closed and len(points) <= 32) or len(points) > 4096:
             nodes = cel.curve_nodes(
@@ -197,7 +248,12 @@ class InkBoundaries:
             )
             self.decisions.append({"model": "precise-mark", "nodes": len(nodes)})
             return nodes
-        model = ellipse(points, tolerance) if closed else None
+        ellipse_tolerance = (
+            min(tolerance, float(limits[1:-1].min()))
+            if limits is not None and len(points) > 2
+            else tolerance
+        )
+        model = ellipse(points, ellipse_tolerance) if closed else None
         if model is not None:
             nodes = [(node.command, node.values) for node in model.contour.nodes[1:]]
             self.decisions.append({"model": model.kind, "nodes": len(nodes)})
@@ -206,14 +262,20 @@ class InkBoundaries:
         nodes = []
         for start, end in pairwise(anchors):
             segment = points[start : end + 1]
-            model = _straight(segment, tolerance)
+            local = None if limits is None else limits[start : end + 1]
+            model = _straight(segment, tolerance, local)
             if model is not None:
                 fitted_nodes = [
                     (node.command, node.values) for node in model.contour.nodes[1:]
                 ]
             else:
                 fitted_nodes = cel.curve_nodes(
-                    segment, tolerance, smooth=0, fit=cel.FILL_FIT
+                    segment,
+                    min(tolerance, float(local[1:-1].min()))
+                    if local is not None and len(local) > 2
+                    else tolerance,
+                    smooth=0,
+                    fit=cel.FILL_FIT,
                 )
             nodes.extend(fitted_nodes)
             self.decisions.append(

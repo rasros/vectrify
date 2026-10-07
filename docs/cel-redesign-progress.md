@@ -14,6 +14,172 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Chain-local ink movement bounds
+
+The previous anchored experiment loses seven of the girl's 44 clean-target
+centerline pixels recovered by the curve comparator. Its ink raster has 315
+fully dark pixels rather than 358, and its centerline shrinks from 136 to 121
+pixels. Nine old centerline samples around the shoes have no anchored sample
+within two pixels. The unchanged line threshold on this half-opacity variant
+detects that loss; the threshold and gate are not relaxed.
+
+The affected source chains have class-wide tolerances around 0.48–0.64 pixels.
+Those area/perimeter estimates mix broad ink shapes with narrower attached
+parts and disconnected shapes sharing paint. A runtime ablation caps all ink
+chains at 0.25 pixels. At `.bench/cel-ink-local-fit/quarter-pixel-ablation`, source
+hash `19976c0c4ac8af6472f91554147bc5a245ce6d58e460a67ad532ef95a4b8db88`,
+it restores first fine line F1 to 0.356 but uses 1,419 nodes rather than curve's
+1,413. That explicitly altered configuration is a diagnosis, not a final
+configured report or release evidence.
+
+Anchored fitting now measures local movement limits from the source ink mask
+beside each canonical boundary. It samples 13 quarter-pixel offsets in each
+normal direction, using a two-step source tangent to avoid single-step pixel
+stair directions. Only contiguous ink contributes width; a real gap, hole or
+off-canvas sample ends the profile. A quarter of that local width supplies a
+0.25–0.75-pixel bound, with the existing scale conversion and configured
+tolerance. The short profile saturates at the maximum movement bound and is
+limited to 4,096 points; longer chains keep the precise fallback. It removes
+the class-wide area/perimeter estimate and its padded label map.
+
+Straight fits must satisfy each point's bound. Raw cubic intervals use the
+minimum local bound between their exact source-corner/junction anchors;
+complete ellipse competitors use a conservative minimum bound. Small source
+components, short closed marks and long unmodeled chains still retain their
+precise raw interpretation. Source ink classification, strokes, material
+hierarchies, ownership limits, native checks and automatic scheduling are
+unchanged. No clean reference geometry or feature rectangle supplies a bound.
+
+The first local-width prototype at `.bench/cel-ink-local-fit/local-width-prototype`
+uses source hash `d988b96e28f265d9f7fa737ca9877e7291fa03ab4393867a6306c511a571d8df`.
+Its first fine girl uses 1,364 nodes / 110 contours, clean MSE 76.498776 and
+line F1 0.374: 32 of 44 clean centerline pixels are recovered again. This
+retains a 3.5% node saving against the curve comparator while fixing the
+observed line loss, with about 0.9% worse pixel error. It is one tuning case,
+not evidence for broader adoption.
+
+The final relevant suite passes **963 tests in 171.02 seconds**. A subsequent
+geometry module run passes **18 controls in 0.43 seconds**, including one added
+control that permits a supported compact line through wide ink while respecting
+narrow ends. This verifies 964 distinct cases across those runs. New controls
+also cover a broad shape with an attached hairline, actual profile gaps,
+off-canvas wrap rejection, closed/reversed chain consistency, rejection of an
+unsupported narrow-bend straight fit and the per-chain point bound. Changed-file
+Ruff/format and production Pyrefly pass; the latter reports zero errors and
+62 warnings, with tests exercised by pytest.
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest -q \
+  tests/refine/test_cel*.py tests/refine/test_shared.py \
+  tests/refine/test_simplify.py tests/refine/test_snap.py \
+  tests/operations/test_cel_planned.py tests/operations/test_generate.py \
+  tests/test_bench_cel_planned.py tests/test_cel_pairs.py tests/test_bench_cel_pairs.py
+```
+
+Final reports at `.bench/cel-ink-local-fit-final` share source SHA-256
+`4a5aec2020107400af41cc41869238aa646213d22c502a23c09dfd4ae6b9c22b`.
+The first finer sword curve/local-width drawings use 3,491 / 3,341 nodes,
+381 contours and 17 true strokes, with human MSE 552.116829 / 551.858027.
+The second uses 4,060 / 3,810 nodes, 405 contours and two strokes, with
+MSE 571.093568 / 570.837525. Savings are 4.3% / 6.2%, smaller than the earlier
+class-wide fit. First feature errors are 864.609084 / 286.406778 / 1,050.535336 /
+897.563512 / 1,413.713853 for tip / facets / guard / handle / jewel. The inspected
+blade and handle still contain the same unwanted material patches and filled
+contact remnants. The source gap is retained; the human repair is excluded.
+None of the sword's numerical or local-feature gates passes.
+
+The following region rows compare the finer requested budget of 64 for each
+of the same two source parents. All inputs remain clean 192-pixel, half-opacity
+tuning variants; clean targets and feature boxes enter only post-generation
+scoring. Node savings and line changes are measured on these candidate pools,
+not a selected operation or held-out run.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1364 | 110 → 110 | 75.829113 → 76.498776 | 0.356 → 0.374 |
+| anime-girl / 2 | 1467 → 1421 | 118 → 118 | 74.896255 → 74.943949 | 0.000 → 0.000 |
+| anime-face / 1 | 2728 → 2556 | 190 → 190 | 73.760740 → 74.846677 | 0.431 → 0.431 |
+| anime-face / 2 | 2484 → 2376 | 144 → 144 | 75.542247 → 75.878985 | 0.259 → 0.259 |
+| western-park / 1 | 1584 → 1529 | 114 → 114 | 117.869662 → 117.815816 | 0.093 → 0.093 |
+| western-park / 2 | 1583 → 1526 | 114 → 114 | 116.452290 → 116.332582 | 0.060 → 0.060 |
+| rubberhose-band / 1 | 2364 → 2071 | 123 → 123 | 150.558292 → 150.053506 | 0.753 → 0.763 |
+| rubberhose-band / 2 | 2415 → 2060 | 123 → 123 | 131.370324 → 130.744546 | 0.663 → 0.673 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 601 / 96 / 14 | 594.290225 | 0.118 |
+| anime-girl / 1 / 64 | 2 | 646 / 106 / 14 | 590.882394 | 0.118 |
+| anime-girl / 2 / 32 | 2 | 635 / 98 / 13 | 591.590276 | 0.153 |
+| anime-girl / 2 / 64 | 2 | 707 / 113 / 13 | 586.964346 | 0.150 |
+| anime-face / 1 / 32 | 3 | 1217 / 108 / 16 | 822.264834 | 0.300 |
+| anime-face / 1 / 64 | 3 | 1490 / 169 / 16 | 814.927483 | 0.300 |
+| anime-face / 2 / 32 | 2 | 1188 / 109 / 18 | 896.270601 | 0.367 |
+| anime-face / 2 / 64 | 2 | 1426 / 165 / 18 | 889.054385 | 0.367 |
+| western-park / 1 / 32 | 2 | 807 / 81 / 21 | 475.759309 | 0.237 |
+| western-park / 1 / 64 | 2 | 854 / 97 / 21 | 472.734512 | 0.237 |
+| western-park / 2 / 32 | 3 | 812 / 81 / 21 | 415.965269 | 0.252 |
+| western-park / 2 / 64 | 3 | 841 / 93 / 21 | 413.047283 | 0.252 |
+| rubberhose-band / 1 / 32 | 4 | 1116 / 131 / 27 | 410.645107 | 0.756 |
+| rubberhose-band / 2 / 32 | 3 | 1065 / 128 / 30 | 451.737478 | 0.730 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 80.00 / 74.15 / 134.99 |
+| anime-girl | 9.88 / 10.05 / 13.23 |
+| anime-face | 26.73 / 29.06 / 53.30 |
+| western-park | 11.23 / 11.46 / 27.54 |
+| rubberhose-band | 17.31 / 13.44 / 19.19 |
+
+The eight finer region rows above have no line F1 loss against their matched
+curve comparator.
+Girl first-parent F1 improves 1.8 percentage points, recovering 32 of 44 clean
+centerline samples instead of the old anchored fit's 25. Rubberhose gains one
+percentage point for each parent while saving 12.4% / 14.7% of nodes. Face and
+park retain F1 with node savings. This corrects the observed ink-fitter
+regression; their already poor line/feature scores do not establish release
+quality. Girl and face still have small whole-image error increases.
+
+Feature errors also remain mixed. Girl eyes worsen 0.7% / 0.9%, while hairclip
+error improves 9.1% / 7.4%. The face's star-clip crop worsens **4.4% / 1.9%**;
+first-parent error changes from 303.850856 to 317.276983. The inspected
+11-by-14-pixel crop still contains the star, but its left tip shrinks. A simple
+post-generation color diagnostic (red minus blue > 35 and green minus blue
+> 25 on the white-composited crop) changes 43 gold pixels to 40, removing two
+left-tip pixels present in the reference. That diagnostic is not a new gate.
+The shared callback currently bounds the ink side; an adjacent small bright
+material also needs a source-based movement bound. Investigate and constrain
+both sides rather than averaging this feature loss away or treating unchanged
+RGBA coverage as sufficient. The route remains optional and offline.
+
+The joint-plane rows show the highest emitted prefix per source parent and
+region seed without human-error selection. Sword four-plane nodes are
+3,573 / 5,074 / 3,738 / 5,693, with human MSE 1,242.308939 / 1,171.534946 /
+1,287.424169 / 1,209.034714 for first coarse/fine then second coarse/fine.
+Ink movement bounds do not repair the missing coherent paint and exterior ink.
+All four tuning plane pools still have much worse paint error than the finer
+region alternatives. Source-cut/RLE exclusions, ownership caps and scheduling
+remain unchanged; this route is also insufficient for reference creation.
+
+All **15 reports complete** and parse as strict JSON. All **172 emitted
+proposals** have zero native validity rejections, complete ownership, component
+seals and independent local/full raster agreement. Maximum score-term difference
+is **3.348527e-9**; actual saved SVG hashes match their reports. Source RGBA,
+masks, settings, normalizers, clean SVG hashes, canonical source-parent geometry/
+paint and exact source-parent RGBA match across the three modes. The independent
+audit is `.bench/cel-ink-local-fit-final-audit.txt`. These measurements use
+separate 180-second sword and 60-second paired diagnostic allowances. They do
+not prove operation runtime, process peak memory or automatic selection.
+
+Use the same component commands below, changing the output root to
+`.bench/cel-ink-local-fit-final`. Final-source regression and native comparisons
+retain the bounds, source-gap and save/reload controls. Next constrain shared
+movement for small material features as well as ink, then extend source-supported
+exterior ink and coherent shared paint boundaries. All eight deliveries and
+all remaining release/corpus/refinement/UI/runtime/memory/independent-review
+gates stay open; the full implementation goal remains active.
+
+
 ### Joint ink planes and anchored ink boundaries
 
 The next candidate separates source-supported ink from the material-plane

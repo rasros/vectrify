@@ -42,7 +42,7 @@ from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.facet_lines import FacetLines
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.fill_winding import resolved
-from vectrify.refine.cel_plan.geometry import Boundaries, InkBoundaries
+from vectrify.refine.cel_plan.geometry import Boundaries, InkBoundaries, ink_limits
 from vectrify.refine.cel_plan.ink_models import models as ink_models
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import Box
@@ -691,31 +691,14 @@ class CoreCells:
 
             models = Boundaries()
             ink_models_boundary = InkBoundaries()
-            ink_tolerances = np.full(len(ink_cells), 0.25)
             precise_ink = np.zeros(graph.labels.shape, bool)
+            ink_mask = support & ink_cells[outline_labels]
             if self.boundary_fit == "anchored":
-                components, count = label(
-                    support & ink_cells[outline_labels], np.ones((3, 3))
-                )
+                components, count = label(ink_mask, np.ones((3, 3)))
                 component_sizes = np.bincount(components.ravel(), minlength=count + 1)
                 precise = component_sizes <= 64
                 precise[0] = False
                 precise_ink = precise[components]
-                area = np.bincount(outline_labels[support], minlength=len(ink_cells))
-                padded = np.pad(outline_labels, 1)
-                perimeter = np.zeros(len(ink_cells))
-                for axis in (0, 1):
-                    a, b = (
-                        (padded[:-1], padded[1:])
-                        if axis == 0
-                        else (padded[:, :-1], padded[:, 1:])
-                    )
-                    changed = a != b
-                    perimeter += np.bincount(a[changed], minlength=len(ink_cells))
-                    perimeter += np.bincount(b[changed], minlength=len(ink_cells))
-                ink_tolerances = np.clip(
-                    0.5 * area / np.maximum(perimeter, 1), 0.25, 0.75
-                )
 
             def boundary(
                 points: np.ndarray,
@@ -723,7 +706,7 @@ class CoreCells:
                 models=models,
                 outline_labels=outline_labels,
                 ink_cells=ink_cells,
-                ink_tolerances=ink_tolerances,
+                ink_mask=ink_mask,
                 ink_models_boundary=ink_models_boundary,
                 precise_ink=precise_ink,
             ) -> list[tuple[str, tuple[float, ...]]]:
@@ -752,13 +735,16 @@ class CoreCells:
                                     smooth=0,
                                     fit=cel.FILL_FIT,
                                 )
-                            tolerance = min(
-                                ink_tolerances[i] for i in (left, right) if ink_cells[i]
+                            limits = (
+                                ink_limits(points, ink_mask) * min(evidence.scale)
+                                if len(points) <= 4096
+                                else None
                             )
                             nodes = ink_models_boundary(
                                 points,
-                                min(self.options.boundary_tolerance, tolerance)
+                                min(self.options.boundary_tolerance, 0.75)
                                 * min(evidence.scale),
+                                limits=limits,
                             )
                             for decision in ink_models_boundary.decisions:
                                 field = {

@@ -99,14 +99,23 @@ paint and edge observations, preserving that ink above explicit underpaint in
 one complete ownership edit. It includes actual strokes and still-unmodeled
 filled ink; it does not satisfy the handle's editable-line requirement. Its
 four-plane sword candidates retain more ink but remain much worse than the
-finer region pool. An optional unsmoothed anchored ink-boundary fitter reduces
+finer region pool. The initial class-wide anchored ink-boundary fitter reduced
 the first finer region drawing from 3,491 to 3,231 nodes with nearly unchanged
-human error (552.12 to 551.83). It still has 381 contours, exceeds legacy's node
-count and fails the sword gate. The girl's line F1 also falls from 0.356 to
-0.275 despite similar pixel error, so neither experiment enters automatic
-scheduling. Continue source-supported exterior ink, shared curved material
-boundaries and compact opacity interpretations, preserving physical gaps and
-independent marks. These comparisons improve diagnosis, not release status.
+human error (552.12 to 551.83). It still had 381 contours, exceeded legacy's node
+count and failed the sword gate. That version also lost girl line F1
+from 0.356 to 0.275 despite similar pixel error. Local source-band movement
+limits now replace the class-wide area/perimeter estimate: a broad shape cannot
+lend width to an attached hairline. Straight fits satisfy per-point bounds;
+corner/junction-anchored cubics and complete ellipses use conservative local
+bounds. The matched girl replay restores line F1 to 0.374 with a smaller
+3.5% node saving. The matched sword now has 3,341 nodes / 381 contours /
+human MSE 551.86, still failing the sword gate. This fixes a measured fitter
+regression, not the incomplete ink/material interpretation or any release gate.
+Neither experiment enters
+automatic scheduling. Continue source-supported exterior ink, shared curved
+material boundaries and compact opacity interpretations, preserving physical
+gaps and independent marks. These comparisons improve diagnosis, not release
+status.
 
 ### Previous verified pause checkpoint
 
