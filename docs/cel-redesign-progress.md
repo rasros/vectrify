@@ -14,6 +14,163 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Exterior source profiles and geometric width ceilings
+
+The previous carrier check inflates every candidate width by 1.6 to allow
+later compatible-width grouping. It can reject a measured-width source stroke
+that fits the actual carrier. Source runs now retain individual geometric
+width ceilings: prove the measured footprint, test full grouping headroom, then
+use six bounded bisections when only part of that headroom fits. Every retained
+ceiling has a footprint/carrier difference proof; the unproved upper endpoint
+is discarded. A fixed width is checked directly and never clamped. Grouped
+median widths must satisfy every member's ceiling, and the final compound
+footprint is checked again. Interruption discards discovery.
+
+The width-only sword prototype at `.bench/cel-carrier-width-prototype` uses
+source hash `e932553562644fad7ce9343f51a600a1fc90833e488843aa3e8cbe9c97f295db`.
+It changes first finer nodes/contours/strokes from 3,437 / 381 / 17 to
+3,423 / 382 / 16 and human MSE from 551.842866 to 549.707374. Handle error
+falls from 897.543367 to 881.762330. This is a modest tuning result with changed
+source support, not a passed quality gate or a comparison of identical stroke
+parents. Its first source group owns 2,747 rather than 2,892 ink pixels; all
+unselected source evidence remains independently owned and rendered.
+
+Source profiles now normalize brightness over visible paint. At least one
+painted end must establish contrast; two painted ends still require a dark
+trough. Unpainted RGB, white outside the silhouette and off-canvas coordinates
+cannot prove a ridge. The source run's central profile component limits peak
+selection, width and centroid, so another mark across a zero-coverage profile
+gap cannot lend width or pull the center. Integrated coverage supplies the
+center rather than the first darkest sample on a plateau. Original source
+junction/end anchors remain exact. Peak paint uses four visibility-normalized
+bilinear samples per run point, avoiding transparent RGB and full-image RGB
+copies. The default paired-boundary classifier retains its interpretation.
+
+The optional connected ink/material route also recognizes one-sided exterior
+source contrast, using the same visible-paint brightness normalization. Its
+alpha compatibility check compares only painted neighbors. Connected growth
+stays inside actual source-drawn pixels; real gaps remain gaps and a flat dark
+material without a lighter painted neighbor is not promoted. Isolated marks
+without painted-side contrast still keep their filled interpretation. This
+constraint is not a claim that every source mark is now an editable stroke.
+
+New controls cover a measured edge width rejected by full grouping headroom,
+carrier holes and fixed widths, cancellation during width search, incompatible
+group medians, exterior coverage centroids and exact anchors, transparent-RGB
+independence, rejection of constant dark paint/unsupported isolated bands,
+two-sided shading rejection, separated profile marks, and exterior role/gap
+retention at half and quarter opacity. The relevant final suite, source hashes,
+native artwork comparisons and remaining failures follow below.
+
+The first full matrix at `.bench/cel-source-centroid-first-pass` preserves
+source hash `649a8ffc8512488936829ebc0dbf19297b77b3b81ac5e869367cbcedbf60f08a`.
+It emits 166 proposals, with six native self-crossing rejections: two unique
+source-stroke models, each repeated across the three modes. Coverage centering
+can fold a noisy source skeleton. A crossing now triggers a tighter centered
+fit, then a precise fit of the original anchored source chain. A still-unstable
+chain keeps its filled interpretation. Both recovery and rejection have direct
+controls; cancellation is checked after each fitting attempt. Native admission
+remains unchanged.
+
+The final relevant suite passes **982 tests in 166.32 seconds**. Changed-file
+Ruff/import/format checks and production Pyrefly pass; Pyrefly reports zero
+errors and 62 warnings. The final matrix at `.bench/cel-source-centroid-final`
+uses source hash
+`18bea46032a3050e4baf667109038fdb0c52ec8114c5957bc1f9610e73c75f2d`.
+All **15 reports complete**, with **162 proposals, zero native rejections,
+zero broken ownership/component/local-raster proofs**, and maximum score-term
+difference **3.348527e-9**. Strict JSON, actual saved SVG hashes, source RGBA,
+masks, settings, normalizers and scoring-target hashes are checked. All three
+modes match canonical source-parent geometry/paint and exact parent RGBA.
+The audit is `.bench/cel-source-centroid-final-audit.txt`. Timed source code
+stays unchanged throughout the matrix; diagnostic limits remain 180 seconds
+for sword and 60 for each paired case.
+
+The first finer sword curve/anchored alternatives use **3,523 / 3,462 nodes**,
+380 contours and 18 true strokes, with human MSE **549.861595 / 549.564057**.
+The anchored handle error is **874.138098**, a 2.6% reduction from the previous
+checkpoint's 897.543367; overall error falls only 0.4%. Nodes increase from
+3,437 to 3,462, and guard/jewel errors worsen to **1,123.496233 / 1,445.896573**.
+Tip/facet errors are 852.927356 / 266.505321. The second finer source parent
+has 3,921 nodes / 404 contours / one stroke / MSE 572.667918. The first source
+stroke-only parent's human error actually worsens from 517.280814 to
+522.335289. These are changed source interpretations across revisions; only
+comparisons within the final matrix have identical source parents. Neither
+stroke count nor a small handle error reduction establishes useful quality.
+
+Inspection of source/human/output feature sheets still shows filled contact
+ends and short fragments in the handle, imprecise boundaries and stray blade
+patches. The source gap remains unjoined; the human repair is excluded. All
+sword numerical and feature gates remain unmet. Generated outputs remain too
+poor to become useful additional references. Exterior profiles improve
+measurement but do not yet supply the requested complete editable lines.
+
+The paired finer region comparisons and highest emitted material-plane rows
+follow. Line scores improve for several source interpretations, but paint and
+local features remain mixed. Recovering a source stroke changes the second
+park parent; its error rises substantially despite higher line F1. The joint
+material-plane pools still lose important paint. These results do not justify
+automatic scheduling or a default change.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1380 | 110 → 110 | 74.324609 → 74.863699 | 0.374 → 0.392 |
+| anime-girl / 2 | 1467 → 1438 | 118 → 118 | 73.522578 → 73.675467 | 0.000 → 0.000 |
+| anime-face / 1 | 2619 → 2497 | 188 → 188 | 83.419321 → 83.746113 | 0.544 → 0.564 |
+| anime-face / 2 | 2621 → 2516 | 160 → 160 | 79.514930 → 80.373836 | 0.346 → 0.346 |
+| western-park / 1 | 1600 → 1559 | 113 → 113 | 118.464196 → 118.268196 | 0.093 → 0.093 |
+| western-park / 2 | 1527 → 1470 | 112 → 112 | 133.527474 → 133.606024 | 0.240 → 0.240 |
+| rubberhose-band / 1 | 2309 → 2057 | 122 → 122 | 139.397496 → 139.500533 | 0.722 → 0.733 |
+| rubberhose-band / 2 | 2501 → 2324 | 112 → 112 | 128.267022 → 127.665763 | 0.665 → 0.669 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 632 / 93 / 14 | 578.420153 | 0.100 |
+| anime-girl / 1 / 64 | 2 | 673 / 103 / 14 | 574.942746 | 0.099 |
+| anime-girl / 2 / 32 | 2 | 664 / 97 / 13 | 584.112738 | 0.106 |
+| anime-girl / 2 / 64 | 2 | 734 / 112 / 13 | 579.284905 | 0.105 |
+| anime-face / 1 / 32 | 3 | 1206 / 112 / 18 | 807.236475 | 0.282 |
+| anime-face / 1 / 64 | 3 | 1451 / 163 / 18 | 800.799709 | 0.284 |
+| anime-face / 2 / 32 | 3 | 1240 / 109 / 16 | 828.684822 | 0.422 |
+| anime-face / 2 / 64 | 3 | 1513 / 168 / 16 | 822.181453 | 0.422 |
+| western-park / 1 / 32 | 2 | 832 / 81 / 21 | 475.454705 | 0.231 |
+| western-park / 1 / 64 | 2 | 893 / 97 / 21 | 472.461654 | 0.231 |
+| western-park / 2 / 32 | 1 | 832 / 80 / 20 | 500.311784 | 0.195 |
+| western-park / 2 / 64 | 1 | 872 / 89 / 20 | 499.481744 | 0.168 |
+| rubberhose-band / 1 / 32 | 3 | 1093 / 128 / 31 | 446.022045 | 0.709 |
+| rubberhose-band / 1 / 64 | 3 | 1103 / 128 / 31 | 446.101528 | 0.709 |
+| rubberhose-band / 2 / 32 | 4 | 1119 / 125 / 28 | 411.221881 | 0.686 |
+| rubberhose-band / 2 / 64 | 4 | 1152 / 125 / 28 | 411.278024 | 0.688 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 56.39 / 59.45 / 135.57 |
+| anime-girl | 10.22 / 10.50 / 13.90 |
+| anime-face | 24.69 / 26.35 / 39.85 |
+| western-park | 12.96 / 12.41 / 20.84 |
+| rubberhose-band | 14.79 / 14.59 / 31.60 |
+
+
+Sword joint four-plane candidates use 3,566 / 5,263 / 3,580 / 5,298 nodes,
+344 / 641 / 335 / 628 contours and 26 / 26 / 25 / 25 true strokes, with human
+MSE 1,249.734940 / 1,180.779771 / 1,446.724360 / 1,379.622240 (first coarse/fine,
+then second coarse/fine). Compact plane counts do not repair coherent surfaces.
+
+The next contact hypothesis needs an explicit source-supported cap/coverage
+model. An isolated synthetic half-opacity probe at
+`.bench/cel-source-clip-compositor-probe` rules out a naive clipping shortcut:
+clipping each stroke, or clipping a group containing opaque underpaint and a
+stroke, both add alpha at an antialiased carrier edge under the actual native
+renderer. Maximum excess is 0.125490 over 79 pixels, with alpha-mass difference
+6.439216. This is compositor diagnosis, not an artwork proposal or a quality
+result. The editor's static SVG subset also lacks masks. Any subsequent model
+must prove coverage, retain original source geometry/ownership and count the
+actual representation; hiding complex silhouettes in uncharged clip assets
+is not compaction. Evaluate geometry-supported contact caps before adding a
+new compositing representation. All eight deliveries and the full goal remain
+open.
+
+
 ### Source bounds on both sides of shared ink
 
 The local-width checkpoint bounds ink but can still move the boundary of a

@@ -4,15 +4,17 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from tests.refine.test_cel_plan_core_cells import material
 from tests.refine.test_cel_plan_families import prepared
 from vectrify.document import Editor, Selection, export_svg, load_project, save_project
 from vectrify.refine.cel_plan.core_cells import CoreCells
+from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import StageInterruptedError, Work
+from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render, svg_metrics
@@ -58,6 +60,44 @@ def combined(evidence, state, options, work=None):
         layout="ink-planes",
     )
     return factory, list(factory(state, work or Work.start(20)))
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+@pytest.mark.parametrize("gap", [False, True])
+def test_connected_ink_role_retains_source_exterior_lines_without_closing_gaps(
+    alpha, gap
+):
+    line = "M20 9.5H42 M54 9.5H76" if gap else "M20 9.5H76"
+    svg = (
+        f'<svg width="96" height="96"><g opacity="{alpha / 255}">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        f'<path d="{line}" fill="none" stroke="#202020" stroke-width="3"/>'
+        "</g></svg>"
+    )
+    image = Image.fromarray((render(svg, (96, 96)) * 255).round().astype(np.uint8))
+    options = Options(refine=False)
+    evidence = collect(image, None, options, Work.start(10))
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 65)
+    evidence = replace(evidence, drawn=ink, line=ink)
+    families = Families(evidence, build(evidence), options)
+    paired = CoreCells(families, options, joint=True, grouping="ward")
+    connected = CoreCells(
+        families,
+        options,
+        joint=True,
+        grouping="ward",
+        layout="ink-planes",
+        ink_support="connected",
+    )
+    interior = np.zeros(ink.shape, bool)
+    interior[8:11, 28:36] = ink[8:11, 28:36]
+    paired_support = paired._ink_support(Work.start(10))
+    support = connected._ink_support(Work.start(10))
+    assert support is not None
+    assert paired_support is not None
+    assert not paired_support[interior].any()
+    np.testing.assert_array_equal(support, ink)
+    assert bool(support[9, 48]) is not gap
 
 
 @pytest.mark.parametrize("alpha", [255, 128])

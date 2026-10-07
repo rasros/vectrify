@@ -3,14 +3,23 @@
 from dataclasses import replace
 
 import numpy as np
+import pathops
 import pytest
 from PIL import Image
 
 from tests.refine.test_cel_plan_families import prepared
-from vectrify.document import Editor, Selection, export_svg, load_project, save_project
+from vectrify.document import (
+    Editor,
+    Geometry,
+    Selection,
+    export_svg,
+    load_project,
+    save_project,
+)
 from vectrify.document.hit_test import multiply
 from vectrify.document.join import curve_path, transformed_geometry
 from vectrify.document.redraw import root_matrix
+from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.core_cells import CoreCells
@@ -101,6 +110,120 @@ def test_broad_dark_material_and_cancelled_work_do_not_become_strokes():
     work = Work.start(10)
     work.stop.set()
     assert decoded(mask, evidence, Options(), work) is None
+
+
+def test_measured_edge_stroke_fits_without_the_full_grouping_headroom():
+    from vectrify.refine.cel_plan.ink_models import carrier_width, footprint
+
+    geometry = parse_path("M20 10H76")
+    carrier = curve_path(parse_path("M8 8H88V88H8Z"))
+    inflated = pathops.op(
+        curve_path(footprint(geometry, 1.6 * 3)), carrier, pathops.PathOp.DIFFERENCE
+    )
+    assert inflated.area > 1
+    ceiling = carrier_width(geometry, 3, carrier, Work.start(10))
+    assert ceiling is not None
+    assert 3.9 < ceiling <= 4
+    contained = pathops.op(
+        curve_path(footprint(geometry, ceiling)), carrier, pathops.PathOp.DIFFERENCE
+    )
+    assert abs(contained.area) <= 1e-8
+
+
+def test_a_carrier_hole_and_explicit_width_are_never_clamped_away():
+    from vectrify.refine.cel_plan.ink_models import carrier_width
+
+    geometry = parse_path("M20 40H76")
+    carrier = curve_path(parse_path("M8 8H88V88H8Z M40 42H56V56H40Z"), "evenodd")
+    assert carrier_width(geometry, 3, carrier, Work.start(10), fixed=True) == 3
+    assert carrier_width(geometry, 5, carrier, Work.start(10), fixed=True) is None
+    ceiling = carrier_width(geometry, 3, carrier, Work.start(10))
+    assert ceiling is not None
+    assert 3.9 < ceiling <= 4
+
+
+def test_interrupted_width_search_does_not_return_an_unproved_ceiling(monkeypatch):
+    from vectrify.refine.cel_plan import ink_models
+
+    geometry = parse_path("M20 10H76")
+    carrier = curve_path(parse_path("M8 8H88V88H8Z"))
+    work = Work.start(10)
+    original = ink_models.footprint
+
+    def stopped(geometry, width):
+        shape = original(geometry, width)
+        work.stop.set()
+        return shape
+
+    monkeypatch.setattr(ink_models, "footprint", stopped)
+    assert ink_models.carrier_width(geometry, 3, carrier, work) is None
+
+
+def test_grouped_width_cannot_spill_a_narrow_edge_run_outside_its_carrier():
+    from vectrify.refine.cel_plan.ink_models import models
+
+    svg = (
+        '<svg width="96" height="96"><g opacity="0.5">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M20 9.5H76" fill="none" stroke="#202020" stroke-width="3"/>'
+        '<path d="M20 60H76" fill="none" stroke="#202020" stroke-width="4"/>'
+        "</g></svg>"
+    )
+    image = Image.fromarray((render(svg, (96, 96)) * 255).round().astype(np.uint8))
+    evidence = collect(image, None, Options(refine=False), Work.start(10))
+    mask = ~evidence.empty & (evidence.target.mean(axis=-1) < 65)
+    carrier = curve_path(parse_path("M8 8H88V88H8Z"))
+    unconstrained = models(mask, evidence, Options(), Work.start(10))
+    assert len(unconstrained) == 1
+    assert len(unconstrained[0].geometry.subpaths) == 2
+    found = models(mask, evidence, Options(), Work.start(10), carrier=carrier)
+    assert len(found) == 2
+    assert not (found[0].selected & found[1].selected).any()
+    assert all(len(m.geometry.subpaths) == 1 for m in found)
+    narrow = min(found, key=lambda m: m.details["width"])
+    assert narrow.details["width"] <= narrow.details["carrier_width_ceiling"] < 3
+    assert unconstrained[0].details["width"] > narrow.details["carrier_width_ceiling"]
+    for model in found:
+        outside = pathops.op(
+            curve_path(model.footprint), carrier, pathops.PathOp.DIFFERENCE
+        )
+        assert abs(outside.area) <= 1e-8
+        assert model.details["width"] <= model.details["carrier_width_ceiling"]
+
+
+@pytest.mark.parametrize("simple_source", [True, False])
+def test_a_folded_profile_can_retain_its_simple_anchored_source_chain(simple_source):
+    from vectrify.refine.cel_plan.ink import Ink
+    from vectrify.refine.cel_plan.ink_models import carried
+    from vectrify.refine.crossings import crossings
+
+    evidence, _ink = drawing()
+    source = np.array([[10, 40.5], [25, 40.5], [65, 40.5], [86, 40.5]])
+    folded = np.array([[10, 40.5], [65, 50.5], [25, 50.5], [86, 40.5]])
+    if not simple_source:
+        source = folded
+    proof = Ink(folded, 2, np.full(3, 32), 1, 0)
+    offered = carried(
+        source,
+        proof,
+        evidence,
+        Options(),
+        None,
+        Work.start(10),
+        False,
+        {"runs": 0, "points": 0},
+        None,
+        ~evidence.empty,
+    )
+    if not simple_source:
+        assert offered == []
+        return
+    assert len(offered) == 1
+    model = offered[0][2]
+    assert model.kind == "straight"
+    assert model.contour.nodes[0].endpoint == tuple(source[0])
+    assert model.contour.nodes[-1].endpoint == tuple(source[-1])
+    assert crossings(Geometry("run", (model.contour,))) == 0
 
 
 @pytest.mark.parametrize("alpha", [128, 64])

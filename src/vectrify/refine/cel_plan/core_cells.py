@@ -254,15 +254,25 @@ class CoreCells:
                         return None
                     plus = np.roll(light, (dy, dx), axis=(0, 1))
                     minus = np.roll(light, (-dy, -dx), axis=(0, 1))
-                    supported = (np.minimum(plus, minus) - light >= 12) & (light <= 150)
-                    # Both sides must belong to source paint. White outside
-                    # the silhouette cannot prove a dark material is a ridge.
-                    supported &= np.roll(visible, (dy, dx), axis=(0, 1))
-                    supported &= np.roll(visible, (-dy, -dx), axis=(0, 1))
+                    pv = np.roll(visible, (dy, dx), axis=(0, 1))
+                    mv = np.roll(visible, (-dy, -dx), axis=(0, 1))
+                    if self.ink_support == "connected":
+                        # Exterior ink needs a lighter painted interior, not
+                        # white or arbitrary RGB outside the silhouette.
+                        surface = np.minimum(
+                            np.where(pv, plus, np.inf), np.where(mv, minus, np.inf)
+                        )
+                        supported = np.isfinite(surface) & (surface - light >= 12)
+                    else:
+                        supported = pv & mv & (np.minimum(plus, minus) - light >= 12)
+                    supported &= light <= 150
                     if evidence.opacity is not None:
                         alpha = evidence.opacity
                         pa = np.roll(alpha, (dy, dx), axis=(0, 1))
                         ma = np.roll(alpha, (-dy, -dx), axis=(0, 1))
+                        if self.ink_support == "connected":
+                            pa = np.where(pv, pa, alpha)
+                            ma = np.where(mv, ma, alpha)
                         low = np.minimum(np.minimum(alpha, pa), ma)
                         high = np.maximum(np.maximum(alpha, pa), ma)
                         supported &= high - low <= 0.05 * high
@@ -275,7 +285,7 @@ class CoreCells:
                 # Trough pixels establish the role of an existing drawn chain.
                 # Follow that support through junctions and faint edge pixels;
                 # do not fabricate bridges, close gaps or promote isolated
-                # dark surfaces which have no paired source ridge.
+                # dark surfaces which have no painted-side source contrast.
                 paired = binary_propagation(
                     paired,
                     structure=np.ones((3, 3)),

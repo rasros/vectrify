@@ -20,6 +20,7 @@ from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.local import Box
+from vectrify.refine.crossings import crossings
 
 MAX_COMPONENTS = 128
 MAX_SOURCE_COMPONENTS = 8192
@@ -89,7 +90,44 @@ def connected_runs(runs, work):
     return result
 
 
-def carried(run, proof, evidence, options, carrier, work, contacts, budget, light):
+def carrier_width(geometry, width, carrier, work, *, fixed=False):
+    """A proved width ceiling for one source run, before compatible grouping.
+
+    Every retained width has an exact footprint/carrier difference proof. A
+    bounded search may recover safe headroom below the grouping factor; its
+    unproved upper endpoint is never used. Cancellation discards discovery.
+    """
+    if carrier is None:
+        return float("inf")
+
+    def fits(value):
+        if work.interrupted:
+            return False
+        shape = footprint(geometry, value)
+        if work.interrupted:
+            return False
+        outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
+        return abs(outside.area) <= 1e-8
+
+    if not fits(width):
+        return None
+    if fixed:
+        return width
+    low, high = width, 1.6 * width
+    if fits(high):
+        return high
+    for _ in range(6):
+        middle = (low + high) / 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle
+    return None if work.interrupted else low
+
+
+def carried(
+    run, proof, evidence, options, carrier, work, contacts, budget, light, visible
+):
     """Fit source intervals inside the carrier, retaining contact ends as fill.
 
     No endpoint is extended or joined. A full stroke is preferred; only an
@@ -100,16 +138,38 @@ def carried(run, proof, evidence, options, carrier, work, contacts, budget, ligh
     scale = float(np.sqrt(np.prod(evidence.scale)))
 
     def fit(part, supported):
+        if work.interrupted:
+            return None
         native = supported.points / evidence.scale + evidence.offset
         model = fitted(native, tolerance)
-        width = supported.width / scale
-        if carrier is not None:
-            upper = options.line_width or 1.6 * width
-            shape = footprint(Geometry("run", (model.contour,)), upper)
-            outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
-            if abs(outside.area) > 1e-8:
+        if work.interrupted:
+            return None
+        geometry = Geometry("run", (model.contour,))
+        if crossings(geometry):
+            model = fitted(native, min(tolerance, 0.25))
+            if work.interrupted:
                 return None
-        return part, supported, model
+            geometry = Geometry("run", (model.contour,))
+        if crossings(geometry):
+            # Profile centering can fold a noisy run even though its original
+            # source skeleton is simple. Retain that anchored source chain as
+            # a precise competitor; an unstable chain stays filled.
+            native = part / evidence.scale + evidence.offset
+            model = fitted(native, min(tolerance, 0.25))
+            if work.interrupted:
+                return None
+            geometry = Geometry("run", (model.contour,))
+        if crossings(geometry) or work.interrupted:
+            return None
+        width = supported.width / scale
+        ceiling = carrier_width(
+            geometry,
+            options.line_width or width,
+            carrier,
+            work,
+            fixed=bool(options.line_width),
+        )
+        return None if ceiling is None else (part, supported, model, ceiling)
 
     complete = fit(run, proof)
     if complete is not None:
@@ -142,7 +202,9 @@ def carried(run, proof, evidence, options, carrier, work, contacts, budget, ligh
             break
         budget["runs"] += 1
         budget["points"] += len(part)
-        supported = measure(part, evidence.target, proof.width, light=light)
+        supported = measure(
+            part, evidence.target, proof.width, light=light, visible=visible
+        )
         if supported is not None:
             candidate = fit(part, supported)
             if candidate is not None:
@@ -169,7 +231,11 @@ def models(
     groups = []
     claimed = np.zeros(mask.shape, np.uint8)
     rejected = np.zeros(mask.shape, bool)
-    light = gaussian_filter(cel.lightness(evidence.target), 0.5)
+    visible = ~evidence.empty
+    weight = gaussian_filter(visible.astype(np.float32), 0.5)
+    light = gaussian_filter(cel.lightness(evidence.target) * visible, 0.5)
+    light /= np.maximum(weight, 1e-12)
+    del weight
     areas = np.bincount(components.ravel(), minlength=count + 1)
     order = sorted(range(1, count + 1), key=lambda i: (-areas[i], i))[:MAX_COMPONENTS]
     rejected |= mask & ~np.isin(components, order)
@@ -225,7 +291,9 @@ def models(
             scanned += 1
             points_count += len(run)
             points = run + np.array((box.x, box.y))
-            proof = measure(points, evidence.target, typical, light=light)
+            proof = measure(
+                points, evidence.target, typical, light=light, visible=visible
+            )
             if proof is None:
                 rejected[yy, xx] = True
                 continue
@@ -239,9 +307,10 @@ def models(
                 boundary_contacts,
                 contact_budget,
                 light,
+                visible,
             )
             accepted = set()
-            for part, supported, model in offered:
+            for part, supported, model, ceiling in offered:
                 accepted.update(tuple(p) for p in part)
                 px = np.clip(np.floor(part[:, 0]).astype(int), 0, mask.shape[1] - 1)
                 py = np.clip(np.floor(part[:, 1]).astype(int), 0, mask.shape[0] - 1)
@@ -250,9 +319,12 @@ def models(
                 for i, group in enumerate(groups):
                     widths = [*group["widths"], width]
                     paints = np.array([*group["paints"], supported.paint])
-                    if (options.line_width or max(widths) <= 1.6 * min(widths)) and (
-                        np.ptp(paints, axis=0) <= PAINT_SPREAD
-                    ).all():
+                    common_width = options.line_width or float(np.median(widths))
+                    if (
+                        common_width <= min(ceiling, *group["ceilings"])
+                        and (options.line_width or max(widths) <= 1.6 * min(widths))
+                        and (np.ptp(paints, axis=0) <= PAINT_SPREAD).all()
+                    ):
                         group_index = i
                         break
                 if group_index is None:
@@ -261,10 +333,17 @@ def models(
                         continue
                     group_index = len(groups)
                     groups.append(
-                        {"widths": [], "paints": [], "contours": [], "proofs": []}
+                        {
+                            "widths": [],
+                            "ceilings": [],
+                            "paints": [],
+                            "contours": [],
+                            "proofs": [],
+                        }
                     )
                 group = groups[group_index]
                 group["widths"].append(width)
+                group["ceilings"].append(ceiling)
                 group["paints"].append(supported.paint)
                 group["contours"].append(model.contour)
                 group["proofs"].append(supported)
@@ -309,6 +388,10 @@ def models(
         )
         geometry = Geometry(f"source-ink-{i}", contours)
         shape = footprint(geometry, width)
+        if carrier is not None:
+            outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
+            if abs(outside.area) > 1e-8:
+                continue
         result.append(
             InkModel(
                 geometry,
@@ -319,6 +402,9 @@ def models(
                     "model": "source-stroke",
                     "runs": len(contours),
                     "width": width,
+                    "carrier_width_ceiling": min(group["ceilings"])
+                    if carrier is not None
+                    else None,
                     "support": min(p.support for p in group["proofs"]),
                     "peak_gap": max(p.peak_gap for p in group["proofs"]),
                     "source_runs_scanned": scanned,

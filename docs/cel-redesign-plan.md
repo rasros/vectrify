@@ -118,8 +118,18 @@ now uses 3,437 nodes / 381 contours / human MSE 551.84: only a 1.5% node saving
 against curve fitting, with the same 17 retained strokes and incomplete handle.
 The girl retains line F1 0.374 at 1,380 nodes. Local bounds supply constraints;
 coherent exterior strokes and surface interpretation are still missing.
-Neither experiment enters
-automatic scheduling. Continue source-supported exterior ink, shared curved
+Source profiles now use visible-paint contrast and contiguous coverage
+centroids; geometric per-run width ceilings recover safe headroom without
+allowing grouped widths to leave the carrier. Crossing fits fall back to the
+precise original source chain or retain filled evidence. The latest finer sword
+has 3,462 nodes / 380 contours / 18 strokes / human MSE 549.56. Handle error
+falls only 2.6%, while guard and jewel error worsen. All 15 tuning replays and
+162 proposals pass native validity, and 982 regression cases pass, but the
+handle still contains filled contact ends and the quality gates remain unmet.
+Source-supported exterior measurement is implemented; complete editable
+contact geometry and coherent surfaces remain missing. A naive clip-based
+contact model also fails partial-alpha coverage under the actual renderer.
+These experiments do not enter automatic scheduling. Continue source-supported exterior ink, shared curved
 material boundaries and compact opacity interpretations, preserving physical
 gaps and independent marks. These comparisons improve diagnosis, not release
 status.
