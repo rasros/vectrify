@@ -124,6 +124,64 @@ they should contribute to that candidate rather than be reported as separate
 quality successes. Automatic optimization follows a viable compact structure.
 Slider calibration, UI migration and learning claims remain downstream.
 
+### Compact paint is insufficient: the next structural contract
+
+The paint-budget ablation now produces admitted native sword candidates at
+1,361 nodes / 321 contours and 2,582 nodes / 449 contours, with human MSE
+3,283.28 and 1,671.98 respectively. Both damage every frozen feature crop.
+These are diagnostic proposals, generated under a separate 180-second allowance;
+they are neither selected operation results nor 60-second runtime evidence.
+The production search does not use this mode. Complete ownership, valid native
+coverage and local/full agreement do not establish resemblance to the human.
+
+This closes the tested shortcut: ordering original color adjacencies once,
+then forcing merges until 32/64 material groups remain, does not reconstruct
+the drawing. On the 32-cell candidate almost the entire component becomes one
+material field; many remaining cells represent narrow fringes. It does not
+establish that all color-region methods fail or that ML is required. Dynamic
+merge costs and paint-fit residuals are still valid deterministic competitors,
+but useful ink and facet hypotheses must also exist.
+
+The next implementation must satisfy this component contract before another
+quality claim:
+
+1. **Propose structural edges before allocating paint paths.** Use scale-stable
+   ink ridges, corners, junctions and material contrast to offer competing ink,
+   material-boundary and incidental-detail interpretations. Keep the exact
+   source-atom ledger, but permit one contour or stroke to own many atoms.
+   Do not freeze an entire paint fragment simply because one pixel meets ink.
+2. **Decode complete components.** Couple supported continuous strokes or filled
+   ink bands with restored surrounding paint, shared facet boundaries,
+   flat/linear-gradient surfaces and separately supported highlights. Optimize
+   the component's draw order together with these replacements. A rejected
+   intermediate ink removal must not prevent evaluating the complete drawing.
+3. **Fit the planned geometry and paint automatically.** Anchor corners and
+   junctions; constrain shared boundaries and width; evaluate multiscale image,
+   line, alpha and representation errors. Retry collapsed material chains on
+   both neighbors, and independently validate the complete native render.
+   Fitting parameters cannot substitute for proposing the missing structure.
+4. **Use ML to propose missing interpretations when justified.** The first
+   learned structural experiment should predict bounded edge roles and stroke
+   continuations from source patches and neighborhood evidence, then feed the
+   same constrained decoder. Compare it with deterministic evidence at matched
+   runtime. It is distinct from ranking already available edits. Use licensed
+   clean-vector pairs, artwork-family splits and reviewed role labels; exclude
+   the sword human drawing from training. Keep deterministic fallback and
+   unchanged exact admission. Model architecture and benefit remain unproven.
+5. **Publish controls from a useful common frontier.** Complexity selects actual
+   drawing cost; quality selects search effort. Require an admitted drawing
+   that first beats legacy CEL in both structure and human/feature fidelity,
+   then the frozen 800-node / 140-contour / 497.39-MSE balanced gate. Check five
+   slider levels, automatic fitting, editing behavior and the broader corpus
+   before rollout. Smaller inaccurate drawings are not slider successes.
+
+[DiffVG](https://people.csail.mit.edu/tzumao/diffvg/) demonstrates fitting vector
+parameters through raster losses. [DeepSVG](https://alexandre01.github.io/deepsvg/)
+studies hierarchical vector generation. Our inference is that parameter fitting
+and learned structure are separate responsibilities; neither paper demonstrates
+the proposed Vectrify decoder or establishes a suitable small local model.
+The complete delivery, runtime, corpus and release requirements below still apply.
+
 ### Reset after the baseline comparison
 
 The 19,528-node result is a structural regression against the 2,312-node legacy

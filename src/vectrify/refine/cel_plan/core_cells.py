@@ -34,6 +34,7 @@ from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import _gradient, _opacity
+from vectrify.refine.cel_plan.geometry import Boundaries
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import in_core, opaque_fill
@@ -68,6 +69,38 @@ def _filled(geometry, rule):
     return path_geometry(path)
 
 
+def _supported_outlines(labels, boundary, check):
+    """Retry collapsed materials on both sides of their shared source chains."""
+    outlines = cel.region_outlines(labels, 0, fit_boundary=boundary, check=check)
+    collapsed = set()
+    for i, data in outlines.items():
+        check()
+        if i > 0 and not _filled(parse_path(data), "evenodd").subpaths:
+            collapsed.add(i)
+    if not collapsed:
+        return outlines, 0
+    padded = np.pad(labels, 1, constant_values=-1)
+
+    def supported_boundary(points, tolerance):
+        check()
+        middle = (points[0] + points[1]) / 2 + 1
+        direction = points[1] - points[0]
+        normal = np.array([-direction[1], direction[0]]) * 0.25
+        x, y = np.floor(middle + normal).astype(int)
+        left = int(padded[y, x])
+        x, y = np.floor(middle - normal).astype(int)
+        right = int(padded[y, x])
+        if collapsed.intersection((left, right)):
+            fitted = cel.simplify(points, 0)
+            return [("L", tuple(map(float, p))) for p in fitted[1:]]
+        return boundary(points, tolerance)
+
+    return (
+        cel.region_outlines(labels, 0, fit_boundary=supported_boundary, check=check),
+        len(collapsed),
+    )
+
+
 @dataclass(eq=False)
 class Cell:
     key: str
@@ -81,9 +114,17 @@ class Cell:
 
 
 class CoreCells:
-    def __init__(self, families, options, *, minimum_paths=3):
+    """Owned material replacements; joint mode is a paint-budget ablation.
+
+    Joint mode can consume paint owners that overlap inferred ink. It tests
+    whether color adjacency alone can supply a compact component, rather than
+    claiming to reconstruct ink or facets. It is not enabled in native search.
+    """
+
+    def __init__(self, families, options, *, minimum_paths=3, joint=False):
         self.families, self.options = families, options
         self.minimum_paths = minimum_paths
+        self.joint = joint
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
         self.diagnostics: dict = dict.fromkeys(
@@ -107,6 +148,10 @@ class CoreCells:
                 "region_candidates",
                 "region_retained_owners",
                 "planar_paint_exclusions",
+                "joint_proposals",
+                "joint_forced_merges",
+                "empty_cell_exclusions",
+                "degenerate_region_retries",
             ),
             0,
         )
@@ -171,7 +216,7 @@ class CoreCells:
         return owners
 
     def _paint(self, xy, rgb, indices, work):
-        if work.interrupted or len(indices) < 16:
+        if work.interrupted or len(indices) < (1 if self.joint else 16):
             return None
         selected = indices[:: max(1, (len(indices) + 4095) // 4096)]
         rgba = np.column_stack((rgb[selected] / 255, np.ones(len(selected))))
@@ -225,8 +270,9 @@ class CoreCells:
         """Connected color regions retain complete source atoms, without cuts.
 
         Nearest material continues underneath the independently retained marks.
-        Shared source contours are simplified together; the actual coverage
-        carrier and native opaque-interior proof still constrain their export.
+        Shared source contours are simplified together. Ordinary proposals
+        require opaque-interior proof; joint ablations score carrier fringes
+        through the unchanged native policy instead.
         """
         evidence, graph = self.families.evidence, self.families.graph
         indices = {s.id: i for i, s in enumerate(selected)}
@@ -296,8 +342,17 @@ class CoreCells:
         seen = set()
         # Offer a substantial structural alternative before spending the shared
         # search window on small savings. Native scoring still decides retention.
-        for threshold in (56, 28, 12):
+        budgets = tuple(
+            dict.fromkeys(
+                (
+                    max(2, min(32, len(selected) // 4)),
+                    max(2, min(64, len(selected) // 2)),
+                )
+            )
+        )
+        for threshold in budgets if self.joint else (56, 28, 12):
             parents = list(range(len(selected)))
+            remaining = int(np.sum(sizes >= 16)) if self.joint else len(selected)
             means, areas = colors.copy(), sizes.copy()
 
             def root(i, parents=parents):
@@ -310,15 +365,27 @@ class CoreCells:
                 if work.interrupted:
                     return
                 a, b = root(a), root(b)
-                if a == b or np.linalg.norm(means[a] - means[b]) > threshold:
+                if a == b or (
+                    not self.joint and np.linalg.norm(means[a] - means[b]) > threshold
+                ):
                     continue
+                if self.joint and remaining <= threshold:
+                    break
                 if b < a:
                     a, b = b, a
+                if self.joint:
+                    remaining -= int(areas[a] >= 16) + int(areas[b] >= 16)
                 means[a] = (means[a] * areas[a] + means[b] * areas[b]) / (
                     areas[a] + areas[b]
                 )
                 areas[a] += areas[b]
                 parents[b] = a
+                if self.joint:
+                    remaining += int(areas[a] >= 16)
+                else:
+                    remaining -= 1
+                if self.joint:
+                    self.diagnostics["joint_forced_merges"] += 1
             merged = np.array([root(i) for i in range(len(selected))])
             roots, counts = np.unique(merged[pixels], return_counts=True)
             roots = roots[np.argsort(-counts, kind="stable")]
@@ -327,9 +394,18 @@ class CoreCells:
                 continue
             seen.add(signature)
             owner_counts = np.bincount(merged, minlength=len(selected))
-            roots = np.array(
-                [r for r in roots if owner_counts[r] >= 2 and areas[r] >= 16]
-            )[:MAX_REGION_CELLS]
+            if not self.joint:
+                roots = np.array(
+                    [r for r in roots if owner_counts[r] >= 2 and areas[r] >= 16]
+                )[:MAX_REGION_CELLS]
+            else:
+                # Isolated tiny groups keep their original independently owned
+                # geometry. They cannot consume the whole material-cell budget
+                # or disappear through a degenerate fitted contour.
+                roots = np.array([r for r in roots if areas[r] >= 16])
+                if len(roots) > MAX_REGION_CELLS:
+                    self.diagnostics["region_exclusions"] += 1
+                    continue
             self.diagnostics["region_candidates"] += len(roots)
             if not len(roots):
                 continue
@@ -357,16 +433,39 @@ class CoreCells:
 
                     raise StageInterruptedError("Source material contours interrupted")
 
+            models = Boundaries()
+
             def boundary(
-                points: np.ndarray, _tolerance: float
+                points: np.ndarray, _tolerance: float, models=models
             ) -> list[tuple[str, tuple[float, ...]]]:
                 check()
-                fitted = cel.simplify(points, 0.75 * min(evidence.scale))
+                if self.joint and 8 < len(points) <= 4096:
+                    nodes = models(
+                        points, min(evidence.scale) * (self.options.tolerance or 1.5)
+                    )
+                    if models.decisions[-1]["model"] != "curve":
+                        return nodes
+                    # Generic smoothing can collapse a one-pixel-wide closed
+                    # material strip. Keep canonical polygons as the fallback;
+                    # general curve fitting follows a viable joint structure.
+                fitted = cel.simplify(
+                    points,
+                    0
+                    if self.joint and len(points) <= 8
+                    else 0.75 * min(evidence.scale),
+                )
                 return [("L", (float(x), float(y))) for x, y in fitted[1:]]
 
-            outlines = cel.region_outlines(
-                outline_labels, 0, fit_boundary=boundary, check=check
-            )
+            if self.joint:
+                # Two independently supported straight sides can collapse a
+                # thin material to the same chord. Restore its canonical chains
+                # on BOTH neighboring fills before constructing the edit.
+                outlines, retried = _supported_outlines(outline_labels, boundary, check)
+                self.diagnostics["degenerate_region_retries"] += retried
+            else:
+                outlines = cel.region_outlines(
+                    outline_labels, 0, fit_boundary=boundary, check=check
+                )
             cells = []
             for i in range(len(roots)):
                 if work.interrupted:
@@ -467,7 +566,7 @@ class CoreCells:
         support = set(base.members if base.role == "underlay" else base.covered)
         parent = state.document.ancestry(base.id)[-2]
         selected = []
-        ink = self._ridge_owners(state, work)
+        ink = set() if self.joint else self._ridge_owners(state, work)
         if ink is None:
             return None
         nodes = 0
@@ -483,6 +582,12 @@ class CoreCells:
                 or surface.covered
                 or surface.id in constrained
                 or any(self.families.graph.regions[i].fixed for i in surface.members)
+                or any(a.locks for a in state.document.ancestry(child.id))
+                or any(
+                    n.pinned
+                    for s in state.document.geometry_for(child.id).subpaths
+                    for n in s.nodes
+                )
             ):
                 continue
             if not set(surface.members).issubset(support) or child.id in ink:
@@ -495,17 +600,32 @@ class CoreCells:
             if len(selected) >= MAX_PATHS or nodes > MAX_INPUT_NODES:
                 self.diagnostics["bounded"] += 1
                 return None
-            if not in_core(state, surface.members, child.id, shape, work):
+            if not self.joint and not in_core(
+                state, surface.members, child.id, shape, work
+            ):
                 continue
             matrix = root_matrix(state.document, child.id)
             a, b, c, d = _bounds(state.document, child.id)
+            if self.joint:
+                a, b, c, d = curve_path(
+                    transformed_geometry(state.document.geometry_for(child.id), matrix),
+                    style["fill-rule"],
+                ).bounds
+            if self.joint and (
+                math.floor(a) < box.x
+                or math.floor(b) < box.y
+                or math.ceil(c) > box.right
+                or math.ceil(d) > box.bottom
+            ):
+                self.diagnostics["alpha_exclusions"] += 1
+                continue
             crop = Box(
                 max(box.x, math.floor(a) - 2),
                 max(box.y, math.floor(b) - 2),
                 min(box.right, math.ceil(c) + 2),
                 min(box.bottom, math.ceil(d) + 2),
             )
-            if crop.area:
+            if crop.area and not self.joint:
                 coverage = self._mask(
                     state.document.geometry_for(child.id),
                     matrix,
@@ -528,9 +648,9 @@ class CoreCells:
         """Only known supported owners may keep paint above a changed material.
 
         Their geometry, source ownership and mutual order remain untouched.
-        The carrier and retained paints keep their alpha. Removed paint and new
-        overlays have separately proved native support in its opaque interior.
-        Native scoring still checks every changed color and edge pixel.
+        The carrier and retained paints keep their intrinsic opacity. Ordinary
+        proposals prove removed/new paint stays in the opaque interior. Joint
+        ablations allow a changed fringe, with complete native policy checks.
         """
         document = state.document
         known = {s.id for s in state.partition.surfaces}
@@ -598,6 +718,12 @@ class CoreCells:
                 or float(style["fill-opacity"]) != 1
                 or not opaque_fill(document, style["fill"])
                 or element.get("clip-path", "none") != "none"
+                or any(a.locks for a in document.ancestry(base.id))
+                or any(
+                    n.pinned
+                    for s in document.geometry_for(base.id).subpaths
+                    for n in s.nodes
+                )
             ):
                 continue
             if any(
@@ -647,6 +773,8 @@ class CoreCells:
                 if proposal is not None:
                     self.diagnostics["region_proposals"] += 1
                     yield proposal
+            if self.joint:
+                continue
             cells = [Cell("", np.arange(len(x)), whole, whole, *fitted)]
             cuts = []
             fitted_splits = {}
@@ -737,18 +865,26 @@ class CoreCells:
             return None
         matrix = root_matrix(document, base.id)
         shapes = [document.geometry_for(base.id)]
+        clip_geometry = (
+            _filled(
+                shapes[0], path_style(document, document.element(base.id))["fill-rule"]
+            )
+            if self.joint
+            else inner
+        )
         for cell in cells[1:]:
             shape = path_geometry(
                 pathops.op(
                     curve_path(cell.draw),
-                    curve_path(inner),
+                    curve_path(clip_geometry),
                     pathops.PathOp.INTERSECTION,
                 )
             )
             if not shape.subpaths:
+                self.diagnostics["empty_cell_exclusions"] += 1
                 return None
-            coverage = self._mask(shape, matrix, box)
-            if ((coverage > 0) & (opaque != 1)).any():
+            coverage = None if self.joint else self._mask(shape, matrix, box)
+            if coverage is not None and ((coverage > 0) & (opaque != 1)).any():
                 self.diagnostics["alpha_exclusions"] += 1
                 return None
             shapes.append(shape)
@@ -866,11 +1002,12 @@ class CoreCells:
             return None
         self.diagnostics["cells"] += len(cells)
         self.diagnostics["proposals"] += 1
+        self.diagnostics["joint_proposals"] += self.joint
         old_ids = tuple(s.id for s in selected)
         holds = set(state.details.get("geometry_constraints", ())) - set(old_ids)
         holds.update((base.id, *ids))
         return Proposal(
-            "core-material-cells",
+            "joint-core-cells" if self.joint else "core-material-cells",
             (*old_ids, base.id, *ids),
             (len(cells), tuple(cuts), region_threshold),
             state.key,
@@ -891,7 +1028,15 @@ class CoreCells:
                     "source_cut_count": len(atoms.cuts),
                     "source_squared_error": sum(c.error for c in cells),
                     "source_maximum_rgb_residual": max(c.residual for c in cells),
-                    "region_threshold": region_threshold,
+                    "region_threshold": None if self.joint else region_threshold,
+                    "joint": self.joint,
+                    "model_stage": "paint-budget-ablation"
+                    if self.joint
+                    else "material",
+                    "cell_budget": region_threshold if self.joint else None,
+                    "coverage_interpretation": "carrier-fringe"
+                    if self.joint
+                    else "exact-alpha",
                 },
             },
             dependencies=(parent.id,),

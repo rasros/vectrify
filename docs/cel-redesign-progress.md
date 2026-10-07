@@ -30,6 +30,81 @@ The interim comparison must beat legacy structure and error with existing
 feature/coverage checks; the release target remains 800 nodes/140 contours/
 497.39 MSE. All eight deliveries and the full implementation goal remain open.
 
+## Compact material ablation: valid geometry, failed resemblance
+
+Added an explicitly offline `CoreCells(..., joint=True)` paint-budget ablation
+and `scripts/bench_cel_component.py`. It replaces all eligible paint owners in
+a component together, including owners that overlap inferred ink. Protected
+source atoms, constrained paint, locks, pinned nodes and unsupported effects
+remain independent. It retains the existing silhouette and intrinsic opacity,
+and submits reconstructed fringes to the unchanged native policy. It is not
+enabled in production search and is not the complete ink/material planner.
+
+The initial candidate construction failed: separate sides of narrow materials
+were fitted to the same chord, leaving zero-area fills. A shared-chain retry
+restores canonical polygons on both neighboring materials. Small isolated
+owners retain their original geometry. The final audit records 49 restored
+regions across two candidates, with no empty-cell exclusion. This solves an
+export failure; it does not recover the omitted ink or meaningful surfaces.
+
+Reproduce the final source-only diagnostic:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py \
+  --normalizer 54564 --seconds 180 --out .bench/cel-component-verified
+```
+
+The explicit normalizer matches the validated detailed trace in the retained
+60-second native operation run. The diagnostic has a separate 180-second work
+allowance; generation and native validation took **38.034123 seconds** in this
+run. This is not a selected operation result or runtime/peak-memory gate pass.
+Human geometry enters scoring after all proposals have been generated and
+checked. The report verifies the frozen mask and records input, human and source
+hashes, policy, preparation, complete ownership, validated component seals,
+native counts/loss, local/full agreement, numerical gate failures and all five
+human feature errors. SVGs, full PNGs and source/human/candidate crops are saved
+even for unhelpful proposals. Its status `complete` refers to the diagnostic.
+
+Authoritative output: `.bench/cel-component-verified/summary.json`; source SHA-256
+`8bef64e71dce4af4cc9314d8a0bae839a2a33798c2b211ab839e1d764c1c886d`.
+
+| Drawing | Nodes | Contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Existing selected 60-second experiment, unchanged reference result | 8,571 | 1,313 | 16,749 | 550.85 |
+| Source-only component initializer | 10,286 | 1,711 | 20,818 | 512.81 |
+| Offline 32-cell paint ablation | 1,361 | 321 | 3,671 | 3,283.28 |
+| Offline 64-cell paint ablation | 2,582 | 449 | 6,002 | 1,671.98 |
+| Legacy CEL reference | 2,312 | 339 | — | Approximately 663.31 |
+
+Both proposals pass native admission and have complete source ownership and
+validated dependency seals. Their local canvases match independent native
+renders; maximum local/full term differences are **8.38e-10** and **1.23e-9**.
+Every human feature error worsens against the initializer and selected result.
+Native guard/jewel crops were inspected: the coarse candidate loses ink and
+facet structure, while the finer candidate still loses deliberate boundaries.
+The 32-cell output reduces nodes by **41.1% against legacy**, but raises human
+error to **4.95 times legacy**. Neither meets the practical combined comparison
+or the frozen balanced gate. Do not count reduced nodes as a quality gain.
+
+The tested shortcut orders original color-adjacency edges once and forces
+merges to a palette budget. Almost the whole component becomes one material
+field in the coarse candidate; many other cells are narrow fringe supports.
+This is evidence against this implementation, not against every segmentation
+algorithm. Dynamic paint-fit costs remain worth comparing, but the next useful
+component must also propose continuous ink, coherent material/facet boundaries,
+supported highlights and local layer order. A ranker cannot restore absent
+alternatives. The plan now specifies this coupled structural contract and a
+separate conditional learned role/continuation proposer, followed by fitting
+and a measured complexity frontier.
+
+Sixteen new cases cover opaque/partial-alpha components, protected holes and
+marks, cancellation, complete uncut ownership, reload, fringe scoring and
+thin material between two fitted neighbors. The full relevant regression
+suite passes **773 tests in 219.73 seconds**. Ruff and formatting checks pass;
+Pyrefly reports **zero errors** for the changed source and benchmark. No release
+gate, delivery or full implementation goal is complete.
+
 ## Current native admission inventory
 
 Added `scripts/audit_cel_admission.py`, a reproducible benchmark-only audit.
