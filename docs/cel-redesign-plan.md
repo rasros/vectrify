@@ -30,6 +30,29 @@ release is complete without a learned model when the documented no-go branch
 for that experiment is recorded. The learned branch cannot delay or substitute
 for the deterministic quality gates.
 
+## Agreed implementation pause and next reference phase
+
+On 2026-10-07 the owner requested a pause after the verified graph-sharing and
+neighbor-frame checkpoint. That checkpoint removes two composition blockers and
+passes 826 regression tests; it does not achieve the quality milestone. The
+matched 60-second sword remains 8,588 nodes / 1,315 contours / human MSE 551.16.
+All eight deliveries and the frozen release gates remain open. Detailed source
+hashes, diagnostic proposals and checks are in the progress document.
+
+The next phase should broaden references before more sword-only tuning.
+Improved generated drawings can seed human cleanup, with explicit provenance
+and retained before/after edits. Unedited generated outputs are candidates,
+not reference truth. Use generator-assisted references for development and
+compare both legacy and planned CEL against the same reviewed target. Preserve
+independently authored human redraws and a fresh held-out set, with artwork
+families and source lineages split before tuning. Cover coherent outlines,
+facets/highlights, wrapping, lettering, hatching, gradients, holes, tiny marks
+and occlusion. Existing corpus and blind-review requirements still apply.
+
+Resume from this commit with one bounded cross-artwork quality experiment and
+an explicit stop decision based on measured gains, damage and runtime. The
+pause is a practical checkpoint, not a claim that the overhaul is complete.
+
 ## Decisions and immediate priority
 
 The architecture decision is to combine CEL ink/silhouette evidence with color-region surface evidence in one owned graph. Choose surfaces, ink, shared boundaries and layers together, then automatically fit their geometry and paint. Keep the current editor representation and operation preview/apply contract.
@@ -426,12 +449,17 @@ The next closed-ridge change must model the multiple surrounding/enclosed paint
 owners jointly, retaining highlights and deliberately distinct marks. General
 open ridges, junctions and shared long facets remain separate missing behavior.
 Neither a better ranker nor the slider completes this representation work.
-The source-cut audit after coarse material replacement also hits the existing
-32 MiB live graph bound: a parent graph alone occupies about 24.5 MiB, so a
-second full graph cannot coexist within that limit. Remove redundant copies of
-unchanged source graphs and share immutable region/boundary values or rebuild
-only the affected graph neighborhood. Account actual retained graph storage
-before allowing composition; keep the existing memory limit.
+The earlier source-cut audit after coarse material replacement hit the 32 MiB
+branch-cache bound because live namespaces duplicated full source graphs.
+The verified pause checkpoint now shares immutable original values and exact
+unchanged cut records, counting unique retained allocations including active
+evicted branches. Accounting version 2 reports original storage separately:
+29,506,944 bytes original plus 5,659,800 bytes additional branch storage in the
+audit. The unchanged 32 MiB limit bounds additional cache storage, not total
+graph storage or process RSS. Neighbor-frame conversion removes the subsequent
+restoration blocker. The composed proposal now reaches native evaluation but
+still lacks compact paint for its 13 neighboring owners and misses quality
+criteria. See the progress document for reproducible evidence.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local

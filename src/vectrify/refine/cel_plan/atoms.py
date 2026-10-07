@@ -8,7 +8,7 @@ from dataclasses import dataclass, replace
 import numpy as np
 from scipy.ndimage import find_objects
 
-from vectrify.refine.cel_plan.graph import build
+from vectrify.refine.cel_plan.graph import build, shared
 from vectrify.refine.cel_plan.model import Evidence, Graph, StageInterruptedError, Work
 
 MAX_PIXELS = 1536**2
@@ -127,12 +127,16 @@ class Atoms:
         return tuple(sorted(leaves))
 
     def labels(self, original: Graph, work: Work) -> np.ndarray:
+        if work.interrupted:
+            raise StageInterruptedError("Source atom rebuilding interrupted")
         if (
             original.labels.shape != self.shape
             or len(original.regions) != self.count
             or identity(original.labels) != self.source
         ):
             raise ValueError("Source atoms belong to a different original graph")
+        if not self.cuts and not original.labels.flags.writeable:
+            return original.labels
         labels = original.labels.copy()
         roots = list(range(self.count))
         for index, cut in enumerate(self.cuts):
@@ -165,9 +169,12 @@ class Atoms:
 
     def graph(self, evidence: Evidence, original: Graph, work: Work) -> Graph:
         labels = self.labels(original, work)
+        if not self.cuts and all(
+            not edge.points.flags.writeable for edge in original.boundaries
+        ):
+            return replace(original, labels=labels, source_atoms=self.key)
         result = build(evidence, labels, work=work)
-        for boundary in result.boundaries:
-            boundary.points.flags.writeable = False
+        result = shared(result, original, work)
         return replace(result, source_atoms=self.key)
 
     def split(self, graph: Graph, members, left: np.ndarray, work: Work):

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 from scipy.ndimage import find_objects, gaussian_filter, label
 
@@ -25,6 +27,9 @@ def build(
 
     check()
     labels = evidence.labels if labels is None else labels
+    if labels.flags.writeable:
+        labels = labels.copy()
+        labels.flags.writeable = False
     count = int(labels.max()) + 1
     components, _ = label(evidence.foreground)
     regions = []
@@ -106,6 +111,7 @@ def build(
         x, y = np.floor(middle - normal).astype(int)
         right = int(padded[y, x])
         points = points - 1
+        points.flags.writeable = False
         xy = np.floor(points).astype(int)
         x = np.clip(xy[:, 0], 0, labels.shape[1] - 1)
         y = np.clip(xy[:, 1], 0, labels.shape[0] - 1)
@@ -121,3 +127,58 @@ def build(
         tuple(p for p, count in ends.items() if count > 2),
         hidden,
     )
+
+
+def shared(result: Graph, original: Graph, work: Work) -> Graph:
+    """Reuse only equal immutable statistics and complete canonical chains.
+
+    Unchanged boundaries keep their identity. New chains get fresh identities
+    beyond the original range; graph consumers resolve identities rather than
+    treating a boundary's identity as its position in the tuple.
+    """
+    regions = []
+    for region in result.regions:
+        if work.interrupted:
+            raise StageInterruptedError("Shared source graph interrupted")
+        previous = (
+            original.regions[region.id] if region.id < len(original.regions) else None
+        )
+        regions.append(
+            previous if previous is not None and region == previous else region
+        )
+
+    def key(edge):
+        return (
+            edge.left,
+            edge.right,
+            len(edge.points),
+            tuple(edge.points[0]),
+            tuple(edge.points[-1]),
+        )
+
+    candidates = {}
+    for edge in original.boundaries:
+        if work.interrupted:
+            raise StageInterruptedError("Shared source graph interrupted")
+        if not edge.points.flags.writeable:
+            candidates.setdefault(key(edge), []).append(edge)
+    boundaries = []
+    next_id = max((b.id for b in original.boundaries), default=-1) + 1
+    for edge in result.boundaries:
+        if work.interrupted:
+            raise StageInterruptedError("Shared source graph interrupted")
+        matching = next(
+            (
+                old
+                for old in candidates.get(key(edge), ())
+                if old.line_support == edge.line_support
+                and np.array_equal(old.points, edge.points)
+            ),
+            None,
+        )
+        if matching is not None:
+            boundaries.append(matching)
+        else:
+            boundaries.append(replace(edge, id=next_id))
+            next_id += 1
+    return replace(result, regions=tuple(regions), boundaries=tuple(boundaries))

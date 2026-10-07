@@ -17,6 +17,7 @@ from scipy.ndimage import (
 )
 
 from vectrify.document import Geometry
+from vectrify.document.hit_test import multiply
 from vectrify.document.join import (
     curve_path,
     path_style,
@@ -119,7 +120,10 @@ def compact(
     )
     hole, border = (curve_path(Geometry("contour", (s,))) for s in ordered_contours)
     mid = curve_path(middle_shape)
-    inner_shape = document.geometry_for(inner)
+    inner_shape = transformed_geometry(
+        document.geometry_for(inner),
+        multiply(inverse_matrix(matrix), root_matrix(document, inner)),
+    )
     inner_rule = path_style(document, document.element(inner))["fill-rule"]
     if (
         abs(pathops.op(hole, mid, pathops.PathOp.DIFFERENCE).area) > 1e-8
@@ -176,7 +180,16 @@ def compact(
     ):
         return reject("visible-material-boundary")
     background = union_geometry(
-        [document.geometry_for(outer), original, inner_shape],
+        [
+            document.geometry_for(outer),
+            transformed_geometry(
+                original, multiply(inverse_matrix(root_matrix(document, outer)), matrix)
+            ),
+            transformed_geometry(
+                inner_shape,
+                multiply(inverse_matrix(root_matrix(document, outer)), matrix),
+            ),
+        ],
         [
             path_style(document, document.element(outer)),
             {"fill-rule": "nonzero"},
@@ -189,6 +202,9 @@ def compact(
     ):
         return reject("output-geometry-limit")
     diagnostics["rim_compact_underpaints"] += 1
+    middle_shape = transformed_geometry(
+        middle_shape, multiply(inverse_matrix(root_matrix(document, inner)), matrix)
+    )
     return (
         [
             (document.element(outer), background),

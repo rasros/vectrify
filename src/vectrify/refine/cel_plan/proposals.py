@@ -101,19 +101,62 @@ class Operators:
             "native_boolean_failures": 0,
             "composition_parents": 0,
             "source_graph_rebuilds": 0,
+            "source_graph_views": 0,
+            "source_graph_accounting_version": 2,
+            "source_graph_original_bytes": self._graph_bytes(graph),
             "source_graph_cache_bytes": 0,
             "source_graph_cache_peak_bytes": 0,
         }
 
     @staticmethod
+    def _graph_allocations(graph):
+        """Conservative graph storage keyed by retained allocation identity."""
+        allocations = {("graph", id(graph)): 512}
+
+        def array(value):
+            owner = value
+            while isinstance(owner.base, np.ndarray):
+                owner = owner.base
+            # A view retains its whole underlying allocation, not just its
+            # visible slice. Read-only source arrays may be shared safely.
+            allocations[("array", id(owner))] = owner.nbytes + 128
+
+        array(graph.labels)
+        for values, item_bytes in (
+            (graph.regions, 8),
+            (graph.boundaries, 8),
+            (graph.junctions, 64),
+            (graph.hidden, 32),
+        ):
+            allocations[("container", id(values))] = 64 + len(values) * item_bytes
+        for region in graph.regions:
+            allocations[("region", id(region))] = 1024
+        for boundary in graph.boundaries:
+            allocations[("boundary", id(boundary))] = 512
+            array(boundary.points)
+        return allocations
+
+    @staticmethod
     def _graph_bytes(graph):
-        # Python graph records and boundary tuples are charged conservatively,
-        # alongside all retained label and point arrays. Source fields shared
-        # with the original evidence are not copied or charged twice.
-        return (
-            graph.labels.nbytes
-            + sum(b.points.nbytes + 512 for b in graph.boundaries)
-            + len(graph.regions) * 1024
+        return sum(Operators._graph_allocations(graph).values())
+
+    def _additional_graph_bytes(self, graphs):
+        original = self._graph_allocations(self.graph)
+        retained = {}
+        for graph in graphs:
+            retained.update(self._graph_allocations(graph))
+        return sum(size for key, size in retained.items() if key not in original)
+
+    def _live_graph_bytes(self, extra=()):
+        """Additional live branch storage beyond the existing original graph.
+
+        The original graph is owned by the planner independently of this cache.
+        Shared values are counted once, including branches held by active
+        generators after cache eviction. Python records remain conservatively
+        charged; this is graph-cache accounting, not process peak RSS.
+        """
+        return self._additional_graph_bytes(
+            (*[b.graph for b in self._live_branches.values()], *extra)
         )
 
     def branch(self, partition: Partition | None, work: Work):
@@ -131,21 +174,15 @@ class Operators:
             self._branches[key] = self._live_branches[key]
         if key not in self._branches:
             graph = atoms.graph(self.evidence, self.graph, work)
-            size = self._graph_bytes(graph)
+            size = self._additional_graph_bytes((graph,))
             if size > MAX_BRANCH_BYTES:
                 raise ValueError("Source graph cache bounds exceeded")
             while self._branches and (
                 len(self._branches) >= MAX_BRANCHES
-                or sum(self._graph_bytes(b.graph) for b in self._live_branches.values())
-                + size
-                > MAX_BRANCH_BYTES
+                or self._live_graph_bytes((graph,)) > MAX_BRANCH_BYTES
             ):
                 self._branches.popitem(last=False)
-            if (
-                sum(self._graph_bytes(b.graph) for b in self._live_branches.values())
-                + size
-                > MAX_BRANCH_BYTES
-            ):
+            if self._live_graph_bytes((graph,)) > MAX_BRANCH_BYTES:
                 raise ValueError("Active source graphs exceed branch memory bounds")
             branch = Operators(
                 replace(self.evidence, labels=graph.labels),
@@ -156,11 +193,13 @@ class Operators:
             branch._namespace = key
             self._branches[key] = branch
             self._live_branches[key] = branch
-            self.schedule_diagnostics["source_graph_rebuilds"] += 1
+            self.schedule_diagnostics[
+                "source_graph_rebuilds" if atoms.cuts else "source_graph_views"
+            ] += 1
         self._branches.move_to_end(key)
         while len(self._branches) > MAX_BRANCHES:
             self._branches.popitem(last=False)
-        size = sum(self._graph_bytes(b.graph) for b in self._live_branches.values())
+        size = self._live_graph_bytes()
         self.schedule_diagnostics["source_graph_cache_bytes"] = size
         self.schedule_diagnostics["source_graph_cache_peak_bytes"] = max(
             size, self.schedule_diagnostics["source_graph_cache_peak_bytes"]

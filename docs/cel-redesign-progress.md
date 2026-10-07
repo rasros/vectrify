@@ -30,6 +30,134 @@ The interim comparison must beat legacy structure and error with existing
 feature/coverage checks; the release target remains 800 nodes/140 contours/
 497.39 MSE. All eight deliveries and the full implementation goal remain open.
 
+## Verified pause checkpoint: shared graphs and neighbor frames
+
+The owner requested a pause after this checkpoint on 2026-10-07. Verification
+is complete; this is a stopping point for implementation, not completion of
+the redesign. All eight deliveries and every frozen release gate remain open.
+Resume with broader references and a clearly bounded quality experiment rather
+than another indefinite sequence of sword-only infrastructure changes.
+
+Uncut source namespaces now share the original read-only graph values. Actual
+cuts rebuild their graph, then reuse only exactly equal immutable region records
+and complete boundary chains, including their line-support values. Unchanged
+boundaries retain their identities; changed chains receive fresh identities.
+Caller-owned writable labels are copied rather than frozen in place. Complete
+source ownership and interrupted-work checks remain required.
+
+Graph-cache accounting version 2 charges unique retained allocations once,
+including entire NumPy backing arrays and branches still held by active
+proposal generators after cache eviction. The unchanged **32 MiB limit applies
+to additional branch-cache allocations beyond the existing original graph**.
+The audit charges the original graph separately at **29,506,944 bytes** and
+additional current/peak storage at **5,659,800 bytes (5.40 MiB)**. Their combined
+conservative charge is 35,166,744 bytes; this is neither a total-graph 32 MiB
+bound nor a measurement of process peak RSS. The two-branch cache limit remains.
+The audit registers one uncut namespace view and one actual cut rebuild with
+no graph-resolution failures.
+
+After eliminating duplicate storage, composition exposed a second blocker:
+neighbor paint paths have different local transforms. Ink continuation now
+converts geometry into each neighbor's frame while retaining that neighbor's
+transform and gradient coordinate system. The two-owner compact-underpaint
+route performs the same conversions for inner and outer paints. Existing
+parent, opacity, clipping, locking, pinning, order and native coverage checks
+still apply; singular neighbor frames are rejected. General multi-owner
+compact underpaint has not been implemented by this fix.
+
+All current audit and benchmark results use source SHA-256
+`96f3f433a0ae18cef707b11a579562cc5bebcbc9697cfeb1ac8f9d4fa8ef10b4`,
+complexity 50, balanced quality and refinement disabled. Source hashes exclude
+tests and documentation. The reusable source-only composition audit is
+`.bench/cel-shared-source-frames/summary.json`; generation and native validation
+take **46.33 seconds** under a separate **180-second diagnostic allowance**.
+Human scoring follows discovery and supplies no generation evidence.
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/audit_cel_source_graphs.py \
+  --normalizer 54564 --seconds 180 --out .bench/cel-shared-source-frames
+```
+
+| Audit proposal | Nodes | Contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initial source ridge, radius 6 | 10,209 | 1,657 | 20,425 | 516.954123 |
+| Initial source ridge with mixed-owner cut, radius 2 | 10,397 | 1,695 | 20,809 | 513.486426 |
+| Source ridge after coarse material replacement | 8,662 | 1,297 | 16,724 | 551.794569 |
+
+All three have complete ownership, pass native admission with no crossings,
+and match independent native rasters. Maximum local/full term disagreement is
+2.34e-10. The coarse-material proposal previously failed graph-memory resolution,
+then neighbor-frame restoration; it now reaches exact native evaluation. Its
+13 neighboring paints still exceed compact underpaint's two-owner model, so it
+uses traced continuations. Its tip/handle/jewel errors remain worse than legacy;
+this is enabling infrastructure, not a practical quality gain or selected
+60-second result.
+
+The matched normal operation in
+`.bench/planned-shared-source-frames/summary.json` selects **8,588 nodes / 1,315
+contours / 1,285 paths / cost 16,778 / human MSE 551.160658** in **54.86 seconds**
+under the 60-second allowance. It attempts eight local alternatives, admits
+seven and validates four checkpoints, with zero score disagreements and zero
+reported overall deadline overshoot. Tip/facet/guard/handle/jewel MSE is
+744.044865 / 263.322784 / 1,183.370388 / 948.492454 / 1,506.763413. This selected
+output still misses the practical comparison and every frozen sword numerical
+release target. Time-limited selection varies between measured runs; the
+preceding 10,121-node run is not a causal quality baseline for this cache fix.
+
+Four matched clean, half-opacity tuning controls use a 192-pixel long side and
+20-second generation limit. Results are in
+`.bench/planned-shared-source-frames-pairs/summary.json`:
+
+| Control | Nodes | Contours | Clean MSE | Line F1 | Generation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| anime-girl | 175 | 25 | 165.434759 | 0.270 | 14.02 |
+| anime-face | 176 | 16 | 206.738285 | 0.589 | 18.16 |
+| western-park | 545 | 75 | 178.742483 | 0.652 | 12.09 |
+| rubberhose-band | 405 | 62 | 167.112197 | 0.641 | 17.43 |
+
+These retain the previous measured line scores. Anime-girl's selected output
+varies between runs; rubberhose has a small MSE change without a count or line
+score change. Four tuning controls do not establish generalization or held-out
+quality. No gate is waived.
+
+Verification: **826 tests passed in 157.84 seconds** in the relevant CEL,
+shared/simplify/snap, generation-operation and benchmark suites. Seventeen new
+cases cover immutable sharing, exact boundary matching, live allocation/view
+accounting, cancellation, and ink/underpaint behavior across translated, skewed
+and reflected neighbor frames with private gradients and partial opacity.
+The frame cases preserve exact alpha, RGB within one byte of equivalent native
+renders, full ownership, local/full agreement and save/reload behavior. Ruff,
+format checks and Pyrefly pass with zero type errors.
+
+### Resume with broader references
+
+Use improved outputs as **drafts for human cleanup**, with the raster source,
+generator revision/settings, original draft and final edits retained. Explicitly
+label such references as generator-assisted; an unedited output is a candidate,
+not ground truth. Compare legacy and new methods against the same reviewed
+reference at matched runtime, with local feature annotations and editing costs.
+Human cleanup can correct missing wraps, highlights, joins and lettering rather
+than inheriting the generator's errors as the desired abstraction.
+
+Broaden artwork families and failure modes: characters/faces, props, typography,
+hatching, tapered ink, gradients, tiny marks, holes and partial occlusion. Split
+families and source lineages before tuning. Keep generator-assisted development
+references separate from independently authored human redraws and a fresh
+held-out set. Do not derive a held-out target from the candidate being evaluated
+or retrain/tune on a held-out result without retiring and replacing that case.
+Keep the existing corpus and blind-review requirements; collecting and human
+reviewing these additional references remains future work, not completed
+release evidence.
+
+On resumption, freeze this checkpoint and choose one bounded cross-artwork
+quality milestone before implementation. Structural work still needs coherent
+multi-owner paint/ink, open ridges and junctions, facets and highlights, followed
+by constrained fitting and a useful shared complexity frontier. A learned
+proposer is conditional on missing candidate interpretations; a ranker cannot
+create them. Pausing does not change the 800-node / 140-contour / MSE 497.39
+balanced sword gate or the broader release criteria.
+
 ## Dynamic materials and shared ink paint: still no practical gain
 
 The next experiment replaces fixed edge ordering with a bounded dynamic

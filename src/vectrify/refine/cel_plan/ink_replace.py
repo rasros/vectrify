@@ -345,17 +345,19 @@ class InkReplacement:
                 for node in sub.nodes
             ):
                 return reject("protected-neighbor")
-            if (
-                primary[oid].role != "surface"
-                or document.ancestry(oid)[-2].id != parent.id
-                or element.get("transform")
-                != document.element(survivor).get("transform")
-                or style["stroke"] != "none"
-                or float(style["opacity"]) != 1
-                or element.get("clip-path", "none") != "none"
-                or (not covered and float(style["fill-opacity"]) != 1)
+            for reason, invalid in (
+                ("neighbor-role", primary[oid].role != "surface"),
+                ("neighbor-parent", document.ancestry(oid)[-2].id != parent.id),
+                ("neighbor-stroke", style["stroke"] != "none"),
+                ("neighbor-opacity", float(style["opacity"]) != 1),
+                ("neighbor-clip", element.get("clip-path", "none") != "none"),
+                (
+                    "neighbor-translucent",
+                    not covered and float(style["fill-opacity"]) != 1,
+                ),
             ):
-                return reject("neighbor-style-or-frame")
+                if invalid:
+                    return reject(reason)
         # Overlap is also safe inside an isolated uniform material whose
         # children are opaque. Otherwise adjacent translucency would double.
         material_opacity = _opacity(document, survivor)
@@ -442,8 +444,19 @@ class InkReplacement:
                         pathops.PathOp.INTERSECTION,
                     )
                 )
+            neighbor = neighbors[index - 1]
+            try:
+                into_neighbor = multiply(
+                    inverse_matrix(root_matrix(document, neighbor)),
+                    root_matrix(document, survivor),
+                )
+            except ValueError:
+                return reject("neighbor-singular-frame")
+            # Source masks and ink footprints live in the survivor's frame.
+            # Continuing a neighbor keeps its own geometry and paint frame.
+            shape = transformed_geometry(shape, into_neighbor)
             if continue_neighbors:
-                oid = neighbors[index - 1]
+                oid = neighbor
                 shape = union_geometry(
                     [document.geometry_for(oid), shape],
                     [
@@ -457,7 +470,7 @@ class InkReplacement:
                 return reject("continuation-node-limit")
             attrs = path_style(document, document.element(neighbors[index - 1]))
             attrs.update({"stroke": "none", "fill-rule": "nonzero"})
-            transform = document.element(survivor).get("transform")
+            transform = document.element(neighbor).get("transform")
             if transform:
                 attrs["transform"] = transform
             result.append(
