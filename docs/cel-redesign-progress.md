@@ -14,6 +14,125 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Complete-owner material-fit hierarchy
+
+The next competitor uses complete source-owner sufficient statistics instead
+of flat RGB averages when ranking material unions. It reuses the existing
+flat/common-axis linear RGBA fit, updates the fit after every union, and refits
+actual SVG paint before native evaluation. This is an optional `paint-fit`
+hierarchy, not a learned ranker or an automatically scheduled route. The
+component comparator exposes `--composition-grouping paint-fit`, retains both
+admitted source-stroke parents and now records each parent's material-discovery
+diagnostics even when no material candidate is emitted.
+
+These material paints live inside the unchanged coverage carrier, so their
+intrinsic alpha is one. The hierarchy fits RGB in that frame; source edge alpha
+comes from the carrier. An early whole-source-alpha prototype emitted no
+compositions because antialias variation became an inappropriate material
+barrier. The generic hierarchy still supports complete RGBA statistics and
+rejects unexplained broad alpha variation. Actual native RGBA, independent
+faint components, opacity steps, holes, paint frames and ownership always face
+the same admission policy. No source alpha or feature allowance is changed.
+
+Discovery retains the 4,096-material / 16,384-edge bounds and exact physical
+component eligibility. Source statistics are bounded to 16,384 atoms; every
+hierarchy is capped at 32,768 fit evaluations, including seeds. Budget or model
+exhaustion returns a complete recorded prefix; cancellation discards the
+partial hierarchy. Ink roles and independently owned small components remain
+separate. The fit cost is a hypothesis-discovery lower bound, not an exported
+paint or acceptance proof.
+
+Synthetic controls distinguish a true shading ramp from a facet change at
+an equal material budget, recover flat grouping when gradients are disabled,
+preserve an alpha step, admit a supported alpha ramp, retain independent ink
+and small marks, and exercise invalid statistics, cancellation and exhaustion.
+The fit mode also runs the existing joint native controls for hatching, more
+than 64 ink islands without bridges, dark surfaces, source ownership, opacity,
+holes, locks/pins/fixed paint, reload and an actual selected checkpoint.
+The full relevant regression suite passes **892 tests in 118.09 seconds**;
+the four focused hierarchy/component modules pass **104 in 10.37 seconds**.
+Changed-file Ruff/format and production Pyrefly checks pass.
+
+Final matched reports at `.bench/cel-material-fit-final` use source SHA-256
+`a6b91d62d176843f4c84aae61bb728f05d40fd20f9f0d346ea3fc9450ef3b43d`.
+The sword retained hierarchy completes in 72.86 seconds; `paint-fit` completes
+in 80.62, both under separate 180-second diagnostic allowances. The requested
+64-cell thresholds yield these first/second-parent candidates:
+
+| Sword hierarchy and parent | Nodes | Contours | Strokes | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Ward, first | 3,491 | 381 | 17 | 552.116829 |
+| Paint fit, first | 3,511 | 380 | 17 | 557.471068 |
+| Ward, second | 4,060 | 405 | 2 | 571.093568 |
+| Paint fit, second | 4,132 | 403 | 2 | 546.946917 |
+
+The first fit candidate has cost 6,117; its five feature errors are
+881.246241 / 284.154340 / 1,083.317579 / 875.730379 / 1,432.400103.
+Handle human error falls 2.4%, but overall human error rises 1.0%; nodes also
+increase. The visually inspected handle retains connected stroke interiors
+and source contact fragments, yet material boundaries remain rough. The
+second fit parent improves overall human error 4.2% at 1.8% more nodes and
+only two strokes. Neither is a practical quality/structure win. Both 32-cell
+coarse candidates reproduce the previous severe paint damage. The first fine
+fit drawing still has 2,257 nodes in 43 material paths, compared with Ward's
+2,237; the 254 retained partial-opacity paths remain unchanged. A better paint
+union cost has not supplied the missing coherent facet geometry.
+
+Eight matched clean 192-pixel / half-opacity tuning reports use 60-second
+diagnostic allowances and retain both finer parents:
+
+| Artwork | Ward nodes / contours, first then second | Fit nodes / contours, first then second | Ward / fit clean MSE, first then second |
+| --- | --- | --- | --- |
+| anime-girl | 1,413 / 110; 1,467 / 118 | 1,441 / 110; 1,466 / 118 | 75.8291 / 70.7194; 74.8963 / 69.6309 |
+| anime-face | 2,728 / 190; 2,484 / 144 | 2,463 / 160; 2,486 / 153 | 73.7607 / 67.5535; 75.5422 / 70.0447 |
+| western-park | 1,584 / 114; 1,583 / 114 | 1,564 / 113; 1,592 / 112 | 117.8697 / 113.2441; 116.4523 / 114.8377 |
+| rubberhose-band | 2,364 / 123; 2,415 / 123 | 2,366 / 122; 2,514 / 128 | 150.5583 / 144.2311; 131.3703 / 128.7546 |
+
+These are requested thresholds, not equal-cost output or oracle-selected
+parents. The face first candidate saves 9.7% of nodes and 15.8% of contours
+while improving clean MSE 8.4%; its line F1 stays 0.431. However, the girl first
+candidate's line F1 falls from 0.356 to 0.032 despite lower image error. The
+other first-parent line F1 comparisons are 0.093/0.089 (western) and
+0.753/0.752 (rubberhose); second-parent values are 0/0, 0.259/0.258,
+0.060/0.060 and 0.663/0.663. Material fitting can improve paint while harming
+line structure, so it cannot establish automatic adoption or complete the
+combined planner. Ward/fit generation-validation times are 19.77/17.80,
+46.17/41.22, 15.84/17.31 and 30.42/46.68 seconds. Timings are diagnostics,
+not demonstrated normal operation or runtime/memory gate passes.
+
+All ten pools finish with **94** emitted proposals, all native-valid,
+completely owned, component-sealed and independently raster-checked. Maximum
+local/full term difference is **3.35e-9**. The ten pool reports plus the
+source-owner audit parse as strict JSON and match the source hash. The
+verification record is `.bench/cel-material-fit-verification.json`. Normal
+operation does not schedule this route; no production quality improvement or
+release gate is claimed. All eight deliveries remain open. Keep the fit model
+as a bounded optional competitor, and next supply coherent facet geometry and
+source-based opacity/texture interpretations without sacrificing supported
+lines or faint marks. Human-only repairs remain outside generation.
+
+Replay the current pool command with `--composition-grouping paint-fit`, or
+`--composition-grouping ward` for its matched comparator. Keep
+`--proposal source-strokes --boundary-contacts --compose-materials`; use
+`--normalizer 54564 --seconds 180` for the sword, or `--pair ARTWORK --seconds 60`
+for the existing tuning artwork.
+
+A post-generation source-owner audit changes the opacity diagnosis. The 254
+exactly retained partial-opacity paths / 1,118 nodes are **135 separate source
+components**, not a continuous carrier fringe. They own 299 source atoms /
+620 pixels, with total alpha mass **3.207843 opaque-pixel equivalents**.
+Of these, 134 components / 251 paths / 1,106 nodes have peak alpha at most
+5/255; the remaining component contains only three pixels and peaks at 7/255.
+The 25 components with at least four pixels account for 127 paths / 605 nodes /
+454 pixels / alpha mass 2.349020, matching the previously diagnosed faint
+component supports. Their mass checks remain mandatory. The other 110
+components account for 127 paths / 513 nodes / 166 pixels. This is an inventory,
+not a basis for deleting faint marks or weakening admission. Compact supported
+opacity models and an explicit source-based incidental-texture interpretation
+need separate hypotheses; silhouette fitting alone cannot remove this cost.
+The audit verifies an exact initializer hash and records the current source
+hash at `.bench/cel-material-owner-audit.json`.
+
 ### Boundary contacts and complete source-run groups
 
 The next source audit found valid trough evidence for 89 of 128 examined runs,

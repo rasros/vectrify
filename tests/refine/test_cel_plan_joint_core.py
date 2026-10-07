@@ -62,7 +62,8 @@ def test_thin_material_between_two_fills_keeps_both_shared_boundaries(step):
     np.testing.assert_array_equal(actual[..., 1].sum(), strip.sum())
 
 
-def test_joint_material_budget_keeps_short_hatching_as_supported_ink():
+@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
+def test_joint_material_budget_keeps_short_hatching_as_supported_ink(grouping):
     evidence = material(128)
     labels, target, rgba = (
         evidence.labels.copy(),
@@ -92,7 +93,7 @@ def test_joint_material_budget_keeps_short_hatching_as_supported_ink():
         Families(evidence, build(evidence), options),
         options,
         joint=True,
-        grouping="ward",
+        grouping=grouping,
         boundary_fit="curve",
     )
     edits = list(factory(state, Work.start(10)))
@@ -106,7 +107,8 @@ def test_joint_material_budget_keeps_short_hatching_as_supported_ink():
     assert factory.diagnostics["hierarchy_ink_paint_links_peak"] >= 3
 
 
-def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners():
+@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
+def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners(grouping):
     evidence = material(128)
     labels, target, rgba = (
         evidence.labels.copy(),
@@ -135,7 +137,7 @@ def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners():
         Families(evidence, build(evidence), options),
         options,
         joint=True,
-        grouping="ward",
+        grouping=grouping,
         boundary_fit="curve",
     )
     edits = list(factory(state, Work.start(15)))
@@ -152,7 +154,8 @@ def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners():
     assert factory.diagnostics["hierarchy_ink_paint_links_peak"] >= 69
 
 
-def test_broad_flat_dark_material_is_not_ink_even_when_cel_marks_it_drawn():
+@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
+def test_broad_flat_dark_material_is_not_ink_even_when_cel_marks_it_drawn(grouping):
     evidence = material(128)
     target, rgba = evidence.target.copy(), evidence.rgba.copy()
     target[~evidence.empty] = 100
@@ -171,14 +174,15 @@ def test_broad_flat_dark_material_is_not_ink_even_when_cel_marks_it_drawn():
         Families(evidence, build(evidence), options),
         options,
         joint=True,
-        grouping="ward",
+        grouping=grouping,
         boundary_fit="curve",
     )
     assert list(factory(state, Work.start(10)))
     assert factory.diagnostics["hierarchy_ink_cells_peak"] == 0
 
 
-def test_co_paint_links_share_the_component_discovery_edge_bound(monkeypatch):
+@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
+def test_co_paint_links_share_the_component_discovery_edge_bound(grouping, monkeypatch):
     evidence = material(128)
     _, state, options = prepared(evidence, layers=True)
     monkeypatch.setattr(core_cells, "MAX_REGION_EDGES", 64)
@@ -187,7 +191,7 @@ def test_co_paint_links_share_the_component_discovery_edge_bound(monkeypatch):
         Families(evidence, build(evidence), options),
         options,
         joint=True,
-        grouping="ward",
+        grouping=grouping,
         boundary_fit="curve",
     )
     assert list(factory(state, Work.start(10))) == []
@@ -196,7 +200,8 @@ def test_co_paint_links_share_the_component_discovery_edge_bound(monkeypatch):
     assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
 
 
-def test_offline_dynamic_component_publishes_through_full_native_checkpoint():
+@pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
+def test_offline_dynamic_component_publishes_through_full_native_checkpoint(grouping):
     evidence = material(128)
     y, x = np.indices(evidence.labels.shape)
     labels = np.where(evidence.empty, 0, 1 + (y - 8) // 3 * 16 + (x - 8) // 5)
@@ -207,7 +212,7 @@ def test_offline_dynamic_component_publishes_through_full_native_checkpoint():
         families,
         options,
         joint=True,
-        grouping="ward",
+        grouping=grouping,
         boundary_fit="curve",
     )
 
@@ -228,7 +233,7 @@ def test_offline_dynamic_component_publishes_through_full_native_checkpoint():
     assert any(
         e["operator"] == "joint-core-cells" for e in selected.metrics["local_edits"]
     )
-    assert selected.metrics["core_material_cells"]["grouping"] == "ward"
+    assert selected.metrics["core_material_cells"]["grouping"] == grouping
     assert selected.metrics["core_material_cells"]["boundary_fit"] == "curve"
     assert factory.diagnostics["proposals"] > 0
     assert frontier.policy.evaluate(selected.svg).valid
@@ -240,7 +245,12 @@ def test_offline_dynamic_component_publishes_through_full_native_checkpoint():
 @pytest.mark.parametrize("hole", [False, True])
 @pytest.mark.parametrize(
     ("grouping", "boundary_fit"),
-    [("static", "polygon"), ("ward", "polygon"), ("ward", "curve")],
+    [
+        ("static", "polygon"),
+        ("ward", "polygon"),
+        ("ward", "curve"),
+        ("paint-fit", "curve"),
+    ],
 )
 def test_joint_component_includes_every_eligible_owner_with_complete_uncut_support(
     alpha, hole, grouping, boundary_fit
@@ -299,7 +309,7 @@ def test_joint_component_includes_every_eligible_owner_with_complete_uncut_suppo
 
 
 @pytest.mark.parametrize("protection", ["paint", "locked", "pinned", "fixed"])
-@pytest.mark.parametrize("grouping", ["static", "ward"])
+@pytest.mark.parametrize("grouping", ["static", "ward", "paint-fit"])
 def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_owner(
     protection,
     grouping,

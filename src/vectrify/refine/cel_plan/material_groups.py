@@ -1,6 +1,6 @@
 """Connected material hypotheses with costs updated after every union.
 
-The increase in constant-paint squared error guides discovery, not acceptance.
+Flat RGB or complete common-axis RGBA fit error guides discovery, not acceptance.
 Export still fits complete source paint and the native evaluator judges the
 drawing. Small disconnected supports keep their original owners and geometry.
 """
@@ -11,9 +11,12 @@ import heapq
 
 import numpy as np
 
+from vectrify.refine.cel_plan.materials import model
+
 MAX_MATERIALS = 4096
 MAX_EDGES = 16_384
 REBUILD_QUEUE_AT = 65_536
+MAX_MODEL_EVALUATIONS = 32_768
 
 
 def ink_paint_links(colors, kinds, work, *, tolerance=8):
@@ -53,6 +56,9 @@ def grouped(
     minimum_component_area=256,
     kinds=None,
     paint_edges=(),
+    statistics=None,
+    alpha_ranges=None,
+    gradients=True,
 ):
     """Return complete owner groups and eligibility, or discard interrupted work.
 
@@ -78,6 +84,31 @@ def grouped(
         or (areas <= 0).any()
     ):
         raise ValueError("Material hierarchy requires finite nonempty source paint")
+    gram = None if statistics is None else np.asarray(statistics, np.float64).copy()
+    ranges = None
+    losses = np.zeros(count)
+    evaluations = alpha_exclusions = 0
+    limited = False
+    if gram is not None:
+        ranges = np.asarray(alpha_ranges, np.float64).copy()
+        if (
+            gram.shape != (count, 7, 7)
+            or not np.isfinite(gram).all()
+            or (gram[:, 0, 0] <= 0).any()
+            or ranges.shape != (count, 2)
+            or not np.isfinite(ranges).all()
+            or (ranges < 0).any()
+            or (ranges > 1).any()
+            or (ranges[:, 0] > ranges[:, 1]).any()
+        ):
+            raise ValueError("Material fit requires complete finite RGBA statistics")
+        for i, g in enumerate(gram):
+            if work.interrupted:
+                return None
+            losses[i] = model(g, gradients=gradients, gradient_price=0).error
+            evaluations += 1
+    elif alpha_ranges is not None:
+        raise ValueError("Opacity ranges require material fit statistics")
     neighbors = [set() for _ in range(count)]
     for a, b in edges:
         if work.interrupted:
@@ -131,13 +162,31 @@ def grouped(
     merges = rebuilds = 0
 
     def push(a, b):
+        nonlocal evaluations, alpha_exclusions, limited
         if kinds[a] != kinds[b]:
             return
         if b < a:
             a, b = b, a
-        delta = means[a] - means[b]
-        price = areas[a] * areas[b] / (areas[a] + areas[b]) * float(delta @ delta)
-        heapq.heappush(heap, (price, a, b, int(versions[a]), int(versions[b])))
+        fitted = 0.0
+        if gram is None:
+            delta = means[a] - means[b]
+            price = areas[a] * areas[b] / (areas[a] + areas[b]) * float(delta @ delta)
+        else:
+            assert ranges is not None
+            if evaluations >= MAX_MODEL_EVALUATIONS:
+                limited = True
+                return
+            evaluations += 1
+            proposed = model(gram[a] + gram[b], gradients=gradients, gradient_price=0)
+            low, high = min(ranges[a, 0], ranges[b, 0]), max(ranges[a, 1], ranges[b, 1])
+            if high > low * 1.25 + 1e-7 and (
+                not proposed.gradient or proposed.alpha_residual > 0.02
+            ):
+                alpha_exclusions += 1
+                return
+            fitted = proposed.error
+            price = max(0.0, fitted - losses[a] - losses[b])
+        heapq.heappush(heap, (price, a, b, int(versions[a]), int(versions[b]), fitted))
 
     def rebuild():
         heap.clear()
@@ -155,14 +204,19 @@ def grouped(
         return None
     peak = len(heap)
     remaining = int(eligible.sum())
-    while heap and remaining > budget:
+    while heap and remaining > budget and not limited:
         if work.interrupted:
             return None
-        _, a, b, va, vb = heapq.heappop(heap)
+        _, a, b, va, vb, fitted = heapq.heappop(heap)
         if parents[a] != a or parents[b] != b or versions[a] != va or versions[b] != vb:
             continue
         means[a] = (means[a] * areas[a] + means[b] * areas[b]) / (areas[a] + areas[b])
         areas[a] += areas[b]
+        if gram is not None:
+            assert ranges is not None
+            gram[a] += gram[b]
+            losses[a] = fitted
+            ranges[a] = min(ranges[a, 0], ranges[b, 0]), max(ranges[a, 1], ranges[b, 1])
         parents[b] = a
         versions[a] += 1
         linked = (neighbors[a] | neighbors[b]) - {a, b}
@@ -203,5 +257,9 @@ def grouped(
             "ink_paint_links": linked_paints,
             "queue_peak": peak,
             "queue_rebuilds": rebuilds,
+            "paint_cost": "source-rgba-fit" if gram is not None else "flat-rgb-ward",
+            "model_evaluations": evaluations,
+            "model_limit_hit": limited,
+            "alpha_exclusions": alpha_exclusions,
         },
     )

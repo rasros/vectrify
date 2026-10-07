@@ -57,12 +57,28 @@ quality, runtime or delivery gate passes. The remaining 3,491-node drawing
 contains 2,237 nodes in new material/cut paths and 1,118 in unchanged paths with
 intrinsic partial opacity. Coherent material boundaries and compact opacity
 models both need work; more stroke discovery alone cannot meet the 800-node
-target. Independent
-source marks and gaps must survive, including disconnected marks sharing a
+target. Independent source marks and gaps must survive, including disconnected marks sharing a
 source owner with a line. This remains an offline candidate-pool
 comparison until native and cross-artwork evidence supports automatic planning.
 All eight deliveries remain open. Generated drafts are still too poor to serve
 as useful new references; defer that collection until a practical quality gain.
+
+A complete-owner fit hierarchy now ranks unions with the existing flat/linear
+paint model rather than flat RGB means. Materials are fitted under the fixed
+coverage carrier; native source RGBA remains the admission target. This remains
+an offline competitor, and fitting paint costs does not itself reconstruct
+coherent facet geometry. The first finer sword fit has 3,511 nodes / 380
+contours / human MSE 557.47, versus the matched Ward candidate's
+3,491 / 381 / 552.12. The face tuning candidate improves nodes 9.7% and clean
+error 8.4% with unchanged line F1, but the girl loses line F1 from 0.356 to 0.032.
+This mixed candidate pool does not justify automatic adoption or complete a
+release gate. The source-owner audit also corrects the opacity
+inventory: the 1,118 retained opacity nodes represent 135 separate faint source
+components, not a continuous silhouette fringe. The 25 components with at
+least four source pixels alone use 605 nodes in 127 paths. Their established
+mass checks remain mandatory. Evaluate compact supported opacity models and
+source-based incidental-texture hypotheses alongside coherent facet geometry;
+do not substitute a blanket low-opacity exemption for either model.
 
 ### Previous verified pause checkpoint
 

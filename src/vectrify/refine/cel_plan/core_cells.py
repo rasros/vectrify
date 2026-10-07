@@ -45,6 +45,7 @@ from vectrify.refine.cel_plan.ink_models import models as ink_models
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.material_groups import grouped, ink_paint_links
+from vectrify.refine.cel_plan.materials import MAX_REGIONS, moments
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import in_core, opaque_fill
 from vectrify.refine.cel_plan.opacity import Paint
@@ -146,14 +147,17 @@ class CoreCells:
         boundary_fit="polygon",
         ink_support="paired",
     ):
-        if grouping not in {"static", "ward"} or (grouping != "static" and not joint):
+        if grouping not in {"static", "ward", "paint-fit"} or (
+            grouping != "static" and not joint
+        ):
             raise ValueError("Dynamic grouping requires a joint material proposal")
         if boundary_fit not in {"polygon", "curve"} or (
             boundary_fit != "polygon" and not joint
         ):
             raise ValueError("Boundary fitting requires a joint material proposal")
         if ink_support not in {"paired", "connected"} or (
-            ink_support != "paired" and (not joint or grouping != "ward")
+            ink_support != "paired"
+            and (not joint or grouping not in {"ward", "paint-fit"})
         ):
             raise ValueError("Connected ink requires a dynamic joint material proposal")
         self.families, self.options = families, options
@@ -165,6 +169,7 @@ class CoreCells:
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
         self._ridge_support = None
+        self._moments = None
         self.diagnostics: dict = dict.fromkeys(
             (
                 "cores",
@@ -200,6 +205,9 @@ class CoreCells:
                 "source_stroke_attempts",
                 "source_stroke_models",
                 "source_stroke_carrier_exclusions",
+                "hierarchy_model_evaluations",
+                "hierarchy_model_limits",
+                "hierarchy_alpha_exclusions",
             ),
             0,
         )
@@ -359,7 +367,7 @@ class CoreCells:
             / sizes[:, None]
         )
         ink_pixels = evidence.drawn
-        if self.grouping == "ward":
+        if self.grouping != "static":
             ink_pixels = self._ink_support(work)
             if ink_pixels is None:
                 return
@@ -409,13 +417,30 @@ class CoreCells:
                     return
         edges = sorted(edges)
         paint_edges = ()
-        if self.grouping == "ward":
+        statistics = alpha_ranges = None
+        if self.grouping != "static":
             paint_edges = ink_paint_links(colors, ink_kinds, work)
             if paint_edges is None:
                 return
             if len(edges) + len(paint_edges) > MAX_REGION_EDGES:
                 self.diagnostics["bounded"] += 1
                 return
+        if self.grouping == "paint-fit":
+            if len(graph.regions) > MAX_REGIONS:
+                self.diagnostics["bounded"] += 1
+                return
+            if self._moments is None:
+                # These paints live inside the unchanged coverage carrier.
+                # Source edge alpha is supplied by that carrier, not by each
+                # material. Fit intrinsic RGB here; the native evaluator still
+                # checks the complete source RGBA, including fringe and marks.
+                self._moments = moments(
+                    replace(evidence, opacity=None), graph, self.options, work
+                )
+            statistics = np.array(
+                [self._moments[list(s.members)].sum(axis=0) for s in selected]
+            )
+            alpha_ranges = np.ones((len(selected), 2))
         edges.sort(
             key=lambda e: (float(np.linalg.norm(colors[e[0]] - colors[e[1]])), e)
         )
@@ -440,7 +465,7 @@ class CoreCells:
         )
         for threshold in budgets if self.joint else (56, 28, 12):
             eligible = None
-            if self.grouping == "ward":
+            if self.grouping != "static":
                 result = grouped(
                     colors,
                     sizes,
@@ -449,6 +474,9 @@ class CoreCells:
                     work,
                     kinds=ink_kinds,
                     paint_edges=paint_edges,
+                    statistics=statistics,
+                    alpha_ranges=alpha_ranges,
+                    gradients=self.options.gradients,
                 )
                 if result is None:
                     return
@@ -467,6 +495,15 @@ class CoreCells:
                     "queue_rebuilds"
                 ]
                 self.diagnostics["hierarchy_unmet_budgets"] += hierarchy["budget_unmet"]
+                self.diagnostics["hierarchy_model_evaluations"] += hierarchy[
+                    "model_evaluations"
+                ]
+                self.diagnostics["hierarchy_model_limits"] += hierarchy[
+                    "model_limit_hit"
+                ]
+                self.diagnostics["hierarchy_alpha_exclusions"] += hierarchy[
+                    "alpha_exclusions"
+                ]
             else:
                 parents = list(range(len(selected)))
                 remaining = int(np.sum(sizes >= 16)) if self.joint else len(selected)
@@ -624,7 +661,7 @@ class CoreCells:
                 ink_cells=ink_cells,
             ) -> list[tuple[str, tuple[float, ...]]]:
                 check()
-                if self.grouping == "ward" and len(points) > 8:
+                if self.grouping != "static" and len(points) > 8:
                     middle = (points[0] + points[1]) / 2
                     direction = points[1] - points[0]
                     normal = np.array([-direction[1], direction[0]]) * 0.25
@@ -1399,13 +1436,16 @@ class CoreCells:
                     "region_threshold": None if self.joint else region_threshold,
                     "joint": self.joint,
                     "grouping": self.grouping,
+                    "paint_fit_alpha": "fixed-coverage-carrier"
+                    if self.grouping == "paint-fit"
+                    else None,
                     "boundary_fit": self.boundary_fit,
                     "ink_support": self.ink_support,
                     "stroke_models": [c.stroke for c in cells if c.stroke],
                     "model_stage": "source-ink-and-materials"
                     if self.ink_support == "connected"
                     else "dynamic-materials"
-                    if self.grouping == "ward"
+                    if self.grouping != "static"
                     else "paint-budget-ablation"
                     if self.joint
                     else "material",

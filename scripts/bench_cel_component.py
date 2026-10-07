@@ -55,7 +55,17 @@ def digest(value):
     return hashlib.sha256(value).hexdigest()
 
 
-def offered(state, factory, operators, policy, options, work, compose_materials):
+def offered(
+    state,
+    factory,
+    operators,
+    policy,
+    options,
+    work,
+    compose_materials,
+    composition_grouping="ward",
+    composition_diagnostics=None,
+):
     """Only valid source-ink parents seed a bounded material composition pool."""
     parents = 0
     proposals = (
@@ -85,9 +95,16 @@ def offered(state, factory, operators, policy, options, work, compose_materials)
             branch.families,
             options,
             joint=True,
-            grouping="ward",
+            grouping=composition_grouping,
             boundary_fit="curve",
         )
+        if composition_diagnostics is not None:
+            composition_diagnostics.append(
+                {
+                    "parent_svg_sha256": digest(svg.encode()),
+                    "diagnostics": materials.diagnostics,
+                }
+            )
         for composed in materials(parent, work):
             yield (
                 parent,
@@ -115,6 +132,7 @@ def run(
     proposal="core-cells",
     compose_materials=False,
     boundary_contacts=False,
+    composition_grouping="ward",
 ):
     started, revision = time.monotonic(), source_hash()
     if case.get("paired"):
@@ -150,6 +168,7 @@ def run(
         result = fallback, fallback_metadata
         preparation = {**preparation, "stroke_parent": "conservative-fallback"}
     rows, factory, status = [], None, "unsupported"
+    composition_diagnostics = []
     if result is not None:
         svg, metadata = result
         full = policy.evaluate(svg)
@@ -198,7 +217,15 @@ def run(
         try:
             for index, (parent, edit) in enumerate(
                 offered(
-                    state, factory, operators, policy, options, work, compose_materials
+                    state,
+                    factory,
+                    operators,
+                    policy,
+                    options,
+                    work,
+                    compose_materials,
+                    composition_grouping,
+                    composition_diagnostics,
                 )
             ):
                 if edit.partition is None or edit.details is None:
@@ -331,6 +358,8 @@ def run(
         if proposal == "source-strokes"
         else None,
         "grouping": grouping if proposal == "core-cells" else None,
+        "composition_grouping": composition_grouping if compose_materials else None,
+        "composition_diagnostics": composition_diagnostics,
         "boundary_fit": boundary_fit if proposal == "core-cells" else None,
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
         "normalizer_source": "source-only-baseline"
@@ -370,7 +399,12 @@ def main():
     )
     parser.add_argument("--seconds", type=float, default=180)
     parser.add_argument("--normalizer", type=float)
-    parser.add_argument("--grouping", choices=("static", "ward"), default="static")
+    parser.add_argument(
+        "--grouping", choices=("static", "ward", "paint-fit"), default="static"
+    )
+    parser.add_argument(
+        "--composition-grouping", choices=("ward", "paint-fit"), default="ward"
+    )
     parser.add_argument(
         "--boundary-fit", choices=("polygon", "curve"), default="polygon"
     )
@@ -421,6 +455,7 @@ def main():
         proposal=args.proposal,
         compose_materials=args.compose_materials,
         boundary_contacts=args.boundary_contacts,
+        composition_grouping=args.composition_grouping,
     )
 
 
