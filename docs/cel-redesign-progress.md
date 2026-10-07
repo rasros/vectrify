@@ -14,6 +14,71 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Final combined source/material cell budgeting
+
+Connected joint decoding now checks the exported-cell budget after assigning
+all compatible complete source styles. Hundreds of virtual ink roots can
+compact into a few native strokes; they no longer cause rejection before that
+classification. One style can also temporarily add a class before a later
+style retires shared roots. The complete result is checked before contours,
+paint, source cuts or export. Final results exceeding the unchanged 64-cell
+limit publish nothing. Working virtual indices use uint16, preventing roots
+above 255 from aliasing material IDs; final exported classes still use uint8.
+The existing 4,096-observation and 64-source-cut limits remain unchanged.
+
+Five added controls cover more than 256 roots compacting into nine final cells,
+both with and without a real source gap, two distinct styles fitting only after
+complete classification, over-budget atomic rejection and cancellation without
+publishing a prefix. Native ownership/component, alpha, local/full and reload
+checks apply. The two-style fixture deliberately uses the explicit width
+override to isolate classification from source width fitting. Source-edge/cap
+antialias differences remain a separate fidelity problem. The final five-case
+file passes in 2.47 seconds; the full relevant suite passes **1,022 cases in
+202.65 seconds**. Ruff/import/format and whitespace checks pass. Production
+Pyrefly reports zero errors (62 warnings).
+
+Source hash is
+`88c15326f08c52708f54d77b20919de8587e1cef87c1b35b3baa19dc496d000e`.
+The five direct joint reports and five separate source-graph validation reruns
+at `.bench/cel-final-class-budget` complete under the same 180/60-second
+allowances. All ten proposals pass native admission, complete ownership,
+component seals and independent local/full raster agreement; maximum score-term
+difference is 3.027803e-9. Strict finite JSON and saved SVG hashes pass. Source
+RGBA/masks/settings/normalizers and evaluation targets match the previous
+checkpoint. All fifteen saved drawings, including initializers, match the
+previous direct controls and the graph reruns in canonical geometry/paint,
+saved RGBA and fresh unquantized native RGBA. Quality metrics are identical.
+These cases did not exercise the corrected class-count failure. This is a
+correctness checkpoint, **not a quality gain**. Generation times were measured
+alongside regression work and are not used for a speed comparison. The
+composed/plane matrix was not repeated: this change concerns the connected
+region branch, while composed regions use paired ink and plane layouts use
+their separate decoder. The previous matrix evidence remains tied to its
+previous source hash.
+
+The sword still fails every development quality gate, and the handle still has
+fragmented lines and filled remnants. No source endpoint or gap is changed to
+copy the human repair. Source width/paint, faithful junction connectivity,
+coherent materials and opacity, scheduling, corpus/UI and release work remain;
+all eight deliveries remain open and generated-reference collection stays
+deferred.
+
+A separate source-only construction audit records all 104 measured runs from
+the actual direct sword carrier mask, plus discovered/owned paths, at
+`joint-chain-diagnosis/chains.json`. Instrumentation produces the same direct
+drawings. Both material budgets retain every contour in all five discovered
+styles; complete-chain owner exclusion is not responsible for those missing
+handle connections. Several existing short junction links, including five-
+and six-pixel segments, fail the ordinary minimum-length profile check. Longer
+outer segments can pass the profile check yet remain absent from the discovered
+models. This narrows the next construction work; it does not establish a
+quality gain. Evaluate short existing junction links using both incident
+supported source chains and direct local contrast, without joining distinct
+endpoints or borrowing support across a real gap. Diagnose carrier/width
+failures separately and retain native coverage checks. The full-source probe at
+`.bench/cel-source-chain-diagnosis` has a different discovery mask and resource
+pool; its extra strokes are not evidence that they are safe native replacements.
+
 ### Joint source roles and complete chain discovery
 
 Connected joint decoding now distinguishes ink/material observations within an
@@ -133,9 +198,8 @@ production scheduling. The 81-configuration grid remains a declaration, with
 no chosen weights. All eight deliveries and all corpus/refinement/UI/release
 gates remain open; generated-reference collection stays deferred.
 
-Next correct final-class budgeting before consuming cuts, rather than raising
-caps or rejecting a compact final model because of intermediate observation
-count. Strengthen source ridge/width/paint classification and variable-width
+Final-class budgeting is corrected in the checkpoint above.
+Strengthen source ridge/width/paint classification and variable-width
 filled alternatives, then offer coherent material/opacity surfaces. The current
 source detector and constant-width grouped primitives still do not explain
 every line or broad dark mark. A learned ranker cannot replace that coverage.

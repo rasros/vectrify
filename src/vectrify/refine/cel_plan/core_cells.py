@@ -230,6 +230,8 @@ class CoreCells:
                 "source_stroke_carrier_exclusions",
                 "source_stroke_owner_exclusions",
                 "source_chain_small_roots",
+                "source_class_roots_peak",
+                "source_final_cells_peak",
                 "hierarchy_model_evaluations",
                 "hierarchy_model_limits",
                 "hierarchy_alpha_exclusions",
@@ -687,7 +689,7 @@ class CoreCells:
                 self.diagnostics["source_chain_small_roots"] += int(
                     np.count_nonzero(areas[roots] < 16)
                 )
-                if len(roots) > MAX_REGION_CELLS:
+                if len(roots) > MAX_REGION_CELLS and self.ink_support != "connected":
                     self.diagnostics["region_exclusions"] += 1
                     continue
             if self.ink_support == "connected":
@@ -729,7 +731,12 @@ class CoreCells:
             nearest = distance_transform_edt(
                 ~accepted, return_distances=False, return_indices=True
             )
-            classes = palette[source[tuple(nearest)]].astype(np.uint8)
+            # Virtual roots can outnumber exported cells. Up to 4,096 source
+            # observations plus eight styles fit uint16 without aliasing; the
+            # final combined classification must still meet the 64-cell cap.
+            classes = palette[source[tuple(nearest)]].astype(
+                np.uint16 if self.ink_support == "connected" else np.uint8
+            )
             outline_labels = np.where(support, classes.astype(np.int32) + 1, 0)
             ink_cells = np.r_[False, ink_kinds[roots]]
             primary_pixels = accepted[own]
@@ -766,24 +773,29 @@ class CoreCells:
                     if not model.selected[own & accepted].any():
                         continue
                     index = len(roots) + len(chosen)
-                    trial = changed.copy()
-                    trial[model.selected] = index
-                    active = np.unique(trial[own & accepted])
-                    if len(active) > MAX_REGION_CELLS:
-                        continue
-                    changed = trial
+                    changed[model.selected] = index
                     chosen[index] = model
-                if chosen:
-                    active = np.unique(changed[own & accepted])
-                    remap = np.zeros(len(roots) + len(chosen), np.uint8)
-                    remap[active] = np.arange(len(active), dtype=np.uint8)
-                    classes = remap[changed]
-                    kinds = np.r_[ink_kinds[roots], np.ones(len(chosen), bool)]
-                    ink_cells = np.r_[False, kinds[active]]
-                    stroke_models = {
-                        int(remap[i]): model for i, model in chosen.items()
-                    }
-                    self.diagnostics["source_stroke_models"] += len(stroke_models)
+                # Judge all compatible source styles together. One style can
+                # temporarily add a class while a later style retires several
+                # virtual roots. No geometry, source cut or partial style set
+                # is published before the complete final count is known.
+                active = np.unique(changed[own & accepted])
+                kinds = np.r_[ink_kinds[roots], np.ones(len(chosen), bool)]
+                self.diagnostics["source_class_roots_peak"] = max(
+                    self.diagnostics["source_class_roots_peak"], len(roots)
+                )
+                self.diagnostics["source_final_cells_peak"] = max(
+                    self.diagnostics["source_final_cells_peak"], len(active)
+                )
+                if len(active) > MAX_REGION_CELLS or kinds[active[0]]:
+                    self.diagnostics["region_exclusions"] += 1
+                    continue
+                remap = np.zeros(len(roots) + len(chosen), np.uint8)
+                remap[active] = np.arange(len(active), dtype=np.uint8)
+                classes = remap[changed]
+                ink_cells = np.r_[False, kinds[active]]
+                stroke_models = {int(remap[i]): model for i, model in chosen.items()}
+                self.diagnostics["source_stroke_models"] += len(stroke_models)
                 outline_labels = np.where(support, classes.astype(np.int32) + 1, 0)
 
             def check():

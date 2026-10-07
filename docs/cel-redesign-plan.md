@@ -1047,7 +1047,7 @@ Continue from the experimental package in the following order. These changes com
 
 The paired tuning runner is available for independent quality checks; expand and freeze its evidence while finishing bounded native evaluation. Structural compaction comes next because the current safe drawing is too dense. CPU refinement can proceed once it has compact eligible shapes, but the sword milestone still depends on useful interpretations being proposed and selected. UI integration waits for real refinement and budget behavior. Learned ranking remains a conditional branch after deterministic ablations.
 
-The latest joint-source checkpoint introduces virtual ink/material roles within
+The joint-source checkpoint introduces virtual ink/material roles within
 current owners and complete source-chain discovery before material grouping.
 Native atoms are partitioned only for final classes. The 1,017-case regression
 and 20-report tuning diagnostic pass native validity/ownership checks; face
@@ -1055,8 +1055,19 @@ line fidelity improves in the direct control, while several other line/paint
 metrics regress. The sword's composed region result remains 3,907 nodes / 460
 contours / MSE 551.32. See the current evidence record for exact controls and
 source hashes. This is partial delivery-4 work; coherent surfaces, faithful
-width/paint alternatives, final-class budget handling and all eight completion
+width/paint alternatives and all eight completion
 conditions remain open.
+
+The subsequent final-class correction budgets all compatible source styles
+together, before contours or native atom cuts. Virtual roots above 255 cannot
+alias material IDs, and hundreds of observations can compact into a few final
+editable strokes under the unchanged cell/cut limits. The 1,022-case regression
+passes; all ten proposals in five direct controls and ten separate source-graph
+checks remain valid. Those drawings and metrics exactly match the preceding
+checkpoint, so this fixes rejection semantics without improving quality. The
+human handle repair supplies no generation connection. Continue faithful
+source junction/width/paint interpretation and coherent material/opacity
+surfaces. Generated-reference collection and all eight deliveries remain open.
 
 ### Structural compaction work packages
 
