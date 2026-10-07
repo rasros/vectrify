@@ -14,7 +14,72 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
-### Final combined source/material cell budgeting
+### Supported short source junction links
+
+Short physical runs can now become editable links when their exact existing
+ends meet two distinct retained source chains with compatible width and paint.
+This uses the original source skeleton and component identity; nearby endpoints
+are never joined. Every original interval is sampled at no more than half-pixel
+spacing. Raw painted source must agree with the established ink paint at every
+sample. Outside the actual incident stroke bodies, both raw and ordinary
+profile contrast must prove ink. Smoothing, transparent RGB and the human
+redraw cannot authorize a missing interval. Original ends, cap, paint and width
+remain fixed; the complete stroke body must pass the existing carrier proof.
+Accepted links do not change incident chains or authorize further links.
+Unsupported runs keep their filled interpretation. Link profiles share the
+unchanged 128-run / 16,384-point budget. Held ownership excludes a whole link,
+without trimming it or discarding independent incident chains.
+
+Fourteen added controls cover connected junctions at full/half/quarter opacity,
+real source gaps, incompatible paints, sparse endpoints, raw bright/transparent
+gaps despite smoothed or incident-body support, short trough versus shade,
+exhausted resources, unchanged original styles/chains, cancellation, held links
+and native joint editing with exact alpha, ownership, local/full agreement and
+reload. The relevant suite passes **1,036 cases in 380.22 seconds**; the final
+new file passes 14 cases in 29.71 seconds. Ruff/import/format and whitespace
+checks pass; production Pyrefly reports zero errors and 62 warnings.
+
+Source SHA-256 is
+`87c70d698fe207de21d3eb4e18475161dfe96e30f45db4e9b194781283815e03`.
+Artifacts are at `.bench/cel-source-junction-links`. All five direct controls
+complete, with ten native-valid proposals and ten independent source-graph
+validation reruns. Current/rerun drawings match canonical geometry/paint, saved
+RGBA and fresh unquantized native RGBA. The four paired drawings and all five
+initializers also match the preceding checkpoint exactly, including metrics.
+Maximum direct score-term difference is 3.0278022e-9. Generation remains
+source-only; human/clean geometry is used after discovery for evaluation.
+
+The direct sword adds one existing six-pixel handle junction:
+`M344.5 1861.5 L350.5 1861.5`, paint `#1d120e`, width 1.7660659551620483.
+All previous editable stroke contours and five style widths are unchanged.
+Its finer result moves from 6,430 nodes / 762 contours / 24 strokes / human MSE
+537.496619 to **6,440 / 765 / 25 / 537.313158**. Human handle error moves from
+841.100038 to 840.085571. The coarser handle error worsens slightly. This is a
+specific continuity fix with a tiny overall gain and more structure, **not a
+practical quality improvement**. Missing exterior segments, filled remnants,
+coherent surfaces and compact opacity remain unresolved.
+
+The fifteen composed region/plane reports were repeated under unchanged
+180/60-second allowances. Three initial band modes reached the deadline;
+one same-allowance retry completes curve/anchored, while ink-planes remains
+interrupted. Keeping complete retries and the original partial plane report
+provides **14 complete and one interrupted matrix report**, with 127 emitted
+proposals. Together with the direct controls, 137 proposals pass native
+admission, complete ownership, component seals and independent local/full
+agreement; maximum score-term difference is 3.36530694e-9. Strict finite JSON,
+saved SVG hashes and matched source RGBA/masks/settings/normalizers/targets
+pass. Across modes, corresponding source parents match canonical geometry/paint
+and exact saved RGBA. The composed finer anchored sword stays at 3,907 nodes /
+460 contours / 22 strokes / human MSE 551.316411: this factory offers no new
+short link on its existing discovery mask. Interrupted band pools cannot
+establish complete pool quality or runtime. Timings overlap other CPU-heavy
+builds and some regression work; no speedup or isolated runtime regression is
+claimed. All eight deliveries and release gates remain open. Reference
+collection remains deferred. Further isolated link improvements cannot close
+the main representation gap; the next diagnosis must address ink/material
+interpretation and coherent compact surfaces while preserving source lines.
+
+### Final combined source/material cell budgeting (previous checkpoint)
 
 Connected joint decoding now checks the exported-cell budget after assigning
 all compatible complete source styles. Hundreds of virtual ink roots can

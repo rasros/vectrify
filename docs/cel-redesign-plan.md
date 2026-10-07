@@ -32,6 +32,21 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
+The current short-junction checkpoint recovers one existing six-pixel direct
+sword link, without changing original fitted strokes, style paints or widths.
+Every intervening raw source sample and the complete carrier must support it;
+real gaps and the human repair remain excluded. Fourteen new controls and 1,036
+relevant passing cases verify this behavior. The finer direct sword changes
+from 6,430 / 762 / 24 strokes / MSE 537.50 to 6,440 / 765 / 25 / MSE 537.31.
+The four paired drawings and the 3,907-node composed sword are unchanged.
+This tiny continuity gain does not make generated references useful. Excess
+material/opacity contours and incomplete source line construction remain the
+main quality gap; all eight deliveries remain open. The matched composition
+matrix has fourteen complete reports and one interrupted band plane report,
+which cannot establish complete-pool/runtime evidence. Details and source hash
+are in the progress record.
+
+
 The owner resumed implementation after the verified pause checkpoint and
 clarified the handle interpretation: use clear, connected editable strokes
 rather than filled outline shapes. Discover physical ink chains from the source

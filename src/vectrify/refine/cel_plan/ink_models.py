@@ -19,7 +19,7 @@ from vectrify.document.join import curve_path, path_geometry
 from vectrify.document.lines import open_path
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
-from vectrify.refine.cel_plan.ink import measure
+from vectrify.refine.cel_plan.ink import measure, measure_link
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.crossings import crossings
@@ -187,6 +187,8 @@ def owned_model(model, owned, evidence, work):
     if work.interrupted:
         return None
     selected.flags.writeable = False
+    links = model.details.get("junction_links", 0)
+    link_ids = {s.id for s in model.geometry.subpaths[-links:]} if links else set()
     return replace(
         model,
         geometry=geometry,
@@ -197,6 +199,8 @@ def owned_model(model, owned, evidence, work):
             "source_style_runs": model.details["runs"],
             "runs": len(contours),
             "owner_excluded_runs": len(model.geometry.subpaths) - len(contours),
+            "source_style_junction_links": links,
+            "junction_links": sum(s.id in link_ids for s in contours),
         },
     )
 
@@ -237,7 +241,18 @@ def carrier_width(geometry, width, carrier, work, *, fixed=False, cap="round"):
 
 
 def carried(
-    run, proof, evidence, options, carrier, work, contacts, budget, light, visible
+    run,
+    proof,
+    evidence,
+    options,
+    carrier,
+    work,
+    contacts,
+    budget,
+    light,
+    visible,
+    *,
+    cap=None,
 ):
     """Fit source chains inside the carrier with proved complete footprints.
 
@@ -283,9 +298,12 @@ def carried(
         )
         return None if ceiling is None else (part, supported, model, ceiling, cap)
 
-    complete = fit(run, proof)
+    complete = fit(run, proof, cap or "round")
     if complete is not None:
         return [complete]
+    if cap is not None:
+        # An existing-style junction link must keep its exact cap and ends.
+        return []
     if not contacts or carrier is None or work.interrupted:
         return []
     # Some original source endpoints touch the carrier. A round cap spills
@@ -350,6 +368,7 @@ def models(
     if count > MAX_SOURCE_COMPONENTS:
         return ()
     groups = []
+    ports, links = {}, []
     claimed = np.zeros(mask.shape, np.uint8)
     rejected = np.zeros(mask.shape, bool)
     visible = ~evidence.empty
@@ -417,6 +436,12 @@ def models(
             )
             if proof is None:
                 rejected[yy, xx] = True
+                if prune_spurs and (
+                    len(points) < 4
+                    or np.linalg.norm(np.diff(points, axis=0), axis=1).sum()
+                    < max(8, 4 * typical)
+                ):
+                    links.append((index, points))
                 continue
             offered = carried(
                 points,
@@ -470,6 +495,14 @@ def models(
                 group["paints"].append(supported.paint)
                 group["contours"].append(model.contour)
                 group["proofs"].append(supported)
+                # Only source endpoints retained by an actually carried path
+                # authorize a later short link. Trimmed contact samples cannot
+                # create a new junction. Distinct contours are distinct hosts.
+                for end in (0, -1):
+                    if np.array_equal(part[end], points[end]):
+                        ports.setdefault((index, tuple(part[end])), set()).add(
+                            (group_index, len(group["contours"]) - 1)
+                        )
                 collision = (claimed[py, px] != 0) & (
                     claimed[py, px] != group_index + 1
                 )
@@ -478,6 +511,129 @@ def models(
             unoffered = np.array([tuple(p) not in accepted for p in points], bool)
             rejected[yy[unoffered], xx[unoffered]] = True
     if work.interrupted or not groups:
+        return ()
+    link_counts = {
+        "candidates": len(links),
+        "profiles": 0,
+        "supported": 0,
+        "carrier_exclusions": 0,
+    }
+    for index, points in links:
+        if work.interrupted:
+            return ()
+        left = ports.get((index, tuple(points[0])), ())
+        right = ports.get((index, tuple(points[-1])), ())
+        compatible = {}
+        for a in left:
+            for b in right:
+                if a == b:
+                    continue
+                ga, gb = groups[a[0]], groups[b[0]]
+                wa = options.line_width or float(np.median(ga["widths"]))
+                wb = options.line_width or float(np.median(gb["widths"]))
+                pa, pb = (
+                    np.median(ga["paints"], axis=0),
+                    np.median(gb["paints"], axis=0),
+                )
+                if max(wa, wb) <= 1.6 * min(wa, wb) and np.all(
+                    np.abs(pa - pb) <= PAINT_SPREAD
+                ):
+                    for i in (a[0], b[0]):
+                        compatible.setdefault(i, set()).update((a, b))
+        candidates = []
+        samples = 1 + int(
+            np.maximum(
+                1, np.ceil(2 * np.linalg.norm(np.diff(points, axis=0), axis=1))
+            ).sum()
+        )
+        for i in sorted(compatible):
+            if work.interrupted:
+                return ()
+            if (
+                scanned >= MAX_RUNS
+                or samples > MAX_RUN_POINTS
+                or points_count + samples > MAX_POINTS
+            ):
+                break
+            scanned += 1
+            points_count += samples
+            link_counts["profiles"] += 1
+            group = groups[i]
+            width = options.line_width or float(np.median(group["widths"]))
+            paint = np.median(group["paints"], axis=0)
+            bodies = []
+            for host, contour in sorted(compatible[i]):
+                if work.interrupted:
+                    return ()
+                prior = groups[host]
+                shape = footprint(
+                    Geometry("source-junction", (prior["contours"][contour],)),
+                    options.line_width or float(np.median(prior["widths"])),
+                    cap=prior["cap"],
+                )
+                bodies.append(curve_path(shape))
+
+            def junctions(samples, _bodies=tuple(bodies)):
+                joined = np.zeros(len(samples), bool)
+                for j, point in enumerate(samples / evidence.scale + evidence.offset):
+                    if work.interrupted:
+                        return joined
+                    joined[j] = any(body.contains(tuple(point)) for body in _bodies)
+                return joined
+
+            proof = measure_link(
+                points,
+                evidence.target,
+                width * scale,
+                light=light,
+                visible=visible,
+                junctions=junctions,
+                paint=paint,
+            )
+            if proof is None or not np.all(np.abs(proof.paint - paint) <= PAINT_SPREAD):
+                continue
+            # Reuse the established style exactly. A junction cannot change
+            # widths/paints of the incident long chains by shifting a median.
+            error = float(np.square(proof.paint - paint).sum())
+            proof = replace(proof, width=width * scale, paint=paint)
+            offered = carried(
+                points,
+                proof,
+                evidence,
+                options,
+                carrier,
+                work,
+                False,
+                contact_budget,
+                light,
+                visible,
+                cap=group["cap"],
+            )
+            if not offered or offered[0][-1] != group["cap"]:
+                link_counts["carrier_exclusions"] += 1
+                continue
+            candidates.append((error, i, offered[0]))
+        if not candidates:
+            continue
+        _error, i, (_part, proof, model, ceiling, _cap) = min(
+            candidates, key=lambda r: (r[0], r[1])
+        )
+        group = groups[i]
+        group["contours"].append(model.contour)
+        group["proofs"].append(proof)
+        group["ceilings"].append(ceiling)
+        group["junction_links"] = group.get("junction_links", 0) + 1
+        link_counts["supported"] += 1
+        px, py = np.floor(points).astype(int).T
+        collision = (claimed[py, px] != 0) & (claimed[py, px] != i + 1)
+        # Preserve ambiguous endpoint ownership. Only this proved physical
+        # link's interior can replace its previous unsupported classification.
+        clear = ~collision
+        clear[0] = clear[-1] = False
+        rejected[py[clear], px[clear]] = False
+        rejected[py[collision], px[collision]] = True
+        claimed[py, px] = i + 1
+    if work.interrupted:
         return ()
     # Source samples belong to their nearest existing skeleton run. Ambiguous
     # junctions and unsupported chains retain their independently owned fill.
@@ -549,6 +705,11 @@ def models(
                     "boundary_contacts": boundary_contacts,
                     "contact_runs_scanned": contact_budget["runs"],
                     "contact_points_scanned": contact_budget["points"],
+                    "junction_links": group.get("junction_links", 0),
+                    "source_link_candidates": link_counts["candidates"],
+                    "source_link_profiles_scanned": link_counts["profiles"],
+                    "source_links_supported": link_counts["supported"],
+                    "source_link_carrier_exclusions": link_counts["carrier_exclusions"],
                 },
             )
         )

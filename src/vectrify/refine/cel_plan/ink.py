@@ -52,6 +52,63 @@ def measure(
     step = np.linalg.norm(np.diff(points, axis=0), axis=1)
     if step.sum() < max(8, 4 * width):
         return None
+    return _profile(points, target, width, light=light, visible=visible)
+
+
+def measure_link(
+    points, target, width, *, light=None, visible=None, junctions=None, paint=None
+):
+    """Prove a short existing junction link at every original source sample.
+
+    The caller must establish two incident supported source chains at these
+    exact junctions. Existing incident bodies may supply junction geometry;
+    every raw source sample must still agree with the established ink paint.
+    Elsewhere a raw painted-side trough is required. No unsupported interval
+    or smoothed contrast alone can justify a link.
+    """
+    if len(points) < 2 or np.array_equal(points[0], points[-1]):
+        return None
+    # Junction centres can have fractional coordinates farther apart than an
+    # ordinary skeleton step. Inspect the intervening source at half-pixel
+    # spacing, keeping the original ends exactly; sparse ports cannot bridge a
+    # missing pixel. The caller charges this sample count to its point budget.
+    steps = np.maximum(
+        1, np.ceil(2 * np.linalg.norm(np.diff(points, axis=0), axis=1))
+    ).astype(int)
+    points = np.vstack(
+        [
+            *[
+                np.linspace(a, b, n, endpoint=False)
+                for a, b, n in zip(points[:-1], points[1:], steps, strict=True)
+            ],
+            points[-1:],
+        ]
+    )
+    joined = junctions(points) if junctions is not None else np.zeros(len(points), bool)
+    return _profile(
+        points,
+        target,
+        width,
+        light=light,
+        visible=visible,
+        strict=True,
+        joined=joined,
+        paint=paint,
+    )
+
+
+def _profile(
+    points,
+    target,
+    width,
+    *,
+    light=None,
+    visible=None,
+    strict=False,
+    joined=None,
+    paint=None,
+):
+    step = np.linalg.norm(np.diff(points, axis=0), axis=1)
     tangent = np.gradient(points, axis=0)
     normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-6)
@@ -86,11 +143,43 @@ def measure(
         center = int(np.argmin(np.abs(offsets)))
         middle &= active & (components == components[:, center, None])
     location = np.where(middle, light, np.inf).argmin(axis=1)
+    if strict:
+        # A junction's side probes may fall inside its incident ink. Existing
+        # supported stroke bodies supply geometry there, not imaginary bright
+        # sides. Keep those source positions and sample their original paint.
+        location[joined] = int(np.argmin(np.abs(offsets)))
     dark = light[np.arange(len(points)), location]
     contrast = surface - dark
     supported = np.isfinite(surface) & (contrast >= 12) & (dark <= 150)
     if seen is not None:
         supported &= middle[np.arange(len(points)), location]
+    if strict:
+        # Sample original centres and both sides directly from painted source
+        # RGB. Gaussian filtering or a nearby trough cannot fill a real gap.
+        raw_points = (
+            points[:, None, :]
+            + np.array((-reach, 0, reach))[None, :, None] * normal[:, None, :]
+        )
+        raw_coordinates = np.stack(
+            (raw_points[..., 1] - 0.5, raw_points[..., 0] - 0.5)
+        ).reshape(2, -1)
+        raw_colors, raw_seen = _colors(target, raw_coordinates, visible)
+        raw_light = cel.lightness(raw_colors).reshape(-1, 3)
+        raw_seen = raw_seen.reshape(-1, 3)
+        sides = np.minimum(
+            np.where(raw_seen[:, 0] >= 0.5, raw_light[:, 0], np.inf),
+            np.where(raw_seen[:, 2] >= 0.5, raw_light[:, 2], np.inf),
+        )
+        raw_support = (raw_seen[:, 1] >= 0.5) & (raw_light[:, 1] <= 150)
+        if paint is not None:
+            raw_support &= np.all(
+                np.abs(raw_colors.reshape(-1, 3, 3)[:, 1] - paint) <= 24, axis=1
+            )
+        supported = raw_support & (
+            joined | (supported & np.isfinite(sides) & (sides - raw_light[:, 1] >= 12))
+        )
+        if not supported.all():
+            return None
     share = float(supported.mean())
     if share < 0.45:
         return None
@@ -107,35 +196,7 @@ def measure(
     if peak_gap > min(float(step.sum()) * 0.25, max(12, 8 * width)):
         return None
     peak_coordinates = np.asarray(coordinates)[:, np.arange(len(points)), location]
-    if visible is None:
-        colors = np.stack(
-            [
-                map_coordinates(
-                    target[..., channel], peak_coordinates, order=1, mode="nearest"
-                )
-                for channel in range(3)
-            ],
-            axis=-1,
-        )
-    else:
-        # Normalize bilinear color only over painted neighbors of the peak.
-        # This uses four samples per run point, without full-image RGB copies
-        # or admitting arbitrary transparent RGB into the stroke paint.
-        origin = np.floor(peak_coordinates).astype(int)
-        fraction = peak_coordinates - origin
-        colors, weight = np.zeros((len(points), 3)), np.zeros(len(points))
-        for dy, dx in ((0, 0), (0, 1), (1, 0), (1, 1)):
-            y, x = origin + np.array([[dy], [dx]])
-            valid = (
-                (y >= 0) & (x >= 0) & (y < visible.shape[0]) & (x < visible.shape[1])
-            )
-            y = np.clip(y, 0, visible.shape[0] - 1)
-            x = np.clip(x, 0, visible.shape[1] - 1)
-            amount = np.prod(np.abs(np.array([[1 - dy], [1 - dx]]) - fraction), axis=0)
-            amount *= valid & visible[y, x]
-            colors += amount[:, None] * target[y, x]
-            weight += amount
-        colors /= np.maximum(weight[:, None], 1e-12)
+    colors, _ = _colors(target, peak_coordinates, visible)
     ink = np.percentile(colors[supported], 15, axis=0)
     surface = np.where(np.isfinite(surface), surface, dark)
     cover = np.clip(
@@ -163,8 +224,37 @@ def measure(
     centered = points + displacement[:, None] * normal
     # Unsupported pixels keep their original canonical boundary position.
     centered = np.where(supported[:, None], centered, points)
+    if strict:
+        centered[joined] = points[joined]
     centered[0], centered[-1] = points[0], points[-1]
     return Ink(centered, max(0.8, measured_width), ink, share, peak_gap)
+
+
+def _colors(target, coordinates, visible):
+    """Bilinear RGB normalized only over painted neighbours, without RGB copies."""
+    count = coordinates.shape[1]
+    if visible is None:
+        return np.stack(
+            [
+                map_coordinates(target[..., k], coordinates, order=1, mode="nearest")
+                for k in range(3)
+            ],
+            axis=-1,
+        ), np.ones(count)
+    origin = np.floor(coordinates).astype(int)
+    fraction = coordinates - origin
+    colors, weight = np.zeros((count, 3)), np.zeros(count)
+    for dy, dx in ((0, 0), (0, 1), (1, 0), (1, 1)):
+        y, x = origin + np.array([[dy], [dx]])
+        valid = (y >= 0) & (x >= 0) & (y < visible.shape[0]) & (x < visible.shape[1])
+        y = np.clip(y, 0, visible.shape[0] - 1)
+        x = np.clip(x, 0, visible.shape[1] - 1)
+        amount = np.prod(np.abs(np.array([[1 - dy], [1 - dx]]) - fraction), axis=0)
+        amount *= valid & visible[y, x]
+        colors += amount[:, None] * target[y, x]
+        weight += amount
+    colors /= np.maximum(weight[:, None], 1e-12)
+    return colors, weight
 
 
 def boundaries(
