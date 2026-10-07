@@ -1047,6 +1047,17 @@ Continue from the experimental package in the following order. These changes com
 
 The paired tuning runner is available for independent quality checks; expand and freeze its evidence while finishing bounded native evaluation. Structural compaction comes next because the current safe drawing is too dense. CPU refinement can proceed once it has compact eligible shapes, but the sword milestone still depends on useful interpretations being proposed and selected. UI integration waits for real refinement and budget behavior. Learned ranking remains a conditional branch after deterministic ablations.
 
+The latest joint-source checkpoint introduces virtual ink/material roles within
+current owners and complete source-chain discovery before material grouping.
+Native atoms are partitioned only for final classes. The 1,017-case regression
+and 20-report tuning diagnostic pass native validity/ownership checks; face
+line fidelity improves in the direct control, while several other line/paint
+metrics regress. The sword's composed region result remains 3,907 nodes / 460
+contours / MSE 551.32. See the current evidence record for exact controls and
+source hashes. This is partial delivery-4 work; coherent surfaces, faithful
+width/paint alternatives, final-class budget handling and all eight completion
+conditions remain open.
+
 ### Structural compaction work packages
 
 The native opacity-aware drawing still contains thousands of color/alpha

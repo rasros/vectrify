@@ -148,6 +148,59 @@ def connected_runs(runs, work):
     return result
 
 
+def owned_model(model, owned, evidence, work):
+    """Retain complete discovered chains, never crop a run to owner eligibility.
+
+    Compatible paint groups can contain independent physical chains. A held
+    owner touching one chain must not suppress all the others, or turn the
+    held chain into budget-dependent fragments. Raster queries use the actual
+    complete path and the same source-grid coverage contract as discovery.
+    """
+    if work.interrupted:
+        return None
+    if not np.any(model.selected & ~owned):
+        return model
+    contours = []
+    selected = np.zeros(model.selected.shape, bool)
+    for sub in model.geometry.subpaths:
+        if work.interrupted:
+            return None
+        geometry = Geometry(model.geometry.id, (sub,))
+        covered = covered_selection(
+            model.selected,
+            geometry,
+            model.details["width"],
+            evidence,
+            work,
+            cap=model.details["linecap"],
+        )
+        if covered is None:
+            return None
+        if not covered.any() or np.any(covered & ~owned):
+            continue
+        contours.append(sub)
+        selected |= covered
+    if work.interrupted or not contours:
+        return None
+    geometry = replace(model.geometry, subpaths=tuple(contours))
+    shape = footprint(geometry, model.details["width"], cap=model.details["linecap"])
+    if work.interrupted:
+        return None
+    selected.flags.writeable = False
+    return replace(
+        model,
+        geometry=geometry,
+        footprint=shape,
+        selected=selected,
+        details={
+            **model.details,
+            "source_style_runs": model.details["runs"],
+            "runs": len(contours),
+            "owner_excluded_runs": len(model.geometry.subpaths) - len(contours),
+        },
+    )
+
+
 def carrier_width(geometry, width, carrier, work, *, fixed=False, cap="round"):
     """A proved width ceiling for one source run, before compatible grouping.
 

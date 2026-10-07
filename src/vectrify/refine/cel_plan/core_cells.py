@@ -45,6 +45,7 @@ from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.fill_winding import resolved
 from vectrify.refine.cel_plan.geometry import Boundaries, InkBoundaries, ink_limits
 from vectrify.refine.cel_plan.ink_models import models as ink_models
+from vectrify.refine.cel_plan.ink_models import owned_model
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.material_groups import grouped, ink_paint_links
@@ -56,6 +57,8 @@ from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.search import Proposal
+from vectrify.refine.cel_plan.source_roles import moments as role_moments
+from vectrify.refine.cel_plan.source_roles import observations
 from vectrify.refine.cel_plan.surface_models import prediction
 from vectrify.refine.cel_plan.surface_splits import (
     MAX_RESIDUAL,
@@ -220,9 +223,13 @@ class CoreCells:
                 "hierarchy_ink_cells_peak",
                 "hierarchy_ink_paint_links_peak",
                 "hierarchy_unmet_budgets",
+                "source_role_observations_peak",
+                "source_role_mixed_owners_peak",
                 "source_stroke_attempts",
                 "source_stroke_models",
                 "source_stroke_carrier_exclusions",
+                "source_stroke_owner_exclusions",
+                "source_chain_small_roots",
                 "hierarchy_model_evaluations",
                 "hierarchy_model_limits",
                 "hierarchy_alpha_exclusions",
@@ -391,7 +398,7 @@ class CoreCells:
         return best
 
     def _regions(self, state, base, selected, whole, xy, rgb, own, work):
-        """Connected color regions retain complete source atoms, without cuts.
+        """Group source observations before partitioning complete owners once.
 
         Nearest material continues underneath the independently retained marks.
         Shared source contours are simplified together. Ordinary proposals
@@ -404,27 +411,43 @@ class CoreCells:
         for surface in selected:
             lookup[list(surface.members)] = indices[surface.id]
         source = lookup[graph.labels]
-        pixels = source[own]
-        sizes = np.bincount(pixels, minlength=len(selected))
-        colors = (
-            np.column_stack(
-                [
-                    np.bincount(pixels, weights=rgb[:, k], minlength=len(selected))
-                    for k in range(3)
-                ]
-            )
-            / sizes[:, None]
-        )
         ink_pixels = evidence.drawn
         if self.grouping != "static":
             ink_pixels = self._ink_support(work)
             if ink_pixels is None:
                 return
+        roles = None
+        observation_owners = np.arange(len(selected))
+        if self.ink_support == "connected":
+            roles = observations(source, own, ink_pixels, work)
+            if roles is None:
+                self.diagnostics["bounded"] += not work.interrupted
+                return
+            source, observation_owners = roles.source, roles.owners
+            self.diagnostics["source_role_observations_peak"] = max(
+                self.diagnostics["source_role_observations_peak"], len(roles.owners)
+            )
+            self.diagnostics["source_role_mixed_owners_peak"] = max(
+                self.diagnostics["source_role_mixed_owners_peak"],
+                int(np.sum(np.bincount(roles.owners, minlength=len(selected)) == 2)),
+            )
+        observation_count = len(observation_owners)
+        pixels = source[own]
+        sizes = np.bincount(pixels, minlength=observation_count)
+        colors = (
+            np.column_stack(
+                [
+                    np.bincount(pixels, weights=rgb[:, k], minlength=observation_count)
+                    for k in range(3)
+                ]
+            )
+            / sizes[:, None]
+        )
         ink_kinds = (
-            np.bincount(
-                pixels,
-                weights=ink_pixels[own],
-                minlength=len(selected),
+            roles.ink
+            if roles is not None
+            else np.bincount(
+                pixels, weights=ink_pixels[own], minlength=observation_count
             )
             >= sizes * 0.6
         ) & (cel.lightness(colors) <= 160)
@@ -478,18 +501,19 @@ class CoreCells:
             if len(graph.regions) > MAX_REGIONS:
                 self.diagnostics["bounded"] += 1
                 return
-            if self._moments is None:
-                # These paints live inside the unchanged coverage carrier.
-                # Source edge alpha is supplied by that carrier, not by each
-                # material. Fit intrinsic RGB here; the native evaluator still
-                # checks the complete source RGBA, including fringe and marks.
-                self._moments = moments(
-                    replace(evidence, opacity=None), graph, self.options, work
+            if roles is not None:
+                statistics = role_moments(roles, evidence, graph, self.options, work)
+            else:
+                if self._moments is None:
+                    # The unchanged carrier supplies source alpha; fit the
+                    # intrinsic paint and score complete native RGBA later.
+                    self._moments = moments(
+                        replace(evidence, opacity=None), graph, self.options, work
+                    )
+                statistics = np.array(
+                    [self._moments[list(s.members)].sum(axis=0) for s in selected]
                 )
-            statistics = np.array(
-                [self._moments[list(s.members)].sum(axis=0) for s in selected]
-            )
-            alpha_ranges = np.ones((len(selected), 2))
+            alpha_ranges = np.ones((observation_count, 2))
         edges.sort(
             key=lambda e: (float(np.linalg.norm(colors[e[0]] - colors[e[1]])), e)
         )
@@ -501,14 +525,47 @@ class CoreCells:
             inverse,
             (1 / evidence.scale[0], 0, 0, 1 / evidence.scale[1], *evidence.offset),
         )
+        source_models = ()
+        carrier = None
+        if self.ink_support == "connected":
+            # Discover physical chains once on complete source carrier support,
+            # before a material budget selects owners. Palette eligibility must
+            # not change source junctions, endpoints or gaps. Contact and spur
+            # handling use the same extractor as the source-ink factory.
+            carrier = curve_path(transformed_geometry(whole, matrix))
+            self.diagnostics["source_stroke_attempts"] += 1
+            source_models = ink_models(
+                ink_pixels & support,
+                evidence,
+                self.options,
+                work,
+                carrier=carrier,
+                prune_spurs=True,
+                boundary_contacts=True,
+            )
+            if work.interrupted:
+                return
+        chain_observations = np.zeros(observation_count, bool)
+        if source_models:
+            chain_pixels = np.zeros(own.shape, bool)
+            for model in source_models:
+                if work.interrupted:
+                    return
+                chain_pixels |= model.selected
+            chain_observations = (
+                np.bincount(
+                    pixels, weights=chain_pixels[own], minlength=observation_count
+                )
+                > 0
+            )
         seen = set()
         # Offer a substantial structural alternative before spending the shared
         # search window on small savings. Native scoring still decides retention.
         budgets = tuple(
             dict.fromkeys(
                 (
-                    max(2, min(32, len(selected) // 4)),
-                    max(2, min(64, len(selected) // 2)),
+                    max(2, min(32, observation_count // 4)),
+                    max(2, min(64, observation_count // 2)),
                 )
             )
         )
@@ -530,7 +587,7 @@ class CoreCells:
                 if result is None:
                     return
                 merged, eligible, hierarchy = result
-                areas = np.bincount(merged, weights=sizes, minlength=len(selected))
+                areas = np.bincount(merged, weights=sizes, minlength=observation_count)
                 self.diagnostics["joint_forced_merges"] += hierarchy["merges"]
                 for key, field in (
                     ("hierarchy_components_peak", "substantial_components"),
@@ -554,8 +611,10 @@ class CoreCells:
                     "alpha_exclusions"
                 ]
             else:
-                parents = list(range(len(selected)))
-                remaining = int(np.sum(sizes >= 16)) if self.joint else len(selected)
+                parents = list(range(observation_count))
+                remaining = (
+                    int(np.sum(sizes >= 16)) if self.joint else observation_count
+                )
                 means, areas = colors.copy(), sizes.copy()
 
                 def root(i, parents=parents):
@@ -590,14 +649,14 @@ class CoreCells:
                         remaining -= 1
                     if self.joint:
                         self.diagnostics["joint_forced_merges"] += 1
-                merged = np.array([root(i) for i in range(len(selected))])
+                merged = np.array([root(i) for i in range(observation_count)])
             roots, counts = np.unique(merged[pixels], return_counts=True)
             roots = roots[np.argsort(-counts, kind="stable")]
             signature = tuple(int(i) for i in merged)
             if signature in seen:
                 continue
             seen.add(signature)
-            owner_counts = np.bincount(merged, minlength=len(selected))
+            owner_counts = np.bincount(merged, minlength=observation_count)
             if not self.joint:
                 roots = np.array(
                     [r for r in roots if owner_counts[r] >= 2 and areas[r] >= 16]
@@ -606,12 +665,27 @@ class CoreCells:
                 # Isolated tiny groups keep their original independently owned
                 # geometry. They cannot consume the whole material-cell budget
                 # or disappear through a degenerate fitted contour.
+                # A complete source-fitted chain can cross a tiny endpoint
+                # atom. Its body proof supplies specific support to that ink
+                # role, so a paint budget cannot trim the endpoint. Unmodeled
+                # tiny marks and disconnected unsupported roots stay retained.
+                chain_roots = (
+                    np.bincount(
+                        merged, weights=chain_observations, minlength=observation_count
+                    )
+                    > 0
+                )
                 roots = np.array(
                     [
                         r
                         for r in roots
-                        if areas[r] >= 16 and (eligible is None or eligible[r])
-                    ]
+                        if (areas[r] >= 16 or (ink_kinds[r] and chain_roots[r]))
+                        and (eligible is None or eligible[r])
+                    ],
+                    dtype=np.int32,
+                )
+                self.diagnostics["source_chain_small_roots"] += int(
+                    np.count_nonzero(areas[roots] < 16)
                 )
                 if len(roots) > MAX_REGION_CELLS:
                     self.diagnostics["region_exclusions"] += 1
@@ -623,11 +697,25 @@ class CoreCells:
                 if not len(roots) or ink_kinds[roots[0]]:
                     self.diagnostics["region_exclusions"] += 1
                     continue
-            self.diagnostics["region_candidates"] += len(roots)
             if not len(roots):
                 continue
+            # A virtual observation is not an independently editable owner.
+            # Delete an existing owner only if every one of its role pieces
+            # has a final class. Otherwise retain its complete original paint
+            # and geometry; never lose its small or disconnected remainder.
+            retained_owners = np.unique(observation_owners[~np.isin(merged, roots)])
+            eligible_owners = ~np.isin(np.arange(len(selected)), retained_owners)
+            accepted_observations = eligible_owners[observation_owners]
+            active = np.unique(merged[pixels[accepted_observations[pixels]]])
+            roots = roots[np.isin(roots, active)]
+            if not len(roots):
+                continue
+            if self.ink_support == "connected" and ink_kinds[roots[0]]:
+                self.diagnostics["region_exclusions"] += 1
+                continue
+            self.diagnostics["region_candidates"] += len(roots)
             region_selected = tuple(
-                s for i, s in enumerate(selected) if merged[i] in roots
+                s for i, s in enumerate(selected) if eligible_owners[i]
             )
             if len(region_selected) < 3:
                 continue
@@ -637,7 +725,7 @@ class CoreCells:
             root_cells = {int(r): i for i, r in enumerate(roots)}
             palette = np.array([root_cells.get(int(r), -1) for r in merged], np.int32)
             accepted = source >= 0
-            accepted &= palette[np.maximum(source, 0)] >= 0
+            accepted &= accepted_observations[np.maximum(source, 0)]
             nearest = distance_transform_edt(
                 ~accepted, return_distances=False, return_indices=True
             )
@@ -647,20 +735,24 @@ class CoreCells:
             primary_pixels = accepted[own]
             stroke_models = {}
             if self.ink_support == "connected":
-                # Decode physical source chains across paint palettes. A paint
-                # bucket must not determine where a connected stroke ends.
-                carrier = curve_path(transformed_geometry(whole, matrix))
-                self.diagnostics["source_stroke_attempts"] += 1
-                proposed_models = ink_models(
-                    ink_pixels & accepted & support,
-                    evidence,
-                    self.options,
-                    work,
-                    carrier=carrier,
-                )
+                assert carrier is not None
                 changed = classes.copy()
                 chosen = {}
-                for model in proposed_models:
+                for complete in source_models:
+                    # Keep fully owned physical chains, even when another
+                    # independent run of this paint touches a retained owner.
+                    # Native geometry is never cropped to a material budget.
+                    model = owned_model(complete, own & accepted, evidence, work)
+                    if work.interrupted:
+                        return
+                    if model is None:
+                        self.diagnostics["source_stroke_owner_exclusions"] += len(
+                            complete.geometry.subpaths
+                        )
+                        continue
+                    self.diagnostics["source_stroke_owner_exclusions"] += (
+                        model.details.get("owner_excluded_runs", 0)
+                    )
                     outside = abs(
                         pathops.op(
                             curve_path(model.footprint),
@@ -705,8 +797,10 @@ class CoreCells:
             precise_ink = np.zeros(graph.labels.shape, bool)
             ink_mask = support & ink_cells[outline_labels]
             if self.boundary_fit == "anchored":
-                components, count = label(ink_mask, np.ones((3, 3)))
-                component_sizes = np.bincount(components.ravel(), minlength=count + 1)
+                components, component_count = label(ink_mask, np.ones((3, 3)))
+                component_sizes = np.bincount(
+                    components.ravel(), minlength=component_count + 1
+                )
                 precise = component_sizes <= 64
                 precise[0] = False
                 precise_ink = precise[components]
@@ -1698,6 +1792,12 @@ class CoreCells:
                     else None,
                     "boundary_fit": self.boundary_fit,
                     "ink_support": self.ink_support,
+                    "source_chain_discovery": "complete-carrier-before-material-budget"
+                    if self.ink_support == "connected"
+                    else None,
+                    "source_roles": "pixel-ink-and-material"
+                    if self.ink_support == "connected"
+                    else "owner-majority",
                     "stroke_models": [c.stroke for c in cells if c.stroke],
                     "ink_cells": sum(c.ink for c in cells),
                     "material_planes": len(cells) - sum(c.ink for c in cells)

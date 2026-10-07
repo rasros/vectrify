@@ -14,6 +14,132 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Joint source roles and complete chain discovery
+
+Connected joint decoding now distinguishes ink/material observations within an
+existing SVG owner, rather than promoting its entire paint by a 60% ink vote.
+The immutable virtual indices preserve the original owner/atom namespace and
+use the existing 4,096-observation bound. Paint-fit statistics stream original
+source pixels with their actual atom feature weights and the unchanged
+coverage carrier's intrinsic RGB contract. No intermediate role cuts or
+replacement SVG are created. Final classes reach the existing multiway atom
+partition once; the 64 source-cut and 64 exported-cell limits remain unchanged.
+If any role piece has no final class, its whole current owner is retained with
+its original geometry and paint. Fixed, held and unsupported owners retain
+their existing exclusion rules.
+
+Physical source chains are discovered once on complete carrier ink before the
+material budgets, using the source factory's supported spur pruning and
+proved round/butt contact alternatives. Junctions, endpoints, real gaps and
+closure come from that source discovery. Per-contour ownership queries can
+retain independent complete chains of a common paint while excluding a chain
+that touches a held or retained owner. They use the actual stroke raster in
+the source frame; they never crop a chain into new budget-dependent endpoints.
+The subset retains native coordinates, paint, width and cap; the full carrier
+proof and native component/ownership/raster checks still apply.
+
+A valid source-fitted body can provide specific support for a tiny ink root at
+its endpoint. This permits the complete chain to survive the old 16-pixel
+material cutoff, while unsupported tiny roots and disconnected components
+retain their ordinary eligibility rules. Unmodeled small source marks stay
+filled rather than becoming invented editable connections. This is a bounded
+proposal eligibility change supported by the source primitive, not a waiver
+of alpha, geometry, mass, source-cut or native acceptance gates. Width/paint
+faithfulness and source-only missing/unsupported chain guards still need
+stronger evidence. The human sword's repaired connection supplies no discovery
+mask, endpoint, ownership class or acceptance threshold.
+
+Seventeen added controls cover mixed owners, immutable virtual classifications,
+real gaps, resource limits, mid-discovery/statistics cancellation, weighted
+statistics recomposing multiple original atoms, tiled/full sampling, Ward and
+paint-fit native edits at half/quarter opacity, exact alpha/holes, complete
+source ownership/components, local/full agreement and reload. A held pixel
+cannot split a physical chain; another independent chain remains editable.
+A separate small mark remains filled. Final-cut exhaustion leaves the original
+owner namespace intact. The relevant regression suite passes **1,017 cases in
+161.32 seconds**. The 176-case focused run and the 15-case final source-role
+file pass; the former precedes addition of the separate small-mark control.
+Changed-file Ruff/import/format and whitespace checks pass. Production Pyrefly
+reports zero errors (62 warnings). A subsequent function-docstring correction
+changes no executable behavior.
+
+The initial role-only control at `.bench/cel-source-role-probe`, source hash
+`e444b4fd89b1eb581576d9fc7908fac887bec89f94e4ae997834a8ebbbb1d92e`,
+changes no drawing in the five current cases. Their initializers have zero
+mixed owners. The mixed-owner controls demonstrate required behavior for
+later merged states; they do not explain those artwork regressions. The
+following final results also include complete-chain discovery/ownership and
+specific source-backed endpoint support.
+
+Final source hash is `a0ba4bf6fcd3ddb75a3a4269be259f3a402306d89ccad748651ef19ede94af4d`.
+At `.bench/cel-joint-source-roles-final`, all **20 isolated reports** complete:
+five direct joint controls and the 15 source-factory/material-layout runs.
+All **144 emitted proposals** have zero native rejections, complete ownership,
+component seals and independent local/full raster agreement. Maximum score-term
+difference is 3.365307e-9. Strict finite JSON and saved SVG hashes pass; source
+RGBA/masks/settings/normalizers and evaluation targets match. Eligible source
+parents match canonical geometry/paint and saved RGBA across the three modes.
+Direct checks use the same source data/settings/normalizers as the composed
+reports. The separate five `direct-graph-check` reruns additionally validate
+all ten direct proposals through `Operators.validate_partition`; their
+canonical geometry/paint and saved RGBA match the timed direct reports exactly.
+Those additional validation times are not substituted for the timed controls.
+The cross-revision parent audit also compares fresh, unquantized native RGBA.
+
+| Finer direct joint case | Nodes | Contours | Stroke contours | Target MSE | Clean line F1 | Generation/validation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| sword | 6430 | 762 | 24 | 537.496619 | — | 30.65 |
+| anime-girl | 1047 | 135 | 11 | 96.364404 | 0.097 | 4.26 |
+| anime-face | 1935 | 220 | 17 | 104.787607 | 0.447 | 7.89 |
+| western-park | 1297 | 131 | 16 | 123.332849 | 0.161 | 4.88 |
+| rubberhose-band | 1442 | 165 | 23 | 357.774914 | 0.712 | 5.48 |
+
+Relative to the preceding direct control, face line F1 improves from 0.259 to
+0.447, but paint MSE worsens from 98.525540 to 104.787607. Girl MSE improves
+from 102.482216 to 96.364404 and nodes from 1,063 to 1,047, while line F1 falls
+from 0.105 to 0.097. Park and band line scores also fall slightly. Sword MSE
+improves from 538.261955 to 537.496619, with more nodes. All direct paired
+results remain worse than their initializer in paint and line fidelity. This
+is partial operator progress, not broad quality improvement or release evidence.
+
+The composed curve/anchored drawings are unchanged: the sword's finer bundle
+still has 3,907 nodes / 460 contours / 22 strokes / human MSE 551.316411.
+It still fails all development quality gates. The connected ink-plane pool
+changes, offering 134 rather than 128 proposals across the 15-layout matrix.
+Park's first parent now emits two one-plane proposals instead of none; the
+band's first emits one/two-plane proposals and its second offers two planes
+rather than only one. Their atom exclusions fall from 20 to 18 for the park's
+first parent, ten to eight for the band's first and 18 to 16 for its second.
+No atom/resource cap increases. Band's finer second-parent two-plane drawing
+has MSE 488.892905 / F1 0.718 versus the prior one-plane drawing's 537.877872 /
+0.716; these are different emitted interpretations, not identical-plane
+comparisons. Both remain much worse in paint than the region alternatives.
+Sword plane prefixes still hit atom limits after one plane; finer plane MSE
+2353.316085 is far worse than the region drawing. More availability cannot
+stand in for faithful compact materials or widths.
+
+| Case | Curve / anchored / ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 73.38 / 74.83 / 91.47 |
+| anime-girl | 11.37 / 11.36 / 15.73 |
+| anime-face | 22.68 / 22.83 / 26.57 |
+| western-park | 13.36 / 12.99 / 16.48 |
+| rubberhose-band | 17.65 / 18.31 / 23.49 |
+
+Allowances remain 180 seconds per sword mode and 60 per paired clean 192-pixel
+half-opacity mode. These pools do not prove selected-operation runtime or
+process memory. The experimental connected/source factories still do not enter
+production scheduling. The 81-configuration grid remains a declaration, with
+no chosen weights. All eight deliveries and all corpus/refinement/UI/release
+gates remain open; generated-reference collection stays deferred.
+
+Next correct final-class budgeting before consuming cuts, rather than raising
+caps or rejecting a compact final model because of intermediate observation
+count. Strengthen source ridge/width/paint classification and variable-width
+filled alternatives, then offer coherent material/opacity surfaces. The current
+source detector and constant-width grouped primitives still do not explain
+every line or broad dark mark. A learned ranker cannot replace that coverage.
+
 ### Replacement ownership follows actual stroke coverage
 
 Nearest-run ownership previously extends through an entire connected dark

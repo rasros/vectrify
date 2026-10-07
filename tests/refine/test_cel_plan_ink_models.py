@@ -654,3 +654,58 @@ def test_mid_coverage_render_cancellation_discards_complete_model_discovery(
     monkeypatch.setattr(ink_models, "render", stopped)
     assert ink_models.models(ink, evidence, Options(), work) == ()
     assert ink[28, 20:40].any()
+
+
+def test_owner_eligibility_retains_complete_independent_source_chains():
+    from vectrify.refine.cel_plan.ink_models import owned_model
+
+    evidence, ink = drawing(gap=True)
+    model = decoded(ink, evidence, Options(refine=False), Work.start(10))
+    assert model is not None
+    assert (
+        owned_model(model, np.ones(ink.shape, bool), evidence, Work.start(10)) is model
+    )
+    owned = np.ones(ink.shape, bool)
+    owned[:, 30] = False
+    before = model.selected.copy()
+    result = owned_model(model, owned, evidence, Work.start(10))
+    assert result is not None
+    # A held pixel in the middle of the first chain removes that whole chain
+    # from this interpretation. It cannot create two artificial editable ends.
+    expected = tuple(
+        s for s in model.geometry.subpaths if min(n.values[-2] for n in s.nodes) > 48
+    )
+    assert result.geometry.subpaths == expected
+    assert len(expected) == 1
+    assert not result.selected[:, :48].any()
+    assert result.selected[:, 54:76].any()
+    assert result.details["owner_excluded_runs"] == 1
+    assert result.details["source_style_runs"] == 2
+    assert result.details["runs"] == 1
+    assert result.details["width"] == model.details["width"]
+    np.testing.assert_array_equal(result.paint, model.paint)
+    np.testing.assert_array_equal(model.selected, before)
+    assert not result.selected.flags.writeable
+    assert not curve_path(result.footprint).contains((48, 28))
+
+
+def test_mid_owner_chain_raster_cancellation_discards_the_subset(monkeypatch):
+    from vectrify.refine.cel_plan import ink_models
+
+    evidence, ink = drawing(gap=True)
+    model = decoded(ink, evidence, Options(refine=False), Work.start(10))
+    assert model is not None
+    owned = np.ones(ink.shape, bool)
+    owned[:, 30] = False
+    before = model.selected.copy()
+    work = Work.start(10)
+    renderer = ink_models.render
+
+    def stopped(*args):
+        value = renderer(*args)
+        work.stop.set()
+        return value
+
+    monkeypatch.setattr(ink_models, "render", stopped)
+    assert ink_models.owned_model(model, owned, evidence, work) is None
+    np.testing.assert_array_equal(model.selected, before)
