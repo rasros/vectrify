@@ -139,10 +139,26 @@ old-support rejection and material retention; 996 regression cases pass.
 The finer round parent uses 3,428 nodes / 385 contours / 14 strokes / human MSE
 559.93. The finer butt parent uses 3,942 / 396 / five strokes / MSE 543.08,
 but loses much of the wrapping ink still represented as fills. They are separate
-interpretations, not a complete connected drawing. The next structural work
-must combine compatible source stroke groups in a single owned candidate and
-preserve all classified ink while fitting its neighboring surfaces. Intermediate
-cuts/underpaint may not be cheap until composed; assess the complete candidate
+interpretations, not a complete connected drawing. The next experiment
+offers an atomic candidate combining all five source stroke styles with exact
+owned cuts and one underpaint restoration. Finer material fitting retains 22
+strokes at 3,297 nodes / 388 contours / human MSE 555.83. Against the same
+report's single-round parent, editable handle-stroke recall rises from 0.450
+to 0.537, while displayed line F1 remains about 0.638. These are post-generation
+human diagnostics, including its repair; they do not guide generation. Filled
+scraps and uneven junctions still prevent a practical redraw improvement.
+Preserve source-supported chains still represented as fills while fitting
+neighboring surfaces, using source-only probes with full/local agreement.
+All 15 matched tuning reports now complete and 180 proposals pass native
+validity, ownership, component and local/full raster checks. Nevertheless,
+the girl's bundle more than doubles its initializer's pixel error and loses
+line F1. Its damaging two-run group claims 46 source pixels more than two
+native pixels beyond its actual replacement footprint. Bound source ownership
+to the supported replacement body and retain unrepresented ink independently;
+also check unsupported new stroke coverage and width/paint interpretation.
+This source-only diagnosis supplies no human repair or new admission tolerance.
+989 current-scope regression cases pass, while the quality gates remain open.
+Intermediate cuts/underpaint may not be cheap until composed; assess the complete candidate
 rather than rejecting it solely by intermediate representation cost. Line and
 local-feature gates remain mandatory alongside pixel error.
 These experiments do not enter automatic scheduling. Continue source-supported exterior ink, shared curved

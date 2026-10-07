@@ -496,3 +496,204 @@ def test_source_replacement_preserves_skewed_neighbor_frames_and_native_stroke_w
         )
         assert local.canvas.matches(actual)
         assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+
+
+def styled_drawing(alpha, shared_owner):
+    svg = (
+        '<svg width="96" height="96">'
+        f'<g opacity="{alpha / 255}">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M48 8H88V88H48Z" fill="#9d8065"/>'
+        '<path d="M8 28H42 M54 28H88" fill="none" '
+        'stroke="#202020" stroke-width="3"/>'
+        '<path d="M20 58H42 M54 58H76" fill="none" '
+        'stroke="#404040" stroke-width="5" stroke-linecap="round"/>'
+        "</g></svg>"
+    )
+    rgba = render(svg, (96, 96))
+    evidence = collect(
+        Image.fromarray((rgba * 255).round().astype(np.uint8)),
+        None,
+        Options(refine=False),
+        Work.start(10),
+    )
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 75)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y // 8) * 12 + x // 8)
+    labels[ink] = 201 if shared_owner else labels[ink] + 200
+    return replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+@pytest.mark.parametrize("shared_owner", [False, True])
+@pytest.mark.parametrize("affine", [False, True])
+def test_source_styles_are_one_atomic_edit_with_distinct_width_paint_and_caps(
+    alpha, shared_owner, affine
+):
+    evidence = styled_drawing(alpha, shared_owner)
+    frontier, state, options = prepared(evidence, layers=True)
+    if affine:
+        matrix = (1.2, 0.15, 0.2, 1.0, 6, -10)
+        editor = Editor(state.document, selection=Selection(whole_document=True))
+        with editor.transaction("Reexpress source frames") as tx:
+            for surface in state.partition.surfaces:
+                tx.replace_geometry(
+                    surface.id,
+                    transformed_geometry(
+                        state.document.geometry_for(surface.id),
+                        multiply(
+                            inverse_matrix(matrix),
+                            root_matrix(state.document, surface.id),
+                        ),
+                    ),
+                )
+                tx.set_attributes(
+                    surface.id,
+                    {"transform": f"matrix({' '.join(str(v) for v in matrix)})"},
+                )
+        svg = export_svg(editor.snapshot.document)
+        state = replace(
+            state,
+            document=editor.snapshot.document,
+            svg=svg,
+            snapshot=LocalPolicy(frontier.policy).start(
+                svg, frontier.policy.evaluate(svg)
+            ),
+        )
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    edit = next(factory.proposals(state, Work.start(20)))
+    assert edit.details["source_strokes"]["model"] == "source-stroke-bundle"
+    assert edit.details["source_strokes"]["runs"] == 4
+    assert len(edit.details["source_strokes"]["groups"]) == 2
+    assert edit.partition.follows(state.partition)
+    ops.validate_partition(edit.partition, Work.start(10))
+    assert edit.component.validate(
+        state.document,
+        edit.document,
+        state.partition,
+        edit.partition,
+        edit.ids,
+        edit.bounds,
+        Work.start(10),
+    )
+    svg = export_svg(edit.document)
+    full = frontier.policy.evaluate(svg)
+    assert full.valid, full.rejections
+    strokes = [e for e in edit.document.elements() if e.get("stroke", "none") != "none"]
+    assert len(strokes) == 2
+    assert {e.get("stroke-linecap") for e in strokes} == {"round", "butt"}
+    assert len({e.get("stroke") for e in strokes}) == 2
+    assert len({e.get("stroke-width") for e in strokes}) == 2
+    for stroke in strokes:
+        assert stroke.get("fill") == "none"
+        chains = edit.document.geometry_for(stroke.id).subpaths
+        assert len(chains) == 2
+        assert all(not s.closed for s in chains)
+        assert stroke.id in edit.ids
+        surface = next(s for s in edit.partition.surfaces if s.id == stroke.id)
+        assert surface.role == "overlay"
+        assert surface.members
+    if shared_owner:
+        assert edit.details["source_strokes"]["cuts"] > 0
+    actual = render(svg, evidence.source_size)
+    original = render(state.svg, evidence.source_size)
+    np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+    # Both real source gaps and unrelated material remain unchanged.
+    np.testing.assert_array_equal(actual[24:33, 45:51], original[24:33, 45:51])
+    np.testing.assert_array_equal(actual[53:64, 45:51], original[53:64, 45:51])
+    np.testing.assert_array_equal(actual[72:82, 12:82], original[72:82, 12:82])
+    local = LocalPolicy(frontier.policy).update(
+        state.snapshot, svg, edit.bounds, full.structure
+    )
+    assert local.canvas.matches(actual)
+    assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+    restored, _ = load_project(save_project(edit.document))
+    np.testing.assert_array_equal(
+        render(export_svg(restored), evidence.source_size), actual
+    )
+
+
+@pytest.mark.parametrize("layout", ["regions", "planes", "ink-planes"])
+def test_material_fitting_retains_all_bundled_styles(layout, monkeypatch):
+    from vectrify.refine.cel_plan import core_cells
+
+    monkeypatch.setattr(core_cells, "MAX_PLANES", 4)
+    evidence = styled_drawing(64, True)
+    frontier, initial, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    ink = next(
+        SourceStrokes(
+            evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+        ).proposals(initial, Work.start(20))
+    )
+    svg = export_svg(ink.document)
+    state = State(
+        ink.document,
+        svg,
+        LocalPolicy(frontier.policy).start(svg, frontier.policy.evaluate(svg)),
+        "bundled-strokes",
+        {**initial.details, **ink.details},
+        partition=ink.partition,
+    )
+    branch = ops.branch(state.partition, Work.start(10))
+    material = CoreCells(
+        branch.families,
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="anchored",
+        layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
+    )
+    strokes = [
+        e for e in state.document.elements() if e.get("stroke", "none") != "none"
+    ]
+    assert len(strokes) == 2
+    edits = list(material(state, Work.start(20)))
+    assert edits, material.diagnostics
+    for edit in edits:
+        ops.validate_partition(edit.partition, Work.start(10))
+        for stroke in strokes:
+            assert edit.document.element(stroke.id) == stroke
+            assert edit.document.geometry_for(stroke.id) == state.document.geometry_for(
+                stroke.id
+            )
+        svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(svg)
+        assert full.valid, full.rejections
+        actual = render(svg, evidence.source_size)
+        np.testing.assert_array_equal(
+            actual[..., 3], render(state.svg, evidence.source_size)[..., 3]
+        )
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, svg, edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+
+
+def test_cancellation_after_style_partition_does_not_publish_a_bundle(monkeypatch):
+    from vectrify.refine.cel_plan.atoms import Atoms
+
+    evidence = styled_drawing(128, True)
+    _frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    work = Work.start(20)
+    original = Atoms.partition
+    before = export_svg(state.document)
+
+    def stopped(*args, **kwargs):
+        result = original(*args, **kwargs)
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(Atoms, "partition", stopped)
+    assert list(factory.proposals(state, work)) == []
+    assert export_svg(state.document) == before
+    assert factory.diagnostics["proposals"] == 0

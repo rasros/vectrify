@@ -23,6 +23,7 @@ from vectrify.document.join import (
 )
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
+from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.fill_winding import resolved
@@ -33,7 +34,7 @@ from vectrify.refine.cel_plan.ink_replace import (
     InkReplacement,
     identified,
 )
-from vectrify.refine.cel_plan.layer_order import ordered
+from vectrify.refine.cel_plan.layer_order import ordered_surfaces
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import opaque_fill
@@ -177,15 +178,34 @@ class SourceStrokes:
                 prune_spurs=True,
                 boundary_contacts=self.boundary_contacts,
             )
-            for model in found:
+            # A material candidate must be able to retain every compatible
+            # source style together. Cut and restore their union once; publishing
+            # a prefix would make later styles compete with its overlay owners.
+            groups = [tuple(found)] if len(found) > 1 else []
+            groups.extend((model,) for model in found)
+            for group in groups:
                 if work.interrupted or emitted >= MAX_PROPOSALS:
                     return
-                signature = hashlib.sha256(model.selected.tobytes()).hexdigest()
+                selected_mask = np.zeros(graph.labels.shape, dtype=bool)
+                classes = np.zeros(graph.labels.shape, dtype=np.uint8)
+                overlap = False
+                for index, model in enumerate(group):
+                    if work.interrupted:
+                        return
+                    if np.any(selected_mask & model.selected):
+                        overlap = True
+                        break
+                    selected_mask |= model.selected
+                    classes[model.selected] = index
+                if overlap:
+                    self.diagnostics["bounded"] += 1
+                    continue
+                signature = hashlib.sha256(selected_mask.tobytes()).hexdigest()
                 if signature in seen:
                     continue
                 seen.add(signature)
                 self.diagnostics["models"] += 1
-                y, x = np.nonzero(model.selected)
+                y, x = np.nonzero(selected_mask)
                 box = Box(
                     int(x.min()), int(y.min()), int(x.max()) + 1, int(y.max()) + 1
                 )
@@ -193,10 +213,10 @@ class SourceStrokes:
                 if box.area > MAX_CROP_PIXELS:
                     self.diagnostics["bounded"] += 1
                     continue
-                own = model.selected[box.slices]
+                own = selected_mask[box.slices]
                 owners = state.partition.owners
                 selected = {
-                    owners.get(int(i)) for i in np.unique(graph.labels[model.selected])
+                    owners.get(int(i)) for i in np.unique(graph.labels[selected_mask])
                 }
                 if selected.intersection(state.details.get("paint_constraints", ())):
                     self.diagnostics["owner_exclusions"] += 1
@@ -217,8 +237,12 @@ class SourceStrokes:
                     [path_style(current.document, p) for p in parts],
                 )
                 matrix = root_matrix(current.document, survivor)
+                native_coverage = union_geometry(
+                    [model.footprint for model in group],
+                    [{"fill-rule": "nonzero"}] * len(group),
+                )
                 footprint = transformed_geometry(
-                    model.footprint, inverse_matrix(matrix)
+                    native_coverage, inverse_matrix(matrix)
                 )
                 factory = InkReplacement(
                     prepared.evidence, prepared.graph, self.options
@@ -237,7 +261,9 @@ class SourceStrokes:
                     continuation_limit=MAX_COMPONENT_NEIGHBORS
                     if self.boundary_contacts
                     else None,
-                    allow_carrier_contact=model.details["linecap"] == "butt",
+                    allow_carrier_contact=any(
+                        m.details["linecap"] == "butt" for m in group
+                    ),
                 )
                 self.diagnostics["restoration_neighbors_peak"] = max(
                     self.diagnostics["restoration_neighbors_peak"],
@@ -299,16 +325,48 @@ class SourceStrokes:
                 if unproved:
                     self.diagnostics["bounded"] += 1
                     continue
-                changed = current.partition.replace(
-                    prepared.ids, (Surface(survivor, prepared.members, "overlay"),)
+                atoms = current.partition.atoms
+                style_members = (prepared.members,)
+                if len(group) > 1:
+                    try:
+                        atoms, style_members = (
+                            atoms or Atoms.original(prepared.graph)
+                        ).partition(
+                            prepared.graph, prepared.members, classes, len(group), work
+                        )
+                    except StageInterruptedError:
+                        return
+                    except ValueError:
+                        self.diagnostics["bounded"] += 1
+                        continue
+                if not all(style_members):
+                    self.diagnostics["bounded"] += 1
+                    continue
+                glyphs = (
+                    survivor,
+                    *tuple(
+                        f"{survivor}-style-{signature[:12]}-{i}"
+                        for i in range(1, len(group))
+                    ),
                 )
+                known = {e.id for e in current.document.elements()}
+                if known.intersection(glyphs[1:]):
+                    self.diagnostics["bounded"] += 1
+                    continue
+                changed = current.partition.split(
+                    prepared.ids,
+                    tuple(
+                        Surface(oid, members, "overlay")
+                        for oid, members in zip(glyphs, style_members, strict=True)
+                    ),
+                    atoms or Atoms.original(prepared.graph),
+                )
+                selected_members = {i for members in style_members for i in members}
                 changed = Partition(
                     tuple(
                         replace(
                             s,
-                            covered=tuple(
-                                sorted(set(s.covered) | set(prepared.members))
-                            ),
+                            covered=tuple(sorted(set(s.covered) | selected_members)),
                         )
                         if s.id in continued
                         else s
@@ -319,7 +377,6 @@ class SourceStrokes:
                 editor = Editor(
                     current.document, selection=Selection(whole_document=True)
                 )
-                shape = identified(model.geometry, survivor)
                 inverse_parent = inverse_matrix(
                     root_matrix(current.document, parent.id)
                 )
@@ -328,33 +385,54 @@ class SourceStrokes:
                     "Replace source ink and continue existing paint"
                 ) as tx:
                     tx.delete_objects(frozenset(set(prepared.ids) - {survivor}))
-                    tx.replace_geometry(survivor, shape)
-                    tx.set_fill(survivor, "none")
-                    tx.set_attributes(
-                        survivor,
-                        {
-                            "fill-opacity": "1",
-                            "stroke": colour(model.paint),
-                            "stroke-width": repr(model.details["width"]),
-                            "stroke-opacity": "1",
-                            "stroke-linecap": model.details["linecap"],
-                            "stroke-linejoin": "round",
-                            "transform": f"matrix({parent_frame})",
-                        },
+                    template = current.document.element(survivor)
+                    at = next(
+                        i for i, c in enumerate(parent.children) if c.id == survivor
                     )
+                    # Account for selected paths deleted before this position.
+                    at -= sum(
+                        c.id in set(prepared.ids) - {survivor}
+                        for c in parent.children[:at]
+                    )
+                    for index, (oid, model) in enumerate(
+                        zip(glyphs, group, strict=True)
+                    ):
+                        shape = identified(model.geometry, oid)
+                        if index:
+                            tx.insert_object(
+                                parent.id,
+                                replace(template, id=oid, geometry_id=shape.id),
+                                index=at + index,
+                                geometries=(shape,),
+                            )
+                        else:
+                            tx.replace_geometry(oid, shape)
+                        tx.set_fill(oid, "none")
+                        tx.set_attributes(
+                            oid,
+                            {
+                                "fill-opacity": "1",
+                                "stroke": colour(model.paint),
+                                "stroke-width": repr(model.details["width"]),
+                                "stroke-opacity": "1",
+                                "stroke-linecap": model.details["linecap"],
+                                "stroke-linejoin": "round",
+                                "transform": f"matrix({parent_frame})",
+                            },
+                        )
                     for element, geometry in [*continuations, *remainders]:
                         tx.replace_geometry(element.id, geometry)
                         tx.set_attributes(element.id, {"fill-rule": "nonzero"})
                 native_old = transformed_geometry(original, matrix)
                 affected = union_geometry(
-                    [native_old, model.footprint], [{"fill-rule": "nonzero"}] * 2
+                    [native_old, group[0].footprint], [{"fill-rule": "nonzero"}] * 2
                 )
-                proposed = ordered(
+                proposed = ordered_surfaces(
                     editor.snapshot.document,
-                    survivor,
+                    glyphs,
                     continued,
                     (),
-                    affected,
+                    (affected, *(m.footprint for m in group[1:])),
                     work,
                     factory.diagnostics,
                 )
@@ -369,7 +447,7 @@ class SourceStrokes:
                 edited = tuple(
                     sorted(
                         set(prepared.before)
-                        | ((set(prepared.ids) | continued) & existing)
+                        | ((set(prepared.ids) | continued | set(glyphs)) & existing)
                     )
                 )
                 live = {e.id for e in proposed.elements()}
@@ -390,10 +468,24 @@ class SourceStrokes:
                 self.diagnostics["proposals"] += 1
                 self.diagnostics["cuts"] += cuts
                 emitted += 1
+                model_details = (
+                    group[0].details
+                    if len(group) == 1
+                    else {
+                        "model": "source-stroke-bundle",
+                        "groups": [m.details for m in group],
+                        "runs": sum(m.details["runs"] for m in group),
+                    }
+                )
                 yield Proposal(
                     "source-strokes",
                     edited,
-                    (signature, model.details["width"], model.details["linecap"]),
+                    (
+                        signature,
+                        tuple(
+                            (m.details["width"], m.details["linecap"]) for m in group
+                        ),
+                    ),
                     state.key,
                     proposed,
                     bounds(document, proposed, edited),
@@ -403,9 +495,9 @@ class SourceStrokes:
                             state.details.get("chain_constraints"), edited
                         ),
                         "source_strokes": {
-                            **model.details,
+                            **model_details,
                             "mask": signature,
-                            "pixels": int(model.selected.sum()),
+                            "pixels": int(selected_mask.sum()),
                             "owners": len(prepared.before),
                             "cuts": cuts,
                             "continued_neighbors": len(continued),

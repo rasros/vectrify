@@ -14,6 +14,144 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Atomic source stroke styles
+
+The experimental source factory now offers all mutually disjoint discovered
+stroke styles together before offering individual style alternatives. It cuts
+their union from existing owners once and restores neighboring paint once,
+using the union of actual open stroke footprints. The selected source atoms are
+then partitioned by style into separate editable overlay paths. Exact RLE
+lineage expands all unchanged owners and carrier coverage through the new style
+cuts; width, paint, cap, source endpoints and physical gaps remain distinct.
+The final edit seals the complete component and orders all glyphs as one block.
+Cancellation or an unsuccessful ownership/restoration/order proof publishes
+nothing. Existing cut, owner, neighbor, geometry, crop and proposal limits are
+unchanged. Production scheduling still does not use this experimental factory.
+
+Twelve added controls cover two paints, two widths and round/butt caps together
+at half/quarter opacity, shared source owners requiring additional style cuts,
+skewed native frames, complete ownership/component validation, exact alpha,
+source gaps, unaffected paint, native local/full agreement and save/reload.
+Three material layouts preserve every bundled stroke's exact geometry/style.
+Cancellation after style partition emits no partial bundle. The focused suite
+passes 57 cases; production Pyrefly reports zero errors (62 warnings), and
+changed-file Ruff/format and diff whitespace checks pass.
+
+The first complete anchored sword probe at
+`.bench/cel-source-bundle-probe/sword-anchored`, source hash
+`971c72e33d1d7407973a0f133cef75c2689fb66908ce4a0f680dbacd75d2dc06`,
+contains all five discovered styles / 22 runs in one candidate. Two styles that
+fail standalone order proofs become eligible in the atomic edit; no proof cap
+is raised. The union selects 3,261 source pixels across 233 original owners,
+uses 16 cuts and continues 58 neighboring paints. All eight emitted proposals
+pass native validation, complete ownership, sealed-component and local raster
+checks. Its source parent has 14,829 nodes / 2,440 contours; that intermediate
+cost is not an admission-quality result.
+
+After finer material fitting, the bundle has 3,297 nodes / 388 contours / 22
+strokes / human MSE 555.830936. The same report's single-round-style candidate
+has 3,428 / 385 / 14 / MSE 559.929205. This is a 3.8% node reduction and 0.7%
+pixel-error reduction, with slightly more contours. A post-generation human
+handle-stroke diagnostic finds editable recall 0.537356 versus 0.449713, but
+displayed line F1 is effectively unchanged (0.638194 versus 0.638567). This
+human mask includes the source repair and supplies no generation hint or
+admission threshold. The rendered handle still has filled scraps and uneven
+junctions. All sword quality gates remain unmet; this solves incomplete style
+composition, not coherent surface/ink interpretation. The probe's 91.69-second
+wall time overlaps focused tests and is not an isolated runtime comparison.
+
+The material parent limit remains two. Adding the bundle means the first two
+parents are now bundle and single-round, rather than single-round and
+single-butt. Cross-revision pool totals must not be mistaken for identical-parent
+comparisons. Within-report round geometry, strokes and pixels are the relevant
+control; all modes must still match source parents canonically and by exact
+RGBA. The next source-line guard must protect source-supported chains still
+represented as fills during material fitting, using source-only fixed probes
+and identical full/local admission rather than human-reference hints.
+
+Final isolated verification at `.bench/cel-source-bundle-final` uses the same
+source hash and completes all 15 reports under unchanged allowances (180
+seconds per sword mode; 60 per clean 192-pixel half-opacity tuning mode). All
+180 emitted proposals pass native validity, complete ownership, sealed component
+and independent local/full raster checks. Maximum score-term difference is
+3.384697e-9. The strict all-complete audit now passes: strict finite JSON,
+saved SVG hashes, source RGBA/masks/settings/normalizers and scoring targets
+match, as do both source parents' canonical geometry/paint and exact RGBA
+across modes. These remain offline pools, not a selected operation, held-out
+release evidence or process-memory validation. Plane results still have much
+worse visual error than region alternatives. No search allowance or native
+admission threshold is raised.
+
+| Case | Curve / anchored / ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 78.07 / 78.66 / 143.96 |
+| anime-girl | 24.53 / 29.29 / 29.05 |
+| anime-face | 54.33 / 53.53 / 39.84 |
+| western-park | 14.55 / 14.41 / 18.70 |
+| rubberhose-band | 18.16 / 18.09 / 32.64 |
+
+The sword's completed ink-plane pool has 20 proposals. Its highest emitted
+finer bundle plane candidate uses 5,256 nodes / 642 contours / 26 strokes /
+human MSE 1,372.844885. The second parent is now single-round, rather than the
+previous single-butt parent. Completing this changed pool is not proof of a
+speedup on identical work. The isolated anchored region candidate reproduces
+the probe's geometry and quality exactly. Its handle pixel error worsens from
+874.052824 for the single-round control to 915.740951 for the bundle. Blade-tip
+error also worsens (783.921925 to 862.500674), while guard/jewel improve. More
+editable strokes do not establish a feature-quality improvement.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / bundle | 1072 → 1071 | 110 → 110 | 152.469748 → 152.340755 | 0.160 → 0.160 |
+| anime-girl / single-round | 1413 → 1380 | 110 → 110 | 74.324609 → 74.863699 | 0.374 → 0.392 |
+| anime-face / 1 | 2619 → 2497 | 188 → 188 | 83.419321 → 83.746113 | 0.544 → 0.564 |
+| anime-face / 2 | 2621 → 2516 | 160 → 160 | 79.514930 → 80.373836 | 0.346 → 0.346 |
+| western-park / 1 | 1600 → 1559 | 113 → 113 | 118.464196 → 118.268196 | 0.093 → 0.093 |
+| western-park / 2 | 1527 → 1470 | 112 → 112 | 133.527474 → 133.606024 | 0.240 → 0.240 |
+| rubberhose-band / bundle | 1926 → 1742 | 129 → 129 | 159.082794 → 158.440717 | 0.718 → 0.726 |
+| rubberhose-band / single-round | 2309 → 2057 | 122 → 122 | 139.397496 → 139.500533 | 0.722 → 0.733 |
+
+Face and park whole-style bundles fail unchanged silhouette/hole-contact
+restoration proofs; their material parents remain the previous standalone
+styles. The girl bundle regresses substantially, and the band bundle trades
+more paint error for fewer nodes with similar line F1. No general quality gain
+is demonstrated. Individual alternatives remain available; a blanket rule to
+choose the full bundle would be wrong.
+
+The girl regression starts before material fitting: its initializer has clean
+MSE 66.976141 / line F1 0.550, the complete source bundle has 147.755884 / 0.187,
+and one standalone two-run, width-6.103713 group has 128.773281 / 0.255.
+A source-only mask/footprint diagnostic at
+`source-mask-diagnostic.json` reproduces the exact group mask hash
+`a2e06e873f23f82e0b5eef11dc5c25c22ca6dc28bcbb2ec91391b7b9912a49a5`.
+Of 390 claimed source pixel centers, 109 lie outside the actual stroke body,
+72 remain outside a one-native-pixel expansion and 46 outside a two-pixel
+expansion. Nearest-run ownership currently extends through a connected dark
+component without a replacement-body distance bound. The surrounding paint
+can therefore restore claimed ink that the new stroke cannot cover. This
+supports retaining outlying source ink independently and checking both missing
+and unsupported stroke support. It does not prove this is the only cause of the
+color regression; the measured width/paint interpretation also needs controls.
+The margins above are diagnostic probes, not new admission tolerances or hints
+from clean/human geometry. Preserve physical gaps and independent marks.
+
+The current regression command passes 989 cases in 195.10 seconds:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest \
+  tests/refine/test_cel*.py tests/operations/test_cel_planned.py \
+  tests/test_bench_cel_planned.py tests/test_cel_pairs.py \
+  tests/test_bench_cel_pairs.py tests/test_audit_cel_admission.py \
+  tests/document/test_lines.py -q
+```
+
+The production source/model controls are part of that command. The earlier
+996-case checkpoint reports its own test scope and revision above/below;
+counts across scopes are not incremental coverage claims. Changed-file Ruff,
+format and whitespace checks and production Pyrefly pass. All eight deliveries
+and release gates remain open; generated-reference collection stays deferred.
+
 ### Actual open stroke footprints and complete source contact caps
 
 The contact-cap diagnosis exposes a correctness bug in the previous footprint
