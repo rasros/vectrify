@@ -5,7 +5,7 @@ import pytest
 
 from vectrify.document import export_svg, import_svg
 from vectrify.refine.cel_plan import layer_order
-from vectrify.refine.cel_plan.layer_order import ordered
+from vectrify.refine.cel_plan.layer_order import ordered, ordered_surfaces
 from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.score import render
 
@@ -148,3 +148,40 @@ def test_moving_geometry_bound_and_stop_keep_the_original_order(monkeypatch):
         )
         is None
     )
+
+
+@pytest.mark.parametrize("overlap", [False, True])
+def test_two_surface_block_uses_each_current_frame_and_keeps_marks_above_both(overlap):
+    # Left stays below the ring. Right and mark cross it; stationary left's
+    # overlap must not contaminate their proof. Right has a different frame.
+    extra = " M55 45h1v1h-1Z" if overlap else ""
+    document = import_svg(
+        '<svg width="110" height="110"><g transform="translate(3 4)" opacity="0.5">'
+        '<path id="left" fill="#204080" d="M30 30H50V70H30Z"/>'
+        '<path id="ring" fill="#000" fill-rule="evenodd" '
+        f'd="M35 30H75V75H35Z M39 31H71V71H39Z{extra}"/>'
+        '<path id="mark" fill="#208040" d="M40 40h2v1h-2Z"/>'
+        '<path id="right" transform="translate(5 0)" fill="#204080" '
+        'd="M45 31H65V70H45Z"/></g></svg>'
+    )
+    measured = diagnostics()
+    proposed = ordered_surfaces(
+        document,
+        ("left", "right"),
+        set(),
+        ("mark",),
+        (document.geometry_for("left"), document.geometry_for("right")),
+        Work.start(10),
+        measured,
+    )
+    if overlap:
+        assert proposed is None
+    else:
+        assert proposed is not None
+        parent = proposed.ancestry("left")[-2]
+        assert [c.id for c in parent.children] == ["left", "right", "mark", "ring"]
+        assert measured["order_group_proofs"] == 1
+        np.testing.assert_array_equal(
+            render(export_svg(document), (110, 110)),
+            render(export_svg(proposed), (110, 110)),
+        )

@@ -27,16 +27,43 @@ def ordered(
     work: Work,
     diagnostics: dict,
 ) -> Document | None:
+    return ordered_surfaces(
+        document, (survivor,), bases, marks, (footprint,), work, diagnostics
+    )
+
+
+def ordered_surfaces(
+    document: Document,
+    surfaces: tuple[str, ...],
+    bases: set[str],
+    marks: tuple[str, ...],
+    footprints: tuple[Geometry, ...],
+    work: Work,
+    diagnostics: dict,
+) -> Document | None:
     """Retain other order unless the changed crossing is geometrically disjoint."""
     from vectrify.refine.cel_plan.proposals import bounds
 
+    if work.interrupted or not surfaces or len(surfaces) != len(footprints):
+        return None
+    survivor = surfaces[0]
     parent = document.ancestry(survivor)[-2]
     children = list(parent.children)
     positions = {c.id: i for i, c in enumerate(children)}
-    moving = {survivor, *marks}
+    moving = {*surfaces, *marks}
+    if (
+        len(moving) != len(surfaces) + len(marks)
+        or not moving.issubset(positions)
+        or not bases.issubset(positions)
+        or moving.intersection(bases)
+    ):
+        return None
     # Source label order does not imply occlusion. Inside marks stay in their
-    # existing relative order, immediately above the newly continuing surface.
-    block = [document.element(survivor), *(c for c in children if c.id in marks)]
+    # existing relative order, above ALL newly continuing shade surfaces.
+    block = [
+        *(document.element(oid) for oid in surfaces),
+        *(c for c in children if c.id in marks),
+    ]
     remaining = [c for c in children if c.id not in moving]
     at = sum(c.id not in moving for c in children[: positions[survivor]])
     if bases:
@@ -44,11 +71,16 @@ def ordered(
     proposed = [*remaining[:at], *block, *remaining[at:]]
     target = {c.id: i for i, c in enumerate(proposed)}
     inverse = inverse_matrix(root_matrix(document, survivor))
-    paths = {survivor: curve_path(footprint, "nonzero")}
-    probe = document.replace_geometry(
-        replace(footprint, id=document.geometry_for(survivor).id)
-    )
-    native = {survivor: bounds(probe, probe, (survivor,))}
+    paths, native = {}, {}
+    for oid, footprint in zip(surfaces, footprints, strict=True):
+        shape = transformed_geometry(
+            footprint, multiply(inverse, root_matrix(document, oid))
+        )
+        paths[oid] = curve_path(shape, "nonzero")
+        probe = document.replace_geometry(
+            replace(footprint, id=document.geometry_for(oid).id)
+        )
+        native[oid] = bounds(probe, probe, (oid,))
     for oid in marks:
         style = path_style(document, document.element(oid))
         shape = transformed_geometry(
@@ -60,7 +92,7 @@ def ordered(
     # Prove the union of actually crossing marks disjoint once per child, instead of
     # exhausting the bound on repeated mark/child pairs. If the union overlaps,
     # preserve the original individual proof; union overlap is not a waiver.
-    nodes = sum(len(s.nodes) for s in footprint.subpaths) + sum(
+    nodes = sum(len(s.nodes) for shape in footprints for s in shape.subpaths) + sum(
         len(s.nodes) for oid in marks for s in document.geometry_for(oid).subpaths
     )
     if nodes > MAX_NODES:

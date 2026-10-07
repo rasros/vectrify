@@ -27,14 +27,16 @@ from vectrify.document.join import (
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
-from vectrify.refine.cel_plan.atoms import Atoms
+from vectrify.refine.cel_plan.atoms import MAX_CUTS, Atoms
 from vectrify.refine.cel_plan.constraints import discard, merged
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.geometry import fitted
+from vectrify.refine.cel_plan.layer_order import ordered_surfaces
 from vectrify.refine.cel_plan.local import Box
+from vectrify.refine.cel_plan.materials import MAX_REGIONS
 from vectrify.refine.cel_plan.model import Work
-from vectrify.refine.cel_plan.nested import in_core
-from vectrify.refine.cel_plan.ownership import Surface
+from vectrify.refine.cel_plan.nested import enclosed, in_core
+from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.search import Proposal
 from vectrify.refine.cel_plan.surface_models import prediction
 from vectrify.refine.cel_plan.surface_splits import SurfaceSplits, fit, lines
@@ -44,7 +46,7 @@ from vectrify.refine.crossings import crossings
 MAX_SEEDS = 8
 MAX_CONTACTS = 65_536
 MAX_PATHS = 128
-MAX_MEMBERS = 512
+MAX_MEMBERS = MAX_REGIONS + 2 * MAX_CUTS
 MAX_NODES = 6000
 MAX_PIXELS = 262_144
 MAX_ANALYSIS = 1536**2
@@ -126,14 +128,24 @@ class PiecewiseSurfaces:
             "compact_limits": 0,
             "compact_area_exclusions": 0,
             "compact_cost_exclusions": 0,
+            "continuations": 0,
+            "enclosure_exclusions": {},
+            "containment_exclusions": 0,
+            "order_proofs": 0,
+            "order_proof_limits": 0,
             "proposals": 0,
         }
 
     def _samples(self, members, work):
         if work.interrupted:
             return None
+        # Source fragmentation is not geometric complexity. Bound its namespace
+        # by the supported graph and cut ledger, then bound the actual ROI below.
+        if len(members) > MAX_MEMBERS or len(self.families.graph.regions) > MAX_MEMBERS:
+            self.diagnostics["group_limits"] += 1
+            return None
         boxes = [self.families.boxes[i] for i in members]
-        if len(boxes) > MAX_MEMBERS or any(b is None for b in boxes):
+        if not boxes or any(b is None for b in boxes):
             self.diagnostics["group_limits"] += 1
             return None
         box = Box(
@@ -164,7 +176,7 @@ class PiecewiseSurfaces:
     def _screen(self, eligible, paints, normal, rho, work):
         """Whole-owner maximum residual; a distant atom or outlier cannot hide."""
         graph, evidence = self.families.graph, self.families.evidence
-        if graph.labels.size > MAX_ANALYSIS:
+        if graph.labels.size > MAX_ANALYSIS or len(graph.regions) > MAX_MEMBERS:
             self.diagnostics["group_limits"] += 1
             return None
         ids = sorted(eligible)
@@ -202,6 +214,9 @@ class PiecewiseSurfaces:
 
     def groups(self, state, work):
         if state.partition is None:
+            return
+        if len(self.families.graph.regions) > MAX_MEMBERS:
+            self.diagnostics["group_limits"] += 1
             return
         eligible = self.families.surface_models._eligible(state, work)
         owners = state.partition.owners
@@ -474,9 +489,46 @@ class PiecewiseSurfaces:
             if not self.families.surface_models._order_safe(state, ids, work):
                 self.diagnostics["order_exclusions"] += 1
                 continue
-            variants = [("exact", shape)]
+            variants = [("exact", shape, None)]
             compact = self._compact(state, survivor, shape, work) if core else []
-            variants = [*compact, *variants]
+            variants = [(kind, value, None) for kind, value in compact] + variants
+            samples = self._samples(members, work)
+            if samples is None:
+                continue
+            box, own, _, _ = samples
+            nesting = enclosed(
+                self.families.evidence,
+                self.families.graph,
+                state,
+                ids,
+                box,
+                own,
+                survivor,
+                work,
+                rejections=self.diagnostics["enclosure_exclusions"],
+            )
+            if nesting is not None and nesting.ids:
+                whole = nesting.continued(shape)
+                whole_members = tuple(sorted((*members, *nesting.members)))
+                continued_core = in_core(state, whole_members, survivor, whole, work)
+                if (
+                    crossings(whole)
+                    or sum(len(s.nodes) for s in whole.subpaths) > MAX_NODES
+                    or not nesting.contains(whole, work)
+                ):
+                    self.diagnostics["containment_exclusions"] += 1
+                elif self.families.evidence.opacity is not None and not continued_core:
+                    self.diagnostics["core_exclusions"] += 1
+                else:
+                    fitted_whole = (
+                        self._compact(state, survivor, whole, work)
+                        if continued_core
+                        else []
+                    )
+                    variants = [
+                        (f"continued-{kind}", value, nesting)
+                        for kind, value in [*fitted_whole, ("exact", whole)]
+                    ] + variants
             yy, xx = np.ogrid[
                 : self.families.graph.labels.shape[0],
                 : self.families.graph.labels.shape[1],
@@ -497,14 +549,17 @@ class PiecewiseSurfaces:
             if new_id in {e.id for e in document.elements()}:
                 continue
             surfaces = (Surface(survivor, left), Surface(new_id, right))
-            partition = (
+            plain_partition = (
                 state.partition.split(ids, surfaces, atoms)
                 if atoms.cuts
                 else state.partition.replace(ids, surfaces)
             )
-            for kind, whole in variants:
+            for kind, whole, retained in variants:
                 if work.interrupted or emitted >= MAX_PROPOSALS:
                     return
+                if retained is not None and not retained.contains(whole, work):
+                    self.diagnostics["containment_exclusions"] += 1
+                    continue
                 shapes = self.splitter._geometry(
                     state, survivor, normal, rho, geometry=whole
                 )
@@ -563,6 +618,41 @@ class PiecewiseSurfaces:
                         )
                 else:
                     proposed = editor.snapshot.document
+                    partition = plain_partition
+                    mark_ids = retained.ids if retained is not None else ()
+                    if retained is not None:
+                        proposed = ordered_surfaces(
+                            proposed,
+                            (survivor, new_id),
+                            set(),
+                            mark_ids,
+                            shapes,
+                            work,
+                            self.diagnostics,
+                        )
+                        if proposed is None:
+                            self.diagnostics["order_exclusions"] += 1
+                            continue
+                        # Secondary support follows the exact source side. A
+                        # mark crossing the shade boundary can support both
+                        # children; it keeps ONE unchanged primary owner.
+                        labels = self.families.graph.labels[box.slices]
+                        hidden = retained.mask & ~own
+                        side = classification[box.slices]
+                        coverage = {
+                            oid: tuple(int(i) for i in np.unique(labels[hidden & mask]))
+                            for oid, mask in ((survivor, side), (new_id, ~side))
+                        }
+                        partition = Partition(
+                            tuple(
+                                replace(s, covered=coverage[s.id])
+                                if s.id in coverage
+                                else s
+                                for s in partition.surfaces
+                            ),
+                            partition.atoms,
+                        )
+                        self.diagnostics["continuations"] += 1
                     records = discard(state.details.get("chain_constraints"), ids)
                     if kind == "exact":
                         for child in (survivor, new_id):
@@ -588,7 +678,7 @@ class PiecewiseSurfaces:
                     self.diagnostics["proposals"] += 1
                     yield Proposal(
                         "piecewise-surface",
-                        (*ids, new_id),
+                        (*ids, new_id, *mark_ids),
                         (
                             kind,
                             tuple(float(v) for v in normal),
@@ -598,7 +688,7 @@ class PiecewiseSurfaces:
                         ),
                         state.key,
                         proposed,
-                        bounds(document, proposed, (*ids, new_id)),
+                        bounds(document, proposed, (*ids, new_id, *mark_ids)),
                         details={
                             "regions": sum(
                                 s.role != "underlay" for s in partition.surfaces
@@ -610,8 +700,9 @@ class PiecewiseSurfaces:
                                 "removed_paths": len(ids) - 2,
                                 "source_members": members,
                                 "source_cut_count": len(atoms.cuts),
+                                "retained_marks": mark_ids,
                             },
                         },
-                        dependencies=(parent.id,),
+                        dependencies=(parent.id, *mark_ids),
                         partition=partition,
                     )

@@ -3214,3 +3214,115 @@ to `.bench/planned-coupled-piecewise-surfaces` and
 runner is `.bench/diagnose-piecewise-surface-candidates.py`. All three runs use
 the same final production sources. No complete delivery or release gate is
 claimed finished.
+
+## Piecewise material continued beneath retained marks
+
+The coupled operator now competes with exact and contained compact surfaces
+continued beneath independently owned enclosed marks. It proves full source
+enclosure, complete current mark ownership, opaque current paint, actual
+geometric containment and, for RGBA, actual opaque underpaint beneath material
+and marks. The complementary shade surfaces and retained marks are ordered as
+one block. Each moving shape is mapped from its actual frame, and every changed
+crossing with unrelated paint must be geometrically disjoint. The shared proof
+includes only shapes that move relative to that child; a stationary surface
+cannot contaminate a proof for moving marks. Existing single-surface callers
+retain the same API and proof bounds.
+
+Marks keep their original geometry, paint and primary ownership. New shade
+surfaces record secondary support on the exact source side of the line; a mark
+crossing it may support both children without acquiring a second primary owner.
+Source atom splitting affects material only, and existing underlays follow the
+same appended ledger. Continued compact contours must contain every retained
+mark. Actual core proof covers the expanded whole surface. A metadata claim of
+coverage is insufficient. True holes, partly enclosed owners, translucent
+current marks and unrelated overlap retain the existing representation.
+
+The arbitrary 512-member limit is replaced by the supported 16,384-region
+namespace plus at most 128 appended child slots. This lets a compact drawing
+own many small source atoms. Discovery still bounds source analysis, the
+262,144-pixel family box, 128 paths, 6,000 nodes, streamed screening, 64 cuts,
+16,384 cut runs and 16 proposals. Oversized namespaces are rejected before
+building source-owner lookup arrays. Score, normalizer, native admission and
+the release targets are unchanged.
+
+### Verification and measured limits
+
+New regression cases cover an unchanged highlight crossing both shade surfaces
+at full and half opacity, native/full-local agreement, exact alpha and mark
+interiors, atom replay and project reload, a 960-source-atom/eight-path family,
+bounded namespaces, true holes, translucent paint, partly enclosed owners,
+actual missing underpaint, independent transformed shade frames and order
+vetoes for overlapping unrelated paint. The prior full regression set plus the
+new cases passes **606 tests in 55.92 seconds**, covering planner/legacy CEL,
+shared fitting, simplify, snap, operation and benchmark behavior. Focused
+order/material tests pass 34 cases.
+Ruff lint/format and project Pyrefly pass; Pyrefly has zero errors and the
+existing 61 warnings. Its project configuration excludes tests, which pytest
+exercises. Benchmark runs and the diagnostic execute sequentially and retain
+the same source hash:
+`6b2d7be37ab29e547051f14547665602732a14e380dcfc3af4ee0d3c138a54d6`.
+
+The matched native run in `.bench/planned-continued-piecewise-surfaces` produces
+a **byte-identical drawing PNG** to the preceding coupled run: 10,009 nodes,
+1,630 contours, 1,577 paths, 31 gradients, cost 20,055 and human MSE
+514.8500919869. It takes 52.75 seconds at complexity 50, balanced quality,
+refinement disabled and a 60-second budget. The two selected edits are the
+same ink replacements. There is no sword quality gain. All frozen numerical
+targets remain unmet; refinement remains incomplete.
+
+The search evaluates 21 alternatives, admits 16 locally and checkpoints four,
+with zero score disagreements. Two ordinary compact piecewise alternatives
+save 496 units each but regress native visual loss by approximately 0.002127;
+both are rejected for local objective regression. No continued alternative
+reaches local evaluation. The coupled diagnostic records 12 seed pairs,
+42 lines, 37 seed exclusions, 6,159,470 screened pixels and two proposals.
+Core, enclosure, containment and order exclusions are zero in that cursor:
+it never reaches a family with retained inner marks, so those proof bounds
+are not evidence for the real discovery failure. Local search plus validation
+takes 16.30 seconds, including 4.32 seconds for full checks; its live guard is
+2.09 seconds. One source graph rebuild charges a conservative 25,685,024-byte
+cache peak. Timeout, stop and overshoot remain false/zero. These charges do not
+establish the total hardware memory gate.
+
+The four tuning controls in
+`.bench/planned-continued-piecewise-surfaces-rgba-pairs` retain their input,
+clean target and mask hashes. All four selected drawing PNGs and global,
+feature and line scores are byte-identical to the preceding coupled run.
+Anime girl / anime face / western park / rubberhose band retain nodes
+175 / 176 / 547 / 407 and clean MSE 177.70 / 206.86 / 178.72 / 167.23.
+Generation takes 10.41 / 16.16 / 9.37 / 12.58 seconds; no speedup is claimed.
+Each reaches 48 evaluations, four checkpoints and zero score disagreements.
+The member cap no longer excludes seed pairs. All 160 / 160 / 128 / 160
+source-line hypotheses fail complete paint screening. No continued or ordinary
+coupled alternative is emitted on these controls. Larger bounds therefore
+expose the next exclusion without supplying a useful drawing.
+
+### Source-only proposal audit and next work
+
+The independent 180-second diagnostic in
+`.bench/continued-piecewise-candidate-audit/summary.json` evaluates the bounded
+16-proposal initializer prefix and the eight-seed prefix after one broad union.
+It verifies the source hash before and after. The algorithm sees only source
+evidence; human rendering is scored afterward. All 16 initializer alternatives
+are native-valid and match the local raster exactly, with maximum score-term
+disagreement below 2.32e-10. They involve only 96 or 97 source members and no
+retained marks. The best human-MSE alternative is still 10,072 nodes and
+511.7533. The most compact alternatives have 10,070 nodes, only 216 fewer than
+the 10,286-node initializer. Post-union discovery produces zero alternatives,
+with 28 seed-paint and two refit exclusions. This is a bounded source-only
+audit, not exhaustive search or a matched production oracle.
+
+The continuation primitive is now implemented and tested, but real candidate
+availability still blocks useful compaction. It does not complete a delivery.
+The next work must propose supported whole-surface boundaries independently of
+the current fragment union, combine them with fitted paint and retained marks,
+and continue the coverage-interpretation/admission audit. Measure the resulting
+pool against the legacy baseline and the unchanged 800-node/140-contour/497.39
+sword gate. Increasing bounds, changing ranking or adding the slider cannot
+substitute for a compact faithful alternative.
+
+Reproduce with the earlier native/paired commands, changing output directories
+to `.bench/planned-continued-piecewise-surfaces` and
+`.bench/planned-continued-piecewise-surfaces-rgba-pairs`. The ignored source-only
+runner is `.bench/diagnose-continued-piecewise-candidates.py`. The objective
+remains the complete eight-delivery plan; no release gate is marked complete.

@@ -42,7 +42,7 @@ The latest native sword experiment (the coupled piecewise-surface implementation
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental coupled piecewise surfaces and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
+| Experimental piecewise surfaces with retained marks and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -146,6 +146,20 @@ retained marks with proved local order. Exact-union containment, fragmented
 contacts and the bounded original-atom member limit still restrict the current
 operator. Keep those limitations visible before considering score calibration
 or learned ranking as the explanation for the missing compact drawing.
+
+Two shade surfaces can now continue beneath independently owned enclosed marks
+in one proposal. Actual core, containment and joint order proofs protect their
+alpha and unrelated paint. The supported atom namespace replaces the arbitrary
+512-member discovery cap; actual pixel, path, node and split bounds remain.
+Synthetic proposals keep the crossing highlight and pass native/local agreement,
+but the matched sword produces no continued candidate and retains the same
+10,009-node drawing. All four paired tuning renders remain byte-identical.
+Anime face now reaches 160 source-line hypotheses instead of the member cap;
+complete paint screening rejects all of them. This is useful implementation and
+diagnostic coverage, with no practical quality gain. The immediate priority is
+source-supported whole-surface boundary proposals and coverage interpretation,
+including joint paint and marks, rather than further increasing family bounds
+or training a ranker on the current inadequate pool.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local
