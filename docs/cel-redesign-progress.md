@@ -136,6 +136,48 @@ geometric-regularization grid and eventual calibrated weights remain open.
 Declaring a grid does not solve candidate coverage or complete calibration.
 All eight deliveries remain open; generated-reference collection stays deferred.
 
+### Direct joint classification control
+
+After the rendered-ownership checkpoint, the unchanged code also runs the
+existing `CoreCells` grammar directly on the source initializer, bypassing the
+intermediate `SourceStrokes` edit. The configuration is joint regions, Ward
+material grouping, anchored boundaries and connected source ink. The probe at
+`.bench/cel-direct-joint-ownership-probe` uses the same source hash as the 15-run
+matrix above, the same source/target fixtures and allowances, and no concurrent
+benchmark or test process. This is a control for the existing grammar, not the
+proposed completed joint decoder. Its ink discovery lacks the source factory's
+spur pruning and boundary-contact alternatives; its selected material support
+can restrict the available source chains. Its lower times do not compare equal
+proposal work against the two-stage pools.
+
+All five reports complete and emit two proposals each, with zero atom
+exclusions. Strict finite JSON, saved SVG hashes, native rejection lists,
+complete ownership, component seals and independent local/full raster checks
+pass for all ten proposals. Maximum score-term difference is 3.031938e-9.
+This benchmark checks partition continuation and component ownership; it does
+not run the separate expanded source-graph validator for direct core proposals.
+No resource cap, admission gate or source evidence is changed.
+
+| Case / finer direct joint proposal | Nodes | Contours | Stroke contours | Target MSE | Clean line F1 | Generation/validation seconds |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| sword | 6418 | 771 | 25 | 538.261955 | — | 28.75 |
+| anime-girl | 1063 | 141 | 13 | 102.482216 | 0.105 | 4.02 |
+| anime-face | 1967 | 219 | 16 | 98.525540 | 0.259 | 7.87 |
+| western-park | 1330 | 143 | 18 | 124.871219 | 0.174 | 4.96 |
+| rubberhose-band | 1465 | 166 | 27 | 354.593540 | 0.715 | 5.64 |
+
+The finer girl drawing is cheaper and has lower paint error than the current
+source bundle's finer drawing, but its clean line F1 falls from 0.305 to 0.105.
+Every paired direct drawing remains worse than the initializer in paint and
+line fidelity. Coarse proposals are much worse (target MSE 481–1438 across the
+five cases). The sword's finer MSE is lower than the current two-stage bundle,
+but it uses 64% more nodes and 68% more contours. The control therefore rules
+out switching wholesale to the existing direct mode. Avoiding intermediate cuts
+is useful for availability; a new joint implementation must also preserve
+complete physical source chains, expose coherent material alternatives and
+apply source-only per-chain support checks. Selection/ranking cannot create
+these missing alternatives. All eight deliveries remain open.
+
 ### Atomic source stroke styles
 
 The experimental source factory now offers all mutually disjoint discovered
