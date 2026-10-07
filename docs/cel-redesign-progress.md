@@ -3581,3 +3581,185 @@ above, then run `.bench/diagnose-shade-edge-candidates-retained.py` separately.
 The earlier `.bench/shade-edge-candidate-audit` is a preliminary source snapshot
 before full-family edge refitting and coverage-aware exterior screening; its
 507.71 result is not the retained matching-source result.
+
+
+## Source material cells with native alpha preservation
+
+This package adds a whole-core source-contour competitor. It does not meet a
+quality, structural, runtime or release gate. The retained matched sword is
+still the prior 10,009-node drawing; the useful new evidence is why a larger
+material replacement remains unavailable in the production search.
+
+### Implemented interpretation and bounds
+
+`core_cells.py` keeps the actual coverage carrier's geometry, frame, fill rule
+and intrinsic opaque fill. It builds connected color families from complete
+current source owners, continues their paint beneath retained marks and fits
+flat or linear RGB material. Canonical source contours use a 0.75 native-pixel
+linear simplification and are intersected with a bounded native interior.
+This reconstructs source regions instead of boolean-unioning the old fill
+fragments. Single-owner or tiny color families retain their existing paths.
+Every resulting path, contour, node and gradient remains charged.
+
+The same factory also fits a greedy tree of straight source cuts. Every complete
+prefix can compete, including an exact three-cell result that cannot benefit
+from a fourth cut. Its complete maximum RGB residual must satisfy the existing
+48-level straight-material screen. Connected color regions use their complete
+squared residual as finite approximation evidence, record the maximum residual,
+and rely on the unchanged native objective and hard checks for admission. They
+do not claim that every pixel passes that straight-material screen.
+
+`Atoms.partition` classifies complete source support once and appends exact
+binary RLE cuts when an atom crosses cells. Existing lineage, protected atom,
+64-cut and 16,384-run limits remain unchanged. It supports up to 64 cell classes;
+connected whole-owner regions need no cuts. Failure leaves the original atoms
+intact. Ownership includes the carrier's new primary material, explicit
+secondary paint and the original fringe and retained owners.
+
+Native raster proofs check the old paint being removed as well as each new
+opaque overlay. Every covered pixel must lie where the original carrier's
+intrinsic native coverage is exactly one. Old antialiased edge paint stays when
+that proof fails. The carrier retains its original evenodd/nonzero rule; Boolean
+working geometry explicitly normalizes winding. Solid unit masks preserve the
+actual local geometry, transforms and fill rule used in export. This avoids
+filling an evenodd hole whose contours have equal winding.
+
+Within that proved interior, partial-opacity solid/linear paint can be replaced
+with an opaque material interpretation without changing composed alpha.
+Retained partial marks keep their actual geometry, paint and mutual order; their
+mixed RGB may change with the new underpaint and is scored. An actual opaque
+linear-gradient carrier is supported. A partial carrier, unknown overlapping
+object, unsupported clip/stroke/filter or paint server keeps the fallback.
+
+The source ridge classifier uses supported bright pairs across dark troughs,
+normalized smoothing over painted pixels and comparable cross-section opacity.
+Coarse CEL darkness alone cannot veto a monotone color step or declare alpha
+contrast intrinsic ink. Long supported components keep their current owners;
+explicit fixed atoms and paint constraints remain protected. This bounded
+classifier is not a completed ink/feature interpretation.
+
+Bounds are 1,536² analysis pixels, four cores, 4,096 input paths, 16,384 scanned
+input nodes, 6,000 emitted geometry nodes, 64 connected material cells and eight
+straight-cut cells. Native coverage work is bounded to four million pixels;
+paint fits sample at most 4,096 points and screen complete support in chunks of
+65,536. Region adjacency is collected in bounded chunks with at most 16,384
+unique edges. Unchanged tree leaves reuse their split fit. The search cursor
+reserves this route for at least 32 replaceable paths; ordinary small local
+families retain their existing competitors.
+
+### Negative prototypes and integration diagnosis
+
+An early one/two/four-cell whole-object plane model erased too much material
+variation. With comparable-opacity ridge evidence but before the final native
+edge proof, its four-cell diagnostic had 6,533 nodes and human MSE 1,273.71.
+It was native-valid, demonstrating that validity alone cannot establish fidelity.
+Its earlier coarse-ink filter also left most material ineligible. This motivates
+connected materials and complete source-plane screening; those broad poor
+planes are absent from the final source audit.
+
+The first integrated order, source hash
+`922d6a03d204026aeb4abec764c0bd24fa196986b9c0a3181cf48a83643d8ff1`,
+offered the least aggressive color family first. In
+`.bench/planned-core-material-cells`, the 60-second-budget operation took
+52.68 seconds and selected 10,121 nodes, 1,660 contours, cost 20,347 and human
+MSE 514.67. It evaluated eight proposals, accepted five locally and published
+four full checkpoints with zero score disagreements. The new 40-cell proposal
+removed 127 paths but increased nodes and worsened the native objective; its
+local rejection was correct. Only an existing ink replacement was selected.
+This is a worse structural result than the prior dense prototype.
+
+The final order offers the coarsest connected-region alternative first. This
+changes opportunity under the shared deadline, not acceptance requirements.
+All final experiments use source hash
+`71db4952e354d3063b62e9e309ba4182167a4af90679ba83631cef2367cf9594`.
+
+### Matched selected sword
+
+`.bench/planned-core-material-cells-structural-first` takes **52.52 seconds**
+under the same 60-second budget, complexity 50, balanced quality and refinement
+disabled. Its selected native drawing is the prior **10,009 nodes, 1,630
+contours, 1,577 paths, 31 gradients, cost 20,055 and human MSE 514.8500919869**.
+It evaluates 13 proposals, accepts 11 locally and publishes four independent
+checkpoints with zero score disagreements and no overall deadline overshoot.
+The selected edits are the same two ink replacements.
+
+The new cursor considers 649 paths and 141,992 source pixels. Thirty existing
+paths fail the native opaque-interior deletion proof. It emits a 22-cell
+connected-region proposal, but normal search rejects it with
+`local-dependency-limit`: the edit declares 394 old paint objects, its carrier,
+21 inserted material objects and the parent dependency, exceeding the existing
+256-object local-edit contract. This is an integration bound, not a failed
+native raster or ownership check. Do not hide the touched paths or raise the
+ordinary local bound solely to admit this fixture.
+
+### Independent final-source pool
+
+`.bench/core-cells-structural-first-audit` reproduces the source evidence,
+initializer, native policy and exact ownership. It evaluates the factory
+independently of search's edit-object gate with a declared 180-second work
+limit. Six candidates are native-valid, pass complete ownership validation and
+have exact local/full native raster agreement. The largest score-term difference
+is **2.874e-10**. Their SVGs and full native renders are retained in that bundle;
+human measurements remain outside generation.
+
+| Parent / color threshold | Cells | Removed paths | Nodes | Contours | Actual cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Initial / 56 | 22 | 373 | 8,588 | 1,315 | 16,778 | 551.16 |
+| Initial / 28 | 38 | 250 | 10,203 | 1,438 | 19,323 | 528.83 |
+| Initial / 12 | 40 | 127 | 10,439 | 1,562 | 20,361 | 534.11 |
+| Broad union / 56 | 21 | 349 | 8,659 | 1,289 | 16,717 | 533.99 |
+| Broad union / 28 | 37 | 231 | 9,944 | 1,407 | 18,866 | 527.71 |
+| Broad union / 12 | 39 | 125 | 10,190 | 1,514 | 19,836 | 530.45 |
+
+The compact initializer alternative lowers cost by approximately 19% from its
+20,818-cost parent. Its human error worsens, and it still has over three times
+the legacy baseline's nodes. The best human error in this pool is 527.71, worse
+than the selected dense prototype's 514.85. No candidate meets 800 nodes,
+140 contours and MSE 497.39. Restoring access to this pool is necessary for this
+operator but cannot by itself achieve the requested abstraction.
+
+### Paired controls and checks
+
+`.bench/planned-core-material-cells-structural-first-rgba-pairs` repeats the four
+192-pixel, clean, half-opacity tuning controls with a 20-second per-case budget.
+All four selected PNGs are byte-identical to
+`.bench/planned-subpixel-shade-edges-rgba-pairs`. No core-material candidate is
+emitted on these controls. They demonstrate preserved existing outputs, not
+broader validation or a quality benefit for the new model.
+
+| Case | Nodes / cost | Clean MSE | Line F | Generation seconds | Evaluations |
+| --- | --- | ---: | ---: | ---: | ---: |
+| Anime girl | 175 / 331 | 165.4348 | 0.270 | 12.08 | 16 |
+| Anime face | 176 / 272 | 206.7383 | 0.589 | 17.56 | 16 |
+| Western park | 545 / 979 | 178.7425 | 0.652 | 10.50 | 24 |
+| Rubberhose band | 405 / 757 | 167.7354 | 0.641 | 13.10 | 16 |
+
+The final relevant suite passes **665 tests in 76.13 seconds**. Ruff passes and
+Pyrefly reports zero errors with the existing 61 warnings. The 25 new core-cell
+tests cover full/partial group opacity, exact multiway replay and cut bounds,
+protected atoms, complete alpha, genuine holes, same-winding evenodd holes,
+curved carriers, retained opaque/partial marks, partial paint replacement,
+antialiased deletion exclusions, opaque/partial gradient carriers, unknown
+compositing, coarse dark steps, alpha contrast, supported ink, odd tree prefixes,
+local/full agreement, save/reload and cancellation. These are implementation
+checks; no delivery is marked complete.
+
+### Required next work
+
+Implement a bounded whole-component edit contract before claiming production
+availability. It must retain the complete changed-object declaration, original
+and new source namespaces, parent/frame and paint-server revisions, visible and
+occluded context, local order and feature/coverage aggregates. Verify rejection
+invalidation after sibling color/geometry, gradient-stop and frame edits, as
+well as cancellation and rollback. Keep ordinary local limits, exact native
+checks and all actual representation charges. Compare matched pools and budgets;
+a broader cache key or dependency omission cannot stand in for this work.
+
+Then reconstruct continuous ink and canonical long material boundaries jointly
+with paint, and audit the previously recorded admission conflicts against
+meaningful source coverage. The current source masks still create many contour
+fragments and conservative held geometry. Neither a learned ranker nor a
+cosmetic slider can supply the missing compact faithful representation.
+The combined sword, broader feature/coverage/line, runtime/memory, editing,
+held-out and blind-review gates remain open. The implementation goal remains
+active.

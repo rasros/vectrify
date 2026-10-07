@@ -229,6 +229,88 @@ class Atoms:
         refined = Atoms(self.source, self.shape, self.count, tuple(cuts))
         return refined, tuple(sorted(left_members)), tuple(sorted(right_members))
 
+    def partition(
+        self, graph: Graph, members, classes: np.ndarray, count: int, work: Work
+    ):
+        """Partition complete atoms into several cells without rebuilding per cut.
+
+        A source atom crossing cells is retired through exact binary RLE cuts.
+        Every child retains its whole support. The existing lineage, run, pixel
+        and protected-atom limits apply to the entire atomic operation.
+        """
+        if (
+            classes.shape != self.shape
+            or classes.dtype.kind not in "iu"
+            or type(count) is not int
+            or not 1 <= count <= 64
+            or classes.min() < 0
+            or classes.max() >= count
+        ):
+            raise ValueError("Source cells require a complete bounded classification")
+        if (
+            graph.labels.shape != self.shape
+            or len(graph.regions) != self.count + 2 * len(self.cuts)
+            or (self.cuts and graph.source_atoms != self.key)
+            or (not self.cuts and identity(graph.labels) != self.source)
+        ):
+            raise ValueError("Source cells do not match their atom namespace")
+        cuts = list(self.cuts)
+        run_count = sum(len(c.left) for c in cuts)
+        boxes = find_objects(graph.labels + 1, max_label=len(graph.regions))
+        cells = [[] for _ in range(count)]
+        for member in sorted(set(members)):
+            if work.interrupted:
+                raise StageInterruptedError("Source cell splitting interrupted")
+            if not 0 <= member < len(boxes) or boxes[member] is None:
+                raise ValueError("Source cells reference an inactive atom")
+            box = boxes[member]
+            remaining = graph.labels[box] == member
+            values = classes[box]
+            occupied = np.unique(values[remaining])
+            if len(occupied) > 1 and (
+                graph.regions[member].fixed or member in graph.hidden
+            ):
+                raise ValueError("Protected source atoms cannot be split")
+            parent = member
+            for index, cell in enumerate(occupied):
+                if work.interrupted:
+                    raise StageInterruptedError("Source cell splitting interrupted")
+                if index == len(occupied) - 1:
+                    cells[int(cell)].append(parent)
+                    break
+                if len(cuts) >= MAX_CUTS:
+                    raise ValueError("Source atom bounds exceeded")
+                selected = remaining & (values == cell)
+                low_area = int(selected.sum())
+                high_area = int(remaining.sum()) - low_area
+                runs = []
+                for y in np.flatnonzero(selected.any(axis=1)):
+                    if work.interrupted:
+                        raise StageInterruptedError("Source cell splitting interrupted")
+                    changes = np.diff(np.r_[False, selected[y], False].astype(np.int8))
+                    for start, end in zip(
+                        np.flatnonzero(changes == 1),
+                        np.flatnonzero(changes == -1),
+                        strict=True,
+                    ):
+                        if run_count + len(runs) >= MAX_RUNS:
+                            raise ValueError("Source atom bounds exceeded")
+                        runs.append(
+                            (
+                                int(y) + box[0].start,
+                                int(start) + box[1].start,
+                                int(end) + box[1].start,
+                            )
+                        )
+                child = self.count + 2 * len(cuts)
+                cuts.append(Cut(parent, tuple(runs), (low_area, high_area)))
+                run_count += len(runs)
+                cells[int(cell)].append(child)
+                remaining &= ~selected
+                parent = child + 1
+        refined = Atoms(self.source, self.shape, self.count, tuple(cuts))
+        return refined, tuple(tuple(sorted(c)) for c in cells)
+
     def metadata(self) -> dict:
         return {
             "version": 1,

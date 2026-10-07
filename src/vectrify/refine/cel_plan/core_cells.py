@@ -1,0 +1,894 @@
+"""Whole-core source paint cells, independent of the existing fill fragments.
+
+The actual coverage carrier retains its contour, holes and intrinsic opacity.
+Source-driven binary material cells replace primary fill paths together; ink
+and protected owners remain above them. All primary atoms are retained or
+split exactly, and native scoring chooses between this and the detailed state.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import math
+from dataclasses import dataclass, replace
+
+import numpy as np
+import pathops
+from cairosvg.colors import color
+from scipy.ndimage import distance_transform_edt, find_objects, gaussian_filter, label
+
+from vectrify.document import Editor, Geometry, Selection
+from vectrify.document.join import (
+    curve_path,
+    path_geometry,
+    path_style,
+    transformed_geometry,
+)
+from vectrify.document.model import paint_server
+from vectrify.document.paint import gradient_stops
+from vectrify.document.redraw import root_matrix
+from vectrify.document.svg import parse_path
+from vectrify.document.topology import inverse_matrix
+from vectrify.refine import cel
+from vectrify.refine.cel_plan.atoms import Atoms
+from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.families import _gradient, _opacity
+from vectrify.refine.cel_plan.local import Box
+from vectrify.refine.cel_plan.model import Work
+from vectrify.refine.cel_plan.nested import in_core, opaque_fill
+from vectrify.refine.cel_plan.opacity import Paint
+from vectrify.refine.cel_plan.ownership import Partition, Surface
+from vectrify.refine.cel_plan.refine import _bounds
+from vectrify.refine.cel_plan.score import render
+from vectrify.refine.cel_plan.search import Proposal
+from vectrify.refine.cel_plan.surface_models import prediction
+from vectrify.refine.cel_plan.surface_splits import (
+    MAX_RESIDUAL,
+    SurfaceSplits,
+    fit,
+    lines,
+)
+
+MAX_PIXELS = 1536**2
+MAX_NATIVE_PIXELS = 4 * 1024**2
+MAX_PATHS = 4096
+MAX_INPUT_NODES = 16_384
+MAX_OUTPUT_NODES = 6000
+MAX_CORES = 4
+MAX_CELLS = 8
+MAX_REGION_CELLS = 64
+MAX_REGION_EDGES = 16_384
+CHUNK = 65_536
+
+
+def _filled(geometry, rule):
+    path = curve_path(geometry, rule)
+    path.simplify()
+    return path_geometry(path)
+
+
+@dataclass(eq=False)
+class Cell:
+    key: str
+    indices: np.ndarray
+    region: Geometry
+    draw: Geometry
+    paint: Paint
+    error: float
+    residual: float
+    support: int | None = None
+
+
+class CoreCells:
+    def __init__(self, families, options, *, minimum_paths=3):
+        self.families, self.options = families, options
+        self.minimum_paths = minimum_paths
+        self.splitter = SurfaceSplits(families, options)
+        self._ink = None
+        self.diagnostics: dict = dict.fromkeys(
+            (
+                "cores",
+                "selected_paths",
+                "retained_paths",
+                "source_pixels",
+                "votes",
+                "cells",
+                "atom_exclusions",
+                "geometry_exclusions",
+                "alpha_exclusions",
+                "style_exclusions",
+                "bounded",
+                "proposals",
+                "ridge_pixels",
+                "ridge_owners",
+                "region_exclusions",
+                "region_proposals",
+                "region_candidates",
+                "region_retained_owners",
+                "planar_paint_exclusions",
+            ),
+            0,
+        )
+
+    def _ridge_owners(self, state, work):
+        """Pair bright sides across dark troughs; coarse CEL alone is no veto.
+
+        Long supported trough components retain their current owners. Small
+        uncertain specks remain finite native score data. Explicitly fixed and
+        paint-constrained owners are protected independently by eligibility.
+        """
+        if self._ink is None:
+            evidence = self.families.evidence
+            visible = ~evidence.empty
+            light = gaussian_filter(cel.lightness(evidence.target) * visible, 0.5)
+            light /= np.maximum(gaussian_filter(visible.astype(float), 0.5), 1e-12)
+            paired = np.zeros(light.shape, bool)
+            for reach in (3, 6, 12):
+                for dy, dx in ((0, reach), (reach, 0), (reach, reach), (reach, -reach)):
+                    if work.interrupted:
+                        return None
+                    plus = np.roll(light, (dy, dx), axis=(0, 1))
+                    minus = np.roll(light, (-dy, -dx), axis=(0, 1))
+                    supported = (np.minimum(plus, minus) - light >= 12) & (light <= 150)
+                    # Both sides must belong to source paint. White outside
+                    # the silhouette cannot prove a dark material is a ridge.
+                    supported &= np.roll(visible, (dy, dx), axis=(0, 1))
+                    supported &= np.roll(visible, (-dy, -dx), axis=(0, 1))
+                    if evidence.opacity is not None:
+                        alpha = evidence.opacity
+                        pa = np.roll(alpha, (dy, dx), axis=(0, 1))
+                        ma = np.roll(alpha, (-dy, -dx), axis=(0, 1))
+                        low = np.minimum(np.minimum(alpha, pa), ma)
+                        high = np.maximum(np.maximum(alpha, pa), ma)
+                        supported &= high - low <= 0.05 * high
+                    margin = max(abs(dy), abs(dx))
+                    supported[:margin] = supported[-margin:] = False
+                    supported[:, :margin] = supported[:, -margin:] = False
+                    paired |= supported
+            paired &= evidence.drawn & ~evidence.empty
+            components, count = label(paired, np.ones((3, 3)))
+            sizes = np.bincount(components.ravel(), minlength=count + 1)
+            keep = np.zeros(count + 1, bool)
+            for index, box in enumerate(find_objects(components), start=1):
+                if work.interrupted:
+                    return None
+                if (
+                    box is not None
+                    and sizes[index] >= 8
+                    and max(box[0].stop - box[0].start, box[1].stop - box[1].start) >= 8
+                ):
+                    keep[index] = True
+            self._ink = keep[components]
+            self.diagnostics["ridge_pixels"] = int(self._ink.sum())
+        owner_map = state.partition.owners
+        owners = {
+            owner_map[int(i)]
+            for i in np.unique(self.families.graph.labels[self._ink])
+            if int(i) in owner_map
+        }
+        self.diagnostics["ridge_owners"] = len(owners)
+        return owners
+
+    def _paint(self, xy, rgb, indices, work):
+        if work.interrupted or len(indices) < 16:
+            return None
+        selected = indices[:: max(1, (len(indices) + 4095) // 4096)]
+        rgba = np.column_stack((rgb[selected] / 255, np.ones(len(selected))))
+        paint = fit(xy[selected], rgba, gradients=self.options.gradients)
+        error = 0.0
+        residual = 0.0
+        for start in range(0, len(indices), CHUNK):
+            if work.interrupted:
+                return None
+            part = indices[start : start + CHUNK]
+            difference = prediction(paint, xy[part], extend=False) * 255 - rgb[part]
+            error += float(np.square(difference).sum())
+            residual = max(residual, float(np.max(np.abs(difference))))
+        return paint, error, residual
+
+    def _split(self, state, base, cell, xy, rgb, own, work):
+        evidence = self.families.evidence
+        mask = np.zeros(own.shape, bool)
+        points = np.floor(xy[cell.indices]).astype(int)
+        mask[points[:, 1], points[:, 0]] = True
+        best = None
+        for normal, rho in lines(evidence.target, mask, (0, 0), work):
+            if work.interrupted:
+                return None
+            self.diagnostics["votes"] += 1
+            side = xy[cell.indices] @ normal < rho
+            left, right = cell.indices[side], cell.indices[~side]
+            if min(len(left), len(right)) < max(16, 0.02 * len(cell.indices)):
+                continue
+            a, b = self._paint(xy, rgb, left, work), self._paint(xy, rgb, right, work)
+            if a is None or b is None:
+                continue
+            gain = cell.error - a[1] - b[1]
+            if gain <= 0 or (best is not None and gain <= best[0]):
+                continue
+            shapes = self.splitter._geometry(
+                state, base.id, normal, rho, geometry=cell.region
+            )
+            if any(not s.subpaths for s in shapes):
+                continue
+            best = (
+                gain,
+                normal,
+                rho,
+                Cell(cell.key + "0", left, shapes[0], cell.draw, *a),
+                Cell(cell.key + "1", right, shapes[1], shapes[1], *b),
+            )
+        return best
+
+    def _regions(self, state, base, selected, whole, xy, rgb, own, work):
+        """Connected color regions retain complete source atoms, without cuts.
+
+        Nearest material continues underneath the independently retained marks.
+        Shared source contours are simplified together; the actual coverage
+        carrier and native opaque-interior proof still constrain their export.
+        """
+        evidence, graph = self.families.evidence, self.families.graph
+        indices = {s.id: i for i, s in enumerate(selected)}
+        lookup = np.full(len(graph.regions), -1, np.int32)
+        for surface in selected:
+            lookup[list(surface.members)] = indices[surface.id]
+        source = lookup[graph.labels]
+        pixels = source[own]
+        sizes = np.bincount(pixels, minlength=len(selected))
+        colors = (
+            np.column_stack(
+                [
+                    np.bincount(pixels, weights=rgb[:, k], minlength=len(selected))
+                    for k in range(3)
+                ]
+            )
+            / sizes[:, None]
+        )
+        if work.interrupted:
+            return
+        nearest = distance_transform_edt(
+            ~own, return_distances=False, return_indices=True
+        )
+        extension = source[tuple(nearest)]
+        support = (
+            np.isin(
+                graph.labels, base.members if base.role == "underlay" else base.covered
+            )
+            & ~evidence.empty
+        )
+        edges = set()
+        for axis in (0, 1):
+            a = extension[:-1] if axis == 0 else extension[:, :-1]
+            b = extension[1:] if axis == 0 else extension[:, 1:]
+            visible = (
+                support[:-1] & support[1:]
+                if axis == 0
+                else support[:, :-1] & support[:, 1:]
+            )
+            differing = visible & (a != b)
+            aa, bb = a.ravel(), b.ravel()
+            differing = differing.ravel()
+            for start in range(0, len(aa), CHUNK):
+                if work.interrupted:
+                    return
+                mask = differing[start : start + CHUNK]
+                pairs = np.column_stack(
+                    (aa[start : start + CHUNK][mask], bb[start : start + CHUNK][mask])
+                )
+                pairs.sort(axis=1)
+                edges.update(map(tuple, np.unique(pairs, axis=0).tolist()))
+                if len(edges) > MAX_REGION_EDGES:
+                    self.diagnostics["bounded"] += 1
+                    return
+        edges = sorted(edges)
+        edges.sort(
+            key=lambda e: (float(np.linalg.norm(colors[e[0]] - colors[e[1]])), e)
+        )
+        matrix = root_matrix(state.document, base.id)
+        inverse = inverse_matrix(matrix)
+        from vectrify.document.hit_test import multiply
+
+        frame = multiply(
+            inverse,
+            (1 / evidence.scale[0], 0, 0, 1 / evidence.scale[1], *evidence.offset),
+        )
+        seen = set()
+        # Offer a substantial structural alternative before spending the shared
+        # search window on small savings. Native scoring still decides retention.
+        for threshold in (56, 28, 12):
+            parents = list(range(len(selected)))
+            means, areas = colors.copy(), sizes.copy()
+
+            def root(i, parents=parents):
+                while parents[i] != i:
+                    parents[i] = parents[parents[i]]
+                    i = parents[i]
+                return i
+
+            for a, b in edges:
+                if work.interrupted:
+                    return
+                a, b = root(a), root(b)
+                if a == b or np.linalg.norm(means[a] - means[b]) > threshold:
+                    continue
+                if b < a:
+                    a, b = b, a
+                means[a] = (means[a] * areas[a] + means[b] * areas[b]) / (
+                    areas[a] + areas[b]
+                )
+                areas[a] += areas[b]
+                parents[b] = a
+            merged = np.array([root(i) for i in range(len(selected))])
+            roots, counts = np.unique(merged[pixels], return_counts=True)
+            roots = roots[np.argsort(-counts, kind="stable")]
+            signature = tuple(int(i) for i in merged)
+            if signature in seen:
+                continue
+            seen.add(signature)
+            owner_counts = np.bincount(merged, minlength=len(selected))
+            roots = np.array(
+                [r for r in roots if owner_counts[r] >= 2 and areas[r] >= 16]
+            )[:MAX_REGION_CELLS]
+            self.diagnostics["region_candidates"] += len(roots)
+            if not len(roots):
+                continue
+            region_selected = tuple(
+                s for i, s in enumerate(selected) if merged[i] in roots
+            )
+            if len(region_selected) < 3:
+                continue
+            self.diagnostics["region_retained_owners"] += len(selected) - len(
+                region_selected
+            )
+            root_cells = {int(r): i for i, r in enumerate(roots)}
+            palette = np.array([root_cells.get(int(r), -1) for r in merged], np.int32)
+            accepted = source >= 0
+            accepted &= palette[np.maximum(source, 0)] >= 0
+            nearest = distance_transform_edt(
+                ~accepted, return_distances=False, return_indices=True
+            )
+            classes = palette[source[tuple(nearest)]].astype(np.uint8)
+            outline_labels = np.where(support, classes.astype(np.int32) + 1, 0)
+
+            def check():
+                if work.interrupted:
+                    from vectrify.refine.cel_plan.model import StageInterruptedError
+
+                    raise StageInterruptedError("Source material contours interrupted")
+
+            def boundary(
+                points: np.ndarray, _tolerance: float
+            ) -> list[tuple[str, tuple[float, ...]]]:
+                check()
+                fitted = cel.simplify(points, 0.75 * min(evidence.scale))
+                return [("L", (float(x), float(y))) for x, y in fitted[1:]]
+
+            outlines = cel.region_outlines(
+                outline_labels, 0, fit_boundary=boundary, check=check
+            )
+            cells = []
+            for i in range(len(roots)):
+                if work.interrupted:
+                    return
+                region_indices = np.flatnonzero(palette[pixels] == i)
+                fitted = self._paint(xy, rgb, region_indices, work)
+                if fitted is None or i + 1 not in outlines:
+                    break
+                shape = transformed_geometry(parse_path(outlines[i + 1]), frame)
+                shape = _filled(shape, "evenodd")
+                cells.append(
+                    Cell(
+                        f"r{i}",
+                        region_indices,
+                        shape,
+                        whole if i == 0 else shape,
+                        *fitted,
+                        i,
+                    )
+                )
+            if len(cells) != len(roots):
+                self.diagnostics["region_exclusions"] += 1
+                continue
+            yield cells, classes, threshold, region_selected
+
+    @staticmethod
+    def _mask(geometry, matrix, box, *, rule="nonzero"):
+        width, height = box.right - box.x, box.bottom - box.y
+        transform = " ".join(str(v) for v in matrix)
+        svg = (
+            f'<svg xmlns="http://www.w3.org/2000/svg" width="{width}" '
+            f'height="{height}" viewBox="{box.x} {box.y} {width} {height}">'
+            f'<path fill="black" fill-rule="{rule}" '
+            f'transform="matrix({transform})" d="{geometry.path_data()}"/></svg>'
+        )
+        return render(svg, ((box.right - box.x), (box.bottom - box.y)))[..., 3]
+
+    def _interior(self, state, base, whole, work):
+        matrix = root_matrix(state.document, base.id)
+        native = transformed_geometry(whole, matrix)
+        original = curve_path(native)
+        x0, y0, x1, y1 = original.bounds
+        box = Box(
+            math.floor(x0) - 2, math.floor(y0) - 2, math.ceil(x1) + 2, math.ceil(y1) + 2
+        )
+        if box.area > MAX_NATIVE_PIXELS:
+            self.diagnostics["bounded"] += 1
+            return None
+        # Overlay coverage must never accumulate alpha on the coverage edge.
+        # Repaint the original carrier there; other cells stay in its rendered
+        # opaque interior, proved again against native pixel coverage below.
+        border = curve_path(native)
+        border.stroke(3.0, pathops.LineCap.ROUND_CAP, pathops.LineJoin.ROUND_JOIN, 4)
+        border.convertConicsToQuads(0.05)
+        interior = pathops.op(original, border, pathops.PathOp.DIFFERENCE)
+        geometry = transformed_geometry(path_geometry(interior), inverse_matrix(matrix))
+        if not geometry.subpaths or work.interrupted:
+            return None
+        if sum(len(s.nodes) for s in geometry.subpaths) > MAX_OUTPUT_NODES:
+            self.diagnostics["geometry_exclusions"] += 1
+            return None
+        return (
+            geometry,
+            box,
+            self._mask(
+                state.document.geometry_for(base.id),
+                matrix,
+                box,
+                rule=path_style(state.document, state.document.element(base.id))[
+                    "fill-rule"
+                ],
+            ),
+        )
+
+    @staticmethod
+    def _supported_fill(document, element, style):
+        if (
+            style["fill"] == "none"
+            or style["stroke"] != "none"
+            or element.get("clip-path", "none") != "none"
+            or element.get("filter", "none") != "none"
+        ):
+            return False
+        if any(not 0 <= float(style[k]) <= 1 for k in ("opacity", "fill-opacity")):
+            return False
+        server = paint_server(style["fill"])
+        if server is None:
+            return 0 <= color(style["fill"])[3] <= 1
+        gradient = document.element(server)
+        stops = gradient_stops(gradient)
+        return (
+            gradient.tag == "linearGradient"
+            and bool(stops)
+            and all(0 <= s[1][3] <= 1 for s in stops)
+        )
+
+    def _owners(self, state, base, box, opaque, work):
+        support = set(base.members if base.role == "underlay" else base.covered)
+        parent = state.document.ancestry(base.id)[-2]
+        selected = []
+        ink = self._ridge_owners(state, work)
+        if ink is None:
+            return None
+        nodes = 0
+        constrained = set(state.details.get("paint_constraints", ()))
+        surfaces = {s.id: s for s in state.partition.surfaces}
+        for child in parent.children:
+            if work.interrupted:
+                return None
+            surface = surfaces.get(child.id)
+            if (
+                surface is None
+                or surface.role != "surface"
+                or surface.covered
+                or surface.id in constrained
+                or any(self.families.graph.regions[i].fixed for i in surface.members)
+            ):
+                continue
+            if not set(surface.members).issubset(support) or child.id in ink:
+                continue
+            style = path_style(state.document, child)
+            if not self._supported_fill(state.document, child, style):
+                continue
+            shape = _filled(state.document.geometry_for(child.id), style["fill-rule"])
+            nodes += sum(len(s.nodes) for s in shape.subpaths)
+            if len(selected) >= MAX_PATHS or nodes > MAX_INPUT_NODES:
+                self.diagnostics["bounded"] += 1
+                return None
+            if not in_core(state, surface.members, child.id, shape, work):
+                continue
+            matrix = root_matrix(state.document, child.id)
+            a, b, c, d = _bounds(state.document, child.id)
+            crop = Box(
+                max(box.x, math.floor(a) - 2),
+                max(box.y, math.floor(b) - 2),
+                min(box.right, math.ceil(c) + 2),
+                min(box.bottom, math.ceil(d) + 2),
+            )
+            if crop.area:
+                coverage = self._mask(
+                    state.document.geometry_for(child.id),
+                    matrix,
+                    crop,
+                    rule=style["fill-rule"],
+                )
+                original = opaque[
+                    crop.y - box.y : crop.bottom - box.y,
+                    crop.x - box.x : crop.right - box.x,
+                ]
+                if ((coverage > 0) & (original != 1)).any():
+                    self.diagnostics["alpha_exclusions"] += 1
+                    continue
+            selected.append(surface)
+        if len(selected) < self.minimum_paths:
+            return None
+        return tuple(selected)
+
+    def _retained(self, state, base, selected, whole, work):
+        """Only known supported owners may keep paint above a changed material.
+
+        Their geometry, source ownership and mutual order remain untouched.
+        The carrier and retained paints keep their alpha. Removed paint and new
+        overlays have separately proved native support in its opaque interior.
+        Native scoring still checks every changed color and edge pixel.
+        """
+        document = state.document
+        known = {s.id for s in state.partition.surfaces}
+        removed = {s.id for s in selected} | {base.id}
+        matrix = root_matrix(document, base.id)
+        native = transformed_geometry(whole, matrix)
+        filled = curve_path(native)
+        a, b, c, d = filled.bounds
+        for child in document.ancestry(base.id)[-2].children:
+            if work.interrupted:
+                return False
+            if child.id in removed:
+                continue
+            p, q, r, s = _bounds(document, child.id)
+            if max(a, p) >= min(c, r) or max(b, q) >= min(d, s):
+                continue
+            if child.tag != "path" or child.id not in known:
+                self.diagnostics["style_exclusions"] += 1
+                return False
+            style = path_style(document, child)
+            # Current owned opaque fills are explicit retained marks. Only
+            # directly supported opaque gradients share that interpretation.
+            supported = self._supported_fill(document, child, style)
+            if not supported:
+                if (
+                    style["stroke"] != "none"
+                    or child.get("clip-path", "none") != "none"
+                    or child.get("filter", "none") != "none"
+                ):
+                    self.diagnostics["style_exclusions"] += 1
+                    return False
+                shape = transformed_geometry(
+                    document.geometry_for(child.id), root_matrix(document, child.id)
+                )
+                overlap = pathops.op(
+                    filled,
+                    curve_path(shape, style["fill-rule"]),
+                    pathops.PathOp.INTERSECTION,
+                )
+                if abs(overlap.area) > 1e-8:
+                    self.diagnostics["style_exclusions"] += 1
+                    return False
+            self.diagnostics["retained_paths"] += 1
+        return not work.interrupted
+
+    def __call__(self, state, work: Work):
+
+        if state.partition is None or work.interrupted:
+            return
+        graph, evidence = self.families.graph, self.families.evidence
+        if graph.labels.size > MAX_PIXELS:
+            self.diagnostics["bounded"] += 1
+            return
+        bases = [
+            s for s in state.partition.surfaces if s.role == "underlay" or s.covered
+        ]
+        bases.sort(key=lambda s: -len(s.members if s.role == "underlay" else s.covered))
+        for base in bases[:MAX_CORES]:
+            document = state.document
+            element = document.element(base.id)
+            style = path_style(document, element)
+            if (
+                style["stroke"] != "none"
+                or float(style["opacity"]) != 1
+                or float(style["fill-opacity"]) != 1
+                or not opaque_fill(document, style["fill"])
+                or element.get("clip-path", "none") != "none"
+            ):
+                continue
+            if any(
+                a.get("clip-path", "none") != "none"
+                or a.get("filter", "none") != "none"
+                for a in document.ancestry(base.id)
+            ):
+                self.diagnostics["style_exclusions"] += 1
+                continue
+            whole = _filled(document.geometry_for(base.id), style["fill-rule"])
+            interior = self._interior(state, base, whole, work)
+            if interior is None:
+                continue
+            inner, box, opaque = interior
+            selected = self._owners(state, base, box, opaque, work)
+            if selected is None:
+                continue
+            if not self._retained(state, base, selected, whole, work):
+                continue
+            members = tuple(sorted(i for s in selected for i in s.members))
+            own = np.isin(graph.labels, members) & ~evidence.empty
+            y, x = np.nonzero(own)
+            xy = np.column_stack((x + 0.5, y + 0.5))
+            rgb = evidence.target[own]
+            fitted = self._paint(xy, rgb, np.arange(len(x)), work)
+            if fitted is None:
+                continue
+            self.diagnostics["cores"] += 1
+            self.diagnostics["selected_paths"] += len(selected)
+            self.diagnostics["source_pixels"] += len(x)
+            for regions, classes, threshold, region_selected in self._regions(
+                state, base, selected, whole, xy, rgb, own, work
+            ):
+                proposal = self._proposal(
+                    state,
+                    base,
+                    region_selected,
+                    regions,
+                    [],
+                    inner,
+                    box,
+                    opaque,
+                    work,
+                    source_classes=classes,
+                    region_threshold=threshold,
+                )
+                if proposal is not None:
+                    self.diagnostics["region_proposals"] += 1
+                    yield proposal
+            cells = [Cell("", np.arange(len(x)), whole, whole, *fitted)]
+            cuts = []
+            fitted_splits = {}
+            for _step in range(MAX_CELLS):
+                if work.interrupted:
+                    return
+                # Every completed prefix competes, including an exact fit with
+                # an odd number of cells that cannot benefit from another cut.
+                if len(cells) <= MAX_CELLS:
+                    proposal = self._proposal(
+                        state,
+                        base,
+                        selected,
+                        cells,
+                        cuts,
+                        inner,
+                        box,
+                        opaque,
+                        work,
+                    )
+                    if proposal is not None:
+                        yield proposal
+                if len(cells) >= MAX_CELLS:
+                    break
+                best = None
+                for cell in cells:
+                    if cell.key not in fitted_splits:
+                        fitted_splits[cell.key] = self._split(
+                            state, base, cell, xy, rgb, own, work
+                        )
+                    candidate = fitted_splits[cell.key]
+                    if candidate is not None and (
+                        best is None or candidate[0] > best[1][0]
+                    ):
+                        best = (cell, candidate)
+                if best is None:
+                    break
+                old, (_gain, normal, rho, left, right) = best
+                cells.remove(old)
+                cells.extend((left, right))
+                cells.sort(key=lambda c: c.key)
+                cuts.append((old.key, tuple(float(v) for v in normal), float(rho)))
+
+    def _proposal(
+        self,
+        state,
+        base,
+        selected,
+        cells,
+        cuts,
+        inner,
+        box,
+        opaque,
+        work,
+        *,
+        source_classes=None,
+        region_threshold=None,
+    ):
+        from vectrify.refine.cel_plan.proposals import bounds
+
+        document, graph, evidence = (
+            state.document,
+            self.families.graph,
+            self.families.evidence,
+        )
+        if source_classes is None and any(c.residual > MAX_RESIDUAL for c in cells):
+            self.diagnostics["planar_paint_exclusions"] += 1
+            return None
+        classes = (
+            np.zeros(graph.labels.shape, np.uint8)
+            if source_classes is None
+            else source_classes
+        )
+        yy, xx = np.ogrid[: graph.labels.shape[0], : graph.labels.shape[1]]
+        for index, cell in enumerate(cells if source_classes is None else ()):
+            scope = np.ones(graph.labels.shape, bool)
+            for prefix, normal, rho in cuts:
+                if cell.key.startswith(prefix) and len(cell.key) > len(prefix):
+                    side = (xx + 0.5) * normal[0] + (yy + 0.5) * normal[1] < rho
+                    scope &= side if cell.key[len(prefix)] == "0" else ~side
+            classes[scope] = index
+        members = tuple(sorted(i for s in selected for i in s.members))
+        atoms = state.partition.atoms or Atoms.original(graph)
+        try:
+            atoms, groups = atoms.partition(graph, members, classes, len(cells), work)
+        except ValueError:
+            self.diagnostics["atom_exclusions"] += 1
+            return None
+        matrix = root_matrix(document, base.id)
+        shapes = [document.geometry_for(base.id)]
+        for cell in cells[1:]:
+            shape = path_geometry(
+                pathops.op(
+                    curve_path(cell.draw),
+                    curve_path(inner),
+                    pathops.PathOp.INTERSECTION,
+                )
+            )
+            if not shape.subpaths:
+                return None
+            coverage = self._mask(shape, matrix, box)
+            if ((coverage > 0) & (opaque != 1)).any():
+                self.diagnostics["alpha_exclusions"] += 1
+                return None
+            shapes.append(shape)
+        if work.interrupted:
+            return None
+        if sum(len(s.nodes) for g in shapes for s in g.subpaths) > MAX_OUTPUT_NODES:
+            self.diagnostics["geometry_exclusions"] += 1
+            return None
+        digest = hashlib.sha256(repr((base.id, cuts, groups)).encode()).hexdigest()[:12]
+        ids = tuple(f"{base.id}-material-{digest}-{i}" for i in range(1, len(cells)))
+        # The coverage carrier takes the first cell's primary material atoms;
+        # its fringe ownership stays intact. Other cells have exact primary
+        # support, with explicit hidden support for their default subtrees.
+        start = len(state.partition.atoms.cuts) if state.partition.atoms else 0
+        expanded = [
+            replace(
+                s,
+                members=atoms.descendants(s.members, start),
+                covered=atoms.descendants(s.covered, start),
+            )
+            for s in state.partition.surfaces
+        ]
+        remove = {s.id for s in selected} | {base.id}
+        expanded_base = next(s for s in expanded if s.id == base.id)
+        old_support = set(
+            expanded_base.members if base.role == "underlay" else expanded_base.covered
+        )
+        first = tuple(
+            sorted(
+                (
+                    *(() if base.role == "underlay" else expanded_base.members),
+                    *groups[0],
+                )
+            )
+        )
+        new_surfaces = [
+            Surface(base.id, first, covered=tuple(sorted(old_support - set(first))))
+        ]
+        for index, (oid, cell) in enumerate(zip(ids, cells[1:], strict=True), start=1):
+            scope = cell.key[: cell.key.rfind("1") + 1]
+            covered = {
+                i
+                for c, group in zip(cells, groups, strict=True)
+                if cell.support is None
+                and c.key != cell.key
+                and c.key.startswith(scope)
+                for i in group
+            }
+            support = set(
+                base.members if base.role == "underlay" else base.covered
+            ) - set(members)
+            active_cells = [i for i, c in enumerate(cells) if c.key.startswith(scope)]
+            hidden = (
+                np.isin(classes, active_cells)
+                if cell.support is None
+                else classes == cell.support
+            ) & np.isin(graph.labels, tuple(support))
+            covered.update(
+                atoms.descendants(
+                    tuple(int(i) for i in np.unique(graph.labels[hidden])), start
+                )
+            )
+            new_surfaces.append(
+                Surface(oid, groups[index], covered=tuple(sorted(covered)))
+            )
+        partition = Partition(
+            tuple(s for s in expanded if s.id not in remove) + tuple(new_surfaces),
+            atoms,
+        )
+        if not partition.follows(state.partition):
+            raise ValueError("Whole-core material edit lost source ownership")
+        editor = Editor(document, selection=Selection(whole_document=True))
+        parent = document.ancestry(base.id)[-2]
+        position = next(i for i, c in enumerate(parent.children) if c.id == base.id)
+        known = {e.id for e in document.elements()}
+        if any(oid in known for oid in ids):
+            return None
+        with editor.transaction("Propose whole-core source materials") as tx:
+            tx.delete_objects(frozenset(s.id for s in selected))
+            for index, (oid, shape) in enumerate(
+                zip(ids, shapes[1:], strict=True), start=1
+            ):
+                tx.insert_object(
+                    parent.id,
+                    replace(document.element(base.id), id=oid, geometry_id=shape.id),
+                    index=position + index,
+                    geometries=(shape,),
+                )
+        for oid, cell in zip((base.id, *ids), cells, strict=True):
+            snapshot = editor.snapshot.document
+            opacity = _opacity(snapshot, oid)
+            with editor.transaction("Fit source material cell") as tx:
+                tx.set_fill(
+                    oid,
+                    _gradient(cell.paint, evidence, snapshot, oid, opacity)
+                    if cell.paint.gradient
+                    else cell.paint.color,
+                )
+                tx.set_attributes(
+                    oid,
+                    {
+                        "fill-rule": path_style(document, document.element(base.id))[
+                            "fill-rule"
+                        ]
+                        if oid == base.id
+                        else "nonzero",
+                        "fill-opacity": "1",
+                        "stroke": "none",
+                    },
+                )
+        proposed = editor.snapshot.document
+        self.diagnostics["cells"] += len(cells)
+        self.diagnostics["proposals"] += 1
+        old_ids = tuple(s.id for s in selected)
+        holds = set(state.details.get("geometry_constraints", ())) - set(old_ids)
+        holds.update((base.id, *ids))
+        return Proposal(
+            "core-material-cells",
+            (*old_ids, base.id, *ids),
+            (len(cells), tuple(cuts), region_threshold),
+            state.key,
+            proposed,
+            bounds(document, proposed, (*old_ids, base.id, *ids)),
+            details={
+                "regions": sum(s.role != "underlay" for s in partition.surfaces),
+                "geometry_constraints": sorted(holds),
+                "chain_constraints": discard(
+                    state.details.get("chain_constraints"), old_ids
+                ),
+                "paint_constraints": sorted(
+                    set(state.details.get("paint_constraints", ())) - {base.id}
+                ),
+                "core_material_cells": {
+                    "cells": len(cells),
+                    "removed_paths": len(selected) - len(ids),
+                    "source_cut_count": len(atoms.cuts),
+                    "source_squared_error": sum(c.error for c in cells),
+                    "source_maximum_rgb_residual": max(c.residual for c in cells),
+                    "region_threshold": region_threshold,
+                },
+            },
+            dependencies=(parent.id,),
+            partition=partition,
+        )

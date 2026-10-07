@@ -119,6 +119,7 @@ class Families:
         self._surface_models = None
         self._split_models = None
         self._piecewise_models = None
+        self._core_models = None
 
     def _same_ink(self, edge: Boundary, work: Work) -> bool:
         """An internal paint partition is not a gap in a continuous dark mark.
@@ -549,6 +550,7 @@ class Families:
         return self._surface_models
 
     def __call__(self, state: State, work: Work):
+        from vectrify.refine.cel_plan.core_cells import CoreCells
         from vectrify.refine.cel_plan.piecewise_surfaces import PiecewiseSurfaces
         from vectrify.refine.cel_plan.surface_splits import SurfaceSplits
 
@@ -556,10 +558,17 @@ class Families:
             self._split_models = SurfaceSplits(self, self.options)
         if self._piecewise_models is None:
             self._piecewise_models = PiecewiseSurfaces(self, self.options)
+        if self._core_models is None:
+            # Small fragment sets already have the existing local competitors.
+            # Reserve the source-contour rebuild for substantial fragmentation.
+            self._core_models = CoreCells(self, self.options, minimum_paths=32)
         # Alternate material hypotheses with the established adjacency family.
         # Both occupy the existing family slot; other operators keep their turn.
         cursors = [
             iter(self.surface_models(state, work)),
+            iter(self._core_models(state, work))
+            if state.partition is not None and len(state.partition.surfaces) >= 32
+            else iter(()),
             iter(self._piecewise_models(state, work)),
             iter(self.adjacent(state, work)),
             iter(self._split_models(state, work)),

@@ -194,6 +194,20 @@ def enclosed(
     return Enclosed(filled, inner, members, tuple(geometries), tuple(rules))
 
 
+def opaque_fill(document, fill: str) -> bool:
+    """An intrinsic opaque solid or directly supported linear gradient."""
+    if fill == "none":
+        return False
+    server = paint_server(fill)
+    if server is None:
+        return color(fill)[3] == 1
+    paint = document.element(server)
+    if paint.tag != "linearGradient":
+        return False
+    stops = gradient_stops(paint)
+    return bool(stops) and all(stop[1][3] == 1 for stop in stops)
+
+
 def in_core(
     state: State,
     members: tuple[int, ...],
@@ -232,8 +246,7 @@ def in_core(
             or float(style["fill-opacity"]) != 1
             or float(style["opacity"]) != 1
             or element.get("clip-path", "none") != "none"
-            or paint_server(style["fill"]) is not None
-            or color(style["fill"])[3] != 1
+            or not opaque_fill(document, style["fill"])
             or sum(len(s.nodes) for s in shape.subpaths) > MAX_NODES
         ):
             continue

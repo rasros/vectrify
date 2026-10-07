@@ -420,6 +420,11 @@ def vectorize(
                     )
                     if operators.families._piecewise_models is not None
                     else {},
+                    "core_material_cells": dict(
+                        operators.families._core_models.diagnostics
+                    )
+                    if operators.families._core_models is not None
+                    else {},
                     "ink_replacement": dict(operators.replacements.diagnostics),
                     "closed_overlays": dict(operators.overlays.diagnostics),
                     "nested_surface_rejections": dict(

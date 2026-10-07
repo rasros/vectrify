@@ -196,6 +196,35 @@ emits no coupled control candidates yet reduces paired search coverage from
 48 evaluations to 16/16/24/16. This is unfinished experimental work, not a
 quality or runtime gate passed.
 
+Whole-core material cells now provide a source-contour competitor instead of
+unioning the old fill fragments. Connected color families keep complete atoms;
+straight cuts use exact bounded atom splits. The coverage carrier keeps its
+original geometry and fill rule. Native pixel proofs restrict both removed
+paint and new overlays to its opaque interior, allowing material reconstruction
+under retained translucent marks without changing alpha. Source ridge evidence
+requires two painted sides with comparable opacity, so a dark facet or alpha
+fringe alone cannot declare ink. This remains an experimental interpretation.
+
+The final source-only audit validates six connected-region candidates. Its
+lowest-node initializer alternative has 8,588 nodes, 1,315 contours and human
+MSE 551.16; a post-union alternative has 8,659 nodes and MSE 533.99. These are
+still far above the legacy and human structure counts and miss the fidelity
+gate. The matched generation still selects 10,009 nodes and MSE 514.85. The
+coarsest proposal is rejected by the search's 256-object dependency limit;
+the four paired control renders remain unchanged. Reordering candidates does
+not resolve that integration limit or supply a faithful compact drawing.
+
+Before treating this route as usable, implement bounded whole-component edit
+dependencies with complete changed-object, frame, paint-server, visibility and
+source-ownership invalidation. Preserve the limits for ordinary local edits
+and charge every resulting path, contour and gradient. Then compare the same
+candidate pool and deadline against the current search. Continue with coherent
+ink, canonical long boundaries and justified source-coverage interpretation;
+the existing source-contour region model leaves most remaining fragmentation
+intact. Do not present this package as a quality improvement, a calibrated
+slider or a completed delivery. The detailed source hashes, negative runs and
+next verification requirements are in the progress record.
+
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local
 draw order included in each replacement. Validate the jewel rim/highlight,
