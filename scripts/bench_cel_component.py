@@ -65,6 +65,7 @@ def offered(
     compose_materials,
     composition_grouping="ward",
     composition_diagnostics=None,
+    composition_layout="regions",
 ):
     """Only valid source-ink parents seed a bounded material composition pool."""
     parents = 0
@@ -97,6 +98,7 @@ def offered(
             joint=True,
             grouping=composition_grouping,
             boundary_fit="curve",
+            layout=composition_layout,
         )
         if composition_diagnostics is not None:
             composition_diagnostics.append(
@@ -133,6 +135,7 @@ def run(
     compose_materials=False,
     boundary_contacts=False,
     composition_grouping="ward",
+    composition_layout="regions",
 ):
     started, revision = time.monotonic(), source_hash()
     if case.get("paired"):
@@ -226,6 +229,7 @@ def run(
                     compose_materials,
                     composition_grouping,
                     composition_diagnostics,
+                    composition_layout,
                 )
             ):
                 if edit.partition is None or edit.details is None:
@@ -359,6 +363,7 @@ def run(
         else None,
         "grouping": grouping if proposal == "core-cells" else None,
         "composition_grouping": composition_grouping if compose_materials else None,
+        "composition_layout": composition_layout if compose_materials else None,
         "composition_diagnostics": composition_diagnostics,
         "boundary_fit": boundary_fit if proposal == "core-cells" else None,
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
@@ -404,6 +409,9 @@ def main():
     )
     parser.add_argument(
         "--composition-grouping", choices=("ward", "paint-fit"), default="ward"
+    )
+    parser.add_argument(
+        "--composition-layout", choices=("regions", "planes"), default="regions"
     )
     parser.add_argument(
         "--boundary-fit", choices=("polygon", "curve"), default="polygon"
@@ -456,6 +464,7 @@ def main():
         compose_materials=args.compose_materials,
         boundary_contacts=args.boundary_contacts,
         composition_grouping=args.composition_grouping,
+        composition_layout=args.composition_layout,
     )
 
 

@@ -39,7 +39,9 @@ from vectrify.refine import cel
 from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.facet_lines import FacetLines
 from vectrify.refine.cel_plan.families import _gradient, _opacity
+from vectrify.refine.cel_plan.fill_winding import resolved
 from vectrify.refine.cel_plan.geometry import Boundaries
 from vectrify.refine.cel_plan.ink_models import models as ink_models
 from vectrify.refine.cel_plan.ink_replace import identified
@@ -61,6 +63,7 @@ from vectrify.refine.cel_plan.surface_splits import (
     lines,
 )
 from vectrify.refine.colour_regions import colour
+from vectrify.refine.crossings import crossings
 
 MAX_PIXELS = 1536**2
 MAX_NATIVE_PIXELS = 4 * 1024**2
@@ -69,6 +72,8 @@ MAX_INPUT_NODES = 16_384
 MAX_OUTPUT_NODES = 6000
 MAX_CORES = 4
 MAX_CELLS = 8
+MAX_PLANES = 32
+PLANE_PREFIXES = (1, 2, 3, 4, 6, 8, 12, 16, 24, MAX_PLANES)
 MAX_REGION_CELLS = 64
 MAX_REGION_EDGES = 16_384
 CHUNK = 65_536
@@ -146,7 +151,10 @@ class CoreCells:
         grouping="static",
         boundary_fit="polygon",
         ink_support="paired",
+        layout="regions",
     ):
+        if layout not in {"regions", "planes"} or (layout == "planes" and not joint):
+            raise ValueError("Planar layout requires a joint component proposal")
         if grouping not in {"static", "ward", "paint-fit"} or (
             grouping != "static" and not joint
         ):
@@ -166,10 +174,12 @@ class CoreCells:
         self.grouping = grouping
         self.boundary_fit = boundary_fit
         self.ink_support = ink_support
+        self.layout = layout
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
         self._ridge_support = None
         self._moments = None
+        self._facet_lines = None
         self.diagnostics: dict = dict.fromkeys(
             (
                 "cores",
@@ -208,6 +218,9 @@ class CoreCells:
                 "hierarchy_model_evaluations",
                 "hierarchy_model_limits",
                 "hierarchy_alpha_exclusions",
+                "plane_prefixes",
+                "plane_cells_peak",
+                "facet_edge_points",
             ),
             0,
         )
@@ -313,7 +326,13 @@ class CoreCells:
         points = np.floor(xy[cell.indices]).astype(int)
         mask[points[:, 1], points[:, 0]] = True
         best = None
-        for normal, rho in lines(evidence.target, mask, (0, 0), work):
+        if self.layout == "planes":
+            if self._facet_lines is None:
+                self._facet_lines = FacetLines(evidence.target, ~evidence.empty)
+            votes = self._facet_lines(mask, work, scope=xy[cell.indices])
+        else:
+            votes = lines(evidence.target, mask, (0, 0), work)
+        for normal, rho in votes:
             if work.interrupted:
                 return None
             self.diagnostics["votes"] += 1
@@ -339,6 +358,10 @@ class CoreCells:
                 Cell(cell.key + "0", left, shapes[0], cell.draw, *a),
                 Cell(cell.key + "1", right, shapes[1], shapes[1], *b),
             )
+        if self._facet_lines is not None:
+            self.diagnostics["facet_edge_points"] = self._facet_lines.diagnostics[
+                "points"
+            ]
         return best
 
     def _regions(self, state, base, selected, whole, xy, rgb, own, work):
@@ -1118,8 +1141,10 @@ class CoreCells:
             self.diagnostics["cores"] += 1
             self.diagnostics["selected_paths"] += len(selected)
             self.diagnostics["source_pixels"] += len(x)
-            for regions, classes, threshold, region_selected in self._regions(
-                state, base, selected, whole, xy, rgb, own, work
+            for regions, classes, threshold, region_selected in (
+                self._regions(state, base, selected, whole, xy, rgb, own, work)
+                if self.layout == "regions"
+                else ()
             ):
                 proposal = self._proposal(
                     state,
@@ -1137,17 +1162,19 @@ class CoreCells:
                 if proposal is not None:
                     self.diagnostics["region_proposals"] += 1
                     yield proposal
-            if self.joint:
+            if self.joint and self.layout != "planes":
                 continue
+            cell_limit = MAX_PLANES if self.layout == "planes" else MAX_CELLS
             cells = [Cell("", np.arange(len(x)), whole, whole, *fitted)]
             cuts = []
             fitted_splits = {}
-            for _step in range(MAX_CELLS):
+            for _step in range(cell_limit):
                 if work.interrupted:
                     return
-                # Every completed prefix competes, including an exact fit with
+                # Selected completed prefixes compete, including an exact fit with
                 # an odd number of cells that cannot benefit from another cut.
-                if len(cells) <= MAX_CELLS:
+                if self.layout != "planes" or len(cells) in PLANE_PREFIXES:
+                    self.diagnostics["plane_prefixes"] += self.layout == "planes"
                     proposal = self._proposal(
                         state,
                         base,
@@ -1161,7 +1188,11 @@ class CoreCells:
                     )
                     if proposal is not None:
                         yield proposal
-                if len(cells) >= MAX_CELLS:
+                self.diagnostics["plane_cells_peak"] = max(
+                    self.diagnostics["plane_cells_peak"],
+                    len(cells) if self.layout == "planes" else 0,
+                )
+                if len(cells) >= cell_limit:
                     break
                 best = None
                 for cell in cells:
@@ -1174,7 +1205,16 @@ class CoreCells:
                         best is None or candidate[0] > best[1][0]
                     ):
                         best = (cell, candidate)
+                if work.interrupted:
+                    return
                 if best is None:
+                    if self.layout == "planes" and len(cells) not in PLANE_PREFIXES:
+                        self.diagnostics["plane_prefixes"] += 1
+                        proposal = self._proposal(
+                            state, base, selected, cells, cuts, inner, box, opaque, work
+                        )
+                        if proposal is not None:
+                            yield proposal
                     break
                 old, (_gain, normal, rho, left, right) = best
                 cells.remove(old)
@@ -1204,7 +1244,11 @@ class CoreCells:
             self.families.graph,
             self.families.evidence,
         )
-        if source_classes is None and any(c.residual > MAX_RESIDUAL for c in cells):
+        if (
+            not self.joint
+            and source_classes is None
+            and any(c.residual > MAX_RESIDUAL for c in cells)
+        ):
             self.diagnostics["planar_paint_exclusions"] += 1
             return None
         classes = (
@@ -1261,6 +1305,11 @@ class CoreCells:
                     pathops.PathOp.INTERSECTION,
                 )
             )
+            if self.layout == "planes" and crossings(shape):
+                shape = resolved(shape, matrix, "nonzero", work)
+                if shape is None:
+                    self.diagnostics["geometry_exclusions"] += 1
+                    return None
             if not shape.subpaths:
                 self.diagnostics["empty_cell_exclusions"] += 1
                 return None
@@ -1435,6 +1484,10 @@ class CoreCells:
                     "source_maximum_rgb_residual": max(c.residual for c in cells),
                     "region_threshold": None if self.joint else region_threshold,
                     "joint": self.joint,
+                    "layout": self.layout,
+                    "facet_edge_model": "multiscale-color-normal"
+                    if self.layout == "planes"
+                    else None,
                     "grouping": self.grouping,
                     "paint_fit_alpha": "fixed-coverage-carrier"
                     if self.grouping == "paint-fit"
@@ -1442,7 +1495,9 @@ class CoreCells:
                     "boundary_fit": self.boundary_fit,
                     "ink_support": self.ink_support,
                     "stroke_models": [c.stroke for c in cells if c.stroke],
-                    "model_stage": "source-ink-and-materials"
+                    "model_stage": "source-facet-planes"
+                    if self.layout == "planes"
+                    else "source-ink-and-materials"
                     if self.ink_support == "connected"
                     else "dynamic-materials"
                     if self.grouping != "static"

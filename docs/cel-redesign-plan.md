@@ -80,6 +80,20 @@ mass checks remain mandatory. Evaluate compact supported opacity models and
 source-based incidental-texture hypotheses alongside coherent facet geometry;
 do not substitute a blanket low-opacity exemption for either model.
 
+The next offline competitor offers a complete binary material-plane tree with
+bounded multiscale, source-supported color-edge directions. It retains actual
+source strokes and coverage and uses the unchanged exact ownership ledger and
+native admission. The first sword three-plane drawing falls to 1,226 nodes /
+274 contours, but human MSE rises to 2,208.53. The blade crop loses its dark
+outlines even though the handle's 17 retained strokes survive. A source-only
+plane fit can compact broad paint while erasing essential ink; this is not a
+practical gain or a passed gate. A separate explicitly altered cut-limit
+ablation also damaged paint and introduced native-rejected crossings, so
+production ownership limits remain unchanged. Continue coherent source ink
+and supported shared material boundaries; neither more cuts nor a learned
+ranker can recover an outline absent from the proposal pool. Full matched
+measurements, controls and source hashes are in the progress document.
+
 ### Previous verified pause checkpoint
 
 On 2026-10-07 the owner requested a pause after the verified graph-sharing and

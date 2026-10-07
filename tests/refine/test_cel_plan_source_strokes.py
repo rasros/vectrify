@@ -180,7 +180,8 @@ def test_native_stroke_replaces_fragments_without_collapsing_existing_paint(alph
 
 @pytest.mark.parametrize("alpha", [128, 64])
 @pytest.mark.parametrize("gap", [False, True])
-def test_material_compaction_composes_after_source_strokes(alpha, gap):
+@pytest.mark.parametrize("layout", ["regions", "planes"])
+def test_material_compaction_composes_after_source_strokes(alpha, gap, layout):
     evidence = fragmented(alpha, gap)
     frontier, initial, options = prepared(evidence, layers=True)
     ops = Operators(evidence, build(evidence), options)
@@ -201,7 +202,12 @@ def test_material_compaction_composes_after_source_strokes(alpha, gap):
     assert state.partition is not None
     branch = ops.branch(state.partition, Work.start(10))
     material = CoreCells(
-        branch.families, options, joint=True, grouping="ward", boundary_fit="curve"
+        branch.families,
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="curve",
+        layout=layout,
     )
     edits = list(material(state, Work.start(20)))
     assert edits, material.diagnostics

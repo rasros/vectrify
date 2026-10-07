@@ -14,6 +14,151 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Source-supported facet-plane competitor
+
+An optional joint `layout="planes"` now competes with the region hierarchy in
+the offline component comparator (`--composition-layout planes`). It estimates
+flat/common-axis linear RGB paint from at most 4,096 source samples per cell,
+evaluates error over every selected source pixel, proposes bounded binary
+material cuts, and selects each next split by that complete source-paint error
+reduction. The sampled parameter estimate is not an optimal complete-pixel
+least-squares fit. Requested prefixes are 1, 2, 3, 4, 6, 8, 12, 16,
+24 and 32 cells; a completed terminal prefix also competes when its count is
+not listed. Each prefix retains the unchanged coverage carrier, independent
+marks and actual source-supported SVG strokes. It uses the existing exact
+source-atom ledger, component seal, paint frames, native/local score and
+admission rules. This is a candidate generator, not automatic scheduling or
+a learned ranker.
+
+The source edge voter normalizes Gaussian RGB derivatives by visible support
+at three scales (0.7, 1.4 and 2.8 pixels). Empty background and holes cannot
+invent paint contrast. It retains at most 4,096 edge points per scale on at
+most 1,536 squared source pixels, votes only inside the current cell, and
+refines directions from source points instead of exporting angle-bin centers.
+At most 16 distinct lines compete per cell. A line needs observations across
+at least half of the actual cut's four-pixel tangent bins; a short edge patch
+cannot justify an extrapolated cut across an entire large surface. These are
+source hypotheses, with no human geometry, feature boxes or role names used
+to construct or rank them.
+
+Boolean-clipped plane fills receive bounded geometric winding resolution when
+they contain crossings. The unchanged native crossing check still determines
+admission; a failed or interrupted repair emits no proposal. Partial owner
+trees and canceled edge caches are never published. The production source-atom
+bounds remain 64 cuts and 16,384 RLE runs. Raising those bounds is not a quality
+fix and no schema or limit expansion is included.
+
+New controls discover a tilted low-contrast soft edge missed by raw one-pixel
+votes, reject false edges at holes/exteriors and unsupported long cuts, and
+check flat input, cancellation and bounded preparation. Complete three-plane
+material drawings preserve half-opacity/opaque coverage and real holes, exact
+source atoms, component seals, local/native agreement and save/reload. Held
+marks retain their original geometry, paint and source owner. Both layouts run
+the source-stroke composition controls at half/quarter opacity, with and
+without a real source gap; every retained editable stroke stays identical.
+
+The earlier multiscale prototype used source SHA-256
+`59fd5b05a898c8ed70a6ebc26a5c3d98704b6426d747fe16cb4516f6e4ae8524`.
+An explicitly recorded runtime ablation raised only the cut cap to 512; its
+16,384-run cap stayed unchanged. The first 16-plane drawing used 1,351 nodes /
+289 contours, but human MSE was 1,350.386 and four new self-crossings caused
+native rejection. Its blade crop visibly extrapolated short edge patches into
+long false boundaries. The second parent was similarly poor, and 24/32-plane
+outputs still exhausted source RLE support. Those reports at
+`.bench/cel-facet-planes-cut-ablation` are historical, explicitly altered
+configurations; they are not final configured output or release evidence.
+Their failure motivated the current cut-support condition and geometric repair
+and does not justify raising the production ownership limits.
+
+The full relevant regression suite passes **909 tests in 146.23 seconds**;
+changed-file Ruff/format and production Pyrefly checks pass. Final matched
+reports at `.bench/cel-facet-planes-final` use source SHA-256
+`3be2013e4c451772d98029dc051d6a8c4fbb9dc91d24311c50baa3e592a10ae5`.
+The configured sword plane pool completes in 71.46 seconds under its separate
+180-second diagnostic allowance. It reaches 32 fitted cells for each parent,
+but seven requested prefixes per parent exceed exact source-atom bounds;
+only 1/2/3-cell drawings are emitted. There are no geometric repair exclusions.
+
+| Sword plane count | First parent nodes / contours / human MSE | Second parent nodes / contours / human MSE |
+| --- | --- | --- |
+| 1 | 1,195 / 272 / 3,257.798078 | 1,154 / 257 / 3,338.781717 |
+| 2 | 1,213 / 273 / 2,665.148898 | 1,172 / 258 / 2,740.189502 |
+| 3 | 1,226 / 274 / 2,208.530051 | 1,192 / 259 / 2,211.818685 |
+
+The first parent keeps 17 true strokes, the second two. The first three-plane
+feature errors are 3,058.268916 / 1,897.943817 / 3,344.647608 / 2,079.841481 /
+2,500.464449 (tip / facets / guard / handle / jewel). Its inspected blade crop
+has broad smooth shade bands but loses the dark outlines; the handle retains
+editable source lines while paint is badly simplified. More compact geometry
+does not mean a faithful drawing. The human's source-defect repair remains
+excluded, and no quality/structure or operation-runtime gate passes.
+
+The matched region comparator reproduces 3,491 nodes / 381 contours / 17
+strokes / human MSE 552.116829 for its first fine parent and 4,060 / 405 / two
+strokes / 571.093568 for its second; generation/validation takes 77.21 seconds.
+The plane pool saves nodes but has roughly four times the image error. The
+existing 800-node / 140-contour / 497.39-MSE milestone remains unmet.
+
+Eight matched clean 192-pixel / half-opacity tuning reports use separate
+60-second diagnostic allowances. These rows show the highest emitted prefix
+for each source parent; they are neither equal-cost outputs nor selected or
+oracle-chosen operation results.
+
+| Artwork | Region nodes / contours, first then second | Plane cells and nodes / contours, first then second | Region / plane clean MSE, first then second |
+| --- | --- | --- | --- |
+| anime-girl | 1,413 / 110; 1,467 / 118 | 2: 22 / 4; 2: 22 / 4 | 75.8291 / 744.4589; 74.8963 / 687.1882 |
+| anime-face | 2,728 / 190; 2,484 / 144 | 4: 36 / 7; 4: 40 / 8 | 73.7607 / 744.7980; 75.5422 / 733.3636 |
+| western-park | 1,584 / 114; 1,583 / 114 | 3: 23 / 6; 6: 29 / 7 | 117.8697 / 553.1209; 116.4523 / 464.2396 |
+| rubberhose-band | 2,364 / 123; 2,415 / 123 | 6: 70 / 12; 4: 54 / 11 | 150.5583 / 454.7098; 131.3703 / 528.4406 |
+
+First-parent region/plane line F1 is 0.356/0.032 (girl), 0.431/0.099 (face),
+0.093/undefined (western: zero recall and no positive matches), and
+0.753/0.326 (rubberhose). Second-parent values are 0/undefined, 0.259/0.259,
+0.060/0 and 0.663/0.086. Undefined metrics remain JSON null rather than a
+fabricated success. The inspected face eye crop visibly loses the ink and
+highlight detail. Plane/region generation-validation times are 12.44/15.27,
+36.49/31.38, 15.77/13.54 and 16.28/16.16 seconds. Every pool completes, but
+none of this establishes faithful cross-artwork output or a release gate.
+
+All ten final reports parse as strict JSON and match the final source hash.
+Their **109 emitted proposals** pass native admission, complete ownership,
+component seals and independent native/local raster agreement; maximum score
+term difference is below 3.35e-9. Each matched pair uses identical source RGBA,
+mask, settings and normalization. Both admitted source parents have identical
+geometry/paint after ID renaming and identical rendered RGBA. Raw SVG hashes
+differ because document root/defs/stop IDs are fresh UUIDs; the comparison does
+not assume byte-identical identity names. The audit is recorded at
+`.bench/cel-facet-planes-final-audit.txt`. Native validity is necessary but
+insufficient for the separate quality, feature and line gates.
+
+The evidence directs the next model toward coherent source ink retained above
+material underpaint and supported shared boundaries, including curved runs and
+local junctions. Whole-carrier straight planes cannot substitute for those
+outlines. More cuts or a learned selector cannot choose missing ink geometry;
+unlimited cut extrapolation is already a failed diagnostic. Compact supported
+opacity and explicit source-based incidental-texture hypotheses remain open
+as well. Neither layout is automatically scheduled, generated drafts remain
+too poor for new references, and all eight deliveries and frozen gates remain
+open.
+
+Reproduce the matched diagnostic with `PYTHONPATH=src:.` and the repository
+Python environment:
+
+```sh
+python -m scripts.bench_cel_component --proposal source-strokes \
+  --boundary-contacts --compose-materials --composition-layout planes \
+  --normalizer 54564 --seconds 180 --out .bench/cel-facet-planes-final/sword-planes
+python -m scripts.bench_cel_component --proposal source-strokes \
+  --boundary-contacts --compose-materials --composition-layout regions \
+  --normalizer 54564 --seconds 180 --out .bench/cel-facet-planes-final/sword-regions
+```
+
+For each of `anime-girl`, `anime-face`, `western-park` and `rubberhose-band`,
+replace the normalizer override with `--pair NAME`, use `--seconds 60`, and
+give each layout a separate output directory. Run sequentially with the same
+source hash; these allowances measure offline discovery/validation, not the
+normal operation's 60-second runtime or total process memory.
+
 ### Complete-owner material-fit hierarchy
 
 The next competitor uses complete source-owner sufficient statistics instead
