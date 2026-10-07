@@ -29,6 +29,7 @@ from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.nested import in_core
 from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import render
+from vectrify.refine.cel_plan.shade_edges import predict
 from vectrify.refine.cel_plan.surface_models import prediction
 
 MAX_PIXELS = 262_144
@@ -52,6 +53,8 @@ def supported(
     graph,
     work,
     diagnostics: dict,
+    *,
+    coverage=False,
 ):
     """Return exact secondary side support, or exclude the complete extension."""
 
@@ -180,13 +183,19 @@ def supported(
         xy = np.column_stack((xx + chunk.x + 0.5, yy + chunk.y + 0.5))
         side = xy @ normal < rho
         rgb = evidence.target[chunk.slices][shown]
-        for index, selected in enumerate((side, ~side)):
-            if not selected.any():
-                continue
-            # Exported linear gradients clamp at their endpoints.
-            predicted = prediction(paints[index], xy[selected], extend=False) * 255
-            if np.max(np.abs(predicted - rgb[selected])) > RESIDUAL:
+        if coverage:
+            # The two opaque materials mix through geometric pixel coverage,
+            # not intrinsic alpha. Exported gradients still clamp at endpoints.
+            predicted = predict(paints, xy, normal, rho, extend=False) * 255
+            if np.max(np.abs(predicted - rgb)) > RESIDUAL:
                 return reject("paint-residual")
+        else:
+            for index, selected in enumerate((side, ~side)):
+                if not selected.any():
+                    continue
+                predicted = prediction(paints[index], xy[selected], extend=False) * 255
+                if np.max(np.abs(predicted - rgb[selected])) > RESIDUAL:
+                    return reject("paint-residual")
         diagnostics["supported_boundary_pixels"] = diagnostics.get(
             "supported_boundary_pixels", 0
         ) + len(xx)

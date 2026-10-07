@@ -87,7 +87,12 @@ def test_two_shade_surfaces_continue_beneath_one_unchanged_crossing_mark(alpha):
     assert edit.document.geometry_for(marker) == state.document.geometry_for(marker)
     shades = [s for s in edit.partition.surfaces if s.covered]
     assert len(shades) == 2
-    assert all(s.covered == (9,) for s in shades)
+    assert all(9 in s.covered for s in shades)
+    # A whole-family base additionally supports the other shade's primary
+    # atoms. The independently retained mark still has exactly one owner.
+    for shade in shades:
+        other_members = {i for s in shades if s.id != shade.id for i in s.members}
+        assert set(shade.covered) - {9} <= other_members
     parent = edit.document.ancestry(marker)[-2]
     positions = {child.id: i for i, child in enumerate(parent.children)}
     assert all(positions[s.id] < positions[marker] for s in shades)

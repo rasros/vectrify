@@ -173,6 +173,29 @@ joint source-supported boundaries, adjacent paints and exact ownership, with
 coverage-aware compositing. Isolated contour fitting still cannot supply the
 needed compact faithful candidate. No quality or release gate is passed.
 
+The coupled operator now also fits a subpixel shared shade edge and two paints
+using geometric pixel coverage. A proved opaque core permits one whole-family
+base plus a shade overlay, avoiding core-color seams between adjoining fills.
+Source voting initializes bounded continuous angle/offset fitting; pure-side
+paint fitting and complete mixed-pixel screening replace a hard pixel-side
+assumption for this competitor. Source atoms still split exactly and the base
+records shade members as secondary support. This model remains one bounded
+two-material interpretation, not the source-first whole-component silhouette
+and coverage solution required to remove the remaining fragmentation.
+
+The matching diagnostic now supplies a native-valid post-union joint-edge
+candidate at human MSE 506.01, but still 10,062 nodes; native visual loss
+regresses and the matched selected sword stays byte-identical at 514.85.
+Ownership/geometry accounting corrects the count diagnosis: the coverage base
+has only 30 nodes, while 1,657 primary paint paths carry 10,256 initializer
+nodes. Prioritize source-driven replacement of many paint fragments together,
+with coherent multi-material cells, shared edges, retained ink and exact atoms,
+rather than another fringe-only contour model. Keep unsupported opacity and
+hole cases explicit. Fitting effort also needs allocation: the new solver
+emits no coupled control candidates yet reduces paired search coverage from
+48 evaluations to 16/16/24/16. This is unfinished experimental work, not a
+quality or runtime gate passed.
+
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local
 draw order included in each replacement. Validate the jewel rim/highlight,

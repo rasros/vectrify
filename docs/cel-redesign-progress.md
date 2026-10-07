@@ -3430,3 +3430,154 @@ Reproduce with the earlier native/paired commands and the output directories
 above, then run `.bench/diagnose-supported-boundaries.py` separately. The earlier
 `.bench/planned-supported-boundaries` run predates the reflection and upper-paint
 proof corrections and is not the retained matching-source result.
+
+## Two-material subpixel coverage and shared-edge fitting
+
+### Implementation
+
+`cel_plan/shade_edges.py` adds a continuous shared-edge competitor to the
+coupled material operator. The existing source vote initializes a line; two
+rounds alternate pure-side paint fits with bounded angle/offset optimization.
+After growing a connected family, the complete family refits the edge and its
+paints again. The planning fit uses at most 4,096 samples and `max_nfev=24`
+per round for the two-parameter solver. Finite-difference Jacobian calls add
+bounded residual evaluations, all counted by diagnostics. The angle window is
+pi/32 and the centered offset window is four pixels. CPU SciPy supplies the
+optimizer; no model training or new
+dependency is required. Work checks discard interrupted fits.
+
+The mixture model uses the exact unit-square area on each side of a line.
+Pixels wholly inside a side fit its flat or linear RGB paint; edge pixels
+contribute geometric coverage rather than becoming a third color or changing
+material opacity. The robust fitting loss cannot hide an outlier: whole-owner
+discovery and the final family screen inspect complete source support under
+the unchanged 48-level bound, with clamped exported gradients in the final
+screen. Independent-exterior screening uses the same coverage mixture for
+this competitor. The adjoining RGBA interpretation remains available.
+
+Actual opaque core geometry must contain the seed and final replacement.
+Only then may the two fitted materials be opaque in their current group,
+whose existing opacity remains effective. The base paints the entire family
+and the second shade paints one side above it. This avoids exposing an
+unrelated core color through antialiased adjoining fills. Exact source atoms
+still split by the fitted line with one primary owner each; the base adds the
+shade's members as secondary support. Retained marks keep their existing
+primary owners, geometry, paint and proved order. Source holes stay voids.
+Native scoring and independent full/local checks still decide admission.
+
+The seed samples and members now remain immutable while growing/refitting
+different hypotheses. Previously, a successful family replaced these local
+variables before the next line vote reused them. Geometry, ownership and
+visibility bounds remain active; the score, normalizer and release targets
+are unchanged. This is a two-material interpretation, not the complete
+whole-component silhouette/coverage model required by the redesign.
+
+### Verification
+
+Twenty-two new cases independently compare pixel coverage with square
+supersampling, recover non-quantized shared edges from supersampled SVG
+references at full/half opacity, preserve true holes, demonstrate lower color
+error than adjoining fills, and check local/full agreement, reload and primary/
+secondary ownership. They also cover mixed-edge exterior extension, reject an
+actually translucent core and discard cancellation inside the solver. The
+existing retained-mark case now checks the base's legitimate secondary shade
+support in addition to unchanged primary mark ownership.
+
+The full regression run passes **640 tests in 75.46 seconds**. Ruff lint and
+format checks pass. Project Pyrefly has zero errors and the existing 61 warnings;
+tests remain excluded from its project configuration and are exercised by
+pytest. Tests, native benchmark, paired controls and the source-only audit
+execute sequentially. All retained benchmark results match production source
+hash `730d90af559c587f80b6f23462faa06f98a11f4c8a2b70c16a1a4fb5769c2116`.
+
+### Matched native and paired results
+
+`.bench/planned-subpixel-shade-edges` completes in **52.86 seconds** under the
+same 60-second/complexity-50/balanced/refinement-disabled settings. The selected
+sword drawing remains byte-identical: **10,009 nodes, 1,630 contours, 1,577
+paths, 31 gradients, cost 20,055 and human MSE 514.8500919869**. The same two
+ink replacements are selected. Numerical and feature gates remain unmet;
+refinement remains incomplete. No sword quality gain or speedup is claimed.
+
+Search attempts 14 alternatives, admits ten locally and checkpoints four with
+zero score disagreements, compared with 21/16/4 previously. Local search plus
+validation takes 16.19 seconds, including 4.19 seconds for full checks; its
+live checkpoint guard is 3.15 seconds. The beam/cache charge is 9,526,042 bytes,
+not a total hardware memory measurement. Timeout, stop and overshoot remain
+false/zero, though the bounded structural-search report is interrupted. The
+coupled cursor records 34 line votes, 32 completed fits, 2,696 residual calls
+and 10,014,368 screened pixels. No base/shade family fit reaches proposal
+emission. Two ordinary adjoining fits still fail local objective admission
+with approximately 0.002127 worse visual loss; four independent fits fail
+source-paint screening.
+
+The half-opacity, clean tuning controls in
+`.bench/planned-subpixel-shade-edges-rgba-pairs` retain input, target and mask
+hashes but all four selected PNGs change as the timed search follows a different
+prefix. None emits a coupled two-material proposal. These changes therefore
+do not prove a benefit from the new material model.
+
+| Control | Nodes / cost | Clean MSE before → after | Generation seconds |
+| --- | --- | --- | --- |
+| Anime girl | 175 / 331 | 177.7000 → 165.4348 | 12.75 |
+| Anime face | 176 / 272 | 206.8583 → 206.7383 | 18.03 |
+| Western park | 545 / 979 | 178.7189 → 178.7425 | 10.97 |
+| Rubberhose band | 405 / 757 | 167.2262 → 167.7354 | 13.45 |
+
+Search attempts drop from 48 each to 16 / 16 / 24 / 16; checkpoints are
+3 / 4 / 3 / 4, with zero score disagreements. Two controls improve clean MSE
+and two regress; western park and rubberhose use eight fewer cost units.
+Anime girl's bag-clasp error improves while its eyes/bow/hairclip are unchanged;
+anime face's eye error improves. Western park's feature scores are unchanged;
+rubberhose's eye/face errors rise slightly and notes/banjo remain unchanged.
+Alpha IoU stays one with zero missing/spill pixels. Line F is unchanged for
+anime girl / western park / rubberhose at 0.270 / 0.652 / 0.641; anime face
+regresses from 0.600 to 0.589 and exhausts the search time slice.
+all overall timeout/stop/overshoot flags remain false/zero. Solver work consumes
+thousands of residual calls on hypotheses that complete screening rejects.
+Effort allocation is unfinished; these results do not establish the broad
+quality, complexity-frontier or runtime gates.
+
+### Source-only candidate pool and structural accounting
+
+`.bench/shade-edge-candidate-audit-retained/summary.json` evaluates the bounded
+16-proposal initializer prefix and the eight-seed prefix after one broad union
+under the independent 180-second diagnostic budget. Eight initializer proposals
+use base/shade coverage; the others remain adjoining alternatives. All 16
+are native-valid and match local rasterization exactly. The best human MSE is
+509.5867 at 10,100 nodes; the most compact has 10,070 nodes. The post-union
+prefix now supplies one native-valid base/shade proposal, where the preceding
+model supplied none: **10,062 nodes, 1,651 contours, cost 20,244 and human MSE
+506.0089**. Its native visual loss is 0.03579567 versus the initializer's
+0.03457019. It is still neither faithful enough nor compact enough for the
+frozen gate. Maximum full/local score-term disagreement is below 2.36e-10.
+No retained-mark or independent-exterior proposal reaches this pool; 16 / 2
+independent fits fail source-paint screening. The rejection wrappers log only
+and return unchanged production predictions. Human scoring happens after
+source-only proposal generation. This is not exhaustive search or a matched
+production oracle.
+
+The audit also counts actual initializer geometry by source ownership. Its
+coverage carrier is **one 30-node/one-contour path**, owning 5,240 fringe atoms
+and supporting 2,608 material atoms. The other **1,657 primary paint paths have
+10,256 nodes and 1,710 contours**, owning 2,907 source atoms. After one broad
+union, the carrier remains 30 nodes while 1,607 primary paint paths still have
+10,068 nodes. This corrects the tentative assumption that retracing alpha
+fringe is the main remaining count problem: the current coverage base is
+already compact. Paint-path fragmentation dominates this initializer.
+
+The next structural operator must propose source-driven material cells and
+shared boundaries across many existing paint fragments in one atomic edit,
+with retained meaningful ink, holes, actual compositing and exact source atom
+cuts. Current family-contour fits leave most paths untouched. Keep real
+unsupported opacity cases explicit, and allocate fitting effort so failed
+primitive hypotheses do not consume the remaining structural search. Do not
+relax source checks solely to admit the sword or treat incidental timed-search
+changes as learned/planner quality evidence. The **800-node/140-contour/497.39**
+gate, local features and the entire eight-delivery objective remain active.
+
+Reproduce with the earlier native and paired commands using the directories
+above, then run `.bench/diagnose-shade-edge-candidates-retained.py` separately.
+The earlier `.bench/shade-edge-candidate-audit` is a preliminary source snapshot
+before full-family edge refitting and coverage-aware exterior screening; its
+507.71 result is not the retained matching-source result.

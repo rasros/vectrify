@@ -27,6 +27,7 @@ from vectrify.document.join import (
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
+from vectrify.refine.cel_plan import shade_edges
 from vectrify.refine.cel_plan.atoms import MAX_CUTS, Atoms
 from vectrify.refine.cel_plan.constraints import discard, merged
 from vectrify.refine.cel_plan.families import _gradient, _opacity
@@ -103,11 +104,13 @@ def corner_vertices(points, lengths, uniform, at, work):
     return result
 
 
-def prediction_pair(paints, xy, normal, rho):
+def prediction_pair(paints, xy, normal, rho, *, coverage=False, extend=True):
+    if coverage:
+        return shade_edges.predict(paints, xy, normal, rho, extend=extend)
     selected = xy @ normal < rho
     predicted = np.empty((len(xy), 3))
     for side, paint in zip((selected, ~selected), paints, strict=True):
-        predicted[side] = prediction(paint, xy[side], extend=True)
+        predicted[side] = prediction(paint, xy[side], extend=extend)
     return predicted
 
 
@@ -139,6 +142,13 @@ class PiecewiseSurfaces:
             "supported_boundary_order_proofs": 0,
             "supported_boundary_upper_proofs": 0,
             "supported_boundaries": 0,
+            "shade_fit_evaluations": 0,
+            "shade_fit_exclusions": 0,
+            "shade_fits": 0,
+            "shade_family_fits": 0,
+            "shade_core_exclusions": 0,
+            "shade_refit_exclusions": 0,
+            "base_shade_proposals": 0,
             "proposals": 0,
         }
 
@@ -179,7 +189,7 @@ class PiecewiseSurfaces:
             return None
         return box, own, xy, rgba
 
-    def _screen(self, eligible, paints, normal, rho, work):
+    def _screen(self, eligible, paints, normal, rho, work, *, coverage=False):
         """Whole-owner maximum residual; a distant atom or outlier cannot hide."""
         graph, evidence = self.families.graph, self.families.evidence
         if graph.labels.size > MAX_ANALYSIS or len(graph.regions) > MAX_MEMBERS:
@@ -202,7 +212,7 @@ class PiecewiseSurfaces:
             xy = np.column_stack((x + box.x + 0.5, y + box.y + 0.5))
             residual = np.max(
                 np.abs(
-                    prediction_pair(paints, xy, normal, rho) * 255
+                    prediction_pair(paints, xy, normal, rho, coverage=coverage) * 255
                     - evidence.target[box.slices][y, x]
                 ),
                 axis=1,
@@ -217,6 +227,40 @@ class PiecewiseSurfaces:
             and counts[index] == eligible[oid][1]
             and counts[index]
         }
+
+    def _hypotheses(self, state, pair, members, xy, rgba, normal, rho, work):
+        document = state.document
+        selected = [document.element(oid) for oid in pair]
+        shape = union_geometry(
+            [document.geometry_for(e.id) for e in selected],
+            [path_style(document, e) for e in selected],
+        )
+        if in_core(state, members, pair[-1], shape, work):
+            refined = shade_edges.refine(
+                xy,
+                rgba,
+                normal,
+                rho,
+                work,
+                gradients=self.options.gradients,
+                diagnostics=self.diagnostics,
+            )
+            if refined is not None:
+                yield (*refined, True)
+        else:
+            self.diagnostics["shade_core_exclusions"] += int(not work.interrupted)
+        if work.interrupted:
+            return
+        side = xy @ normal < rho
+        yield (
+            normal,
+            rho,
+            (
+                fit(xy[side], rgba[side], gradients=self.options.gradients),
+                fit(xy[~side], rgba[~side], gradients=self.options.gradients),
+            ),
+            False,
+        )
 
     def groups(self, state, work):
         if state.partition is None:
@@ -264,69 +308,145 @@ class PiecewiseSurfaces:
             samples = self._samples(members, work)
             if samples is None:
                 continue
-            box, own, xy, rgba = samples
+            box, own, seed_xy, seed_rgba = samples
+            seed_members = members
             self.diagnostics["seed_pairs"] += 1
-            for normal, rho in lines(
+            for seed_normal, seed_rho in lines(
                 self.families.evidence.target[box.slices], own, (box.x, box.y), work
             ):
                 if work.interrupted:
                     return
                 self.diagnostics["lines"] += 1
-                side = xy @ normal < rho
+                side = seed_xy @ seed_normal < seed_rho
                 if min(int(side.sum()), int((~side).sum())) < 16:
                     continue
-                paints = (
-                    fit(xy[side], rgba[side], gradients=self.options.gradients),
-                    fit(xy[~side], rgba[~side], gradients=self.options.gradients),
-                )
-                allowed = self._screen(eligible, paints, normal, rho, work)
-                if allowed is None:
-                    return
-                if not set(pair).issubset(allowed):
-                    self.diagnostics["seed_exclusions"] += 1
-                    continue
-                queue, visited, ids, node_count = deque(pair), set(), [], 0
-                while queue:
-                    if work.interrupted:
+                for normal, rho, paints, coverage in self._hypotheses(
+                    state,
+                    pair,
+                    seed_members,
+                    seed_xy,
+                    seed_rgba,
+                    seed_normal,
+                    seed_rho,
+                    work,
+                ):
+                    allowed = self._screen(
+                        eligible, paints, normal, rho, work, coverage=coverage
+                    )
+                    if allowed is None:
                         return
-                    oid = queue.popleft()
-                    if oid in visited:
+                    if not set(pair).issubset(allowed):
+                        self.diagnostics["seed_exclusions"] += 1
                         continue
-                    visited.add(oid)
-                    if oid not in allowed:
+                    queue, visited, ids, node_count = deque(pair), set(), [], 0
+                    while queue:
+                        if work.interrupted:
+                            return
+                        oid = queue.popleft()
+                        if oid in visited:
+                            continue
+                        visited.add(oid)
+                        if oid not in allowed:
+                            continue
+                        if (
+                            len(ids) >= MAX_PATHS
+                            or node_count + eligible[oid][2] > MAX_NODES
+                        ):
+                            self.diagnostics["group_limits"] += 1
+                            continue
+                        ids.append(oid)
+                        node_count += eligible[oid][2]
+                        queue.extend(sorted(neighbors[oid] - visited))
+                    ids = tuple(sorted(ids))
+                    key = (ids, tuple(normal), rho, coverage)
+                    if len(ids) < 3 or key in seen:
                         continue
-                    if (
-                        len(ids) >= MAX_PATHS
-                        or node_count + eligible[oid][2] > MAX_NODES
+                    seen.add(key)
+                    members = tuple(
+                        sorted(i for oid in ids for i in eligible[oid][0].members)
+                    )
+                    samples = self._samples(members, work)
+                    if samples is None:
+                        continue
+                    _, _, xy, rgba = samples
+                    side = xy @ normal < rho
+                    if min(int(side.sum()), int((~side).sum())) < max(
+                        16, 0.05 * len(xy)
                     ):
-                        self.diagnostics["group_limits"] += 1
                         continue
-                    ids.append(oid)
-                    node_count += eligible[oid][2]
-                    queue.extend(sorted(neighbors[oid] - visited))
-                ids = tuple(sorted(ids))
-                key = (ids, tuple(normal), rho)
-                if len(ids) < 3 or key in seen:
-                    continue
-                seen.add(key)
-                members = tuple(
-                    sorted(i for oid in ids for i in eligible[oid][0].members)
-                )
-                samples = self._samples(members, work)
-                if samples is None:
-                    continue
-                _, _, xy, rgba = samples
-                side = xy @ normal < rho
-                if min(int(side.sum()), int((~side).sum())) < max(16, 0.05 * len(xy)):
-                    continue
-                left = self.splitter._paints(xy[side], rgba[side], work)
-                right = self.splitter._paints(xy[~side], rgba[~side], work)
-                if not left or not right:
-                    self.diagnostics["refit_exclusions"] += 1
-                    continue
-                for a, _ in left:
-                    for b, _ in right:
-                        yield ids, members, normal, rho, (a, b)
+                    if coverage:
+                        refined = shade_edges.refine(
+                            xy,
+                            rgba,
+                            normal,
+                            rho,
+                            work,
+                            gradients=self.options.gradients,
+                            diagnostics=self.diagnostics,
+                        )
+                        if refined is None:
+                            self.diagnostics["shade_refit_exclusions"] += 1
+                            continue
+                        normal, rho, models = refined
+                        side = xy @ normal < rho
+                        if min(int(side.sum()), int((~side).sum())) < max(
+                            16, 0.05 * len(xy)
+                        ):
+                            self.diagnostics["shade_refit_exclusions"] += 1
+                            continue
+                        self.diagnostics["shade_family_fits"] += 1
+                        if (
+                            np.max(
+                                np.abs(
+                                    prediction_pair(
+                                        models,
+                                        xy,
+                                        normal,
+                                        rho,
+                                        coverage=True,
+                                        extend=False,
+                                    )
+                                    * 255
+                                    - rgba[:, :3] * 255
+                                )
+                            )
+                            > RESIDUAL
+                        ):
+                            self.diagnostics["shade_refit_exclusions"] += 1
+                            continue
+                        yield ids, members, normal, rho, models, True
+                        if any(p.gradient is not None for p in models):
+                            flat = shade_edges.paints(
+                                xy, rgba, normal, rho, gradients=False
+                            )
+                            if (
+                                flat is not None
+                                and np.max(
+                                    np.abs(
+                                        prediction_pair(
+                                            flat,
+                                            xy,
+                                            normal,
+                                            rho,
+                                            coverage=True,
+                                            extend=False,
+                                        )
+                                        * 255
+                                        - rgba[:, :3] * 255
+                                    )
+                                )
+                                <= RESIDUAL
+                            ):
+                                yield ids, members, normal, rho, flat, True
+                        continue
+                    left = self.splitter._paints(xy[side], rgba[side], work)
+                    right = self.splitter._paints(xy[~side], rgba[~side], work)
+                    if not left or not right:
+                        self.diagnostics["refit_exclusions"] += 1
+                        continue
+                    for a, _ in left:
+                        for b, _ in right:
+                            yield ids, members, normal, rho, (a, b), False
 
     def _compact(self, state, oid, shape, work):
         """Offer anchored compact contours, retaining exact source voids.
@@ -519,7 +639,7 @@ class PiecewiseSurfaces:
         if state.partition is None:
             return
         emitted = 0
-        for ids, members, normal, rho, paints in self.groups(state, work):
+        for ids, members, normal, rho, paints, coverage in self.groups(state, work):
             if work.interrupted or emitted >= MAX_PROPOSALS:
                 return
             document = state.document
@@ -539,7 +659,7 @@ class PiecewiseSurfaces:
                 self.diagnostics["group_limits"] += 1
                 continue
             core = in_core(state, members, survivor, shape, work)
-            if self.families.evidence.opacity is not None and not core:
+            if (coverage or self.families.evidence.opacity is not None) and not core:
                 self.diagnostics["core_exclusions"] += 1
                 continue
             if not self.families.surface_models._order_safe(state, ids, work):
@@ -601,7 +721,7 @@ class PiecewiseSurfaces:
                 self.diagnostics["atom_exclusions"] += 1
                 continue
             digest = hashlib.sha256(
-                repr((ids, tuple(normal), rho)).encode()
+                repr((ids, tuple(normal), rho, coverage)).encode()
             ).hexdigest()[:12]
             new_id = f"{survivor}-piecewise-{digest}"
             if new_id in {e.id for e in document.elements()}:
@@ -612,6 +732,14 @@ class PiecewiseSurfaces:
                 if atoms.cuts
                 else state.partition.replace(ids, surfaces)
             )
+            if coverage:
+                plain_partition = Partition(
+                    tuple(
+                        replace(s, covered=right) if s.id == survivor else s
+                        for s in plain_partition.surfaces
+                    ),
+                    plain_partition.atoms,
+                )
             for kind, whole, retained in variants:
                 if work.interrupted or emitted >= MAX_PROPOSALS:
                     return
@@ -636,12 +764,15 @@ class PiecewiseSurfaces:
                         self.families.graph,
                         work,
                         self.diagnostics,
+                        coverage=coverage,
                     )
                     if extension is None:
                         continue
                 shapes = self.splitter._geometry(
                     state, survivor, normal, rho, geometry=whole
                 )
+                if coverage:
+                    shapes = (whole, shapes[1])
                 if work.interrupted:
                     return
                 if (
@@ -718,14 +849,21 @@ class PiecewiseSurfaces:
                         labels = self.families.graph.labels[box.slices]
                         hidden = retained.mask & ~own
                         side = classification[box.slices]
-                        coverage = {
+                        hidden_coverage = {
                             oid: tuple(int(i) for i in np.unique(labels[hidden & mask]))
                             for oid, mask in ((survivor, side), (new_id, ~side))
                         }
                         partition = Partition(
                             tuple(
-                                replace(s, covered=coverage[s.id])
-                                if s.id in coverage
+                                replace(
+                                    s,
+                                    covered=tuple(
+                                        sorted(
+                                            set(s.covered) | set(hidden_coverage[s.id])
+                                        )
+                                    ),
+                                )
+                                if s.id in hidden_coverage
                                 else s
                                 for s in partition.surfaces
                             ),
@@ -733,16 +871,21 @@ class PiecewiseSurfaces:
                         )
                         self.diagnostics["continuations"] += 1
                     if extension is not None:
-                        coverage = dict(zip((survivor, new_id), extension, strict=True))
+                        extension_coverage = dict(
+                            zip((survivor, new_id), extension, strict=True)
+                        )
                         partition = Partition(
                             tuple(
                                 replace(
                                     s,
                                     covered=tuple(
-                                        sorted(set(s.covered) | set(coverage[s.id]))
+                                        sorted(
+                                            set(s.covered)
+                                            | set(extension_coverage[s.id])
+                                        )
                                     ),
                                 )
-                                if s.id in coverage
+                                if s.id in extension_coverage
                                 else s
                                 for s in partition.surfaces
                             ),
@@ -772,6 +915,7 @@ class PiecewiseSurfaces:
                     holds.update((survivor, new_id))
                     emitted += 1
                     self.diagnostics["proposals"] += 1
+                    self.diagnostics["base_shade_proposals"] += int(coverage)
                     yield Proposal(
                         "piecewise-surface",
                         (*ids, new_id, *mark_ids),
@@ -781,6 +925,7 @@ class PiecewiseSurfaces:
                             rho,
                             "gradient" if paints[0].gradient else "flat",
                             "gradient" if paints[1].gradient else "flat",
+                            "base-shade" if coverage else "adjoining",
                         ),
                         state.key,
                         proposed,
@@ -793,6 +938,9 @@ class PiecewiseSurfaces:
                             "chain_constraints": records,
                             "piecewise_surface": {
                                 "contour_model": kind,
+                                "coverage_model": "base-shade"
+                                if coverage
+                                else "adjoining",
                                 "removed_paths": len(ids) - 2,
                                 "source_members": members,
                                 "source_cut_count": len(atoms.cuts),
