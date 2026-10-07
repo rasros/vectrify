@@ -14,6 +14,136 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Source bounds on both sides of shared ink
+
+The local-width checkpoint bounds ink but can still move the boundary of a
+narrow neighboring material. The next anchored constraint reuses its 13
+quarter-pixel normal samples and additionally measures contiguous labels on
+each side. The first label change, actual hole or off-canvas sample ends that
+side's profile; a quarter of the smaller side depth limits movement alongside
+the existing ink-width bound. The 0.25–0.75-pixel bounds, 4,096-point work cap,
+precise fallbacks and exact source anchors remain unchanged.
+
+The callback retains the original source class map even when connected-ink
+rendering supplies extended underpaint or a separate ink-only label map.
+Synthesized underpaint cannot lend width to a physical source feature. Labels
+and ink masks supply the constraint; no human geometry, feature name or scoring
+rectangle enters it. Source stroke discovery, real gaps, independent marks,
+alpha ownership, cut limits and native admission are unchanged.
+
+Four new controls cover a narrow material projection next to broad ink, a real
+hole before a second patch of the same paint, a narrow unpainted hole, and label
+renumbering/closed-chain reversal. The relevant suite passes **968 tests in
+230.96 seconds** with the same command as the local-width checkpoint below.
+Changed-file Ruff/format and production Pyrefly pass; Pyrefly reports zero errors
+and 62 warnings. These are constraint and regression checks, not quality gates.
+
+The first face replay at `.bench/cel-ink-bilateral-prototype` uses source hash
+`a81322531030f12393613f3c1822a89569e0694a709995f65c7e50a915cf047a`.
+Its first finer drawing has 2,614 nodes / 190 contours, clean MSE 74.419211 and
+unchanged line F1 0.431. The previous ink-only local bound uses 2,556 nodes and
+MSE 74.846677. Inspecting the same star crop restores both missing left-tip
+pixels under the previously declared post-generation color diagnostic: gold
+pixels return from 40 to 43. Nevertheless, star error worsens from 317.276983
+to **323.579922**, versus curve's 303.850856. The remaining star shape is still
+inaccurate. Recovering two tip pixels does not establish overall feature
+preservation or a practical quality improvement.
+
+The matched finer sword curve/both-sided drawings use **3,491 / 3,437 nodes**,
+381 contours and 17 true strokes, with human MSE **552.116829 / 551.842866**.
+The second source parent uses 4,060 / 3,966 nodes, 405 contours and two strokes,
+with MSE 571.093568 / 571.376648. Node savings are only 1.5% / 2.3%; the previous
+ink-only local bound saves more nodes. First feature errors for tip / facets /
+guard / handle / jewel are 864.609084 / 286.406778 / 1,050.444215 / 897.543367 /
+1,413.662463. The same filled contacts and stray blade patches remain, and tip,
+handle and jewel still exceed legacy error. The source gap survives; the human
+repair remains excluded. No sword numerical or local-feature gate passes.
+
+The finer region rows retain the girl's recovered line score, face/park line
+scores and most of the band improvement. Girl eyes now improve slightly,
+whereas face eyes worsen 0.1% / 2.2%. Face star errors worsen 6.5% / 3.1%
+against curve fitting. Band face error improves about 3.4%, but eye error
+worsens about 1.2% / 1.1%. These mixed feature results do not justify automatic
+adoption. Both-sided bounds constrain fitting; they do not provide a coherent
+interpretation of the source drawing.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1380 | 110 → 110 | 75.829113 → 76.370510 | 0.356 → 0.374 |
+| anime-girl / 2 | 1467 → 1438 | 118 → 118 | 74.896255 → 75.019814 | 0.000 → 0.000 |
+| anime-face / 1 | 2728 → 2614 | 190 → 190 | 73.760740 → 74.419211 | 0.431 → 0.431 |
+| anime-face / 2 | 2484 → 2404 | 144 → 144 | 75.542247 → 76.114968 | 0.259 → 0.259 |
+| western-park / 1 | 1584 → 1542 | 114 → 114 | 117.869662 → 117.734436 | 0.093 → 0.093 |
+| western-park / 2 | 1583 → 1540 | 114 → 114 | 116.452290 → 116.308871 | 0.060 → 0.060 |
+| rubberhose-band / 1 | 2364 → 2173 | 123 → 123 | 150.558292 → 150.385298 | 0.753 → 0.763 |
+| rubberhose-band / 2 | 2415 → 2161 | 123 → 123 | 131.370324 → 131.021291 | 0.663 → 0.671 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 629 / 96 / 14 | 594.181329 | 0.118 |
+| anime-girl / 1 / 64 | 2 | 669 / 106 / 14 | 590.740135 | 0.118 |
+| anime-girl / 2 / 32 | 2 | 654 / 98 / 13 | 591.545719 | 0.153 |
+| anime-girl / 2 / 64 | 2 | 723 / 113 / 13 | 586.937879 | 0.150 |
+| anime-face / 1 / 32 | 3 | 1240 / 108 / 16 | 822.622712 | 0.300 |
+| anime-face / 1 / 64 | 3 | 1542 / 169 / 16 | 815.095012 | 0.300 |
+| anime-face / 2 / 32 | 2 | 1217 / 109 / 18 | 896.663758 | 0.367 |
+| anime-face / 2 / 64 | 2 | 1471 / 165 / 18 | 889.141935 | 0.367 |
+| western-park / 1 / 32 | 2 | 829 / 81 / 21 | 475.496716 | 0.237 |
+| western-park / 1 / 64 | 2 | 890 / 97 / 21 | 472.578237 | 0.237 |
+| western-park / 2 / 32 | 3 | 835 / 81 / 21 | 415.573229 | 0.252 |
+| western-park / 2 / 64 | 3 | 878 / 93 / 21 | 412.836154 | 0.252 |
+| rubberhose-band / 1 / 32 | 4 | 1159 / 131 / 27 | 410.672925 | 0.755 |
+| rubberhose-band / 2 / 32 | 3 | 1093 / 128 / 30 | 451.829038 | 0.730 |
+| rubberhose-band / 2 / 64 | 3 | 1127 / 128 / 30 | 451.889214 | 0.731 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 74.31 / 124.30 / 168.02 |
+| anime-girl | 44.72 / 40.42 / 38.91 |
+| anime-face | 50.71 / 49.42 / 52.73 |
+| western-park | 20.27 / 20.52 / 35.78 |
+| rubberhose-band | 15.35 / 15.59 / 30.54 |
+
+
+The tables use the same two native-admitted source parents, clean 192-pixel
+half-opacity tuning variants, fixed settings and normalizers. Clean geometry
+and feature boxes enter only scoring after generation. Joint ink/plane sword
+four-plane nodes are 3,582 / 5,262 / 3,875 / 5,945, with human MSE
+1,242.375873 / 1,173.240737 / 1,288.559474 / 1,213.750725 for first coarse/fine
+then second coarse/fine. Their paint remains much worse than the finer region
+pool; more boundary precision does not supply the missing coherent surfaces.
+
+Final reports at `.bench/cel-ink-bilateral-final` share source SHA-256
+`a81322531030f12393613f3c1822a89569e0694a709995f65c7e50a915cf047a`.
+All **15 reports complete** and parse as strict JSON; all **175 emitted
+proposals** have zero native validity rejections, complete ownership, component
+seals and independent local/full raster agreement. Maximum score-term difference
+is **3.348527e-9**. Actual saved SVG hashes, matched source RGBA/masks/settings/
+normalizers, clean/human SVG hashes, canonical source-parent geometry/paint and
+exact parent RGBA agree. The audit is
+`.bench/cel-ink-bilateral-final-audit.txt`.
+
+The first sword ink/plane run reaches its unchanged 180-second diagnostic
+allowance at 180.11 seconds, leaving a partial pool. It is preserved at
+`.bench/cel-ink-bilateral-first-pass/sword-ink-planes`, with the first-pass audit
+at `.bench/cel-ink-bilateral-first-pass-audit.txt`. Only that case is rerun;
+the same source/configuration/allowance completes in 168.02 seconds. No timed
+report is called complete merely because its emitted prefix is native-valid.
+The final diagnostic times above do not establish operation runtime, peak
+process memory, automatic selection or held-out quality.
+
+Replay the component commands below with the output root
+`.bench/cel-ink-bilateral-final`. The next missing interpretation remains
+source-supported exterior strokes and coherent shared paint, retaining real
+source gaps. In particular, a paired-ridge detector and a carrier check at
+1.6 times measured width can exclude valid edge lines; grouping must respect
+per-run geometric width ceilings before relaxing that safeguard. The human
+handle repair stays outside generation. Generated drawings remain insufficient
+for useful new references, and all eight deliveries and the remaining release,
+feature, corpus, refinement, UI, runtime, memory and independent-review gates
+stay open. The full implementation goal remains active.
+
+
 ### Chain-local ink movement bounds
 
 The previous anchored experiment loses seven of the girl's 44 clean-target
@@ -147,10 +277,9 @@ first-parent error changes from 303.850856 to 317.276983. The inspected
 post-generation color diagnostic (red minus blue > 35 and green minus blue
 > 25 on the white-composited crop) changes 43 gold pixels to 40, removing two
 left-tip pixels present in the reference. That diagnostic is not a new gate.
-The shared callback currently bounds the ink side; an adjacent small bright
-material also needs a source-based movement bound. Investigate and constrain
-both sides rather than averaging this feature loss away or treating unchanged
-RGBA coverage as sufficient. The route remains optional and offline.
+That checkpoint bounds only the ink side; it motivates the subsequent
+both-sided constraint above. The route remains optional and offline; neither
+a partial feature recovery nor unchanged RGBA coverage establishes fidelity.
 
 The joint-plane rows show the highest emitted prefix per source parent and
 region seed without human-error selection. Sword four-plane nodes are

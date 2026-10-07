@@ -111,6 +111,13 @@ bounds. The matched girl replay restores line F1 to 0.374 with a smaller
 3.5% node saving. The matched sword now has 3,341 nodes / 381 contours /
 human MSE 551.86, still failing the sword gate. This fixes a measured fitter
 regression, not the incomplete ink/material interpretation or any release gate.
+A subsequent both-sided guard also stops the profile at each neighboring
+source-label change. It restores two lost star-tip pixels but worsens the
+star's total error, so this does not pass feature protection. The finer sword
+now uses 3,437 nodes / 381 contours / human MSE 551.84: only a 1.5% node saving
+against curve fitting, with the same 17 retained strokes and incomplete handle.
+The girl retains line F1 0.374 at 1,380 nodes. Local bounds supply constraints;
+coherent exterior strokes and surface interpretation are still missing.
 Neither experiment enters
 automatic scheduling. Continue source-supported exterior ink, shared curved
 material boundaries and compact opacity interpretations, preserving physical

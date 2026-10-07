@@ -200,3 +200,50 @@ def test_straight_ink_fit_can_use_wide_support_without_moving_narrow_ends():
     nodes = callback(points, 0.75, limits=limits)
     assert nodes == [("L", tuple(points[-1]))]
     assert callback.decisions == [{"model": "straight", "nodes": 1}]
+
+
+def test_broad_ink_cannot_lend_width_to_a_narrow_material_projection():
+    materials = np.zeros((48, 100), np.int32)
+    materials[16:32, 8:90] = 1
+    materials[15, 48:90] = 2
+    mask = materials == 1
+    points = np.column_stack((np.arange(52, 86), np.full(34, 16)))
+    np.testing.assert_array_equal(ink_limits(points, mask), 0.75)
+    np.testing.assert_array_equal(ink_limits(points, mask, materials=materials), 0.25)
+    materials[4:16, 48:90] = 2
+    np.testing.assert_array_equal(ink_limits(points, mask, materials=materials), 0.75)
+
+
+def test_neighbor_profile_stops_at_a_hole_and_does_not_skip_to_same_paint():
+    materials = np.ones((48, 80), np.int32)
+    materials[:16] = 2
+    materials[14] = 0
+    mask = materials == 1
+    points = np.column_stack((np.arange(8, 72), np.full(64, 16)))
+    np.testing.assert_array_equal(ink_limits(points, mask, materials=materials), 0.25)
+    materials[14] = 2
+    np.testing.assert_array_equal(ink_limits(points, mask, materials=materials), 0.75)
+
+
+def test_a_narrow_unpainted_hole_has_the_same_bound_as_narrow_paint():
+    materials = np.ones((48, 80), np.int32)
+    materials[15] = 0
+    points = np.column_stack((np.arange(8, 72), np.full(64, 16)))
+    np.testing.assert_array_equal(
+        ink_limits(points, materials == 1, materials=materials), 0.25
+    )
+
+
+def test_material_bounds_are_independent_of_class_numbers_and_chain_direction():
+    y, x = np.indices((64, 64))
+    materials = np.where((x - 32) ** 2 + (y - 32) ** 2 <= 18**2, 7, 21)
+    mask = materials == 7
+    points = np.array(_loops(mask)[0])
+    points = np.vstack((points, points[0]))
+    limits = ink_limits(points, mask, materials=materials)
+    np.testing.assert_array_equal(
+        ink_limits(points[::-1], mask, materials=materials), limits[::-1]
+    )
+    np.testing.assert_array_equal(
+        ink_limits(points, mask, materials=28 - materials), limits
+    )

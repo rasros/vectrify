@@ -184,14 +184,18 @@ class Boundaries:
         return nodes
 
 
-def ink_limits(points: np.ndarray, mask: np.ndarray) -> np.ndarray:
-    """Quarter-band movement bounds from local source ink, not paint area.
+def ink_limits(
+    points: np.ndarray, mask: np.ndarray, *, materials: np.ndarray | None = None
+) -> np.ndarray:
+    """Quarter-band movement bounds from both source sides, not paint area.
 
     Only contiguous ink along either side of the source boundary contributes.
     The short profile saturates at the 0.75-pixel maximum tolerance, so broad
     shapes cannot lend their width to an attached narrow branch. Pixel stair
     directions use a two-step tangent; neither gaps nor off-canvas pixels can
-    extend a profile. Callers keep long chains on the precise fallback.
+    extend a profile. When material labels are supplied, each side also stops
+    at its first label change. A broad ink band cannot lend movement to a thin
+    neighboring paint projection or hole. Callers keep long chains precise.
     """
     if len(points) > 4096:
         raise ValueError("Local ink profiles exceed the boundary point bound")
@@ -211,18 +215,23 @@ def ink_limits(points: np.ndarray, mask: np.ndarray) -> np.ndarray:
     normal /= np.maximum(length[:, None], 1e-12)
     offsets = np.arange(0.25, 3.5, 0.25)
     width = np.zeros(len(source))
+    adjacent_limits = np.full(len(source), 0.75)
     for sign in (-1, 1):
         samples = (
             source[:, None, :] + sign * normal[:, None, :] * offsets[None, :, None]
         )
         x, y = np.floor(samples).astype(int).transpose(2, 0, 1)
         valid = (x >= 0) & (y >= 0) & (x < mask.shape[1]) & (y < mask.shape[0])
-        inside = (
-            valid
-            & mask[np.clip(y, 0, mask.shape[0] - 1), np.clip(x, 0, mask.shape[1] - 1)]
-        )
+        y = np.clip(y, 0, mask.shape[0] - 1)
+        x = np.clip(x, 0, mask.shape[1] - 1)
+        inside = valid & mask[y, x]
         width += np.cumprod(inside, axis=1).sum(axis=1) * 0.25
-    limits = np.clip(width * 0.25, 0.25, 0.75)
+        if materials is not None:
+            values = materials[y, x]
+            contiguous = valid & (values == values[:, :1])
+            depth = np.cumprod(contiguous, axis=1).sum(axis=1) * 0.25
+            adjacent_limits = np.minimum(adjacent_limits, depth * 0.25)
+    limits = np.clip(np.minimum(width * 0.25, adjacent_limits), 0.25, 0.75)
     limits[length < 1e-8] = 0.25
     return np.r_[limits, limits[0]] if closed else limits
 

@@ -707,6 +707,7 @@ class CoreCells:
                 outline_labels=outline_labels,
                 ink_cells=ink_cells,
                 ink_mask=ink_mask,
+                source_labels=outline_labels,
                 ink_models_boundary=ink_models_boundary,
                 precise_ink=precise_ink,
             ) -> list[tuple[str, tuple[float, ...]]]:
@@ -736,7 +737,8 @@ class CoreCells:
                                     fit=cel.FILL_FIT,
                                 )
                             limits = (
-                                ink_limits(points, ink_mask) * min(evidence.scale)
+                                ink_limits(points, ink_mask, materials=source_labels)
+                                * min(evidence.scale)
                                 if len(points) <= 4096
                                 else None
                             )
