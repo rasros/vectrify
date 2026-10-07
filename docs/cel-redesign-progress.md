@@ -3763,3 +3763,135 @@ cosmetic slider can supply the missing compact faithful representation.
 The combined sword, broader feature/coverage/line, runtime/memory, editing,
 held-out and blind-review gates remain open. The implementation goal remains
 active.
+
+## Whole-component dependencies: smaller drawing, worse fidelity
+
+This experiment's source hash is
+`b23d530956f5763d023b23fc3491bdd203c801bc07d2865f24e2d6930dac5333`.
+It changes proposal dependencies and admission while retaining the preceding
+material models, native policy and weights. No delivery or release gate is
+complete. The smaller selected drawing is not a practical redraw improvement.
+
+### Component contract and verification
+
+`component_edits.py` introduces sealed replacements inside a container of
+direct path children. Ordinary edits retain the 256-object dependency limit.
+Components retain every declared old/new path and require their parent
+dependency. They use the established 8,192-object / 32,000-node seed footprint,
+including stored unused geometry, with bounded elements and a 16 MiB dependency
+payload. Nested containers keep the existing fallback.
+
+The source seal includes the full immutable document and ownership metadata:
+geometry, pins, locks, paint definitions, ancestor frames, layer order, source
+atoms and cuts. Validation rejects stale sources, undeclared changes, changed
+external paint/geometry/order, changed parent frames, reordered retained paths,
+omitted paint bounds and changes to locked/pinned paths. Only validated private
+gradient resources belonging to declared paths may change outside the group;
+shared resources remain exact. Rejection proofs require a validated complete
+target revision as well as the source seal. Hidden source paint and changed
+target stops cannot reuse a proof merely because the visible raster, IDs or
+parameters coincide.
+
+Existing visible/occluded context, feature/coverage aggregates, native tile
+limits, graph/memory bounds, actual representation charges and independent
+full checkpoints remain in force. Broad diagnostics retain complete declared
+IDs. Core-material proposals now use this contract.
+
+The relevant suite passes **691 tests in 76.07 seconds**. Final focused checks
+pass **51 tests in 2.66 seconds**, including actual core-material contract
+validation under full/partial opacity and with/without holes. The 26 added
+contract cases cover exact 299-path compaction, sealed/unsealed admission,
+complete diagnostics, actual cost, hidden paint/geometry, gradient stops,
+order/frames, locks/pins, ownership, undeclared/external edits, bounds,
+declarations, private-gradient updates, source/target rejection invalidation,
+footprint limits, stop and independent-checkpoint rollback. Ruff passes;
+Pyrefly reports zero errors and the existing 61 warnings.
+
+### Matched native result
+
+`.bench/planned-component-edit-contract` uses the same 60-second operation
+budget, complexity 50, balanced quality and refinement disabled.
+
+| Drawing | Nodes | Contours | Paths | Actual cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Preceding matched prototype | 10,009 | 1,630 | 1,577 | 20,055 | 514.85 |
+| Sealed component replacement | 8,571 | 1,313 | 1,283 | 16,749 | 550.85 |
+| Frozen balanced gate | At most 800 | At most 140 | — | — | At most 497.39 |
+
+Generation takes **51.88 seconds**, with no overall deadline overshoot. The
+22-cell proposal declares **416 changed paths**, plus its parent dependency,
+and reaches normal exact evaluation. Its cost delta is **−4,040**, with a
+native visual-loss increase of **0.00114988** against its parent. The unchanged
+objective admits it. The selected drawing combines it with one filled ink
+replacement. Search completes 13 evaluations, 10 local admissions and four
+full checkpoint attempts, with **zero score disagreements** and about
+10.25 MiB of retained search state. This is not a process peak-memory result.
+
+Nodes fall by **14.4%**, but human-reference error rises by **7.0%**. The drawing
+still has **3.7 times the legacy CEL node count** and **16.4 times the human
+count**. Native input RGB MSE also rises from **182.08 to 267.51**. The objective
+buys representation savings with a fidelity loss; admission is not resemblance.
+
+| Human feature error | Previous | Component replacement |
+| --- | ---: | ---: |
+| Blade tip | 560.66 | 744.04 |
+| Blade facets | 254.12 | 263.32 |
+| Guard | 1,167.78 | 1,180.78 |
+| Handle wrapping | 882.61 | 948.49 |
+| Jewel | 1,332.64 | 1,506.76 |
+
+Inspection of the saved source/human/generated crops confirms jagged blade
+facets, fragmented guard outlines and an irregular jewel rim. Merging color
+patches has not reconstructed supported long boundaries and continuous ink.
+
+### Independent pool and tuning controls
+
+`.bench/component-edit-contract-audit` reruns the preceding source-only pool
+with component validation, exact original graph validation and independent
+native local/full comparisons. Its local driver is
+`.bench/diagnose-component-contract.py`, SHA-256
+`a0bbc819e0095e896ae84117bf56e23075f406b6ae4649d71d91906420ea6ad9`.
+The shared work limit is 180 seconds; human data remains outside generation.
+All six candidates pass the contract and native hard validity. Their renders
+are **byte-identical** to the preceding six-candidate pool. Maximum local/full
+score-term difference is **2.874e-10**. Complete declarations and source/target
+seals are saved with each candidate. Four declarations exceed the ordinary
+local limit: 416/325 paths on the initializer, 390/304 after broad union.
+
+The pool itself has not improved. Its best human error remains **527.71**, and
+no candidate meets the combined sword gate. Better scheduling or ranking of
+this pool cannot supply the missing compact faithful drawing.
+
+The four clean, half-opacity, 192-pixel tuning controls remain **byte-identical**
+to `.bench/planned-core-material-cells-structural-first-rgba-pairs`. No core
+candidate is emitted, so they establish unchanged existing outputs rather than
+broader validation of the new material model. Girl/face/park/band retain
+175/176/545/405 nodes, costs 331/272/979/757, clean MSE
+165.4348/206.7383/178.7425/167.7354 and Line F 0.270/0.589/0.652/0.641.
+Generation takes 12.49/17.71/10.63/13.33 seconds with 16/16/24/16 evaluations.
+
+The first paired command exited with status 143 after completing Anime girl;
+its one-case report remains at
+`.bench/planned-component-edit-contract-rgba-pairs`. The remaining three
+completed in a separate sequential invocation, exit status zero, at
+`.bench/planned-component-edit-contract-rgba-pairs-tail`. Both reports have
+the same final algorithm hash and settings. The combined comparison record,
+`.bench/component-edit-contract-paired-summary.json`, preserves this run split.
+
+### Next work and verdict
+
+The local dependency limit is resolved for this bounded component route.
+Representation and fidelity remain the failure. Rebuild continuous ink and
+canonical long material boundaries jointly with adjacent paint and source
+coverage, preserving retained marks, genuine holes and native alpha. Remove
+the old fragments when replacing a boundary. Then apply constrained
+geometry/paint/width fitting to that compact plan and audit the source-admission
+exclusions that prevent useful alternatives.
+
+Selection calibration remains necessary because the objective preferred a less
+faithful candidate. Use the declared tuning grid and same-pool replay; do not
+adjust production weights from this sword alone. Candidate coverage must also
+improve because the pool contains no gate-passing alternative. A mini-ML ranker
+and product slider remain later work. All combined sword, broader feature,
+coverage, line, runtime/memory, editing, held-out and blind-review gates remain
+open. The implementation goal remains active.

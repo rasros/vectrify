@@ -43,9 +43,10 @@ The latest native sword experiment (the coupled piecewise-surface implementation
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
 | Experimental piecewise surfaces with retained marks and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
+| Experimental whole-component material replacement, same budget and settings | 8,571 | 1,313 | 550.85 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
-The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
+The experimental rows use complexity 50, balanced quality and refinement disabled. Both fail all three numerical targets. Whole-component replacement reduces nodes by 14.4% against the previous prototype, but increases human-reference error by 7.0% and worsens all five measured feature crops. It still has 3.7 times the legacy node count. This is an integration result, not a practical redraw improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; merging color patches cannot compensate for thousands of partitions or reconstruct deliberate outlines. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
 
 Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
 
@@ -209,21 +210,34 @@ The final source-only audit validates six connected-region candidates. Its
 lowest-node initializer alternative has 8,588 nodes, 1,315 contours and human
 MSE 551.16; a post-union alternative has 8,659 nodes and MSE 533.99. These are
 still far above the legacy and human structure counts and miss the fidelity
-gate. The matched generation still selects 10,009 nodes and MSE 514.85. The
-coarsest proposal is rejected by the search's 256-object dependency limit;
-the four paired control renders remain unchanged. Reordering candidates does
-not resolve that integration limit or supply a faithful compact drawing.
+gate. That matched generation selected 10,009 nodes and MSE 514.85 because its
+coarsest proposal exceeded the search's 256-object local dependency limit.
+The four paired control renders remained unchanged. That run diagnosed an
+integration limit as well as missing compact, faithful alternatives.
 
-Before treating this route as usable, implement bounded whole-component edit
-dependencies with complete changed-object, frame, paint-server, visibility and
-source-ownership invalidation. Preserve the limits for ordinary local edits
-and charge every resulting path, contour and gradient. Then compare the same
-candidate pool and deadline against the current search. Continue with coherent
-ink, canonical long boundaries and justified source-coverage interpretation;
-the existing source-contour region model leaves most remaining fragmentation
-intact. Do not present this package as a quality improvement, a calibrated
-slider or a completed delivery. The detailed source hashes, negative runs and
-next verification requirements are in the progress record.
+A separate bounded whole-component dependency contract now admits the broad
+proposal while preserving the 256-object ordinary edit limit. It seals the full
+source document and ownership, validates every changed path, retains external
+paint and order, protects locked/pinned geometry, and includes the complete
+target revision in rejection proofs. All actual representation charges, native
+context checks and independent full checkpoints remain in force. The matched
+run now selects a 22-cell replacement plus one ink edit: 8,571 nodes, 1,313
+contours and MSE 550.85. There are no local/full score disagreements, but its
+fidelity regresses. Restoring availability did not solve the quality problem.
+
+Continue with coherent ink, canonical long boundaries and justified
+source-coverage interpretation. The crop comparison exposes jagged blade
+facets, fragmented guard outlines and an irregular jewel rim. Replace their
+supported boundary chains jointly with adjacent paint and ink; then fit the
+resulting compact representation automatically. Keep the unrestricted
+interpretation as a competitor and verify complete native alpha, holes,
+retained marks and source ownership. Calibrate selection on the tuning pool
+after faithful alternatives exist: the independently audited pool has no
+candidate meeting the combined sword gate, so changing weights or adding a
+ranker cannot establish that milestone. Do not present this package as a
+quality improvement, a calibrated slider or a completed delivery. The detailed
+source hashes, negative runs and verification requirements are in the progress
+record.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local

@@ -12,6 +12,10 @@ from dataclasses import dataclass, fields, is_dataclass, replace
 from vectrify.document import Document, export_svg, import_svg
 from vectrify.document.join import path_style
 from vectrify.document.model import paint_server
+from vectrify.refine.cel_plan.component_edits import (
+    MAX_OBJECTS as MAX_COMPONENT_OBJECTS,
+)
+from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.frontier import Entry, Frontier
 from vectrify.refine.cel_plan.local import (
     HALO,
@@ -61,6 +65,7 @@ class Proposal:
     details: dict | None = None
     dependencies: tuple[str, ...] = ()
     partition: Partition | None = None
+    component: ComponentEdit | None = None
 
 
 def identity(svg: str, partition: Partition | None) -> str:
@@ -152,8 +157,12 @@ class Rejections:
             if native.intersection(box).area
         )
 
-    def key(self, state: State, proposal: Proposal, delta: float) -> str:
+    def key(
+        self, state: State, proposal: Proposal, delta: float, *, component_revision=None
+    ) -> str:
         snapshot = state.snapshot
+        if proposal.component is not None and component_revision is None:
+            raise ValueError("Component rejections require a validated target revision")
         context = proposal.bounds.expand(2 * HALO, snapshot.canvas.root.shape)
         signature = (
             SCORE_VERSION,
@@ -167,6 +176,8 @@ class Rejections:
             proposal.ids,
             proposal.parameters,
             proposal.bounds,
+            proposal.component,
+            component_revision,
             tuple(
                 _revision(state.document, oid)
                 for oid in (*proposal.ids, *proposal.dependencies)
@@ -433,7 +444,11 @@ def search(
                 scanned += 1
                 decision: dict = {
                     "operator": proposal.operator,
-                    "ids": list(proposal.ids[:MAX_EDIT_OBJECTS]),
+                    "ids": list(
+                        proposal.ids[: 2 * MAX_COMPONENT_OBJECTS]
+                        if proposal.component is not None
+                        else proposal.ids[:MAX_EDIT_OBJECTS]
+                    ),
                     "estimated_cost_delta": proposal.estimate,
                     "parent_revision": state.key,
                     "parameters": list(proposal.parameters),
@@ -472,7 +487,42 @@ def search(
                         )
                         decisions.append(decision)
                         continue
-                if len(proposal.ids) + len(proposal.dependencies) > MAX_EDIT_OBJECTS:
+                component_revision = None
+                if proposal.component is not None:
+                    try:
+                        if (
+                            len(proposal.dependencies) > MAX_EDIT_OBJECTS
+                            or proposal.component.parent not in proposal.dependencies
+                        ):
+                            raise ValueError(
+                                "Component replacement lacks its parent dependency"
+                            )
+                        component_revision = proposal.component.validate(
+                            state.document,
+                            proposal.document,
+                            state.partition,
+                            partition,
+                            proposal.ids,
+                            proposal.bounds,
+                            local_work,
+                        )
+                        decision["component_dependency"] = {
+                            "parent": proposal.component.parent,
+                            "source": proposal.component.source,
+                            "target": component_revision,
+                            "declared_objects": len(proposal.ids),
+                        }
+                    except StageInterruptedError:
+                        break
+                    except ValueError as exc:
+                        bounded += 1
+                        decision.update(
+                            rejections=["invalid-component-dependencies"],
+                            detail=str(exc),
+                        )
+                        decisions.append(decision)
+                        continue
+                elif len(proposal.ids) + len(proposal.dependencies) > MAX_EDIT_OBJECTS:
                     bounded += 1
                     decision.update(
                         rejections=["local-dependency-limit"],
@@ -525,7 +575,9 @@ def search(
                     structure["representation_cost"] - state.snapshot.evaluation.cost
                 )
                 decision["representation_delta"] = delta
-                key = cache.key(state, proposal, delta)
+                key = cache.key(
+                    state, proposal, delta, component_revision=component_revision
+                )
                 reasons = cache.get(key)
                 if reasons is not None:
                     cached += 1

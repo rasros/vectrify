@@ -117,6 +117,15 @@ def test_whole_core_materials_remove_fragments_with_exact_alpha_ownership_reload
     Operators(evidence, graph, options).validate_partition(
         edit.partition, Work.start(10)
     )
+    assert edit.component.validate(
+        state.document,
+        edit.document,
+        state.partition,
+        edit.partition,
+        edit.ids,
+        edit.bounds,
+        Work.start(10),
+    )
     svg = export_svg(edit.document)
     full = frontier.policy.evaluate(svg)
     assert full.valid

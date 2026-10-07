@@ -31,6 +31,7 @@ from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.atoms import Atoms
+from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.local import Box
@@ -891,4 +892,5 @@ class CoreCells:
             },
             dependencies=(parent.id,),
             partition=partition,
+            component=ComponentEdit.bind(document, state.partition, parent.id, work),
         )
