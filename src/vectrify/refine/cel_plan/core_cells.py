@@ -30,6 +30,7 @@ from vectrify.document.join import (
     path_style,
     transformed_geometry,
 )
+from vectrify.document.lines import open_path
 from vectrify.document.model import paint_server
 from vectrify.document.paint import gradient_stops
 from vectrify.document.redraw import root_matrix
@@ -1109,7 +1110,7 @@ class CoreCells:
                 ):
                     self.diagnostics["style_exclusions"] += 1
                     return False
-                shape = curve_path(geometry)
+                shape = open_path(geometry)
                 shape.stroke(
                     width,
                     caps[style["stroke-linecap"]],
@@ -1647,7 +1648,7 @@ class CoreCells:
                             "stroke": cell.paint.color,
                             "stroke-width": repr(cell.stroke["width"]),
                             "stroke-opacity": "1",
-                            "stroke-linecap": "round",
+                            "stroke-linecap": cell.stroke.get("linecap", "round"),
                             "stroke-linejoin": "round",
                             "transform": f"matrix({matrix_text})",
                         },

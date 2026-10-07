@@ -12,6 +12,7 @@ from vectrify.document import Editor, Selection, export_svg, load_project, save_
 from vectrify.document.hit_test import multiply
 from vectrify.document.join import path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
+from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.core_cells import CoreCells
 from vectrify.refine.cel_plan.evidence import collect
@@ -75,7 +76,7 @@ def contact_drawing(alpha, gap):
 
 @pytest.mark.parametrize("alpha", [128, 64])
 @pytest.mark.parametrize("gap", [False, True])
-def test_boundary_contact_ends_stay_exact_while_source_body_becomes_a_stroke(
+def test_proved_contact_body_keeps_source_gaps_and_becomes_a_complete_butt_stroke(
     alpha, gap
 ):
     evidence = contact_drawing(alpha, gap)
@@ -92,15 +93,29 @@ def test_boundary_contact_ends_stay_exact_while_source_body_becomes_a_stroke(
     for edit in edits:
         assert edit.partition is not None
         assert edit.details is not None
-        assert edit.details["source_strokes"]["contact_runs_scanned"] > 0
+        assert edit.details["source_strokes"]["contact_runs_scanned"] == 0
+        assert edit.details["source_strokes"]["linecap"] == "butt"
         svg = export_svg(edit.document)
         full = frontier.policy.evaluate(svg)
         assert full.valid, full.rejections
         ops.validate_partition(edit.partition, Work.start(10))
         actual = render(svg, evidence.source_size)
         np.testing.assert_array_equal(actual[..., 3], original[..., 3])
-        np.testing.assert_array_equal(actual[24:33, 7:10], original[24:33, 7:10])
-        np.testing.assert_array_equal(actual[24:33, 86:89], original[24:33, 86:89])
+        strokes = [
+            e for e in edit.document.elements() if e.get("stroke") not in (None, "none")
+        ]
+        assert len(strokes) == 1
+        assert strokes[0].get("fill") == "none"
+        assert strokes[0].get("stroke-linecap") == "butt"
+        chains = edit.document.geometry_for(strokes[0].id).subpaths
+        assert len(chains) == (2 if gap else 1)
+        endpoints = [
+            node.endpoint for s in chains for node in (s.nodes[0], s.nodes[-1])
+        ]
+        # Thinning places the original source ends one pixel inside its cap.
+        # This complete chain retains those ends instead of interval trimming.
+        assert min(p[0] for p in endpoints) == 9.5
+        assert max(p[0] for p in endpoints) == 86.5
         if gap:
             np.testing.assert_array_equal(actual[24:33, 45:51], original[24:33, 45:51])
         assert "clipPath" not in svg
@@ -114,6 +129,88 @@ def test_boundary_contact_ends_stay_exact_while_source_body_becomes_a_stroke(
         np.testing.assert_array_equal(
             render(export_svg(restored), evidence.source_size), actual
         )
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+def test_a_contact_cap_needs_carrier_coverage_of_the_old_mark_as_well_as_its_body(
+    alpha,
+):
+    evidence = contact_drawing(alpha, False)
+    _frontier, state, options = prepared(evidence, layers=True)
+    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    with editor.transaction("Restrict carrier before the source endpoint") as tx:
+        tx.replace_geometry(
+            base.id,
+            replace(
+                transformed_geometry(
+                    parse_path("M8.25 8H88V88H8.25Z"),
+                    inverse_matrix(root_matrix(state.document, base.id)),
+                ),
+                id=base.id,
+            ),
+        )
+    state = replace(state, document=editor.snapshot.document)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    assert list(factory.proposals(state, Work.start(20))) == []
+    assert factory.restoration_rejections.get("unproved-core-coverage", 0) > 0
+
+
+@pytest.mark.parametrize("closed", [False, True])
+@pytest.mark.parametrize("cap", ["round", "butt"])
+def test_material_retention_proves_the_actual_open_or_closed_stroke(closed, cap):
+    evidence = fragmented()
+    _frontier, state, options = prepared(evidence, layers=True)
+    base = next(s for s in state.partition.surfaces if s.role == "underlay")
+    mark = next(s for s in state.partition.surfaces if s.role == "surface")
+    parent = state.document.ancestry(mark.id)[-2]
+    frame = inverse_matrix(root_matrix(state.document, parent.id))
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    with editor.transaction("Prove an open stroke in a concave carrier") as tx:
+        tx.replace_geometry(
+            base.id,
+            transformed_geometry(
+                parse_path("M14 14H76V76H64V26H14Z"),
+                inverse_matrix(root_matrix(state.document, base.id)),
+            ),
+        )
+        tx.replace_geometry(
+            mark.id, parse_path("M20 20H70V70" + ("Z" if closed else ""))
+        )
+        tx.set_attributes(
+            mark.id,
+            {
+                "fill": "none",
+                "stroke": "#202020",
+                "stroke-width": "3",
+                "stroke-opacity": "1",
+                "stroke-linecap": cap,
+                "stroke-linejoin": "round",
+                "opacity": "1",
+                "transform": "matrix(" + " ".join(str(v) for v in frame) + ")",
+            },
+        )
+    state = replace(
+        state,
+        document=editor.snapshot.document,
+        partition=replace(
+            state.partition,
+            surfaces=tuple(
+                replace(s, role="overlay") if s.id == mark.id else s
+                for s in state.partition.surfaces
+            ),
+        ),
+    )
+    selected = tuple(
+        s for s in state.partition.surfaces if s.id not in (base.id, mark.id)
+    )
+    factory = CoreCells(Operators(evidence, build(evidence), options).families, options)
+    assert factory._retained(
+        state, base, selected, state.document.geometry_for(base.id), Work.start(10)
+    ) == (not closed)
 
 
 @pytest.mark.parametrize("alpha", [255, 128, 64])

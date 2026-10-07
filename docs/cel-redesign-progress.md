@@ -14,6 +14,189 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Actual open stroke footprints and complete source contact caps
+
+The contact-cap diagnosis exposes a correctness bug in the previous footprint
+proof: the filled Boolean path adapter closes every contour, including open
+stroke chains. It adds an invisible endpoint-to-endpoint chord to curved ink
+footprints, although exported SVG strokes stay open. Source containment can
+therefore reject a real stroke, and underpaint can extend into the wrong area.
+The same fill adapter appears in material composition's retained-stroke check,
+which can reject valid source parents. Both call sites now reuse the editor's
+existing `document.lines.open_path` adapter. Explicit closed chains still close;
+open and closed contours in a compound path retain their own interpretation.
+Native paint, cap and join styles remain unchanged unless a new source cap
+hypothesis is explicitly offered.
+
+The initial cap probe at `.bench/cel-source-contact-cap-probe` mistakenly uses
+the same closing adapter. Its 13/13 round/butt containment result does not rule
+out useful caps. The corrected source-only probe at
+`.bench/cel-source-contact-cap-open-probe` examines the same 99 source runs and
+contains 13 round-cap bodies versus 19 butt-cap bodies: six complete chains
+need no invented connection or endpoint movement. This probe uses intermediate
+source hash `74c88f09675c24cb89fb7ff8260bd4b8c13f59d8f5a4479ccf498c89c84f67b6`;
+it proves geometry eligibility, not native admission or quality.
+
+The optional boundary-contact route now offers a complete original-ended
+butt-cap body before trimming the source interval. Round and butt styles have
+separate width/paint groups. Individual width ceilings and final compound
+footprints use the actual exported cap. Cancellation cannot start trimming
+after an interrupted cap fit. Source junctions and physical gaps remain exact;
+no human geometry, feature rectangle or reference repair participates.
+
+A butt-cap contact can continue neighboring paint only when one existing
+opaque carrier geometrically covers both the complete old mark and the new
+body. Only neighboring graph labels with zero painted source area may be
+excluded as unpainted contact; hidden labels containing any paint still block
+the edit. Carrier holes, old support outside the carrier and unmatched coverage
+remain failures. The native ownership, component, alpha/mass and raster gates
+stay unchanged. This is a new eligibility proof inside the existing carrier,
+not an exception to native coverage admission.
+
+Controls compare open/closed bends and both caps with native raster coverage,
+reject phantom diagonals, retain closure separately in compound geometry,
+and prove an open bend inside a concave carrier whose hole excludes its chord.
+Contact controls retain canonical source endpoints, real gaps, exact alpha,
+editable `fill=none` strokes and save/reload at half/quarter opacity. Negative
+controls reject a carrier covering only the new body and reject a real hole.
+Material retention accepts the actual open bend and rejects its explicitly
+closed diagonal for both caps. Previously trimmed-contact assertions are
+updated to the now-eligible complete source body; precise gap/alpha/ownership
+and raster agreement checks remain.
+
+The first cap prototype at `.bench/cel-source-contact-cap-prototype` emits
+three source groups, including a five-run butt group, and all emitted proposals
+pass native validity. However, material composition rejects that butt parent's
+phantom closed footprint. Its first finer region candidate worsens to
+3,428 nodes / 385 contours / human MSE 559.929205. This is preserved at source
+hash `b5438dcab74ccaf8460d6454f0cb9ac7be97e0eb1188dbace02383c54ba3f7ac`.
+A subsequent partial matrix and regression run at source
+`84714a58436a0a581bad32bd1e645dcb7528f767a1989e1b6851bf75356074b8`
+are stopped before changing the retained-stroke check. Their artifacts remain
+at `.bench/cel-source-contact-cap-first-pass`; interrupted checks are not
+reported as passed or complete. Final verification starts from a fresh root.
+
+Final changed-file Ruff/import/format checks, `git diff --check` and
+production Pyrefly pass (zero errors, 62 warnings). The relevant suite passes
+**996 tests in 242.03 seconds**, including all fourteen new controls. The
+focused source/model suite passes 78 tests. Final source SHA-256 is
+`9e141366b6f72481428d09cf08ff7b363c1e1b37ad8d99f4d954dea009594194`.
+
+The matrix at `.bench/cel-source-contact-cap-final` has **fourteen complete
+reports and one bounded partial report**, not a passed completion gate. All
+**166 emitted proposals** have zero native rejections and zero broken
+ownership/component/local-raster proofs. Maximum score-term difference is
+3.348527e-9. Strict JSON, saved SVG hashes, source RGBA/masks/settings/normalizers
+and clean/human SVG hashes are checked. Across all three modes, both source
+parents match canonical geometry/paint and exact RGBA. The bounded-pool audit
+is `.bench/cel-source-contact-cap-bounded-audit.txt`; the strict all-complete
+audit at `.bench/cel-source-contact-cap-final-audit.txt` deliberately fails.
+Validity of emitted drafts does not establish a completed search or quality.
+
+The first sword ink/plane attempt stops at 181.58 seconds with four proposals.
+It is preserved at `.bench/cel-source-contact-cap-timeout/sword-ink-planes`.
+Only that case is retried with unchanged source, settings and 180-second
+allowance, after the competing regression/matrix work finishes. The isolated
+retry also stops, at **181.74 seconds**, after fourteen proposals. It completes
+the first material parent's coarse/fine prefixes and only the second parent's
+coarse prefixes. The second finer material pool and the last standalone source
+group remain unexamined. No allowance, atom/cut/RLE limit or native acceptance
+threshold is increased. Do not compare that partial pool with completed
+ink/plane pools as equal completed proposal effort. Generation timing includes
+native validation; scoring/rendered feature sheets are separate. These are
+still offline diagnostics, not operation runtime or process-memory gates.
+
+The highest emitted sword four-plane prefixes use 3,568 / 5,268 nodes
+and human MSE 1,245.336306 / 1,171.128142 for the first coarse/fine parent;
+the second coarse prefix uses 3,588 nodes / MSE 1,253.781164. The second
+finer result is unavailable. All observed joint-plane paint remains much worse
+than the region alternatives; no missing prefix is estimated.
+
+The first finer region curve/anchored candidates have **3,486 / 3,428 nodes**,
+385 contours and fourteen true strokes, with human MSE **560.247860 /
+559.929205**. The five-run butt group now seeds its own complete region
+composition: **4,039 / 3,942 nodes**, 396 contours and five true strokes, with
+MSE **542.959600 / 543.078961**. The first anchored handle error is
+874.052824; the second is 891.833291. Both still retain unconverted ink as fill.
+They are separate source interpretations, not all nineteen supported runs in
+one drawing. The second parent's lower whole-image error does not compensate
+for the wrapping lines lost during material composition. All sword structure,
+feature and release gates remain unmet.
+
+An independent post-generation handle diagnostic at
+`.bench/cel-source-contact-cap-final/handle-line-diagnostic.json` uses human
+stroke-only pixels, the existing neutral-paint ink classifier, alpha > 0.25
+and the existing two-pixel line tolerance. Against 1,392 human line pixels,
+first/second finer anchored displayed-line recall is **0.607759 / 0.099138**;
+F1 is **0.638567 / 0.137495**, and editable-stroke recall is **0.449713 /
+0.073276**. These are feature diagnostics, not calibrated admission thresholds.
+They include the human's source repair; that discrepancy stays evaluation
+context and never supplies a generation hint. The large second-parent recall
+loss confirms the inspected crop's missing wrapping ink despite lower MSE.
+A fixed source-only per-chain contrast/coverage check is needed alongside
+complete multi-style stroke composition; a whole-image error improvement
+cannot establish line preservation.
+
+The paired finer region and highest emitted material-plane rows remain the
+same as the preceding checkpoint for these two source parents. Additional
+standalone cap groups in the band do not change the two admitted material
+parents. Unchanged tuning results guard against claiming a broad improvement
+from the sword experiment. Their full matrix rows and times follow.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1413 → 1380 | 110 → 110 | 74.324609 → 74.863699 | 0.374 → 0.392 |
+| anime-girl / 2 | 1467 → 1438 | 118 → 118 | 73.522578 → 73.675467 | 0.000 → 0.000 |
+| anime-face / 1 | 2619 → 2497 | 188 → 188 | 83.419321 → 83.746113 | 0.544 → 0.564 |
+| anime-face / 2 | 2621 → 2516 | 160 → 160 | 79.514930 → 80.373836 | 0.346 → 0.346 |
+| western-park / 1 | 1600 → 1559 | 113 → 113 | 118.464196 → 118.268196 | 0.093 → 0.093 |
+| western-park / 2 | 1527 → 1470 | 112 → 112 | 133.527474 → 133.606024 | 0.240 → 0.240 |
+| rubberhose-band / 1 | 2309 → 2057 | 122 → 122 | 139.397496 → 139.500533 | 0.722 → 0.733 |
+| rubberhose-band / 2 | 2501 → 2324 | 112 → 112 | 128.267022 → 127.665763 | 0.665 → 0.669 |
+
+| Tuning ink/plane case / parent / region seed budget | Highest emitted material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 632 / 93 / 14 | 578.420153 | 0.100 |
+| anime-girl / 1 / 64 | 2 | 673 / 103 / 14 | 574.942746 | 0.099 |
+| anime-girl / 2 / 32 | 2 | 664 / 97 / 13 | 584.112738 | 0.106 |
+| anime-girl / 2 / 64 | 2 | 734 / 112 / 13 | 579.284905 | 0.105 |
+| anime-face / 1 / 32 | 3 | 1206 / 112 / 18 | 807.236475 | 0.282 |
+| anime-face / 1 / 64 | 3 | 1451 / 163 / 18 | 800.799709 | 0.284 |
+| anime-face / 2 / 32 | 3 | 1240 / 109 / 16 | 828.684822 | 0.422 |
+| anime-face / 2 / 64 | 3 | 1513 / 168 / 16 | 822.181453 | 0.422 |
+| western-park / 1 / 32 | 2 | 832 / 81 / 21 | 475.454705 | 0.231 |
+| western-park / 1 / 64 | 2 | 893 / 97 / 21 | 472.461654 | 0.231 |
+| western-park / 2 / 32 | 1 | 832 / 80 / 20 | 500.311784 | 0.195 |
+| western-park / 2 / 64 | 1 | 872 / 89 / 20 | 499.481744 | 0.168 |
+| rubberhose-band / 1 / 32 | 3 | 1093 / 128 / 31 | 446.022045 | 0.709 |
+| rubberhose-band / 1 / 64 | 3 | 1103 / 128 / 31 | 446.101528 | 0.709 |
+| rubberhose-band / 2 / 32 | 4 | 1119 / 125 / 28 | 411.221881 | 0.686 |
+| rubberhose-band / 2 / 64 | 4 | 1152 / 125 / 28 | 411.278024 | 0.688 |
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 73.84 / 77.73 / 181.74 (partial) |
+| anime-girl | 44.20 / 20.80 / 29.51 |
+| anime-face | 31.70 / 31.76 / 59.50 |
+| western-park | 19.47 / 13.52 / 25.57 |
+| rubberhose-band | 20.29 / 20.77 / 36.17 |
+
+
+The next structural operator must combine compatible source stroke groups,
+with their own cap/width/paint styles, in one owned component before material
+compaction. Keep all original source gaps/junctions and physical independent
+marks, prove each old/new coverage footprint, retain opaque underpaint and
+apply the same native component/opacity/line checks. A complete combined edit
+can reduce cost only after its cuts and underpaint are compacted; an expensive
+intermediate source edit is not sufficient evidence to reject the complete
+hypothesis. Preserve already validated source chains and check unconverted ink
+by fixed source support, independently of the candidate's palette grouping.
+This remains a model/role/composition problem before learned ranking. Useful
+new generated references remain deferred. The full goal and all eight
+planned deliveries stay open; the default and automatic scheduling are
+unchanged.
+
+
 ### Exterior source profiles and geometric width ceilings
 
 The previous carrier check inflates every candidate width by 1.6 to allow

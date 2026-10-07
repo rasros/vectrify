@@ -237,6 +237,7 @@ class SourceStrokes:
                     continuation_limit=MAX_COMPONENT_NEIGHBORS
                     if self.boundary_contacts
                     else None,
+                    allow_carrier_contact=model.details["linecap"] == "butt",
                 )
                 self.diagnostics["restoration_neighbors_peak"] = max(
                     self.diagnostics["restoration_neighbors_peak"],
@@ -336,7 +337,7 @@ class SourceStrokes:
                             "stroke": colour(model.paint),
                             "stroke-width": repr(model.details["width"]),
                             "stroke-opacity": "1",
-                            "stroke-linecap": "round",
+                            "stroke-linecap": model.details["linecap"],
                             "stroke-linejoin": "round",
                             "transform": f"matrix({parent_frame})",
                         },
@@ -392,7 +393,7 @@ class SourceStrokes:
                 yield Proposal(
                     "source-strokes",
                     edited,
-                    (signature, model.details["width"]),
+                    (signature, model.details["width"], model.details["linecap"]),
                     state.key,
                     proposed,
                     bounds(document, proposed, edited),

@@ -129,6 +129,22 @@ handle still contains filled contact ends and the quality gates remain unmet.
 Source-supported exterior measurement is implemented; complete editable
 contact geometry and coherent surfaces remain missing. A naive clip-based
 contact model also fails partial-alpha coverage under the actual renderer.
+The next source-contact experiment corrects a footprint bug: the fill adapter
+silently closes open chains, adding an invisible chord. Source fitting and
+material retention now use the editor's actual open-path adapter. Original-ended
+butt-cap bodies can compete before trimmed intervals, with cap-specific width
+ceilings and complete old/new carrier coverage. Fourteen new controls cover
+native open/closed footprints, caps, carrier holes, source gaps/alpha/reload,
+old-support rejection and material retention; 996 regression cases pass.
+The finer round parent uses 3,428 nodes / 385 contours / 14 strokes / human MSE
+559.93. The finer butt parent uses 3,942 / 396 / five strokes / MSE 543.08,
+but loses much of the wrapping ink still represented as fills. They are separate
+interpretations, not a complete connected drawing. The next structural work
+must combine compatible source stroke groups in a single owned candidate and
+preserve all classified ink while fitting its neighboring surfaces. Intermediate
+cuts/underpaint may not be cheap until composed; assess the complete candidate
+rather than rejecting it solely by intermediate representation cost. Line and
+local-feature gates remain mandatory alongside pixel error.
 These experiments do not enter automatic scheduling. Continue source-supported exterior ink, shared curved
 material boundaries and compact opacity interpretations, preserving physical
 gaps and independent marks. These comparisons improve diagnosis, not release

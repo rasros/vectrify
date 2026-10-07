@@ -112,6 +112,96 @@ def test_broad_dark_material_and_cancelled_work_do_not_become_strokes():
     assert decoded(mask, evidence, Options(), work) is None
 
 
+@pytest.mark.parametrize("closed", [False, True])
+@pytest.mark.parametrize("cap", ["round", "butt"])
+def test_stroke_footprint_matches_native_open_and_closed_bends(closed, cap):
+    from vectrify.refine.cel_plan.ink_models import footprint
+
+    data = "M20 30H70V80" + ("Z" if closed else "")
+    geometry = parse_path(data)
+    shape = footprint(geometry, 4, cap=cap)
+    native = render(
+        '<svg width="96" height="96">'
+        f'<path d="{data}" fill="none" stroke="#000000" stroke-width="4" '
+        f'stroke-linecap="{cap}" stroke-linejoin="round"/></svg>',
+        (96, 96),
+    )
+    actual = render(
+        '<svg width="96" height="96">'
+        f'<path d="{shape.path_data()}" fill="#000000"/></svg>',
+        (96, 96),
+    )
+    # An open bend has no diagonal chord. Explicit closure does have one.
+    assert curve_path(shape).contains((45, 55)) == closed
+    assert native[55, 45, 3] > 0.9 if closed else native[55, 45, 3] == 0
+    assert actual[55, 45, 3] > 0.9 if closed else actual[55, 45, 3] == 0
+    assert np.square(native[..., 3] - actual[..., 3]).mean() < 2e-5
+    # Open caps retain their actual round footprint, rather than a closed seam.
+    assert curve_path(shape).contains((19, 30)) == (closed or cap == "round")
+
+
+def test_compound_footprint_preserves_each_chains_closure_independently():
+    from vectrify.refine.cel_plan.ink_models import footprint
+
+    geometry = parse_path("M20 20H60V60 M20 70H70V90Z")
+    shape = curve_path(footprint(geometry, 2))
+    assert not shape.contains((40, 40))
+    assert shape.contains((45, 80))
+    assert shape.contains((60, 40))
+    assert not shape.contains((45, 65))
+
+
+def test_open_bend_can_fit_a_carrier_whose_hole_excludes_the_phantom_chord():
+    from vectrify.refine.cel_plan.ink_models import carrier_width
+
+    geometry = parse_path("M20 20H70V70")
+    carrier = curve_path(parse_path("M14 14H76V76H64V26H14Z"))
+    # Closure would add a diagonal stroke crossing the unpainted interior.
+    assert not carrier.contains((45, 45))
+    assert carrier_width(geometry, 3, carrier, Work.start(10), fixed=True) == 3
+
+
+@pytest.mark.parametrize("hole", [False, True])
+def test_contact_cap_keeps_complete_source_endpoints_only_with_carrier_proof(hole):
+    from vectrify.refine.cel_plan.ink import Ink
+    from vectrify.refine.cel_plan.ink_models import carried, footprint
+
+    evidence, _ink = drawing()
+    run = np.array([[8.0, 40.0], [28.0, 40.0], [68.0, 40.0], [88.0, 40.0]])
+    proof = Ink(run, 3, np.full(3, 32), 1, 0)
+    carrier = curve_path(
+        parse_path("M8 8H88V88H8Z" + (" M40 38H56V44H40Z" if hole else "")),
+        "evenodd",
+    )
+    args = (
+        run,
+        proof,
+        evidence,
+        Options(),
+        carrier,
+        Work.start(10),
+        False,
+        {"runs": 0, "points": 0},
+        None,
+        ~evidence.empty,
+    )
+    assert carried(*args) == []
+    offered = carried(*args[:6], True, *args[7:])
+    if hole:
+        assert offered == []
+        return
+    assert len(offered) == 1
+    part, _supported, model, ceiling, cap = offered[0]
+    np.testing.assert_array_equal(part, run)
+    assert cap == "butt"
+    assert model.contour.nodes[0].endpoint == tuple(run[0])
+    assert model.contour.nodes[-1].endpoint == tuple(run[-1])
+    shape = footprint(Geometry("run", (model.contour,)), ceiling, cap=cap)
+    outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
+    assert abs(outside.area) <= 1e-8
+    assert not curve_path(shape).contains((7.5, 40))
+
+
 def test_measured_edge_stroke_fits_without_the_full_grouping_headroom():
     from vectrify.refine.cel_plan.ink_models import carrier_width, footprint
 
@@ -150,8 +240,8 @@ def test_interrupted_width_search_does_not_return_an_unproved_ceiling(monkeypatc
     work = Work.start(10)
     original = ink_models.footprint
 
-    def stopped(geometry, width):
-        shape = original(geometry, width)
+    def stopped(geometry, width, **kwargs):
+        shape = original(geometry, width, **kwargs)
         work.stop.set()
         return shape
 
@@ -368,8 +458,8 @@ def test_interruption_during_final_geometry_discards_discovered_models(monkeypat
     work = Work.start(10)
     original = ink_models.footprint
 
-    def stopped(geometry, width):
-        result = original(geometry, width)
+    def stopped(geometry, width, **kwargs):
+        result = original(geometry, width, **kwargs)
         work.stop.set()
         return result
 

@@ -16,6 +16,7 @@ from scipy.ndimage import distance_transform_edt, find_objects, gaussian_filter,
 
 from vectrify.document import Geometry
 from vectrify.document.join import curve_path, path_geometry
+from vectrify.document.lines import open_path
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
@@ -46,9 +47,16 @@ class InkModel:
     details: dict
 
 
-def footprint(geometry, width):
-    shape = curve_path(geometry)
-    shape.stroke(width, pathops.LineCap.ROUND_CAP, pathops.LineJoin.ROUND_JOIN, 4)
+def footprint(geometry, width, *, cap="round"):
+    # Fill boolean paths close all contours; stroke coverage must not include
+    # an invisible endpoint-to-endpoint chord in an actual open source chain.
+    shape = open_path(geometry)
+    shape.stroke(
+        width,
+        {"round": pathops.LineCap.ROUND_CAP, "butt": pathops.LineCap.BUTT_CAP}[cap],
+        pathops.LineJoin.ROUND_JOIN,
+        4,
+    )
     shape.convertConicsToQuads(0.05)
     shape.simplify()
     return path_geometry(shape)
@@ -90,7 +98,7 @@ def connected_runs(runs, work):
     return result
 
 
-def carrier_width(geometry, width, carrier, work, *, fixed=False):
+def carrier_width(geometry, width, carrier, work, *, fixed=False, cap="round"):
     """A proved width ceiling for one source run, before compatible grouping.
 
     Every retained width has an exact footprint/carrier difference proof. A
@@ -103,7 +111,7 @@ def carrier_width(geometry, width, carrier, work, *, fixed=False):
     def fits(value):
         if work.interrupted:
             return False
-        shape = footprint(geometry, value)
+        shape = footprint(geometry, value, cap=cap)
         if work.interrupted:
             return False
         outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
@@ -128,16 +136,16 @@ def carrier_width(geometry, width, carrier, work, *, fixed=False):
 def carried(
     run, proof, evidence, options, carrier, work, contacts, budget, light, visible
 ):
-    """Fit source intervals inside the carrier, retaining contact ends as fill.
+    """Fit source chains inside the carrier with proved complete footprints.
 
-    No endpoint is extended or joined. A full stroke is preferred; only an
-    optional boundary-contact hypothesis may shorten it at existing samples.
-    Exact footprint checks remain necessary after interval discovery.
+    No endpoint is extended or joined. The optional contact hypothesis tries
+    an original-ended butt-cap body before shortening at existing samples and
+    retaining filled contact ends. Every choice needs exact footprint proofs.
     """
     tolerance = options.tolerance or 0.75
     scale = float(np.sqrt(np.prod(evidence.scale)))
 
-    def fit(part, supported):
+    def fit(part, supported, cap="round"):
         if work.interrupted:
             return None
         native = supported.points / evidence.scale + evidence.offset
@@ -168,13 +176,23 @@ def carried(
             carrier,
             work,
             fixed=bool(options.line_width),
+            cap=cap,
         )
-        return None if ceiling is None else (part, supported, model, ceiling)
+        return None if ceiling is None else (part, supported, model, ceiling, cap)
 
     complete = fit(run, proof)
     if complete is not None:
         return [complete]
     if not contacts or carrier is None or work.interrupted:
+        return []
+    # Some original source endpoints touch the carrier. A round cap spills
+    # even when the complete open stroke body fits. Prove a butt-cap model
+    # before shortening that source chain; its endpoints and junctions stay
+    # exact, and its width is bounded using the same actual cap geometry.
+    complete = fit(run, proof, "butt")
+    if complete is not None:
+        return [complete]
+    if work.interrupted:
         return []
     upper = options.line_width or 1.6 * proof.width / scale
     edge = pathops.Path(carrier)
@@ -310,7 +328,7 @@ def models(
                 visible,
             )
             accepted = set()
-            for part, supported, model, ceiling in offered:
+            for part, supported, model, ceiling, cap in offered:
                 accepted.update(tuple(p) for p in part)
                 px = np.clip(np.floor(part[:, 0]).astype(int), 0, mask.shape[1] - 1)
                 py = np.clip(np.floor(part[:, 1]).astype(int), 0, mask.shape[0] - 1)
@@ -321,7 +339,8 @@ def models(
                     paints = np.array([*group["paints"], supported.paint])
                     common_width = options.line_width or float(np.median(widths))
                     if (
-                        common_width <= min(ceiling, *group["ceilings"])
+                        cap == group["cap"]
+                        and common_width <= min(ceiling, *group["ceilings"])
                         and (options.line_width or max(widths) <= 1.6 * min(widths))
                         and (np.ptp(paints, axis=0) <= PAINT_SPREAD).all()
                     ):
@@ -339,6 +358,7 @@ def models(
                             "paints": [],
                             "contours": [],
                             "proofs": [],
+                            "cap": cap,
                         }
                     )
                 group = groups[group_index]
@@ -387,7 +407,7 @@ def models(
             for j, sub in enumerate(group["contours"])
         )
         geometry = Geometry(f"source-ink-{i}", contours)
-        shape = footprint(geometry, width)
+        shape = footprint(geometry, width, cap=group["cap"])
         if carrier is not None:
             outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
             if abs(outside.area) > 1e-8:
@@ -402,6 +422,7 @@ def models(
                     "model": "source-stroke",
                     "runs": len(contours),
                     "width": width,
+                    "linecap": group["cap"],
                     "carrier_width_ceiling": min(group["ceilings"])
                     if carrier is not None
                     else None,

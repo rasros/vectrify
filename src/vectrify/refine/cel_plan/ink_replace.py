@@ -252,6 +252,7 @@ class InkReplacement:
         continue_neighbors=False,
         ignored_neighbors=(),
         continuation_limit: int | None = None,
+        allow_carrier_contact=False,
     ):
         def reject(reason):
             self.restoration_rejections[reason] = (
@@ -272,8 +273,15 @@ class InkReplacement:
             if edge.right in selected and edge.left not in selected:
                 surrounding.add(edge.left)
         surrounding.difference_update(ignored_neighbors)
-        if -1 in surrounding or surrounding.intersection(self.graph.hidden):
+        unpainted = {-1} | {
+            i for i in self.graph.hidden if self.graph.regions[i].area == 0
+        }
+        carrier_contact = bool(surrounding & unpainted)
+        if (carrier_contact and not allow_carrier_contact) or surrounding.intersection(
+            self.graph.hidden - unpainted
+        ):
             return reject("silhouette-or-hole-contact")
+        surrounding.difference_update(unpainted)
         if surrounding - partition.owners.keys():
             return reject("missing-neighbor-ownership")
         neighbors = sorted(
@@ -343,7 +351,10 @@ class InkReplacement:
             if not list(outside):
                 covered = True
                 break
-        if require_core and not covered:
+        # A source endpoint may touch the silhouette only when one existing
+        # opaque carrier proves both the complete old mark and the new stroke
+        # body. Neighbor paint and a cap change alone cannot establish coverage.
+        if (require_core or carrier_contact) and not covered:
             return reject("unproved-core-coverage")
         for oid in neighbors:
             element = document.element(oid)
