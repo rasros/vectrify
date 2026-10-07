@@ -3895,3 +3895,110 @@ improve because the pool contains no gate-passing alternative. A mini-ML ranker
 and product slider remain later work. All combined sword, broader feature,
 coverage, line, runtime/memory, editing, held-out and blind-review gates remain
 open. The implementation goal remains active.
+
+## Paired closed ink and compact underpaint
+
+This package adds a source-supported closed-rim competitor to filled ink
+replacement. It fits both complete source perimeters, removes the replaced
+fragments and continues neighboring paint beneath the fitted rim. Opposite
+winding, complete ownership, bounded geometry, native core coverage and draw
+order must validate before the candidate reaches normal scoring. Requested or
+source-fixed line widths exclude this interpretation. Deliberate gaps,
+genuine alpha holes and unsupported cavities retain existing alternatives.
+
+For a cavity owned by one opaque surface and surrounded by another, the two
+paints share a compact boundary beneath the rim. Native rasterization must
+prove that every mixed underpaint pixel is covered by fully opaque ink, and
+that visible inner/outer antialias pixels receive the corresponding pure
+paint. Group opacity remains intact. Gradient definitions and coordinate
+frames remain intact; partial-opacity paint cannot establish this proof.
+Other cavities use traced paint continuations. This is a narrow operator,
+not yet discovery of arbitrary closed ridges or multi-owner cavities.
+
+### Controlled verification
+
+The saved fixtures at `.bench/source-rim-fixtures` compare full, half and
+quarter group opacity. Each drawing falls from **94 nodes, 15 paths, 16
+contours and cost 188** to **23 nodes, four paths, five contours and cost 51**.
+Native alpha is exact, cavity paint remains correct, primary source ownership
+is complete and independent local/full raster comparisons agree. Maximum
+score-term differences are at most **1.581e-11**. These are synthetic controls,
+not evidence of human-reference improvement on artwork.
+
+Twenty-one new rim cases cover search/checkpoint/save/reload behavior,
+deliberate gaps and holes, unsupported cores, source widths, gradients,
+scaled/offset native coordinates, sheared/reflected local frames, reversed
+neighbor order, work interruption and conservative fallback when native
+coverage is insufficient. Three additional discovery-interruption cases
+verify retained checkpoints and canceled-work rollback. The relevant suite
+passes **715 tests in 78.56 seconds**. Ruff passes; Pyrefly reports zero errors
+and the existing 61 warnings.
+
+### Matched sword and discovery audit
+
+The final algorithm source SHA-256 is
+`ea17c4f0c2bc7c4c822020901a3a224d429a56564bb994c7ff0901bd3117d0da`.
+The final native, paired, audit and fixture reports use this source. The
+60-second sword run at complexity 50, balanced quality and refinement disabled
+is saved at `.bench/planned-source-rims-final`.
+
+It retains **8,571 nodes, 1,313 contours, 1,283 paths, cost 16,749 and human
+MSE 550.854631** in **52.56 seconds**. Its PNG is byte-identical to the preceding
+component-contract result. There are 14 evaluations, 11 local admissions,
+four checkpoint attempts and zero score disagreements. Discovery reaches its
+local time slice; useful independently validated checkpoints survive. No new
+rim or compact-underpaint proposal is emitted. **There is no sword quality
+gain and no frozen gate passes.**
+
+An intermediate run at `.bench/planned-source-rims-ordered` failed optional
+search when a component dependency seal raised an interruption during proposal
+discovery. It reverted to the initializer (10,286 nodes, 1,711 contours and
+human MSE 512.8079). Commit `272516c` catches that interruption at component
+binding and the search cursor. Discovery can end cleanly while an uncanceled,
+live independent checkpoint validates previous admissions. A canceled or
+expired validation budget cannot publish those edits. The failed run remains
+recorded; the final result above supersedes it.
+
+The bounded source-only audit `.bench/source-rim-final-audit` examines 16 ink
+groups on the initializer and 16 after a coarse material replacement, with
+180 seconds of shared work. Both finish without interruption and emit zero
+new rim candidates. Its local driver `.bench/diagnose-source-rims-final.py`
+has SHA-256
+`2dfde8aab05816dc3d3d13563201e33bfac5794263cdd183cbd855a9ae08154f`.
+
+The deeper diagnostic `.bench/source-rim-deep-audit` temporarily sets its group
+cap to 64; production remains at 16. It exhausts **60 eligible groups on the
+initializer and 59 after material replacement**, without reaching that larger
+cap or its deadline. Initial exclusions comprise 49 groups without supported
+ridges, one area bound and ten incompatible rim topologies; the coarse state
+has 50, one and eight respectively. Neither emits a new rim. These counts
+describe the existing eligibility and bounded path-family grouping, not every
+possible geometric ridge in the raster. Its local driver
+`.bench/diagnose-source-rims-deep.py` has SHA-256
+`91eab564dc0f9863a8f629eef8c77b8a1482308e7e0de8120fa34d44401242e1`.
+Giving this existing palette-owned group pool more search time does not supply
+the missing complete contour.
+
+### Paired controls and next work
+
+All four clean, half-opacity, 192-pixel controls at
+`.bench/planned-source-rims-final-rgba-pairs` finish successfully and retain
+byte-identical PNGs to
+`.bench/planned-core-material-cells-structural-first-rgba-pairs`. No new rim is
+emitted. Girl/face/park/band retain 175/176/545/405 nodes, costs
+331/272/979/757, clean MSE 165.4348/206.7383/178.7425/167.7354 and Line F
+0.270/0.589/0.652/0.641. Generation takes 11.94/17.45/10.55/12.95 seconds,
+with 16/16/24/16 evaluations. Unchanged controls do not establish broader
+artwork benefit from the new operator.
+
+The next structural work must discover continuous source ridges across palette
+boundaries, require complete tangent/width support and split mixed original
+atoms exactly when only part belongs to ink. Preserve deliberate gaps and
+separately owned marks. Extend enclosed paint to multiple owners with retained
+highlights, and fit shared long facet boundaries jointly with paint. Remove
+the old fragments when replacing them; additive outlines or majority ownership
+cannot satisfy the replacement. The compact paired-rim operator supplies a
+validated target representation, but its current palette-family discovery
+cannot reach the sword's contours. ML ranking and slider calibration remain
+later work. All delivery and release gates remain open; the implementation
+goal remains active.

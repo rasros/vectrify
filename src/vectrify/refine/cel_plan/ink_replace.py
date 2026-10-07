@@ -7,6 +7,7 @@ overlap. Exact local scoring and independent full checkpoints choose edits.
 
 from __future__ import annotations
 
+import hashlib
 import time
 from collections import deque
 from dataclasses import replace
@@ -14,7 +15,6 @@ from typing import cast
 
 import numpy as np
 import pathops
-from cairosvg.colors import color
 from scipy.ndimage import distance_transform_edt, find_objects, gaussian_filter
 
 from vectrify.document import Editor, Element, Geometry, PathNode, Selection, Subpath
@@ -26,7 +26,6 @@ from vectrify.document.join import (
     transformed_geometry,
     union_geometry,
 )
-from vectrify.document.model import paint_server
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
@@ -34,8 +33,12 @@ from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import Families, _opacity
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
+from vectrify.refine.cel_plan.ink_contours import rim
+from vectrify.refine.cel_plan.ink_underpaint import compact as compact_underpaint
+from vectrify.refine.cel_plan.layer_order import ordered, ordered_surfaces
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
+from vectrify.refine.cel_plan.nested import opaque_fill
 from vectrify.refine.cel_plan.opacity import fit_samples
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.search import Proposal, State
@@ -91,6 +94,16 @@ class InkReplacement:
             "filled_proposals": 0,
             "time_bounded": 0,
             "restoration_neighbors_peak": 0,
+            "rim_topology_exclusions": 0,
+            "rim_perimeter_limits": 0,
+            "rim_no_compaction": 0,
+            "rim_without_restoration": 0,
+            "rim_order_exclusions": 0,
+            "rim_proposals": 0,
+            "rim_compact_underpaints": 0,
+            "rim_explicit_width_exclusions": 0,
+            "order_proofs": 0,
+            "order_proof_limits": 0,
         }
 
     def groups(self, state: State, work: Work):
@@ -304,9 +317,7 @@ class InkReplacement:
             if (
                 float(style["fill-opacity"]) != 1
                 or float(style["opacity"]) != 1
-                or style["fill"] == "none"
-                or paint_server(style["fill"]) is not None
-                or color(style["fill"])[3] != 1
+                or not opaque_fill(document, style["fill"])
             ):
                 continue
             # Membership alone does not prove that a partial opacity core covers
@@ -462,6 +473,214 @@ class InkReplacement:
         finally:
             self.diagnostics["time_bounded"] += int(bounded.interrupted)
 
+    def rims(
+        self,
+        state,
+        ids,
+        members,
+        original,
+        box,
+        own,
+        survivor,
+        paint,
+        inks,
+        ratio,
+        work,
+    ):
+        from vectrify.refine.cel_plan.proposals import bounds
+
+        if (
+            self.options.line_width
+            or self.evidence.filled_line_width
+            or any(self.graph.regions[i].fixed for i in members)
+        ):
+            self.diagnostics["rim_explicit_width_exclusions"] += 1
+            return
+        document = state.document
+        compact = rim(
+            document,
+            survivor,
+            self.evidence,
+            box,
+            own,
+            original,
+            self.options.boundary_tolerance,
+            work,
+            self.diagnostics,
+        )
+        if compact is None or work.interrupted:
+            return
+        shape, models = compact
+        shape = identified(shape, survivor)
+        restored = self.restorations(
+            state,
+            members,
+            original,
+            box,
+            own,
+            survivor,
+            work,
+            coverage=shape,
+            require_core=True,
+            continue_neighbors=True,
+        )
+        if work.interrupted:
+            return
+        if restored is None:
+            self.diagnostics["rim_without_restoration"] += 1
+            return
+        continuations, neighbors = restored
+        compact = compact_underpaint(
+            state,
+            self.evidence,
+            self.graph,
+            ids,
+            members,
+            own,
+            box,
+            original,
+            shape,
+            survivor,
+            neighbors,
+            self.options.boundary_tolerance,
+            work,
+            self.diagnostics,
+        )
+        if work.interrupted:
+            return
+        hidden = {element.id: members for element, _ in continuations}
+        underpaint_model = "traced"
+        intrinsic_opacity = min(1.0, paint.opacity / _opacity(document, survivor))
+        if compact is not None:
+            continuations, hidden, underpaint_model = compact
+            continuations = [(e, identified(g, e.id)) for e, g in continuations]
+            # Compact underpaint requires the same intrinsically opaque ink
+            # already proved for every old fragment. Group opacity stays exact.
+            intrinsic_opacity = 1.0
+        continued_ids = {element.id for element, _ in continuations}
+        assert state.partition is not None
+        changed = state.partition.replace(ids, (Surface(survivor, members, "overlay"),))
+        changed = Partition(
+            tuple(
+                replace(s, covered=tuple(sorted(set(s.covered) | set(hidden[s.id]))))
+                if s.id in continued_ids
+                else s
+                for s in changed.surfaces
+            ),
+            changed.atoms,
+        )
+        editor = Editor(document, selection=Selection(whole_document=True))
+        with editor.transaction("Fit closed ink and continue adjacent paint") as tx:
+            tx.delete_objects(frozenset(set(ids) - {survivor}))
+            tx.replace_geometry(survivor, shape)
+            tx.set_fill(survivor, paint.color)
+            tx.set_attributes(
+                survivor,
+                {
+                    "fill-rule": "nonzero",
+                    "stroke": "none",
+                    "fill-opacity": repr(intrinsic_opacity),
+                },
+            )
+            for element, geometry in continuations:
+                tx.replace_geometry(element.id, geometry)
+                tx.set_attributes(element.id, {"fill-rule": "nonzero"})
+        footprint = union_geometry([original, shape], [{"fill-rule": "nonzero"}] * 2)
+        if compact is not None:
+            outer, inner = (element.id for element, _ in continuations)
+            inner_footprint = union_geometry(
+                [
+                    document.geometry_for(inner),
+                    editor.snapshot.document.geometry_for(inner),
+                ],
+                [
+                    path_style(document, document.element(inner)),
+                    {"fill-rule": "nonzero"},
+                ],
+            )
+            proposed = ordered_surfaces(
+                editor.snapshot.document,
+                (inner, survivor),
+                {outer},
+                (),
+                (inner_footprint, footprint),
+                work,
+                self.diagnostics,
+            )
+        else:
+            proposed = ordered(
+                editor.snapshot.document,
+                survivor,
+                continued_ids,
+                (),
+                footprint,
+                work,
+                self.diagnostics,
+            )
+        if work.interrupted:
+            return
+        if proposed is None:
+            self.diagnostics["rim_order_exclusions"] += 1
+            return
+        self.diagnostics["rim_proposals"] += 1
+        self.diagnostics["filled_proposals"] += 1
+        edited = (*ids, *(element.id for element, _ in continuations))
+        holds = (
+            (set(state.details.get("geometry_constraints", ())) - set(ids))
+            | continued_ids
+            | {survivor}
+        )
+        yield Proposal(
+            "ink-replacement",
+            edited,
+            (
+                "filled",
+                members,
+                ratio,
+                "source-rim",
+                models,
+                underpaint_model,
+                hashlib.sha256(shape.path_data().encode()).hexdigest(),
+            ),
+            state.key,
+            proposed,
+            bounds(document, proposed, edited),
+            details={
+                "regions": sum(s.role != "underlay" for s in changed.surfaces),
+                "geometry_constraints": sorted(holds),
+                "chain_constraints": discard(
+                    state.details.get("chain_constraints"), edited
+                ),
+                "paint_constraints": sorted(
+                    (set(state.details.get("paint_constraints", ())) - set(ids))
+                    | (
+                        {survivor}
+                        if set(state.details.get("paint_constraints", ())).intersection(
+                            ids
+                        )
+                        else set()
+                    )
+                ),
+                "ink_replacement": {
+                    "model": "filled",
+                    "boundary_model": "source-rim",
+                    "boundary_models": models,
+                    "underpaint_model": underpaint_model,
+                    "intrinsic_opacity": intrinsic_opacity,
+                    "removed_paths": len(ids) - 1,
+                    "continued_neighbors": len(continuations),
+                    "underlays": 0,
+                    "width_ratio": ratio,
+                    "support": min(ink.support for ink in inks),
+                    "peak_gap": max(ink.peak_gap for ink in inks),
+                    "original_nodes": sum(len(s.nodes) for s in original.subpaths),
+                    "fitted_nodes": sum(len(s.nodes) for s in shape.subpaths),
+                },
+            },
+            dependencies=(document.ancestry(survivor)[-2].id,),
+            partition=changed,
+        )
+
     def proposals(self, state: State, work: Work):
         from vectrify.refine.cel_plan.proposals import bounds
 
@@ -500,6 +719,19 @@ class InkReplacement:
             opacity = _opacity(document, survivor)
             if work.interrupted or opacity <= 0:
                 return
+            yield from self.rims(
+                state,
+                ids,
+                members,
+                geometry,
+                box,
+                own,
+                survivor,
+                paint,
+                inks,
+                ratio,
+                work,
+            )
             variants = [("filled", geometry, [], (), 0.0)]
             # Width variation is a reason to retain a filled mark. A user width
             # remains a competing fixed-width interpretation under exact checks.

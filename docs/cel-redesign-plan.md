@@ -239,6 +239,27 @@ quality improvement, a calibrated slider or a completed delivery. The detailed
 source hashes, negative runs and verification requirements are in the progress
 record.
 
+A paired closed-ink competitor now fits the complete inner/outer source
+perimeters and continues adjacent paint under the rim. A compact cavity and
+surrounding material share a boundary that native rasterization proves hidden
+by opaque ink; visible antialias pixels retain the correct side paint. The
+controlled ring falls from 94 nodes / 15 paths to 23 nodes / 4 paths, with
+unchanged alpha, ownership, gradient frames and independent local/full checks.
+This is a verified operator foundation, not a sword quality improvement.
+
+The matched sword and four paired tuning renders remain unchanged. A deeper
+diagnostic exhausts 60 eligible ink groups on the initializer and 59 after
+material replacement without finding a complete annular ink family. It
+temporarily inspects up to 64 groups, outside production's unchanged 16-group
+limit; neither diagnostic phase hits that larger cap or its deadline. More
+search over the existing palette-owned families would not expose the required
+rim. Prioritize ridge continuity across palette boundaries, with tangent/width
+and complete source support. Split mixed original atoms exactly when ink uses
+only part of an owner. Preserve deliberate gaps and separately owned marks;
+an additive outline or majority ownership assignment does not complete this
+replacement. The source hashes and bounded/deeper pool records are in the
+progress document.
+
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local
 draw order included in each replacement. Validate the jewel rim/highlight,
