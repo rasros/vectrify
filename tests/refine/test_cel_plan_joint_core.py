@@ -11,6 +11,7 @@ from tests.refine.test_cel_plan_piecewise_surfaces import marked_step
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.svg import parse_path
 from vectrify.refine import cel
+from vectrify.refine.cel_plan import core_cells
 from vectrify.refine.cel_plan.core_cells import CoreCells, _filled, _supported_outlines
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.geometry import Boundaries
@@ -21,6 +22,7 @@ from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
+from vectrify.refine.cel_plan.search import search
 
 
 @pytest.mark.parametrize("step", [8, 10, 16])
@@ -60,15 +62,199 @@ def test_thin_material_between_two_fills_keeps_both_shared_boundaries(step):
     np.testing.assert_array_equal(actual[..., 1].sum(), strip.sum())
 
 
+def test_joint_material_budget_keeps_short_hatching_as_supported_ink():
+    evidence = material(128)
+    labels, target, rgba = (
+        evidence.labels.copy(),
+        evidence.target.copy(),
+        evidence.rgba.copy(),
+    )
+    drawn = np.zeros_like(evidence.empty)
+    for i, x in enumerate((20, 35, 50, 65), start=9):
+        for y in range(14, 44):
+            xx = x + (y - 14) // 3
+            labels[y, xx] = i
+            target[y, xx] = 10
+            rgba[y, xx, :3] = 10 / 255
+            drawn[y, xx] = True
+    evidence = replace(
+        evidence,
+        labels=labels,
+        target=target,
+        smooth=target,
+        coarse=target,
+        rgba=rgba,
+        drawn=drawn,
+        line=drawn,
+    )
+    frontier, state, options = prepared(evidence, layers=True)
+    factory = CoreCells(
+        Families(evidence, build(evidence), options),
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="curve",
+    )
+    edits = list(factory(state, Work.start(10)))
+    assert edits
+    for edit in edits:
+        actual = render(export_svg(edit.document), evidence.source_size)
+        assert np.mean(cel.lightness(actual[drawn, :3] * 255) < 100) >= 0.9
+        assert frontier.policy.evaluate(export_svg(edit.document)).valid
+        assert edit.partition.follows(state.partition)
+    assert factory.diagnostics["hierarchy_ink_cells_peak"] >= 1
+    assert factory.diagnostics["hierarchy_ink_paint_links_peak"] >= 3
+
+
+def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners():
+    evidence = material(128)
+    labels, target, rgba = (
+        evidence.labels.copy(),
+        evidence.target.copy(),
+        evidence.rgba.copy(),
+    )
+    drawn = np.zeros_like(evidence.empty)
+    for i in range(70):
+        x, y = 10 + (i % 14) * 5, 10 + (i // 14) * 8
+        labels[y : y + 4, x : x + 4] = i + 9
+        target[y : y + 4, x : x + 4] = 10
+        rgba[y : y + 4, x : x + 4, :3] = 10 / 255
+        drawn[y : y + 4, x : x + 4] = True
+    evidence = replace(
+        evidence,
+        labels=labels,
+        target=target,
+        smooth=target,
+        coarse=target,
+        rgba=rgba,
+        drawn=drawn,
+        line=drawn,
+    )
+    frontier, state, options = prepared(evidence, layers=True)
+    factory = CoreCells(
+        Families(evidence, build(evidence), options),
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="curve",
+    )
+    edits = list(factory(state, Work.start(15)))
+    assert edits
+    for edit in edits:
+        actual = render(export_svg(edit.document), evidence.source_size)
+        dark = cel.lightness(actual[..., :3] * 255) < 50
+        np.testing.assert_array_equal(dark & ~evidence.empty, drawn)
+        assert frontier.policy.evaluate(export_svg(edit.document)).valid
+        assert set(edit.partition.owners) == set(state.partition.owners)
+        assert edit.partition.follows(state.partition)
+        assert len(edit.partition.atoms.cuts) == 0
+    assert 1 <= factory.diagnostics["hierarchy_ink_cells_peak"] < 64
+    assert factory.diagnostics["hierarchy_ink_paint_links_peak"] >= 69
+
+
+def test_broad_flat_dark_material_is_not_ink_even_when_cel_marks_it_drawn():
+    evidence = material(128)
+    target, rgba = evidence.target.copy(), evidence.rgba.copy()
+    target[~evidence.empty] = 100
+    rgba[~evidence.empty, :3] = 100 / 255
+    evidence = replace(
+        evidence,
+        target=target,
+        smooth=target,
+        coarse=target,
+        rgba=rgba,
+        drawn=~evidence.empty,
+        line=~evidence.empty,
+    )
+    _, state, options = prepared(evidence, layers=True)
+    factory = CoreCells(
+        Families(evidence, build(evidence), options),
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="curve",
+    )
+    assert list(factory(state, Work.start(10)))
+    assert factory.diagnostics["hierarchy_ink_cells_peak"] == 0
+
+
+def test_co_paint_links_share_the_component_discovery_edge_bound(monkeypatch):
+    evidence = material(128)
+    _, state, options = prepared(evidence, layers=True)
+    monkeypatch.setattr(core_cells, "MAX_REGION_EDGES", 64)
+    monkeypatch.setattr(core_cells, "ink_paint_links", lambda *_: [(0, 1)] * 65)
+    factory = CoreCells(
+        Families(evidence, build(evidence), options),
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="curve",
+    )
+    assert list(factory(state, Work.start(10))) == []
+    assert factory.diagnostics["bounded"] == 1
+    assert factory.diagnostics["proposals"] == 0
+    assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
+
+
+def test_offline_dynamic_component_publishes_through_full_native_checkpoint():
+    evidence = material(128)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y - 8) // 3 * 16 + (x - 8) // 5)
+    evidence = replace(evidence, labels=labels.astype(np.int32))
+    frontier, state, options = prepared(evidence, layers=True)
+    families = Families(evidence, build(evidence), options)
+    factory = CoreCells(
+        families,
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="curve",
+    )
+
+    validator = Operators(evidence, build(evidence), options)
+
+    class DynamicOnly:
+        def __call__(self, current, work):
+            yield from factory(current, work)
+
+        def validate_partition(self, partition, work):
+            validator.validate_partition(partition, work)
+
+    result = search(frontier, options, Work.start(15), DynamicOnly())
+    assert result["accepted"] > 0
+    assert result["score_disagreements"] == 0
+    selected = frontier.select(50)
+    assert selected.metrics["nodes"] < state.snapshot.evaluation.structure["nodes"]
+    assert any(
+        e["operator"] == "joint-core-cells" for e in selected.metrics["local_edits"]
+    )
+    assert selected.metrics["core_material_cells"]["grouping"] == "ward"
+    assert selected.metrics["core_material_cells"]["boundary_fit"] == "curve"
+    assert factory.diagnostics["proposals"] > 0
+    assert frontier.policy.evaluate(selected.svg).valid
+    partition = Partition.from_metadata(selected.metrics["planning_surfaces"])
+    assert partition.follows(state.partition)
+
+
 @pytest.mark.parametrize("alpha", [255, 128, 64])
 @pytest.mark.parametrize("hole", [False, True])
+@pytest.mark.parametrize(
+    ("grouping", "boundary_fit"),
+    [("static", "polygon"), ("ward", "polygon"), ("ward", "curve")],
+)
 def test_joint_component_includes_every_eligible_owner_with_complete_uncut_support(
-    alpha, hole
+    alpha, hole, grouping, boundary_fit
 ):
     evidence = material(alpha, hole)
     frontier, state, options = prepared(evidence, layers=True)
     graph = build(evidence)
-    factory = CoreCells(Families(evidence, graph, options), options, joint=True)
+    factory = CoreCells(
+        Families(evidence, graph, options),
+        options,
+        joint=True,
+        grouping=grouping,
+        boundary_fit=boundary_fit,
+    )
     edits = list(factory(state, Work.start(15)))
     assert edits
     for edit in edits:
@@ -113,8 +299,10 @@ def test_joint_component_includes_every_eligible_owner_with_complete_uncut_suppo
 
 
 @pytest.mark.parametrize("protection", ["paint", "locked", "pinned", "fixed"])
+@pytest.mark.parametrize("grouping", ["static", "ward"])
 def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_owner(
     protection,
+    grouping,
 ):
     evidence = marked_step(128)
     frontier, state, options = prepared(evidence, layers=True)
@@ -149,7 +337,9 @@ def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_ow
             ),
         )
     state = replace(state, document=document)
-    factory = CoreCells(Families(evidence, graph, options), options, joint=True)
+    factory = CoreCells(
+        Families(evidence, graph, options), options, joint=True, grouping=grouping
+    )
     edits = list(factory(state, Work.start(15)))
     assert edits
     for edit in edits:

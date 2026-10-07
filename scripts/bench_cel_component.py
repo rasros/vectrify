@@ -51,7 +51,15 @@ def digest(value):
     return hashlib.sha256(value).hexdigest()
 
 
-def run(case, output, *, seconds=180, normalizer=None):
+def run(
+    case,
+    output,
+    *,
+    seconds=180,
+    normalizer=None,
+    grouping="static",
+    boundary_fit="polygon",
+):
     started, revision = time.monotonic(), source_hash()
     _, reference = load_case(DATA / case["file"])
     truth = np.asarray(reference, dtype=np.float32) / 255
@@ -90,7 +98,13 @@ def run(case, output, *, seconds=180, normalizer=None):
             metadata,
             partition=partition,
         )
-        factory = CoreCells(Families(evidence, graph, options), options, joint=True)
+        factory = CoreCells(
+            Families(evidence, graph, options),
+            options,
+            joint=True,
+            grouping=grouping,
+            boundary_fit=boundary_fit,
+        )
         (output / "initializer.svg").write_text(svg)
         rows.append(
             {
@@ -187,6 +201,8 @@ def run(case, output, *, seconds=180, normalizer=None):
         "mask_sha256": digest(mask.tobytes()),
         "settings": {"complexity": 50, "quality": "balanced", "refine": False},
         "normalizer": actual_normalizer,
+        "grouping": grouping,
+        "boundary_fit": boundary_fit,
         "normalizer_source": "source-only-baseline"
         if normalizer is None
         else "override",
@@ -207,6 +223,10 @@ def main():
     parser.add_argument("--case", default="sword")
     parser.add_argument("--seconds", type=float, default=180)
     parser.add_argument("--normalizer", type=float)
+    parser.add_argument("--grouping", choices=("static", "ward"), default="static")
+    parser.add_argument(
+        "--boundary-fit", choices=("polygon", "curve"), default="polygon"
+    )
     parser.add_argument("--out", type=Path, default=Path(".bench/cel-component"))
     args = parser.parse_args()
     if not math.isfinite(args.seconds) or args.seconds <= 0:
@@ -218,7 +238,14 @@ def main():
     cases = {c["name"]: c for c in json.loads(MANIFEST.read_text())["cases"]}
     if args.case not in cases:
         parser.error(f"Unknown case: {args.case}")
-    run(cases[args.case], args.out, seconds=args.seconds, normalizer=args.normalizer)
+    run(
+        cases[args.case],
+        args.out,
+        seconds=args.seconds,
+        normalizer=args.normalizer,
+        grouping=args.grouping,
+        boundary_fit=args.boundary_fit,
+    )
 
 
 if __name__ == "__main__":

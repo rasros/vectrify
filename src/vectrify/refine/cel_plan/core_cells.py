@@ -36,6 +36,7 @@ from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.geometry import Boundaries
 from vectrify.refine.cel_plan.local import Box
+from vectrify.refine.cel_plan.material_groups import grouped, ink_paint_links
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import in_core, opaque_fill
 from vectrify.refine.cel_plan.opacity import Paint
@@ -114,19 +115,38 @@ class Cell:
 
 
 class CoreCells:
-    """Owned material replacements; joint mode is a paint-budget ablation.
+    """Owned material replacements with bounded joint ink/material hypotheses.
 
-    Joint mode can consume paint owners that overlap inferred ink. It tests
-    whether color adjacency alone can supply a compact component, rather than
-    claiming to reconstruct ink or facets. It is not enabled in native search.
+    Joint mode can consume paint owners that overlap inferred ink. Dynamic
+    paint costs and shared fitting compete in native search for substantially
+    fragmented components. Static budget grouping remains an offline ablation.
+    Neither mode claims to complete continuous ink and facet reconstruction.
     """
 
-    def __init__(self, families, options, *, minimum_paths=3, joint=False):
+    def __init__(
+        self,
+        families,
+        options,
+        *,
+        minimum_paths=3,
+        joint=False,
+        grouping="static",
+        boundary_fit="polygon",
+    ):
+        if grouping not in {"static", "ward"} or (grouping != "static" and not joint):
+            raise ValueError("Dynamic grouping requires a joint material proposal")
+        if boundary_fit not in {"polygon", "curve"} or (
+            boundary_fit != "polygon" and not joint
+        ):
+            raise ValueError("Boundary fitting requires a joint material proposal")
         self.families, self.options = families, options
         self.minimum_paths = minimum_paths
         self.joint = joint
+        self.grouping = grouping
+        self.boundary_fit = boundary_fit
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
+        self._ridge_support = None
         self.diagnostics: dict = dict.fromkeys(
             (
                 "cores",
@@ -152,18 +172,20 @@ class CoreCells:
                 "joint_forced_merges",
                 "empty_cell_exclusions",
                 "degenerate_region_retries",
+                "hierarchy_components_peak",
+                "hierarchy_retained_owners_peak",
+                "hierarchy_queue_peak",
+                "hierarchy_queue_rebuilds",
+                "hierarchy_ink_cells_peak",
+                "hierarchy_ink_paint_links_peak",
+                "hierarchy_unmet_budgets",
             ),
             0,
         )
 
-    def _ridge_owners(self, state, work):
-        """Pair bright sides across dark troughs; coarse CEL alone is no veto.
-
-        Long supported trough components retain their current owners. Small
-        uncertain specks remain finite native score data. Explicitly fixed and
-        paint-constrained owners are protected independently by eligibility.
-        """
-        if self._ink is None:
+    def _ink_support(self, work):
+        """Broad dark material is not ink without a source-supported trough."""
+        if self._ridge_support is None:
             evidence = self.families.evidence
             visible = ~evidence.empty
             light = gaussian_filter(cel.lightness(evidence.target) * visible, 0.5)
@@ -192,6 +214,20 @@ class CoreCells:
                     supported[:, :margin] = supported[:, -margin:] = False
                     paired |= supported
             paired &= evidence.drawn & ~evidence.empty
+            paired.flags.writeable = False
+            self._ridge_support = paired
+        return self._ridge_support
+
+    def _ridge_owners(self, state, work):
+        """Long supported troughs retain owners in ordinary material proposals.
+
+        Small uncertain specks remain finite native score data. Explicitly fixed
+        and paint-constrained owners are protected independently by eligibility.
+        """
+        if self._ink is None:
+            paired = self._ink_support(work)
+            if paired is None:
+                return None
             components, count = label(paired, np.ones((3, 3)))
             sizes = np.bincount(components.ravel(), minlength=count + 1)
             keep = np.zeros(count + 1, bool)
@@ -291,6 +327,19 @@ class CoreCells:
             )
             / sizes[:, None]
         )
+        ink_pixels = evidence.drawn
+        if self.grouping == "ward":
+            ink_pixels = self._ink_support(work)
+            if ink_pixels is None:
+                return
+        ink_kinds = (
+            np.bincount(
+                pixels,
+                weights=ink_pixels[own],
+                minlength=len(selected),
+            )
+            >= sizes * 0.6
+        ) & (cel.lightness(colors) <= 160)
         if work.interrupted:
             return
         nearest = distance_transform_edt(
@@ -328,6 +377,14 @@ class CoreCells:
                     self.diagnostics["bounded"] += 1
                     return
         edges = sorted(edges)
+        paint_edges = ()
+        if self.grouping == "ward":
+            paint_edges = ink_paint_links(colors, ink_kinds, work)
+            if paint_edges is None:
+                return
+            if len(edges) + len(paint_edges) > MAX_REGION_EDGES:
+                self.diagnostics["bounded"] += 1
+                return
         edges.sort(
             key=lambda e: (float(np.linalg.norm(colors[e[0]] - colors[e[1]])), e)
         )
@@ -351,42 +408,72 @@ class CoreCells:
             )
         )
         for threshold in budgets if self.joint else (56, 28, 12):
-            parents = list(range(len(selected)))
-            remaining = int(np.sum(sizes >= 16)) if self.joint else len(selected)
-            means, areas = colors.copy(), sizes.copy()
-
-            def root(i, parents=parents):
-                while parents[i] != i:
-                    parents[i] = parents[parents[i]]
-                    i = parents[i]
-                return i
-
-            for a, b in edges:
-                if work.interrupted:
-                    return
-                a, b = root(a), root(b)
-                if a == b or (
-                    not self.joint and np.linalg.norm(means[a] - means[b]) > threshold
-                ):
-                    continue
-                if self.joint and remaining <= threshold:
-                    break
-                if b < a:
-                    a, b = b, a
-                if self.joint:
-                    remaining -= int(areas[a] >= 16) + int(areas[b] >= 16)
-                means[a] = (means[a] * areas[a] + means[b] * areas[b]) / (
-                    areas[a] + areas[b]
+            eligible = None
+            if self.grouping == "ward":
+                result = grouped(
+                    colors,
+                    sizes,
+                    edges,
+                    threshold,
+                    work,
+                    kinds=ink_kinds,
+                    paint_edges=paint_edges,
                 )
-                areas[a] += areas[b]
-                parents[b] = a
-                if self.joint:
-                    remaining += int(areas[a] >= 16)
-                else:
-                    remaining -= 1
-                if self.joint:
-                    self.diagnostics["joint_forced_merges"] += 1
-            merged = np.array([root(i) for i in range(len(selected))])
+                if result is None:
+                    return
+                merged, eligible, hierarchy = result
+                areas = np.bincount(merged, weights=sizes, minlength=len(selected))
+                self.diagnostics["joint_forced_merges"] += hierarchy["merges"]
+                for key, field in (
+                    ("hierarchy_components_peak", "substantial_components"),
+                    ("hierarchy_retained_owners_peak", "retained_disconnected_owners"),
+                    ("hierarchy_queue_peak", "queue_peak"),
+                    ("hierarchy_ink_cells_peak", "ink_materials"),
+                    ("hierarchy_ink_paint_links_peak", "ink_paint_links"),
+                ):
+                    self.diagnostics[key] = max(self.diagnostics[key], hierarchy[field])
+                self.diagnostics["hierarchy_queue_rebuilds"] += hierarchy[
+                    "queue_rebuilds"
+                ]
+                self.diagnostics["hierarchy_unmet_budgets"] += hierarchy["budget_unmet"]
+            else:
+                parents = list(range(len(selected)))
+                remaining = int(np.sum(sizes >= 16)) if self.joint else len(selected)
+                means, areas = colors.copy(), sizes.copy()
+
+                def root(i, parents=parents):
+                    while parents[i] != i:
+                        parents[i] = parents[parents[i]]
+                        i = parents[i]
+                    return i
+
+                for a, b in edges:
+                    if work.interrupted:
+                        return
+                    a, b = root(a), root(b)
+                    if a == b or (
+                        not self.joint
+                        and np.linalg.norm(means[a] - means[b]) > threshold
+                    ):
+                        continue
+                    if self.joint and remaining <= threshold:
+                        break
+                    if b < a:
+                        a, b = b, a
+                    if self.joint:
+                        remaining -= int(areas[a] >= 16) + int(areas[b] >= 16)
+                    means[a] = (means[a] * areas[a] + means[b] * areas[b]) / (
+                        areas[a] + areas[b]
+                    )
+                    areas[a] += areas[b]
+                    parents[b] = a
+                    if self.joint:
+                        remaining += int(areas[a] >= 16)
+                    else:
+                        remaining -= 1
+                    if self.joint:
+                        self.diagnostics["joint_forced_merges"] += 1
+                merged = np.array([root(i) for i in range(len(selected))])
             roots, counts = np.unique(merged[pixels], return_counts=True)
             roots = roots[np.argsort(-counts, kind="stable")]
             signature = tuple(int(i) for i in merged)
@@ -402,7 +489,13 @@ class CoreCells:
                 # Isolated tiny groups keep their original independently owned
                 # geometry. They cannot consume the whole material-cell budget
                 # or disappear through a degenerate fitted contour.
-                roots = np.array([r for r in roots if areas[r] >= 16])
+                roots = np.array(
+                    [
+                        r
+                        for r in roots
+                        if areas[r] >= 16 and (eligible is None or eligible[r])
+                    ]
+                )
                 if len(roots) > MAX_REGION_CELLS:
                     self.diagnostics["region_exclusions"] += 1
                     continue
@@ -426,6 +519,7 @@ class CoreCells:
             )
             classes = palette[source[tuple(nearest)]].astype(np.uint8)
             outline_labels = np.where(support, classes.astype(np.int32) + 1, 0)
+            ink_cells = np.r_[False, ink_kinds[roots]]
 
             def check():
                 if work.interrupted:
@@ -436,14 +530,38 @@ class CoreCells:
             models = Boundaries()
 
             def boundary(
-                points: np.ndarray, _tolerance: float, models=models
+                points: np.ndarray,
+                _tolerance: float,
+                models=models,
+                outline_labels=outline_labels,
+                ink_cells=ink_cells,
             ) -> list[tuple[str, tuple[float, ...]]]:
                 check()
+                if self.grouping == "ward" and len(points) > 8:
+                    middle = (points[0] + points[1]) / 2
+                    direction = points[1] - points[0]
+                    normal = np.array([-direction[1], direction[0]]) * 0.25
+                    x, y = np.floor(middle + normal).astype(int)
+                    left = int(outline_labels[y, x])
+                    x, y = np.floor(middle - normal).astype(int)
+                    right = int(outline_labels[y, x])
+                    if ink_cells[left] or ink_cells[right]:
+                        # Gaussian fill smoothing can erase short lettering or
+                        # hatching. Fit the raw paired ink/material boundary.
+                        return cel.curve_nodes(
+                            points,
+                            0.25 * min(evidence.scale),
+                            smooth=0,
+                            fit=cel.FILL_FIT,
+                        )
                 if self.joint and 8 < len(points) <= 4096:
                     nodes = models(
                         points, min(evidence.scale) * (self.options.tolerance or 1.5)
                     )
-                    if models.decisions[-1]["model"] != "curve":
+                    if (
+                        models.decisions[-1]["model"] != "curve"
+                        or self.boundary_fit == "curve"
+                    ):
                         return nodes
                     # Generic smoothing can collapse a one-pixel-wide closed
                     # material strip. Keep canonical polygons as the fallback;
@@ -1030,7 +1148,11 @@ class CoreCells:
                     "source_maximum_rgb_residual": max(c.residual for c in cells),
                     "region_threshold": None if self.joint else region_threshold,
                     "joint": self.joint,
-                    "model_stage": "paint-budget-ablation"
+                    "grouping": self.grouping,
+                    "boundary_fit": self.boundary_fit,
+                    "model_stage": "dynamic-materials"
+                    if self.grouping == "ward"
+                    else "paint-budget-ablation"
                     if self.joint
                     else "material",
                     "cell_budget": region_threshold if self.joint else None,

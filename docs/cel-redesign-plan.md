@@ -140,7 +140,21 @@ the drawing. On the 32-cell candidate almost the entire component becomes one
 material field; many remaining cells represent narrow fringes. It does not
 establish that all color-region methods fail or that ML is required. Dynamic
 merge costs and paint-fit residuals are still valid deterministic competitors,
-but useful ink and facet hypotheses must also exist.
+but useful ink and facet hypotheses must also exist. The subsequent dynamic
+hierarchy and shared-curve experiment confirms this distinction: an unprotected
+1,750-node candidate improves global error but erases handle wrapping and harms
+the tip. Protecting source ink restores the paired controls, yet its 32/64-budget
+component proposals have 3,485/4,056 nodes and human MSE 2,321.17/573.05. Neither
+passes the practical comparison. The experiment remains offline; its temporary
+early-search integration consumed time and left a denser selected drawing.
+
+Disconnected ink may share a source-supported paint model without sharing
+physical geometry. Charge every contour and node, retain complete original
+owners, and use physical support alone to determine component eligibility.
+Colour-compatible co-paint links cannot invent bridges or turn tiny independent
+marks into a large component. Broad dark material also needs actual trough
+evidence before being treated as ink. These safeguards preserve small marks;
+they do not establish stroke continuity or a complete component interpretation.
 
 The next implementation must satisfy this component contract before another
 quality claim:

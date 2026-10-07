@@ -7,7 +7,7 @@ method remains experimental and the existing CEL default is unchanged.
 ## Baseline challenge and immediate quality priority
 
 The owner challenged whether the result provides a practical improvement.
-The answer is no: the selected 8,571-node/1,313-contour drawing has human MSE
+The answer at that checkpoint was no: the selected 8,571-node/1,313-contour drawing has human MSE
 550.854631 versus legacy CEL's 2,312 nodes/339 contours and approximately
 663.31 MSE. That is 17.0% lower error at 3.71 times the nodes and 3.87 times
 the contours. The latest source-ridge work leaves the selected raster and
@@ -29,6 +29,129 @@ contains no new generator measurement, admission-policy change or gate pass.
 The interim comparison must beat legacy structure and error with existing
 feature/coverage checks; the release target remains 800 nodes/140 contours/
 497.39 MSE. All eight deliveries and the full implementation goal remain open.
+
+## Dynamic materials and shared ink paint: still no practical gain
+
+The next experiment replaces fixed edge ordering with a bounded dynamic
+hierarchy. Every union updates area-weighted source-colour means and adjacency
+costs; stale heap entries are discarded and queue growth is bounded. Tiny
+disconnected supports retain their original geometry and ownership. Shared
+chains compare straight/ellipse fits with cubic fitting rather than emitting
+every colour boundary as a polygon. The mode is explicitly offline:
+`CoreCells(..., joint=True, grouping="ward", boundary_fit="curve")`.
+
+An earlier version without ink-role separation produced **1,750 nodes / 295
+contours / MSE 543.19** and was selected in an isolated 60-second operation in
+54.59 seconds. Its source hash is
+`39519db719e1471ea56069a3f4da91053f7c90e36153ad44a26cd314f94fd43d`;
+output is `.bench/planned-component-materials-isolated/summary.json`. This
+improves global error and counts against legacy, but tip error rises from
+527.53 to 847.69 and handle error from 762.43 to 938.70. Inspected handle crops
+show erased wrapping. Paired western lettering disappears and rubberhose line
+F1 falls from 0.641 to 0.499. This fails the combined practical comparison.
+
+Protecting every dark CEL-drawn owner initially overclassified broad blade
+shading as ink. It also left 69 disconnected ink groups, exceeding the unchanged
+64-cell bound. Source trough evidence now separates ink hypotheses from broad
+dark materials. Colour-compatible disconnected ink can share a compound paint
+model: each discovery bucket spans less than eight RGB units per channel and
+has at most one link per additional owner. Links do not add geometry or physical
+adjacency; physical support alone determines component eligibility. Complete
+source paint is fitted again and native checks still decide admission. Ink and
+material roles cannot merge. Raw paired ink boundaries avoid smoothing away
+short glyphs and hatching. Every emitted contour and node is still charged.
+
+The final coupled role experiment, before removing automatic integration, has
+source hash `61adb2d33bd66eb9368cb1c70624412bdfdd41fe6fb4026ca1b50a1d29afb9fc`.
+Its diagnostic `.bench/cel-component-ridge-compound-ink/summary.json` generated
+and validated both alternatives in **31.19 seconds**, under a separate
+180-second allowance. Human geometry was used only in scoring after discovery.
+
+| Source-only drawing | Nodes | Contours | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initializer | 10,286 | 1,711 | 20,818 | 512.81 |
+| Requested 32-cell alternative; 14 substantial exported cells | 3,485 | 378 | 5,709 | 2,321.17 |
+| Requested 64-cell alternative; 36 substantial exported cells | 4,056 | 404 | 6,620 | 573.05 |
+| Legacy CEL reference | 2,312 | 339 | — | 663.31 |
+
+Both proposals have complete uncut source ownership, validated component seals,
+no crossings and no native admission failure. Independent native rasters match
+their local canvases. Maximum local/full term differences are **4.32e-10** and
+**4.77e-11**. The finer candidate has lower global error than legacy but uses
+75.4% more nodes and 19.2% more contours; tip and handle errors remain worse.
+Native crops show that continuous handle wrapping is still missing. Neither
+is a practical combined gain or a frozen balanced gate pass.
+
+The temporary early-search integration attempted and retained the coarse
+candidate but timed out before validating the finer one. The 60-second operation
+selected **10,098 nodes / 1,661 contours / MSE 513.22** in **54.24 seconds**.
+`.bench/planned-ridge-compound-ink/summary.json` records this result. It is a
+denser selected drawing, not an improvement against legacy. Automatic integration
+was removed; the new mode remains an offline comparator. Do not describe the
+unprotected 1,750-node output as the current selected result.
+
+Four matched clean half-opacity controls use the same prototype hash, 192-pixel
+long side, 20-second limit, balanced quality, complexity 50 and refinement off.
+`.bench/planned-ridge-compound-ink-pairs/summary.json` records results identical
+to the previous measured control outputs:
+
+| Control | Nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl | 175 | 25 | 165.434759 | 0.270 |
+| anime-face | 176 | 16 | 206.738285 | 0.589 |
+| western-park | 545 | 75 | 178.742483 | 0.652 |
+| rubberhose-band | 405 | 62 | 167.735359 | 0.641 |
+
+Restoring these regressions is necessary, not broader quality evidence. The
+control corpus and held-out/blind-review requirements remain unchanged.
+
+Next reconstruct continuous supported ink and the adjacent paint together,
+including exact cuts of mixed source atoms, anchored corners/junctions and
+width, coherent facet boundaries and supported highlights. Complete ownership
+does not require one output contour per input fragment. Colour grouping and a
+role vote per whole owner cannot supply those missing interpretations. Do not
+change ranking weights to force the damaged proposals to win. The learned
+structural proposer remains a separate conditional experiment; a ranker cannot
+repair absent stroke geometry. Slider calibration and automatic fitting follow
+a useful compact component. All eight deliveries and release gates remain open.
+
+After removing automatic integration and adding the shared discovery-edge
+bound, all final verification runs use source SHA-256
+`656dc05c3af93b1229e205341e420699aa7dab520bbf1ce5b67ef8517ca66732`.
+The authoritative offline replay is
+`.bench/cel-component-bounded-final/summary.json`; it reproduces both node,
+contour, cost, error and local/full agreement rows above in **27.71 seconds**.
+Reproduce with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py \
+  --normalizer 54564 --grouping ward --boundary-fit curve --seconds 180 \
+  --out .bench/cel-component-bounded-final
+```
+
+The final normal 60-second operation is
+`.bench/planned-material-bounded-final/summary.json`: **10,121 nodes / 1,660
+contours / MSE 514.667351**, generated in **53.56 seconds**. It contains no new
+dynamic component stage. Another isolated normal run before the additional
+offline edge guard selected 8,588 nodes / 1,315 contours / MSE 551.16. This
+time-limited search still has variable selected quality; removal of the failed
+stage does not establish repeatability or a useful complexity frontier. Both
+normal results miss the practical legacy comparison and balanced gate.
+
+The final `.bench/planned-material-bounded-final-pairs/summary.json` retains
+western lettering and rubberhose hatching at line F1 **0.652 / 0.641**, with the
+same node/contour/error rows above. Anime-face is unchanged; anime-girl selects
+174 nodes / 26 contours / MSE 161.469218, with unchanged line F1 0.270. These are
+matched tuning measurements, not held-out evidence.
+
+The final relevant regression suite passes **809 tests in 109.97 seconds**.
+Ruff and formatting checks pass; Pyrefly reports **zero errors** for the changed
+source and benchmark. Added cases cover dynamic cost updates, bounded queues,
+atomic interruption, disconnected support, distinct ink roles, co-paint links,
+70 ink islands without bridges, broad dark materials, protected marks, shared
+thin boundaries, full native publication and the combined edge bound. No
+delivery, quality gate or full implementation goal is complete.
 
 ## Compact material ablation: valid geometry, failed resemblance
 
