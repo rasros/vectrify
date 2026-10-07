@@ -9,7 +9,7 @@ from tests.refine.test_cel_plan_core_cells import material
 from tests.refine.test_cel_plan_families import prepared
 from vectrify.document import export_svg, load_project, save_project
 from vectrify.document.join import path_style
-from vectrify.refine.cel_plan import source_roles
+from vectrify.refine.cel_plan import core_cells, source_roles
 from vectrify.refine.cel_plan.core_cells import CoreCells
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.graph import build
@@ -101,7 +101,10 @@ def test_virtual_intrinsic_statistics_recompose_original_weighted_atoms(monkeypa
 @pytest.mark.parametrize("alpha", [128, 64])
 @pytest.mark.parametrize("gap", [False, True])
 @pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
-def test_joint_edit_recovers_editable_lines_inside_mixed_owners(alpha, gap, grouping):
+@pytest.mark.parametrize("ink_roles", ["connected", "fitted"])
+def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
+    alpha, gap, grouping, ink_roles
+):
     evidence, ink = mixed(alpha, gap)
     frontier, state, options = prepared(evidence, layers=True)
     graph = build(evidence)
@@ -112,6 +115,7 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(alpha, gap, grou
         grouping=grouping,
         boundary_fit="anchored",
         ink_support="connected",
+        ink_roles=ink_roles,
     )
     before = state.svg
     edits = list(factory(state, Work.start(20)))
@@ -120,9 +124,10 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(alpha, gap, grou
     supported = [e for e in edits if e.details["core_material_cells"]["stroke_models"]]
     assert supported, factory.diagnostics
     for edit in supported:
-        assert (
-            edit.details["core_material_cells"]["source_roles"]
-            == "pixel-ink-and-material"
+        assert edit.details["core_material_cells"]["source_roles"] == (
+            "stroke-body-and-material"
+            if ink_roles == "fitted"
+            else "pixel-ink-and-material"
         )
         assert edit.partition.follows(state.partition)
         assert edit.partition.atoms.cuts
@@ -333,3 +338,93 @@ def test_unmodeled_tiny_mark_stays_filled_without_a_fabricated_stroke_connection
                     for s in edit.document.geometry_for(element.id).subpaths
                     for n in s.nodes
                 )
+
+
+def test_fitted_role_competitor_uses_the_same_complete_physical_discovery_once(
+    monkeypatch,
+):
+    evidence, _ink = mixed(gap=True)
+    _frontier, state, options = prepared(evidence, layers=True)
+    graph = build(evidence)
+    calls = []
+    original = core_cells.ink_models
+
+    def observed(mask, *args, **kwargs):
+        models = original(mask, *args, **kwargs)
+        calls.append(
+            (
+                mask.copy(),
+                [(m.geometry.path_data(), m.paint.tolist(), m.details) for m in models],
+            )
+        )
+        return models
+
+    monkeypatch.setattr(core_cells, "ink_models", observed)
+    for interpretation in ("connected", "fitted"):
+        factory = CoreCells(
+            Families(evidence, graph, options),
+            options,
+            joint=True,
+            grouping="ward",
+            boundary_fit="anchored",
+            ink_support="connected",
+            ink_roles=interpretation,
+        )
+        assert list(factory(state, Work.start(20)))
+        assert factory.diagnostics["source_stroke_attempts"] == 1
+        assert bool(factory.diagnostics["source_fitted_role_pixels"]) == (
+            interpretation == "fitted"
+        )
+    assert len(calls) == 2
+    np.testing.assert_array_equal(calls[0][0], calls[1][0])
+    assert calls[0][1] == calls[1][1]
+
+
+def test_cancelled_early_stroke_discovery_cannot_publish_material_roles(monkeypatch):
+    evidence, _ink = mixed()
+    _frontier, state, options = prepared(evidence, layers=True)
+    factory = CoreCells(
+        Families(evidence, build(evidence), options),
+        options,
+        joint=True,
+        grouping="ward",
+        ink_support="connected",
+        ink_roles="fitted",
+    )
+    work = Work.start(20)
+    original = core_cells.ink_models
+
+    def cancelled(*args, **kwargs):
+        result = original(*args, **kwargs)
+        work.stop.set()
+        return result
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("Interrupted discovery must not classify material roles")
+
+    monkeypatch.setattr(core_cells, "ink_models", cancelled)
+    monkeypatch.setattr(core_cells, "observations", forbidden)
+    assert list(factory(state, work)) == []
+    assert factory.diagnostics["proposals"] == 0
+    assert factory.diagnostics["source_fitted_role_pixels"] == 0
+    assert state.partition.atoms is None
+    assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"ink_roles": "unknown"},
+        {"ink_roles": "fitted"},
+        {
+            "joint": True,
+            "grouping": "ward",
+            "ink_support": "connected",
+            "ink_roles": "fitted",
+            "layout": "ink-planes",
+        },
+    ],
+)
+def test_fitted_roles_cannot_be_silently_ignored_in_another_layout(kwargs):
+    with pytest.raises(ValueError, match="Fitted ink roles"):
+        CoreCells(None, Options(), **kwargs)

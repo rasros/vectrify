@@ -133,6 +133,7 @@ def run(
     grouping="static",
     boundary_fit="polygon",
     ink_support="paired",
+    ink_roles="connected",
     proposal="core-cells",
     compose_materials=False,
     boundary_contacts=False,
@@ -140,6 +141,8 @@ def run(
     composition_layout="regions",
     composition_boundary_fit="curve",
 ):
+    if ink_roles != "connected" and proposal != "core-cells":
+        raise ValueError("Ink role alternatives require a direct core-cell comparison")
     started, revision = time.monotonic(), source_hash()
     if case.get("paired"):
         from scripts.cel_pairs import pair
@@ -208,6 +211,7 @@ def run(
                 grouping=grouping,
                 boundary_fit=boundary_fit,
                 ink_support=ink_support,
+                ink_roles=ink_roles,
             )
         )
         (output / "initializer.svg").write_text(svg)
@@ -374,6 +378,7 @@ def run(
         "composition_diagnostics": composition_diagnostics,
         "boundary_fit": boundary_fit if proposal == "core-cells" else None,
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
+        "ink_roles": ink_roles if proposal == "core-cells" else None,
         "normalizer_source": "source-only-baseline"
         if normalizer is None
         else "override",
@@ -426,10 +431,16 @@ def main():
         "--composition-boundary-fit", choices=("curve", "anchored"), default="curve"
     )
     parser.add_argument(
-        "--boundary-fit", choices=("polygon", "curve"), default="polygon"
+        "--boundary-fit", choices=("polygon", "curve", "anchored"), default="polygon"
     )
     parser.add_argument(
         "--ink-support", choices=("paired", "connected"), default="paired"
+    )
+    parser.add_argument(
+        "--ink-roles",
+        choices=("connected", "fitted"),
+        default="connected",
+        help="Offline role competitor; fitted strokes versus uncertain dark paint",
     )
     parser.add_argument("--out", type=Path, default=Path(".bench/cel-component"))
     args = parser.parse_args()
@@ -437,6 +448,12 @@ def main():
         parser.error("Material composition requires --proposal source-strokes")
     if args.boundary_contacts and args.proposal != "source-strokes":
         parser.error("Boundary contacts require --proposal source-strokes")
+    if args.ink_roles == "fitted" and (
+        args.proposal != "core-cells"
+        or args.ink_support != "connected"
+        or args.grouping == "static"
+    ):
+        parser.error("Fitted ink roles require connected dynamic core cells")
     if not math.isfinite(args.seconds) or args.seconds <= 0:
         parser.error("Seconds must be finite and positive")
     if args.normalizer is not None and (
@@ -472,6 +489,7 @@ def main():
         grouping=args.grouping,
         boundary_fit=args.boundary_fit,
         ink_support=args.ink_support,
+        ink_roles=args.ink_roles,
         proposal=args.proposal,
         compose_materials=args.compose_materials,
         boundary_contacts=args.boundary_contacts,

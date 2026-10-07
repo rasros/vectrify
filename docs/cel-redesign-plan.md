@@ -32,6 +32,21 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
+The latest offline ink/material interpretation competitor discovers exactly the
+same complete source strokes, then treats their actual bodies as ink and the
+uncertain dark remainder as material/shading. It retains all 25 sword stroke
+contours unchanged, with no human repair hint. A 32-cell material alternative
+uses 2,355 nodes / 325 contours / human MSE 570.39; the existing higher-detail
+connected interpretation uses 6,440 / 765 / 537.31. The competitor's 64-cell
+attempt exceeds the unchanged final-cell limit. Three paired cases improve
+nodes and clean paint error, while local sword/girl/park features regress. The
+competitor is available explicitly for offline comparison, with 1,053 passing
+regression cases and nineteen native/source-graph validated proposals. It is
+not automatically scheduled. Source-line guards, coherent facets, compact
+supported opacity and the shared cost frontier remain required; all eight
+deliveries and release gates remain open. Full matched measurements and source
+hashes are in the progress record. Reference collection remains deferred.
+
 The current short-junction checkpoint recovers one existing six-pixel direct
 sword link, without changing original fitted strokes, style paints or widths.
 Every intervening raw source sample and the complete carrier must support it;

@@ -14,7 +14,107 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
-### Supported short source junction links
+### Ink versus material interpretation competitor
+
+A source-only ablation separates physical stroke discovery from interpretation
+of the remaining dark source. Connected ink currently assigns 18,193 sword
+pixels to ink roles; the complete discovered stroke bodies cover 3,218 of those
+pixels. This does **not** prove the remainder is noise: it includes unfitted
+lines, shading and texture. Keeping all of it in ink roles nevertheless consumes
+material budget and leaves fragmented filled outlines. A competing interpretation
+assigns only proved stroke-body pixels to ink and lets the uncertain remainder
+compete as material/shading with the existing flat/linear paint model.
+
+This is implemented as `CoreCells(..., ink_roles="fitted")` and the offline
+component benchmark's `--ink-roles fitted`. It requires connected dynamic joint
+material regions. The existing connected interpretation remains the default;
+production scheduling and user settings do not select the competitor. Physical
+chains are discovered **once on the same complete original source mask and
+carrier**, with unchanged spur, contact, width/paint and resource checks. The
+smaller role mask never supplies physical endpoints or a second extraction.
+Final ownership still retains or excludes whole physical chains; retained owner
+remainders preserve their original geometry and paint. Role/cancellation
+metadata is explicit. No human repair geometry participates in generation.
+
+The candidate compacts much more than the short-link correction. Matched direct
+comparisons at `.bench/cel-fitted-ink-role-competitor` give:
+
+| Case | Connected higher-detail nodes / contours / MSE / line F1 | Fitted-role highest emitted nodes / contours / MSE / line F1 |
+| --- | --- | --- |
+| Sword | 6,440 / 765 / 537.313158 / unavailable | **2,355 / 325 / 570.394090 / unavailable** |
+| Girl | 1,047 / 135 / 96.364404 / 0.097 | 596 / 72 / 84.204501 / 0.096 |
+| Face | 1,935 / 220 / 104.787607 / 0.447 | 871 / 92 / 87.663099 / 0.485 |
+| Park | 1,297 / 131 / 123.332849 / 0.161 | 778 / 78 / 123.913194 / 0.201 |
+| Band | 1,442 / 165 / 357.774914 / 0.712 | 856 / 94 / 97.728911 / 0.714 |
+
+These are emitted interpretations, not selected-operation results or a
+same-complexity claim. Paired rows use nominal 64-cell material budgets. The
+sword emits only its nominal 32-cell competitor: 35 final native cells and 41
+source cuts. Its 64-cell attempt reaches 66 final cells and is correctly
+excluded under the unchanged limit. At the same nominal 32-cell budget, the
+connected control has 4,387 nodes / 457 contours / MSE 1,438.921508. Each actual
+representation still needs comparison on the shared cost frontier.
+
+All **25 sword editable source contours have exactly unchanged geometry, paint,
+width, cap and join** between role interpretations. The jagged filled remnants
+are substantially reduced, but the handle remains incomplete. Human handle
+error rises from 840.085571 to 922.763836; blade-facet error rises from 260.028324
+to 302.321565. Guard error improves from 1,158.873929 to 1,071.804846, and jewel
+error improves from 1,323.955057 to 1,176.831393. Girl bow and several park
+features also regress. Native validity does not establish line/feature fidelity.
+All paired results remain worse than their initializer in clean paint and line
+quality. This adds a useful compact competitor with mixed fidelity, **not a
+passed sword or broader release gate**. Existing source gaps and the human
+repair remain separate; missing/unsupported-line guards must precede automatic
+scheduling. Coherent facets, source width/paint construction, compact supported
+opacity models and the common complexity frontier remain necessary.
+
+Two additional source-only interpretations were tried before implementation.
+Retaining every local painted-side ridge creates too many mixed owner cuts:
+four cases emit no candidate under existing ownership limits; girl emits two.
+Protecting the complete existing owner touched by an unmodeled ridge emits
+nothing for sword and two candidates for each paired case. These cannot solve
+the sword's faithful compact representation. Neither interpretation nor a
+raised ownership limit is adopted. Their base source hash is
+`87c70d698fe207de21d3eb4e18475161dfe96e30f45db4e9b194781283815e03`;
+artifacts record separate driver identities so temporary monkeypatches cannot
+be mistaken for that production revision. The body-only prototype is at
+`.bench/cel-supported-ink-role-ablation` (driver
+`e5bcebd5bf711f0dc78ab12b286e7422435e70adc343ae41052c2b2296e83e1f`),
+local-ridge prototype at `.bench/cel-ridge-supported-ink-role-ablation` (driver
+`f8bde750e5b72b25285467f8d6d60742d1b4125d11ed7eedf5a6b06dba840ae4`),
+and owner-ridge prototype at `.bench/cel-owner-ridge-ink-role-ablation` (driver
+`c787d92715cf450d5d327781929d0eedc691260fd471ae455e3e20922d59bd8d`).
+All fifteen prototype reports complete. Their 9/2/8 emitted proposals pass
+native admission, source-graph validation, ownership, component seals and
+local/full agreement; inputs and initializers match exactly. Ridge wrappers
+also record the hash of their expanded program separately.
+
+Current implementation source SHA-256 is
+`4e17cef70003d78784bb040eeca7396940327c1d53831dd93f34b9f8a35a7eac`.
+All ten current connected/fitted reports complete under the unchanged sword
+180-second and paired 60-second allowances, with **19 native-valid proposals
+and 19 independent source-graph validations**. Strict finite JSON, SVG hashes,
+source RGBA/masks/settings/normalizers and evaluation targets pass. Connected
+results exactly match the preceding checkpoint; fitted results exactly match
+the body-only prototype in canonical geometry/paint, saved RGBA, fresh
+unquantized native RGBA and all quality metrics. Maximum local/full score-term
+difference is 3.37757969e-9. The prior composed/plane matrix remains evidence for
+its earlier source hash; it was not repeated for this explicit direct-region
+competitor. Timings overlap regression work and other CPU-heavy builds, so no
+speedup or runtime gate is claimed.
+
+The current relevant suite passes **1,053 cases in 338.13 seconds**. Seventeen
+added cases extend native mixed-owner controls to the fitted role interpretation
+across true gaps, half/quarter opacity and Ward/paint-fit grouping; establish
+identical complete chain discovery exactly once; discard cancellation before
+classification; reject inapplicable layouts; and verify offline CLI delivery
+and early rejection. The final focused files pass 32 cases in 5.38 seconds.
+Ruff/import/format and whitespace checks pass; production Pyrefly reports zero
+errors and 62 warnings. All eight deliveries remain open, reference collection
+stays deferred, and calibration/ML cannot substitute for faithful alternatives.
+
+### Supported short source junction links (previous checkpoint)
 
 Short physical runs can now become editable links when their exact existing
 ends meet two distinct retained source chains with compatible width and paint.

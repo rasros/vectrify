@@ -157,6 +157,7 @@ class CoreCells:
         boundary_fit="polygon",
         ink_support="paired",
         layout="regions",
+        ink_roles="connected",
     ):
         if layout not in {"regions", "planes", "ink-planes"} or (
             layout != "regions" and not joint
@@ -179,12 +180,20 @@ class CoreCells:
             and (not joint or grouping not in {"ward", "paint-fit"})
         ):
             raise ValueError("Connected ink requires a dynamic joint material proposal")
+        if ink_roles not in {"connected", "fitted"} or (
+            ink_roles == "fitted"
+            and (ink_support != "connected" or layout != "regions")
+        ):
+            raise ValueError(
+                "Fitted ink roles require connected joint material regions"
+            )
         self.families, self.options = families, options
         self.minimum_paths = minimum_paths
         self.joint = joint
         self.grouping = grouping
         self.boundary_fit = boundary_fit
         self.ink_support = ink_support
+        self.ink_roles = ink_roles
         self.layout = layout
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
@@ -232,6 +241,8 @@ class CoreCells:
                 "source_chain_small_roots",
                 "source_class_roots_peak",
                 "source_final_cells_peak",
+                "source_fitted_role_pixels",
+                "source_unmodeled_material_pixels",
                 "hierarchy_model_evaluations",
                 "hierarchy_model_limits",
                 "hierarchy_alpha_exclusions",
@@ -419,9 +430,54 @@ class CoreCells:
             if ink_pixels is None:
                 return
         roles = None
+        support = (
+            np.isin(
+                graph.labels, base.members if base.role == "underlay" else base.covered
+            )
+            & ~evidence.empty
+        )
+        source_models = ()
+        carrier = None
+
+        def discover():
+            # Role alternatives must share physical source extraction. Never
+            # rediscover on the smaller fitted-role mask or material palette.
+            carrier = curve_path(
+                transformed_geometry(whole, root_matrix(state.document, base.id))
+            )
+            self.diagnostics["source_stroke_attempts"] += 1
+            return carrier, ink_models(
+                ink_pixels & support,
+                evidence,
+                self.options,
+                work,
+                carrier=carrier,
+                prune_spurs=True,
+                boundary_contacts=True,
+            )
+
+        role_ink = ink_pixels
+        if self.ink_roles == "fitted":
+            # Explicit offline competitor: uncertain dark source may be paint
+            # or shade. The connected interpretation remains independently
+            # available; this does not claim to protect every unfitted line.
+            carrier, source_models = discover()
+            if work.interrupted:
+                return
+            role_ink = np.zeros(own.shape, bool)
+            for model in source_models:
+                if work.interrupted:
+                    return
+                role_ink |= model.selected
+            self.diagnostics["source_fitted_role_pixels"] += int(
+                np.count_nonzero(role_ink & own)
+            )
+            self.diagnostics["source_unmodeled_material_pixels"] += int(
+                np.count_nonzero(ink_pixels & own & ~role_ink)
+            )
         observation_owners = np.arange(len(selected))
         if self.ink_support == "connected":
-            roles = observations(source, own, ink_pixels, work)
+            roles = observations(source, own, role_ink, work)
             if roles is None:
                 self.diagnostics["bounded"] += not work.interrupted
                 return
@@ -459,12 +515,6 @@ class CoreCells:
             ~own, return_distances=False, return_indices=True
         )
         extension = source[tuple(nearest)]
-        support = (
-            np.isin(
-                graph.labels, base.members if base.role == "underlay" else base.covered
-            )
-            & ~evidence.empty
-        )
         edges = set()
         for axis in (0, 1):
             a = extension[:-1] if axis == 0 else extension[:, :-1]
@@ -527,24 +577,12 @@ class CoreCells:
             inverse,
             (1 / evidence.scale[0], 0, 0, 1 / evidence.scale[1], *evidence.offset),
         )
-        source_models = ()
-        carrier = None
-        if self.ink_support == "connected":
+        if self.ink_support == "connected" and self.ink_roles == "connected":
             # Discover physical chains once on complete source carrier support,
             # before a material budget selects owners. Palette eligibility must
             # not change source junctions, endpoints or gaps. Contact and spur
             # handling use the same extractor as the source-ink factory.
-            carrier = curve_path(transformed_geometry(whole, matrix))
-            self.diagnostics["source_stroke_attempts"] += 1
-            source_models = ink_models(
-                ink_pixels & support,
-                evidence,
-                self.options,
-                work,
-                carrier=carrier,
-                prune_spurs=True,
-                boundary_contacts=True,
-            )
+            carrier, source_models = discover()
             if work.interrupted:
                 return
         chain_observations = np.zeros(observation_count, bool)
@@ -1804,10 +1842,15 @@ class CoreCells:
                     else None,
                     "boundary_fit": self.boundary_fit,
                     "ink_support": self.ink_support,
+                    "ink_roles": self.ink_roles,
                     "source_chain_discovery": "complete-carrier-before-material-budget"
                     if self.ink_support == "connected"
                     else None,
-                    "source_roles": "pixel-ink-and-material"
+                    "source_roles": (
+                        "stroke-body-and-material"
+                        if self.ink_roles == "fitted"
+                        else "pixel-ink-and-material"
+                    )
                     if self.ink_support == "connected"
                     else "owner-majority",
                     "stroke_models": [c.stroke for c in cells if c.stroke],
