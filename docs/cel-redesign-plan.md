@@ -64,14 +64,18 @@ keep infrastructure progress explicitly separate.
 
 Use this experimental sequence before expanding another isolated operator:
 
-1. **Audit the admission/abstraction conflict visibly.** Render each rejected
-   human/legacy crossing, hole, opacity residual and component as a marked
-   native crop. The existing benchmark-only audit records the rejection types,
-   but does not establish which differences are visible damage, intentional
-   redraw choices or raster artifacts. Build general regression controls from
-   that diagnosis, including genuine faint marks and opacity steps. Any change
-   to hard admission must follow that evidence and the existing policy-version
-   requirements; do not admit the human fixture by exception.
+1. **Keep admission diagnosis current and visible.** The native audit now uses
+   score version 4 and source-only coverage version 1. The sword has no protected
+   holes; human/legacy opacity residuals are below the unchanged allowance.
+   Both omit 25 faint components (454 pixels, total alpha mass 2.349 opaque-pixel
+   equivalents, peak alpha 1–5/255). The human has two guard crossings with
+   sampled small-loop areas of about 0.263 native pixels² each. These are the
+   remaining actual failures, not the earlier fringe/hole conflicts. The
+   reusable `scripts/audit_cel_admission.py` records all failed supports and
+   native crops on black/white backgrounds. Maintain general controls for real
+   faint marks, holes and opacity steps. Preserve these supports independently
+   and emit valid noncrossing geometry; this audit supplies no basis for a
+   blanket low-opacity exemption or relaxing the crossing rule.
 2. **Build a compact whole-component competitor from source structure.** Choose
    silhouette, continuous ink, long shared shade boundaries and local order
    before expanding color fragments into SVG paths. Fit flat/gradient material
@@ -111,8 +115,10 @@ A learned proposer remains experimental until it beats the deterministic
 competitor on held-out artwork under unchanged admission and release gates.
 No model choice or learned benefit is established by the current evidence.
 
-The immediate order is admission diagnosis and a whole-component structural
-candidate, followed by the specific integration fixes those experiments expose.
+The sword admission diagnosis is now reproducible and visually inspected;
+broader corpus validation remains open. The next quality experiment is a
+whole-component structural candidate, followed by the specific integration
+fixes it exposes.
 General multi-owner paint, open ink and facet modeling remain required behavior;
 they should contribute to that candidate rather than be reported as separate
 quality successes. Automatic optimization follows a viable compact structure.
@@ -364,15 +370,16 @@ missing interpretations from bad selection. Hold the 800-node/140-contour/
 497.39 target and local feature checks. Automatic fitting follows these viable
 structural choices; slider UI and learned ranking still depend on that milestone.
 
-A benchmark-only audit reconstructed the generator's evidence, graph, native
-policy and valid conservative baseline, then evaluated the human fixture and
-legacy output as diagnostics. The human fixture is rejected for crossings,
-translucent gaps/excess, a protected hole and a translucent component. Legacy
-CEL is rejected for translucent gaps/excess and component loss. These are
-admission conflicts with the requested abstraction, not proof that every
-rejected discrepancy is harmless. With the latest fixed detailed normalizer,
-the current objective would prefer the human fixture if it were admissible.
-Changing candidate ranking alone cannot resolve its hard rejection.
+An earlier benchmark-only audit rejected human/legacy drawings for fringe holes
+and opacity residuals as well as crossings/component loss. The implemented
+source-only material-coverage interpretation resolves the fringe/hole conflicts:
+the current native audit has zero protected sword holes and residuals below the
+85-pixel allowance. Human/legacy omit 25 faint supports and the human retains two
+small guard contour folds. These remaining diagnostic failures are localized;
+they do not establish that thousands of paint paths are necessary. Keep faint
+supports independently and construct clean geometry. No human geometry enters
+generation and no fixture exception is granted. Candidate ranking cannot supply
+the missing coherent drawing.
 
 The next work follows this order:
 

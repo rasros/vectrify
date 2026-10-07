@@ -24,11 +24,94 @@ conflicts and selection/budget failures before expanding search or tuning
 weights. A learned structural proposer is a separate conditional experiment
 from a ranker, since ranking cannot create missing alternatives.
 
-This update changes experimental priority and quality reporting only. It
+That plan update changed experimental priority and quality reporting only. It
 contains no new generator measurement, admission-policy change or gate pass.
 The interim comparison must beat legacy structure and error with existing
 feature/coverage checks; the release target remains 800 nodes/140 contours/
 497.39 MSE. All eight deliveries and the full implementation goal remain open.
+
+## Current native admission inventory
+
+Added `scripts/audit_cel_admission.py`, a reproducible benchmark-only audit.
+It reconstructs source evidence, the graph and the independently validated
+conservative baseline before evaluating human geometry or supplied candidates.
+It never changes policy or passes human geometry to generation. The frozen
+benchmark mask is checked. Reports retain source/input/candidate hashes, actual
+policy metadata, baseline limits, full rejection inventories and bounded crops.
+
+The authoritative output is `.bench/cel-admission-verified/summary.json`, with
+source SHA-256
+`2d4599cc79a8d9496d8eef88fd1fb8b6f82237620dcb2e379420e8f75dd60eb9`.
+The saved human/legacy/current SVG hashes distinguish these diagnostic inputs
+from new generator runs. Reproduce it from the retained benchmark drawings:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/audit_cel_admission.py \
+  --candidate legacy=.bench/planned-baseline/sword/cel/drawing.svg \
+  --candidate current=.bench/planned-source-ridge-cuts-accounted/sword/cel-planned/drawing.svg \
+  --out .bench/cel-admission-verified
+```
+
+The default human-only audit requires the tracked compressed fixture rather
+than either ignored generated SVG. The complete human inventory has 27 saved
+crops; legacy has 25, and the current drawing has no failures/crops. All output
+paths, source hashes and rejections were verified after the final audit.
+
+Each crop contains unmarked source/candidate views on white and black plus a
+separate annotated source panel. All unsaved findings remain in the JSON
+inventory. Four native pixel masks assert agreement with production score
+terms. Hole ceilings and component mass/retention use actual policy supports;
+the inventory includes all failed components rather than just the validator's
+first failure. Crossing locations use the same sampled geometry as the hard
+count, with instance offsets, referenced transforms, group frames and native
+viewBox/aspect mapping. Closed crossings report both sampled loop areas so a
+large main lobe is not mistaken for the small fold.
+
+The earlier plan revision relied on obsolete admission results. The current
+score-version-4/coverage-version-1 audit has 148,322 material-interior pixels,
+26 independent component supports and **no protected sword holes**. Its source
+baseline is valid with 54,320 nodes, zero crossings and zero residual pixels;
+the allowance stays 85 pixels. The baseline is a validity fallback, not a
+structural target.
+
+| Diagnostic | Missing / excess material-opacity pixels | Failed component supports | Crossings |
+| --- | ---: | ---: | ---: |
+| Human | 14 / 0 | 25 | 2 |
+| Legacy CEL | 8 / 0 | 25 | 0 |
+| Existing selected experiment | 0 / 0 | 0 | 0 |
+
+Human and legacy failures are identical faint source supports: **454 pixels**,
+combined source alpha mass **2.349020 opaque-pixel equivalents**, peak alpha
+between **1/255 and 5/255**. The largest is a three-pixel-wide, 120-pixel-long
+fringe alongside the blade, with peak alpha 2/255 and mass 0.619608. Native
+unmarked black/white crops show these as faint remnants adjacent to the artwork
+or isolated supports. That interpretation is evidence for this fixture; it
+does not justify dropping arbitrary faint marks on other artwork.
+
+The human crossings lie at approximately **(279.828, 1588.060)** and
+**(448.372, 1588.060)**, on the lower guard contours. Each sampled crossing
+has a small loop of approximately **0.263199 native pixels²** and a main lobe
+of 1,111.480617 pixels². These are actual sampled topology failures, not a
+whole missing jewel or facet. The audit neither modifies the frozen human
+fixture nor waives the noncrossing requirement.
+
+This narrows the next action: preserve faint supports as independent details
+and emit valid compact geometry while reconstructing coherent paint and ink.
+The current rejection inventory does not explain or justify 8,571 nodes.
+No further fringe/hole policy change is indicated by this sword evidence.
+Candidate availability remains the principal quality problem. Continue the
+whole-component structural experiment with exact source ownership, multiple
+materials, long shared boundaries and retained highlights; cache sharing is
+still needed where exact-cut composition hits its known live-storage bound.
+
+Twelve new test cases cover exhaustive faint loss at full/half/one-byte alpha,
+pixel-threshold agreement, reduced-opacity hole ceilings, transformed and
+instanced crossings, native viewBox/aspect mapping and bounded unmarked crops.
+The focused audit/policy/coverage/frozen-fixture suite passes **42 tests**;
+Ruff passes and Pyrefly reports zero errors for the new script. Production
+policy and generation behavior are unchanged; this is diagnostic progress,
+not a new quality measurement, release pass or completed delivery.
 
 ## Current implementation
 
