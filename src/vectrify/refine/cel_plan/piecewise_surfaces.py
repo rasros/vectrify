@@ -38,6 +38,7 @@ from vectrify.refine.cel_plan.model import Work
 from vectrify.refine.cel_plan.nested import enclosed, in_core
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.search import Proposal
+from vectrify.refine.cel_plan.supported_boundaries import supported
 from vectrify.refine.cel_plan.surface_models import prediction
 from vectrify.refine.cel_plan.surface_splits import SurfaceSplits, fit, lines
 from vectrify.refine.colour_regions import simplified_indices
@@ -114,7 +115,7 @@ class PiecewiseSurfaces:
     def __init__(self, families, options):
         self.families, self.options = families, options
         self.splitter = SurfaceSplits(families, options)
-        self.diagnostics = {
+        self.diagnostics: dict = {
             "seed_pairs": 0,
             "lines": 0,
             "seed_exclusions": 0,
@@ -133,6 +134,11 @@ class PiecewiseSurfaces:
             "containment_exclusions": 0,
             "order_proofs": 0,
             "order_proof_limits": 0,
+            "supported_boundary_exclusions": {},
+            "supported_boundary_pixels": 0,
+            "supported_boundary_order_proofs": 0,
+            "supported_boundary_upper_proofs": 0,
+            "supported_boundaries": 0,
             "proposals": 0,
         }
 
@@ -323,11 +329,11 @@ class PiecewiseSurfaces:
                         yield ids, members, normal, rho, (a, b)
 
     def _compact(self, state, oid, shape, work):
-        """Fit union contours with anchored lines/curves; retain exact holes.
+        """Offer anchored compact contours, retaining exact source voids.
 
-        Actual opaque underpaint must already cover the whole family. The
-        intersection forbids expansion over another paint or a source hole.
-        Unfitted tiny contours are preserved rather than vetoing the family.
+        Contained competitors intersect the old union. Independent competitors
+        keep their fitted exterior and require the caller's complete source,
+        actual-core and visibility proofs. Unfitted tiny contours stay intact.
         """
         evidence = self.families.evidence
         matrix = root_matrix(state.document, oid)
@@ -335,7 +341,17 @@ class PiecewiseSurfaces:
         ox, oy = evidence.offset
         native = transformed_geometry(shape, matrix)
         analysis = transformed_geometry(native, (sx, 0, 0, sy, -ox * sx, -oy * sy))
-        contours = {"contained-lines": [], "contained-curves": []}
+        contours = {
+            "supported-lines": [],
+            "supported-curves": [],
+            "contained-lines": [],
+            "contained-curves": [],
+        }
+        reversed_frame = matrix[0] * matrix[3] - matrix[1] * matrix[2] < 0
+        # Family unions have normalized winding. Inner negative contours stay
+        # exact in the independent competitor; simplifying them could fill a
+        # source hole or expose a negative contour outside a shrunken exterior.
+        hole_paths = []
         total = 0
         for subpath in analysis.subpaths:
             if work.interrupted:
@@ -344,6 +360,11 @@ class PiecewiseSurfaces:
                 for values in contours.values():
                     values.append(subpath)
                 continue
+            is_hole = (
+                curve_path(Geometry("contour", (subpath,))).clockwise != reversed_frame
+            )
+            if is_hole:
+                hole_paths.append(curve_path(Geometry("hole", (subpath,))))
             points = [subpath.nodes[0].endpoint]
             for node in subpath.nodes[1:]:
                 if work.interrupted:
@@ -412,8 +433,12 @@ class PiecewiseSurfaces:
             )
             if len(nodes) < 3:
                 contours["contained-lines"].append(subpath)
+                contours["supported-lines"].append(subpath)
             else:
                 contours["contained-lines"].append(Subpath("fit", nodes, True))
+                contours["supported-lines"].append(
+                    subpath if is_hole else Subpath("fit", nodes, True)
+                )
             if not corners:
                 curve = fitted(uniform, self.options.boundary_tolerance).contour
             else:
@@ -428,6 +453,7 @@ class PiecewiseSurfaces:
                     )
                 curve = Subpath("fit", tuple(curve_nodes), True)
             contours["contained-curves"].append(curve)
+            contours["supported-curves"].append(subpath if is_hole else curve)
         original = curve_path(shape)
         original_nodes = sum(len(s.nodes) for s in shape.subpaths)
         results = []
@@ -438,15 +464,45 @@ class PiecewiseSurfaces:
                 Geometry("piecewise-fit", tuple(values)), (1 / sx, 0, 0, 1 / sy, ox, oy)
             )
             fitted_shape = transformed_geometry(fitted_shape, inverse_matrix(matrix))
-            contained = pathops.op(
-                curve_path(fitted_shape), original, pathops.PathOp.INTERSECTION
-            )
+            fitted_path = curve_path(fitted_shape)
+            contained = pathops.op(fitted_path, original, pathops.PathOp.INTERSECTION)
             if work.interrupted:
                 return []
             if abs(contained.area) < 0.95 * abs(original.area):
                 self.diagnostics["compact_area_exclusions"] += 1
                 continue
-            result = path_geometry(contained)
+            if kind.startswith("supported-"):
+                extra = pathops.op(fitted_path, original, pathops.PathOp.DIFFERENCE)
+                if abs(extra.area) > 0.05 * abs(original.area):
+                    self.diagnostics["compact_area_exclusions"] += 1
+                    continue
+                # Preserve the COMPLETE old void geometry, including holes
+                # that could otherwise become filled negative winding islands.
+                protected = False
+                for hole in hole_paths:
+                    if work.interrupted:
+                        return []
+                    actual_hole = transformed_geometry(
+                        path_geometry(hole), (1 / sx, 0, 0, 1 / sy, ox, oy)
+                    )
+                    actual_hole = transformed_geometry(
+                        actual_hole, inverse_matrix(matrix)
+                    )
+                    overlap = pathops.op(
+                        fitted_path,
+                        curve_path(actual_hole),
+                        pathops.PathOp.INTERSECTION,
+                    )
+                    if abs(overlap.area) > 1e-8:
+                        protected = True
+                        break
+                if protected:
+                    self.diagnostics["containment_exclusions"] += 1
+                    continue
+                fitted_path.simplify()
+                result = path_geometry(fitted_path)
+            else:
+                result = path_geometry(contained)
             if (
                 crossings(result)
                 or sum(len(s.nodes) for s in result.subpaths) >= 0.9 * original_nodes
@@ -507,8 +563,10 @@ class PiecewiseSurfaces:
                 work,
                 rejections=self.diagnostics["enclosure_exclusions"],
             )
+            continued_exact = None
             if nesting is not None and nesting.ids:
                 whole = nesting.continued(shape)
+                continued_exact = whole
                 whole_members = tuple(sorted((*members, *nesting.members)))
                 continued_core = in_core(state, whole_members, survivor, whole, work)
                 if (
@@ -560,6 +618,27 @@ class PiecewiseSurfaces:
                 if retained is not None and not retained.contains(whole, work):
                     self.diagnostics["containment_exclusions"] += 1
                     continue
+                extension = None
+                if "supported-" in kind:
+                    extension = supported(
+                        state,
+                        ids,
+                        survivor,
+                        tuple(
+                            sorted((*members, *(retained.members if retained else ())))
+                        ),
+                        continued_exact if retained else shape,
+                        whole,
+                        paints,
+                        normal,
+                        rho,
+                        self.families.evidence,
+                        self.families.graph,
+                        work,
+                        self.diagnostics,
+                    )
+                    if extension is None:
+                        continue
                 shapes = self.splitter._geometry(
                     state, survivor, normal, rho, geometry=whole
                 )
@@ -653,6 +732,23 @@ class PiecewiseSurfaces:
                             partition.atoms,
                         )
                         self.diagnostics["continuations"] += 1
+                    if extension is not None:
+                        coverage = dict(zip((survivor, new_id), extension, strict=True))
+                        partition = Partition(
+                            tuple(
+                                replace(
+                                    s,
+                                    covered=tuple(
+                                        sorted(set(s.covered) | set(coverage[s.id]))
+                                    ),
+                                )
+                                if s.id in coverage
+                                else s
+                                for s in partition.surfaces
+                            ),
+                            partition.atoms,
+                        )
+                        self.diagnostics["supported_boundaries"] += 1
                     records = discard(state.details.get("chain_constraints"), ids)
                     if kind == "exact":
                         for child in (survivor, new_id):

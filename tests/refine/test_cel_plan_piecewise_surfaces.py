@@ -567,3 +567,225 @@ def test_stop_during_complete_screen_does_not_publish_partial_family(monkeypatch
     factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
     assert list(factory(state, work)) == []
     assert state.partition.atoms is None
+
+
+def indented_family(state):
+    points = [(8.0, 56.0), (8.0, 10.0)]
+    points.extend((float(x), 10.0 if x % 2 == 0 else 11.0) for x in range(9, 89))
+    points.append((88.0, 56.0))
+    wave = Geometry(
+        "indentations",
+        (
+            Subpath(
+                "indentations-loop",
+                tuple(
+                    PathNode(f"w{i}", "M" if i == 0 else "L", p)
+                    for i, p in enumerate(points)
+                ),
+                True,
+            ),
+        ),
+    )
+    ids = tuple(
+        s.id
+        for s in state.partition.surfaces
+        if s.role == "surface"
+        and s.id not in state.details.get("paint_constraints", ())
+    )
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    for oid in ids:
+        clipped = pathops.op(
+            curve_path(state.document.geometry_for(oid)),
+            curve_path(wave),
+            pathops.PathOp.INTERSECTION,
+        )
+        with editor.transaction("Fragment union with incidental dents") as tx:
+            tx.replace_geometry(oid, path_geometry(clipped))
+    changed = replace(state, document=editor.snapshot.document)
+    return replace(changed, svg=export_svg(changed.document)), ids
+
+
+@pytest.mark.parametrize("alpha", [255, 128])
+@pytest.mark.parametrize("hole", [False, True])
+@pytest.mark.parametrize("reflected", [False, True])
+def test_supported_whole_boundary_removes_union_dents_preserving_core_holes(
+    alpha, hole, reflected
+):
+    evidence = step(alpha, hole=hole)
+    # Exercise opaque-in-group core coverage even at source opacity one.
+    evidence = replace(evidence, opacity=evidence.rgba[..., 3].copy())
+    frontier, state, options = prepared(evidence, layers=True)
+    state, ids = indented_family(state)
+    if reflected:
+        editor = Editor(state.document, selection=Selection(whole_document=True))
+        for oid in ids:
+            with editor.transaction("Equivalent reflected child frame") as tx:
+                tx.set_attributes(oid, {"transform": "matrix(-1 0 0 1 96 0)"})
+                tx.replace_geometry(
+                    oid,
+                    transformed_geometry(
+                        state.document.geometry_for(oid), (-1, 0, 0, 1, 96, 0)
+                    ),
+                )
+        state = replace(
+            state,
+            document=editor.snapshot.document,
+            svg=export_svg(editor.snapshot.document),
+        )
+    initial = frontier.policy.evaluate(state.svg)
+    assert initial.valid
+    state = replace(
+        state, snapshot=LocalPolicy(frontier.policy).start(state.svg, initial)
+    )
+    factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
+    edits = list(factory(state, Work.start(10)))
+    supported = [p for p in edits if p.parameters[0] == "supported-lines"]
+    assert supported
+    edit = supported[0]
+    svg = export_svg(edit.document)
+    full = frontier.policy.evaluate(svg)
+    assert full.valid
+    assert full.structure["nodes"] < initial.structure["nodes"] / 2
+    assert full.terms["color"] < initial.terms["color"]
+    actual = render(svg, evidence.source_size)
+    np.testing.assert_array_equal(
+        actual[..., 3], render(state.svg, evidence.source_size)[..., 3]
+    )
+    if hole:
+        assert actual[24:40, 40:56, 3].max() == 0
+    local = LocalPolicy(frontier.policy).update(
+        state.snapshot, svg, edit.bounds, full.structure
+    )
+    assert local.canvas.matches(actual)
+    assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+    old = union_geometry(
+        [state.document.geometry_for(oid) for oid in ids],
+        [{"fill-rule": "nonzero"}] * len(ids),
+    )
+    new = union_geometry(
+        [
+            edit.document.geometry_for(s.id)
+            for s in edit.partition.surfaces
+            if s.role == "surface"
+        ],
+        [{"fill-rule": "nonzero"}] * 2,
+    )
+    assert (
+        abs(
+            pathops.op(curve_path(new), curve_path(old), pathops.PathOp.DIFFERENCE).area
+        )
+        > 10
+    )
+    assert factory.diagnostics["supported_boundaries"] > 0
+    Operators(evidence, build(evidence), options).validate_partition(
+        edit.partition, Work.start(10)
+    )
+
+
+@pytest.mark.parametrize("overlap", [True, False])
+def test_supported_geometry_extension_proves_new_occlusion_without_an_order_change(
+    overlap,
+):
+    evidence = step(128)
+    _, state, options = prepared(evidence, layers=True)
+    state, _ = indented_family(state)
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    parent = state.document.ancestry(state.partition.owners[4])[-2]
+    x = 41 if overlap else 100
+    shape = Geometry(
+        "lower-geometry",
+        (
+            Subpath(
+                "lower-contour",
+                tuple(
+                    PathNode(f"q{i}", "M" if i == 0 else "L", p)
+                    for i, p in enumerate(
+                        (
+                            (x - 0.1, 10.2),
+                            (x + 0.1, 10.2),
+                            (x + 0.1, 10.8),
+                            (x - 0.1, 10.8),
+                        )
+                    )
+                ),
+                True,
+            ),
+        ),
+    )
+    with editor.transaction("Independent paint beneath the material family") as tx:
+        tx.insert_object(
+            parent.id,
+            Element(
+                "lower-paint", "path", (("fill", "#0040ff"),), geometry_id=shape.id
+            ),
+            index=1,
+            geometries=(shape,),
+        )
+    state = replace(state, document=editor.snapshot.document)
+    factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
+    edits = list(factory(state, Work.start(10)))
+    assert edits
+    fitted = [p for p in edits if p.parameters[0].startswith("supported-")]
+    if overlap:
+        assert not fitted
+        assert (
+            factory.diagnostics["supported_boundary_exclusions"]["lower-paint-overlap"]
+            > 0
+        )
+    else:
+        assert fitted
+    assert all(p.document.geometry_for("lower-paint") == shape for p in edits)
+
+
+@pytest.mark.parametrize("mark_opacity", [1.0, 0.5])
+def test_supported_contour_can_continue_below_a_higher_opaque_boundary_mark(
+    mark_opacity,
+):
+    evidence = step(128)
+    labels, target, rgba = (
+        evidence.labels.copy(),
+        evidence.target.copy(),
+        evidence.rgba.copy(),
+    )
+    # This mark reaches the outer boundary, so it is not an enclosed cavity.
+    labels[8:12, 40:42] = 9
+    target[8:12, 40:42] = 0
+    rgba[8:12, 40:42, :3] = 0
+    evidence = replace(
+        evidence, labels=labels, target=target, smooth=target, coarse=target, rgba=rgba
+    )
+    frontier, state, options = prepared(evidence, layers=True)
+    marker = state.partition.owners[9]
+    # Keep its ordinary path and make it an explicitly protected opaque mark.
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    from vectrify.document.svg import parse_path
+
+    with editor.transaction("Current boundary mark paint") as tx:
+        tx.replace_geometry(marker, parse_path("M40 8H42V12H40Z"))
+        tx.set_attributes(marker, {"fill-opacity": str(mark_opacity)})
+    state = replace(
+        state,
+        document=editor.snapshot.document,
+        details={**state.details, "paint_constraints": [marker]},
+    )
+    state, _ = indented_family(state)
+    factory = PiecewiseSurfaces(Families(evidence, build(evidence), options), options)
+    edits = list(factory(state, Work.start(10)))
+    models = [p for p in edits if p.parameters[0] == "supported-lines"]
+    if mark_opacity != 1:
+        assert not models
+        assert (
+            factory.diagnostics["supported_boundary_exclusions"].get(
+                "paint-residual", 0
+            )
+            > 0
+        )
+        return
+    assert models
+    edit = models[0]
+    assert edit.document.geometry_for(marker) == state.document.geometry_for(marker)
+    assert edit.document.element(marker) == state.document.element(marker)
+    assert edit.partition.owners[9] == marker
+    assert any(9 in s.covered for s in edit.partition.surfaces)
+    assert frontier.policy.evaluate(export_svg(edit.document)).valid
+    assert factory.diagnostics["supported_boundary_upper_proofs"] > 0

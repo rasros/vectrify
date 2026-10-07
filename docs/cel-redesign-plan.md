@@ -161,6 +161,18 @@ source-supported whole-surface boundary proposals and coverage interpretation,
 including joint paint and marks, rather than further increasing family bounds
 or training a ranker on the current inadequate pool.
 
+Independent straight/cubic exterior fits now compete without clipping back to
+the old fragment union. They retain exact holes and require actual opaque core,
+complete source-paint screening, visibility beneath higher opaque geometry and
+proofs against new overlap with lower unrelated paint. Controlled cases admit
+them, but the matched sword and four paired controls remain byte-identical.
+The sword diagnostic rejects all 16 independent fits in its bounded prefix:
+newly exposed pixels belong to neighboring light facets or dark marks, with
+source/paint disagreement up to 108 RGB levels. This narrows the next work to
+joint source-supported boundaries, adjacent paints and exact ownership, with
+coverage-aware compositing. Isolated contour fitting still cannot supply the
+needed compact faithful candidate. No quality or release gate is passed.
+
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local
 draw order included in each replacement. Validate the jewel rim/highlight,

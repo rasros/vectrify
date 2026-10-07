@@ -3326,3 +3326,107 @@ to `.bench/planned-continued-piecewise-surfaces` and
 `.bench/planned-continued-piecewise-surfaces-rgba-pairs`. The ignored source-only
 runner is `.bench/diagnose-continued-piecewise-candidates.py`. The objective
 remains the complete eight-delivery plan; no release gate is marked complete.
+
+## Independent material boundaries with visibility proofs
+
+### Implementation
+
+Whole-family straight and cubic fits now also compete without intersecting
+their exterior back into the original fragment union. The old contained fits
+remain competitors. Independent fits retain exact hole contours, including in
+reflected object frames, and prove that the complete original void interiors
+remain unpainted. They retain at least 95% of the original area, add at most 5%
+and must reduce nodes by at least 10% without crossings.
+
+The new `cel_plan/supported_boundaries.py` checks actual opaque underpaint across
+the complete proposed geometry. It subtracts actual higher opaque path geometry
+from the extension before screening visible source pixels; partial paint cannot
+hide a mismatch. Every visible extension pixel must have source support and
+agree with its exported, clamped side paint within the existing 48-level RGB
+bound. This prefilter is conservative: it compares pure material RGB even at
+partially covered edge pixels. Native evaluation still checks full compositing
+and antialiasing. Lower unrelated paint requires exact disjointness proofs even
+when draw order does not change. Higher paint and retained marks keep their
+primary ownership; newly covered source owners are recorded as secondary side
+support. Pixel, geometry, proof and interruption bounds remain active.
+
+This implements a new competitor and its proofs, not a complete source-first
+boundary model or a completed delivery. Scores, normalizer and release gates
+are unchanged.
+
+### Verification and matched results
+
+Twelve additional cases cover independent dent removal at full and half group
+opacity, true holes, reflected geometry, actual core coverage, unchanged lower
+paint inside or outside an extension, and continuation beneath opaque versus
+translucent boundary marks. They check exact alpha, primary ownership, native
+admission and full/local raster agreement. The full regression set passes
+**618 tests in 55.87 seconds**. Ruff lint/format and project Pyrefly pass with
+zero errors and the existing 61 warnings. Tests and timed runs execute
+sequentially. The retained production source hash is
+`13e6aa90ef05b759696001e3b751cdca33d7b1c1a91dfbb868b29be8cacaa7e4`.
+
+The matched native run in `.bench/planned-supported-boundaries-visibility`
+takes **54.01 seconds** at complexity 50, balanced quality, refinement disabled
+and a 60-second budget. Its drawing PNG is byte-identical to the preceding
+retained-mark run: **10,009 nodes, 1,630 contours, 1,577 paths, 31 gradients,
+cost 20,055 and human MSE 514.8500919869**. The same two ink replacements are
+selected. Search attempts 21 alternatives, admits 16 locally and checkpoints
+four with zero score disagreements. Two ordinary contained fits save 496 cost
+units each but regress native visual loss by approximately 0.002127 and are
+rejected. Four independent fits fail visible source-paint screening before
+native evaluation. No independent fit is selected; there is no sword gain.
+
+Local search plus validation takes 16.05 seconds, including 4.07 seconds for
+full checks. The live guard is 2.09 seconds. The beam/cache charge is 10,045,156
+bytes and the conservative source-graph cache charge is 25,685,024 bytes with
+one rebuild. These are not total hardware memory measurements. Timeout, stop
+and overshoot remain false/zero; refinement remains incomplete.
+
+The four clean, half-opacity tuning controls in
+`.bench/planned-supported-boundaries-visibility-rgba-pairs` also retain
+byte-identical selected PNGs and unchanged global, feature and line scores.
+Anime girl / anime face / western park / rubberhose band retain nodes
+175 / 176 / 547 / 407 and clean MSE 177.70 / 206.86 / 178.72 / 167.23.
+Generation takes 10.21 / 16.28 / 9.33 / 12.85 seconds; no speedup is claimed.
+Each attempts 48 alternatives and checkpoints four with zero score
+disagreements. All 160 / 160 / 128 / 160 source-line hypotheses fail paint
+screening; no compact coupled proposal is emitted.
+
+### Source-only rejection audit and next work
+
+`.bench/supported-boundary-candidate-audit/summary.json` records the bounded
+16-proposal initializer prefix and eight-seed prefix after one broad union.
+The ignored runner `.bench/diagnose-supported-boundaries.py` verifies the same
+source hash before and after; its prediction wrapper only records residuals
+and returns the production prediction unchanged. Human rendering is scored
+after proposals are generated from source evidence.
+
+All 16 ordinary initializer candidates remain native-valid and match local
+rasters exactly, with maximum score-term disagreement 2.32e-10. Their best
+human MSE is 511.7533 at 10,072 nodes; the most compact has 10,070 nodes, only
+216 fewer than the 10,286-node initializer. None uses retained marks or an
+independent exterior. All 16 independent fits fail the source-paint prefilter.
+The audit records 64 rejection samples at ten unique source locations belonging
+to three other material owners. Nearby light-facet pixels differ from the
+proposed shade by up to 108 RGB levels; a dark-mark pixel differs by 99. No
+opaque higher geometry hides those proposed extensions. This is a bounded
+diagnostic, not exhaustive search or a matched production oracle. The
+`supported_boundary_pixels` counter counts only completely passed screening
+chunks; zero does not mean no pixels were inspected.
+
+The next model must fit adjacent paints and their shared source-supported edge
+jointly, including coverage/compositing and exact source ownership where pixels
+transfer. Simply extending one shade cannot explain these neighboring colors.
+Continue the broader coverage/fringe interpretation work as well: the drawing
+is still dominated by fragments. Increasing bounds, weakening paint checks,
+changing ranking or adding the slider cannot establish structural quality.
+The frozen sword targets remain **800 nodes, 140 contours and MSE 497.39**,
+with all local feature and coverage checks. All eight deliveries, automatic
+refinement, the useful complexity control, learned ranking evaluation and
+release work remain subject to the complete plan; no release gate is complete.
+
+Reproduce with the earlier native/paired commands and the output directories
+above, then run `.bench/diagnose-supported-boundaries.py` separately. The earlier
+`.bench/planned-supported-boundaries` run predates the reflection and upper-paint
+proof corrections and is not the retained matching-source result.
