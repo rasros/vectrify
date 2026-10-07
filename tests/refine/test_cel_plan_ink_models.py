@@ -105,9 +105,13 @@ def test_broad_dark_material_and_cancelled_work_do_not_become_strokes():
 
 @pytest.mark.parametrize("alpha", [128, 64])
 @pytest.mark.parametrize("matrix", [None, (1.2, 0.15, 0.2, 1.0, 6, -10)])
+@pytest.mark.parametrize("layout", ["regions", "ink-planes"])
 def test_component_replaces_ink_and_underpaint_together_with_true_stroke_paths(
-    alpha, matrix
+    alpha, matrix, layout, monkeypatch
 ):
+    from vectrify.refine.cel_plan import core_cells
+
+    monkeypatch.setattr(core_cells, "MAX_PLANES", 4)
     evidence, ink = drawing(alpha)
     # Independent source paint fragments provide an intentionally dense start.
     y, x = np.indices(evidence.labels.shape)
@@ -148,8 +152,9 @@ def test_component_replaces_ink_and_underpaint_together_with_true_stroke_paths(
         options,
         joint=True,
         grouping="ward",
-        boundary_fit="curve",
+        boundary_fit="anchored" if layout == "ink-planes" else "curve",
         ink_support="connected",
+        layout=layout,
     )
     edits = list(factory(state, Work.start(20)))
     assert edits

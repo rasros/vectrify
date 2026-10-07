@@ -66,6 +66,7 @@ def offered(
     composition_grouping="ward",
     composition_diagnostics=None,
     composition_layout="regions",
+    composition_boundary_fit="curve",
 ):
     """Only valid source-ink parents seed a bounded material composition pool."""
     parents = 0
@@ -97,8 +98,9 @@ def offered(
             options,
             joint=True,
             grouping=composition_grouping,
-            boundary_fit="curve",
+            boundary_fit=composition_boundary_fit,
             layout=composition_layout,
+            ink_support="connected" if composition_layout == "ink-planes" else "paired",
         )
         if composition_diagnostics is not None:
             composition_diagnostics.append(
@@ -136,6 +138,7 @@ def run(
     boundary_contacts=False,
     composition_grouping="ward",
     composition_layout="regions",
+    composition_boundary_fit="curve",
 ):
     started, revision = time.monotonic(), source_hash()
     if case.get("paired"):
@@ -230,6 +233,7 @@ def run(
                     composition_grouping,
                     composition_diagnostics,
                     composition_layout,
+                    composition_boundary_fit,
                 )
             ):
                 if edit.partition is None or edit.details is None:
@@ -364,6 +368,9 @@ def run(
         "grouping": grouping if proposal == "core-cells" else None,
         "composition_grouping": composition_grouping if compose_materials else None,
         "composition_layout": composition_layout if compose_materials else None,
+        "composition_boundary_fit": composition_boundary_fit
+        if compose_materials
+        else None,
         "composition_diagnostics": composition_diagnostics,
         "boundary_fit": boundary_fit if proposal == "core-cells" else None,
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
@@ -411,7 +418,12 @@ def main():
         "--composition-grouping", choices=("ward", "paint-fit"), default="ward"
     )
     parser.add_argument(
-        "--composition-layout", choices=("regions", "planes"), default="regions"
+        "--composition-layout",
+        choices=("regions", "planes", "ink-planes"),
+        default="regions",
+    )
+    parser.add_argument(
+        "--composition-boundary-fit", choices=("curve", "anchored"), default="curve"
     )
     parser.add_argument(
         "--boundary-fit", choices=("polygon", "curve"), default="polygon"
@@ -465,6 +477,7 @@ def main():
         boundary_contacts=args.boundary_contacts,
         composition_grouping=args.composition_grouping,
         composition_layout=args.composition_layout,
+        composition_boundary_fit=args.composition_boundary_fit,
     )
 
 

@@ -3,7 +3,7 @@
 import numpy as np
 
 from vectrify.refine import cel
-from vectrify.refine.cel_plan.geometry import Boundaries, ellipse, fitted
+from vectrify.refine.cel_plan.geometry import Boundaries, InkBoundaries, ellipse, fitted
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.tracing import _loops
 
@@ -87,3 +87,44 @@ def test_closed_boundary_callback_keeps_its_serialization_anchor():
     outlines = cel.region_outlines(labels, 1.2, fit_boundary=callback)
     assert outlines.keys() == {0, 1}
     assert any(item["model"] == "ellipse" for item in callback.decisions)
+
+
+def test_anchored_ink_line_retains_complete_source_endpoints_without_smoothing():
+    x = np.linspace(10, 90, 160)
+    points = np.column_stack((x, 40 + 0.2 * np.sin(x)))
+    callback = InkBoundaries()
+    nodes = callback(points, 0.5)
+    assert nodes == [("L", tuple(points[-1]))]
+    assert callback.decisions == [{"model": "straight", "nodes": 1}]
+
+
+def test_anchored_ink_curve_retains_supported_pointed_corner():
+    points = np.vstack(
+        (
+            np.column_stack((np.arange(0, 21), np.arange(0, 21))),
+            np.column_stack((np.arange(21, 42), np.arange(19, -2, -1))),
+        )
+    )
+    callback = InkBoundaries()
+    nodes = callback(points, 0.75)
+    assert (20.0, 20.0) in {tuple(values[-2:]) for _, values in nodes}
+    assert nodes[-1][1][-2:] == tuple(points[-1])
+
+
+def test_small_closed_ink_mark_keeps_the_precise_raw_interpretation():
+    points = np.array(_loops(np.pad(np.ones((4, 4), bool), 4))[0], float)
+    points = np.vstack((points, points[0]))
+    callback = InkBoundaries()
+    assert callback(points, 0.75) == cel.curve_nodes(
+        points, 0.25, smooth=0, fit=cel.FILL_FIT
+    )
+    assert callback.decisions[0]["model"] == "precise-mark"
+
+
+def test_complete_round_ink_perimeter_can_compete_as_a_bounded_ellipse():
+    points = circle()
+    callback = InkBoundaries()
+    nodes = callback(points, 1.2)
+    assert len(nodes) == 4
+    assert nodes[-1][1][-2:] == tuple(points[0])
+    assert callback.decisions[0]["model"] == "ellipse"

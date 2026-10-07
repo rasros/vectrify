@@ -180,8 +180,17 @@ def test_native_stroke_replaces_fragments_without_collapsing_existing_paint(alph
 
 @pytest.mark.parametrize("alpha", [128, 64])
 @pytest.mark.parametrize("gap", [False, True])
-@pytest.mark.parametrize("layout", ["regions", "planes"])
-def test_material_compaction_composes_after_source_strokes(alpha, gap, layout):
+@pytest.mark.parametrize("layout", ["regions", "planes", "ink-planes"])
+@pytest.mark.parametrize("boundary_fit", ["curve", "anchored"])
+def test_material_compaction_composes_after_source_strokes(
+    alpha, gap, layout, boundary_fit, monkeypatch
+):
+    from vectrify.refine.cel_plan import core_cells
+
+    # Exercise several complete material prefixes in this carried-stroke
+    # control. Larger trees and model exhaustion have separate controls and
+    # the native artwork pools; they do not add another stroke interpretation.
+    monkeypatch.setattr(core_cells, "MAX_PLANES", 4)
     evidence = fragmented(alpha, gap)
     frontier, initial, options = prepared(evidence, layers=True)
     ops = Operators(evidence, build(evidence), options)
@@ -206,8 +215,9 @@ def test_material_compaction_composes_after_source_strokes(alpha, gap, layout):
         options,
         joint=True,
         grouping="ward",
-        boundary_fit="curve",
+        boundary_fit=boundary_fit,
         layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
     )
     edits = list(material(state, Work.start(20)))
     assert edits, material.diagnostics

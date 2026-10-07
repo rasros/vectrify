@@ -8,6 +8,7 @@ the enclosing planner still performs exact visibility/score validation.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from itertools import pairwise
 
 import numpy as np
 from scipy.ndimage import gaussian_filter1d
@@ -174,4 +175,51 @@ class Boundaries:
         nodes = [(node.command, node.values) for node in model.contour.nodes[1:]]
         if model.contour.closed and nodes[-1][1][-2:] != tuple(points[-1]):
             nodes.append(("L", tuple(points[-1])))
+        return nodes
+
+
+class InkBoundaries:
+    """Fit unsmoothed source ink between supported corners and shared anchors.
+
+    Small closed marks retain their existing precise interpretation. Longer
+    runs compete as anchored lines, bounded complete ellipses or raw-data
+    cubics; Gaussian contour smoothing cannot erase the thin ink band.
+    """
+
+    def __init__(self):
+        self.decisions: list[dict] = []
+
+    def __call__(self, points: np.ndarray, tolerance: float):
+        closed = len(points) > 3 and np.array_equal(points[0], points[-1])
+        if (closed and len(points) <= 32) or len(points) > 4096:
+            nodes = cel.curve_nodes(
+                points, min(tolerance, 0.25), smooth=0, fit=cel.FILL_FIT
+            )
+            self.decisions.append({"model": "precise-mark", "nodes": len(nodes)})
+            return nodes
+        model = ellipse(points, tolerance) if closed else None
+        if model is not None:
+            nodes = [(node.command, node.values) for node in model.contour.nodes[1:]]
+            self.decisions.append({"model": model.kind, "nodes": len(nodes)})
+            return nodes
+        anchors = sorted({0, len(points) - 1, *cel.run_corners(points, closed)})
+        nodes = []
+        for start, end in pairwise(anchors):
+            segment = points[start : end + 1]
+            model = _straight(segment, tolerance)
+            if model is not None:
+                fitted_nodes = [
+                    (node.command, node.values) for node in model.contour.nodes[1:]
+                ]
+            else:
+                fitted_nodes = cel.curve_nodes(
+                    segment, tolerance, smooth=0, fit=cel.FILL_FIT
+                )
+            nodes.extend(fitted_nodes)
+            self.decisions.append(
+                {
+                    "model": "straight" if model is not None else "raw-curve",
+                    "nodes": len(fitted_nodes),
+                }
+            )
         return nodes

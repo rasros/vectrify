@@ -63,7 +63,11 @@ def test_thin_material_between_two_fills_keeps_both_shared_boundaries(step):
 
 
 @pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
-def test_joint_material_budget_keeps_short_hatching_as_supported_ink(grouping):
+@pytest.mark.parametrize("layout", ["regions", "ink-planes"])
+@pytest.mark.parametrize("boundary_fit", ["curve", "anchored"])
+def test_joint_material_budget_keeps_short_hatching_as_supported_ink(
+    grouping, layout, boundary_fit
+):
     evidence = material(128)
     labels, target, rgba = (
         evidence.labels.copy(),
@@ -94,7 +98,9 @@ def test_joint_material_budget_keeps_short_hatching_as_supported_ink(grouping):
         options,
         joint=True,
         grouping=grouping,
-        boundary_fit="curve",
+        boundary_fit=boundary_fit,
+        layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
     )
     edits = list(factory(state, Work.start(10)))
     assert edits
@@ -108,7 +114,11 @@ def test_joint_material_budget_keeps_short_hatching_as_supported_ink(grouping):
 
 
 @pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
-def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners(grouping):
+@pytest.mark.parametrize("layout", ["regions", "ink-planes"])
+@pytest.mark.parametrize("boundary_fit", ["curve", "anchored"])
+def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners(
+    grouping, layout, boundary_fit
+):
     evidence = material(128)
     labels, target, rgba = (
         evidence.labels.copy(),
@@ -138,7 +148,9 @@ def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners(gro
         options,
         joint=True,
         grouping=grouping,
-        boundary_fit="curve",
+        boundary_fit=boundary_fit,
+        layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
     )
     edits = list(factory(state, Work.start(15)))
     assert edits
@@ -147,15 +159,28 @@ def test_more_than_64_ink_islands_share_paint_without_bridges_or_lost_owners(gro
         dark = cel.lightness(actual[..., :3] * 255) < 50
         np.testing.assert_array_equal(dark & ~evidence.empty, drawn)
         assert frontier.policy.evaluate(export_svg(edit.document)).valid
-        assert set(edit.partition.owners) == set(state.partition.owners)
         assert edit.partition.follows(state.partition)
-        assert len(edit.partition.atoms.cuts) == 0
+        if layout == "regions":
+            assert set(edit.partition.owners) == set(state.partition.owners)
+            assert len(edit.partition.atoms.cuts) == 0
+        else:
+            # Material planes may split a background atom. None of the 70
+            # independently owned ink islands may be split or disappear.
+            islands = tuple(int(i) for i in np.unique(build(evidence).labels[drawn]))
+            assert edit.partition.atoms.descendants(islands) == islands
+            assert set(islands).issubset(edit.partition.owners)
+            Operators(evidence, build(evidence), options).validate_partition(
+                edit.partition, Work.start(10)
+            )
     assert 1 <= factory.diagnostics["hierarchy_ink_cells_peak"] < 64
     assert factory.diagnostics["hierarchy_ink_paint_links_peak"] >= 69
 
 
 @pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
-def test_broad_flat_dark_material_is_not_ink_even_when_cel_marks_it_drawn(grouping):
+@pytest.mark.parametrize("layout", ["regions", "ink-planes"])
+def test_broad_flat_dark_material_is_not_ink_even_when_cel_marks_it_drawn(
+    grouping, layout
+):
     evidence = material(128)
     target, rgba = evidence.target.copy(), evidence.rgba.copy()
     target[~evidence.empty] = 100
@@ -176,6 +201,8 @@ def test_broad_flat_dark_material_is_not_ink_even_when_cel_marks_it_drawn(groupi
         joint=True,
         grouping=grouping,
         boundary_fit="curve",
+        layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
     )
     assert list(factory(state, Work.start(10)))
     assert factory.diagnostics["hierarchy_ink_cells_peak"] == 0
@@ -309,10 +336,20 @@ def test_joint_component_includes_every_eligible_owner_with_complete_uncut_suppo
 
 
 @pytest.mark.parametrize("protection", ["paint", "locked", "pinned", "fixed"])
-@pytest.mark.parametrize("grouping", ["static", "ward", "paint-fit"])
+@pytest.mark.parametrize(
+    ("grouping", "layout"),
+    [
+        ("static", "regions"),
+        ("ward", "regions"),
+        ("paint-fit", "regions"),
+        ("ward", "ink-planes"),
+        ("paint-fit", "ink-planes"),
+    ],
+)
 def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_owner(
     protection,
     grouping,
+    layout,
 ):
     evidence = marked_step(128)
     frontier, state, options = prepared(evidence, layers=True)
@@ -348,7 +385,13 @@ def test_independently_protected_mark_keeps_paint_geometry_and_primary_source_ow
         )
     state = replace(state, document=document)
     factory = CoreCells(
-        Families(evidence, graph, options), options, joint=True, grouping=grouping
+        Families(evidence, graph, options),
+        options,
+        joint=True,
+        grouping=grouping,
+        layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
+        boundary_fit="anchored" if layout == "ink-planes" else "polygon",
     )
     edits = list(factory(state, Work.start(15)))
     assert edits

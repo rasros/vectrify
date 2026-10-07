@@ -42,7 +42,7 @@ from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.facet_lines import FacetLines
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.fill_winding import resolved
-from vectrify.refine.cel_plan.geometry import Boundaries
+from vectrify.refine.cel_plan.geometry import Boundaries, InkBoundaries
 from vectrify.refine.cel_plan.ink_models import models as ink_models
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import Box
@@ -130,6 +130,7 @@ class Cell:
     stroke: dict | None = None
     footprint: Geometry | None = None
     covered_classes: tuple[int, ...] = ()
+    ink: bool = False
 
 
 class CoreCells:
@@ -153,13 +154,19 @@ class CoreCells:
         ink_support="paired",
         layout="regions",
     ):
-        if layout not in {"regions", "planes"} or (layout == "planes" and not joint):
+        if layout not in {"regions", "planes", "ink-planes"} or (
+            layout != "regions" and not joint
+        ):
             raise ValueError("Planar layout requires a joint component proposal")
+        if layout == "ink-planes" and (
+            ink_support != "connected" or grouping not in {"ward", "paint-fit"}
+        ):
+            raise ValueError("Ink planes require connected dynamic source ink")
         if grouping not in {"static", "ward", "paint-fit"} or (
             grouping != "static" and not joint
         ):
             raise ValueError("Dynamic grouping requires a joint material proposal")
-        if boundary_fit not in {"polygon", "curve"} or (
+        if boundary_fit not in {"polygon", "curve", "anchored"} or (
             boundary_fit != "polygon" and not joint
         ):
             raise ValueError("Boundary fitting requires a joint material proposal")
@@ -221,6 +228,14 @@ class CoreCells:
                 "plane_prefixes",
                 "plane_cells_peak",
                 "facet_edge_points",
+                "ink_plane_seeds",
+                "ink_plane_cells",
+                "ink_plane_pixels",
+                "ink_plane_duplicate_seeds",
+                "anchored_ink_straights",
+                "anchored_ink_curves",
+                "anchored_ink_ellipses",
+                "anchored_ink_precise_marks",
             ),
             0,
         )
@@ -326,7 +341,7 @@ class CoreCells:
         points = np.floor(xy[cell.indices]).astype(int)
         mask[points[:, 1], points[:, 0]] = True
         best = None
-        if self.layout == "planes":
+        if self.layout != "regions":
             if self._facet_lines is None:
                 self._facet_lines = FacetLines(evidence.target, ~evidence.empty)
             votes = self._facet_lines(mask, work, scope=xy[cell.indices])
@@ -675,6 +690,32 @@ class CoreCells:
                     raise StageInterruptedError("Source material contours interrupted")
 
             models = Boundaries()
+            ink_models_boundary = InkBoundaries()
+            ink_tolerances = np.full(len(ink_cells), 0.25)
+            precise_ink = np.zeros(graph.labels.shape, bool)
+            if self.boundary_fit == "anchored":
+                components, count = label(
+                    support & ink_cells[outline_labels], np.ones((3, 3))
+                )
+                component_sizes = np.bincount(components.ravel(), minlength=count + 1)
+                precise = component_sizes <= 64
+                precise[0] = False
+                precise_ink = precise[components]
+                area = np.bincount(outline_labels[support], minlength=len(ink_cells))
+                padded = np.pad(outline_labels, 1)
+                perimeter = np.zeros(len(ink_cells))
+                for axis in (0, 1):
+                    a, b = (
+                        (padded[:-1], padded[1:])
+                        if axis == 0
+                        else (padded[:, :-1], padded[:, 1:])
+                    )
+                    changed = a != b
+                    perimeter += np.bincount(a[changed], minlength=len(ink_cells))
+                    perimeter += np.bincount(b[changed], minlength=len(ink_cells))
+                ink_tolerances = np.clip(
+                    0.5 * area / np.maximum(perimeter, 1), 0.25, 0.75
+                )
 
             def boundary(
                 points: np.ndarray,
@@ -682,6 +723,9 @@ class CoreCells:
                 models=models,
                 outline_labels=outline_labels,
                 ink_cells=ink_cells,
+                ink_tolerances=ink_tolerances,
+                ink_models_boundary=ink_models_boundary,
+                precise_ink=precise_ink,
             ) -> list[tuple[str, tuple[float, ...]]]:
                 check()
                 if self.grouping != "static" and len(points) > 8:
@@ -690,9 +734,42 @@ class CoreCells:
                     normal = np.array([-direction[1], direction[0]]) * 0.25
                     x, y = np.floor(middle + normal).astype(int)
                     left = int(outline_labels[y, x])
+                    left_precise = bool(precise_ink[y, x])
                     x, y = np.floor(middle - normal).astype(int)
                     right = int(outline_labels[y, x])
                     if ink_cells[left] or ink_cells[right]:
+                        if self.boundary_fit == "anchored":
+                            # A tiny disconnected mark can have its contour
+                            # split into open chains by neighboring material
+                            # junctions. Preserve the whole source mark, not
+                            # just callbacks that happen to be closed loops.
+                            if left_precise or precise_ink[y, x]:
+                                self.diagnostics["anchored_ink_precise_marks"] += 1
+                                return cel.curve_nodes(
+                                    points,
+                                    min(self.options.boundary_tolerance, 0.25)
+                                    * min(evidence.scale),
+                                    smooth=0,
+                                    fit=cel.FILL_FIT,
+                                )
+                            tolerance = min(
+                                ink_tolerances[i] for i in (left, right) if ink_cells[i]
+                            )
+                            nodes = ink_models_boundary(
+                                points,
+                                min(self.options.boundary_tolerance, tolerance)
+                                * min(evidence.scale),
+                            )
+                            for decision in ink_models_boundary.decisions:
+                                field = {
+                                    "straight": "anchored_ink_straights",
+                                    "raw-curve": "anchored_ink_curves",
+                                    "ellipse": "anchored_ink_ellipses",
+                                    "precise-mark": "anchored_ink_precise_marks",
+                                }[decision["model"]]
+                                self.diagnostics[field] += 1
+                            ink_models_boundary.decisions.clear()
+                            return nodes
                         # Gaussian fill smoothing can erase short lettering or
                         # hatching. Fit the raw paired ink/material boundary.
                         return cel.curve_nodes(
@@ -705,10 +782,9 @@ class CoreCells:
                     nodes = models(
                         points, min(evidence.scale) * (self.options.tolerance or 1.5)
                     )
-                    if (
-                        models.decisions[-1]["model"] != "curve"
-                        or self.boundary_fit == "curve"
-                    ):
+                    if models.decisions[-1][
+                        "model"
+                    ] != "curve" or self.boundary_fit in {"curve", "anchored"}:
                         return nodes
                     # Generic smoothing can collapse a one-pixel-wide closed
                     # material strip. Keep canonical polygons as the fallback;
@@ -802,6 +878,7 @@ class CoreCells:
                         stroke,
                         footprint,
                         covered,
+                        bool(ink_cells[i + 1]),
                     )
                 )
             if len(cells) != len(ink_cells) - 1:
@@ -1088,6 +1165,7 @@ class CoreCells:
         if state.partition is None or work.interrupted:
             return
         graph, evidence = self.families.graph, self.families.evidence
+        ink_plane_seen = set()
         if graph.labels.size > MAX_PIXELS:
             self.diagnostics["bounded"] += 1
             return
@@ -1143,9 +1221,27 @@ class CoreCells:
             self.diagnostics["source_pixels"] += len(x)
             for regions, classes, threshold, region_selected in (
                 self._regions(state, base, selected, whole, xy, rgb, own, work)
-                if self.layout == "regions"
+                if self.layout != "planes"
                 else ()
             ):
+                if self.layout == "ink-planes":
+                    yield from self._ink_planes(
+                        state,
+                        base,
+                        region_selected,
+                        regions,
+                        classes,
+                        threshold,
+                        whole,
+                        xy,
+                        rgb,
+                        inner,
+                        box,
+                        opaque,
+                        work,
+                        ink_plane_seen,
+                    )
+                    continue
                 proposal = self._proposal(
                     state,
                     base,
@@ -1164,63 +1260,174 @@ class CoreCells:
                     yield proposal
             if self.joint and self.layout != "planes":
                 continue
-            cell_limit = MAX_PLANES if self.layout == "planes" else MAX_CELLS
-            cells = [Cell("", np.arange(len(x)), whole, whole, *fitted)]
-            cuts = []
-            fitted_splits = {}
-            for _step in range(cell_limit):
-                if work.interrupted:
-                    return
-                # Selected completed prefixes compete, including an exact fit with
-                # an odd number of cells that cannot benefit from another cut.
-                if self.layout != "planes" or len(cells) in PLANE_PREFIXES:
-                    self.diagnostics["plane_prefixes"] += self.layout == "planes"
-                    proposal = self._proposal(
-                        state,
-                        base,
-                        selected,
-                        cells,
-                        cuts,
-                        inner,
-                        box,
-                        opaque,
-                        work,
-                    )
-                    if proposal is not None:
-                        yield proposal
-                self.diagnostics["plane_cells_peak"] = max(
-                    self.diagnostics["plane_cells_peak"],
-                    len(cells) if self.layout == "planes" else 0,
+            initial = Cell("", np.arange(len(x)), whole, whole, *fitted)
+            for cells, cuts in self._planes(state, base, initial, xy, rgb, own, work):
+                proposal = self._proposal(
+                    state, base, selected, cells, cuts, inner, box, opaque, work
                 )
-                if len(cells) >= cell_limit:
-                    break
-                best = None
-                for cell in cells:
-                    if cell.key not in fitted_splits:
-                        fitted_splits[cell.key] = self._split(
-                            state, base, cell, xy, rgb, own, work
-                        )
-                    candidate = fitted_splits[cell.key]
-                    if candidate is not None and (
-                        best is None or candidate[0] > best[1][0]
-                    ):
-                        best = (cell, candidate)
+                if proposal is not None:
+                    yield proposal
+
+    def _planes(self, state, base, initial, xy, rgb, own, work):
+        """Complete bounded binary prefixes; canceled work publishes none."""
+        planar = self.layout != "regions"
+        cell_limit = MAX_PLANES if planar else MAX_CELLS
+        cells, cuts, fitted_splits = [initial], [], {}
+        for _step in range(cell_limit):
+            if work.interrupted:
+                return
+            if not planar or len(cells) in PLANE_PREFIXES:
+                self.diagnostics["plane_prefixes"] += planar
+                yield cells, cuts
                 if work.interrupted:
                     return
-                if best is None:
-                    if self.layout == "planes" and len(cells) not in PLANE_PREFIXES:
-                        self.diagnostics["plane_prefixes"] += 1
-                        proposal = self._proposal(
-                            state, base, selected, cells, cuts, inner, box, opaque, work
-                        )
-                        if proposal is not None:
-                            yield proposal
-                    break
-                old, (_gain, normal, rho, left, right) = best
-                cells.remove(old)
-                cells.extend((left, right))
-                cells.sort(key=lambda c: c.key)
-                cuts.append((old.key, tuple(float(v) for v in normal), float(rho)))
+            self.diagnostics["plane_cells_peak"] = max(
+                self.diagnostics["plane_cells_peak"], len(cells) if planar else 0
+            )
+            if len(cells) >= cell_limit:
+                return
+            best = None
+            for cell in cells:
+                if cell.key not in fitted_splits:
+                    fitted_splits[cell.key] = self._split(
+                        state, base, cell, xy, rgb, own, work
+                    )
+                candidate = fitted_splits[cell.key]
+                if candidate is not None and (
+                    best is None or candidate[0] > best[1][0]
+                ):
+                    best = cell, candidate
+            if work.interrupted:
+                return
+            if best is None:
+                if planar and len(cells) not in PLANE_PREFIXES:
+                    self.diagnostics["plane_prefixes"] += 1
+                    yield cells, cuts
+                return
+            old, (_gain, normal, rho, left, right) = best
+            cells.remove(old)
+            cells.extend((left, right))
+            cells.sort(key=lambda c: c.key)
+            cuts.append((old.key, tuple(float(v) for v in normal), float(rho)))
+
+    @staticmethod
+    def _classes(cells, cuts, shape):
+        classes = np.zeros(shape, np.uint8)
+        yy, xx = np.ogrid[: shape[0], : shape[1]]
+        for index, cell in enumerate(cells):
+            scope = np.ones(shape, bool)
+            for prefix, normal, rho in cuts:
+                if cell.key.startswith(prefix) and len(cell.key) > len(prefix):
+                    side = (xx + 0.5) * normal[0] + (yy + 0.5) * normal[1] < rho
+                    scope &= side if cell.key[len(prefix)] == "0" else ~side
+            classes[scope] = index
+        return classes
+
+    def _ink_planes(
+        self,
+        state,
+        base,
+        selected,
+        regions,
+        source_classes,
+        threshold,
+        whole,
+        xy,
+        rgb,
+        inner,
+        box,
+        opaque,
+        work,
+        seen,
+    ):
+        """Separate observed ink from plane paint before fitting either layer.
+
+        Region grammar supplies source-supported ink, including unchanged
+        filled interpretations where a stroke model is unsupported. Material
+        cuts see only visible material observations; both layers share one
+        complete source-atom namespace and one atomic component proposal.
+        """
+        graph, evidence = self.families.graph, self.families.evidence
+        ink = [cell for cell in regions if cell.ink]
+        material = [cell.indices for cell in regions if not cell.ink]
+        if not material or len(ink) >= MAX_REGION_CELLS or work.interrupted:
+            return
+        indices = np.sort(np.concatenate(material))
+        own = np.zeros(graph.labels.shape, bool)
+        x, y = np.floor(xy[indices]).astype(int).T
+        own[y, x] = True
+        ink_classes = tuple(cell.support for cell in ink)
+        support = (
+            np.isin(
+                graph.labels, base.members if base.role == "underlay" else base.covered
+            )
+            & ~evidence.empty
+        )
+        source_ink = np.isin(source_classes, ink_classes) & support
+        signature = hashlib.sha256(
+            repr((base.id, tuple(s.id for s in selected))).encode()
+        )
+        signature.update(indices.tobytes())
+        signature.update(source_ink.tobytes())
+        for cell in ink:
+            signature.update(cell.indices.tobytes())
+            signature.update(
+                repr((cell.paint, cell.stroke, cell.error, cell.residual)).encode()
+            )
+            signature.update(cell.draw.path_data().encode())
+            if cell.footprint is not None:
+                signature.update(cell.footprint.path_data().encode())
+        key = signature.hexdigest()
+        if key in seen:
+            self.diagnostics["ink_plane_duplicate_seeds"] += 1
+            return
+        seen.add(key)
+        fitted = self._paint(xy, rgb, indices, work)
+        if fitted is None:
+            return
+        retained = tuple(
+            i
+            for surface in state.partition.surfaces
+            if surface.role == "overlay"
+            for i in surface.members
+        )
+        visible_material = (
+            ~evidence.empty & ~source_ink & ~np.isin(graph.labels, retained)
+        )
+        self._facet_lines = FacetLines(evidence.target, visible_material)
+        self.diagnostics["ink_plane_seeds"] += 1
+        self.diagnostics["ink_plane_cells"] += len(ink)
+        self.diagnostics["ink_plane_pixels"] += int(source_ink.sum())
+        initial = Cell("", indices, whole, whole, *fitted)
+        for planes, cuts in self._planes(state, base, initial, xy, rgb, own, work):
+            if len(planes) + len(ink) > MAX_REGION_CELLS:
+                self.diagnostics["region_exclusions"] += 1
+                continue
+            underpaint = self._classes(planes, cuts, graph.labels.shape)
+            classes = underpaint.copy()
+            ink_indices = tuple(range(len(planes), len(planes) + len(ink)))
+            cells = [replace(cell, covered_classes=ink_indices) for cell in planes]
+            for old, index in zip(ink, ink_indices, strict=True):
+                classes[source_classes == old.support] = index
+                cells.append(
+                    replace(old, key=f"ink{index}", support=index, covered_classes=())
+                )
+            proposal = self._proposal(
+                state,
+                base,
+                selected,
+                cells,
+                cuts,
+                inner,
+                box,
+                opaque,
+                work,
+                source_classes=classes,
+                region_threshold=threshold,
+                underpaint_classes=underpaint,
+            )
+            if proposal is not None:
+                yield proposal
 
     def _proposal(
         self,
@@ -1236,6 +1443,7 @@ class CoreCells:
         *,
         source_classes=None,
         region_threshold=None,
+        underpaint_classes=None,
     ):
         from vectrify.refine.cel_plan.proposals import bounds
 
@@ -1252,18 +1460,10 @@ class CoreCells:
             self.diagnostics["planar_paint_exclusions"] += 1
             return None
         classes = (
-            np.zeros(graph.labels.shape, np.uint8)
+            self._classes(cells, cuts, graph.labels.shape)
             if source_classes is None
             else source_classes
         )
-        yy, xx = np.ogrid[: graph.labels.shape[0], : graph.labels.shape[1]]
-        for index, cell in enumerate(cells if source_classes is None else ()):
-            scope = np.ones(graph.labels.shape, bool)
-            for prefix, normal, rho in cuts:
-                if cell.key.startswith(prefix) and len(cell.key) > len(prefix):
-                    side = (xx + 0.5) * normal[0] + (yy + 0.5) * normal[1] < rho
-                    scope &= side if cell.key[len(prefix)] == "0" else ~side
-            classes[scope] = index
         members = tuple(sorted(i for s in selected for i in s.members))
         atoms = state.partition.atoms or Atoms.original(graph)
         try:
@@ -1305,7 +1505,7 @@ class CoreCells:
                     pathops.PathOp.INTERSECTION,
                 )
             )
-            if self.layout == "planes" and crossings(shape):
+            if self.layout != "regions" and crossings(shape):
                 shape = resolved(shape, matrix, "nonzero", work)
                 if shape is None:
                     self.diagnostics["geometry_exclusions"] += 1
@@ -1368,10 +1568,15 @@ class CoreCells:
                 base.members if base.role == "underlay" else base.covered
             ) - set(members)
             active_cells = [i for i, c in enumerate(cells) if c.key.startswith(scope)]
+            paint_classes = (
+                underpaint_classes
+                if underpaint_classes is not None and not cell.ink
+                else classes
+            )
             hidden = (
-                np.isin(classes, active_cells)
+                np.isin(paint_classes, active_cells)
                 if cell.support is None
-                else classes == cell.support
+                else paint_classes == cell.support
             ) & np.isin(graph.labels, tuple(support))
             covered.update(
                 atoms.descendants(
@@ -1486,7 +1691,7 @@ class CoreCells:
                     "joint": self.joint,
                     "layout": self.layout,
                     "facet_edge_model": "multiscale-color-normal"
-                    if self.layout == "planes"
+                    if self.layout != "regions"
                     else None,
                     "grouping": self.grouping,
                     "paint_fit_alpha": "fixed-coverage-carrier"
@@ -1495,7 +1700,13 @@ class CoreCells:
                     "boundary_fit": self.boundary_fit,
                     "ink_support": self.ink_support,
                     "stroke_models": [c.stroke for c in cells if c.stroke],
-                    "model_stage": "source-facet-planes"
+                    "ink_cells": sum(c.ink for c in cells),
+                    "material_planes": len(cells) - sum(c.ink for c in cells)
+                    if self.layout == "ink-planes"
+                    else None,
+                    "model_stage": "source-ink-and-facet-planes"
+                    if self.layout == "ink-planes"
+                    else "source-facet-planes"
                     if self.layout == "planes"
                     else "source-ink-and-materials"
                     if self.ink_support == "connected"

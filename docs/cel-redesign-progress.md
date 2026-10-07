@@ -14,6 +14,225 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Joint ink planes and anchored ink boundaries
+
+The next candidate separates source-supported ink from the material-plane
+observations. `--composition-layout ink-planes` first uses the bounded dynamic
+region grammar with connected ridge evidence. Its ink cells include true
+source strokes where supported and filled interpretations for unmodeled ink;
+the latter are not presented as completed editable centerlines. Material-plane
+paint is estimated from at most 4,096 samples and its error evaluated over
+every selected material pixel, excluding classified ink. Multiscale color-edge
+derivatives also exclude that ink and independently retained stroke owners.
+No human geometry or repaired connection supplies support.
+
+Each prefix is one combined edit, rather than admitting an incomplete ink or
+paint stage. Material shapes continue beneath ink with an explicit underpaint
+class map; primary ink atoms remain in their distinct foreground owners.
+Default material subtrees, retained marks and hidden underpaint support are
+declared separately. Both layers retain the exact atom ledger, component seal,
+paint frames, crossing checks and native/local score. Two region budgets can
+seed the ink interpretation; duplicate complete source/ink seeds are skipped
+only inside that call. The 32-plane, 64-total-cell, source-pixel, source-cut,
+RLE and output-node limits remain unchanged. This route remains offline.
+
+The initial joint prototype at `.bench/cel-ink-planes-prototype` uses source
+SHA-256 `f63fa7099d240a2fd3f33d33004c968f5f53b494af860c43b6f685deaca4bdee`.
+It completes in 163.79 seconds under a separate 180-second diagnostic allowance.
+The first coarse/fine ink seeds emit four-plane drawings at 3,586 / 5,389 nodes,
+338 / 636 contours, 24 strokes and human MSE 1,242.734 / 1,175.110. The second
+parent yields 4,007 / 6,080 nodes, 334 / 642 contours, 15 strokes and errors
+1,289.941 / 1,216.070. Higher requested prefixes exhaust the exact source-atom
+bounds. Ink is less absent than in paint-only planes, but the inspected blade
+still has broken dark edges and the handle contains jagged filled contact
+remnants. This is not a practical gain over the finer Ward region pool or
+legacy CEL, and no gate passes. Merely retaining a dense ink layer is insufficient.
+
+An independent `--composition-boundary-fit anchored` competitor addresses that
+geometry density in either region or joint plane layouts. It fits ink chains
+without Gaussian contour smoothing, keeps canonical junction endpoints and
+supported source corners, and competes as straight segments, bounded complete
+ellipses or raw-data cubics. Estimated band width limits tolerance to one
+quarter of width, clamped to 0.25–0.75 and the configured boundary tolerance
+before the existing analysis/native scale conversion. Short closed chains,
+very long unmodeled chains and independent ink components of at most 64 pixels
+retain precise raw fitting.
+The independent-component check matters: a tiny mark's perimeter can become
+several open callbacks where neighboring material boundaries meet it.
+Source ownership and whole ink support cannot depend on that serialization.
+
+The new cancellation control stops at the final component seal. On generator
+resumption the plane tree now checks cancellation before asking for another
+edge preparation, preserving the complete original namespace and checkpoint.
+The strict 70-island controls retain every disconnected dark pixel without
+bridges, including marks divided by material junctions. Both curve and anchored
+fits exercise these cases; the source atom split assertions distinguish
+legitimate material cuts from a split or lost ink island.
+
+Additional controls cover source ink crossing three material colors, actual
+gaps, holes, half/opaque coverage, underpaint exposed by disabling new ink,
+protected paint/locks/pins/fixed source marks, call-local seed deduplication,
+native/local score, complete seals and save/reload. Carried-stroke composition
+controls exercise several complete prefixes for all three layouts and both
+boundary fits at half/quarter opacity; larger trees remain covered by full
+native artwork pools. Final verified regression and matched measurements
+follow below.
+
+The relevant full regression run passes **965 tests in 237.82 seconds**. The
+subsequently expanded carrier-frame module passes **eight controls in 14.44
+seconds**, including four added joint-plane cases: half/quarter opacity with
+both original and affine-reexpressed carriers. They check real stroke paths,
+exact native coverage, ownership, local/native agreement and reload. In total,
+969 distinct regression/control cases are verified. Changed-file Ruff/format
+and production Pyrefly checks pass.
+
+Final reports at `.bench/cel-ink-material-final` use source SHA-256
+`19976c0c4ac8af6472f91554147bc5a245ce6d58e460a67ad532ef95a4b8db88`.
+The current curve/anchored sword region pools complete in 77.77/65.96 seconds
+under separate 180-second diagnostic allowances. First fine candidates are
+3,491 / 3,231 nodes, both 381 contours and 17 strokes, with human MSE
+552.116829 / 551.833318. The second candidates are 4,060 / 3,720 nodes, both
+405 contours and two strokes, with errors 571.093568 / 570.420840. Anchored
+fitting saves 7.4% / 8.4% of nodes while leaving image error nearly unchanged.
+The stronger small-mark preservation makes the first saving smaller than the
+earlier 9.2% prototype; that prototype is not the final implementation.
+The first drawing still exceeds legacy's nodes by 39.7%, and none of the
+800-node / 140-contour / 497.39-MSE sword requirements passes.
+
+The first anchored region candidate's feature errors are 864.380295 /
+286.406778 / 1,049.260585 / 897.601094 / 1,416.967109 for tip / facets / guard /
+handle / jewel. The tip, handle and jewel remain worse than legacy's respective
+527.530766 / 762.427316 / 1,385.495186. The inspected crop still contains a
+wavy material boundary, a stray filled blade patch and rough handle contact
+remnants. Seventeen true strokes do not establish complete editable ink.
+
+The final joint ink-plane sword pool finishes in 155.13 seconds. Each of four
+ink seeds fits 32 material planes internally; only prefixes through four
+planes fit the unchanged source-atom ledger. There are 24 atom exclusions and
+zero geometric exclusions. These are the highest emitted prefixes, selected
+by plane count, not human error:
+
+| Sword source parent / region seed budget | Material planes / ink cells | Nodes / contours / true strokes | Human MSE |
+| --- | --- | --- | ---: |
+| First / 32 | 4 / 15 | 3,450 / 338 / 24 | 1,241.551269 |
+| First / 64 | 4 / 31 | 5,275 / 636 / 24 | 1,172.632252 |
+| Second / 32 | 4 / 13 | 3,058 / 334 / 15 | 1,270.311660 |
+| Second / 64 | 4 / 24 | 5,862 / 642 / 15 | 1,212.082868 |
+
+First coarse joint-plane feature errors are 1,564.715112 / 764.156376 /
+2,489.428436 / 1,747.388447 / 2,746.790911. The inspected blade still loses
+parts of its dark edge and has unsupported-looking long shade divisions; the
+handle keeps clear stroke intervals mixed with jagged filled remnants. The
+actual source gap remains, rather than the human repair. Separating classified
+ink from paint improves the paint-only plane experiment but does not recover
+faithful surfaces or a complete compact ink interpretation.
+
+### Matched cross-artwork controls for ink/material fitting
+
+All four existing clean, 192-pixel, half-opacity tuning cases compare the same
+first two native-admitted source-stroke parents. These rows use the finer
+requested region budget of 64; neither clean geometry nor feature boxes enter
+generation. They are candidate-pool diagnostics, not selected operation
+outputs, held-out results or complete line/feature gates.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / 1 | 1,413 → 1,303 | 110 → 110 | 75.829113 → 75.832453 | 0.356 → 0.275 |
+| anime-girl / 2 | 1,467 → 1,374 | 118 → 118 | 74.896255 → 74.802880 | 0.000 → 0.000 |
+| anime-face / 1 | 2,728 → 2,631 | 190 → 190 | 73.760740 → 74.002528 | 0.431 → 0.431 |
+| anime-face / 2 | 2,484 → 2,305 | 144 → 144 | 75.542247 → 75.556171 | 0.259 → 0.259 |
+| western-park / 1 | 1,584 → 1,438 | 114 → 114 | 117.869662 → 117.778856 | 0.093 → 0.093 |
+| western-park / 2 | 1,583 → 1,449 | 114 → 114 | 116.452290 → 116.111826 | 0.060 → 0.060 |
+| rubberhose-band / 1 | 2,364 → 1,729 | 123 → 123 | 150.558292 → 149.879757 | 0.753 → 0.759 |
+| rubberhose-band / 2 | 2,415 → 1,762 | 123 → 123 | 131.370324 → 130.962602 | 0.663 → 0.671 |
+
+Anchored ink fitting saves 26.9% / 27.0% of rubberhose nodes while slightly
+improving its pixel and line scores. Face and park retain line F1 while saving
+nodes. The first girl loses **8.1 percentage points of line F1**, despite nearly
+identical pixel error. That violates the line allowance; it cannot be averaged
+away or justified by the other drawings. The fitter stays optional and offline.
+Its small native/synthetic controls do not prove preservation of every real
+artwork's ink.
+
+The joint ink-plane route uses source-connected ink rather than paired-only
+ridge evidence. These rows retain the highest emitted material prefix for
+each source parent and region seed, again without oracle selection:
+
+| Tuning ink/plane case / parent / region seed budget | Material planes | Nodes / contours / true strokes | Clean MSE | Line F1 |
+| --- | ---: | --- | ---: | ---: |
+| anime-girl / 1 / 32 | 2 | 629 / 96 / 14 | 594.324751 | 0.118 |
+| anime-girl / 1 / 64 | 2 | 660 / 106 / 14 | 591.048377 | 0.118 |
+| anime-girl / 2 / 32 | 2 | 661 / 98 / 13 | 591.540768 | 0.151 |
+| anime-girl / 2 / 64 | 2 | 707 / 113 / 13 | 586.796797 | 0.151 |
+| anime-face / 1 / 32 | 3 | 1,189 / 108 / 16 | 821.108335 | 0.301 |
+| anime-face / 1 / 64 | 3 | 1,513 / 169 / 16 | 814.367076 | 0.300 |
+| anime-face / 2 / 32 | 2 | 1,185 / 109 / 18 | 895.634060 | 0.367 |
+| anime-face / 2 / 64 | 2 | 1,457 / 165 / 18 | 888.359486 | 0.367 |
+| western-park / 1 / 32 | 2 | 801 / 81 / 21 | 475.080151 | 0.237 |
+| western-park / 1 / 64 | 2 | 843 / 97 / 21 | 472.167018 | 0.237 |
+| western-park / 2 / 32 | 3 | 820 / 81 / 21 | 415.089982 | 0.252 |
+| western-park / 2 / 64 | 3 | 837 / 93 / 21 | 412.069040 | 0.252 |
+| rubberhose-band / 1 / 32 | 4 | 998 / 131 / 27 | 410.419160 | 0.747 |
+| rubberhose-band / 2 / 32 | 3 | 938 / 128 / 30 | 451.313150 | 0.727 |
+
+Rubberhose has one emitted ink seed per parent: the first has no second
+eligible region seed, and the second's duplicate is skipped within that call.
+Both region hierarchies report one unmet requested budget. Broader prefixes
+exhaust exact atom support. More true strokes sometimes improve line recall
+against the region pool, but every artwork's paint error is much worse.
+The inspected girl loses most of its coherent body/clothes paint. The combined
+route is insufficient for automatic adoption or reference creation.
+
+| Case | Curve / anchored / joint ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 77.77 / 65.96 / 155.13 |
+| anime-girl | 11.29 / 10.89 / 13.01 |
+| anime-face | 32.20 / 33.30 / 46.47 |
+| western-park | 16.62 / 13.30 / 29.94 |
+| rubberhose-band | 14.75 / 16.50 / 54.55 |
+
+The 15 final reports all complete with the same source hash and parse as
+strict JSON. All **172 emitted proposals** have zero native validity rejections,
+complete ownership, component seals and independent local/native raster
+agreement. The maximum local/full score-term difference is
+**3.348527e-9**. Every saved SVG's actual SHA-256 matches its report. Matched
+reference RGBA, masks, settings, normalizers, clean SVG hashes and both source
+parents agree; canonical parent geometry/paint and exact rendered RGBA match
+after renaming fresh document IDs. These prove the reported comparison's
+integrity, not the separate quality gates. The full-render and scoring work
+still uses diagnostic allowances, not the frozen selected-operation budget
+or a process peak-memory measurement.
+
+Two sequential batch drivers terminated with exit 143 between reports. After
+confirming no benchmark child remained, completed final-hash reports were
+retained and the missing cases rerun individually. Every authoritative timing
+above comes from a completed report; incomplete runs do not supply evidence.
+The final independent audit is `.bench/cel-ink-material-final-audit.txt`.
+
+Reproduce each layout/boundary pair: `regions/curve`, `regions/anchored` and
+`ink-planes/anchored`. Run the four paired names above under a 60-second
+allowance; use `--normalizer 54564 --seconds 180` instead of `--pair` for sword.
+For example:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python -m scripts.bench_cel_component \
+  --proposal source-strokes --boundary-contacts --compose-materials \
+  --pair anime-girl --seconds 60 --composition-layout ink-planes \
+  --composition-boundary-fit anchored \
+  --out .bench/cel-ink-material-final/anime-girl-ink-planes
+```
+
+Next test a source-supported one-sided exterior ink model, with narrow
+interior contrast rather than background contrast, constant-dark material
+negatives and preserved physical gaps. The blade crop motivates that
+hypothesis; it is not yet an implemented interpretation. Also replace whole
+carrier plane cuts with supported shared curved material boundaries, diagnose
+the girl's anchored-fit line loss, and complete compact opacity/noise models.
+All eight deliveries, numerical/local-feature, corpus, UI, automatic fitting,
+runtime/memory, held-out and independent-review gates remain open. The full
+implementation goal remains active.
+
 ### Source-supported facet-plane competitor
 
 An optional joint `layout="planes"` now competes with the region hierarchy in
