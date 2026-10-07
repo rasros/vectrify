@@ -415,6 +415,11 @@ def vectorize(
                     "source_splits": dict(operators.families._split_models.diagnostics)
                     if operators.families._split_models is not None
                     else {},
+                    "piecewise_surfaces": dict(
+                        operators.families._piecewise_models.diagnostics
+                    )
+                    if operators.families._piecewise_models is not None
+                    else {},
                     "ink_replacement": dict(operators.replacements.diagnostics),
                     "closed_overlays": dict(operators.overlays.diagnostics),
                     "nested_surface_rejections": dict(

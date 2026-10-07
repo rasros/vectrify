@@ -36,13 +36,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the source-atom split implementation and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the coupled piecewise-surface implementation and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental source-atom splits and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
+| Experimental coupled piecewise surfaces and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -130,6 +130,22 @@ requiring a poor intermediate drawing to enter the beam. General supported
 boundary rebuilding, coverage interpretation and admission auditing remain
 necessary. A slider or learned ranker still cannot resolve the missing compact
 alternatives.
+
+The coupled operator now grows a connected family against two side-paint
+models directly, then proposes exact or contained compact contours and complete
+source ownership in one edit. It reaches local evaluation in the matched sword
+run. Two compact gradient variants save 496 representation units but regress
+the frozen native objective and are rejected. The selected drawing is unchanged
+at 10,009 nodes and human MSE 514.85. A source-only diagnostic admits four
+alternatives; its best contained straight/flat variant has 10,072 nodes and MSE
+511.75, removing 214 initializer nodes, including 23 beyond the corresponding
+exact union. This is real proposal coverage, but it is still far from the sword
+milestone. Four paired tuning controls remain byte-identical. The next model
+work must rebuild coherent whole-surface boundaries and continue material under
+retained marks with proved local order. Exact-union containment, fragmented
+contacts and the bounded original-atom member limit still restrict the current
+operator. Keep those limitations visible before considering score calibration
+or learned ranking as the explanation for the missing compact drawing.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local

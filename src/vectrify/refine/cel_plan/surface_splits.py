@@ -122,7 +122,7 @@ class SurfaceSplits:
                 result.append((paint, float(np.square(residual).mean())))
         return result
 
-    def _geometry(self, state, oid, normal, rho):
+    def _geometry(self, state, oid, normal, rho, *, geometry=None):
         evidence = self.families.evidence
         size = 2 * float(np.hypot(*self.families.graph.labels.shape)) + 4
         tangent = np.array((-normal[1], normal[0]))
@@ -144,8 +144,10 @@ class SurfaceSplits:
             clip.lineTo(*point)
         clip.close()
         original = curve_path(
-            state.document.geometry_for(oid),
-            path_style(state.document, state.document.element(oid))["fill-rule"],
+            state.document.geometry_for(oid) if geometry is None else geometry,
+            path_style(state.document, state.document.element(oid))["fill-rule"]
+            if geometry is None
+            else "nonzero",
         )
         left = pathops.op(original, clip, pathops.PathOp.INTERSECTION)
         right = pathops.op(original, clip, pathops.PathOp.DIFFERENCE)

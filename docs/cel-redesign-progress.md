@@ -2927,7 +2927,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | General curved source splits and boundary rebuilding beyond the bounded straight-cut operator, broader coherent surface/paint interpretations beyond owned family and enclosed-material proposals, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
+| 3 | General curved source splits and boundary rebuilding beyond the bounded straight-cut operator, broader coherent surface/paint interpretations beyond owned family, enclosed-material and bounded two-paint/contained-contour proposals, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
 | 4 | Fitting variable-width filled ink beyond retained unions, broader stroke replacement/underlayer coverage, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
@@ -3066,3 +3066,151 @@ Reproduce with the native and paired commands above, using output directories
 `.bench/diagnose-source-split-candidates.py`, with an independent 180-second
 budget. All tests, timed benchmarks and the diagnostic audit run sequentially.
 No complete delivery or release gate is claimed finished.
+
+## Coupled contours and piecewise surface paint
+
+The prior source-split audit found no candidate on existing single-paint
+parents. `piecewise_surfaces.py` now proposes a whole connected family against
+two side-paint hypotheses from the outset. It does not require a single-paint
+merge or a poor intermediate SVG to enter the beam. Adjacent whole-owner pairs
+supply source RGB line hypotheses; flat/linear models screen every candidate
+owner, including distant source atoms. A connected compatible family then
+refits both sides on complete support. Original region IDs remain intact where
+possible, and the immutable atom ledger supplies exact new ownership where a
+real source split is needed. Primary ownership, underlay membership, branch
+canonical graphs and rejection identities compose with the existing operators.
+
+The edit combines source-supported partitioning, whole-family geometry,
+independent side paint and current SVG order. It competes with the old material,
+adjacency and single-owner split cursors in the existing family slot. Other
+reserved operator slots remain. The production report exposes a separate
+`piecewise_surfaces` diagnostic. Fixed atoms, selected overlays, covered owners,
+strokes, clips, incompatible frames and components remain independent.
+
+Exact contour unions compete with contained straight and curved fits. The
+fitter flattens in analysis coordinates and samples by arc distance, so uneven
+SVG vertex spacing cannot determine corner positions. Local tangent rays snap
+supported turns to original vertices. Straight simplification retains those
+anchors; curved runs fit between the same exact endpoints. Tiny unfitted
+contours remain intact. An actual opaque underlayer must cover the family
+before a compact exterior can compete. Intersecting the fitted contour with the
+exact union preserves holes and prevents expansion over unrelated paint; the
+ordinary geometric order proof and native policy still decide admissibility.
+Exact variants can inherit surviving curve permissions. Compact variants and
+new cut segments remain held. This is not proof of general canonical graph
+junction preservation or an intrinsic-alpha/coverage model overhaul.
+
+Bounds include eight seed pairs, 65,536 contacts, 128 paths, 512 source members,
+6,000 geometry nodes, a 262,144-pixel owner-family box and the 1536-square
+analysis limit. Pixel screening streams in 65,536-pixel chunks. Fits use at most
+4,096 samples but screen the complete support. Compact fitting has a 16,384-point
+bound, retains at least 95% of the exact union area and requires a ten-percent
+union-node saving. There are at most 16 emitted proposals per parent. These
+proposal restrictions do not change score weights, native feature/coverage
+acceptance, the detailed normalizer or the requested complexity frontier.
+
+### Verification
+
+The full relevant suite passes **594 tests in 55.02 seconds**. The 17 new cases
+cover direct eight-fragment/two-paint replacement when a single material model
+cannot offer the whole family; real source splits; native/local agreement and
+direct project reload; opaque/partial-alpha paint; gradients; holes; diagonal
+partitions; equivalent child transforms; complete-owner outliers; independent
+intervening geometry and order vetoes; actual-core and size limits; stop during
+streamed screening; and whole-contour compaction. The compact synthetic case
+removes more than half the nodes, retains its four original corners and keeps
+alpha byte-identical. Production search also publishes a compound synthetic
+edit and uses its derived graph for all subsequent graph operators.
+
+Ruff lint/format and `git diff --check` pass. Project Pyrefly, using the explicit
+workspace interpreter, reports zero errors and the existing 61 warnings. Tests
+are excluded by that project configuration and exercised with pytest. CPU tests
+finish before timed benchmarks; benchmark and diagnostic source hashes are
+verified against the retained tree.
+
+### Matched native and tuning evidence
+
+The retained production hash is
+`8bc08a5e6dc708e4aa7d76e8a8c4433a74b4a2319d9bd6f8f5712f258bcf8e96`.
+The native sword run in `.bench/planned-coupled-piecewise-surfaces` retains the
+same source/mask, 60-second budget, complexity 50, balanced quality and disabled
+refinement. It takes 52.34 seconds and produces the **same selected drawing**:
+10,009 nodes, 1,630 contours, 1,577 paths, 31 gradients, cost 20,055 and human MSE
+514.8500919869. The two selected edits are the prior ink replacements. There is
+no new sword quality gain and all frozen numerical sword gates remain unmet.
+Crossings and published native rejections remain zero; out-of-time,
+search-out-of-time, stopped and deadline overshoot remain false/zero.
+Refinement remains incomplete.
+
+Twenty local alternatives are evaluated, 15 accepted and four independently
+checkpointed, with zero score disagreements. Two coupled contained-line/gradient
+alternatives reach local evaluation on separate parents. Each saves 496
+representation units but increases native visual loss by approximately 0.002127;
+both are rejected for local objective regression. The new source graph is
+rebuilt once, with a conservative retained/cache peak charge of 25,685,024 bytes.
+The working-canvas beam charge remains separate; this does not prove a total
+hardware memory or runtime gate. The report records 11 seed pairs, 35 source
+line hypotheses, 30 seed exclusions, 5,351,783 inspected pixels, two compact
+fits and two emitted coupled alternatives. The live full-check guard is 2.15
+seconds; local search plus validation takes 16.26 seconds, including 4.29 seconds
+for full checks. No ranking change is justified from this run alone.
+
+The four half-opacity tuning cases in
+`.bench/planned-coupled-piecewise-surfaces-rgba-pairs` preserve source,
+clean-target and mask hashes from `.bench/planned-source-atom-splits-rgba-pairs`.
+All selected PNGs are byte-identical and global/feature/line scores are identical.
+Each reaches 48 evaluations, four checkpoints and zero score disagreements.
+Anime girl / anime face / western park / rubberhose band retain nodes
+175 / 176 / 547 / 407, costs 319 / 272 / 987 / 765 and clean MSE
+177.70 / 206.86 / 178.72 / 167.23. Observed generation times are
+10.56 / 15.28 / 9.37 / 12.96 seconds; no speedup is claimed. No coupled proposal
+is emitted on these four bounded controls. Anime face's seed pairs reach the
+member restriction; the other cases reach complete-paint exclusions. This is
+limited operator coverage, not evidence of broader corpus effectiveness.
+
+### Source-only contour and paint audit
+
+The final diagnostic in `.bench/piecewise-surface-candidate-audit/summary.json`
+uses the retained source hash before and after, an independent 180-second
+budget and the same native policy. The algorithm receives only source evidence;
+the human rendering is consulted afterward. It evaluates the first four coupled
+alternatives on the initializer, then inspects the bounded seed prefix after
+one broad union. The initializer has 10,286 nodes, 1,711 contours and cost 20,818.
+
+| Initializer proposal | Nodes | Contours | Human MSE | Native-valid |
+| --- | ---: | ---: | ---: | --- |
+| Contained straight contours, flat/gradient sides | 10,072 | 1,662 | 511.7873 | Yes |
+| Exact union, flat/gradient sides | 10,095 | 1,662 | 514.9020 | Yes |
+| Contained straight contours, flat/flat sides | 10,072 | 1,662 | 511.7533 | Yes |
+| Exact union, flat/flat sides | 10,095 | 1,662 | 512.9744 | Yes |
+
+All four match the independent local raster exactly and full/local score terms
+to numerical precision. The best contained fit removes 214 initializer nodes,
+including 23 beyond its exact-union alternative. Its error improves by about
+1.05 against the initializer. This is still roughly a two-percent node reduction
+and cannot satisfy the requested structural milestone. The post-union prefix
+finds 32 lines, 28 seed exclusions and two final refit exclusions, producing no
+coupled candidate. The diagnostic is a bounded prefix, not an exhaustive pool,
+matched production effort or proof that the selector should prefer a particular
+human score.
+
+### Remaining structural priority
+
+Coupling now offers a real source-owned two-paint/contour alternative, but it
+still starts from current fragment families and conservatively clips back to
+their exact unions. Fragmented holes and contacts therefore bound the savings.
+The 512-member restriction also excludes large original-atom owners even on a
+small tuning render. General supported boundary rebuilding, complete coherent
+material/mark continuation with joint order, broader piecewise models and
+bounded whole-surface planning remain required. Diagnose these availability and
+geometry restrictions before changing score weights or adding learned ranking.
+Continue the planned admission and coverage-interpretation audit on meaningful
+holes, faint marks, genuine variable opacity and supported thin features; do
+not relax gates merely to admit the sword fixture.
+
+Reproduce with the earlier native/paired commands, changing output directories
+to `.bench/planned-coupled-piecewise-surfaces` and
+`.bench/planned-coupled-piecewise-surfaces-rgba-pairs`. The ignored diagnostic
+runner is `.bench/diagnose-piecewise-surface-candidates.py`. All three runs use
+the same final production sources. No complete delivery or release gate is
+claimed finished.
