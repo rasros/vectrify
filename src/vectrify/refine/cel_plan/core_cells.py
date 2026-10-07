@@ -15,7 +15,13 @@ from dataclasses import dataclass, replace
 import numpy as np
 import pathops
 from cairosvg.colors import color
-from scipy.ndimage import distance_transform_edt, find_objects, gaussian_filter, label
+from scipy.ndimage import (
+    binary_propagation,
+    distance_transform_edt,
+    find_objects,
+    gaussian_filter,
+    label,
+)
 
 from vectrify.document import Editor, Geometry, Selection
 from vectrify.document.join import (
@@ -35,6 +41,8 @@ from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.geometry import Boundaries
+from vectrify.refine.cel_plan.ink_models import models as ink_models
+from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.material_groups import grouped, ink_paint_links
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
@@ -51,6 +59,7 @@ from vectrify.refine.cel_plan.surface_splits import (
     fit,
     lines,
 )
+from vectrify.refine.colour_regions import colour
 
 MAX_PIXELS = 1536**2
 MAX_NATIVE_PIXELS = 4 * 1024**2
@@ -112,6 +121,9 @@ class Cell:
     error: float
     residual: float
     support: int | None = None
+    stroke: dict | None = None
+    footprint: Geometry | None = None
+    covered_classes: tuple[int, ...] = ()
 
 
 class CoreCells:
@@ -132,6 +144,7 @@ class CoreCells:
         joint=False,
         grouping="static",
         boundary_fit="polygon",
+        ink_support="paired",
     ):
         if grouping not in {"static", "ward"} or (grouping != "static" and not joint):
             raise ValueError("Dynamic grouping requires a joint material proposal")
@@ -139,11 +152,16 @@ class CoreCells:
             boundary_fit != "polygon" and not joint
         ):
             raise ValueError("Boundary fitting requires a joint material proposal")
+        if ink_support not in {"paired", "connected"} or (
+            ink_support != "paired" and (not joint or grouping != "ward")
+        ):
+            raise ValueError("Connected ink requires a dynamic joint material proposal")
         self.families, self.options = families, options
         self.minimum_paths = minimum_paths
         self.joint = joint
         self.grouping = grouping
         self.boundary_fit = boundary_fit
+        self.ink_support = ink_support
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
         self._ridge_support = None
@@ -179,6 +197,9 @@ class CoreCells:
                 "hierarchy_ink_cells_peak",
                 "hierarchy_ink_paint_links_peak",
                 "hierarchy_unmet_budgets",
+                "source_stroke_attempts",
+                "source_stroke_models",
+                "source_stroke_carrier_exclusions",
             ),
             0,
         )
@@ -214,6 +235,16 @@ class CoreCells:
                     supported[:, :margin] = supported[:, -margin:] = False
                     paired |= supported
             paired &= evidence.drawn & ~evidence.empty
+            if self.ink_support == "connected":
+                # Trough pixels establish the role of an existing drawn chain.
+                # Follow that support through junctions and faint edge pixels;
+                # do not fabricate bridges, close gaps or promote isolated
+                # dark surfaces which have no paired source ridge.
+                paired = binary_propagation(
+                    paired,
+                    structure=np.ones((3, 3)),
+                    mask=evidence.drawn & ~evidence.empty,
+                )
             paired.flags.writeable = False
             self._ridge_support = paired
         return self._ridge_support
@@ -499,6 +530,13 @@ class CoreCells:
                 if len(roots) > MAX_REGION_CELLS:
                     self.diagnostics["region_exclusions"] += 1
                     continue
+            if self.ink_support == "connected":
+                # The coverage carrier is a material. Supported ink is drawn
+                # above its neighboring materials, never used as their base.
+                roots = np.r_[roots[~ink_kinds[roots]], roots[ink_kinds[roots]]]
+                if not len(roots) or ink_kinds[roots[0]]:
+                    self.diagnostics["region_exclusions"] += 1
+                    continue
             self.diagnostics["region_candidates"] += len(roots)
             if not len(roots):
                 continue
@@ -520,6 +558,55 @@ class CoreCells:
             classes = palette[source[tuple(nearest)]].astype(np.uint8)
             outline_labels = np.where(support, classes.astype(np.int32) + 1, 0)
             ink_cells = np.r_[False, ink_kinds[roots]]
+            primary_pixels = accepted[own]
+            stroke_models = {}
+            if self.ink_support == "connected":
+                # Decode physical source chains across paint palettes. A paint
+                # bucket must not determine where a connected stroke ends.
+                carrier = curve_path(transformed_geometry(whole, matrix))
+                self.diagnostics["source_stroke_attempts"] += 1
+                proposed_models = ink_models(
+                    ink_pixels & accepted & support,
+                    evidence,
+                    self.options,
+                    work,
+                    carrier=carrier,
+                )
+                changed = classes.copy()
+                chosen = {}
+                for model in proposed_models:
+                    outside = abs(
+                        pathops.op(
+                            curve_path(model.footprint),
+                            carrier,
+                            pathops.PathOp.DIFFERENCE,
+                        ).area
+                    )
+                    if outside > 1e-8:
+                        self.diagnostics["source_stroke_carrier_exclusions"] += 1
+                        continue
+                    if not model.selected[own & accepted].any():
+                        continue
+                    index = len(roots) + len(chosen)
+                    trial = changed.copy()
+                    trial[model.selected] = index
+                    active = np.unique(trial[own & accepted])
+                    if len(active) > MAX_REGION_CELLS:
+                        continue
+                    changed = trial
+                    chosen[index] = model
+                if chosen:
+                    active = np.unique(changed[own & accepted])
+                    remap = np.zeros(len(roots) + len(chosen), np.uint8)
+                    remap[active] = np.arange(len(active), dtype=np.uint8)
+                    classes = remap[changed]
+                    kinds = np.r_[ink_kinds[roots], np.ones(len(chosen), bool)]
+                    ink_cells = np.r_[False, kinds[active]]
+                    stroke_models = {
+                        int(remap[i]): model for i, model in chosen.items()
+                    }
+                    self.diagnostics["source_stroke_models"] += len(stroke_models)
+                outline_labels = np.where(support, classes.astype(np.int32) + 1, 0)
 
             def check():
                 if work.interrupted:
@@ -574,7 +661,34 @@ class CoreCells:
                 )
                 return [("L", (float(x), float(y))) for x, y in fitted[1:]]
 
-            if self.joint:
+            material_classes = classes
+            if self.ink_support == "connected":
+                # Extend materials underneath source ink before changing its
+                # width. This is a complete coupled proposal; gaps exposed by
+                # narrower strokes receive the corresponding adjacent paint.
+                material = support & ~ink_cells[classes.astype(int) + 1]
+                nearest = distance_transform_edt(
+                    ~material, return_distances=False, return_indices=True
+                )
+                material_classes = classes[tuple(nearest)]
+                material_labels = np.where(support, material_classes.astype(int) + 1, 0)
+                ink_labels = np.where(
+                    support
+                    & ink_cells[classes.astype(int) + 1]
+                    & ~np.isin(classes, tuple(stroke_models)),
+                    classes.astype(int) + 1,
+                    0,
+                )
+                outlines = {}
+                for labels in (material_labels, ink_labels):
+
+                    def fit_boundary(points, tolerance, labels=labels):
+                        return boundary(points, tolerance, outline_labels=labels)
+
+                    found, retried = _supported_outlines(labels, fit_boundary, check)
+                    self.diagnostics["degenerate_region_retries"] += retried
+                    outlines.update((i, data) for i, data in found.items() if i > 0)
+            elif self.joint:
                 # Two independently supported straight sides can collapse a
                 # thin material to the same chord. Restore its canonical chains
                 # on BOTH neighboring fills before constructing the edit.
@@ -585,15 +699,38 @@ class CoreCells:
                     outline_labels, 0, fit_boundary=boundary, check=check
                 )
             cells = []
-            for i in range(len(roots)):
+            for i in range(len(ink_cells) - 1):
                 if work.interrupted:
                     return
-                region_indices = np.flatnonzero(palette[pixels] == i)
+                region_indices = np.flatnonzero(primary_pixels & (classes[own] == i))
                 fitted = self._paint(xy, rgb, region_indices, work)
-                if fitted is None or i + 1 not in outlines:
+                if fitted is None or (i not in stroke_models and i + 1 not in outlines):
                     break
-                shape = transformed_geometry(parse_path(outlines[i + 1]), frame)
-                shape = _filled(shape, "evenodd")
+                stroke, footprint, covered = None, None, ()
+                if i in stroke_models:
+                    model = stroke_models[i]
+                    shape, footprint, stroke = (
+                        model.geometry,
+                        model.footprint,
+                        model.details,
+                    )
+                    paint = Paint(colour(model.paint), 1.0)
+                    difference = model.paint - rgb[region_indices]
+                    fitted = (
+                        paint,
+                        float(np.square(difference).sum()),
+                        float(np.abs(difference).max()),
+                    )
+                else:
+                    shape = transformed_geometry(parse_path(outlines[i + 1]), frame)
+                    shape = _filled(shape, "evenodd")
+                    if self.ink_support == "connected" and not ink_cells[i + 1]:
+                        hidden = (
+                            support
+                            & (material_classes == i)
+                            & ink_cells[classes.astype(int) + 1]
+                        )
+                        covered = tuple(int(k) for k in np.unique(classes[hidden]))
                 cells.append(
                     Cell(
                         f"r{i}",
@@ -602,9 +739,12 @@ class CoreCells:
                         whole if i == 0 else shape,
                         *fitted,
                         i,
+                        stroke,
+                        footprint,
+                        covered,
                     )
                 )
-            if len(cells) != len(roots):
+            if len(cells) != len(ink_cells) - 1:
                 self.diagnostics["region_exclusions"] += 1
                 continue
             yield cells, classes, threshold, region_selected
@@ -991,6 +1131,23 @@ class CoreCells:
             else inner
         )
         for cell in cells[1:]:
+            if cell.stroke is not None:
+                assert cell.footprint is not None
+                native_clip = transformed_geometry(clip_geometry, matrix)
+                if (
+                    abs(
+                        pathops.op(
+                            curve_path(cell.footprint),
+                            curve_path(native_clip),
+                            pathops.PathOp.DIFFERENCE,
+                        ).area
+                    )
+                    > 1e-8
+                ):
+                    self.diagnostics["alpha_exclusions"] += 1
+                    return None
+                shapes.append(cell.draw)
+                continue
             shape = path_geometry(
                 pathops.op(
                     curve_path(cell.draw),
@@ -1051,6 +1208,7 @@ class CoreCells:
                 and c.key.startswith(scope)
                 for i in group
             }
+            covered.update(i for c in cell.covered_classes for i in groups[c])
             support = set(
                 base.members if base.role == "underlay" else base.covered
             ) - set(members)
@@ -1066,7 +1224,12 @@ class CoreCells:
                 )
             )
             new_surfaces.append(
-                Surface(oid, groups[index], covered=tuple(sorted(covered)))
+                Surface(
+                    oid,
+                    groups[index],
+                    "overlay" if cell.stroke else "surface",
+                    covered=tuple(sorted(covered)),
+                )
             )
         partition = Partition(
             tuple(s for s in expanded if s.id not in remove) + tuple(new_surfaces),
@@ -1085,6 +1248,8 @@ class CoreCells:
             for index, (oid, shape) in enumerate(
                 zip(ids, shapes[1:], strict=True), start=1
             ):
+                if cells[index].stroke:
+                    shape = identified(shape, oid)
                 tx.insert_object(
                     parent.id,
                     replace(document.element(base.id), id=oid, geometry_id=shape.id),
@@ -1097,7 +1262,9 @@ class CoreCells:
             with editor.transaction("Fit source material cell") as tx:
                 tx.set_fill(
                     oid,
-                    _gradient(cell.paint, evidence, snapshot, oid, opacity)
+                    "none"
+                    if cell.stroke
+                    else _gradient(cell.paint, evidence, snapshot, oid, opacity)
                     if cell.paint.gradient
                     else cell.paint.color,
                 )
@@ -1113,6 +1280,20 @@ class CoreCells:
                         "stroke": "none",
                     },
                 )
+                if cell.stroke:
+                    inverse_parent = inverse_matrix(root_matrix(snapshot, parent.id))
+                    matrix_text = " ".join(str(v) for v in inverse_parent)
+                    tx.set_attributes(
+                        oid,
+                        {
+                            "stroke": cell.paint.color,
+                            "stroke-width": repr(cell.stroke["width"]),
+                            "stroke-opacity": "1",
+                            "stroke-linecap": "round",
+                            "stroke-linejoin": "round",
+                            "transform": f"matrix({matrix_text})",
+                        },
+                    )
         proposed = editor.snapshot.document
         try:
             component = ComponentEdit.bind(document, state.partition, parent.id, work)
@@ -1150,7 +1331,11 @@ class CoreCells:
                     "joint": self.joint,
                     "grouping": self.grouping,
                     "boundary_fit": self.boundary_fit,
-                    "model_stage": "dynamic-materials"
+                    "ink_support": self.ink_support,
+                    "stroke_models": [c.stroke for c in cells if c.stroke],
+                    "model_stage": "source-ink-and-materials"
+                    if self.ink_support == "connected"
+                    else "dynamic-materials"
                     if self.grouping == "ward"
                     else "paint-budget-ablation"
                     if self.joint

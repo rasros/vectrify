@@ -4,6 +4,145 @@ The requirements remain those in [the complete plan](cel-redesign-plan.md).
 This record distinguishes working infrastructure from release evidence. The
 method remains experimental and the existing CEL default is unchanged.
 
+## Resumed source ink and material experiment
+
+The owner resumed the implementation goal after the pause checkpoint, then
+clarified the handle: clear, connected editable lines, rather than filled
+outline shapes. The human drawing repairs a defect in the raster source. That
+repair is evaluation context only; generation must not invent a connection to
+match it. The full goal and all eight deliveries remain open. Generated outputs
+are still too poor to supply useful new references, so that collection stays
+deferred while existing tuning artwork checks the experiment.
+
+### Source-supported strokes with coupled underpaint
+
+`cel_plan/ink_models.py` discovers physical source chains before paint grouping.
+Paired trough evidence seeds an eight-connected propagation through existing
+drawn pixels; no closing or gap bridging adds source pixels. Skeleton runs keep
+their shared junction endpoints. Width and source paint compatibility group
+supported runs into ordinary SVG stroke paths with `fill="none"`, round joins
+and round caps. A filled stroke footprint supplies containment proof only; it
+is not the exported drawing. Unsupported, boundary-contact and unexamined runs
+keep their independent filled ownership.
+
+The new `CoreCells(..., joint=True, grouping="ward", boundary_fit="curve",
+ink_support="connected")` hypothesis discovers ink across palette fragments,
+extends neighboring materials underneath it, and replaces both in one atomic
+component edit. Exact pixel masks split ownership rather than assigning a whole
+source atom by majority. Material surfaces explicitly cover the ink classes.
+Native-coordinate strokes preserve width across skewed carrier frames; unchanged
+surrounding paths retain their own paint frames and opacity. The default
+`ink_support="paired"` and production scheduling are unchanged. This is an
+offline comparator, not a selected operation result.
+
+Discovery bounds are 1536² source pixels, 8,192 connected components, the 128
+largest components, 128 examined runs, 16,384 examined points, 2,048 points per
+run, eight compatible stroke models and 16 MiB of retained model masks. Source
+widths above 16 sampled pixels or excessively varying runs stay filled.
+Existing exact-cut, 64-cell, geometry and native validation bounds remain.
+Interrupted discovery discards all partially prepared models, including an
+interruption during final footprint construction. These allocation bounds do
+not complete the process-memory or operation-runtime gates.
+
+The component runner now accepts `--pair` for repository tuning artwork. It
+compares paired and connected hypotheses at 192 pixels and half opacity under
+separate 60-second diagnostic allowances. Clean SVG geometry and feature boxes
+are evaluation data after discovery, never generation hints. Undefined line
+metrics are JSON `null`, and held-out artwork cannot be selected with this flag.
+
+Twelve new regression cases cover source junctions and explicit gaps, broad
+dark-material exclusion, distinct widths/paints, retained unexamined ink,
+interruption during final geometry, and atomic ink/material edits at half and
+quarter opacity in ordinary and skewed carrier frames. The coupled cases check
+true SVG strokes, exact native alpha, complete source ownership, local/full
+score and raster agreement, and exact save/reload renders. **838 tests pass in
+103.06 seconds** across the relevant CEL, shared/simplify/snap, generation and
+benchmark suites. Changed-file Ruff/format checks pass; Pyrefly reports zero
+errors for the changed production modules and component runner.
+
+### Quality diagnosis
+
+The connected route emits genuine source strokes and fewer nodes, but it still
+fails the combined structural and fidelity milestone. The handle retains rough
+filled remnants; discovering some open runs does not reconstruct its complete
+line system. Coarse material budgets damage the blade, and finer candidates
+remain several times denser than legacy CEL. The four paired controls also show
+higher clean-render error for the finer connected candidates than for the finer
+paired-material candidates. Native validity and complete ownership demonstrate
+safe evaluation, not useful redraw quality. Keep this route out of automatic
+planning until it offers faithful alternatives on multiple artwork families.
+
+Next separate physical ink from adjacent shading and small details more
+reliably, finish connected run reconstruction with compatible local widths and
+paints, and compact coherent facets/highlights alongside it. Constrained fitting
+and a useful shared complexity frontier still follow those models. A ranker
+cannot recover missing alternatives. No score, release gate or source defect
+has been waived.
+
+### Verified candidate pool and selected output
+
+All final reports below use source SHA-256
+`6b303b73bffde4367ab40c7acf46addb1e2167e7b55a550140bc4575de1dfcf5`.
+Source hashes include production Python and CEL diagnostic scripts, excluding
+tests and documentation. `.bench/cel-source-strokes-verified/summary.json`
+finishes generation and native validation in **30.37 seconds** under its
+separate **180-second diagnostic allowance**, with normalizer 54,564.
+
+| Sword diagnostic | Nodes | Contours | Stroke runs | Cost | Human MSE |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Source-only initializer | 10,286 | 1,711 | 0 | 20,818 | 512.807919 |
+| Coarse connected ink/material proposal | 4,138 | 344 | 14 | 6,354 | 1,438.310066 |
+| Finer connected ink/material proposal | 6,525 | 665 | 14 | 10,217 | 533.782180 |
+
+Both proposals pass native hard validity with zero self-crossings, complete
+ownership, component seals and independent local/native raster agreement.
+Maximum local/full score-term disagreement is **9.48e-10**. Each uses 11 exact
+source cuts and five compatible width/paint models. Discovery scans 124 runs
+and 3,885 points; unsupported runs remain fills. The finer tip/facet/guard/
+handle/jewel MSE is 989.875523 / 260.639881 / 1,148.901906 / 822.715776 /
+1,287.970696. In particular, tip and handle error remain worse than legacy's
+527.530766 and 762.427316. This candidate has 2.82 times legacy's nodes and
+1.96 times its contours. It is not a useful combined win or a gate pass.
+
+Eight tuning comparisons in `.bench/cel-source-strokes-verified-pairs` finish
+under their individual 60-second diagnostic allowances. The following are the
+finer proposals at the same requested cell threshold, not matched output costs
+or selected operation results:
+
+| Tuning artwork | Paired nodes / contours | Connected nodes / contours | Connected strokes | Paired / connected clean MSE | Paired / connected line F1 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| anime-girl | 1,531 / 118 | 1,004 / 134 | 13 | 71.948688 / 111.017343 | 0.000 / 0.099 |
+| anime-face | 2,881 / 205 | 1,862 / 192 | 16 | 73.587198 / 93.688820 | unavailable / 0.296 |
+| western-park | 1,583 / 111 | 1,152 / 121 | 21 | 121.111584 / 131.019808 | 0.093 / 0.207 |
+| rubberhose-band | 2,562 / 113 | 1,421 / 133 | 26 | 131.232546 / 357.187073 | 0.675 / 0.444 |
+
+All 16 emitted proposals retain complete ownership, pass native admission and
+match independent native rasters; maximum local/full term difference is below
+**3.04e-9**. Connected proposals use 17/27/42/32 exact cuts respectively.
+Generation and validation take 3.98–8.56 seconds per run. Lower node counts do
+not compensate for worse fidelity across all four finer comparisons; line
+quality also regresses on rubberhose. Undefined line scores remain unavailable,
+not zero. These are tuning families, not held-out release evidence.
+
+The normal operation has not adopted connected mode. The matched 60-second
+run at `.bench/planned-source-strokes-verified/summary.json`, complexity 50,
+balanced quality and refinement disabled, selects **8,571 nodes / 1,313 contours
+/ 1,283 paths / cost 16,749 / zero strokes / human MSE 550.854631** in
+**52.72 seconds**. It evaluates 13 alternatives, admits ten and validates four
+checkpoints, with zero score disagreements and zero overall deadline overshoot.
+This is the previously observed dense result; the small difference from the
+pause checkpoint reflects timed selection, not adoption of the offline model.
+The result still misses the practical comparison and frozen numerical gates.
+
+The normal clean half-opacity, 192-pixel, 20-second controls at
+`.bench/planned-source-strokes-verified-pairs/summary.json` retain
+175/176/545/405 nodes, 25/16/75/62 contours and line F1
+0.270/0.589/0.652/0.641. Clean MSE is
+165.434759/206.738285/178.742483/167.735359, with generation times
+12.90/18.04/10.91/13.99 seconds. Three errors equal the pause checkpoint;
+rubberhose varies slightly without a count or line-score change. No selected
+cross-artwork quality gain is claimed. All eight deliveries remain unfinished.
+
 ## Baseline challenge and immediate quality priority
 
 The owner challenged whether the result provides a practical improvement.

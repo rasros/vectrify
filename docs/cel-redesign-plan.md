@@ -30,7 +30,24 @@ release is complete without a learned model when the documented no-go branch
 for that experiment is recorded. The learned branch cannot delay or substitute
 for the deterministic quality gates.
 
-## Agreed implementation pause and next reference phase
+## Resumed implementation and reference policy
+
+The owner resumed implementation after the verified pause checkpoint and
+clarified the handle interpretation: use clear, connected editable strokes
+rather than filled outline shapes. Discover physical ink chains from the source
+before grouping paint palettes, preserve source junctions and real gaps, and
+reconstruct neighboring material underneath those strokes in the same proposal.
+The human redraw corrects a source defect on the handle; that correction must
+not become a generation hint or an invented connection. Reference scoring can
+record the discrepancy without asking the generator to reproduce that repair.
+
+The current bounded experiment combines source-connected ink, compatible
+width/paint models and material underpaint. It is an offline candidate-pool
+comparison until native and cross-artwork evidence supports automatic planning.
+All eight deliveries remain open. Generated drafts are still too poor to serve
+as useful new references; defer that collection until a practical quality gain.
+
+### Previous verified pause checkpoint
 
 On 2026-10-07 the owner requested a pause after the verified graph-sharing and
 neighbor-frame checkpoint. That checkpoint removes two composition blockers and
@@ -39,7 +56,7 @@ matched 60-second sword remains 8,588 nodes / 1,315 contours / human MSE 551.16.
 All eight deliveries and the frozen release gates remain open. Detailed source
 hashes, diagnostic proposals and checks are in the progress document.
 
-The next phase should broaden references before more sword-only tuning.
+Broaden evaluation before more sword-only tuning.
 Improved generated drawings can seed human cleanup, with explicit provenance
 and retained before/after edits. Unedited generated outputs are candidates,
 not reference truth. Use generator-assisted references for development and
@@ -49,9 +66,9 @@ families and source lineages split before tuning. Cover coherent outlines,
 facets/highlights, wrapping, lettering, hatching, gradients, holes, tiny marks
 and occlusion. Existing corpus and blind-review requirements still apply.
 
-Resume from this commit with one bounded cross-artwork quality experiment and
-an explicit stop decision based on measured gains, damage and runtime. The
-pause is a practical checkpoint, not a claim that the overhaul is complete.
+The resumed experiment must report gains, damage and runtime on existing tuning
+artwork as well as the sword. The pause was a practical checkpoint, not a claim
+that the overhaul was complete.
 
 ## Decisions and immediate priority
 

@@ -1,4 +1,4 @@
-"""Audit a compact paint-only component hypothesis outside production search.
+"""Audit compact paint/ink component hypotheses outside production search.
 
     PYTHONPATH=src:. python scripts/bench_cel_component.py \
         --normalizer 54564 --out .bench/compact-component
@@ -20,6 +20,7 @@ from pathlib import Path
 import numpy as np
 from PIL import Image
 
+from scripts.bench_cel_pairs import finite_json
 from scripts.bench_cel_planned import (
     DATA,
     MANIFEST,
@@ -59,9 +60,17 @@ def run(
     normalizer=None,
     grouping="static",
     boundary_fit="polygon",
+    ink_support="paired",
 ):
     started, revision = time.monotonic(), source_hash()
-    _, reference = load_case(DATA / case["file"])
+    if case.get("paired"):
+        from scripts.cel_pairs import pair
+
+        _, _, reference = pair(
+            case, "clean", case["long_side"], case["composition_opacity"]
+        )
+    else:
+        _, reference = load_case(DATA / case["file"])
     truth = np.asarray(reference, dtype=np.float32) / 255
     mask = foreground_mask(truth)
     if digest(mask.tobytes()) != case["mask_sha256"]:
@@ -104,6 +113,7 @@ def run(
             joint=True,
             grouping=grouping,
             boundary_fit=boundary_fit,
+            ink_support=ink_support,
         )
         (output / "initializer.svg").write_text(svg)
         rows.append(
@@ -167,16 +177,32 @@ def run(
             status = "interrupted"
     generation_seconds = time.monotonic() - started
     # Human geometry is now scoring input only, after proposal discovery ends.
-    human_svg, _ = load_case(DATA / case["file"])
+    if case.get("paired"):
+        from scripts.cel_pairs import pair
+
+        human_svg, _, _ = pair(
+            case, "clean", case["long_side"], case["composition_opacity"]
+        )
+    else:
+        human_svg, _ = load_case(DATA / case["file"])
     human = render(human_svg, evidence.source_size)
     for row in rows:
         svg = (output / f"{row['name']}.svg").read_text()
         actual = render(svg, evidence.source_size)
-        row["human"] = measurements(actual, human, mask, features=case["features"])
+        metric = "clean" if case.get("paired") else "human"
+        row[metric] = measurements(actual, human, mask, features=case["features"])
+        if case.get("paired"):
+            from scripts.bench_lines import score
+
+            row["lines"] = score(human_svg, svg, *evidence.source_size, "clean")
         row["passes_numerical_gate"] = (
-            row["nodes"] <= case["targets"]["nodes"]
-            and row["contours"] <= case["targets"]["contours"]
-            and row["human"]["mse"] <= case["targets"]["human_mse"]
+            None
+            if "targets" not in case
+            else (
+                row["nodes"] <= case["targets"]["nodes"]
+                and row["contours"] <= case["targets"]["contours"]
+                and row[metric]["mse"] <= case["targets"]["human_mse"]
+            )
         )
         save_render(output / f"{row['name']}.png", actual)
         for feature, (x, y, width, height) in case["features"].items():
@@ -193,16 +219,30 @@ def run(
     report = {
         "case": case["name"],
         "purpose": (
-            "paint-budget ablation; diagnostic only; not selected operation output"
+            "source component comparison; diagnostic only; "
+            "not selected operation output"
         ),
         "source_sha256": revision,
         "reference_rgba_sha256": digest(truth.tobytes()),
-        "human_svg_sha256": digest(human_svg.encode()),
+        "clean_svg_sha256" if case.get("paired") else "human_svg_sha256": digest(
+            human_svg.encode()
+        ),
+        "evaluation_target": "paired-clean" if case.get("paired") else "human-redraw",
+        "target_variant": {
+            "long_side": case["long_side"],
+            "composition_opacity": case["composition_opacity"],
+        }
+        if case.get("paired")
+        else None,
+        "family": case.get("family"),
+        "split": case.get("set"),
+        "heldout_evaluation": False,
         "mask_sha256": digest(mask.tobytes()),
         "settings": {"complexity": 50, "quality": "balanced", "refine": False},
         "normalizer": actual_normalizer,
         "grouping": grouping,
         "boundary_fit": boundary_fit,
+        "ink_support": ink_support,
         "normalizer_source": "source-only-baseline"
         if normalizer is None
         else "override",
@@ -214,18 +254,27 @@ def run(
         "diagnostics": factory.diagnostics if factory is not None else {},
         "rows": rows,
     }
-    (output / "summary.json").write_text(json.dumps(report, indent=2) + "\n")
+    report = finite_json(report)
+    (output / "summary.json").write_text(
+        json.dumps(report, indent=2, allow_nan=False) + "\n"
+    )
     return report
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", default="sword")
+    parser.add_argument(
+        "--pair", help="Repository tuning artwork; clean 192px, half opacity"
+    )
     parser.add_argument("--seconds", type=float, default=180)
     parser.add_argument("--normalizer", type=float)
     parser.add_argument("--grouping", choices=("static", "ward"), default="static")
     parser.add_argument(
         "--boundary-fit", choices=("polygon", "curve"), default="polygon"
+    )
+    parser.add_argument(
+        "--ink-support", choices=("paired", "connected"), default="paired"
     )
     parser.add_argument("--out", type=Path, default=Path(".bench/cel-component"))
     args = parser.parse_args()
@@ -236,15 +285,34 @@ def main():
     ):
         parser.error("Normalizer must be finite and positive")
     cases = {c["name"]: c for c in json.loads(MANIFEST.read_text())["cases"]}
-    if args.case not in cases:
+    if args.pair:
+        from scripts.bench_cel_pairs import feature_boxes
+        from scripts.cel_pairs import cases as paired_cases
+        from scripts.cel_pairs import pair
+
+        paired = {c["name"]: c for c in paired_cases()}
+        if args.pair not in paired:
+            parser.error(f"Unknown tuning artwork: {args.pair}")
+        case: dict = dict(
+            paired[args.pair], paired=True, long_side=192, composition_opacity=0.5
+        )
+        _, clean, _ = pair(case, "clean", 192, 0.5)
+        case["features"] = feature_boxes(case, clean.size)
+        case["mask_sha256"] = digest(
+            foreground_mask(np.asarray(clean, np.float32) / 255).tobytes()
+        )
+    elif args.case not in cases:
         parser.error(f"Unknown case: {args.case}")
+    else:
+        case = cases[args.case]
     run(
-        cases[args.case],
+        case,
         args.out,
         seconds=args.seconds,
         normalizer=args.normalizer,
         grouping=args.grouping,
         boundary_fit=args.boundary_fit,
+        ink_support=args.ink_support,
     )
 
 
