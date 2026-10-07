@@ -221,9 +221,13 @@ class SourceRidges:
         options: Options,
         *,
         resolver: Callable[[Partition, Work], GraphBranch] | None = None,
+        max_paths: int | None = None,
+        allow_invisible: bool = False,
     ):
         self.evidence, self.graph, self.options = evidence, graph, options
         self.resolver = resolver
+        self.max_paths = MAX_PATHS if max_paths is None else max_paths
+        self.allow_invisible = allow_invisible
         self.restoration_rejections: dict[str, int] = {}
         self.rim_diagnostics: dict[str, int] = {}
         self.underpaint_rejections: dict[str, int] = {}
@@ -240,6 +244,7 @@ class SourceRidges:
                 "proposals",
                 "cuts",
                 "time_bounded",
+                "invisible_fragments",
             ),
             0,
         )
@@ -372,7 +377,7 @@ class SourceRidges:
             if (
                 surfaces[oid].role != "surface"
                 or surfaces[oid].covered
-                or len(ids) > MAX_PATHS
+                or len(ids) > self.max_paths
                 or nodes > MAX_NODES
                 or style["stroke"] != "none"
                 or float(style["opacity"]) != 1
@@ -428,8 +433,35 @@ class SourceRidges:
                         work,
                     )
                     if not ink.subpaths or not rest.subpaths:
-                        self.diagnostics["geometry_exclusions"] += 1
-                        return None
+                        if not self.allow_invisible:
+                            self.diagnostics["geometry_exclusions"] += 1
+                            return None
+                        # Ownership samples need not lie in their fitted paint
+                        # path. Keep a zero-area ledger path for an invisible
+                        # side of the exact cut, never steal visible remainder
+                        # geometry to represent those source samples. The
+                        # composed edit replaces the selected side atomically.
+                        original = document.geometry_for(oid)
+                        placeholder = Geometry(
+                            "source-ledger-empty",
+                            (
+                                Subpath(
+                                    "empty",
+                                    (
+                                        PathNode(
+                                            "empty-start",
+                                            "M",
+                                            original.subpaths[0].nodes[0].values[-2:],
+                                        ),
+                                    ),
+                                ),
+                            ),
+                        )
+                        self.diagnostics["invisible_fragments"] += (
+                            not ink.subpaths
+                        ) + (not rest.subpaths)
+                        ink = ink if ink.subpaths else placeholder
+                        rest = rest if rest.subpaths else placeholder
                     ink_id = f"{oid}-ridge-{atoms.key[:12]}"
                     if ink_id in known:
                         return None

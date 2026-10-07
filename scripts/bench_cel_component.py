@@ -58,7 +58,12 @@ def digest(value):
 def offered(state, factory, operators, policy, options, work, compose_materials):
     """Only valid source-ink parents seed a bounded material composition pool."""
     parents = 0
-    for edit in factory(state, work):
+    proposals = (
+        factory.proposals(state, work)
+        if isinstance(factory, SourceStrokes)
+        else factory(state, work)
+    )
+    for edit in proposals:
         yield state, edit
         if not compose_materials or parents >= 2 or work.interrupted:
             continue
@@ -109,6 +114,7 @@ def run(
     ink_support="paired",
     proposal="core-cells",
     compose_materials=False,
+    boundary_contacts=False,
 ):
     started, revision = time.monotonic(), source_hash()
     if case.get("paired"):
@@ -162,7 +168,13 @@ def run(
         )
         operators = Operators(evidence, graph, options)
         factory = (
-            SourceStrokes(evidence, graph, options, resolver=operators.branch)
+            SourceStrokes(
+                evidence,
+                graph,
+                options,
+                resolver=operators.branch,
+                boundary_contacts=boundary_contacts,
+            )
             if proposal == "source-strokes"
             else CoreCells(
                 Families(evidence, graph, options),
@@ -313,7 +325,11 @@ def run(
         "normalizer": actual_normalizer,
         "proposal": proposal,
         "compose_materials": compose_materials,
+        "boundary_contacts": boundary_contacts,
         "material_parent_limit": 2 if compose_materials else 0,
+        "source_proposal_allowance": "full-diagnostic"
+        if proposal == "source-strokes"
+        else None,
         "grouping": grouping if proposal == "core-cells" else None,
         "boundary_fit": boundary_fit if proposal == "core-cells" else None,
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
@@ -348,6 +364,7 @@ def main():
         "--proposal", choices=("core-cells", "source-strokes"), default="core-cells"
     )
     parser.add_argument("--compose-materials", action="store_true")
+    parser.add_argument("--boundary-contacts", action="store_true")
     parser.add_argument(
         "--pair", help="Repository tuning artwork; clean 192px, half opacity"
     )
@@ -364,6 +381,8 @@ def main():
     args = parser.parse_args()
     if args.compose_materials and args.proposal != "source-strokes":
         parser.error("Material composition requires --proposal source-strokes")
+    if args.boundary_contacts and args.proposal != "source-strokes":
+        parser.error("Boundary contacts require --proposal source-strokes")
     if not math.isfinite(args.seconds) or args.seconds <= 0:
         parser.error("Seconds must be finite and positive")
     if args.normalizer is not None and (
@@ -401,6 +420,7 @@ def main():
         ink_support=args.ink_support,
         proposal=args.proposal,
         compose_materials=args.compose_materials,
+        boundary_contacts=args.boundary_contacts,
     )
 
 

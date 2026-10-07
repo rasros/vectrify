@@ -33,6 +33,7 @@ MAX_PIXELS = 1536**2
 MAX_MODELS = 8
 MAX_MASK_BYTES = 16 * 1024**2
 PAINT_SPREAD = 24
+MAX_CONTACT_PIECES = 8
 
 
 @dataclass(frozen=True)
@@ -88,7 +89,77 @@ def connected_runs(runs, work):
     return result
 
 
-def models(mask, evidence, options, work, *, carrier=None, prune_spurs=False):
+def carried(run, proof, evidence, options, carrier, work, contacts, budget, light):
+    """Fit source intervals inside the carrier, retaining contact ends as fill.
+
+    No endpoint is extended or joined. A full stroke is preferred; only an
+    optional boundary-contact hypothesis may shorten it at existing samples.
+    Exact footprint checks remain necessary after interval discovery.
+    """
+    tolerance = options.tolerance or 0.75
+    scale = float(np.sqrt(np.prod(evidence.scale)))
+
+    def fit(part, supported):
+        native = supported.points / evidence.scale + evidence.offset
+        model = fitted(native, tolerance)
+        width = supported.width / scale
+        if carrier is not None:
+            upper = options.line_width or 1.6 * width
+            shape = footprint(Geometry("run", (model.contour,)), upper)
+            outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
+            if abs(outside.area) > 1e-8:
+                return None
+        return part, supported, model
+
+    complete = fit(run, proof)
+    if complete is not None:
+        return [complete]
+    if not contacts or carrier is None or work.interrupted:
+        return []
+    upper = options.line_width or 1.6 * proof.width / scale
+    edge = pathops.Path(carrier)
+    edge.stroke(
+        upper + 2 * tolerance,
+        pathops.LineCap.ROUND_CAP,
+        pathops.LineJoin.ROUND_JOIN,
+        4,
+    )
+    edge.convertConicsToQuads(0.05)
+    interior = pathops.op(carrier, edge, pathops.PathOp.DIFFERENCE)
+    native = proof.points / evidence.scale + evidence.offset
+    inside = np.array([interior.contains(tuple(p)) for p in native], bool)
+    starts = np.flatnonzero(inside & ~np.r_[False, inside[:-1]])
+    ends = np.flatnonzero(inside & ~np.r_[inside[1:], False]) + 1
+    spans = sorted(zip(starts, ends, strict=True), key=lambda p: -(p[1] - p[0]))
+    result = []
+    for first, last in spans[:MAX_CONTACT_PIECES]:
+        if work.interrupted:
+            return []
+        part = run[first:last]
+        if len(part) < 4:
+            continue
+        if budget["runs"] >= MAX_RUNS or budget["points"] + len(part) > MAX_POINTS:
+            break
+        budget["runs"] += 1
+        budget["points"] += len(part)
+        supported = measure(part, evidence.target, proof.width, light=light)
+        if supported is not None:
+            candidate = fit(part, supported)
+            if candidate is not None:
+                result.append(candidate)
+    return result
+
+
+def models(
+    mask,
+    evidence,
+    options,
+    work,
+    *,
+    carrier=None,
+    prune_spurs=False,
+    boundary_contacts=False,
+):
     """Return complete bounded models; interruption discards partial discovery."""
     if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
         return ()
@@ -104,6 +175,7 @@ def models(mask, evidence, options, work, *, carrier=None, prune_spurs=False):
     rejected |= mask & ~np.isin(components, order)
     boxes = find_objects(components)
     scanned = points_count = 0
+    contact_budget = {"runs": 0, "points": 0}
     scale = float(np.sqrt(np.prod(evidence.scale)))
     model_limit = min(MAX_MODELS, MAX_MASK_BYTES // mask.nbytes)
     for index in order:
@@ -157,45 +229,52 @@ def models(mask, evidence, options, work, *, carrier=None, prune_spurs=False):
             if proof is None:
                 rejected[yy, xx] = True
                 continue
-            native = proof.points / evidence.scale + evidence.offset
-            model = fitted(native, options.tolerance or 0.75)
-            width = proof.width / scale
-            if carrier is not None:
-                # Keep boundary contacts filled while decoding internal runs
-                # of the same paint. The allowance bounds a later shared width.
-                upper = options.line_width or 1.6 * width
-                shape = footprint(Geometry("run", (model.contour,)), upper)
-                outside = pathops.op(
-                    curve_path(shape), carrier, pathops.PathOp.DIFFERENCE
+            offered = carried(
+                points,
+                proof,
+                evidence,
+                options,
+                carrier,
+                work,
+                boundary_contacts,
+                contact_budget,
+                light,
+            )
+            accepted = set()
+            for part, supported, model in offered:
+                accepted.update(tuple(p) for p in part)
+                px = np.clip(np.floor(part[:, 0]).astype(int), 0, mask.shape[1] - 1)
+                py = np.clip(np.floor(part[:, 1]).astype(int), 0, mask.shape[0] - 1)
+                width = supported.width / scale
+                group_index = None
+                for i, group in enumerate(groups):
+                    widths = [*group["widths"], width]
+                    paints = np.array([*group["paints"], supported.paint])
+                    if (options.line_width or max(widths) <= 1.6 * min(widths)) and (
+                        np.ptp(paints, axis=0) <= PAINT_SPREAD
+                    ).all():
+                        group_index = i
+                        break
+                if group_index is None:
+                    if len(groups) >= model_limit:
+                        rejected[py, px] = True
+                        continue
+                    group_index = len(groups)
+                    groups.append(
+                        {"widths": [], "paints": [], "contours": [], "proofs": []}
+                    )
+                group = groups[group_index]
+                group["widths"].append(width)
+                group["paints"].append(supported.paint)
+                group["contours"].append(model.contour)
+                group["proofs"].append(supported)
+                collision = (claimed[py, px] != 0) & (
+                    claimed[py, px] != group_index + 1
                 )
-                if abs(outside.area) > 1e-8:
-                    rejected[yy, xx] = True
-                    continue
-            group_index = None
-            for i, group in enumerate(groups):
-                widths = [*group["widths"], width]
-                paints = np.array([*group["paints"], proof.paint])
-                if (options.line_width or max(widths) <= 1.6 * min(widths)) and (
-                    np.ptp(paints, axis=0) <= PAINT_SPREAD
-                ).all():
-                    group_index = i
-                    break
-            if group_index is None:
-                if len(groups) >= model_limit:
-                    rejected[yy, xx] = True
-                    continue
-                group_index = len(groups)
-                groups.append(
-                    {"widths": [], "paints": [], "contours": [], "proofs": []}
-                )
-            group = groups[group_index]
-            group["widths"].append(width)
-            group["paints"].append(proof.paint)
-            group["contours"].append(model.contour)
-            group["proofs"].append(proof)
-            collision = (claimed[yy, xx] != 0) & (claimed[yy, xx] != group_index + 1)
-            rejected[yy[collision], xx[collision]] = True
-            claimed[yy, xx] = group_index + 1
+                rejected[py[collision], px[collision]] = True
+                claimed[py, px] = group_index + 1
+            unoffered = np.array([tuple(p) not in accepted for p in points], bool)
+            rejected[yy[unoffered], xx[unoffered]] = True
     if work.interrupted or not groups:
         return ()
     # Source samples belong to their nearest existing skeleton run. Ambiguous
@@ -244,6 +323,9 @@ def models(mask, evidence, options, work, *, carrier=None, prune_spurs=False):
                     "peak_gap": max(p.peak_gap for p in group["proofs"]),
                     "source_runs_scanned": scanned,
                     "source_points_scanned": points_count,
+                    "boundary_contacts": boundary_contacts,
+                    "contact_runs_scanned": contact_budget["runs"],
+                    "contact_points_scanned": contact_budget["points"],
                 },
             )
         )

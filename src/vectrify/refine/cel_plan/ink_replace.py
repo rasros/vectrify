@@ -50,6 +50,7 @@ MAX_PATHS = 128
 MAX_NODES = 6_000
 MAX_NEIGHBORS = 4
 MAX_CONTINUATION_NEIGHBORS = 64
+MAX_COMPONENT_NEIGHBORS = 256
 MAX_RUNS = 16
 
 
@@ -250,6 +251,7 @@ class InkReplacement:
         require_core=False,
         continue_neighbors=False,
         ignored_neighbors=(),
+        continuation_limit: int | None = None,
     ):
         def reject(reason):
             self.restoration_rejections[reason] = (
@@ -281,6 +283,13 @@ class InkReplacement:
             self.diagnostics["restoration_neighbors_peak"], len(neighbors)
         )
         limit = MAX_CONTINUATION_NEIGHBORS if continue_neighbors else MAX_NEIGHBORS
+        if continuation_limit is not None:
+            if (
+                not continue_neighbors
+                or not 1 <= continuation_limit <= MAX_COMPONENT_NEIGHBORS
+            ):
+                raise ValueError("Unsupported continuation neighbor bound")
+            limit = continuation_limit
         if not 1 <= len(neighbors) <= limit:
             return reject("neighbor-count")
         if (

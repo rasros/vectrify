@@ -14,7 +14,158 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
-### Source strokes followed by material compaction
+### Boundary contacts and complete source-run groups
+
+The next source audit found valid trough evidence for 89 of 128 examined runs,
+but the carrier/width proof admitted only six. Many wrapping runs contact the
+silhouette. The optional `--boundary-contacts` hypothesis preserves the source
+contact ends as exact filled evidence and fits only existing interior intervals
+as editable strokes. It erodes the actual carrier by the reserved half-width
+and fitting tolerance to discover intervals, then checks every fitted stroke's
+full footprint again. It never extends endpoints, connects distinct endpoints,
+fills source gaps or imports the human repair. No SVG clipping shortcut is used.
+
+Contact discovery adds at most eight intervals per original run, 128 additional
+measured intervals and 16,384 additional points; original component, run,
+pixel, mask and crop limits remain. The source component can cut up to 256 paths
+and continue up to 256 neighboring paths, retaining the 6,000-node input/output
+bounds, 64 exact atom cuts, unchanged frames/locks, order proofs, branch-memory
+accounting and exact native evaluation. The observed large sword model spans
+220 source owners with only 1,229 input nodes; its neighbor inventory peaks at
+65 and 53 paints actually continue. The old 128-path/64-neighbor limits excluded
+this group despite its bounded geometry. Other operators retain their bounds.
+
+Two exact source-cut sides contain ownership samples but no visible fitted
+geometry. The contact route uses one-moveto, zero-area ledger paths for those
+sides rather than stealing visible remainder geometry or losing ownership.
+These intermediates render no paint, preserve independent source marks and
+survive save/reload. The complete replacement is evaluated atomically; source
+ownership alone never proves coverage.
+
+Persistent Float32 Boolean seam crossings are resolved geometrically. Curve
+winding is preferred; only a persistent crossing triggers bounded chord
+subdivision at 0.02 native pixels and the editor's double-precision fill-rule
+classification. The resulting geometry is checked in native and paint frames
+and by the unchanged native policy. Real holes are preserved. This introduces
+no crossing allowance or small-loop exemption, and node/deadline exhaustion
+retains the original proposal state.
+
+The component comparator now uses its full diagnostic allowance for source
+proposals, with at most two admitted material parents. This avoids confusing
+the future operator's quarter-window scheduling with the offline pool audit.
+Both retained-contact and interior-contact comparators use the same allowance;
+these are still not selected operation outputs or 60-second gate passes.
+
+Current reports use source SHA-256
+`51aaab49826b730b8356f49914230fc7cfa187445959896ad668b14b1f113139`.
+`.bench/cel-boundary-contacts-final/summary.json` finishes generation and native
+validation in **69.37 seconds** under a separate 180-second allowance. The
+matched retained-contact comparator at `.bench/cel-boundary-contacts-retained`
+takes **38.15 seconds** and reproduces the earlier finer sword exactly.
+
+| Sword candidate | Nodes | Contours | Strokes | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initializer | 10,286 | 1,711 | 0 | 512.807919 |
+| Contact-supported source replacement | 14,259 | 2,311 | 17 | 517.2808 |
+| Composed 32-cell threshold | 2,125 | 334 | 17 | 3,234.7438 |
+| Composed 64-cell threshold | 3,491 | 381 | 17 | 552.1168 |
+| Matched finer retained-contact comparator | 3,630 | 387 | 6 | 548.482334 |
+
+The large source model owns 2,892 pixels, makes nine exact cuts and retains
+17 source runs at width 2.032336. Contact remeasurement examines 16 intervals /
+754 points beyond the original 128 runs / 6,379 points. Four source proposals
+and four material compositions are emitted; all eight pass native admission,
+complete ownership, component seals and independent raster agreement. Maximum
+local/full term difference is **1.22e-9**. One order interpretation is excluded.
+
+The finer first composition has 321 paths, 30 gradients and cost 6,017. Its
+tip/facet/guard/handle/jewel MSE is 864.6013 / 286.4068 / 1,049.9377 /
+897.5313 / 1,421.7726. The handle crop was visually inspected: supported
+diagonals now read as connected stroke interiors, with exact contact fragments
+remaining at the source edge. Material shade fragments and missing supported
+details remain. Against the retained-contact comparator, nodes fall 3.8% and
+handle error 1.8%, but overall human MSE rises 0.7% and tip error rises 21.8%.
+The coarse candidate meets legacy's counts but severely damages paint. The
+fine candidate still has 51.0% more nodes and 12.4% more contours than legacy,
+and fails the practical milestone and frozen release gates.
+
+A separate post-generation source audit at
+`.bench/cel-boundary-contacts-source-comparison.json` verifies the frozen mask
+and records source/candidate hashes. The finer contact candidate has source
+MSE 232.053207 versus 270.513104 for retained contacts; source handle MSE falls
+from 298.067235 to 215.095334 (27.8%). This helps separate source fidelity from
+the human-only repair. It is still worse than saved legacy CEL's source handle
+MSE 156.200069; the source initializer is 219.011106. No human feature gate is
+waived, and a gain against the previous experiment is not a legacy quality win.
+
+Eight tuning reports at `.bench/cel-boundary-contacts-pairs` compare both
+hypotheses on clean 192-pixel, half-opacity inputs with 60-second diagnostic
+allowances. Both first/second finer parents are retained in the evidence:
+
+| Artwork | Retained nodes / contours, first then second | Contact nodes / contours, first then second | Retained / contact clean MSE, first then second |
+| --- | --- | --- | --- |
+| anime-girl | 1,413 / 110; 1,467 / 118 | 1,413 / 110; 1,467 / 118 | 75.8291 / 75.8291; 74.8963 / 74.8963 |
+| anime-face | 2,728 / 190; 2,559 / 149 | 2,728 / 190; 2,484 / 144 | 73.7607 / 73.7607; 75.7653 / 75.5422 |
+| western-park | 1,583 / 114; 1,563 / 110 | 1,584 / 114; 1,583 / 114 | 116.4523 / 117.8697; 121.9666 / 116.4523 |
+| rubberhose-band | 2,364 / 123; 2,415 / 123 | 2,364 / 123; 2,415 / 123 | 150.5583 / 150.5583; 131.3703 / 131.3703 |
+
+These are requested 64-cell thresholds, not equal output costs or oracle-chosen
+parents. The face second parent gains a fourth stroke and line F1 0.259 versus
+0.159. Western's first parent gains three strokes and F1 0.093 versus 0.060 but
+worsens clean MSE; its second contact parent is the first retained parent.
+Girl and rubberhose finer compositions remain identical. The complete pools
+have 76 emitted proposals, all admitted, owned, sealed and raster-checked;
+maximum disagreement is **3.35e-9**. Retained/contact diagnostic times are
+10.69/11.79, 26.05/30.72, 11.47/13.89 and 21.41/22.42 seconds respectively.
+
+This establishes broader source-stroke availability and useful handle structure,
+not a completed delivery. Improve coherent materials/facets and joint fitting
+next; a ranker still cannot supply those missing hypotheses. Automatic adoption,
+product controls, independent review and generated-reference collection remain
+downstream. All eight deliveries remain open.
+
+The representation inventory at `.bench/cel-boundary-contacts-inventory.json`
+locates the remaining cost: 43 new material/cut paths contain 2,237 nodes;
+276 exactly retained paths contain 1,206; the compound 17-run stroke has 47;
+one changed zero-area survivor has one. Of the retained paths, 254 with
+intrinsic partial opacity contain **1,118 nodes**, and 22 intrinsically opaque
+paths contain 88. Fitting just the 47 stroke nodes cannot produce an 800-node
+drawing. Coherent surface boundaries and compact opacity/fringe hypotheses
+must be evaluated together, preserving real faint marks, holes, alpha steps
+and exact native coverage. Counts do not justify deleting those supports.
+
+Ten additional controls cover contact ends, preserved gaps at half/quarter
+opacity, invisible selected/retained ownership sides, source-cut raster and
+reload invariance, persistent seam correction in native/skewed frames with a
+real hole, cancellation and node exhaustion. The full relevant CEL,
+shared/simplify/snap, generation and benchmark suite passes **866 tests in
+169.87 seconds**; changed-file Ruff/format and production Pyrefly checks pass.
+The 70 focused operator cases pass in 24.83 seconds. Thirteen source-matched
+reports parse as strict JSON, including the post-generation source audit.
+Across ten component pools all **87** emitted proposals pass native validity,
+ownership, component seals and independent raster agreement; maximum local/full
+term difference is **3.35e-9**. The separate representation inventory also
+records source and candidate hashes.
+
+Normal operation still does not schedule this route. The fresh 60-second sword
+replay at `.bench/planned-boundary-contacts-final/summary.json` retains exactly
+8,588 nodes / 1,315 contours / 1,285 paths / zero strokes / human MSE
+551.151174, in 54.63 seconds. It attempts 12 edits, accepts nine, checkpoints
+four and reports zero disagreements or overshoot. Its five feature errors are
+unchanged from the prior checkpoint. Normal 20-second paired controls at
+`.bench/planned-boundary-contacts-pairs/summary.json` select 174 / 26, 176 / 16,
+545 / 75 and 405 / 62 nodes/contours; clean MSE is 161.469218 / 206.738285 /
+178.742483 / 167.112197. Their line F1 remains 0.270 / 0.589 / 0.652 / 0.641.
+Slight timed selection differences are not a causal benefit of the offline
+contact hypothesis. No release gate is claimed passed.
+
+Replay the contact pool with the previous component command plus
+`--boundary-contacts`; omit that flag for the matched retained-contact pool.
+Use 180 seconds and normalizer 54,564 for sword diagnostics, or `--pair`
+with 60 seconds for tuning artwork. Full diagnostic proposal discovery does
+not establish operation scheduling, runtime or process-memory bounds.
+
+### Previous source strokes followed by material compaction
 
 The next experiment separates stroke replacement from forced paint collapse.
 `SourceStrokes` replaces supported source runs while retaining the current

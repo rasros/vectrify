@@ -46,7 +46,18 @@ width/paint models and material underpaint. A subsequent experiment replaces
 source strokes while retaining existing paints, then compacts those materials
 without deleting the editable strokes. It produces a finer sword candidate at
 3,630 nodes / 387 contours / human MSE 548.48; its handle still has missing lines
-and filled remnants, and it exceeds legacy's structure counts. Independent
+and filled remnants, and it exceeds legacy's structure counts. A boundary-contact
+hypothesis now admits a 17-run source group, retaining contact ends as exact
+filled evidence and using editable strokes for existing interior intervals.
+Its finer composition has 3,491 nodes / 381 contours / human MSE 552.12. Source
+handle error falls from 298.07 to 215.10 against the previous experiment, still
+above legacy's 156.20; human handle error improves slightly while tip and overall
+human error worsen. The human repair is still excluded from generation. No
+quality, runtime or delivery gate passes. The remaining 3,491-node drawing
+contains 2,237 nodes in new material/cut paths and 1,118 in unchanged paths with
+intrinsic partial opacity. Coherent material boundaries and compact opacity
+models both need work; more stroke discovery alone cannot meet the 800-node
+target. Independent
 source marks and gaps must survive, including disconnected marks sharing a
 source owner with a line. This remains an offline candidate-pool
 comparison until native and cross-artwork evidence supports automatic planning.

@@ -17,7 +17,6 @@ import numpy as np
 from vectrify.document import Editor, Selection
 from vectrify.document.join import (
     curve_path,
-    path_geometry,
     path_style,
     transformed_geometry,
     union_geometry,
@@ -26,8 +25,14 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
+from vectrify.refine.cel_plan.fill_winding import resolved
 from vectrify.refine.cel_plan.ink_models import models
-from vectrify.refine.cel_plan.ink_replace import MAX_NODES, InkReplacement, identified
+from vectrify.refine.cel_plan.ink_replace import (
+    MAX_COMPONENT_NEIGHBORS,
+    MAX_NODES,
+    InkReplacement,
+    identified,
+)
 from vectrify.refine.cel_plan.layer_order import ordered
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
@@ -40,12 +45,23 @@ from vectrify.refine.crossings import crossings
 
 MAX_CORES = 4
 MAX_PROPOSALS = 8
+MAX_CONTACT_PATHS = 256
 
 
 class SourceStrokes:
-    def __init__(self, evidence, graph, options, *, resolver=None):
+    def __init__(
+        self, evidence, graph, options, *, resolver=None, boundary_contacts=False
+    ):
         self.evidence, self.graph, self.options = evidence, graph, options
-        self.cutter = SourceRidges(evidence, graph, options, resolver=resolver)
+        self.boundary_contacts = boundary_contacts
+        self.cutter = SourceRidges(
+            evidence,
+            graph,
+            options,
+            resolver=resolver,
+            max_paths=MAX_CONTACT_PATHS if boundary_contacts else None,
+            allow_invisible=boundary_contacts,
+        )
         self.diagnostics = dict.fromkeys(
             (
                 "cores",
@@ -57,6 +73,7 @@ class SourceStrokes:
                 "proposals",
                 "cuts",
                 "time_bounded",
+                "restoration_neighbors_peak",
             ),
             0,
         )
@@ -152,7 +169,13 @@ class SourceStrokes:
             ink = support & evidence.drawn & ~evidence.empty
             self.diagnostics["cores"] += 1
             found = models(
-                ink, evidence, self.options, work, carrier=carrier, prune_spurs=True
+                ink,
+                evidence,
+                self.options,
+                work,
+                carrier=carrier,
+                prune_spurs=True,
+                boundary_contacts=self.boundary_contacts,
             )
             for model in found:
                 if work.interrupted or emitted >= MAX_PROPOSALS:
@@ -211,6 +234,13 @@ class SourceStrokes:
                     coverage=footprint,
                     require_core=evidence.opacity is not None,
                     continue_neighbors=True,
+                    continuation_limit=MAX_COMPONENT_NEIGHBORS
+                    if self.boundary_contacts
+                    else None,
+                )
+                self.diagnostics["restoration_neighbors_peak"] = max(
+                    self.diagnostics["restoration_neighbors_peak"],
+                    factory.diagnostics["restoration_neighbors_peak"],
                 )
                 for reason, count in factory.restoration_rejections.items():
                     self.restoration_rejections[reason] = (
@@ -221,6 +251,7 @@ class SourceStrokes:
                     continue
                 continuations, _neighbors = restored
                 normalized = []
+                unproved = False
                 for element, geometry in continuations:
                     if work.interrupted:
                         return
@@ -228,10 +259,20 @@ class SourceStrokes:
                         # Float boolean endpoints can overshoot the closing
                         # seam by a few ulps. Resolve the actual filled winding,
                         # preserving curves and checking the resulting edit.
-                        path = curve_path(geometry)
-                        path.simplify()
-                        geometry = identified(path_geometry(path), element.id)
+                        corrected = resolved(
+                            geometry,
+                            root_matrix(current.document, element.id),
+                            "nonzero",
+                            work,
+                        )
+                        if corrected is None:
+                            unproved = True
+                            break
+                        geometry = identified(corrected, element.id)
                     normalized.append((element, geometry))
+                if unproved:
+                    self.diagnostics["bounded"] += 1
+                    continue
                 continuations = normalized
                 continued = {e.id for e, _ in continuations}
                 # Boolean cuts can introduce the same closing-seam overshoot
@@ -247,11 +288,16 @@ class SourceStrokes:
                     geometry = current.document.geometry_for(oid)
                     if crossings(geometry) > crossings(document.geometry_for(oid)):
                         rule = path_style(current.document, element)["fill-rule"]
-                        path = curve_path(geometry, rule)
-                        path.simplify()
-                        remainders.append(
-                            (element, identified(path_geometry(path), oid))
+                        corrected = resolved(
+                            geometry, root_matrix(current.document, oid), rule, work
                         )
+                        if corrected is None:
+                            unproved = True
+                            break
+                        remainders.append((element, identified(corrected, oid)))
+                if unproved:
+                    self.diagnostics["bounded"] += 1
+                    continue
                 changed = current.partition.replace(
                     prepared.ids, (Surface(survivor, prepared.members, "overlay"),)
                 )

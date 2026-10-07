@@ -344,6 +344,49 @@ def test_cavity_count_limit_precedes_object_inventory(monkeypatch):
     assert factory.diagnostics["cavity_component_limits"] == 1
 
 
+@pytest.mark.parametrize("invisible", ["selected", "retained"])
+def test_exact_source_cut_can_retain_a_zero_area_ledger_side(invisible):
+    evidence = fragmented()
+    _frontier, state, options = prepared(evidence, layers=True)
+    original = state.document.geometry_for("cel-fill-2")
+    dot = [
+        s
+        for s in original.subpaths
+        if curve_path(replace(original, subpaths=(s,))).bounds[3] < 12
+    ]
+    rim = [s for s in original.subpaths if s not in dot]
+    assert dot
+    assert rim
+    document = state.document.replace_geometry(
+        replace(original, subpaths=tuple(dot if invisible == "selected" else rim))
+    )
+    state = replace(state, document=document, svg=export_svg(document))
+    graph = build(evidence)
+    bounded = SourceRidges(evidence, graph, options)
+    box, own, _radius, _sig = max(
+        bounded.bands(Work.start(10)), key=lambda b: b[1].sum()
+    )
+    assert bounded.prepare(state, box, own, Work.start(10)) is None
+    ops = Operators(evidence, graph, options)
+    exact = SourceRidges(
+        evidence, graph, options, resolver=ops.branch, allow_invisible=True
+    )
+    result = exact.prepare(state, box, own, Work.start(10))
+    assert result is not None
+    assert result.state.partition is not None
+    assert exact.diagnostics["invisible_fragments"] == 1
+    assert result.state.partition.follows(state.partition)
+    ops.validate_partition(result.state.partition, Work.start(10))
+    before = render(export_svg(document), evidence.source_size)
+    np.testing.assert_array_equal(
+        render(export_svg(result.state.document), evidence.source_size), before
+    )
+    restored, _ = load_project(save_project(result.state.document))
+    np.testing.assert_array_equal(
+        render(export_svg(restored), evidence.source_size), before
+    )
+
+
 def test_source_discovery_gets_live_slice_without_removing_existing_operators(
     monkeypatch,
 ):

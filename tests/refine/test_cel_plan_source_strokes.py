@@ -4,6 +4,7 @@ from dataclasses import replace
 
 import numpy as np
 import pytest
+from PIL import Image
 
 from tests.refine.test_cel_plan_families import prepared
 from tests.refine.test_cel_plan_ink_models import drawing
@@ -13,9 +14,10 @@ from vectrify.document.join import path_style, transformed_geometry
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan.core_cells import CoreCells
+from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import Work
+from vectrify.refine.cel_plan.model import Options, Work
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.search import State
@@ -44,6 +46,74 @@ def mixed_owner_mark():
     return replace(
         evidence, labels=labels, target=target, rgba=rgba, drawn=drawn, line=drawn
     )
+
+
+def contact_drawing(alpha, gap):
+    line = "M8 28H42 M54 28H88" if gap else "M8 28H88"
+    svg = (
+        '<svg width="96" height="96"><defs><clipPath id="source">'
+        '<path d="M8 8H88V88H8Z"/></clipPath></defs>'
+        f'<g opacity="{alpha / 255}" clip-path="url(#source)">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M48 8H88V88H48Z" fill="#9d8065"/>'
+        f'<path d="{line}" fill="none" stroke="#202020" stroke-width="3"/>'
+        "</g></svg>"
+    )
+    rgba = render(svg, (96, 96))
+    evidence = collect(
+        Image.fromarray((rgba * 255).round().astype(np.uint8)),
+        None,
+        Options(refine=False),
+        Work.start(10),
+    )
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 65)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y // 8) * 12 + x // 8)
+    labels[ink] += 200
+    return replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+@pytest.mark.parametrize("gap", [False, True])
+def test_boundary_contact_ends_stay_exact_while_source_body_becomes_a_stroke(
+    alpha, gap
+):
+    evidence = contact_drawing(alpha, gap)
+    frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    unchanged = SourceStrokes(evidence, ops.graph, options, resolver=ops.branch)
+    assert list(unchanged.proposals(state, Work.start(20))) == []
+    trimmed = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    edits = list(trimmed.proposals(state, Work.start(20)))
+    assert edits, (trimmed.diagnostics, trimmed.cutter.diagnostics)
+    original = render(export_svg(state.document), evidence.source_size)
+    for edit in edits:
+        assert edit.partition is not None
+        assert edit.details is not None
+        assert edit.details["source_strokes"]["contact_runs_scanned"] > 0
+        svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(svg)
+        assert full.valid, full.rejections
+        ops.validate_partition(edit.partition, Work.start(10))
+        actual = render(svg, evidence.source_size)
+        np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+        np.testing.assert_array_equal(actual[24:33, 7:10], original[24:33, 7:10])
+        np.testing.assert_array_equal(actual[24:33, 86:89], original[24:33, 86:89])
+        if gap:
+            np.testing.assert_array_equal(actual[24:33, 45:51], original[24:33, 45:51])
+        assert "clipPath" not in svg
+        assert full.structure["stroke_contours"] >= (2 if gap else 1)
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, svg, edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        restored, _ = load_project(save_project(edit.document))
+        np.testing.assert_array_equal(
+            render(export_svg(restored), evidence.source_size), actual
+        )
 
 
 @pytest.mark.parametrize("alpha", [255, 128, 64])
