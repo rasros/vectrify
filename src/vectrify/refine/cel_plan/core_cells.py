@@ -35,7 +35,7 @@ from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.families import _gradient, _opacity
 from vectrify.refine.cel_plan.local import Box
-from vectrify.refine.cel_plan.model import Work
+from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import in_core, opaque_fill
 from vectrify.refine.cel_plan.opacity import Paint
 from vectrify.refine.cel_plan.ownership import Partition, Surface
@@ -860,6 +860,10 @@ class CoreCells:
                     },
                 )
         proposed = editor.snapshot.document
+        try:
+            component = ComponentEdit.bind(document, state.partition, parent.id, work)
+        except StageInterruptedError:
+            return None
         self.diagnostics["cells"] += len(cells)
         self.diagnostics["proposals"] += 1
         old_ids = tuple(s.id for s in selected)
@@ -892,5 +896,5 @@ class CoreCells:
             },
             dependencies=(parent.id,),
             partition=partition,
-            component=ComponentEdit.bind(document, state.partition, parent.id, work),
+            component=component,
         )

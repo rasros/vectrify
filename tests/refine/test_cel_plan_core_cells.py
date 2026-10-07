@@ -22,11 +22,31 @@ from vectrify.refine.cel_plan.core_cells import CoreCells
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.local import LocalPolicy
-from vectrify.refine.cel_plan.model import Work
+from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import in_core
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.proposals import Operators
 from vectrify.refine.cel_plan.score import render
+
+
+def test_expired_component_seal_does_not_escape_discovery_or_count_a_proposal(
+    monkeypatch,
+):
+    from vectrify.refine.cel_plan.component_edits import ComponentEdit
+
+    evidence = material()
+    _frontier, state, options = prepared(evidence, layers=True)
+    factory = CoreCells(Families(evidence, build(evidence), options), options)
+
+    def stopped(_cls, _document, _partition, _parent, work):
+        work.stop.set()
+        raise StageInterruptedError("Interrupted dependency seal")
+
+    monkeypatch.setattr(ComponentEdit, "bind", classmethod(stopped))
+    assert list(factory(state, Work.start(10))) == []
+    assert factory.diagnostics["proposals"] == 0
+    assert factory.diagnostics["cells"] == 0
+    assert state.snapshot.canvas.matches(render(state.svg, evidence.source_size))
 
 
 def material(alpha=128, hole=False):

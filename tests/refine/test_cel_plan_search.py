@@ -15,7 +15,12 @@ from vectrify.refine.cel_plan import search as beam
 from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.frontier import Frontier
 from vectrify.refine.cel_plan.graph import build
-from vectrify.refine.cel_plan.model import Boundary, Options, Work
+from vectrify.refine.cel_plan.model import (
+    Boundary,
+    Options,
+    StageInterruptedError,
+    Work,
+)
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators, bounds
 from vectrify.refine.cel_plan.score import render, representation
@@ -516,6 +521,28 @@ def test_existing_candidate_does_not_skip_independent_checkpoint_agreement():
     inaccurate = replace(evaluation, terms={**evaluation.terms, "visual": -1})
     assert not frontier.checkpoint(INITIAL, "Repeated local checkpoint", {}, inaccurate)
     assert frontier.decisions[-1]["rejections"] == ["local-score-disagreement"]
+
+
+@pytest.mark.parametrize("cancel", [False, True])
+def test_interrupted_proposal_discovery_keeps_prior_independent_checkpoint(cancel):
+    frontier, _evidence, options = setup()
+    work = Work.start(10)
+
+    def edits(state, local_work):
+        if state.edits:
+            return
+        yield proposal(state, "left", "#b05030")
+        local_work.deadline = time.monotonic() - 1
+        if cancel:
+            work.stop.set()
+        raise StageInterruptedError("Interrupted dependency seal")
+
+    report = search(frontier, options, work, edits)
+    assert report["status"] == "interrupted"
+    assert report["accepted"] == 1
+    assert report["checkpointed"] == (0 if cancel else 1)
+    assert report["score_disagreements"] == 0
+    assert frontier.select(50).metrics["gradients"] == (2 if cancel else 1)
 
 
 def test_checkpoint_rejects_wrong_patch_history_despite_a_correct_expected_score():

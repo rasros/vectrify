@@ -435,7 +435,11 @@ def search(
                     bounded_expansions += 1
                     break
                 proposal_started = time.monotonic()
-                proposal = next(cursors[state.key], None)
+                try:
+                    proposal = next(cursors[state.key], None)
+                except StageInterruptedError:
+                    finished.add(state.key)
+                    break
                 if local_work.interrupted:
                     break
                 if proposal is None:
