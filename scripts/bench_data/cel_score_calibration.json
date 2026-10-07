@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "status": "declared",
+  "purpose": "Freeze the plan's initial same-pool score grid before choosing weights on tuning artwork",
+  "plan": "docs/cel-redesign-plan.md#score-calibration-and-candidate-diagnosis",
+  "generation_policy": "Reference targets and feature annotations are available only to benchmark selection diagnosis, never to generation",
+  "corpus": {
+    "manifest": "planned_pairs.json",
+    "eligible_split": "tuning",
+    "sword_policy": "Development comparison only; do not select calibration weights from the sword",
+    "heldout_policy": "Excluded from calibration; reserve fresh artwork families and degradations for release evaluation",
+    "coverage_status": "Current plumbing fixtures are below the plan's release collection target"
+  },
+  "fixed_weights": {
+    "color": 1.0
+  },
+  "axes": {
+    "alpha": [0.25, 0.5, 1.0],
+    "edges": [0.075, 0.15, 0.3],
+    "features": [0.25, 0.5, 1.0],
+    "detail": [0.02, 0.04, 0.08]
+  },
+  "configuration_count": 81,
+  "current_center": {
+    "color": 1.0,
+    "alpha": 0.5,
+    "edges": 0.15,
+    "features": 0.5,
+    "detail": 0.04
+  },
+  "complexity_checkpoints": [0, 25, 50, 75, 100],
+  "objective": {
+    "visual": "color * terms.color + alpha * terms.alpha + edges * terms.edges + features * terms.features",
+    "detail_penalty": "detail * 2 ** ((50 - complexity) / 25) * representation_cost / fixed_normalizer",
+    "normalizer_policy": "Use each audited source pool's positive fixed normalizer for every configuration and complexity",
+    "hard_gate_policy": "Exclude hard-invalid candidates before replay; score weights never alter hard validation"
+  },
+  "selection_diagnosis": {
+    "scope": "Replay the same exactly evaluated candidate pool before any generation rerun",
+    "oracle_policy": "Report the clean-target oracle under the selected candidate's cost ceiling separately from production-score selection",
+    "candidate_coverage_policy": "When faithful compact alternatives are absent, report missing coverage rather than declaring new weights a solution",
+    "aggregation_policy": "Require per-artwork feature, hole, coverage and line gates before aggregate quality and representation savings",
+    "line_gate": "Initial maximum clean-vector line F1 drop is one percentage point from the frozen baseline",
+    "per_case_feature_coverage_gates": "Must be versioned from the baseline before choosing finalists; remain pending where absent"
+  },
+  "generation_reruns": {
+    "maximum_finalists": 3,
+    "effort_policy": "Use identical deterministic evaluation caps and matched deadlines; record changed proposal availability separately from same-pool score ordering"
+  },
+  "deferred_grids": [
+    "Declare three geometric-regularization weights after the evaluator computes a normalized geometric term",
+    "Declare flatter and steeper soft-budget exponent schedules before replaying or rerunning them"
+  ],
+  "result": null
+}

@@ -14,6 +14,128 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Replacement ownership follows actual stroke coverage
+
+Nearest-run ownership previously extends through an entire connected dark
+component, including source pixels beyond the replacement body. The source
+factory now intersects each style's claimed mask with its actual exported SVG
+stroke coverage on the source-atom grid. This uses the real open/closed path,
+width, cap and round join, rather than a dilated mask or the approximate Boolean
+footprint. Nonzero renderer antialias coverage admits a boundary pixel; pixels
+with no replacement coverage keep independent filled geometry, paint and source
+ownership. This is an eligibility correction, not proof that a constant width
+or paint explains every touched pixel. Missing/unsupported line support and
+source width/paint fidelity still need their own checks.
+
+Rendering uses the exact native-to-source mapping, including anisotropic scale
+and fractional crop offsets, and the existing bounded crop/tile allowances.
+Tiles preserve the full-grid pixel phase. Cancellation before or inside a body
+render discards complete discovery; it cannot emit an already processed prefix
+or change the parent/source masks. Model metadata records claimed pixels,
+retained uncovered ink and the `rendered-stroke-coverage` ownership rule. No
+endpoint, junction or physical gap is extended to reproduce the human repair.
+The same filtered models feed both source replacement and connected ink/material
+cells. Production scheduling and native alpha/mass/ownership gates are unchanged.
+
+Eleven added controls compare actual stroke coverage for round/butt caps, open
+and explicitly closed chains, true gaps, anisotropic scale/fractional offsets,
+full-grid versus bounded tiled rendering, mid-render cancellation and resource
+exhaustion. A connected thickened source mark now retains 15 previously claimed
+pixels beyond its constant-width body, at opaque/half/quarter opacity. Native
+replacement keeps their fill ownership/paint and opaque interiors, preserves
+exact alpha, passes component and local/full validation, and survives reload.
+Changed underpaint can alter mixed antialias edge RGB; that complete context is
+scored instead of asserting unchanged mixed pixels. Contact controls additionally
+retain the uncovered original x8 end. The old/new carrier negative now probes
+the replaced x9 pixel: a carrier starting at x9.25 covers the new butt body from
+x9.5, but cannot cover the old cut. That edit still fails `unproved-core-coverage`.
+No carrier proof is weakened.
+
+The expanded focused suite passes 101 cases in 60.74 seconds, and the current
+regression command documented below passes 1,000 cases in
+194.69 seconds. Changed-file Ruff/import/format, whitespace checks and production
+Pyrefly pass (zero errors, 62 warnings). Earlier 99-case/footprint-render controls
+are preliminary; the final helper uses the actual stroke renderer.
+
+Final source hash is
+`2e89a9b172c7ebb4b37f58098da1acb56517f1613d19758cb032b8c90ec3f716`.
+The isolated matrix at `.bench/cel-stroke-ownership-final` completes all 15
+reports under unchanged allowances. All 128 emitted proposals pass native
+validity, complete ownership, component seals and independent local/full raster
+checks. Maximum score-term difference is 3.365307e-9. Strict finite JSON, saved
+SVG hashes, source RGBA/masks/settings/normalizers and scoring targets are
+verified. Eligible source parents match canonical geometry/paint and exact RGBA
+across all three modes. Body filtering changes those parents and candidate
+availability across revisions; faster wall times do not establish equal-work
+speedups. The sword plane pool falls from 20 to eight proposals, primarily
+because additional source cuts leave less room under the unchanged atom limits.
+Its two material parents each record 18 atom exclusions across 20 plane prefixes.
+The park and band bundle plane parents emit no material proposal, recording 20
+and ten atom exclusions respectively. These exclusions remain failures to offer
+those interpretations, not native gate exceptions or complete release evidence.
+
+The sword bundle claims 3,261 pixels before filtering and replaces 2,862,
+retaining 399 outlying source ink pixels. All five styles / 22 runs survive.
+Its finer anchored candidate has **3,907 nodes / 460 contours / human MSE
+551.316411**, versus 3,297 / 388 / 555.830936 at the prior bundle checkpoint.
+Handle error improves from 915.740951 to 889.777921; facets improve, while
+jewel/guard worsen. Preserving missing ink exposes a denser representation, so
+all numerical/feature sword gates still fail. The current single-round control
+has 3,970 / 449 / 14 strokes / MSE 561.427676. The post-generation human handle
+stroke diagnostic finds displayed F1 0.638467/0.644494 and editable recall
+0.537356/0.449713 for bundle/single-round. These masks include the human source
+repair only for evaluation; they never guide geometry or ownership.
+
+The damaging girl group retains 90 of its 390 formerly claimed pixels, reducing
+standalone clean MSE from 128.773281 to 107.997910 and improving line F1 from
+0.255 to 0.430. The complete source bundle improves from MSE 147.755884 / F1
+0.187 to 122.846640 / 0.358, still worse than the initializer's 66.976141 / 0.550.
+After finer material fitting, bundle MSE improves from 152.340755 to 127.800403
+and F1 from 0.160 to 0.305, while nodes increase from 1,071 to 1,159. This fixes
+part of the failure; it does not establish faithful width/paint classification.
+The initial probe overlaps regression tests and is not a runtime comparison.
+
+| Tuning case / source parent | Curve → anchored nodes | Contours | Clean MSE | Line F1 |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl / bundle | 1163 → 1159 | 112 → 112 | 128.014096 → 127.800403 | 0.323 → 0.305 |
+| anime-girl / single-round | 1417 → 1382 | 111 → 111 | 74.603494 → 75.103998 | 0.374 → 0.392 |
+| anime-face / eligible standalone | 2668 → 2553 | 195 → 195 | 79.163068 → 79.785239 | 0.541 → 0.565 |
+| western-park / 1 | 1610 → 1561 | 115 → 115 | 121.151463 → 120.917037 | 0.093 → 0.093 |
+| western-park / 2 | 1582 → 1527 | 114 → 114 | 117.410621 → 117.447158 | 0.049 → 0.049 |
+| rubberhose-band / bundle | 1897 → 1777 | 183 → 183 | 230.446713 → 230.196903 | 0.729 → 0.742 |
+| rubberhose-band / second eligible style | 2537 → 2352 | 113 → 113 | 121.626679 → 121.078654 | 0.675 → 0.679 |
+
+The face loses its second standalone material parent to an order proof. The
+park's second and band's second material parents are different styles from the
+previous revision; their row changes are not identical-parent comparisons.
+Band bundle paint error worsens despite higher line F1, and source-filled
+remnants remain costly. Full candidate coverage, coherent material/variable-width
+ink alternatives and source-only per-chain guards remain needed. Avoid selecting
+the bundle as a blanket rule or changing score weights to conceal missing
+interpretations. A joint source/material decoder should assess final owned
+classes before consuming cuts on an intermediate representation; the existing
+immutable ownership and resource limits remain its contract.
+
+| Case | Curve / anchored / ink-plane generation and validation seconds |
+| --- | --- |
+| sword | 72.83 / 73.19 / 90.85 |
+| anime-girl | 11.58 / 10.91 / 14.94 |
+| anime-face | 20.93 / 20.67 / 24.29 |
+| western-park | 13.07 / 12.19 / 15.03 |
+| rubberhose-band | 16.97 / 16.80 / 19.33 |
+
+The required initial calibration grid is now a versioned declaration at
+[`scripts/bench_data/cel_score_calibration.json`](../scripts/bench_data/cel_score_calibration.json),
+SHA-256 `00a667620820b60ebe882404a77e4e5fe7d9d6ab96ca09ad40e34226a8b5a9c8`.
+It freezes the plan's 81 unique alpha/edge/feature/detail configurations, the
+five complexity checkpoints and the current center, which matches the actual
+`Weights` dataclass. It specifies same-pool replay, cost-limited clean oracle,
+tuning-only selection, mandatory per-artwork gates and at most three matched
+reruns. Its result is null: the replay runner, frozen broader tolerances,
+geometric-regularization grid and eventual calibrated weights remain open.
+Declaring a grid does not solve candidate coverage or complete calibration.
+All eight deliveries remain open; generated-reference collection stays deferred.
+
 ### Atomic source stroke styles
 
 The experimental source factory now offers all mutually disjoint discovered

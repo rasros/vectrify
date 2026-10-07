@@ -517,3 +517,140 @@ def test_pruning_preserves_a_real_short_branch_and_an_explicit_source_gap():
     assert len(found) == 1
     assert len(found[0].geometry.subpaths) == 2
     assert not curve_path(found[0].footprint).contains((48, 28))
+
+
+@pytest.mark.parametrize("cap", ["round", "butt"])
+@pytest.mark.parametrize("frame", [(1, 1, 0, 0), (1.5, 0.75, 7.25, -3.5)])
+def test_ownership_uses_actual_body_coverage_with_native_source_mapping(
+    cap, frame, monkeypatch
+):
+    from vectrify.refine.cel_plan import ink_models
+
+    evidence, _ink = drawing()
+    sx, sy, ox, oy = frame
+    evidence = replace(evidence, scale=(sx, sy), offset=(ox, oy))
+    # The same open bend and a separate chain keep real gaps, and have no
+    # phantom closing diagonal. Source pixels may include a connected dark
+    # material outside this body, but cannot become its owned ink.
+    geometry = transformed_geometry(
+        parse_path("M20 20H70V60 M20 80H40 M75 75H88V88Z"),
+        (1 / sx, 0, 0, 1 / sy, ox, oy),
+    )
+    width = 3 / np.sqrt(sx * sy)
+    selected = np.ones(evidence.labels.shape, dtype=bool)
+    before = selected.copy()
+    actual = ink_models.covered_selection(
+        selected, geometry, width, evidence, Work.start(10), cap=cap
+    )
+    assert actual is not None
+    np.testing.assert_array_equal(selected, before)
+    expected = (
+        render(
+            '<svg width="96" height="96" '
+            f'viewBox="{ox} {oy} {96 / sx} {96 / sy}" preserveAspectRatio="none">'
+            f'<path d="{geometry.path_data()}" fill="none" stroke="#000000" '
+            f'stroke-width="{width}" stroke-linecap="{cap}" '
+            'stroke-linejoin="round"/></svg>',
+            (96, 96),
+        )[..., 3]
+        > 0
+    )
+    np.testing.assert_array_equal(actual, expected)
+    assert not actual[40, 45]  # A closing diagonal would claim this pixel.
+    assert not actual[80, 48]  # No connection between independent source ends.
+    assert actual[81, 81]  # Explicit closure keeps its actual diagonal.
+    assert not actual[52:70, 20:48].any()
+    # Tiling must retain the full-canvas pixel phase, including source scaling
+    # and fractional crop offsets; it cannot introduce extra dilation.
+    monkeypatch.setattr(ink_models, "MAX_CROP_PIXELS", 512)
+    tiled = ink_models.covered_selection(
+        selected, geometry, width, evidence, Work.start(10), cap=cap
+    )
+    np.testing.assert_array_equal(tiled, actual)
+
+
+def test_ownership_raster_bounds_and_mid_render_cancellation_publish_no_mask(
+    monkeypatch,
+):
+    from vectrify.refine.cel_plan import ink_models
+
+    evidence, _ink = drawing()
+    selected = np.ones(evidence.labels.shape, dtype=bool)
+    geometry = parse_path("M20 20H70V60")
+    monkeypatch.setattr(ink_models, "MAX_TILES", 0)
+    assert (
+        ink_models.covered_selection(selected, geometry, 3, evidence, Work.start(10))
+        is None
+    )
+    monkeypatch.setattr(ink_models, "MAX_TILES", 32)
+    work = Work.start(10)
+    renderer = ink_models.render
+
+    def stopped(*args):
+        result = renderer(*args)
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(ink_models, "render", stopped)
+    assert ink_models.covered_selection(selected, geometry, 3, evidence, work) is None
+    assert selected.all()
+
+
+@pytest.mark.parametrize("alpha", [255, 128, 64])
+def test_thickened_connected_source_mark_retains_unrepresented_ink(alpha):
+    from vectrify.refine.cel_plan.ink_models import models
+
+    svg = (
+        '<svg width="96" height="96">'
+        f'<g opacity="{alpha / 255}">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M20 28H76" fill="none" stroke="#202020" stroke-width="3"/>'
+        '<path d="M50 25H65V31H50Z" fill="#202020"/>'
+        "</g></svg>"
+    )
+    evidence = collect(
+        Image.fromarray((render(svg, (96, 96)) * 255).round().astype(np.uint8)),
+        None,
+        Options(refine=False),
+        Work.start(10),
+    )
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 65)
+    found = models(
+        ink, evidence, Options(refine=False), Work.start(10), prune_spurs=True
+    )
+    assert len(found) == 1
+    model = found[0]
+    assert model.details["ownership"] == "rendered-stroke-coverage"
+    assert model.details["retained_ink_pixels"] == 15
+    assert model.details["claimed_pixels"] == int(ink.sum())
+    assert not model.selected[30, 50:65].any()
+    assert model.selected[28, 25:40].all()
+    assert not model.selected.flags.writeable
+    coverage = render(
+        '<svg width="96" height="96">'
+        f'<path d="{model.footprint.path_data()}" fill="#000000"/></svg>',
+        (96, 96),
+    )[..., 3]
+    assert (coverage[model.selected] > 0).all()
+    # This is connected ink, unlike the existing disconnected-dot control.
+    # Its missing footprint support must not be supplied by a nearby run.
+    assert ink[30, 50:65].all()
+
+
+def test_mid_coverage_render_cancellation_discards_complete_model_discovery(
+    monkeypatch,
+):
+    from vectrify.refine.cel_plan import ink_models
+
+    evidence, ink = drawing(gap=True)
+    work = Work.start(10)
+    renderer = ink_models.render
+
+    def stopped(*args):
+        result = renderer(*args)
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(ink_models, "render", stopped)
+    assert ink_models.models(ink, evidence, Options(), work) == ()
+    assert ink[28, 20:40].any()

@@ -20,7 +20,8 @@ from vectrify.document.lines import open_path
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
-from vectrify.refine.cel_plan.local import Box
+from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
+from vectrify.refine.cel_plan.score import render
 from vectrify.refine.crossings import crossings
 
 MAX_COMPONENTS = 128
@@ -60,6 +61,55 @@ def footprint(geometry, width, *, cap="round"):
     shape.convertConicsToQuads(0.05)
     shape.simplify()
     return path_geometry(shape)
+
+
+def covered_selection(selected, geometry, stroke_width, evidence, work, *, cap="round"):
+    """Own only source pixels hit by the actual replacement stroke body.
+
+    Nearest-run assignment determines style, not replacement coverage. A dark
+    connected component may contain broad material or unmodeled ink beyond a
+    supported chain. Actual stroke rasterization on the source-atom grid
+    retains those pixels independently. Nonzero antialias coverage admits a
+    boundary pixel without adding a distance/dilation tolerance or repairing a
+    source gap. Bounded tiles preserve the full-grid sampling phase.
+    """
+    if work.interrupted:
+        return None
+    rows = np.flatnonzero(selected.any(axis=1))
+    columns = np.flatnonzero(selected.any(axis=0))
+    if not len(rows) or not len(columns):
+        return selected.copy()
+    box = Box(int(columns[0]), int(rows[0]), int(columns[-1]) + 1, int(rows[-1]) + 1)
+    tiles = tuple(box.chunks(MAX_CROP_PIXELS))
+    if len(tiles) > MAX_TILES:
+        return None
+    data = geometry.path_data()
+    sx, sy = evidence.scale
+    ox, oy = evidence.offset
+    output = selected.copy()
+    for tile in tiles:
+        if work.interrupted:
+            return None
+        if not output[tile.slices].any():
+            continue
+        width, height = tile.right - tile.x, tile.bottom - tile.y
+        # The stroke is in native coordinates. The viewport is the exact
+        # source-atom pixel rectangle, including anisotropic analysis scale and
+        # any source crop offset, rather than a separately normalized crop.
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" '
+            f'width="{width}" height="{height}" '
+            f'viewBox="{tile.x / sx + ox} {tile.y / sy + oy} '
+            f'{width / sx} {height / sy}" preserveAspectRatio="none">'
+            f'<path d="{data}" fill="none" stroke="#000000" '
+            f'stroke-width="{stroke_width}" stroke-linecap="{cap}" '
+            'stroke-linejoin="round"/></svg>'
+        )
+        pixels = render(svg, (width, height))
+        if work.interrupted:
+            return None
+        output[tile.slices] &= pixels[..., 3] > 0
+    return None if work.interrupted else output
 
 
 def connected_runs(runs, work):
@@ -393,7 +443,7 @@ def models(
         selected = mask & (ownership == i + 1)
         if not selected.any():
             continue
-        selected.flags.writeable = False
+        claimed_pixels = int(selected.sum())
         width = options.line_width or float(np.median(group["widths"]))
         # Standalone compound geometry also needs distinct chain/node IDs.
         contours = tuple(
@@ -412,6 +462,16 @@ def models(
             outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
             if abs(outside.area) > 1e-8:
                 continue
+        selected = covered_selection(
+            selected, geometry, width, evidence, work, cap=group["cap"]
+        )
+        if selected is None:
+            if work.interrupted:
+                return ()
+            continue
+        if not selected.any():
+            continue
+        selected.flags.writeable = False
         result.append(
             InkModel(
                 geometry,
@@ -420,6 +480,9 @@ def models(
                 selected,
                 {
                     "model": "source-stroke",
+                    "ownership": "rendered-stroke-coverage",
+                    "claimed_pixels": claimed_pixels,
+                    "retained_ink_pixels": claimed_pixels - int(selected.sum()),
                     "runs": len(contours),
                     "width": width,
                     "linecap": group["cap"],

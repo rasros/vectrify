@@ -101,6 +101,9 @@ def test_proved_contact_body_keeps_source_gaps_and_becomes_a_complete_butt_strok
         ops.validate_partition(edit.partition, Work.start(10))
         actual = render(svg, evidence.source_size)
         np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+        # The canonical butt body starts at x9.5; its uncovered x8 source
+        # endpoint remains independently filled rather than being underpainted.
+        np.testing.assert_array_equal(actual[26:30, 8], original[26:30, 8])
         strokes = [
             e for e in edit.document.elements() if e.get("stroke") not in (None, "none")
         ]
@@ -139,12 +142,15 @@ def test_a_contact_cap_needs_carrier_coverage_of_the_old_mark_as_well_as_its_bod
     _frontier, state, options = prepared(evidence, layers=True)
     base = next(s for s in state.partition.surfaces if s.role == "underlay")
     editor = Editor(state.document, selection=Selection(whole_document=True))
+    # The x8 endpoint pixel now stays filled because the butt body starts at
+    # x9.5. Intersect the replaced x9 pixel instead: its old geometry extends
+    # outside x9.25, although the actual new stroke body fits the carrier.
     with editor.transaction("Restrict carrier before the source endpoint") as tx:
         tx.replace_geometry(
             base.id,
             replace(
                 transformed_geometry(
-                    parse_path("M8.25 8H88V88H8.25Z"),
+                    parse_path("M9.25 8H88V88H9.25Z"),
                     inverse_matrix(root_matrix(state.document, base.id)),
                 ),
                 id=base.id,
@@ -697,3 +703,73 @@ def test_cancellation_after_style_partition_does_not_publish_a_bundle(monkeypatc
     assert list(factory.proposals(state, work)) == []
     assert export_svg(state.document) == before
     assert factory.diagnostics["proposals"] == 0
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+def test_stroke_cut_preserves_connected_unrepresented_ink_with_native_ownership(alpha):
+    svg = (
+        '<svg width="96" height="96">'
+        f'<g opacity="{alpha / 255}">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M20 28H76" fill="none" stroke="#202020" stroke-width="3"/>'
+        '<path d="M50 25H65V31H50Z" fill="#202020"/>'
+        "</g></svg>"
+    )
+    evidence = collect(
+        Image.fromarray((render(svg, (96, 96)) * 255).round().astype(np.uint8)),
+        None,
+        Options(refine=False),
+        Work.start(10),
+    )
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 65)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y // 8) * 12 + x // 8)
+    labels[ink] += 200
+    evidence = replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
+    frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(evidence, ops.graph, options, resolver=ops.branch)
+    edits = list(factory.proposals(state, Work.start(20)))
+    assert edits, (factory.diagnostics, factory.cutter.diagnostics)
+    original = render(state.svg, evidence.source_size)
+    for edit in edits:
+        assert edit.details["source_strokes"]["retained_ink_pixels"] == 15
+        assert edit.details["source_strokes"]["pixels"] == 157
+        assert edit.partition.follows(state.partition)
+        ops.validate_partition(edit.partition, Work.start(10))
+        assert edit.component.validate(
+            state.document,
+            edit.document,
+            state.partition,
+            edit.partition,
+            edit.ids,
+            edit.bounds,
+            Work.start(10),
+        )
+        svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(svg)
+        assert full.valid, full.rejections
+        actual = render(svg, evidence.source_size)
+        np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+        # The widened portion is physically attached to the line. Its source
+        # paint survives where the constant-width replacement has no coverage.
+        branch = ops.branch(edit.partition, Work.start(10))
+        for label in np.unique(branch.graph.labels[30, 50:65]):
+            oid = edit.partition.owners[int(label)]
+            surface = next(s for s in edit.partition.surfaces if s.id == oid)
+            assert surface.role == "surface"
+            style = path_style(edit.document, edit.document.element(oid))
+            assert style["fill"] == "#202020"
+            assert style["stroke"] == "none"
+        # Underpaint changes mixed antialias pixels at the original curved
+        # edge; the retained source paint and its opaque interior stay exact.
+        np.testing.assert_array_equal(actual[30, 54:64], original[30, 54:64])
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, svg, edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        restored, _ = load_project(save_project(edit.document))
+        np.testing.assert_array_equal(
+            render(export_svg(restored), evidence.source_size), actual
+        )

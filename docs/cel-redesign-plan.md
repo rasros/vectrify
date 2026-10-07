@@ -158,6 +158,16 @@ to the supported replacement body and retain unrepresented ink independently;
 also check unsupported new stroke coverage and width/paint interpretation.
 This source-only diagnosis supplies no human repair or new admission tolerance.
 989 current-scope regression cases pass, while the quality gates remain open.
+The replacement mask now uses the actual exported stroke's bounded rendered
+coverage, preserving source ink with no replacement coverage independently.
+1,000 current-scope regression cases and 15 isolated tuning reports pass native
+checks. The finer sword bundle improves MSE to 551.32 but grows to 3,907 nodes /
+460 contours; the girl improves considerably but still trails its initializer,
+and band paint error worsens. Body coverage alone does not establish faithful
+width/paint or complete material interpretation. Additional source cuts exclude
+more plane models under unchanged atom limits; assess joint final source/material
+classes before consuming cuts on an intermediate ink edit. Coherent variable-width
+ink and surfaces plus source-only missing/unsupported chain guards remain needed.
 Intermediate cuts/underpaint may not be cheap until composed; assess the complete candidate
 rather than rejecting it solely by intermediate representation cost. Line and
 local-feature gates remain mandatory alongside pixel error.
@@ -888,7 +898,11 @@ selection separate from reruns that change proposal availability. Report
 per-artwork results, feasibility and feature failures for every finalist, then
 rerun at most three finalists with the same deterministic evaluation caps and
 matched deadlines. These are proposed experiment settings, not calibrated
-production weights.
+production weights. The initial 81-configuration declaration is saved in
+[`scripts/bench_data/cel_score_calibration.json`](../scripts/bench_data/cel_score_calibration.json).
+Its current center matches `Weights`, and its result remains null. Same-pool
+replay, frozen broader per-case tolerances and the subsequent matched generation
+reruns are still required; missing faithful alternatives cannot be calibrated away.
 
 ## Automatic refinement and runtime
 
