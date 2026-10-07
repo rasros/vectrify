@@ -339,6 +339,12 @@ class InkReplacement:
         for oid in neighbors:
             element = document.element(oid)
             style = path_style(document, element)
+            if any(a.locks for a in document.ancestry(oid)) or any(
+                node.pinned
+                for sub in document.geometry_for(oid).subpaths
+                for node in sub.nodes
+            ):
+                return reject("protected-neighbor")
             if (
                 primary[oid].role != "surface"
                 or document.ancestry(oid)[-2].id != parent.id

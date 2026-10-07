@@ -260,6 +260,33 @@ an additive outline or majority ownership assignment does not complete this
 replacement. The source hashes and bounded/deeper pool records are in the
 progress document.
 
+Source-first closed-ridge discovery now competes independently of palette
+families. It selects only existing drawn pixels around a complete RGB cavity,
+proves both-sided ridge support and cuts mixed owners through exact source
+atoms. Whole disconnected contour groups stay exact when all their source
+samples agree; true partial groups are cut with their remainders retained.
+Graph copies use the planner's existing bounded cache. Complete-atom
+reassignments retain their namespace. Controlled fragmented ink with a distant
+shared-owner mark falls from 98 nodes / 15 paths to 28 nodes / five paths, with
+exact native alpha and mark pixels.
+
+The final native sword emits a rim proposal, but retains the preceding selected
+drawing and misses every frozen sword target. The compact underpaint route
+requires two complete neighboring material owners; this proposal has six.
+Giving source discovery the first search slot caused timing-dependent
+regressions, so that priority was removed. The independent source-cut audit,
+matched tuning controls and source hashes are recorded in the progress file.
+The next closed-ridge change must model the multiple surrounding/enclosed paint
+owners jointly, retaining highlights and deliberately distinct marks. General
+open ridges, junctions and shared long facets remain separate missing behavior.
+Neither a better ranker nor the slider completes this representation work.
+The source-cut audit after coarse material replacement also hits the existing
+32 MiB live graph bound: a parent graph alone occupies about 24.5 MiB, so a
+second full graph cannot coexist within that limit. Remove redundant copies of
+unchanged source graphs and share immutable region/boundary values or rebuild
+only the affected graph neighborhood. Account actual retained graph storage
+before allowing composition; keep the existing memory limit.
+
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local
 draw order included in each replacement. Validate the jewel rim/highlight,

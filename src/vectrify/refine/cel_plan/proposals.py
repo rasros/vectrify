@@ -41,6 +41,7 @@ from vectrify.refine.cel_plan.refine import (
 )
 from vectrify.refine.cel_plan.score import composite
 from vectrify.refine.cel_plan.search import Proposal, State
+from vectrify.refine.cel_plan.source_ridges import SourceRidges
 from vectrify.refine.crossings import crossings
 
 MAX_OPERATOR_ITEMS = 64
@@ -63,8 +64,16 @@ def bounds(before, after, ids) -> Box:
 
 
 class Operators:
-    def __init__(self, evidence: Evidence, graph: Graph, options: Options):
+    def __init__(
+        self,
+        evidence: Evidence,
+        graph: Graph,
+        options: Options,
+        *,
+        root: Operators | None = None,
+    ):
         self.evidence, self.graph, self.options = evidence, graph, options
+        self._root = self if root is None else root
         self._image: Image.Image | None = None
         self._components: np.ndarray | None = None
         self._typical: float | None = None
@@ -75,6 +84,7 @@ class Operators:
         self._namespace: str | None = None
         self.families = Families(evidence, graph, options)
         self.replacements = InkReplacement(evidence, graph, options)
+        self.ridges = SourceRidges(evidence, graph, options, resolver=self._root.branch)
         self.overlays = ClosedOverlays(
             evidence,
             graph,
@@ -138,7 +148,10 @@ class Operators:
             ):
                 raise ValueError("Active source graphs exceed branch memory bounds")
             branch = Operators(
-                replace(self.evidence, labels=graph.labels), graph, self.options
+                replace(self.evidence, labels=graph.labels),
+                graph,
+                self.options,
+                root=self._root,
             )
             branch._namespace = key
             self._branches[key] = branch
@@ -401,6 +414,7 @@ class Operators:
             iter(self.geometry(state, work)),
             iter(self.ink(state, work)),
             iter(self.replacements(state, work)),
+            iter(self.ridges(state, work)),
         ]
         alive = set(range(len(iterators)))
         try:

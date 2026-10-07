@@ -4002,3 +4002,147 @@ validated target representation, but its current palette-family discovery
 cannot reach the sword's contours. ML ranking and slider calibration remain
 later work. All delivery and release gates remain open; the implementation
 goal remains active.
+
+## Source-first closed ridges and exact mixed-owner cuts
+
+Closed source ridges now compete independently of palette-owned ink families.
+Discovery uses existing drawn pixels around complete RGB cavities, with no new
+gap-closing operation. Both-sided dark-ridge support, complete perimeter
+topology, actual opacity-core coverage and ordinary native scoring are required.
+Complete primitive fits prioritize a bounded source pool; general closed curves
+remain competitors. This does not yet cover arbitrary open ridges or junctions.
+
+The scan limits source pixels to the existing atom allowance, detected cavities
+to 8,192, inspected cavities to 32, retained bands to eight, radius to 12 analysis
+pixels and each local buffer to the existing 262,144-pixel bound. Selected owners
+retain the existing 128-path / 6,000-node limits. Source atom cuts retain their
+64-cut and 16,384-run bounds. Requested/source-fixed width, alpha holes,
+unsupported ridge/core evidence, incompatible frames and protected owners
+exclude this route.
+
+Mixed owners are cut through complete binary source classifications and exact
+RLE atom lineage. Independently owned remainders remain in the drawing; this
+is not a majority assignment or an additive outline. Complete disconnected
+contour groups stay exact when every source-owner sample in their conservative
+bounds agrees. Overlapping/nested groups stay together; true partial groups use
+Boolean cuts. This avoids coverage slivers from cutting a whole fitted fragment
+against its pixel-grid approximation, and keeps distant mark pixels exact.
+
+Production source cuts resolve graphs through the original planner's bounded
+cache. A temporary cut keeps its registered branch live until the atomic
+replacement finishes, so its storage is included in existing live graph
+accounting and native validation reuses that same graph. Complete-atom moves
+retain the existing namespace and allocate no graph copy. Default standalone
+diagnostics can still rebuild a bounded graph directly. Locked/pinned neighboring
+paint now excludes restoration cleanly rather than failing optional discovery.
+Model and exclusion counters survive closing a cursor after its first yield.
+
+### Controlled verification
+
+The new control deliberately alternates incompatible ink colors around a ring,
+and places a distant mark in the same source atom as one ink fragment. Legacy
+palette grouping emits no paired rim. Source discovery fits both complete
+perimeters, splits that mixed atom exactly and keeps its mark unchanged.
+
+`.bench/source-ridge-cut-fixtures` saves full, half and quarter group-opacity
+SVG/PNG pairs. Each drawing falls from **98 nodes / 15 paths / 18 contours /
+cost 200** to **28 nodes / five paths / seven contours / cost 66**. Native alpha
+and distant mark pixels remain exact; local/native raster agreement holds.
+Maximum local/full score-term difference is below **7.121e-11**. These are
+synthetic controls, not evidence of improved artwork resemblance.
+
+Thirty new cases cover complete source classifications, retained marks,
+private gradients/frames, native offset and scale, reflected/sheared frames,
+existing atom lineage, actual registered graph reuse, no-copy complete moves,
+closed-gap/alpha-hole/core/width exclusions, owner/node/cavity/band bounds,
+locks/pins, interruption, independent search checkpoints and save/reload.
+The final relevant suite passes **745 tests in 86.43 seconds**. Ruff passes;
+Pyrefly reports zero errors and the existing 61 warnings.
+
+### Matched native result and rejected scheduling experiment
+
+The final algorithm source SHA-256 is
+`15a5428c8597731cfd69bc3a0751ad5d1e757ab49bf9fef0c456460bf999a68e`.
+The final native, paired, fixture and independent audit reports share it.
+`.bench/planned-source-ridge-cuts-accounted` uses the frozen 60-second operation
+budget, complexity 50, balanced quality and refinement disabled.
+
+The selected sword remains **8,571 nodes, 1,313 contours, 1,283 paths, cost
+16,749 and human MSE 550.854631**, in **52.05 seconds**. Its PNG is byte-identical
+to `.bench/planned-source-rims-final`; all five measured human feature errors
+remain unchanged. There are 13 evaluations, ten local admissions, four
+checkpoint attempts and zero score disagreements. Retained search state peaks
+at 10,752,008 bytes; this is not a process peak-memory measurement.
+
+One new source-ridge candidate reaches evaluation and is admitted, with cost
+delta **−393** and native visual delta **−0.0000257139**. Its six neighboring
+paint owners exclude the compact two-owner underpaint model. The selected
+drawing instead retains the previous core-material replacement plus filled ink
+edit. **The new route supplies no selected sword quality gain.**
+
+An initial source-first scheduling experiment changed the matched result to
+8,588 nodes / 1,315 contours / human MSE 551.160658 in 51.82 seconds at
+`.bench/planned-source-ridge-cuts`, source hash
+`25ace268d7b148edfe3681d713e7628fce163f92e38c4132d51156444ec82598`.
+After the protection guard, another run retained 10,121 nodes / 1,660 contours /
+MSE 514.667351 in 53.86 seconds at `.bench/planned-source-ridge-cuts-final`, hash
+`b278591e80ecc1483531a56a25adf73e8786dfddb82613c2bd3a8e2efb4d3f11`.
+Both miss the combined gate; the timing-dependent loss of useful compaction
+does not justify reserving the first slot for this route. That priority was
+removed. The final route participates in the existing round-robin schedule.
+
+### Independent candidate pool and composition limit
+
+`.bench/source-ridge-cut-final-audit` uses 180 seconds of shared work, the
+source-only initializer and a coarse 22-cell material parent. Human scoring
+remains outside generation. Its local driver `.bench/audit-source-ridges-final.py`
+has SHA-256
+`863f78be13d5981a7247b7f8965c560abe86d8858c25b4708a37edebe02ffb09`.
+Both phases inspect 16 cavities and eight retained bands from 45 eligible bands,
+without deadline interruption. The initializer emits two candidates. Both pass
+native hard validity, complete original-graph ownership validation and
+independent local/full raster checks; maximum score-term disagreement is
+**2.333e-10**.
+
+| Source band | Selected pixels / owners / cuts | Nodes | Contours | Cost | Human MSE | Jewel MSE |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| Radius 6 | 402 / 51 / 0 | 10,209 | 1,657 | 20,425 | 516.95 | 1,402.85 |
+| Radius 2 | 200 / 30 / 1 | 10,397 | 1,695 | 20,809 | 513.49 | 1,319.02 |
+
+The wider candidate saves 77 nodes against the 10,286-node initializer but
+worsens resemblance. The narrow candidate slightly improves the jewel crop
+against the initializer's 1,332.64, while adding 111 nodes and increasing global
+human error. Neither passes the combined sword gate. Both require traced
+multi-owner paint continuations; compact underpaint is excluded by neighbor
+count. Finding a rim does not itself supply a compact faithful composition.
+
+The coarse-material phase emits none: four bands lack ridge support, two hit
+owner exclusions, one hits geometry exclusion and one fails registered graph
+resolution with **“Active source graphs exceed branch memory bounds.”** Its
+live parent graph is about 24.5 MiB. Cache peak is 25,721,808 bytes, within the
+unchanged 32 MiB bound; a second full graph cannot coexist with that live parent.
+The audit saves the resolver error explicitly. This is an internal storage
+constraint to fix, not an external blocker or a reason to waive the limit.
+
+### Paired controls and next work
+
+The four clean, half-opacity, 192-pixel controls at
+`.bench/planned-source-ridge-cuts-rgba-pairs` all finish successfully and retain
+byte-identical PNGs to `.bench/planned-source-rims-final-rgba-pairs`.
+Girl/face/park/band retain 175/176/545/405 nodes, costs 331/272/979/757, clean MSE
+165.4348/206.7383/178.7425/167.7354 and Line F 0.270/0.589/0.652/0.641.
+Generation takes 12.32/17.79/10.78/13.26 seconds, with 16/16/24/16 evaluations.
+Western park emits two source-ridge proposals using six cuts each; both are
+rejected for native objective regression (cost delta +160). The other three
+emit none. These controls demonstrate unchanged selected outputs, not a
+broader quality gain.
+
+Next remove redundant copies of unchanged source graphs and share immutable
+region/boundary storage or rebuild only the affected neighborhood, with complete
+source validation and actual retained-memory charges. Then compose closed
+ridges with multiple enclosed/surrounding materials and retained highlights.
+Continue general open ridges, junctions and shared long blade facets, followed
+by constrained geometry/paint/width fitting and calibrated common-frontier
+selection. ML ranking cannot substitute for this missing composition. All
+delivery, numerical, feature, coverage, line, runtime/memory, editing, held-out
+and blind-review gates remain open. The full implementation goal remains active.

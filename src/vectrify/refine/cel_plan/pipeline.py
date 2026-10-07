@@ -426,6 +426,14 @@ def vectorize(
                     if operators.families._core_models is not None
                     else {},
                     "ink_replacement": dict(operators.replacements.diagnostics),
+                    "source_ridges": dict(operators.ridges.diagnostics),
+                    "source_ridge_models": dict(operators.ridges.rim_diagnostics),
+                    "source_ridge_underpaint_rejections": dict(
+                        operators.ridges.underpaint_rejections
+                    ),
+                    "source_ridge_restoration_rejections": dict(
+                        operators.ridges.restoration_rejections
+                    ),
                     "closed_overlays": dict(operators.overlays.diagnostics),
                     "nested_surface_rejections": dict(
                         operators.families.nesting_rejections
