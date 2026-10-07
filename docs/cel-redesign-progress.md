@@ -4,6 +4,32 @@ The requirements remain those in [the complete plan](cel-redesign-plan.md).
 This record distinguishes working infrastructure from release evidence. The
 method remains experimental and the existing CEL default is unchanged.
 
+## Baseline challenge and immediate quality priority
+
+The owner challenged whether the result provides a practical improvement.
+The answer is no: the selected 8,571-node/1,313-contour drawing has human MSE
+550.854631 versus legacy CEL's 2,312 nodes/339 contours and approximately
+663.31 MSE. That is 17.0% lower error at 3.71 times the nodes and 3.87 times
+the contours. The latest source-ridge work leaves the selected raster and
+all measured human feature errors unchanged. Synthetic simplification and
+745 passing tests establish implementation behavior, not artwork quality.
+
+The plan's new practical-gain section makes the next experiment a compact
+whole-component drawing plus a visible admission audit. The earlier graph
+cache limit remains real, but resolving it alone is not the next quality
+milestone. Primary paint fragmentation dominates the node count; a local
+jewel-rim improvement cannot remove the required 90.7% of current nodes.
+The audit must distinguish missing interpretations, visible damage, admission
+conflicts and selection/budget failures before expanding search or tuning
+weights. A learned structural proposer is a separate conditional experiment
+from a ranker, since ranking cannot create missing alternatives.
+
+This update changes experimental priority and quality reporting only. It
+contains no new generator measurement, admission-policy change or gate pass.
+The interim comparison must beat legacy structure and error with existing
+feature/coverage checks; the release target remains 800 nodes/140 contours/
+497.39 MSE. All eight deliveries and the full implementation goal remain open.
+
 ## Current implementation
 
 - The compressed human fixture loader, native frozen-mask benchmark, paired

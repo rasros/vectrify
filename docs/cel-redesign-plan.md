@@ -50,6 +50,74 @@ The experimental rows use complexity 50, balanced quality and refinement disable
 
 Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
 
+### Practical gain is the next milestone
+
+The latest result lowers human-reference MSE by **17.0% against legacy CEL**,
+but uses **3.71 times the nodes and 3.87 times the contours**. It has **16.39
+times the human drawing's nodes**. The latest source-ridge package leaves the
+selected sword raster and all five feature errors unchanged. This is a
+structural regression with a fidelity tradeoff, not a useful overall win.
+Reaching 800 nodes from this result requires a **90.7% reduction**. Local rim
+improvements, cache fixes and passing synthetic controls cannot establish that
+reduction. Compare every quality claim with legacy CEL and the human fixture;
+keep infrastructure progress explicitly separate.
+
+Use this experimental sequence before expanding another isolated operator:
+
+1. **Audit the admission/abstraction conflict visibly.** Render each rejected
+   human/legacy crossing, hole, opacity residual and component as a marked
+   native crop. The existing benchmark-only audit records the rejection types,
+   but does not establish which differences are visible damage, intentional
+   redraw choices or raster artifacts. Build general regression controls from
+   that diagnosis, including genuine faint marks and opacity steps. Any change
+   to hard admission must follow that evidence and the existing policy-version
+   requirements; do not admit the human fixture by exception.
+2. **Build a compact whole-component competitor from source structure.** Choose
+   silhouette, continuous ink, long shared shade boundaries and local order
+   before expanding color fragments into SVG paths. Fit flat/gradient material
+   cells to those shapes, retain supported highlights and marks as independent
+   details, and fit geometry/paint/width jointly. Source atoms remain a complete
+   evidence ledger; their number must not dictate the number of output paths.
+   Propose the complete component atomically rather than requiring a poor
+   intermediate paint or ink edit to win selection. The previous inventory
+   locates 10,256 initializer nodes in 1,657 primary paint paths and only 30 in
+   the coverage base: removing those paint partitions is the central task.
+3. **Audit the whole candidate before tuning search.** Save the proposed drawing
+   even when validation rejects it, with source ownership, counts, native loss,
+   admission failures and frozen feature crops. Human scoring stays entirely
+   outside generation. Distinguish four outcomes: no compact interpretation was
+   proposed; compact geometry causes visible damage; a faithful interpretation
+   conflicts with admission; or an admitted faithful candidate loses selection
+   or the time budget. Each outcome requires a different fix. Cache sharing is
+   an enabling task where composition requires it, not the next quality claim.
+4. **Require a practical comparison before adding product controls.** First
+   demonstrate an admitted candidate with no more than legacy CEL's 2,312 nodes
+   and 339 contours and lower human error than 663.31, with the existing local
+   feature/coverage checks. This is an interim diagnostic, not a replacement
+   release gate. The balanced milestone remains **800 nodes, 140 contours and
+   MSE 497.39**. Then verify selection within the frozen 60-second operation
+   budget and on paired tuning controls. Only a useful shared frontier can
+   establish that the complexity slider controls the drawing users receive.
+
+Do not interpret repeated absent compact candidates as evidence that a ranker
+needs more training. A ranker can only select existing alternatives. If the
+whole-component experiment still lacks suitable interpretations, evaluate a
+separate **learned structural proposer** that predicts bounded boundary, ink
+and material hypotheses for the same exact evaluator. Keep this distinct from
+the optional action-ranker experiment: compare candidate availability, selected
+quality and total runtime separately. Use licensed paired raster/vector data,
+keep artwork families split, and exclude the sword human fixture from training.
+A learned proposer remains experimental until it beats the deterministic
+competitor on held-out artwork under unchanged admission and release gates.
+No model choice or learned benefit is established by the current evidence.
+
+The immediate order is admission diagnosis and a whole-component structural
+candidate, followed by the specific integration fixes those experiments expose.
+General multi-owner paint, open ink and facet modeling remain required behavior;
+they should contribute to that candidate rather than be reported as separate
+quality successes. Automatic optimization follows a viable compact structure.
+Slider calibration, UI migration and learning claims remain downstream.
+
 ### Reset after the baseline comparison
 
 The 19,528-node result is a structural regression against the 2,312-node legacy
