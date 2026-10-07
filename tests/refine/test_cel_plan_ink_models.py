@@ -75,6 +75,24 @@ def test_explicit_source_gap_is_not_joined_to_match_an_imagined_reference():
     assert not model.selected[28, 48]
 
 
+def test_unsupported_disconnected_dot_is_not_owned_by_a_nearby_stroke():
+    from vectrify.refine.cel_plan.ink_models import models
+
+    evidence, ink = drawing(gap=True)
+    target = evidence.target.copy()
+    target[72:77, 78:83] = 32
+    ink[72:77, 78:83] = True
+    found = models(
+        ink,
+        replace(evidence, target=target),
+        Options(),
+        Work.start(10),
+        prune_spurs=True,
+    )
+    assert found
+    assert all(not m.selected[72:77, 78:83].any() for m in found)
+
+
 def test_broad_dark_material_and_cancelled_work_do_not_become_strokes():
     evidence, _ink = drawing()
     mask = ~evidence.empty
@@ -97,6 +115,7 @@ def test_component_replaces_ink_and_underpaint_together_with_true_stroke_paths(
     labels[ink] += 200
     evidence = replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
     frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
     if matrix is not None:
         carrier = next(s.id for s in state.partition.surfaces if s.role == "underlay")
         editor = Editor(state.document, selection=Selection(whole_document=True))
@@ -134,11 +153,16 @@ def test_component_replaces_ink_and_underpaint_together_with_true_stroke_paths(
     )
     edits = list(factory(state, Work.start(20)))
     assert edits
+    assert all(p.details is not None for p in edits)
     stroke_edits = [
-        p for p in edits if p.details["core_material_cells"]["stroke_models"]
+        p
+        for p in edits
+        if p.details is not None and p.details["core_material_cells"]["stroke_models"]
     ]
     assert stroke_edits
     for edit in stroke_edits:
+        assert edit.partition is not None
+        assert state.partition is not None
         svg = export_svg(edit.document)
         full = frontier.policy.evaluate(svg)
         assert full.valid
@@ -223,3 +247,55 @@ def test_interruption_during_final_geometry_discards_discovered_models(monkeypat
 
     monkeypatch.setattr(ink_models, "footprint", stopped)
     assert ink_models.models(mask, evidence, Options(), work) == ()
+
+
+def test_degree_two_source_junctions_join_without_joining_gaps_or_real_branches():
+    from vectrify.refine.cel_plan.ink_models import connected_runs
+
+    runs = [
+        np.array(v, float)
+        for v in (
+            [(0, 0), (1, 0)],
+            [(2, 0), (1, 0)],
+            [(2, 0), (3, 0)],
+            [(3.25, 0), (4, 0)],
+            [(10, 0), (11, 0)],
+            [(11, 0), (12, 1)],
+            [(11, 0), (12, -1)],
+        )
+    ]
+    result = connected_runs(runs, Work.start(10))
+    assert len(result) == 5
+    np.testing.assert_array_equal(result[0], [[0, 0], [1, 0], [2, 0], [3, 0]])
+    assert len(result[1]) == 2  # A real gap has distinct source endpoints.
+    assert sum(tuple(r[0]) == (11, 0) or tuple(r[-1]) == (11, 0) for r in result) == 3
+    work = Work.start(10)
+    work.stop.set()
+    assert connected_runs(runs, work) == []
+
+
+def test_pruning_preserves_a_real_short_branch_and_an_explicit_source_gap():
+    from vectrify.refine.cel_plan.ink_models import models
+
+    svg = (
+        '<svg width="96" height="96"><path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M20 48H76M48 48V32" stroke="#202020" stroke-width="3" '
+        'fill="none" stroke-linecap="round"/></svg>'
+    )
+    pixels = render(svg, (96, 96))
+    evidence = collect(
+        Image.fromarray((pixels * 255).round().astype(np.uint8)),
+        None,
+        Options(),
+        Work.start(10),
+    )
+    mask = ~evidence.empty & (cel.lightness(evidence.target) < 65)
+    found = models(mask, evidence, Options(), Work.start(10), prune_spurs=True)
+    assert len(found) == 1
+    shape = curve_path(found[0].footprint)
+    assert all(shape.contains(p) for p in ((48, 48), (48, 34), (22, 48), (74, 48)))
+    evidence, mask = drawing(gap=True)
+    found = models(mask, evidence, Options(), Work.start(10), prune_spurs=True)
+    assert len(found) == 1
+    assert len(found[0].geometry.subpaths) == 2
+    assert not curve_path(found[0].footprint).contains((48, 28))

@@ -830,14 +830,21 @@ class CoreCells:
         nodes = 0
         constrained = set(state.details.get("paint_constraints", ()))
         surfaces = {s.id: s for s in state.partition.surfaces}
+        ink_support = {
+            i
+            for s in state.partition.surfaces
+            if s.role == "overlay"
+            for i in s.members
+        }
         for child in parent.children:
             if work.interrupted:
                 return None
             surface = surfaces.get(child.id)
             if (
                 surface is None
+                or surface.id == base.id
                 or surface.role != "surface"
-                or surface.covered
+                or (surface.covered and not set(surface.covered).issubset(ink_support))
                 or surface.id in constrained
                 or any(self.families.graph.regions[i].fixed for i in surface.members)
                 or any(a.locks for a in state.document.ancestry(child.id))
@@ -912,6 +919,7 @@ class CoreCells:
         """
         document = state.document
         known = {s.id for s in state.partition.surfaces}
+        overlays = {s.id for s in state.partition.surfaces if s.role == "overlay"}
         removed = {s.id for s in selected} | {base.id}
         matrix = root_matrix(document, base.id)
         native = transformed_geometry(whole, matrix)
@@ -929,6 +937,67 @@ class CoreCells:
                 self.diagnostics["style_exclusions"] += 1
                 return False
             style = path_style(document, child)
+            if (
+                child.id in overlays
+                and style["fill"] == "none"
+                and style["stroke"] != "none"
+                and float(style["opacity"]) == 1
+                and float(style["stroke-opacity"]) == 1
+                and opaque_fill(document, style["stroke"])
+                and child.get("clip-path", "none") == "none"
+                and child.get("filter", "none") == "none"
+            ):
+                # A supported opaque stroke stays above the repainted material.
+                # Prove its complete native footprint inside the unchanged
+                # carrier; membership or centerline bounds alone are not enough.
+                width = float(style["stroke-width"])
+                caps = {
+                    "round": pathops.LineCap.ROUND_CAP,
+                    "butt": pathops.LineCap.BUTT_CAP,
+                    "square": pathops.LineCap.SQUARE_CAP,
+                }
+                joins = {
+                    "round": pathops.LineJoin.ROUND_JOIN,
+                    "bevel": pathops.LineJoin.BEVEL_JOIN,
+                    "miter": pathops.LineJoin.MITER_JOIN,
+                }
+                miter = float(style["stroke-miterlimit"])
+                geometry = document.geometry_for(child.id)
+                if (
+                    not math.isfinite(width)
+                    or width <= 0
+                    or not math.isfinite(miter)
+                    or miter <= 0
+                    or style["stroke-linecap"] not in caps
+                    or style["stroke-linejoin"] not in joins
+                    or sum(len(s.nodes) for s in geometry.subpaths) > MAX_OUTPUT_NODES
+                ):
+                    self.diagnostics["style_exclusions"] += 1
+                    return False
+                shape = curve_path(geometry)
+                shape.stroke(
+                    width,
+                    caps[style["stroke-linecap"]],
+                    joins[style["stroke-linejoin"]],
+                    miter,
+                )
+                shape.convertConicsToQuads(0.05)
+                footprint = transformed_geometry(
+                    path_geometry(shape), root_matrix(document, child.id)
+                )
+                if (
+                    sum(len(s.nodes) for s in footprint.subpaths) > MAX_OUTPUT_NODES
+                    or abs(
+                        pathops.op(
+                            curve_path(footprint), filled, pathops.PathOp.DIFFERENCE
+                        ).area
+                    )
+                    > 1e-8
+                ):
+                    self.diagnostics["style_exclusions"] += 1
+                    return False
+                self.diagnostics["retained_paths"] += 1
+                continue
             # Current owned opaque fills are explicit retained marks. Only
             # directly supported opaque gradients share that interpretation.
             supported = self._supported_fill(document, child, style)

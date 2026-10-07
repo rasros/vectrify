@@ -42,7 +42,13 @@ not become a generation hint or an invented connection. Reference scoring can
 record the discrepancy without asking the generator to reproduce that repair.
 
 The current bounded experiment combines source-connected ink, compatible
-width/paint models and material underpaint. It is an offline candidate-pool
+width/paint models and material underpaint. A subsequent experiment replaces
+source strokes while retaining existing paints, then compacts those materials
+without deleting the editable strokes. It produces a finer sword candidate at
+3,630 nodes / 387 contours / human MSE 548.48; its handle still has missing lines
+and filled remnants, and it exceeds legacy's structure counts. Independent
+source marks and gaps must survive, including disconnected marks sharing a
+source owner with a line. This remains an offline candidate-pool
 comparison until native and cross-artwork evidence supports automatic planning.
 All eight deliveries remain open. Generated drafts are still too poor to serve
 as useful new references; defer that collection until a practical quality gain.
@@ -83,17 +89,17 @@ The latest native sword experiment (the coupled piecewise-surface implementation
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
 | Experimental piecewise surfaces with retained marks and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
-| Experimental whole-component material replacement, same budget and settings | 8,571 | 1,313 | 550.85 |
+| Experimental whole-component material replacement, same budget and settings | 8,588 | 1,315 | 551.15 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
-The experimental rows use complexity 50, balanced quality and refinement disabled. Both fail all three numerical targets. Whole-component replacement reduces nodes by 14.4% against the previous prototype, but increases human-reference error by 7.0% and worsens all five measured feature crops. It still has 3.7 times the legacy node count. This is an integration result, not a practical redraw improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; merging color patches cannot compensate for thousands of partitions or reconstruct deliberate outlines. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
+The experimental rows use complexity 50, balanced quality and refinement disabled. Both fail all three numerical targets. Whole-component replacement reduces nodes by 14.2% against the previous prototype, but increases human-reference error by 7.1% and worsens all five measured feature crops. It still has 3.7 times the legacy node count. This is an integration result, not a practical redraw improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; merging color patches cannot compensate for thousands of partitions or reconstruct deliberate outlines. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
 
 Complete coherent surface models and ink replacement using the bounded native evaluator. Follow them with constrained geometry fitting, budget-directed scheduling and tuning-corpus calibration. Expose the controls when their behavior is validated, then run release evaluation. The tile evaluator now has independent native/full agreement tests; its sword run retains the same published drawing and does not establish a quality improvement or complete the runtime/memory gates.
 
 ### Practical gain is the next milestone
 
-The latest result lowers human-reference MSE by **17.0% against legacy CEL**,
-but uses **3.71 times the nodes and 3.87 times the contours**. It has **16.39
+The latest result lowers human-reference MSE by **16.9% against legacy CEL**,
+but uses **3.71 times the nodes and 3.88 times the contours**. It has **16.42
 times the human drawing's nodes**. The latest source-ridge package leaves the
 selected sword raster and all five feature errors unchanged. This is a
 structural regression with a fidelity tradeoff, not a useful overall win.

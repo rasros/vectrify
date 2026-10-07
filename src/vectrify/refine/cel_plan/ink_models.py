@@ -7,6 +7,7 @@ widths and source paints receive distinct bounded models.
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, replace
 
 import numpy as np
@@ -23,6 +24,7 @@ from vectrify.refine.cel_plan.local import Box
 MAX_COMPONENTS = 128
 MAX_SOURCE_COMPONENTS = 8192
 MAX_RUNS = 128
+MAX_DISCOVERY_RUNS = 4096
 MAX_POINTS = 16_384
 MAX_RUN_POINTS = 2048
 MAX_WIDTH = 16
@@ -50,7 +52,43 @@ def footprint(geometry, width):
     return path_geometry(shape)
 
 
-def models(mask, evidence, options, work, *, carrier=None):
+def connected_runs(runs, work):
+    """Join only a degree-two source junction; never join distinct endpoints."""
+    ends = {}
+    for i, run in enumerate(runs):
+        for side in (0, -1):
+            ends.setdefault(tuple(run[side]), []).append((i, side))
+    seen, result = set(), []
+    for seed, run in enumerate(runs):
+        if work.interrupted:
+            return []
+        if seed in seen:
+            continue
+        seen.add(seed)
+        pieces = deque([run])
+        for side in (-1, 0):
+            point = run[side]
+            while len(ends[tuple(point)]) == 2:
+                if work.interrupted:
+                    return []
+                other = [r for r in ends[tuple(point)] if r[0] not in seen]
+                if not other:
+                    break
+                index, endpoint = other[0]
+                seen.add(index)
+                part = runs[index]
+                if endpoint == side:
+                    part = part[::-1]
+                if side == -1:
+                    pieces.append(part[1:])
+                else:
+                    pieces.appendleft(part[:-1])
+                point = part[side]
+        result.append(np.vstack(pieces))
+    return result
+
+
+def models(mask, evidence, options, work, *, carrier=None, prune_spurs=False):
     """Return complete bounded models; interruption discards partial discovery."""
     if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
         return ()
@@ -79,6 +117,17 @@ def models(mask, evidence, options, work, *, carrier=None):
         depth = np.asarray(distance_transform_edt(own))
         skeleton = cel.thin(own)
         runs = cel.line_runs(skeleton, spur=0, depth=depth)
+        if not runs or len(runs) > MAX_DISCOVERY_RUNS:
+            rejected[box.slices] |= own
+            continue
+        if prune_spurs and skeleton.any():
+            typical = float(np.median(2 * depth[skeleton]))
+            # The existing depth proof retains a short branch which genuinely
+            # extends beyond its incident ink. Only thinning whiskers go; the
+            # newly degree-two junctions can then form complete source chains.
+            runs = connected_runs(
+                cel.line_runs(skeleton, spur=2 * typical + 2, depth=depth), work
+            )
         # Long source chains compete before small skeleton spurs. Unexamined
         # chains stay filled; the bounded scan never discards their evidence.
         runs.sort(key=lambda r: -len(r))
@@ -156,6 +205,9 @@ def models(mask, evidence, options, work, *, carrier=None):
     )
     assert nearest is not None
     ownership = np.where(rejected, 0, claimed)[tuple(nearest)]
+    # A nearest run in another physical component cannot own this source mark.
+    # Tiny islands can thin to a single point with no discoverable line run.
+    ownership[components[tuple(nearest)] != components] = 0
     result = []
     for i, group in enumerate(groups):
         if work.interrupted:

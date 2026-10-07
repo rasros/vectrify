@@ -14,6 +14,144 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Source strokes followed by material compaction
+
+The next experiment separates stroke replacement from forced paint collapse.
+`SourceStrokes` replaces supported source runs while retaining the current
+material paints and frames, continuing neighboring paint only into removed ink.
+Its output contains ordinary editable SVG strokes. Exact cuts preserve mixed
+owners and independent marks. Discovery now rejects components with no line
+runs and forbids nearest-run ownership across physical components: a tiny dark
+dot cannot disappear into a distant line. Depth-proved thinning-whisker pruning
+and joining degree-two identical source endpoints reconstruct chains without
+bridging actual gaps or removing real forks.
+
+`CoreCells` can then compact the surrounding materials while retaining those
+strokes exactly. Covered material owners are eligible only when their covered
+atoms belong to existing overlays. A retained stroke needs a supported opaque
+paint, no filter/clip, finite width and complete native footprint containment
+inside the unchanged carrier. The footprint is stroked in its original frame
+before transformation, including nonuniform transforms. A contained centerline
+alone is insufficient. Boolean-cut and continued fill geometry with new
+crossings is resolved by actual filled winding, followed by unchanged native
+validation; no crossing allowance is relaxed.
+
+The offline runner offers at most two admitted stroke parents to the material
+stage (`--proposal source-strokes --compose-materials`). Source discovery is
+bounded to four carriers, eight proposals, 4,096 raw runs per component and the
+existing pixel/run/point/mask/crop/geometry/cut limits. Larger unsupported input
+remains filled. These are candidate-pool experiments, not normal operation
+selection or runtime-gate passes. Production scheduling does not use this new
+route. Human repair geometry and feature boxes remain outside generation.
+
+All current component reports use source SHA-256
+`ad93441fbb460c3ca1eb58800ae8a5f1b07e7f65b9feb6a4d21ef0031e6ef320`.
+The sword report is `.bench/cel-source-strokes-composition-final/summary.json`.
+Generation and native validation take **32.67 seconds** under a separate
+180-second diagnostic allowance, normalizer 54,564.
+
+| Sword candidate | Nodes | Contours | Strokes | Human MSE |
+| --- | ---: | ---: | ---: | ---: |
+| Initializer | 10,286 | 1,711 | 0 | 512.807919 |
+| Paint-preserving stroke replacement | 12,105 | 2,038 | 6 | 514.113812 |
+| Composed 32-cell threshold | 3,066 | 372 | 6 | 2,434.122409 |
+| Composed 64-cell threshold | 3,630 | 387 | 6 | 548.482334 |
+
+The finer composition has cost 6,088, 323 paths and 22 gradients. It retains
+six editable source runs with width 1.989487, three exact cuts and 22 continued
+neighbors. Discovery examines 128 runs / 6,379 points. All three proposals have
+complete ownership, native validity, component seals and independent native
+raster agreement; maximum local/full term difference is **4.30e-10**. The finer
+tip/facet/guard/handle/jewel MSE is 709.763557 / 261.687510 / 1,184.802431 /
+914.135391 / 1,342.816716. The handle crop was visually inspected: missing lines
+and filled shade fragments remain. This still exceeds legacy's nodes by 57.0%
+and contours by 14.2%, and worsens tip and handle error. It does not pass the
+practical milestone or the frozen release gates. Fewer nodes than the earlier
+connected experiment is progress in composition, not a sufficient redraw.
+
+Four tuning reports in `.bench/cel-source-strokes-composition-pairs` use clean
+192-pixel inputs at half opacity and individual 60-second diagnostic allowances.
+Both finer compositions are reported rather than choosing a parent using the
+clean reference. They share a requested 64-cell threshold, not output cost.
+
+| Artwork | Parent | Nodes / contours | Strokes | Clean MSE |
+| --- | ---: | ---: | ---: | ---: |
+| anime-girl | 1 | 1,413 / 110 | 2 | 75.829113 |
+| anime-girl | 2 | 1,467 / 118 | 2 | 74.896255 |
+| anime-face | 1 | 2,728 / 190 | 3 | 73.760740 |
+| anime-face | 2 | 2,559 / 149 | 3 | 75.765333 |
+| western-park | 1 | 1,583 / 114 | 1 | 116.452290 |
+| western-park | 2 | 1,563 / 110 | 1 | 121.966583 |
+| rubberhose-band | 1 | 2,364 / 123 | 6 | 150.558292 |
+| rubberhose-band | 2 | 2,415 / 123 | 7 | 131.370324 |
+
+These runs finish in 11.22 / 19.17 / 11.44 / 15.49 seconds. All 35 emitted
+proposals pass native admission, ownership and raster agreement; maximum
+local/full difference is **3.35e-9**. This avoids the previous connected route's
+large paint-collapse loss on rubberhose (historical finer MSE 357.19), but does
+not establish a useful cross-artwork frontier. Some stroke parents increase
+nodes or damage small features. The two finer compositions have line F1
+0.356 / 0.000 (girl), 0.431 / 0.159 (face), 0.060 / 0.093 (western) and
+0.753 / 0.663 (rubberhose); stroke recall remains only 0–0.222. These metrics
+do not establish reconstruction of the complete line system. Coarse material
+compositions still erase
+structure. Next improve source ink coverage and coherent material boundaries
+together, then fit them and prove useful selection within the operation budget.
+All eight deliveries remain open; generated-reference collection stays deferred.
+
+Eighteen additional regression cases cover degree-two chain reconstruction,
+real forks, independent source marks, exact mixed-owner cuts, post-cut
+cancellation, constrained owners, opaque/half/quarter-alpha replacement,
+paint preservation, skewed neighbor frames, retained full-width containment,
+stroke/material composition, native alpha, ownership, component seals,
+local/full agreement and save/reload. The relevant CEL, shared/simplify/snap,
+generation and benchmark suites pass **856 tests in 119.62 seconds**. Ruff lint,
+format and changed-file Pyrefly checks pass, including both new test modules.
+
+The normal 60-second operation replay at
+`.bench/planned-source-strokes-composition-final/summary.json` selects **8,588
+nodes / 1,315 contours / 1,285 paths / cost 16,766 / zero strokes / human MSE
+551.151174** in **52.27 seconds**, complexity 50, balanced, refinement disabled.
+Search attempts 12 edits, accepts nine, checkpoints four, has zero score
+disagreements and zero deadline overshoot. Its feature MSE is 743.881136 /
+263.322784 / 1,183.370388 / 948.492454 / 1,506.763413. Timed selection differs
+slightly from the previous 8,571-node checkpoint; this is not a causal quality
+gain. The source-stroke route is not scheduled and no numerical gate passes.
+
+Fresh paired-material controls under the same source hash reproduce the earlier
+finer paired candidates exactly: girl 1,531 / 118 / MSE 71.948688; face 2,881 /
+205 / 73.587198; western 1,583 / 111 / 121.111584; rubberhose 2,562 / 113 /
+131.232546. Their diagnostic times are 4.45 / 9.54 / 7.92 / 17.42 seconds.
+This comparator is available in each `*-paired/summary.json` beside the new
+composition controls. The new fine proposals trade somewhat fewer nodes for
+variable fidelity; the western first parent improves clean MSE, while the other
+families still have higher error. This is not a matched-cost comparison.
+
+Normal 20-second controls at the same 192-pixel/half-opacity settings retain
+175 / 25, 176 / 16, 545 / 75 and 405 / 62 nodes/contours respectively, with
+clean MSE 165.434759 / 206.310729 / 178.742483 / 167.735359 and line F1
+0.270 / 0.589 / 0.652 / 0.641. See
+`.bench/planned-source-strokes-composition-pairs/summary.json`; timed paint
+selection can vary slightly. Eleven final reports parse as strict JSON and
+match the current source hash. Across the nine component reports, all **46**
+emitted proposals are admitted, sealed, completely owned and raster-checked.
+None is held-out evaluation or proof of a completed delivery.
+
+Replay the separate sword candidate pool with:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 \
+  /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py \
+  --proposal source-strokes --compose-materials --normalizer 54564 \
+  --seconds 180 --out .bench/cel-source-strokes-composition-final
+```
+
+For a tuning control replace the normalizer with `--pair anime-girl` (or
+`anime-face`, `western-park`, `rubberhose-band`) and use a 60-second allowance.
+These clean SVG targets enter only post-generation evaluation. Run default
+`--proposal core-cells --grouping ward --boundary-fit curve` separately for the
+paired-material comparator.
+
 ### Source-supported strokes with coupled underpaint
 
 `cel_plan/ink_models.py` discovers physical source chains before paint grouping.
