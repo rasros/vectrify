@@ -2927,7 +2927,7 @@ None of the eight complete deliveries is claimed finished yet. In particular:
 | --- | --- |
 | 1 | Full synthetic/curated-human coverage, frozen broader-suite tolerances and calibrated score terms |
 | 2 | Dense-input fallback/runtime and memory bounds; broader partial-alpha, transformed-scope and difficult-hole coverage beyond the new native cases |
-| 3 | Region splits, broader coherent surface/paint interpretations beyond owned family and enclosed-material proposals, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
+| 3 | General curved source splits and boundary rebuilding beyond the bounded straight-cut operator, broader coherent surface/paint interpretations beyond owned family and enclosed-material proposals, calibrated content normalization and broader budget/risk priorities beyond the initial slot schedule, bounded shared-frontier cache, large-input fallback beyond the bounded native tile kernel and resizing invariance |
 | 4 | Fitting variable-width filled ink beyond retained unions, broader stroke replacement/underlayer coverage, full join/feature checks, parameterized primitive fitting beyond whole-path holds and passing sword/line/feature gates |
 | 5 | Broader local-layer/order inference, joint RGBA/geometry/width fitting, geometric regularization, complete spatial scheduling, memory/runtime gates and optional acceleration ownership |
 | 6 | UI/MCP controls, browser/API round trips, invalidation and documentation |
@@ -2939,6 +2939,130 @@ foundation implements real fitting behavior; it does not complete joint fitting
 or the required runtime/memory and quality gates. Owned family merges and
 individual paint/boundary/ink edits, including initial owned replacements, have
 a bounded working beam and independent full checkpoints. Complete merge/tolerance
-anchor proposals also remain; region splits, broader ink replacement, richer
-models and order edits are unfinished.
+anchor proposals also remain; general curved source splits and supported boundary
+rebuilding, broader ink replacement, richer models and order edits are unfinished.
 These gaps must be resolved before completion is claimed.
+
+## True source atom splits and branch graphs
+
+The structural family slot now also proposes bounded source-supported straight
+shade cuts. These cuts classify source pixels directly, including inside an
+original color region. They do not use a majority assignment or merely regroup
+original region IDs. An immutable ledger records each retired parent and its
+children's exact disjoint row runs, source-label hash, shape and pixel counts.
+Replay against the original graph rejects foreign support, incomplete support,
+other-owner runs, hidden/fixed roots and malformed or oversized ledgers.
+
+Ownership expands atomically for every primary surface, covered membership and
+underlay. The canonical region graph, statistics and edge owners are rebuilt
+for each admitted namespace. All downstream family, paint-restoration, closed
+contour and ink operators use that branch's graph and label image. Original
+native policy masks and source evidence remain fixed. Search state identities
+and rejection proofs include the atom namespace. Existing structural operators
+preserve the ledger through their immutable ownership replacements.
+
+Candidate generation inspects at most eight complete material owners, 128 atoms
+per owner and 262,144 pixels per owner bounding box. Thirty-two normal angles and
+integer offset votes propose at most four lines per owner; edge observations
+are capped at 4,096. Flat/linear models fit at most 4,096 samples, then screen
+**every** owned pixel with the exported gradient clamping. Both sides need at
+least 16 pixels and five percent of the owner, maximum RGB-byte residual 48 and
+at least ten percent lower source-paint squared error than the whole-owner fit.
+These are proposal restrictions, not relaxed native acceptance rules.
+
+Current contours are clipped into complementary children in their actual SVG
+frame. They retain the parent's exterior and holes. Partial-alpha proposals
+require actual opaque-core geometry beneath both children. Exact surviving
+interior permissions can rebind; new cut segments and unproved subdivisions
+stay protected. Real translucent paint, fixed atoms, chosen overlays, covered
+owners, strokes and clips remain excluded. Nominally opaque gradient stops can
+have numerical roundoff within 1e-9 of one after parent-opacity conversion;
+actual geometry and native coverage checks still apply.
+
+The ledger is capped at 64 cuts and 16,384 runs on at most a 1536-square analysis
+grid. The branch cache retains two contexts with a conservative 32 MiB graph
+charge, including live contexts held by proposal cursors after cache eviction.
+Oversized branches cannot enter the search. Labels and canonical boundary point
+arrays are read-only. Ledger objects and serialized atom metadata contribute to
+the existing working-state memory charge. These explicit restrictions and
+synthetic cancellation checks do not establish hardware runtime/memory gates.
+
+Verification covers a real split through a single source region, different
+editable side paints, canonical separating edges, holes, partial alpha,
+rotated child frames, independent native/local agreement, direct project
+save/reload, successive splits/merges, secondary support, sibling rollback,
+namespace-separated rejection proofs, active branch memory restrictions,
+foreign/stale/malformed ledgers, complete-pixel paint outliers, fixed atoms,
+missing actual cores and stop/bounds behavior. The full relevant suite passes
+576 tests in 52.50 seconds; the subsequent focused file passes 14 tests,
+including the added sibling-cache test (577 distinct tests across the two runs).
+Ruff and project Pyrefly pass; Pyrefly reports zero errors and the existing 61
+warnings. Tests do not overlap the timed benchmarks below.
+
+This is a first bounded straight-cut operator and a complete source-ownership
+mechanism for it. It is not general canonical boundary simplification, curved
+splitting, joint variable-opacity/width fitting, a compact whole-sword drawing,
+a calibrated complexity slider or completion of delivery 3. Numerical sword
+and paired evidence follows below.
+
+### Matched evidence and source-only availability
+
+The retained production source hash is
+`03e479ac9a16482307787e278e18f22b3f9819ff3356c12641c7d469ec66b6a9`.
+The native sword run in `.bench/planned-source-atom-splits` uses the same source,
+mask, 60-second budget, complexity 50, balanced quality and refinement disabled.
+It produces 10,009 nodes, 1,630 contours, 1,577 paths and 31 gradients, cost
+20,055 and human MSE 514.8500919869 in 52.24 seconds. It evaluates 26 alternatives,
+locally admits 22 and publishes four independent checkpoints with zero score
+disagreements. The selected drawing contains two existing ink replacements.
+There are no crossings or published native rejections. Out-of-time,
+search-out-of-time and stopped are false; refinement remains incomplete.
+
+Against the preceding 10,121-node result, this removes 112 nodes but increases
+human MSE by 0.18. It matches the earlier broad-material drawing. Against legacy
+CEL it still has over four times as many nodes and fails all frozen numerical
+sword gates. This is **not a new sword quality improvement**. Native operators
+can now compose across nominally opaque gradient stops after numerical
+roundoff, and the run gets more evaluations; the measured outcome does not
+isolate runtime effects or establish a quality benefit from that correction.
+
+The production report records zero split-owner visits and zero graph rebuilds:
+the new third family cursor is not reached before the bounded discovery window
+ends. The independent diagnostic audit in
+`.bench/source-split-candidate-audit/summary.json` explicitly reaches that
+operator on the 10,286-node initializer and the first broad material union.
+Its source hash is identical before and after. It constructs proposals from
+source evidence only, and does not feed the human rendering into the model.
+For each phase it examines the bounded eight-owner prefix. Initial inspection
+finds 28 line hypotheses and 20 complete-paint exclusions; post-union inspection
+finds 32 and 24. The other lines fail minimum side support. Neither phase yields
+a candidate, so there is no new native admission or human score to report.
+This distinguishes missing interpretations in the inspected prefix from a
+selection error; it is not an exhaustive search or evidence that a different
+split model cannot work.
+
+The next structural experiment must couple coherent whole-family geometry and
+piecewise paint directly. Requiring a broad single-paint intermediate owner
+prevents useful shade partitions from reaching the split stage. Exact contour
+booleans alone also retain the dense exterior. Combine supported compact
+boundary geometry, flat/linear side paint, source atom ownership and local order
+in one proposal, then measure native admission and the best faithful compact
+candidate against the selected drawing. Keep all frozen sword, feature and
+line gates. Do not substitute a larger ranker or an exposed slider for this
+missing representation.
+
+The four paired half-opacity tuning controls in
+`.bench/planned-source-atom-splits-rgba-pairs` have identical source, clean-target
+and mask hashes to `.bench/planned-structured-boundary-guarded-rgba-pairs`.
+All selected PNGs and global/feature/line scores remain identical. Each reaches
+48 evaluations, four checkpoints and zero score disagreements. Anime girl,
+anime face, western park and rubberhose band retain 175/176/547/407 nodes,
+costs 319/272/987/765 and clean MSE 177.70/206.86/178.72/167.23. Their observed
+generation times are 9.58/15.67/9.25/12.44 seconds. No speedup is claimed.
+
+Reproduce with the native and paired commands above, using output directories
+`.bench/planned-source-atom-splits` and
+`.bench/planned-source-atom-splits-rgba-pairs`. The ignored diagnostic driver is
+`.bench/diagnose-source-split-candidates.py`, with an independent 180-second
+budget. All tests, timed benchmarks and the diagnostic audit run sequentially.
+No complete delivery or release gate is claimed finished.

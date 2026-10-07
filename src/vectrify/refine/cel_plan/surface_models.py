@@ -119,7 +119,10 @@ class MaterialSurfaces:
                     continue
             else:
                 stops = gradient_stops(state.document.element(server))
-                if not stops or any(stop[1][3] != 1 for stop in stops):
+                # Parent-opacity conversion and SVG serialization can leave a
+                # nominally opaque stop within floating-point roundoff of one.
+                # Native core and final coverage proofs still use actual paint.
+                if not stops or any(abs(stop[1][3] - 1) > 1e-9 for stop in stops):
                     continue
             regions = [graph.regions[i] for i in surface.members]
             components = {r.component for r in regions}

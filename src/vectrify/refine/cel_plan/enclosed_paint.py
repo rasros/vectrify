@@ -299,7 +299,8 @@ def proposals(
                 tuple(
                     replace(s, covered=covered) if s.id == survivor else s
                     for s in changed.surfaces
-                )
+                ),
+                changed.atoms,
             )
             editor = Editor(document, selection=Selection(whole_document=True))
             with editor.transaction(

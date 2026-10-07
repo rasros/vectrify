@@ -111,6 +111,7 @@ class Graph:
     boundaries: tuple[Boundary, ...]
     junctions: tuple[tuple[float, float], ...]
     hidden: frozenset[int]
+    source_atoms: str | None = None
 
 
 @dataclass(frozen=True)

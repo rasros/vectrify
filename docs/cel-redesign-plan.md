@@ -36,13 +36,13 @@ The architecture decision is to combine CEL ink/silhouette evidence with color-r
 
 The complexity slider is part of the first product release. It controls the cost of the drawing, while quality controls search effort. A small learned ranker is conditional work after deterministic operator coverage and score calibration; it is not on the critical path.
 
-The latest native sword experiment (the structured interior boundary and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
+The latest native sword experiment (the source-atom split implementation and checkpoint comparison recorded in the progress document) shows why the next work must address structural compaction:
 
 | Drawing | Nodes | Contours | Error against the human render |
 | --- | ---: | ---: | ---: |
 | Completed human fixture | 523 | 93 | 0 |
 | Legacy CEL operation baseline | 2,312 | 339 | Approximately 663.31 |
-| Experimental structured interior fitting and validated local search, 60-second budget | 10,121 | 1,660 | 514.67 |
+| Experimental source-atom splits and validated local search, 60-second budget | 10,009 | 1,630 | 514.85 |
 | Proposed balanced sword gate | At most 800 | At most 140 | At most 497.39 |
 
 The experimental row uses complexity 50, balanced quality and refinement disabled. It fails all three numerical targets and still has over four times the legacy node count. It is a development result, not a practical baseline improvement. Native partial-alpha safeguards and fragmented paint still lead to a very dense drawing; a few family merges cannot compensate for thousands of partitions. The immediate goal is to offer compact, faithful alternatives without depending on that density for coverage. Full measurements and hashes remain in the progress document.
@@ -113,6 +113,23 @@ replacement, with 10,121 nodes and error 514.67. This is not a practical gain ov
 the previous 10,009-node/514.85 drawing. Generic curve permissions alone do not
 rebuild compact canonical boundaries through fragmented junctions. That geometry
 and true source atom splitting remain the next structural work.
+
+True source atom splitting now has an immutable pixel ledger, branch-local
+canonical graphs and native-validated synthetic cases. A bounded straight shade
+cut can split one original region into two editable paints and compose with the
+existing operators. This does not improve the sword: the matched run returns
+10,009 nodes and human MSE 514.85, matching an earlier dense result. The new
+cursor does not reach discovery in that run. An independent source-only audit
+reaches it on both the initializer and a broad union, but produces no candidate
+from the bounded eight-owner prefixes. Complete paint disagreement excludes
+20 of 28 initial and 24 of 32 post-union line hypotheses; the others fail side
+support. Existing surfaces do not supply suitable broad piecewise-painted
+parents. The next candidate must therefore couple whole-family contour
+replacement with piecewise paint and new source atoms in one edit, without
+requiring a poor intermediate drawing to enter the beam. General supported
+boundary rebuilding, coverage interpretation and admission auditing remain
+necessary. A slider or learned ranker still cannot resolve the missing compact
+alternatives.
 
 The next structural milestone must propose long supported facet boundaries and
 closed ink contours across color fragments, with underlying paint and local

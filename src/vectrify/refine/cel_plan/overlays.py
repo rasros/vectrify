@@ -338,7 +338,8 @@ class ClosedOverlays:
                         if s.id == survivor
                         else s
                         for s in changed.surfaces
-                    )
+                    ),
+                    changed.atoms,
                 )
                 for paint in paints:
                     if work.interrupted:

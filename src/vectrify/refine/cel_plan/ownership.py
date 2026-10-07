@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import numpy as np
 
 from vectrify.document import Document
+from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.model import Evidence, Graph, StageInterruptedError, Work
 
 
@@ -40,6 +41,7 @@ class OwnedEdge:
 @dataclass(frozen=True)
 class Partition:
     surfaces: tuple[Surface, ...]
+    atoms: Atoms | None = None
 
     def __post_init__(self):
         ids = [surface.id for surface in self.surfaces]
@@ -69,6 +71,15 @@ class Partition:
         known = set(members)
         if any(set(s.covered) - known for s in self.surfaces):
             raise ValueError("Hidden coverage must reference owned source regions")
+        if self.atoms is not None:
+            retired = {c.parent for c in self.atoms.cuts}
+            count = self.atoms.count + 2 * len(self.atoms.cuts)
+            if any(
+                i >= count or i in retired
+                for s in self.surfaces
+                for i in (*s.members, *s.covered)
+            ):
+                raise ValueError("Ownership must reference active source atoms")
 
     @property
     def owners(self) -> dict[int, str]:
@@ -90,6 +101,8 @@ class Partition:
             )
 
     def edges(self, graph: Graph) -> tuple[OwnedEdge, ...]:
+        if self.atoms is not None and graph.source_atoms != self.atoms.key:
+            raise ValueError("Canonical edges need the current source atom graph")
         owners = self.owners
         return tuple(
             OwnedEdge(edge.id, owners.get(edge.left), owners.get(edge.right))
@@ -115,13 +128,45 @@ class Partition:
         }:
             raise ValueError("A structural edit must retain hidden source coverage")
         return Partition(
-            tuple(s for s in self.surfaces if s.id not in removed) + surfaces
+            tuple(s for s in self.surfaces if s.id not in removed) + surfaces,
+            self.atoms,
         )
+
+    def split(self, ids, surfaces, atoms: Atoms) -> Partition:
+        if not atoms.extends(self.atoms):
+            raise ValueError("Source splits must extend their parent's atom namespace")
+        start = len(self.atoms.cuts) if self.atoms is not None else 0
+        expanded = Partition(
+            tuple(
+                Surface(
+                    s.id,
+                    atoms.descendants(s.members, start),
+                    s.role,
+                    atoms.descendants(s.covered, start),
+                )
+                for s in self.surfaces
+            ),
+            atoms,
+        )
+        return expanded.replace(ids, surfaces)
+
+    def follows(self, previous: Partition) -> bool:
+        if self.atoms == previous.atoms:
+            return self.owners.keys() == previous.owners.keys()
+        if self.atoms is None or not self.atoms.extends(previous.atoms):
+            return False
+        start = len(previous.atoms.cuts) if previous.atoms is not None else 0
+        return set(self.owners) == set(self.atoms.descendants(previous.owners, start))
 
     def metadata(self) -> dict:
         return {
             "version": 1,
             "complete": True,
+            **(
+                {"source_atoms": self.atoms.metadata()}
+                if self.atoms is not None
+                else {}
+            ),
             "surfaces": [
                 {
                     "id": s.id,
@@ -143,7 +188,8 @@ class Partition:
                     s["id"], tuple(s["members"]), s["role"], tuple(s.get("covered", ()))
                 )
                 for s in metadata["surfaces"]
-            )
+            ),
+            Atoms.from_metadata(metadata.get("source_atoms")),
         )
 
 

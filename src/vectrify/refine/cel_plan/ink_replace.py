@@ -543,7 +543,8 @@ class InkReplacement:
                             Surface(element.id, members, "underlay")
                             for element, _ in underlays
                         ),
-                    )
+                    ),
+                    changed.atoms,
                 )
                 editor = Editor(document, selection=Selection(whole_document=True))
                 with editor.transaction(

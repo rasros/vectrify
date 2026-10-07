@@ -8,7 +8,9 @@ uses existing shared-edge/corner constraints; ink keeps its local width/color.
 from __future__ import annotations
 
 import math
+from collections import OrderedDict
 from dataclasses import replace
+from weakref import WeakValueDictionary
 
 import numpy as np
 import pathops
@@ -29,6 +31,7 @@ from vectrify.refine.cel_plan.ink_replace import InkReplacement
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
 from vectrify.refine.cel_plan.overlays import ClosedOverlays
+from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.refine import (
     MAX_PATH_NODES,
     _bounds,
@@ -42,6 +45,8 @@ from vectrify.refine.crossings import crossings
 
 MAX_OPERATOR_ITEMS = 64
 MAX_INK_BOUNDARIES = 256
+MAX_BRANCHES = 2
+MAX_BRANCH_BYTES = 32 * 1024 * 1024
 
 
 def bounds(before, after, ids) -> Box:
@@ -65,6 +70,9 @@ class Operators:
         self._typical: float | None = None
         self._ink_models = {}
         self._ink_checked = set()
+        self._branches: OrderedDict[str, Operators] = OrderedDict()
+        self._live_branches: WeakValueDictionary[str, Operators] = WeakValueDictionary()
+        self._namespace: str | None = None
         self.families = Families(evidence, graph, options)
         self.replacements = InkReplacement(evidence, graph, options)
         self.overlays = ClosedOverlays(
@@ -82,7 +90,76 @@ class Operators:
             "reserved_proposals": 0,
             "native_boolean_failures": 0,
             "composition_parents": 0,
+            "source_graph_rebuilds": 0,
+            "source_graph_cache_bytes": 0,
+            "source_graph_cache_peak_bytes": 0,
         }
+
+    @staticmethod
+    def _graph_bytes(graph):
+        # Python graph records and boundary tuples are charged conservatively,
+        # alongside all retained label and point arrays. Source fields shared
+        # with the original evidence are not copied or charged twice.
+        return (
+            graph.labels.nbytes
+            + sum(b.points.nbytes + 512 for b in graph.boundaries)
+            + len(graph.regions) * 1024
+        )
+
+    def branch(self, partition: Partition | None, work: Work):
+        atoms = partition.atoms if partition is not None else None
+        if atoms is None:
+            if self._namespace is not None:
+                raise ValueError("Source atom namespace cannot be discarded")
+            return self
+        key = atoms.key
+        if key == self._namespace:
+            return self
+        if self._namespace is not None:
+            raise ValueError("Resolve source branches against the original graph")
+        if key not in self._branches and key in self._live_branches:
+            self._branches[key] = self._live_branches[key]
+        if key not in self._branches:
+            graph = atoms.graph(self.evidence, self.graph, work)
+            size = self._graph_bytes(graph)
+            if size > MAX_BRANCH_BYTES:
+                raise ValueError("Source graph cache bounds exceeded")
+            while self._branches and (
+                len(self._branches) >= MAX_BRANCHES
+                or sum(self._graph_bytes(b.graph) for b in self._live_branches.values())
+                + size
+                > MAX_BRANCH_BYTES
+            ):
+                self._branches.popitem(last=False)
+            if (
+                sum(self._graph_bytes(b.graph) for b in self._live_branches.values())
+                + size
+                > MAX_BRANCH_BYTES
+            ):
+                raise ValueError("Active source graphs exceed branch memory bounds")
+            branch = Operators(
+                replace(self.evidence, labels=graph.labels), graph, self.options
+            )
+            branch._namespace = key
+            self._branches[key] = branch
+            self._live_branches[key] = branch
+            self.schedule_diagnostics["source_graph_rebuilds"] += 1
+        self._branches.move_to_end(key)
+        while len(self._branches) > MAX_BRANCHES:
+            self._branches.popitem(last=False)
+        size = sum(self._graph_bytes(b.graph) for b in self._live_branches.values())
+        self.schedule_diagnostics["source_graph_cache_bytes"] = size
+        self.schedule_diagnostics["source_graph_cache_peak_bytes"] = max(
+            size, self.schedule_diagnostics["source_graph_cache_peak_bytes"]
+        )
+        return self._branches[key]
+
+    def validate_partition(self, partition: Partition, work: Work):
+        graph = self.branch(partition, work).graph
+        if set(partition.owners) != set(range(len(graph.regions))) - graph.hidden - {
+            r.id for r in graph.regions if r.area == 0
+        }:
+            raise ValueError("Source ownership does not cover the branch graph")
 
     def paint(self, state: State, work: Work):
         document = state.document
@@ -202,7 +279,8 @@ class Operators:
         for boundary in eligible:
             if work.interrupted:
                 return
-            oid = f"cel-local-ink-{boundary.id}"
+            suffix = f"{self._namespace[:12]}-" if self._namespace else ""
+            oid = f"cel-local-ink-{suffix}{boundary.id}"
             if oid in known:
                 continue
             if boundary.id not in self._ink_checked:
@@ -295,6 +373,10 @@ class Operators:
             )
 
     def __call__(self, state: State, work: Work):
+        branch = self.branch(state.partition, work)
+        if branch is not self:
+            yield from branch(state, work)
+            return
         context = state.details.get("search_budget", {})
         target = context.get("representation_target", state.snapshot.evaluation.cost)
         pressure = state.snapshot.evaluation.cost / max(1, target)

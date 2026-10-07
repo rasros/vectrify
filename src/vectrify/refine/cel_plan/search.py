@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import sys
 import time
 from collections import OrderedDict
 from collections.abc import Callable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, fields, is_dataclass, replace
 
 from vectrify.document import Document, export_svg, import_svg
 from vectrify.document.join import path_style
@@ -60,6 +61,13 @@ class Proposal:
     details: dict | None = None
     dependencies: tuple[str, ...] = ()
     partition: Partition | None = None
+
+
+def identity(svg: str, partition: Partition | None) -> str:
+    digest = hashlib.sha256(svg.encode())
+    if partition is not None and partition.atoms is not None:
+        digest.update(partition.atoms.key.encode())
+    return digest.hexdigest()
 
 
 def _revision(document: Document, oid: str) -> str:
@@ -149,6 +157,12 @@ class Rejections:
         context = proposal.bounds.expand(2 * HALO, snapshot.canvas.root.shape)
         signature = (
             SCORE_VERSION,
+            state.partition.atoms.key
+            if state.partition is not None and state.partition.atoms is not None
+            else None,
+            proposal.partition.atoms.key
+            if proposal.partition is not None and proposal.partition.atoms is not None
+            else None,
             proposal.operator,
             proposal.ids,
             proposal.parameters,
@@ -243,12 +257,38 @@ def _bound(states: list[State], frontier: Frontier, width: int) -> list[State]:
 
 def _bytes(states: list[State]) -> int:
     arrays = {}
+    records = set()
+
+    def size(value):
+        if id(value) in records:
+            return 0
+        records.add(id(value))
+        total = sys.getsizeof(value)
+        if isinstance(value, dict):
+            return total + sum(size(k) + size(v) for k, v in value.items())
+        if isinstance(value, (tuple, list)):
+            return total + sum(size(v) for v in value)
+        if is_dataclass(value):
+            return total + sum(size(getattr(value, f.name)) for f in fields(value))
+        return total
+
+    atom_bytes = 0
     for state in states:
         canvas = state.snapshot.canvas
         arrays[id(canvas.root)] = canvas.root.nbytes
         for patch in canvas.patches:
             arrays[id(patch.pixels)] = patch.pixels.nbytes
-    return sum(arrays.values()) + sum(len(state.svg.encode()) for state in states)
+        if state.partition is not None and state.partition.atoms is not None:
+            atoms = state.partition.atoms
+            atom_bytes += size(atoms)
+            atom_bytes += size(
+                state.details.get("planning_surfaces", {}).get("source_atoms")
+            )
+    return (
+        atom_bytes
+        + sum(arrays.values())
+        + sum(len(state.svg.encode()) for state in states)
+    )
 
 
 def search(
@@ -311,7 +351,15 @@ def search(
         )
         if initial.partition is not None:
             initial.partition.validate(initial.document)
-    except LocalLimitError:
+            validator = getattr(proposals, "validate_partition", None)
+            if validator is not None:
+                validator(initial.partition, work)
+            elif initial.partition.atoms is not None:
+                raise ValueError(
+                    "Source atom states require an original graph validator"
+                )
+            initial = replace(initial, key=identity(initial.svg, initial.partition))
+    except (LocalLimitError, StageInterruptedError):
         return {
             "status": "bounded",
             "attempted": 0,
@@ -405,10 +453,19 @@ def search(
                 if partition is not None:
                     try:
                         partition.validate(proposal.document)
-                        if state.partition is not None and (
-                            partition.owners.keys() != state.partition.owners.keys()
+                        if state.partition is not None and not partition.follows(
+                            state.partition
                         ):
                             raise ValueError("Structural edit lost source regions")
+                        validator = getattr(proposals, "validate_partition", None)
+                        if validator is not None:
+                            validator(partition, local_work)
+                        elif partition.atoms is not None:
+                            raise ValueError(
+                                "Source splits require an original graph validator"
+                            )
+                    except StageInterruptedError:
+                        break
                     except ValueError as exc:
                         decision.update(
                             rejections=["invalid-surface-ownership"], detail=str(exc)
@@ -546,7 +603,7 @@ def search(
                     proposal.document,
                     svg,
                     updated,
-                    hashlib.sha256(svg.encode()).hexdigest(),
+                    identity(svg, partition),
                     {
                         **state.details,
                         **(proposal.details or {}),

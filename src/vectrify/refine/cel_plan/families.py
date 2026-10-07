@@ -117,6 +117,7 @@ class Families:
         }
         self.nesting_rejections: dict[str, int] = {}
         self._surface_models = None
+        self._split_models = None
 
     def _same_ink(self, edge: Boundary, work: Work) -> bool:
         """An internal paint partition is not a gap in a continuous dark mark.
@@ -547,11 +548,16 @@ class Families:
         return self._surface_models
 
     def __call__(self, state: State, work: Work):
+        from vectrify.refine.cel_plan.surface_splits import SurfaceSplits
+
+        if self._split_models is None:
+            self._split_models = SurfaceSplits(self, self.options)
         # Alternate material hypotheses with the established adjacency family.
         # Both occupy the existing family slot; other operators keep their turn.
         cursors = [
             iter(self.surface_models(state, work)),
             iter(self.adjacent(state, work)),
+            iter(self._split_models(state, work)),
         ]
         alive = set(range(len(cursors)))
         try:
@@ -685,7 +691,8 @@ class Families:
                 tuple(
                     replace(s, covered=nesting.members) if s.id == survivor else s
                     for s in changed.surfaces
-                )
+                ),
+                changed.atoms,
             )
             edited = (*ids, *nesting.ids)
             self.diagnostics["nested_proposals"] += 1
