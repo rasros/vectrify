@@ -37,7 +37,12 @@ from vectrify.refine.cel_plan.model import Boundary, Evidence, Graph, Options, W
 from vectrify.refine.cel_plan.nested import enclosed, in_core
 from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-from vectrify.refine.cel_plan.search import MAX_EDIT_OBJECTS, Proposal, State
+from vectrify.refine.cel_plan.search import (
+    EXPANSIONS,
+    MAX_EDIT_OBJECTS,
+    Proposal,
+    State,
+)
 
 MAX_PATHS = 128
 MAX_NODES = 6_000
@@ -551,7 +556,7 @@ class Families:
             self._surface_models = MaterialSurfaces(self, self.options)
         return self._surface_models
 
-    def __call__(self, state: State, work: Work):
+    def __call__(self, state: State, work: Work, *, joint_prefix=False):
         from vectrify.refine.cel_plan.core_cells import CoreCells
         from vectrify.refine.cel_plan.joint_cells import JointCells
         from vectrify.refine.cel_plan.piecewise_surfaces import PiecewiseSurfaces
@@ -591,6 +596,25 @@ class Families:
             cursors[0], cursors[1] = cursors[1], cursors[0]
         alive = set(range(len(cursors)))
         try:
+            if joint_prefix:
+                # Complete sibling interpretations need this same ancestor's
+                # ledger. Offer a bounded prefix before unrelated family edits
+                # can displace it; resume this very cursor afterwards.
+                for _ in range(EXPANSIONS["high"]):
+                    if work.interrupted:
+                        return
+                    try:
+                        proposal = next(cursors[0], None)
+                    except pathops.PathOpsError:
+                        self.diagnostics["family_boolean_failures"] = (
+                            self.diagnostics.get("family_boolean_failures", 0) + 1
+                        )
+                        alive.remove(0)
+                        break
+                    if proposal is None:
+                        alive.remove(0)
+                        break
+                    yield proposal
             while alive and not work.interrupted:
                 for index in tuple(sorted(alive)):
                     try:

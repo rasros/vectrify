@@ -113,6 +113,88 @@ def test_paired_interpretations_are_checked_by_real_local_search_and_checkpoint(
     assert frontier.policy.evaluate(selected.svg).valid
 
 
+@pytest.mark.parametrize("exit_after", [1, 2])
+def test_explicit_component_prefix_offers_siblings_and_releases_discovery(exit_after):
+    evidence, graph, _, state, options = fixture(block=4)
+    options = replace(options, quality="high")
+    operators = Operators(evidence, graph, options, filled_bands=True)
+    cursor = iter(operators(state, Work.start(15)))
+    found = []
+    try:
+        for _ in range(exit_after):
+            found.append(next(cursor))
+    finally:
+        cursor.close()
+    assert [p.details["joint_cell_search"]["ink_fit"] for p in found] == [
+        "source-intervals",
+        "source-widths",
+    ][:exit_after]
+    joint = operators.families._joint_models
+    assert joint.diagnostics["extractions"] == 1
+    assert joint.diagnostics["reuses"] == exit_after - 1
+    assert operators.schedule_diagnostics["joint_prefix_parents"] == 1
+    assert operators.schedule_diagnostics["reserved_proposals"] == 0
+    assert state.partition.atoms is None
+
+
+def test_complete_siblings_compete_before_native_search_displaces_the_ancestor():
+    evidence, graph, frontier, _, options = fixture(block=4)
+    options = replace(options, quality="high")
+    operators = Operators(evidence, graph, options, filled_bands=True)
+    result = search(frontier, options, Work.start(20), operators)
+    joint = [d for d in result["decisions"] if d["operator"] == "joint-core-cells"]
+    assert {d["parameters"][-1][1] for d in joint} == {
+        "source-intervals",
+        "source-widths",
+    }
+    assert result["checkpointed"] > 0
+    assert result["score_disagreements"] == 0
+    assert result["attempted"] <= result["evaluation_limit"]
+    assert result["beam_states"] <= result["beam_limit"]
+    assert any(d["operator"] != "joint-core-cells" for d in result["decisions"])
+    assert operators.schedule_diagnostics["joint_prefix_parents"] == 1
+    assert frontier.policy.evaluate(frontier.select(50).svg).valid
+
+
+def test_detailed_first_changes_order_without_losing_the_complete_source_pool():
+    evidence, graph, _, state, options = fixture(block=4)
+    pools = []
+    for detailed_first in (False, True):
+        factory = CoreCells(
+            Families(evidence, graph, options),
+            options,
+            joint=True,
+            grouping="ward",
+            boundary_fit="anchored",
+            ink_support="connected",
+            ink_roles="fitted",
+            ink_coverage="fractional",
+            ink_fit="source-widths",
+            facet_fit="regional",
+            atom_layout="residual",
+            detailed_first=detailed_first,
+        )
+        pool = list(factory(state, Work.start(15)))
+        assert pool
+        pools.append(pool)
+    assert pools[0][0].parameters[2] < pools[1][0].parameters[2]
+    for before, after in zip(
+        sorted(pools[0], key=lambda p: repr(p.parameters)),
+        sorted(pools[1], key=lambda p: repr(p.parameters)),
+        strict=True,
+    ):
+        assert before.parameters == after.parameters
+        assert before.partition == after.partition
+        before_svg, after_svg = export_svg(before.document), export_svg(after.document)
+        # Private gradient/stop identities are freshly allocated per edit.
+        # Their names cannot establish whether a complete drawing changed.
+        np.testing.assert_array_equal(
+            render(before_svg, evidence.source_size),
+            render(after_svg, evidence.source_size),
+        )
+        assert svg_metrics(before_svg) == svg_metrics(after_svg)
+
+
 @pytest.mark.parametrize("fail", ["source-intervals", "source-widths"])
 def test_boolean_failure_keeps_other_interpretation_and_closes_both_cursors(
     fail, monkeypatch

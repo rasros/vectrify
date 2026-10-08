@@ -51,7 +51,12 @@ from vectrify.refine.cel_plan.refine import (
     _spatial_order,
 )
 from vectrify.refine.cel_plan.score import composite
-from vectrify.refine.cel_plan.search import Proposal, State
+from vectrify.refine.cel_plan.search import (
+    EXPANSIONS,
+    MAX_EDIT_OBJECTS,
+    Proposal,
+    State,
+)
 from vectrify.refine.cel_plan.source_ridges import SourceRidges
 from vectrify.refine.cel_plan.source_strokes import SourceStrokes
 from vectrify.refine.crossings import crossings
@@ -130,13 +135,14 @@ class Operators:
             restoration=self.replacements,
         )
         self.schedule_diagnostics = {
-            "version": 2,
+            "version": 3,
             "compaction_parents": 0,
             "visual_parents": 0,
             "family_proposals": 0,
             "reserved_proposals": 0,
             "native_boolean_failures": 0,
             "composition_parents": 0,
+            "joint_prefix_parents": 0,
             "source_graph_rebuilds": 0,
             "source_graph_views": 0,
             "source_graph_accounting_version": 2,
@@ -508,8 +514,18 @@ class Operators:
         self.schedule_diagnostics[
             "compaction_parents" if compaction else "visual_parents"
         ] += 1
+        joint_prefix = (
+            self.bands is not None
+            and self.options.quality == "high"
+            and not state.edits
+            and state.partition is not None
+            and len(state.partition.surfaces) > MAX_EDIT_OBJECTS
+        )
+        self.schedule_diagnostics["joint_prefix_parents"] += int(joint_prefix)
         iterators = [
-            iter(self.families(state, work)),
+            iter(self.families(state, work, joint_prefix=True))
+            if joint_prefix
+            else iter(self.families(state, work)),
             iter(self.overlays(state, work)),
             iter(self.paint(state, work)),
             iter(self.geometry(state, work)),
@@ -533,6 +549,10 @@ class Operators:
                     1 + (i + rotation) % reserved_count for i in range(reserved_count)
                 ]
                 slots = [0] * burst + reserved
+                if cycle == 0 and joint_prefix:
+                    # Keep complete material/width siblings in one existing
+                    # expansion. No extra evaluations or time are allocated.
+                    slots = [0] * EXPANSIONS["high"] + reserved
                 if cycle == 0 and state.edits:
                     # Give a complementary layer interpretation an opportunity
                     # before another broad family scan consumes this child's

@@ -55,6 +55,7 @@ class JointCells:
                 facet_fit="regional",
                 atom_layout="residual",
                 ink_discovery=discovery,
+                detailed_first=self.bands is not None,
             )
             for mode in modes
         ]

@@ -59,9 +59,86 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Complete sibling scheduling and one selected Generate blade
+
+The algorithm source SHA-256 is
+`5df1f8a70f7b4dd324ff9db4c88f200947d2803c9050a9adb80e70e5091ee64b`.
+The explicit `Operators(filled_bands=True)` High route gives a fragmented initial
+parent one existing 16-evaluation expansion of complete joint siblings before
+other edits displace its source ledger. Both nested family and outer operator
+cursors honor that prefix, reuse the same discovery and close normally. The
+ordinary High cursor's ordering remains unchanged when the flag is absent.
+Within the explicit route, the finer of the two existing material budgets is
+tried first; their complete source-only pools and native renders are preserved.
+No material budget, ownership bound, acceptance threshold or score weight changes.
+
+High now defers fitting a fallback with more than 256 paths until a smaller or
+complete owned ink/material checkpoint is available. It reclaims fitting time
+after local checkpoints as well as anchor exports. Fast/Balanced retain their
+preceding reservation behavior. The explicit large-core band route gets a
+40-percent local opportunity, bounded by the existing global checkpoint/final
+reserves; ordinary High retains 30 percent. The source bank and full painted
+width comparisons still run before each complete proposal can compete.
+
+An intermediate 180-second prototype reaches the exact offline 2,923-node /
+414-contour / 31-stroke candidate through real Generate checkpoints, whereas
+the preceding run reached only the first original-width coarse proposal on each
+parent. A subsequent 60-second, finer-first prototype gets the fitted material
+candidate into Generate but expires before scoring its blade conversion. Those
+two diagnostics live at `.bench/cel-band-operation-component-prefix` and
+`.bench/cel-band-operation-detailed-prefix`; they identify the need for the
+source-bank/width opportunity rather than establish a release result.
+
+With the final sources, one real Generate/apply prototype at complexity 75,
+High and automatic refinement selects **2,893 nodes / 412 contours / 31 stroke
+contours** in **54.262 seconds**, with peak RSS **943,708 KiB**. The selected blade
+is one 35-node `fill="none"` stroke of width 2.318235468864441 with seven separate
+mark contours. Six proposals and six full native checkpoints pass without
+local-score disagreement; discovery has one extraction and one reuse. CPU
+simplification runs, but the full refinement schedule does not complete.
+The actual applied drawing is pixel-identical to the captured planner selection.
+Project save/reload and original source-graph ownership pass. A fresh independent
+original-raster bank comparison after refinement reports zero newly completed
+gaps, 13,145 qualified samples, 1,634 missing samples and no rejections.
+
+The frozen frontier's cost is monotonic at every integer slider value. It chooses
+1,978 / 327 / 30 at 0, the 2,893 / 412 / 31 blade at 25/50/75, and the dense
+10,285 / 1,711 / zero-stroke drawing at 100. The last choice still exposes the
+source objective's mismatch with the intended editable outline representation.
+The complete output, driver, five frontier SVGs, all 101 choices and independent
+audit are at `.bench/cel-band-operation-detailed-prefix-full`.
+
+This is a representation/delivery gain, **not an overall human-match gain**.
+Post-generation human evaluation gives source-mask MSE **535.253845**. The
+preserved 2,941-node material parent measures **508.055591** on that same mask;
+its offline blade conversion measures **525.949074**. The selected finer-budget
+base also differs from the owner's inspected material candidate, which included
+an additional regional facet. Preserve that candidate while improving stroke
+geometry and selection; the human repair remains evaluation-only. These values
+do not pass the 800-node / 140-contour / MSE 497.39 milestone.
+
+A same-source 60-second repeat at complexity 75 **does not reproduce success**:
+it returns 23,212 nodes / 4,147 contours / zero strokes in 65.348 seconds, with
+peak RSS 694,016 KiB. Core discovery interrupts and local search never runs.
+CPU-heavy Gradle and integration-test processes were observed on the host at
+completion; their interference is not grounds to dismiss the failure. The
+operation exceeds its budget although the planner reports 56.713 seconds and
+zero internal overshoot, exposing preparation/apply time outside its deadline.
+The complete negative report and driver are preserved at
+`.bench/cel-band-operation-detailed-prefix-repeat`.
+
+The relevant suite passes **204 tests in 52.81 seconds**. Six new controls cover
+paired opportunities before ancestor displacement, discovery release, complete
+pool preservation and High/Balanced fitting reservations. Ruff, formatting and
+whitespace pass; Pyrefly reports zero errors and the same 62 warnings. Ordinary
+CEL is unchanged, and ordinary experimental High still does not enable the band
+flag. Initialization/deadline reliability, score calibration, remaining outlines
+and junctions, editing identity binding and all eight delivery/release gates
+remain open. New references and learned ranking remain deferred.
+
 ### Native validation overhead and actual-operation search limits
 
-The current algorithm source SHA-256 is
+The preceding validation checkpoint's algorithm source SHA-256 is
 `d5c2cafc6f3de7e71410c181fc30330e7d416500e47d943977377b56dce2d4dc`.
 Document validation now indexes reference users once per validation, preserving
 private-gradient ownership and dangling/cyclic reference checks. Each band's

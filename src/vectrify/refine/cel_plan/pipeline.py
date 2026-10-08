@@ -225,12 +225,45 @@ def vectorize(
         frontier.baseline is not None
         and frontier.baseline.evaluation.structure["nodes"] > MAX_GEOMETRY_NODES
     )
+    fragmented_fallback = (
+        options.quality == "high"
+        and frontier.baseline is not None
+        and frontier.baseline.evaluation.structure["paths"] > MAX_EDIT_OBJECTS
+    )
+    deferred_fitting = dense_fallback or fragmented_fallback
     search = Work(
-        work.deadline - reserve - (0 if dense_fallback else refinement_reserve),
+        work.deadline - reserve - (0 if deferred_fitting else refinement_reserve),
         work.stop,
         work.timings,
     )
-    fitting_reserved = not dense_fallback
+    fitting_reserved = not deferred_fitting
+
+    def reserve_fitting():
+        nonlocal fitting_reserved
+        if (
+            options.refine
+            and not fitting_reserved
+            and any(
+                entry.evaluation.structure["nodes"] <= MAX_GEOMETRY_NODES
+                and (
+                    options.quality != "high"
+                    or entry.evaluation.structure["paths"] <= MAX_EDIT_OBJECTS
+                    or entry.details.get("joint_cell_search")
+                )
+                for entry in frontier.entries
+            )
+        ):
+            # High avoids fitting thousands of fragments before a complete
+            # owned ink/material interpretation can compete. Once retained,
+            # that interpretation gets fitting within the remaining live time.
+            search.deadline = min(
+                search.deadline,
+                work.deadline
+                - reserve
+                - min(refinement_reserve, work.remaining * 0.35),
+            )
+            fitting_reserved = True
+
     normalizer_source = "conservative-fallback"
     structural_search: dict = {
         "status": "unavailable",
@@ -285,23 +318,7 @@ def vectorize(
         frontier.add(svg, label, details)
         validation_seconds += time.monotonic() - validated
         last_candidate_seconds = time.monotonic() - began
-        if (
-            options.refine
-            and not fitting_reserved
-            and any(
-                entry.evaluation.structure["nodes"] <= MAX_GEOMETRY_NODES
-                for entry in frontier.entries
-            )
-        ):
-            # Reclaim fitting time only after structural search has produced
-            # an eligible checkpoint. The native validation reserve stays fixed.
-            search.deadline = min(
-                search.deadline,
-                work.deadline
-                - reserve
-                - min(refinement_reserve, work.remaining * 0.35),
-            )
-            fitting_reserved = True
+        reserve_fitting()
         if level == 100:
             detailed_valid = False
             try:
@@ -395,6 +412,14 @@ def vectorize(
             operators = None
             try:
                 operators = Operators(evidence, graph, replace(options, complexity=50))
+                if large_core and getattr(operators, "bands", None) is not None:
+                    # The explicit complete-band competitor includes its
+                    # independent source bank and painted width trials. Keep
+                    # their opportunity inside the same global reserves.
+                    local_seconds = duration * 0.4
+                    local_work.deadline = min(
+                        search.deadline, local_started + local_seconds
+                    )
                 structural_search = local_search(
                     frontier,
                     options,
@@ -472,6 +497,7 @@ def vectorize(
             structural_search["discovery_allocation_seconds"] = local_seconds
             validation_seconds += structural_search.get("validation_seconds", 0)
             work.timings["structural_search"] = structural_search["seconds"]
+            reserve_fitting()
     if frontier.baseline is None:
         if work.stop.is_set():
             raise PlanningStoppedError(
@@ -535,7 +561,9 @@ def vectorize(
         "material_initialization": material_initialization,
         "core_material_initialization": core_initialization,
         "refinement_complete": False,
-        "fitting_time_reclaimed_after_compaction": dense_fallback and fitting_reserved,
+        "fitting_time_reclaimed_after_compaction": deferred_fitting
+        and fitting_reserved,
+        "fitting_deferred_for_fragmentation": fragmented_fallback,
     }
     alternatives = tuple(
         candidate

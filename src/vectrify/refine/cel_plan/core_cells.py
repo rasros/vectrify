@@ -166,6 +166,7 @@ class CoreCells:
         atom_layout="retired",
         source_profiles=None,
         ink_discovery=None,
+        detailed_first=False,
     ):
         if layout not in {"regions", "planes", "ink-planes"} or (
             layout != "regions" and not joint
@@ -227,6 +228,11 @@ class CoreCells:
         ):
             raise ValueError("Regional facets require connected joint material regions")
         self.facet_fit = facet_fit
+        if detailed_first and (not joint or layout != "regions"):
+            raise ValueError(
+                "Detailed-first scheduling requires joint material regions"
+            )
+        self.detailed_first = detailed_first
         if atom_layout not in {"retired", "residual"} or (
             atom_layout == "residual" and (not joint or ink_fit == "source")
         ):
@@ -833,6 +839,8 @@ class CoreCells:
                 )
             )
         )
+        if self.detailed_first:
+            budgets = tuple(reversed(budgets))
         for threshold in budgets if self.joint else (56, 28, 12):
             eligible = None
             if self.grouping != "static":

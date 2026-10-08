@@ -77,18 +77,35 @@ complexity value. All independent material paths and mark contours remain exact;
 the result has 2,923 nodes, 414 contours and 31 stroke contours. The original
 source raster alone supplies line observations; the human repair remains absent.
 
-This is offline candidate/selection evidence, not a completed outline release or
-actual-operation result. The co-planned alternative is available through the
+Those captured-proposal results are offline candidate/selection evidence, not a
+completed outline release. The co-planned alternative is available through the
 explicit `Operators(filled_bands=True)` joint cursor. Ordinary experimental High
 still does not enable that flag. Remaining blade/guard/handle outlines, complete
 operation scheduling, runtime/memory and the eight delivery/release gates remain
 open. Detailed identities, verification and pending work stay in the progress file.
 
+The explicit band route now offers a bounded complete-sibling prefix from the
+same ancestor and tries the finer existing material budget first. High defers
+fitting a fragmented fallback until a useful owned checkpoint is retained; the
+explicit large-core route's 40-percent opportunity stays within global reserves.
+One 60-second Generate/apply prototype selects a 2,893 / 412 / 31 blade drawing
+at complexity 75, with a 35-node editable blade, original gaps preserved and
+exact applied/save-reloaded pixels. Its all-101 frontier is monotonic, but 100
+still chooses the dense filled drawing. Human MSE 535.253845 is worse than the
+preserved material candidate's 508.055591. A same-source repeat instead returns
+the traced fallback in 65.348 seconds under observed host load; preparation/apply
+also falls outside the planner's reported deadline. Thus candidate delivery now
+works once, but quality, repeatability and operation latency remain unproved.
+The flag remains explicit. Preserve the useful material candidate, remove
+redundant initialization before reliable complete alternatives, and bind the
+operation's deadline across preparation, planning, validation and application.
+All eight delivery/release gates remain open.
+
 Validation now reuses bounded immutable parent line observations and indexes
 document references once, while retaining complete native gap and ownership
 checks. An isolated replay preserves all four candidates and their exact pixels,
 metadata and selection; one serial timing pair improves from 29.17 to 24.37
-seconds. Actual Generate probes still select filled drawings: the longer probe
+seconds. Prior Generate probes selected filled drawings: the longer probe
 explores only the first coarse joint proposal on each parent, never reaching
 the fitted Detailed sibling or co-planned blade. Give complete original/fitted
 material alternatives an opportunity before descendant edits displace their
@@ -122,8 +139,8 @@ This feedback
 does not authorize copying the human's repaired source connection or collecting
 new references yet.
 
-Operation scheduling still fails the release requirement: 60-second sword runs
-can retain only a dense fallback or the 10,285-node / 1,711-contour owned core,
+Operation scheduling still fails the release requirement. Prior 60-second sword
+runs retained a dense fallback or the 10,285-node / 1,711-contour owned core,
 without editable strokes. An earlier prototype's 1,978 / 327 / 30 result did not
 reproduce reliably. Park also exposes a clean-error regression under the source
 objective. Neither early allocation nor native validity establishes a quality,
