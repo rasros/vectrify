@@ -7,7 +7,7 @@ import pytest
 
 from tests.refine.test_cel_plan_ownership import stripes
 from vectrify.refine.cel_plan import atoms as module
-from vectrify.refine.cel_plan.atoms import Atoms, Cut
+from vectrify.refine.cel_plan.atoms import AtomLimitError, Atoms, Cut
 from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition, Surface
@@ -281,8 +281,18 @@ def test_direct_partition_capacity_and_cancellation_discard_entire_change(
     graph = build(evidence)
     root = Atoms.original(graph)
     monkeypatch.setattr(module, limit, 1)
-    with pytest.raises(ValueError, match="bounds"):
+    with pytest.raises(AtomLimitError, match="bounds") as rejected:
         root.partition(graph, range(54), classes, 3, Work.start(10), compact=True)
+    assert (
+        rejected.value.resource
+        == {
+            "MAX_CUTS": "entries",
+            "MAX_CHILDREN": "children",
+            "MAX_RUNS": "runs",
+        }[limit]
+    )
+    assert rejected.value.limit == 1
+    assert rejected.value.attempted > rejected.value.limit
     work = Work.start(10)
     work.stop.set()
     with pytest.raises(StageInterruptedError):

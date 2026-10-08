@@ -11,6 +11,7 @@ from __future__ import annotations
 import hashlib
 import math
 from dataclasses import dataclass, replace
+from typing import Any, cast
 
 import numpy as np
 import pathops
@@ -37,7 +38,7 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.svg import parse_path
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine import cel
-from vectrify.refine.cel_plan.atoms import Atoms
+from vectrify.refine.cel_plan.atoms import AtomLimitError, Atoms
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.facet_lines import FacetLines
@@ -221,66 +222,70 @@ class CoreCells:
         self._ridge_support = None
         self._moments = None
         self._facet_lines = None
-        self.diagnostics: dict = dict.fromkeys(
-            (
-                "cores",
-                "selected_paths",
-                "retained_paths",
-                "source_pixels",
-                "votes",
-                "cells",
-                "atom_exclusions",
-                "geometry_exclusions",
-                "alpha_exclusions",
-                "style_exclusions",
-                "bounded",
-                "proposals",
-                "ridge_pixels",
-                "ridge_owners",
-                "region_exclusions",
-                "region_proposals",
-                "region_candidates",
-                "region_retained_owners",
-                "planar_paint_exclusions",
-                "joint_proposals",
-                "joint_forced_merges",
-                "empty_cell_exclusions",
-                "degenerate_region_retries",
-                "hierarchy_components_peak",
-                "hierarchy_retained_owners_peak",
-                "hierarchy_queue_peak",
-                "hierarchy_queue_rebuilds",
-                "hierarchy_ink_cells_peak",
-                "hierarchy_ink_paint_links_peak",
-                "hierarchy_unmet_budgets",
-                "source_role_observations_peak",
-                "source_role_mixed_owners_peak",
-                "source_stroke_attempts",
-                "source_stroke_models",
-                "source_stroke_carrier_exclusions",
-                "source_stroke_owner_exclusions",
-                "source_chain_small_roots",
-                "source_class_roots_peak",
-                "source_final_cells_peak",
-                "source_fitted_role_pixels",
-                "source_unmodeled_material_pixels",
-                "hierarchy_model_evaluations",
-                "hierarchy_model_limits",
-                "hierarchy_alpha_exclusions",
-                "plane_prefixes",
-                "plane_cells_peak",
-                "facet_edge_points",
-                "ink_plane_seeds",
-                "ink_plane_cells",
-                "ink_plane_pixels",
-                "ink_plane_duplicate_seeds",
-                "anchored_ink_straights",
-                "anchored_ink_curves",
-                "anchored_ink_ellipses",
-                "anchored_ink_precise_marks",
+        self.diagnostics = cast(
+            dict[str, Any],
+            dict.fromkeys(
+                (
+                    "cores",
+                    "selected_paths",
+                    "retained_paths",
+                    "source_pixels",
+                    "votes",
+                    "cells",
+                    "atom_exclusions",
+                    "geometry_exclusions",
+                    "alpha_exclusions",
+                    "style_exclusions",
+                    "bounded",
+                    "proposals",
+                    "ridge_pixels",
+                    "ridge_owners",
+                    "region_exclusions",
+                    "region_proposals",
+                    "region_candidates",
+                    "region_retained_owners",
+                    "planar_paint_exclusions",
+                    "joint_proposals",
+                    "joint_forced_merges",
+                    "empty_cell_exclusions",
+                    "degenerate_region_retries",
+                    "hierarchy_components_peak",
+                    "hierarchy_retained_owners_peak",
+                    "hierarchy_queue_peak",
+                    "hierarchy_queue_rebuilds",
+                    "hierarchy_ink_cells_peak",
+                    "hierarchy_ink_paint_links_peak",
+                    "hierarchy_unmet_budgets",
+                    "source_role_observations_peak",
+                    "source_role_mixed_owners_peak",
+                    "source_stroke_attempts",
+                    "source_stroke_models",
+                    "source_stroke_carrier_exclusions",
+                    "source_stroke_owner_exclusions",
+                    "source_chain_small_roots",
+                    "source_class_roots_peak",
+                    "source_final_cells_peak",
+                    "source_fitted_role_pixels",
+                    "source_unmodeled_material_pixels",
+                    "hierarchy_model_evaluations",
+                    "hierarchy_model_limits",
+                    "hierarchy_alpha_exclusions",
+                    "plane_prefixes",
+                    "plane_cells_peak",
+                    "facet_edge_points",
+                    "ink_plane_seeds",
+                    "ink_plane_cells",
+                    "ink_plane_pixels",
+                    "ink_plane_duplicate_seeds",
+                    "anchored_ink_straights",
+                    "anchored_ink_curves",
+                    "anchored_ink_ellipses",
+                    "anchored_ink_precise_marks",
+                ),
+                0,
             ),
-            0,
         )
+        self.diagnostics["atom_exclusion_details"] = []
 
     def _ink_support(self, work):
         """Broad dark material is not ink without a source-supported trough."""
@@ -1650,8 +1655,27 @@ class CoreCells:
                 work,
                 **({"compact": True} if self.ink_fit == "carrier" else {}),
             )
-        except ValueError:
+        except ValueError as error:
             self.diagnostics["atom_exclusions"] += 1
+            # A bounded failure record identifies the resource which prevented
+            # publication. The attempted allocation is a lower bound only;
+            # no partially split ledger or failed drawing is returned.
+            details = self.diagnostics["atom_exclusion_details"]
+            if len(details) < 8:
+                details.append(
+                    {
+                        "reason": str(error),
+                        **(
+                            {
+                                "resource": error.resource,
+                                "limit": error.limit,
+                                "attempted_lower_bound": error.attempted,
+                            }
+                            if isinstance(error, AtomLimitError)
+                            else {}
+                        ),
+                    }
+                )
             return None
         matrix = root_matrix(document, base.id)
         shapes = [document.geometry_for(base.id)]

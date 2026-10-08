@@ -32,6 +32,22 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
+The latest source-only width diagnosis finds individually feasible complete
+chains, but taking them together exceeds the child ledger: the next allocation
+needs at least 130 children against the unchanged 128-child limit. Resource
+failures now distinguish entries, children and RLE runs without publishing a
+partial drawing. A bounded per-chain alternative reduces the fixed inspected
+missing samples from 835 to 705 and gap completion from five positions to three;
+its human MSE changes only from 526.3567 to 526.2171 and remains unsuitable as a
+new reference. No source-chain ordinal or narrower-width rule is adopted in
+production. Stroke-removal attribution shows the coarse gap failures come from
+strokes; the finer material interpretation also fills gaps. Next prove raw
+source absence along exported bodies and retain generic alternatives under a
+fixed source bank before common-frontier selection. Human repair remains
+outside generation. Four tuning families stay exact, 226 focused regressions
+pass, and all eight deliveries remain open. Full controls, identities and
+unsuccessful carrier/width experiments are in the progress record.
+
 The latest offline `--opacity-model components` competitor preserves independent
 connected faint supports while coalescing their paint/alpha fragments into exact
 source contours. It replaces 122 paths with 29 fields and keeps all 32 editable

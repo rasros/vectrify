@@ -203,6 +203,14 @@ def test_final_role_cut_exhaustion_retains_the_complete_original_owner_namespace
     monkeypatch.setattr(atoms, "MAX_CUTS", 0)
     assert list(factory(state, Work.start(10))) == []
     assert factory.diagnostics["atom_exclusions"] > 0
+    failures = factory.diagnostics["atom_exclusion_details"]
+    assert 0 < len(failures) <= 8
+    assert all(
+        failure["resource"] == "entries"
+        and failure["limit"] == 0
+        and failure["attempted_lower_bound"] == 1
+        for failure in failures
+    )
     assert state.partition.atoms is None
     assert export_svg(state.document) == before
 

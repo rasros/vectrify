@@ -14,6 +14,95 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Source width alternatives and exact ownership-limit diagnosis
+
+The handle requirement remains clear, connected editable strokes wherever the
+actual raster supports them. The human trace repairs a raster defect; its
+repair must not supply generation endpoints, links or source-gap evidence.
+Generation in the following diagnostics uses source pixels only, and human
+scoring occurs afterward. No new output is adopted as a reference.
+
+A joint carrier/body diagnostic at source `6d02b3e...` recovers two complete
+source-ended sword chains at their measured widths. Other bodies fail native
+source-alpha gain checks. Its coarse result worsens human MSE to 527.3908, and
+its finer result still fills a further inspected gap. That prototype enlarges
+its discovery carrier for attempted bodies, including bodies not ultimately
+exported, so it is **not a production implementation or release evidence**.
+Restricting growth to exported bodies and allowing 10%/20% narrower trial widths
+produces no sword proposal because the complete source partition is bounded.
+The joint wrapper also changes the face control despite no recorded recovery;
+that drift remains unresolved and is another reason not to adopt it.
+
+A simpler diagnostic fits widths inside the **unchanged** carrier. It retains
+source paint and endpoints, excludes explicit width overrides, and requires the
+normal exact body/carrier proof and full native/sealed/ownership checks. Trial
+widths are 90% and 80% of measured width, with the existing 0.8-analysis-pixel floor;
+these are bounded engineering hypotheses, not calibrated width tolerances.
+Four complete sword chains become individually feasible. Taking all four, or
+only the first pommel chain, still cannot publish a complete drawing.
+`AtomLimitError` now identifies the first unavailable resource: **at least 130
+children against the 128-child limit**. Entry and RLE failures also report their
+own limit and next attempted allocation. These are **lower bounds**, not total
+proposal cost. All limits, atomic failure behavior and binary metadata remain
+unchanged. Core diagnostics retain at most eight failure details.
+
+| Source-only width hypothesis, with opacity fields | Nodes / contours / editable stroke contours | Human MSE | Fixed missing samples / 6,320 | Fixed gaps filled / 7 |
+| --- | ---: | ---: | ---: | ---: |
+| Retained control | 1,631 / 237 / 32 | 526.356708 | 835 | 5 |
+| Second eligible chain, right handle | 1,605 / 238 / 34 | 538.005364 | 639 | 5 |
+| Third eligible chain, inner guard, coarse | 1,643 / 239 / 33 | 533.427790 | 778 | 5 |
+| Third eligible chain, inner guard, finer | 2,276 / 302 / 33 | 529.374566 | 385 | 6 |
+| Fourth eligible chain, middle left handle | 1,636 / 239 / 34 | 526.217099 | 705 | 3 |
+
+These hypotheses follow discovery order for diagnosis; **no artwork-specific
+ordinal is added to production**. The fourth is a lead: missing samples fall
+from 13.21% to 11.16%, and two inspected source gaps are no longer filled, but
+human MSE improves by only 0.14 and the representation remains far above the
+800/140 gate. It is not a quality breakthrough or a selected-operation result.
+The finer guard alternative lowers missing samples but fills another gap and
+increases representation cost. Native validity alone cannot decide these
+tradeoffs. All source-bank thresholds remain uncalibrated diagnostics, rather
+than global line recall or release gates.
+
+Independent stroke-removal attribution corrects the initial material-gap
+hypothesis. Removing the stroke layer from the coarse control and all three
+coarse alternatives leaves **zero** inspected gaps filled: their gap failures
+come from strokes. The finer guard drawing still fills three gaps without
+strokes, so its material reconstruction also needs correction. This is a
+source-only diagnostic edit, not generated or proposed repair geometry. Next
+retain generic, bounded per-chain width alternatives, prove raw source absence
+along actual exported bodies, and compare them under one fixed source bank
+before common-frontier selection. Do not choose a production chain by the
+human result, raise ownership caps to admit these drawings, or force a link
+across the raster defect.
+
+Frozen experiment source SHA-256:
+`744cb656bfc87a1e536414bfb0d0e6793867873cce639ec8e7756869830c15e4`.
+Artifacts `.bench/cel-source-width-fit-final` and
+`.bench/cel-source-width-single-chain-final` contain **14 complete reports / 26
+native-valid proposals / 26 independent source-graph validations**. Their
+independent audits check hashes, fixed input/target/mask/settings, native
+saved/fresh and project-reload RGBA, complete ownership, sealed edits and
+local/full agreement (maximum difference 3.38e-9). The four tuning families
+are exactly unchanged in the width experiment. No held-out fixture is used.
+
+Final diagnostic source SHA-256:
+`534b556919a47f37823f6ec923e8611d2c41084b72e2b870dc8e898e73e35758`.
+The last source change is a typing cast for the heterogeneous diagnostics map.
+`.bench/cel-source-budget-control-final` reruns all five controls, with **10
+native-valid proposals / 10 independent source-graph validations** and exact
+retained geometry/paint/render/metrics. **226 focused regressions pass**,
+including entire-change failure and cancellation controls. Ruff/format,
+whitespace and types pass (zero type errors, 62 existing warnings).
+Driver and audit identities are saved in each artifact directory; diagnostic
+scripts are `/tmp/vectrify-source-width-fit-final.py`,
+`/tmp/vectrify-source-width-single-chain-final.py`,
+`/tmp/vectrify-source-width-final-audit.py`,
+`/tmp/vectrify-source-width-single-audit.py`,
+`/tmp/vectrify-source-budget-control-final.py` and
+`/tmp/vectrify-source-budget-control-audit.py`.
+All eight deliveries and source/quality/runtime/release gates remain open.
+
 ### Connected source-opacity fields with unchanged editable ink
 
 The retained-owner audit found 254 faint paint paths outside the core's paint

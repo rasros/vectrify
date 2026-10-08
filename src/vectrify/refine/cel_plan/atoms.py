@@ -20,6 +20,29 @@ MAX_RUNS = 16_384
 CHUNK_PIXELS = 65_536
 
 
+class AtomLimitError(ValueError):
+    """The first unavailable ledger resource, without a partial atom result.
+
+    ``attempted`` is the next allocation, not the complete proposal's cost.
+    Keeping that distinction prevents reporting a truncated split as a fitted
+    candidate or using its count to justify a larger resource allowance.
+    """
+
+    def __init__(self, resource: str, limit: int, attempted: int):
+        self.resource, self.limit, self.attempted = resource, limit, attempted
+        super().__init__(
+            f"Source atom bounds exceeded: {resource} requires at least "
+            f"{attempted}, limit {limit}"
+        )
+
+
+def _capacity(cuts, children):
+    if cuts > MAX_CUTS:
+        raise AtomLimitError("entries", MAX_CUTS, cuts)
+    if children > MAX_CHILDREN:
+        raise AtomLimitError("children", MAX_CHILDREN, children)
+
+
 def identity(labels: np.ndarray) -> str:
     digest = hashlib.sha256(repr(labels.shape).encode())
     digest.update(np.asarray(labels, dtype="<i4").tobytes())
@@ -263,8 +286,7 @@ class Atoms:
                 continue
             if graph.regions[member].fixed or member in graph.hidden:
                 raise ValueError("Protected source atoms cannot be split")
-            if len(cuts) >= MAX_CUTS or next_child + 2 > self.count + MAX_CHILDREN:
-                raise ValueError("Source atom bounds exceeded")
+            _capacity(len(cuts) + 1, next_child + 2 - self.count)
             runs = []
             for y in np.flatnonzero(selected.any(axis=1)):
                 if work.interrupted:
@@ -276,7 +298,9 @@ class Atoms:
                     strict=True,
                 ):
                     if run_count + len(runs) >= MAX_RUNS:
-                        raise ValueError("Source atom bounds exceeded")
+                        raise AtomLimitError(
+                            "runs", MAX_RUNS, run_count + len(runs) + 1
+                        )
                     runs.append(
                         (
                             int(y) + box[0].start,
@@ -353,8 +377,7 @@ class Atoms:
                 if index == len(occupied) - 1:
                     cells[int(cell)].append(parent)
                     break
-                if len(cuts) >= MAX_CUTS or next_child + 2 > self.count + MAX_CHILDREN:
-                    raise ValueError("Source atom bounds exceeded")
+                _capacity(len(cuts) + 1, next_child + 2 - self.count)
                 selected = remaining & (values == cell)
                 low_area = int(selected.sum())
                 high_area = int(remaining.sum()) - low_area
@@ -369,7 +392,9 @@ class Atoms:
                         strict=True,
                     ):
                         if run_count + len(runs) >= MAX_RUNS:
-                            raise ValueError("Source atom bounds exceeded")
+                            raise AtomLimitError(
+                                "runs", MAX_RUNS, run_count + len(runs) + 1
+                            )
                         runs.append(
                             (
                                 int(y) + box[0].start,
@@ -414,11 +439,7 @@ class Atoms:
                 continue
             if graph.regions[member].fixed or member in graph.hidden:
                 raise ValueError("Protected source atoms cannot be split")
-            if (
-                len(cuts) >= MAX_CUTS
-                or next_child + len(occupied) > self.count + MAX_CHILDREN
-            ):
-                raise ValueError("Source atom bounds exceeded")
+            _capacity(len(cuts) + 1, next_child + len(occupied) - self.count)
             implicit = int(np.argmax(areas))
             order = [i for i in range(len(occupied)) if i != implicit] + [implicit]
             blocks = []
@@ -435,7 +456,9 @@ class Atoms:
                         strict=True,
                     ):
                         if run_count + len(runs) >= MAX_RUNS:
-                            raise ValueError("Source atom bounds exceeded")
+                            raise AtomLimitError(
+                                "runs", MAX_RUNS, run_count + len(runs) + 1
+                            )
                         runs.append(
                             (
                                 int(y) + box[0].start,
