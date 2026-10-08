@@ -59,6 +59,56 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Separable guard stroke alongside the blade
+
+The explicit band cursor now retains all original blade-width alternatives,
+then offers complete siblings that also convert an isolated contour from a
+mixed fill owner. A contour's own source pixels must meet the existing
+60-percent ink-role requirement; the larger shadow need not. Exact boolean
+disjointness and union equality keep holes and interacting contours together.
+The inspected compound owner is bounded at 1,024 nodes / 64 contours; each
+inverted band retains the preceding 256-node and raster/sample bounds. At most
+five existing parents receive one extension each. Ledger entries, children,
+source gaps, source-class replay and native validation limits remain unchanged.
+
+The sword's dark guard/handle owner has only 31.5 percent drawn source pixels,
+so the preceding whole-owner filter skipped it. Its isolated guard contour has
+134 sampled source pixels, all classified as drawn. It becomes a four-node
+connected stroke at width 2.182687282562256; all 30 residual shadow/mark contours
+retain their exact geometry. The variable-width handle contour remains excluded.
+This is one further complete outline, not completion of guard/handle line art.
+
+The final algorithm/benchmark source SHA-256 is
+`a857e690ce3bd96429745c901ed6b7cbf342a21a815d704b371aceca844ff668`.
+`.bench/cel-bands-isolated-extension` contains eight unique artifacts: the four
+previous blade-only SVG/PNG/project/partition outputs are byte-exact, and four
+additional drawings have **2,915 nodes / 414 contours / 32 stroke contours**.
+All eight pass complete original-graph/component ownership, native/local raster
+agreement and project reload. Maximum score-term discrepancy remains
+6.943e-10. The extensions preserve zero new gaps, 13,145 qualified samples,
+1,634 missing samples and no line rejections. Both converted outlines replace
+their former fills; unrelated paths and residual shading geometry remain exact.
+
+The native-objective preferred blade-plus-guard candidate beats the material
+parent at all 101 complexity values. Within this captured pool, the selector
+chooses that bundle at 0/25 and the preceding blade-only result at 50/75/100.
+Post-generation human MSE is **524.897535**, compared with the matching
+blade-only result's 525.949074 and the preserved filled parent's 508.055591.
+The narrowest unselected bundle measures 500.384326; it is not chosen using the
+human target. The frozen source-mask identity matches the preceding audit.
+Representation improves, but source-objective calibration and overall visual
+quality remain unresolved. No human connection repair enters generation.
+
+The source-only replay takes 49.49 seconds with peak RSS 694,996 KiB while
+evaluating twice the previous candidate count. This is an offline diagnostic,
+not a successful 60-second Generate or a runtime release result. An initial
+benchmark artifact naming collision was corrected and the final replay rerun;
+its incomplete artifacts remain separately labeled. The relevant suite passes
+202 tests, including four new controls for mixed shadows with holes, affine
+frames, source-role exclusion and the unchanged child-allocation bound. Ruff,
+formatting and whitespace pass; Pyrefly reports zero errors / 62 warnings.
+The flag remains explicit and all eight delivery/release gates remain open.
+
 ### Rejected isolated centerline fitting changes
 
 The owner's further clarification makes actual stroke representation the

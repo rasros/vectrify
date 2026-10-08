@@ -42,20 +42,31 @@ from vectrify.refine.cel_plan.score import render
 
 TOLERANCES = (0.25, 0.15, 0.1)
 MAX_SUBPATHS = 16
+MAX_COMPOUND_NODES = 1024
+MAX_COMPOUND_SUBPATHS = 64
+MAX_EXTENSIONS = 5
 
 
-def separate(geometry, rule, work):
+def separate(geometry, rule, work, *, index=None):
     """Retain every other contour exactly; holes and interacting fills exclude."""
     _check(work)
     if (
-        not 2 <= len(geometry.subpaths) <= MAX_SUBPATHS
+        not 2
+        <= len(geometry.subpaths)
+        <= (MAX_SUBPATHS if index is None else MAX_COMPOUND_SUBPATHS)
         or any(not s.closed for s in geometry.subpaths)
-        or sum(len(s.nodes) for s in geometry.subpaths) > MAX_NODES
+        or sum(len(s.nodes) for s in geometry.subpaths)
+        > (MAX_NODES if index is None else MAX_COMPOUND_NODES)
     ):
         return None
-    index = max(
-        range(len(geometry.subpaths)), key=lambda i: len(geometry.subpaths[i].nodes)
-    )
+    if index is None:
+        index = max(
+            range(len(geometry.subpaths)), key=lambda i: len(geometry.subpaths[i].nodes)
+        )
+    elif type(index) is not int or not 0 <= index < len(geometry.subpaths):
+        raise ValueError("A separated band requires an existing contour index")
+    if len(geometry.subpaths[index].nodes) > MAX_NODES:
+        return None
     main = replace(geometry, subpaths=(geometry.subpaths[index],))
     marks = replace(
         geometry,
@@ -109,13 +120,22 @@ class BandPlans:
 
     def __call__(self, state, proposal, work):
         try:
-            yield from self.proposals(state, proposal, work)
+            parents = []
+            for candidate in self.proposals(state, proposal, work):
+                yield candidate
+                if len(parents) < MAX_EXTENSIONS:
+                    parents.append(candidate)
+            # Preserve every existing width alternative before offering a
+            # complete sibling with another isolated band. Replaying from the
+            # same ancestor avoids splitting a finished, saturated ledger.
+            for candidate in parents:
+                yield from self.proposals(state, candidate, work, isolated=True)
         except StageInterruptedError:
             return
         except (AtomLimitError, pathops.PathOpsError):
             self.diagnostics["bounded"] += 1
 
-    def proposals(self, state, proposal, work):
+    def proposals(self, state, proposal, work, *, isolated=False):
         _check(work)
         old, part = state.partition, proposal.partition
         if (
@@ -143,26 +163,44 @@ class BandPlans:
             self.diagnostics["bounded"] += 1
             return
         labels = part.atoms.labels(self.original, work)
-        eligible = []
+        eligible: list[tuple[int, Surface, dict[str, str], int | None]] = []
         for surface in scoped:
             _check(work)
             style = supported_style(proposal.document, surface.id)
             if style is None:
                 continue
             own = np.isin(labels, surface.members)
-            if not own.any() or self.evidence.drawn[own].sum() < own.sum() * 0.6:
+            if not own.any() or (
+                not isolated and self.evidence.drawn[own].sum() < own.sum() * 0.6
+            ):
                 continue
             geometry = proposal.document.geometry_for(surface.id)
             nodes = sum(len(s.nodes) for s in geometry.subpaths)
-            if 2 <= len(geometry.subpaths) <= MAX_SUBPATHS and nodes <= MAX_NODES:
-                eligible.append((nodes, surface, style))
+            if isolated:
+                if (
+                    not 2 <= len(geometry.subpaths) <= MAX_COMPOUND_SUBPATHS
+                    or nodes > MAX_COMPOUND_NODES
+                    or not self.evidence.drawn[own].any()
+                ):
+                    continue
+                for index, sub in enumerate(geometry.subpaths):
+                    _check(work)
+                    if not sub.closed or not 3 <= len(sub.nodes) <= MAX_NODES:
+                        continue
+                    extent = curve_path(replace(geometry, subpaths=(sub,))).bounds
+                    if max(extent[2] - extent[0], extent[3] - extent[1]) < 8:
+                        continue
+                    eligible.append((len(sub.nodes), surface, style, index))
+            elif 2 <= len(geometry.subpaths) <= MAX_SUBPATHS and nodes <= MAX_NODES:
+                eligible.append((nodes, surface, style, None))
         eligible.sort(key=lambda v: (-v[0], v[1].id))
         before, guard = None, None
-        for old_nodes, surface, style in eligible[:MAX_PATHS]:
+        for _priority, surface, style, index in eligible[:MAX_PATHS]:
             _check(work)
             self.diagnostics["eligible"] += 1
             geometry = proposal.document.geometry_for(surface.id)
-            parts = separate(geometry, style["fill-rule"], work)
+            old_nodes = sum(len(s.nodes) for s in geometry.subpaths)
+            parts = separate(geometry, style["fill-rule"], work, index=index)
             if parts is None:
                 continue
             main, marks = parts
@@ -174,8 +212,16 @@ class BandPlans:
                 self.diagnostics["bounded"] += 1
                 continue
             box, raster = coverage
+            mainalpha = raster(main)
+            if isolated:
+                sampled = own[box.slices] & (mainalpha > 0.05)
+                if (
+                    not sampled.any()
+                    or self.evidence.drawn[box.slices][sampled].mean() < 0.6
+                ):
+                    continue
             classified = mark_components(
-                own[box.slices], raster(main), raster(marks), self.evidence.scale, work
+                own[box.slices], mainalpha, raster(marks), self.evidence.scale, work
             )
             if classified is None:
                 self.diagnostics["ambiguous"] += 1
@@ -309,6 +355,7 @@ class BandPlans:
                             "planned_band_stroke": {
                                 "id": surface.id,
                                 "marks": newid,
+                                **({"contour": index} if isolated else {}),
                                 "tolerance": tolerance,
                                 "width": variant.width,
                                 "intrinsic_width": model.width,
@@ -318,9 +365,32 @@ class BandPlans:
                                 "source_line_comparison": comparison,
                                 "ownership": "co-planned-from-material-ancestor",
                             },
+                            **(
+                                {
+                                    "planned_band_strokes": [
+                                        *details.get(
+                                            "planned_band_strokes",
+                                            [details.get("planned_band_stroke", {})],
+                                        ),
+                                        {
+                                            "id": surface.id,
+                                            "marks": newid,
+                                            "contour": index,
+                                            "width": variant.width,
+                                            "stroke_nodes": len(
+                                                model.geometry.subpaths[0].nodes
+                                            ),
+                                        },
+                                    ]
+                                }
+                                if isolated
+                                else {}
+                            ),
                         },
                     )
                     published += 1
+                    if isolated:
+                        return
                 if published:
                     return
 

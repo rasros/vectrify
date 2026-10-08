@@ -86,6 +86,17 @@ complexity value. All independent material paths and mark contours remain exact;
 the result has 2,923 nodes, 414 contours and 31 stroke contours. The original
 source raster alone supplies line observations; the human repair remains absent.
 
+The explicit route now preserves those original alternatives and adds siblings
+with a further isolated outline from a mixed shadow owner. Eligibility is tested
+on that contour's source ink pixels, with exact residual fills, original gaps
+and complete ancestor replay preserved. The offline sword has a four-node guard
+stroke alongside the blade: 2,915 nodes / 414 contours / 32 stroke contours.
+The captured pool chooses it at complexity 0/25 but retains the blade-only
+alternative at 50/75/100. Human MSE 524.897535 still worsens the preserved
+material parent's 508.055591. Attached outline/shadow branches, variable-width
+handle ink, calibrated stroke selection and actual-operation delivery remain
+unfinished; this is not completion of the outline requirement.
+
 Those captured-proposal results are offline candidate/selection evidence, not a
 completed outline release. The co-planned alternative is available through the
 explicit `Operators(filled_bands=True)` joint cursor. Ordinary experimental High

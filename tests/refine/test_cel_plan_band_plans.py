@@ -348,3 +348,164 @@ def test_joint_band_budget_and_exit_close_without_computing_next_edit(
         assert list(iterator) == []
     assert offered == [0]
     assert sorted(closed) == ["bands", "source-intervals", "source-widths"]
+
+
+def mixed_fixture(alpha=0.75, frame=""):
+    """A narrow outline and a broad shadow share one original owner/atom."""
+    svg = (
+        '<svg width="160" height="100"><g id="scene" '
+        f'opacity="{alpha}">'
+        '<path id="bg" d="M0 0H160V100H0Z" fill="#c4b79c"/>'
+        '<g id="frame" '
+        f'transform="{frame or "matrix(1 0 0 1 0 0)"}">'
+        '<path id="ink" d="M10 30.5H150V33.5H10Z M145 20h2v2h-2z" '
+        'fill="#202020"/>'
+        '<path id="mixed" d="M10 50.5H150V53.5H10Z '
+        'M25 70H100L135 72V90H25Z M30 75V85H130V75Z" fill="#2f211c"/>'
+        "</g></g></svg>"
+    )
+    document = import_svg(svg)
+    rgba = render(svg, (160, 100))
+    options = Options()
+    e = collect(
+        Image.fromarray(np.rint(rgba * 255).astype(np.uint8)),
+        None,
+        options,
+        Work.start(10),
+    )
+    labels = np.zeros(e.labels.shape, np.int32)
+    yy, xx = np.indices(labels.shape)
+    dark = (e.target.max(axis=-1) < 110) & ~e.empty
+    labels[dark & (yy < 40)] = 1
+    labels[dark & (yy >= 40)] = 2
+    e = replace(e, labels=labels)
+    graph = build(e)
+    old = Partition(
+        (
+            Surface("bg", (0,), covered=(1, 2)),
+            Surface("ink", (1,)),
+            Surface("mixed", (2,)),
+        )
+    )
+    policy = Policy.from_evidence(e, graph)
+    exported = export_svg(document)
+    state = State(
+        document,
+        exported,
+        LocalPolicy(policy).start(exported, policy.evaluate(exported)),
+        "ancestor",
+        {},
+        partition=old,
+    )
+    atoms, groups = Atoms.original(graph).partition(
+        graph,
+        (1, 2),
+        (xx >= 80).astype(np.int32),
+        2,
+        Work.start(10),
+        compact=True,
+        retain_parent=True,
+    )
+    children = tuple(sorted(groups[0] + groups[1]))
+    split = atoms.labels(graph, Work.start(10))
+    ink = tuple(i for i in children if np.any((split == i) & (labels == 1)))
+    mixed = tuple(i for i in children if np.any((split == i) & (labels == 2)))
+    part = old.split(
+        ("ink", "mixed"), (Surface("ink", ink), Surface("mixed", mixed)), atoms
+    )
+    proposal = Proposal(
+        "joint-core-cells",
+        ("ink", "mixed"),
+        (),
+        state.key,
+        document,
+        bounds(document, document, ("ink", "mixed")),
+        partition=part,
+        component=ComponentEdit.bind(document, old, "frame", Work.start(10)),
+    )
+    return e, graph, options, policy, state, proposal
+
+
+@pytest.mark.parametrize("frame", ["", "matrix(0.9 0.03 0.08 0.85 0.25 1.5)"])
+def test_separable_outline_in_mixed_shadow_owner_becomes_a_second_stroke(
+    frame, monkeypatch
+):
+    e, graph, options, policy, state, proposal = mixed_fixture(frame=frame)
+    monkeypatch.setattr(atom_module, "MAX_CUTS", 2)
+    assert len(proposal.partition.atoms.cuts) == 2
+    # The largest contour belongs to the broad shadow with a real hole, so
+    # the preceding largest-contour route cannot isolate the narrow outline.
+    assert (
+        separate(state.document.geometry_for("mixed"), "nonzero", Work.start(10))
+        is None
+    )
+    operators = Operators(e, graph, options, filled_bands=True)
+    variants = list(operators.families.band_planner(state, proposal, Work.start(30)))
+    originals = [p for p in variants if "planned_band_strokes" not in p.details]
+    extended = [p for p in variants if "planned_band_strokes" in p.details]
+    assert len(originals) == len(extended) == 5
+    for parent, child in zip(originals, extended, strict=True):
+        assert child.document.geometry_for("ink") == parent.document.geometry_for("ink")
+        assert child.document.element("ink") == parent.document.element("ink")
+        assert child.document.element("bg") == state.document.element("bg")
+        assert child.document.geometry_for("bg") == state.document.geometry_for("bg")
+        residual = child.document.geometry_for("mixed-band-marks")
+        assert (
+            residual.path_data()
+            == replace(
+                state.document.geometry_for("mixed"),
+                subpaths=state.document.geometry_for("mixed").subpaths[1:],
+            ).path_data()
+        )
+        for oid in ("ink", "mixed"):
+            assert child.document.element(oid).get("fill") == "none"
+            assert child.document.element(oid).get("stroke") != "none"
+            assert len(child.document.geometry_for(oid).subpaths[0].nodes) == 2
+        assert len(child.details["planned_band_strokes"]) == 2
+        assert len(child.partition.atoms.cuts) == 2
+        operators.validate_partition(child.partition, Work.start(10))
+        child.component.validate(
+            state.document,
+            child.document,
+            state.partition,
+            child.partition,
+            child.ids,
+            child.bounds,
+            Work.start(10),
+        )
+        full = policy.evaluate(export_svg(child.document))
+        assert full.valid, full.rejections
+        local = LocalPolicy(policy).update(
+            state.snapshot, export_svg(child.document), child.bounds, full.structure
+        )
+        actual = render(export_svg(child.document), e.source_size)
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        restored, _ = load_project(save_project(child.document))
+        np.testing.assert_array_equal(
+            render(export_svg(restored), e.source_size), actual
+        )
+        comparison = child.details["planned_band_stroke"]["source_line_comparison"]
+        assert not comparison["rejections"]
+        assert comparison["new_gap_completed"] == 0
+
+
+def test_isolated_band_requires_its_own_source_ink_role():
+    e, graph, options, _policy, state, proposal = mixed_fixture()
+    drawn = e.drawn.copy()
+    drawn[45:60] = False  # Explicit uncertain source role on the smaller contour.
+    e = replace(e, drawn=drawn)
+    planner = Operators(e, graph, options, filled_bands=True).families.band_planner
+    variants = list(planner(state, proposal, Work.start(20)))
+    assert len(variants) == 5
+    assert all("planned_band_strokes" not in p.details for p in variants)
+
+
+def test_second_band_keeps_the_existing_source_child_bound(monkeypatch):
+    e, graph, options, _policy, state, proposal = mixed_fixture()
+    monkeypatch.setattr(atom_module, "MAX_CHILDREN", 1)
+    planner = Operators(e, graph, options, filled_bands=True).families.band_planner
+    variants = list(planner(state, proposal, Work.start(20)))
+    assert len(variants) == 5
+    assert all("planned_band_strokes" not in p.details for p in variants)
+    assert planner.diagnostics["bounded"] == 1

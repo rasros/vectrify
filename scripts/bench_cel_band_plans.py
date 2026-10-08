@@ -13,6 +13,7 @@ import base64
 import hashlib
 import io
 import json
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -114,11 +115,14 @@ def run(case, captured, output, *, seconds=180):
             raise ValueError("Co-planned local/native scoring disagrees")
         if not np.array_equal(actual, render(export_svg(restored), reference.size)):
             raise ValueError("Co-planned project round trip changed pixels")
-        changed = proposed.details["planned_band_stroke"]["id"]
+        converted = proposed.details.get(
+            "planned_band_strokes", [proposed.details["planned_band_stroke"]]
+        )
+        changed_ids = {item["id"] for item in converted}
         for element in planned.elements():
             if (
                 element.tag == "path"
-                and element.id != changed
+                and element.id not in changed_ids
                 and (
                     proposed.document.element(element.id) != element
                     or proposed.document.geometry_for(element.id)
@@ -126,6 +130,26 @@ def run(case, captured, output, *, seconds=180):
                 )
             ):
                 raise ValueError("Co-planning changed independent material geometry")
+        for item in converted:
+            original = planned.geometry_for(item["id"])
+            contour_index = item.get(
+                "contour",
+                max(
+                    range(len(original.subpaths)),
+                    key=lambda i: len(original.subpaths[i].nodes),
+                ),
+            )
+            remaining = proposed.document.geometry_for(item["marks"])
+            if (
+                remaining.path_data()
+                != replace(
+                    original,
+                    subpaths=tuple(
+                        s for i, s in enumerate(original.subpaths) if i != contour_index
+                    ),
+                ).path_data()
+            ):
+                raise ValueError("Co-planning changed residual shade or mark geometry")
         name = f"candidate-{index}"
         frontier.add(svg, name, proposed.details)
         (output / f"{name}.svg").write_text(svg)
@@ -142,6 +166,7 @@ def run(case, captured, output, *, seconds=180):
                 "valid": native.valid,
                 "metrics": native.metrics(),
                 "details": proposed.details["planned_band_stroke"],
+                "converted_bands": converted,
                 "local_term_max": difference,
                 "atom_cuts": len(proposed.partition.atoms.cuts),
                 "complete_ownership_validated": True,
@@ -160,6 +185,8 @@ def run(case, captured, output, *, seconds=180):
                 ),
             }
         )
+    if len({row["file"] for row in rows}) != len(rows):
+        raise ValueError("Candidate artifact names must be unique")
     if revision != source_hash():
         raise ValueError("Algorithm sources changed during co-planning benchmark")
     report = {
