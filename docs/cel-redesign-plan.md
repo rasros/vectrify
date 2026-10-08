@@ -32,6 +32,36 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
+The latest offline `--opacity-model components` competitor preserves independent
+connected faint supports while coalescing their paint/alpha fragments into exact
+source contours. It replaces 122 paths with 29 fields and keeps all 32 editable
+stroke contours and main material geometry/paint exact. The sword changes from
+1,973 nodes / 329 contours to **1,631 / 237**, with effectively unchanged MSE
+(526.3518 to 526.3567) and identical handle error. This is a structural gain, not
+a fidelity gain. Full native coverage policy still applies; excessive flat
+opacity keeps the original component. Twenty matched reports and 38 proposal/
+source-graph checks complete, and 1,208 regressions pass. The remaining weak
+representation alone still has 776 nodes / 162 contours. Compact coverage,
+source-faithful wrap junctions and coherent regional facets remain required;
+the 800 / 140 / 497.39 gate and all eight deliveries remain open. Generated
+references stay deferred, and human repairs stay outside generation. Exact
+identities, prototype failures and verification limits are in the progress record.
+
+The preceding source-ridge eligibility fix preserves a valid inner stroke body
+when the darkest source peak is outside its carrier. Nine regression controls
+cover recovery, opacity invariance and true-gap rejection. The **1,177-case**
+suite and **28 native/source-graph proposal validations** pass; all tuning
+renders and quality metrics remain unchanged. This is a fitting correction,
+not a visual gain. Retained-owner attribution exposes the larger bottleneck:
+254 faint paths in a different paint scope alone retain **1,118 nodes / 254
+contours**, above both structural limits before counting the reconstructed
+materials or strokes. Compact source-supported opacity/fringe models must
+preserve independent faint marks and real gaps across those scopes. Global
+material planes remain poor even in a separately labelled larger-capacity
+diagnosis, so coherent region-guided facets are also still required. Details,
+identities and unsuccessful diagnostics are in the progress record. Human
+repair stays outside generation; all eight deliveries remain open.
+
 The latest offline `--ink-fit carrier` competitor recovers six complete
 source-ended chains through precise/original-source fitting or genuine source
 ridge coverage inside the existing carrier. Exact footprint, source endpoint,
@@ -49,7 +79,7 @@ four tuning families retain exact geometry, paint and rendered output.
 
 The 800-node / 140-contour / 497.39-MSE gate, source/feature/coverage fidelity,
 selected-operation quality and runtime/memory requirements remain open. All
-15 matched reports complete with 28 native/source-graph validations, and 1,168
+15 matched reports complete with 28 native/source-graph validations, and 1,177
 relevant regression cases pass. Native validity is not exact initializer-alpha
 retention or source fidelity. All eight deliveries remain open; generated
 references stay deferred and human repair geometry stays outside generation.

@@ -186,3 +186,135 @@ def test_carrier_profile_rejects_invalid_coverage(invalid):
         coverage[:] = 2
     with pytest.raises(ValueError, match="coverage"):
         measure(points, target, 4, visible=visible, coverage=coverage)
+
+
+def clipped_source_peak(alpha):
+    """The carrier excludes a dark outer peak, retaining its same source ridge."""
+    points = np.column_stack((np.arange(10.5, 90), np.full(80, 43.5)))
+    target = np.full((96, 96, 3), 180.0, np.float32)
+    target[:40] = 255
+    target[40:45, 8:92] = 15
+    visible = np.indices((96, 96))[0] >= 40
+    opacity = visible.astype(np.float32) * alpha
+    coverage = np.zeros((96, 96), np.float32)
+    coverage[42:] = 1
+    return points, target, visible, opacity, coverage
+
+
+@pytest.mark.parametrize("alpha", [1, 0.5, 0.25])
+def test_carrier_excluded_peak_keeps_the_actual_contiguous_source_ridge(alpha):
+    points, target, visible, opacity, coverage = clipped_source_peak(alpha)
+    source = measure(
+        points, target, 4, light=target[..., 0], visible=visible, opacity=opacity
+    )
+    eligible = measure(
+        points,
+        target,
+        4,
+        light=target[..., 0],
+        visible=visible,
+        opacity=opacity,
+        coverage=coverage,
+    )
+    assert source is not None
+    assert eligible is not None
+    assert 2.5 < eligible.width < 3.2 < source.width
+    np.testing.assert_array_equal(eligible.paint, source.paint)
+    np.testing.assert_array_equal(eligible.points[[0, -1]], points[[0, -1]])
+    assert np.abs(eligible.points[1:-1, 1] - 43.5).max() < 0.25
+    # Uniform opacity must not change the physical width or conditional centre.
+    full = measure(
+        points,
+        target,
+        4,
+        light=target[..., 0],
+        visible=visible,
+        opacity=opacity / alpha,
+        coverage=coverage,
+    )
+    np.testing.assert_array_equal(full.points, eligible.points)
+    assert full.width == eligible.width
+    # A real longitudinal gap remains a failed source proof.
+    target[40:45, 38:62] = 180
+    assert (
+        measure(
+            points,
+            target,
+            4,
+            light=target[..., 0],
+            visible=visible,
+            opacity=opacity,
+            coverage=coverage,
+        )
+        is None
+    )
+
+
+@pytest.mark.parametrize("alpha", [1, 0.5, 0.25])
+def test_clipped_peak_recovery_keeps_complete_source_ends_and_vector_carrier(alpha):
+    points, target, visible, opacity, _coverage = clipped_source_peak(alpha)
+    evidence, _ = drawing()
+    evidence = replace(evidence, target=target, empty=~visible, opacity=opacity)
+    source = measure(
+        points, target, 4, light=target[..., 0], visible=visible, opacity=opacity
+    )
+    assert source is not None
+    carrier = curve_path(parse_path("M8 42H92V88H8Z"))
+    fit = CarrierFit(evidence, carrier)
+    args = (
+        points,
+        source,
+        evidence,
+        Options(),
+        carrier,
+        Work.start(10),
+        False,
+        {"runs": 0, "points": 0},
+        target[..., 0],
+        visible,
+    )
+    assert carried(*args, opacity=opacity) == []
+    result = carried(*args, opacity=opacity, carrier_fit=fit)
+    assert len(result) == 1
+    part, proof, model, ceiling, cap = result[0]
+    np.testing.assert_array_equal(part, points)
+    np.testing.assert_array_equal(proof.points[[0, -1]], points[[0, -1]])
+    np.testing.assert_array_equal(proof.paint, source.paint)
+    assert cap == "round"
+    assert ceiling >= proof.width
+    outside = pathops.op(
+        curve_path(
+            footprint(Geometry("source", (model.contour,)), proof.width, cap=cap)
+        ),
+        carrier,
+        pathops.PathOp.DIFFERENCE,
+    )
+    assert abs(outside.area) <= 1e-8
+    assert fit.diagnostics["carrier_source"] == 1
+
+
+@pytest.mark.parametrize("alpha", [1, 0.5, 0.25])
+def test_carrier_cannot_borrow_another_source_ridge_across_a_real_profile_gap(alpha):
+    points, target, visible, opacity, _coverage = clipped_source_peak(alpha)
+    # The eligible lower mark is separate from the original source ridge.
+    target[48:51, 8:92] = 15
+    coverage = np.zeros((96, 96), np.float32)
+    coverage[48:] = 1
+    assert (
+        measure(
+            points, target, 4, light=target[..., 0], visible=visible, opacity=opacity
+        )
+        is not None
+    )
+    assert (
+        measure(
+            points,
+            target,
+            4,
+            light=target[..., 0],
+            visible=visible,
+            opacity=opacity,
+            coverage=coverage,
+        )
+        is None
+    )

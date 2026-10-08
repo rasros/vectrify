@@ -12,7 +12,7 @@ import hashlib
 import math
 from dataclasses import dataclass, replace
 
-from vectrify.document import Document
+from vectrify.document import Document, Geometry
 from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.refine import _bounds
@@ -76,6 +76,21 @@ def _outside(document, parent, ids, work):
     return visit(document.root)
 
 
+def _record(document, element, work):
+    if element.tag == "path":
+        return element, document.geometry_for(element.id)
+    # An untouched nested sibling is part of the seal, including geometry
+    # stored outside its element tree. It is never a declared edit target.
+    pending, geometries = [element], []
+    while pending:
+        _check(work)
+        child = pending.pop()
+        if child.geometry_id is not None:
+            geometries.append(document.geometry(child.geometry_id))
+        pending.extend(reversed(child.children))
+    return element, tuple(geometries)
+
+
 @dataclass(frozen=True)
 class ComponentEdit:
     parent: str
@@ -105,13 +120,14 @@ class ComponentEdit:
             group = ancestry[-1]
             if group.tag not in {"g", "svg"}:
                 raise ValueError("Component replacement requires one path container")
-            if any(c.tag != "path" or c.children for c in group.children):
+            if any(
+                c.tag not in {"path", "g"} or (c.tag == "path" and c.children)
+                for c in group.children
+            ):
                 raise ValueError("Component replacement cannot edit nested objects")
             groups.append(group)
             frames.append(tuple(replace(a, children=()) for a in ancestry))
-            records.append(
-                {c.id: (c, document.geometry_for(c.id)) for c in group.children}
-            )
+            records.append({c.id: _record(document, c, work) for c in group.children})
         if frames[0] != frames[1]:
             raise ValueError("Component replacement changed its parent frame")
         known = set(records[0]) | set(records[1])
@@ -119,6 +135,16 @@ class ComponentEdit:
             raise ValueError(
                 "Component replacement declares objects outside its parent"
             )
+        nested = {
+            oid
+            for record in records
+            for oid, (element, _) in record.items()
+            if element.tag != "path"
+        }
+        if nested & declared or any(
+            records[0].get(oid) != records[1].get(oid) for oid in nested
+        ):
+            raise ValueError("Component replacement cannot edit nested objects")
         if any(
             records[0].get(i) != records[1].get(i) and i not in declared for i in known
         ):
@@ -127,6 +153,7 @@ class ComponentEdit:
             old, geometry = records[0][oid]
             if records[0][oid] == records[1].get(oid):
                 continue
+            assert isinstance(geometry, Geometry)
             if any(a.locks for a in before.ancestry(oid)) or any(
                 n.pinned for s in geometry.subpaths for n in s.nodes
             ):

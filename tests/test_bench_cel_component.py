@@ -25,6 +25,8 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(monkeypatch, tmp
             "fractional",
             "--ink-fit",
             "carrier",
+            "--opacity-model",
+            "components",
             "--out",
             str(tmp_path),
         ],
@@ -38,6 +40,28 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(monkeypatch, tmp
     assert calls[0][1]["source_line_diagnostics"] is True
     assert calls[0][1]["ink_coverage"] == "fractional"
     assert calls[0][1]["ink_fit"] == "carrier"
+    assert calls[0][1]["opacity_model"] == "components"
+
+
+def test_cli_rejects_component_opacity_for_stroke_only_comparison(monkeypatch):
+    monkeypatch.setattr(
+        "sys.argv",
+        [
+            "bench_cel_component",
+            "--proposal",
+            "source-strokes",
+            "--opacity-model",
+            "components",
+        ],
+    )
+    monkeypatch.setattr(
+        bench,
+        "run",
+        lambda *_a, **_k: pytest.fail("Invalid opacity model reached benchmark"),
+    )
+    with pytest.raises(SystemExit) as raised:
+        bench.main()
+    assert raised.value.code == 2
 
 
 @pytest.mark.parametrize(

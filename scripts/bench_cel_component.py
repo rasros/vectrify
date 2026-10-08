@@ -39,6 +39,7 @@ from vectrify.refine.cel_plan.graph import build
 from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 from vectrify.refine.cel_plan.local import LocalPolicy
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
+from vectrify.refine.cel_plan.opacity_fields import OpacityFields
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.policy import Policy
 from vectrify.refine.cel_plan.proposals import Operators
@@ -68,9 +69,12 @@ def offered(
     composition_diagnostics=None,
     composition_layout="regions",
     composition_boundary_fit="curve",
+    opacity_model="paths",
+    opacity_diagnostics=None,
 ):
     """Only valid source-ink parents seed a bounded material composition pool."""
     parents = 0
+    opacity_parents = 0
     proposals = (
         factory.proposals(state, work)
         if isinstance(factory, SourceStrokes)
@@ -78,6 +82,43 @@ def offered(
     )
     for edit in proposals:
         yield state, edit
+        if (
+            opacity_model == "components"
+            and opacity_parents < 2
+            and not work.interrupted
+        ):
+            svg = export_svg(edit.document)
+            full = policy.evaluate(svg)
+            if full.valid and edit.partition is not None:
+                opacity_parents += 1
+                parent = State(
+                    edit.document,
+                    svg,
+                    LocalPolicy(policy).start(svg, full),
+                    "opacity-parent-" + digest(svg.encode())[:16],
+                    {**state.details, **(edit.details or {})},
+                    partition=edit.partition,
+                )
+                branch = operators.branch(edit.partition, work)
+                fields = OpacityFields(branch.evidence, branch.graph)
+                if opacity_diagnostics is not None:
+                    opacity_diagnostics.append(
+                        {
+                            "parent_svg_sha256": digest(svg.encode()),
+                            "diagnostics": fields.diagnostics,
+                        }
+                    )
+                for composed in fields(parent, work):
+                    yield (
+                        parent,
+                        replace(
+                            composed,
+                            details={
+                                **(edit.details or {}),
+                                **(composed.details or {}),
+                            },
+                        ),
+                    )
         if not compose_materials or parents >= 2 or work.interrupted:
             continue
         svg = export_svg(edit.document)
@@ -144,7 +185,12 @@ def run(
     composition_grouping="ward",
     composition_layout="regions",
     composition_boundary_fit="curve",
+    opacity_model="paths",
 ):
+    if opacity_model not in {"paths", "components"} or (
+        opacity_model != "paths" and proposal != "core-cells"
+    ):
+        raise ValueError("Component opacity models require a core-cell comparison")
     if ink_roles != "connected" and proposal != "core-cells":
         raise ValueError("Ink role alternatives require a direct core-cell comparison")
     if ink_coverage != "visible" and (
@@ -196,6 +242,7 @@ def run(
         preparation = {**preparation, "stroke_parent": "conservative-fallback"}
     rows, factory, status = [], None, "unsupported"
     composition_diagnostics = []
+    opacity_diagnostics = []
     source_profiles = [] if source_line_diagnostics else None
     if result is not None:
         svg, metadata = result
@@ -260,6 +307,8 @@ def run(
                     composition_diagnostics,
                     composition_layout,
                     composition_boundary_fit,
+                    opacity_model,
+                    opacity_diagnostics,
                 )
             ):
                 if edit.partition is None or edit.details is None:
@@ -302,6 +351,7 @@ def run(
                         "retained_source_strokes": edit.details.get(
                             "retained_source_strokes"
                         ),
+                        "opacity_fields": edit.details.get("opacity_fields"),
                         "component_sealed": sealed,
                         "complete_ownership": edit.partition.follows(partition),
                         "local_full_maximum_term_difference": agreement,
@@ -406,6 +456,9 @@ def run(
         if compose_materials
         else None,
         "composition_diagnostics": composition_diagnostics,
+        "opacity_model": opacity_model,
+        "opacity_parent_limit": 2 if opacity_model == "components" else 0,
+        "opacity_diagnostics": opacity_diagnostics,
         "boundary_fit": boundary_fit if proposal == "core-cells" else None,
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
         "ink_roles": ink_roles if proposal == "core-cells" else None,
@@ -481,7 +534,12 @@ def main():
         "--ink-coverage", choices=("visible", "fractional"), default="visible"
     )
     parser.add_argument("--ink-fit", choices=("source", "carrier"), default="source")
+    parser.add_argument(
+        "--opacity-model", choices=("paths", "components"), default="paths"
+    )
     args = parser.parse_args()
+    if args.opacity_model != "paths" and args.proposal != "core-cells":
+        parser.error("Component opacity models require --proposal core-cells")
     if args.compose_materials and args.proposal != "source-strokes":
         parser.error("Material composition requires --proposal source-strokes")
     if args.boundary_contacts and args.proposal != "source-strokes":
@@ -555,6 +613,7 @@ def main():
         composition_grouping=args.composition_grouping,
         composition_layout=args.composition_layout,
         composition_boundary_fit=args.composition_boundary_fit,
+        opacity_model=args.opacity_model,
     )
 
 

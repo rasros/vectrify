@@ -14,6 +14,175 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Connected source-opacity fields with unchanged editable ink
+
+The retained-owner audit found 254 faint paint paths outside the core's paint
+scope. A source-only main-silhouette underpaint probe finds **none** of them
+connected to the main sword. They belong to 135 independent physical components,
+so that hypothesis cannot replace them. This prevents treating a disconnected
+faint mark as a main-silhouette fringe or drawing across an empty source gap.
+
+`OpacityFields`, available explicitly through the offline component benchmark's
+`--opacity-model components`, instead coalesces the paint/alpha fragments of
+each complete connected source component. It uses the exact source-grid contour
+and an alpha-weighted flat source color at the component's maximum alpha.
+That paint has no weaker analysis samples. A field that would exceed the
+existing independent component-mass ceiling remains unavailable; all its old
+paths stay intact. The 5% alpha eligibility bound is a proposal scope, **not a
+discard threshold or native admission exemption**. Whole-component ownership,
+current split-atom namespace, original protections, private gradients, parent
+opacity and supported coordinate frames are checked. Mixed-component atoms or
+incomplete/protected source membership cannot supply a field.
+
+One sealed edit per parent replaces only the declared sibling paths. Untouched
+nested groups now remain permitted as sealed dependencies: their full element
+trees, separately stored geometry, paint resources and mutual order stay exact.
+They cannot be declared, inserted, removed or modified. All other component
+scope, bounds, locks/pins, stale-source and checkpoint checks remain. Limits
+are 1536² analysis pixels / 4,096 input paths and physical components / 128
+fields / 6,000 output nodes / four parent edits. Cancellation or a discovery
+limit publishes no partial field edit. At most two valid core proposals seed
+the offline composition pool; production scheduling and settings stay fixed.
+
+The conservative sword replaces **122 faint paths with 29 source fields**;
+six other components retain their original paths because maximum-alpha flat
+paint would be excessive. Every independent source component remains in the
+evidence ledger. **171 undeclared paths**, including every main material and
+all **32 editable stroke contours**, retain exact geometry, paint and ownership.
+The source atom ledger is unchanged at **54 entries / 120 children / 984 runs**.
+
+| Sword metric | Carrier parent | Connected opacity fields |
+| --- | ---: | ---: |
+| Nodes / contours / stroke contours | 1,973 / 329 / 32 | **1,631 / 237 / 32** |
+| Human MSE | 526.351791 | 526.356708 |
+| Handle MSE | 938.812864 | 938.812864 |
+| Tip / facet MSE | 731.541764 / 254.562171 | 731.546657 / 254.568358 |
+| Guard / jewel MSE | 1,111.202180 / 1,204.357647 | 1,111.202897 / 1,204.365684 |
+
+This saves **17.3% of nodes and 28.0% of contours** at effectively unchanged
+visual error. It is a representation gain, **not a handle or overall fidelity
+improvement**. Native alpha changes at 300 pixels, by at most 2/255; the minimum
+retained mass across the native policy's protected components is 98.51%.
+Native validity is not exact source-alpha equality. Fixed source diagnostics
+stay at 835 missing of 6,320 samples (13.21%) and five of seven inspected source
+gaps covered; the known source-line/gap failures remain. All four tuning families
+offer no additional opacity field and retain exact geometry/paint, saved/fresh
+RGBA and metrics. The residual weak representation still has **776 nodes / 162
+contours**, leaving a structural floor above the contour gate before the main
+materials and ink. Do not discard tiny marks or relax the coverage rules merely
+to pass counts. More expressive source-supported coverage models, faithful
+wrap junctions/missing chains and coherent regional facets remain necessary.
+
+Frozen source SHA-256:
+`6d02b3e28638d8b5b5d97a1de025cbd88069da44bb1222710b224d40ed151001`.
+Artifacts `.bench/cel-connected-opacity-fields` contain **20 complete matched
+reports / 38 native-valid proposals / 38 independent source-graph validations**,
+including one sealed field composition. Driver `9bcb9a4e...`, expanded matrix
+`0f04ac7f...`, and independent audit `7075e225...` reproduce artifact/source/
+mask/target/settings/normalizer identities, exact controls, source atom and
+ownership roundtrips, unchanged undeclared paint, native/component seals,
+local/full agreement, saved-project reload and own/fixed-bank diagnostics.
+Maximum local/full term difference remains 3.37757969e-9. The broad relevant
+suite passes **1,208 cases in 197.94 seconds**; the focused field/component/CLI
+suite passes 70 in 1.82 seconds. Ruff/import/format/whitespace checks pass;
+production Pyrefly reports zero errors and 62 existing warnings. Thirty-one
+additional cases cover gaps, holes, tiny marks, protected/incomplete ownership,
+split lineage, mixed-component atoms, namespace mismatch, excessive alpha,
+intentional faint opacity-step rejection, unchanged nested dependencies and
+rejection of their mutations, bounds/cancellation and explicit CLI delivery.
+Timings overlap regression work; no selected-operation runtime/memory gain is
+claimed. The 800 / 140 / 497.39 gate and all eight deliveries remain open.
+Generated references remain deferred; human repair is evaluation only.
+
+Prototype artifacts `.bench/cel-opacity-fringe-probe` and
+`.bench/cel-opacity-fringe-probe-v2` confirm the main-underpaint exclusion.
+`.bench/cel-connected-opacity-fields-probe` (driver `af85db9c...`, base
+`6c2b1222...`) explores exact and source-clipped contour fits without an edit
+seal. Exact contours give 1,631 / 237; 0.25/0.5 fits save only nine further nodes.
+A one-pixel fit fails native faint-component retention. These unsealed probes
+are diagnostic only; the final implementation uses exact source contours and
+normal sealed/native validation. An early synthetic large faint-opacity step
+also correctly fails native opacity-excess checks and remains a regression.
+
+### Source ridge eligibility and the retained-opacity floor
+
+Carrier-conditioned profiling now identifies the contiguous raw source ridge
+before multiplying by the replaceable carrier coverage. Previously, a darkest
+sample outside the carrier could make the entire ridge disappear, including
+its valid inner body. Source alpha normalization, raw support/gap evidence,
+paint and original ends remain; separate marks cannot lend width across a
+source gap. Nine controls at full/half/quarter opacity demonstrate the rejected
+valid body, its exact native footprint recovery, and rejection of a separate
+eligible mark. This corrects a real fitting defect, **without improving the
+current tuning artwork**.
+
+The frozen source at the ridge-only checkpoint is
+`6c2b1222381c5f9b8de5cbb81153c49b77e0db8a759ba435a154b0b405822824`.
+All **15 matched reports complete**, with **28 native-valid proposals and 28
+independent source-graph validations**, in `.bench/cel-source-ridge-eligibility-v2`.
+Driver `1306e84c...` and independent audit `9100ff76...` reproduce artifact,
+source/mask/settings/target/normalizer identities, fixed/own-bank diagnostics,
+ownership, seals, normal resource limits, native RGBA and project reloads.
+All rendered pixels and native/quality/line metrics equal the preceding carrier
+checkpoint. Default/source geometry and all four tuning-family geometries are
+exact. Two carrier-fitted sword paths have floating coordinate differences of
+at most **9.493e-9 native pixels**; their commands, paints, widths and endpoints
+remain the same. The first audit's exact canonical-geometry assertion therefore
+fails for that sword, before the final audit measures this difference explicitly.
+It supplies no exact-geometry claim. Maximum local/full term difference remains
+3.37757969e-9. The relevant suite passes **1,177 cases in 194.38 seconds**;
+Ruff/import/format/whitespace checks pass and production Pyrefly reports zero
+errors and 62 existing warnings. No defaults or native admission limits change.
+
+Retained-owner attribution changes the next quality priority. The core consumes
+1,403 paint paths, but **254 paths / 1,118 nodes / 254 contours** belong to a
+different paint parent and survive every current core proposal. Their intrinsic
+fill alpha is 1–7/255 (170 at one byte, 60 at two, 14 at three, and ten at four
+through seven). These retained paths alone exceed both the 800-node and
+140-contour targets. Another constrained base contributes 30 nodes. Further
+core stroke/material tuning cannot overcome that fixed floor. Source opacity
+contains 136 physical connected components, including 110 smaller than four
+pixels (166 pixels total); this is **not permission to discard them**. The 25
+independent faint supports from the native admission audit must still retain
+their own coverage. Next offer compact source-supported fringe/opacity models
+across the current paint scopes, preserving independent marks and source gaps,
+and region-guided material boundaries instead of unconstrained global planes.
+
+Source-only feasibility diagnostics also narrow the search. At the preceding
+source `1fe293e5...`, separately fitted connected pieces can recover three of
+eight failed complete chains; shared-anchor pieces recover two. Neither recovers
+the missing handle exterior chains. Joining the pieces as one genuinely
+continuous stroke recovers only one extra outer-guard body, but its changed
+grouping exceeds the unchanged atom budget and emits **no sword proposal**.
+The joined driver's initial alias collision is a failed, separately retained
+run; only the corrected terminal run supplies these counts. These experiments
+are not production operators and do not waive caps, paint/width compatibility,
+original endpoints, exact footprint proof or real gaps.
+
+Combining fitted/carrier ink with existing global material planes emits a valid
+coarse sword at normal limits (**1,419 nodes / 298 contours / MSE 3,208.11**).
+Its later prefixes exceed atom limits. A separately labelled capacity diagnosis
+at `7ff0ba93...` temporarily uses 256 entries / 512 children, solely to inspect
+later prefixes: even 24 material planes yield **1,676 / 327 / MSE 1,133.84**,
+and 32 planes exceed 512 children. All other limits and full native policy stay
+fixed; the temporary caps are restored before final verification. All five
+tuning reports complete with 87 proposal/graph validations **under those
+temporary caps**, explicitly `production=false, release_evidence=false`.
+More global planes or larger caps do not supply the coherent material grammar
+the quality goal needs. Human scoring happens only after generation. No held-out
+families, human repair geometry or new references tune these diagnostics.
+
+Artifacts: `.bench/cel-source-piece-fit-probe` (driver `6264fe4a...`),
+`.bench/cel-source-piece-fit-probe-v2` (`67e9010d...`),
+`.bench/cel-source-joined-fit-probe` (`c4c77671...`),
+`.bench/cel-fitted-carrier-planes-probe` (`af27db3f...`) and
+`.bench/cel-fitted-carrier-planes-capacity-diagnosis` (`fa32c0d7...`). The fixed
+profile loss audit locates most missing positive samples on exterior handle,
+pommel and guard chains; wrap junction errors remain independently visible.
+The 800 / 140 / 497.39 gate, source/feature/coverage fidelity, common-frontier
+selection and runtime/memory requirements remain open. All eight deliveries
+remain open and generated references stay deferred.
+
 ### Complete source-ended carrier fitting and direct atom partitions
 
 The latest experiment separates a physical fit failure from ledger exhaustion.
@@ -86,7 +255,7 @@ Next recover source-faithful wrap junctions and missing measured chains, retain
 real gaps through material reconstruction, and build coherent compact facets
 and supported opacity. Ranking cannot repair the missing alternatives.
 
-Current source SHA-256 is
+Source SHA-256 at this carrier checkpoint is
 `1fe293e547c261631dde9c01cc64a3394233c777f0a4c6dc74712128f17e94dc`.
 Artifacts are `.bench/cel-source-carrier-fit`; the matrix driver is
 `7e23dd3d0ae9382d8045b204bcdeea1bfd71c516cc378392d7316ea55875ffea`

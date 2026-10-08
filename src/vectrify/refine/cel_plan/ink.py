@@ -230,17 +230,13 @@ def _profile(
     # Limit width integration to the ridge near the center, not other marks
     # sampled outside it. A line override is applied later by the caller.
     cover[:, np.abs(offsets) > max(2, 2 * width)] = 0
+    eligible = None
     if coverage is not None:
         eligible = map_coordinates(
             coverage, coordinates, order=1, mode="constant", cval=0
         )
         if not np.isfinite(eligible).all() or np.any((eligible < 0) | (eligible > 1)):
             raise ValueError("Sampled carrier coverage must be finite in [0, 1]")
-        # Measure only source ink this actual carrier can replace. Raw source
-        # support/paint still come from the complete original profile. Unowned
-        # fringe ink remains independent; final vector footprints require an
-        # exact carrier proof, not this proposal mask's antialias coverage.
-        cover *= eligible
     if seen is not None:
         if opacity is not None:
             alpha = map_coordinates(
@@ -264,6 +260,13 @@ def _profile(
         components = np.cumsum(~active, axis=1)
         peak = components[np.arange(len(points)), location]
         cover *= active & (components == peak[:, None])
+    if eligible is not None:
+        # Establish the contiguous SOURCE ridge before clipping its coverage.
+        # Its darkest sample can lie outside the carrier while its inner ink
+        # remains replaceable. Clipping first would discard that entire ridge.
+        # Separate source marks still cannot lend width across a raw gap, and
+        # the resulting vector body must pass the exact carrier proof later.
+        cover *= eligible
     widths = cover.sum(axis=1) * 0.5
     measured_width = float(np.median(widths[supported]))
     if coverage is not None and measured_width < 0.8:
