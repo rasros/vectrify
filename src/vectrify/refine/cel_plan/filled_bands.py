@@ -43,6 +43,38 @@ MAX_NATIVE_PIXELS = 1536**2
 PROFILE_CHUNK = 1024
 
 
+def supported_style(document, oid):
+    """Flat ink can change representation without borrowing dormant effects."""
+    element = document.element(oid)
+    geometry = document.geometry_for(oid)
+    style = path_style(document, element)
+    if (
+        style["fill"] == "none"
+        or paint_server(style["fill"]) is not None
+        or style["stroke"] != "none"
+        or any(
+            a.get("clip-path", "none") != "none" or a.locks
+            for a in document.ancestry(oid)
+        )
+        or any(
+            a.get(key, "none") != "none"
+            for a in document.ancestry(oid)
+            for key in (
+                "filter",
+                "mask",
+                "marker-start",
+                "marker-mid",
+                "marker-end",
+                "stroke-dasharray",
+                "vector-effect",
+            )
+        )
+        or any(n.pinned for s in geometry.subpaths for n in s.nodes)
+    ):
+        return None
+    return style
+
+
 def _check(work):
     if work.interrupted:
         raise StageInterruptedError("Filled band inversion interrupted")
@@ -235,34 +267,13 @@ class FilledBands:
             _check(work)
             if surface.role == "underlay":
                 continue
-            element = document.element(surface.id)
             geometry = document.geometry_for(surface.id)
-            style = path_style(document, element)
+            style = supported_style(document, surface.id)
             area = sum(self.graph.regions[i].area for i in surface.members)
             if (
                 not area
                 or sum(self.ink[i] for i in surface.members) < area * 0.6
-                or style["fill"] == "none"
-                or paint_server(style["fill"]) is not None
-                or style["stroke"] != "none"
-                or any(
-                    a.get("clip-path", "none") != "none" or a.locks
-                    for a in document.ancestry(surface.id)
-                )
-                or any(
-                    a.get(key, "none") != "none"
-                    for a in document.ancestry(surface.id)
-                    for key in (
-                        "filter",
-                        "mask",
-                        "marker-start",
-                        "marker-mid",
-                        "marker-end",
-                        "stroke-dasharray",
-                        "vector-effect",
-                    )
-                )
-                or any(n.pinned for s in geometry.subpaths for n in s.nodes)
+                or style is None
             ):
                 continue
             eligible.append(

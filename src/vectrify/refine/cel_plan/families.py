@@ -121,6 +121,7 @@ class Families:
         self._piecewise_models = None
         self._core_models = None
         self._joint_models = None
+        self.band_planner = None
 
     def _same_ink(self, edge: Boundary, work: Work) -> bool:
         """An internal paint partition is not a gap in a continuous dark mark.
@@ -565,7 +566,7 @@ class Families:
             # Reserve the source-contour rebuild for substantial fragmentation.
             self._core_models = CoreCells(self, self.options, minimum_paths=32)
         if self._joint_models is None and self.options.quality == "high":
-            self._joint_models = JointCells(self, self.options)
+            self._joint_models = JointCells(self, self.options, bands=self.band_planner)
         # A High-quality seed beyond the small local-edit object bound gets
         # one joint opportunity before broad surface scans consume its window.
         # Smaller seeds keep the ordinary surface opportunity first. The

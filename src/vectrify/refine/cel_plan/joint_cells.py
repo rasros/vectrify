@@ -21,9 +21,10 @@ class JointCells:
     this invocation and is released even on cancellation or a failed boolean.
     """
 
-    def __init__(self, families, options, *, minimum_paths=32):
+    def __init__(self, families, options, *, minimum_paths=32, bands=None):
         self.families, self.options = families, options
         self.minimum_paths = minimum_paths
+        self.bands = bands
         self.diagnostics = {
             "calls": 0,
             "proposals": 0,
@@ -81,7 +82,7 @@ class JointCells:
                         return
                     count += 1
                     self.diagnostics["proposals"] += 1
-                    yield replace(
+                    planned = replace(
                         proposal,
                         parameters=(*proposal.parameters, ("ink-fit", modes[index])),
                         details={
@@ -89,6 +90,24 @@ class JointCells:
                             "joint_cell_search": {"ink_fit": modes[index]},
                         },
                     )
+                    yield planned
+                    if self.bands is not None and modes[index] == "source-widths":
+                        alternatives = iter(self.bands(state, planned, work))
+                        try:
+                            while not work.interrupted:
+                                if count >= MAX_PROPOSALS:
+                                    self.diagnostics["bounded"] += 1
+                                    return
+                                alternative = next(alternatives, None)
+                                if alternative is None or work.interrupted:
+                                    break
+                                count += 1
+                                self.diagnostics["proposals"] += 1
+                                yield alternative
+                        finally:
+                            close = getattr(alternatives, "close", None)
+                            if close is not None:
+                                close()
         finally:
             for cursor in cursors:
                 cursor.close()

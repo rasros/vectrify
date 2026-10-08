@@ -24,6 +24,7 @@ from vectrify.document.paint import hex_colour, mean_colour
 from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan import constraints as chains
+from vectrify.refine.cel_plan.band_plans import BandPlans
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.filled_bands import FilledBands
 from vectrify.refine.cel_plan.geometry import fitted
@@ -101,6 +102,14 @@ class Operators:
             else None
         )
         self.families = Families(evidence, graph, options)
+        if filled_bands:
+            self.families.band_planner = BandPlans(
+                evidence,
+                graph,
+                self._root.graph,
+                guard=self._root.band_guard,
+                width_fixed=options.line_width > 0,
+            )
         self.opacity_fields = OpacityFields(evidence, graph)
         self.replacements = InkReplacement(evidence, graph, options)
         self.ridges = SourceRidges(evidence, graph, options, resolver=self._root.branch)

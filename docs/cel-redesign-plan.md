@@ -59,15 +59,30 @@ they are excluded rather than pruned into a longest stroke. This is not enabled
 in ordinary experimental High.
 
 Native source-line comparison now protects each original measured gap position;
-opening one gap cannot compensate for completing another. An isolated main-blade
-probe produces an 18-node connected stroke from its 53-node filled contour but
-still completes one protected gap, so it is not admitted. Retaining its seven
-independent marks also needs exact source-class separation: one current atom
-spans the blade and several marks, and the material parent's 64-entry split
-ledger is already full. Neither resource limits nor source-gap thresholds rise
-to accept that probe. Next fit the native body locally under these constraints
-and compose stroke/mark ownership before material splitting exhausts the shared
-ledger. Detailed evidence and remaining gates stay in the progress file.
+opening one gap cannot compensate for completing another. The compound-band
+competitor now co-plans the blade stroke and seven exact independent marks from
+the ordinary material proposal's ancestor. Source-class replay retains the
+ancestor ledger prefix and stays within the existing 64-entry limit. It never
+rewrites a finished material namespace or assigns the separate marks to the
+stroke. Four already unrepresented source pixels keep their existing ownership;
+this is not a claim that the stroke geometrically covers them.
+
+A bounded fitting ladder rejects the 0.25-pixel blade fit and admits a 0.15-pixel,
+35-node connected stroke. At most five width alternatives vary the measured
+width by min(0.25 pixels, 10 percent), with complete native source comparison for
+each; explicit width settings do not get width adjustments. The source-only
+captured-proposal audit admits four alternatives. Width 2.318235468864441 beats
+the preserved filled material proposal under the unchanged objective at every
+complexity value. All independent material paths and mark contours remain exact;
+the result has 2,923 nodes, 414 contours and 31 stroke contours. The original
+source raster alone supplies line observations; the human repair remains absent.
+
+This is offline candidate/selection evidence, not a completed outline release or
+actual-operation result. The co-planned alternative is available through the
+explicit `Operators(filled_bands=True)` joint cursor. Ordinary experimental High
+still does not enable that flag. Remaining blade/guard/handle outlines, complete
+operation scheduling, runtime/memory and the eight delivery/release gates remain
+open. Detailed identities, verification and pending work stay in the progress file.
 
 The preceding checkpoint shares complete physical source extraction between the
 original-width and fitted-width interpretations. `JointCells` alternates both

@@ -59,6 +59,94 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Co-planned blade stroke with exact marks and ordinary selection
+
+`band_plans.py` extends the explicit `Operators(filled_bands=True)` experiment.
+The fitted main blade now becomes one connected editable stroke rather than a
+filled outline band. The seven independent marks remain exact filled contours,
+and every other material/ink path element and geometry remains exact. This
+addresses the owner's representation feedback without changing the shadows or
+using the human drawing's source repair.
+
+A direct post-parent split would need a 65th entry. Instead the alternative
+replays the ordinary material proposal's complete scoped source classification
+from the same ancestor. The immutable ancestor prefix stays intact; this is a
+sibling material interpretation, never a mutation claiming to extend the
+finished parent's ledger. Source-component classification separates only marks
+with unambiguous nearby geometric support. Ambiguous connected components
+exclude the conversion. Four original source pixels already absent from both
+old fill components inherit their existing main-band ownership. No new paint or
+geometric support is claimed there, and the complete source comparison remains
+mandatory. Exact RLE, primary ownership, hidden coverage, graph replay and sealed
+component validation use the unchanged ledger limits.
+
+The fitter tries tolerances 0.25, 0.15 and 0.1 pixels. It uses the first geometry
+that supplies valid alternatives, without pruning independent marks. Widths
+compete within min(0.25 pixels, 10 percent) of the intrinsic median, at most five
+per material proposal; explicit width settings freeze these adjustments. The
+ownership classification and ledger replay are shared across width variants;
+actual raster coverage is recomputed for each. The optional joint cursor offers
+the ordinary material first, then bounded co-planned alternatives, all within
+its existing 64-proposal allowance. Default scheduling remains unchanged.
+
+The reproducible source-only replay command is:
+
+```sh
+PYTHONPATH=src:. python scripts/bench_cel_band_plans.py --case sword \
+  --captured .bench/cel-band-capture --out .bench/cel-band-plans-verified
+```
+
+The captured ancestor and material project documents retain exact element and
+component identities. The capture is a preserved development hypothesis, not a
+new complete material-pool or operation benchmark. Replay decodes only the source
+raster from `sword.vectrify`, never the human document. The final source hash is
+`772db772203c90c1d3210a49b121dc7dc8404ac1e47c73f7b73f29708a32013a`.
+
+The completed replay excludes six body/width alternatives and publishes four
+native-valid proposals. Every proposal has a 35-node blade stroke, seven exact
+mark contours, all 64 source split entries, zero newly completed measured gaps,
+13,145 qualified source samples and 1,634 missing samples. Original gaps already
+completed by the parent are not repaired or waived. Complete ownership and
+component validation, exact local/native RGBA, project reload and unchanged
+independent paths pass. Maximum score-term discrepancy is 6.942918358288086e-10.
+The drawing changes from 2,941 nodes / 414 contours / 30 stroke contours to
+**2,923 / 414 / 31**.
+
+Width **2.318235468864441** (`candidate-3.svg`) improves the unchanged objective
+against the material parent at every integer slider value. The captured
+ancestor's validated normalizer is 20,818. The shared offline frontier chooses
+that alternative at all five advertised checkpoints. Its Detailed objective
+improvement is approximately 0.0001059; this is a representation improvement on
+one major band, not a large whole-image quality claim or sufficient slider
+tradeoff evidence. Wider 0.15-pixel fits that complete source gaps remain excluded.
+
+Portable controls cover saturated cut allocation from the actual ancestor,
+nonempty branch prefixes, native/local scoring, project reload, affine frames,
+partial opacity, exact independent marks/shadows, unsupported holes/nesting,
+ambiguous source components, inherited absent source pixels, explicit widths,
+cancellation and unchanged default scheduling. The relevant broad suite passed
+333 tests. After the final cursor lifetime change, 60 focused controls passed,
+including three new assertions that closing, cancellation or the proposal limit
+releases the alternative generator without computing one more edit. Ruff,
+formatting and whitespace checks pass; Pyrefly reports zero errors and the same
+62 existing warnings.
+
+The final captured-proposal replay completed in **122.43 seconds**, with process
+peak RSS **742,564 KiB (about 725 MiB)** under `/usr/bin/time -v`. This includes
+original evidence/graph construction, proposal replay, full/local verification,
+frontier selection, project serialization/reload and artifact rendering while
+the focused tests ran concurrently. It does not isolate generation latency or
+cache memory, establish the operation deadline, or pass the plan's process-memory
+release gate. These measurements expose a performance problem to investigate,
+rather than a reason to enable the competitor by default.
+
+Complete operation selection, bounded production latency/memory, broad outline
+and junction conversion, calibrated editing review and all eight delivery/release
+gates remain pending. New references and learned ranking remain deferred while
+the remaining outlines are developed.
+
+### Previous complete-owner inversion checkpoint
+
 ### Complete filled-band inversion and the remaining blade split
 
 `filled_bands.py` adds an explicit `Operators(filled_bands=True)` competitor.
