@@ -116,6 +116,38 @@ def measure_link(
     )
 
 
+def measure_closed(points, target, width, *, light=None, visible=None, opacity=None):
+    """Measure an existing closed perimeter without inventing an endpoint.
+
+    Two-step cyclic tangents avoid zero normals at pixel staircases. The seam
+    receives the same source-centering rule as the rest of the perimeter; it
+    is a serialization choice, rather than a physical source terminal. Open
+    source chains continue to use their unchanged endpoint-anchored contract.
+    """
+    points = np.asarray(points, float)
+    if (
+        points.ndim != 2
+        or points.shape[1] != 2
+        or len(points) < 5
+        or not np.isfinite(points).all()
+        or not np.array_equal(points[0], points[-1])
+        or not np.isfinite(width)
+        or width <= 0
+    ):
+        raise ValueError("Closed ink requires a finite existing closed perimeter")
+    if np.linalg.norm(np.diff(points, axis=0), axis=1).sum() < max(8, 4 * width):
+        return None
+    return _profile(
+        points,
+        target,
+        width,
+        light=light,
+        visible=visible,
+        opacity=opacity,
+        cyclic=True,
+    )
+
+
 def _profile(
     points,
     target,
@@ -128,13 +160,19 @@ def _profile(
     strict=False,
     joined=None,
     paint=None,
+    cyclic=False,
 ):
     if opacity is not None and (opacity.shape != target.shape[:2] or visible is None):
         raise ValueError("Source opacity must align with target and visibility")
     if coverage is not None and (coverage.shape != target.shape[:2] or visible is None):
         raise ValueError("Carrier coverage must align with target and visibility")
     step = np.linalg.norm(np.diff(points, axis=0), axis=1)
-    tangent = np.gradient(points, axis=0)
+    if cyclic:
+        source = points[:-1]
+        tangent = np.roll(source, -2, axis=0) - np.roll(source, 2, axis=0)
+        tangent = np.vstack((tangent, tangent[0]))
+    else:
+        tangent = np.gradient(points, axis=0)
     normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
     normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-6)
     reach = max(3, 2.5 * width)
@@ -283,7 +321,10 @@ def _profile(
     centered = np.where(supported[:, None], centered, points)
     if strict:
         centered[joined] = points[joined]
-    centered[0], centered[-1] = points[0], points[-1]
+    if cyclic:
+        centered[-1] = centered[0]
+    else:
+        centered[0], centered[-1] = points[0], points[-1]
     return Ink(centered, max(0.8, measured_width), ink, share, peak_gap)
 
 

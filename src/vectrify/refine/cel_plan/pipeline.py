@@ -444,6 +444,12 @@ def vectorize(
                     "opacity_fields": dict(operators.opacity_fields.diagnostics),
                     "ink_replacement": dict(operators.replacements.diagnostics),
                     "source_ridges": dict(operators.ridges.diagnostics),
+                    "source_strokes": dict(operators.strokes.diagnostics),
+                    "source_silhouette_strokes": dict(
+                        operators.strokes.silhouettes.diagnostics
+                    )
+                    if operators.strokes.silhouettes is not None
+                    else {},
                     "source_ridge_models": dict(operators.ridges.rim_diagnostics),
                     "source_ridge_underpaint_rejections": dict(
                         operators.ridges.underpaint_rejections

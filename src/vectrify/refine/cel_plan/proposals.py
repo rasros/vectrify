@@ -43,6 +43,7 @@ from vectrify.refine.cel_plan.refine import (
 from vectrify.refine.cel_plan.score import composite
 from vectrify.refine.cel_plan.search import Proposal, State
 from vectrify.refine.cel_plan.source_ridges import SourceRidges
+from vectrify.refine.cel_plan.source_strokes import SourceStrokes
 from vectrify.refine.crossings import crossings
 
 MAX_OPERATOR_ITEMS = 64
@@ -87,6 +88,15 @@ class Operators:
         self.opacity_fields = OpacityFields(evidence, graph)
         self.replacements = InkReplacement(evidence, graph, options)
         self.ridges = SourceRidges(evidence, graph, options, resolver=self._root.branch)
+        self.strokes = SourceStrokes(
+            evidence,
+            graph,
+            options,
+            resolver=self._root.branch,
+            boundary_contacts=True,
+            outlines=True,
+            perimeter_only=True,
+        )
         self.overlays = ClosedOverlays(
             evidence,
             graph,
@@ -459,6 +469,7 @@ class Operators:
         ]
         if self.options.quality == "high":
             iterators.append(iter(self.opacity_fields(state, work)))
+            iterators.append(iter(self.strokes(state, work)))
         alive = set(range(len(iterators)))
         try:
             for cycle in range(MAX_OPERATOR_ITEMS):

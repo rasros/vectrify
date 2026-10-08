@@ -51,13 +51,21 @@ class SourceProfile:
     direction: np.ndarray
     tolerance: np.ndarray
     component: tuple[str, int] | None = None
+    terminals: tuple[bool, bool] = (True, True)
 
     @classmethod
-    def from_ink(cls, original, ink, evidence, *, component=None):
+    def from_ink(cls, original, ink, evidence, *, component=None, cyclic=False):
         # A short link's proof is densified before measuring; ordinary proofs
         # retain the original skeleton tangents instead of centred jitter.
         original = original if len(original) == len(ink.points) else ink.points
-        tangent = np.gradient(original, axis=0)
+        if cyclic:
+            if len(original) < 5 or not np.array_equal(original[0], original[-1]):
+                raise ValueError("Cyclic source profiles require a closed perimeter")
+            source = original[:-1]
+            tangent = np.roll(source, -2, axis=0) - np.roll(source, 2, axis=0)
+            tangent = np.vstack((tangent, tangent[0]))
+        else:
+            tangent = np.gradient(original, axis=0)
         normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
         normal /= np.maximum(np.linalg.norm(normal, axis=1, keepdims=True), 1e-6)
         native = normal / evidence.scale
@@ -68,6 +76,7 @@ class SourceProfile:
             _readonly(native / np.maximum(length[:, None], 1e-6)),
             _readonly(np.clip(ink.width * length / 2, 0.5, 2)),
             component,
+            (False, False) if cyclic else (True, True),
         )
 
     @classmethod
@@ -133,6 +142,7 @@ class SourceProfile:
             interpolate(self.direction),
             interpolate(self.tolerance),
             self.component,
+            self.terminals,
         )
 
 
@@ -264,6 +274,11 @@ def _prepare(
 def _endpoint_gap(a, b, end_a, end_b):
     """Observe a short, facing gap; never create a stroke connection."""
     pa, pb = a[0], b[0]
+    if (
+        not pa.terminals[0 if end_a == 0 else 1]
+        or not pb.terminals[0 if end_b == 0 else 1]
+    ):
+        return None
     near_a = a[3][:8] if end_a == 0 else a[3][-8:]
     near_b = b[3][:8] if end_b == 0 else b[3][-8:]
     if not near_a.any() or not near_b.any():

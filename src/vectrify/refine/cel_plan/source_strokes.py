@@ -13,6 +13,7 @@ import time
 from dataclasses import replace
 
 import numpy as np
+import pathops
 
 from vectrify.document import Editor, Selection
 from vectrify.document.join import (
@@ -27,7 +28,12 @@ from vectrify.refine.cel_plan.atoms import Atoms
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.constraints import discard
 from vectrify.refine.cel_plan.fill_winding import resolved
-from vectrify.refine.cel_plan.ink_models import models
+from vectrify.refine.cel_plan.ink_models import (
+    carrier_width,
+    footprint,
+    models,
+    owned_model,
+)
 from vectrify.refine.cel_plan.ink_replace import (
     MAX_COMPONENT_NEIGHBORS,
     MAX_NODES,
@@ -40,6 +46,7 @@ from vectrify.refine.cel_plan.model import StageInterruptedError, Work
 from vectrify.refine.cel_plan.nested import opaque_fill
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.search import Proposal
+from vectrify.refine.cel_plan.silhouette_ink import SilhouetteInk
 from vectrify.refine.cel_plan.source_ridges import SourceRidges
 from vectrify.refine.colour_regions import colour
 from vectrify.refine.crossings import crossings
@@ -51,10 +58,25 @@ MAX_CONTACT_PATHS = 256
 
 class SourceStrokes:
     def __init__(
-        self, evidence, graph, options, *, resolver=None, boundary_contacts=False
+        self,
+        evidence,
+        graph,
+        options,
+        *,
+        resolver=None,
+        boundary_contacts=False,
+        outlines=False,
+        perimeter_only=False,
     ):
+        if perimeter_only and not outlines:
+            raise ValueError(
+                "Perimeter-only proposals require source outline discovery"
+            )
         self.evidence, self.graph, self.options = evidence, graph, options
         self.boundary_contacts = boundary_contacts
+        self.perimeter_only = perimeter_only
+        self.silhouettes = SilhouetteInk(evidence, options) if outlines else None
+        self._outline_models = None
         self.cutter = SourceRidges(
             evidence,
             graph,
@@ -75,10 +97,47 @@ class SourceStrokes:
                 "cuts",
                 "time_bounded",
                 "restoration_neighbors_peak",
+                "outline_carrier_exclusions",
+                "outline_retained_exclusions",
             ),
             0,
         )
         self.restoration_rejections = {}
+
+    def retained_strokes(self, state, work):
+        """Prove exterior replacement does not duplicate an existing stroke.
+
+        Its own local width is expanded before applying the actual frame,
+        preserving anisotropic/sheared bodies. Unsupported stroke styles or
+        excessive existing geometry exclude this optional interpretation.
+        """
+        bodies = []
+        nodes = 0
+        for element in state.document.elements():
+            if work.interrupted:
+                return None
+            if element.tag != "path":
+                continue
+            style = path_style(state.document, element)
+            if style["stroke"] == "none":
+                continue
+            geometry = state.document.geometry_for(element.id)
+            nodes += sum(len(s.nodes) for s in geometry.subpaths)
+            if nodes > MAX_NODES or len(bodies) >= MAX_CONTACT_PATHS:
+                return None
+            cap, join = style["stroke-linecap"], style["stroke-linejoin"]
+            if cap not in {"round", "butt"} or join != "round":
+                return None
+            try:
+                width = float(style["stroke-width"])
+            except ValueError:
+                return None
+            if not np.isfinite(width) or width <= 0:
+                return None
+            body = footprint(geometry, width, cap=cap)
+            body = transformed_geometry(body, root_matrix(state.document, element.id))
+            bodies.append(curve_path(body))
+        return None if work.interrupted else tuple(bodies)
 
     def carriers(self, state, work):
         document = state.document
@@ -163,25 +222,68 @@ class SourceStrokes:
         document, graph, evidence = state.document, self.graph, self.evidence
         emitted = 0
         seen = set()
+        if self.silhouettes is not None and self._outline_models is None:
+            outline_models = self.silhouettes(work)
+            if work.interrupted:
+                return
+            # Only complete source discovery is cached, including a proved
+            # empty pool. Ownership and current carrier proofs remain per state.
+            self._outline_models = outline_models
+        retained = self.retained_strokes(state, work) if self._outline_models else ()
         for members, carrier in self.carriers(state, work):
             if work.interrupted:
                 return
             support = np.isin(graph.labels, members)
             ink = support & evidence.drawn & ~evidence.empty
             self.diagnostics["cores"] += 1
-            found = models(
-                ink,
-                evidence,
-                self.options,
-                work,
-                carrier=carrier,
-                prune_spurs=True,
-                boundary_contacts=self.boundary_contacts,
+            found = (
+                ()
+                if self.perimeter_only
+                else models(
+                    ink,
+                    evidence,
+                    self.options,
+                    work,
+                    carrier=carrier,
+                    prune_spurs=True,
+                    boundary_contacts=self.boundary_contacts,
+                )
             )
             # A material candidate must be able to retain every compatible
             # source style together. Cut and restore their union once; publishing
             # a prefix would make later styles compete with its overlay owners.
             groups = [tuple(found)] if len(found) > 1 else []
+            for model in self._outline_models or ():
+                if retained is None or any(
+                    abs(
+                        pathops.op(
+                            curve_path(model.footprint),
+                            body,
+                            pathops.PathOp.INTERSECTION,
+                        ).area
+                    )
+                    > 1e-8
+                    for body in retained
+                ):
+                    self.diagnostics["outline_retained_exclusions"] += 1
+                    continue
+                owned = owned_model(model, support, evidence, work)
+                ceiling = (
+                    carrier_width(
+                        owned.geometry,
+                        owned.details["width"],
+                        carrier,
+                        work,
+                        fixed=True,
+                        cap=owned.details["linecap"],
+                    )
+                    if owned is not None
+                    else None
+                )
+                if owned is None or ceiling is None:
+                    self.diagnostics["outline_carrier_exclusions"] += 1
+                    continue
+                groups.append((owned,))
             groups.extend((model,) for model in found)
             for group in groups:
                 if work.interrupted or emitted >= MAX_PROPOSALS:

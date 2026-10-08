@@ -59,6 +59,131 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Source-perimeter stroke interpretation
+
+The current checkpoint adds a source-perimeter primitive and connects it to the
+experimental High-quality reserved operator cycle through `SourceStrokes`.
+Foreground/alpha contours supply geometric candidates independently of the
+selected opaque material carrier. Painted-side ridge evidence supplies centers,
+widths and paint; the source-only native absence contract still tests the complete
+actual stroke body. A geometric perimeter never authorizes closing an ink gap.
+
+Closed profiles use cyclic normals and centering, avoiding a fake anchored seam.
+Overlapping bounded observations retain every measured perimeter center and its
+original-source normal and native gap neighborhood. Their serialization/chunk
+boundaries explicitly have no physical terminals, so they cannot authorize facing-endpoint gap probes. Ordinary
+source profiles retain their previous endpoint behavior. Raw source observations
+are collected before current owner/carrier eligibility and remain constraints even
+when those source chains cannot themselves export as strokes.
+
+Application retains complete eligible contours, proves their exact native footprint
+inside the existing carrier, excludes overlap with retained stroke bodies, then
+uses source cuts, existing-material continuation, ordering, ownership and component
+seals. Stroke widths expand in each retained path's local frame before its native
+transform; an unproved existing stroke style conservatively excludes the optional
+perimeter interpretation. Rejected/interrupted discovery publishes no partial bank.
+Complete source banks are cached within the operator instance; carrier/ownership
+proofs are repeated against each current state. This is bounded retained primitive
+state, not a process or aggregate memory-gate measurement.
+
+Bounds remain explicit: at most 16 visible components / 16 loops / 16,384 raw
+perimeter points, width seeds at most 16 analysis pixels, eight published hypotheses
+and 16 MiB of retained selection masks. Existing native sample/tile/body, local
+crop, node, atom and branch limits still apply. High reserves the new source-stroke
+cursor after the existing opacity slot, restricted to these perimeter hypotheses;
+Fast/Balanced retain their existing slots.
+A separate quarter-window bounds this optional operator against the shared deadline.
+
+Native fixture checks prove that selected filled ink can become one actual
+`fill="none"` closed editable stroke, rather than an additive outline over retained
+ink. Surrounding and interior paint, native alpha, source ownership, local/full
+rasters and project reload agree. Other controls cover opacity-independent width,
+serialization-seam invariance, hidden RGB, real source gaps, constant dark material,
+retained strokes, absent carriers, bounds, cancellation and reserved-slot scheduling.
+These successful fixtures do not establish an artwork-quality improvement.
+
+The source-only bank at `.bench/cel-silhouette-bank-final` inspects all five
+existing tuning artworks and emits **zero usable new perimeter models**. On the
+sword it retains 99 independent raw source profiles and inspects three measured
+perimeters, all excluded for crossed geometry; remaining source components and
+width trials hit explicit size/allocation bounds. The four tuning families fail the complete
+perimeter ridge test. This diagnoses whole-perimeter interpretation as insufficient,
+not a new quality result or evidence to relax the native contract.
+
+A separate bounded fitting diagnostic smooths the measured sword perimeter and
+tries 0.25/0.75/1.5-pixel fitting tolerances. Some fits remove self-intersections,
+but all still fail native source-gap checks. Smoothing alone therefore does not
+justify an outline replacement. These variants remain outside the published pool.
+Next recover complete source-supported runs around corners and real gaps, preserve
+physical junctions, and compose their exterior coverage with the useful material
+candidate. No source gap, alpha proof or human repair is waived. The full goal and
+all eight deliveries remain open; generated-reference collection remains deferred.
+
+The frozen algorithm source SHA-256 is
+`7979116e724523a4a91d41d1b15dfb1a0b7b307b3af90a5c220db1443077a035`.
+The relevant suite passes **1,431 tests in 225.04 seconds**, including 21 new
+perimeter/application controls. Ruff, formatting and whitespace checks pass;
+Pyrefly reports zero errors and the existing 62 warnings.
+
+Fresh `.bench/cel-silhouette-material-final` pools and their independent audit
+match both preceding material interpretations exactly: **113 native-valid drawings,
+113 complete source-graph validations and 68 native body/cap checks**. Raw source
+banks, geometry/paint diagnostics, native RGBA, representation and evaluation
+metrics agree. Local/full term disagreement remains below **3.604e-9**; project
+reload and fresh PNG pixels match. The fitted Detailed sword remains **2,941 nodes /
+414 contours / 30 editable stroke contours / human MSE 508.055591**. Preserving this
+candidate is not evidence that the new perimeter route improves its filled outline.
+
+The source-bank diagnostic driver SHA-256 is
+`f7ad7663d944725eb92d6fd6fe97050c79fb2e18fbdf3211fa75506b8a38d07d`;
+the independent material-pool driver is
+`6c231f1da6e94ea8cadd9308ffac3594b754eb4ef9821983f003c652822815d7`.
+The fitting trials are recorded separately at
+`.bench/cel-perimeter-fit-retries-current` at the preceding `96d55591` source; they
+supply no admitted drawing. The restricted scheduling guard does not change that
+primitive fitting code.
+
+The first native-operation scheduling probe at source `96d55591` also exposed
+an unintended legacy cursor fallback: a source-stroke edit was selected on western
+park, reaching 303 nodes / 34 contours / 14 stroke contours but worsening clean MSE
+to 198.598485. It is not an outline-quality gain. The new reserved cursor is now
+explicitly `perimeter_only`, with a regression preventing legacy discovery from
+running through it. Existing offline/source-material interpretations remain
+independently available. That negative prototype is preserved at
+`.bench/cel-silhouette-operation-current`; it is not final-source evidence.
+
+Final `.bench/cel-silhouette-operation-final` probes use actual Generate,
+High quality, complexity 50, automatic refinement and the unchanged 60-second
+allowance. Every completed operation shares the frozen source identity above.
+Human/clean scoring follows generation and source selection.
+
+| Case | Nodes | Contours | Stroke contours | Target MSE | Seconds |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| sword | 1,976 | 327 | 30 | 525.610441 | 53.60 |
+| anime-girl | 174 | 26 | 1 | 162.263271 | 29.75 |
+| anime-face | 166 | 16 | 0 | 227.977474 | 40.83 |
+| western-park | 322 | 34 | 13 | 194.747921 | 31.10 |
+| rubberhose-band | 252 | 34 | 21 | 160.615209 | 33.67 |
+
+No new perimeter interpretation is selected. The sword retains the preceding
+original-width material interpretation, rather than the fitted Detailed drawing;
+the two-node reduction is not an outline-quality gain. The rejected legacy park
+fallback is absent from the final run. These isolated probes do not establish
+repeatability or score calibration; the earlier dense sword fallbacks and park
+clean-error regression remain evidence of those open gates.
+
+An independent operation audit checks actual native hard validity, the original
+source-graph ledger, byte-equivalent saved PNG pixels, project save/reload native
+RGBA and the allowance on all five cases. Generate deliberately assigns fresh
+object IDs through `fresh_ids` to avoid collisions. Planning metrics retain the
+original planner namespace, so the audit does **not** claim that those diagnostic
+IDs bind directly to the renamed operation document. Its first direct-binding
+attempt failed on that expected namespace change; all native/render checks pass.
+The operation driver SHA-256 is
+`f37b7c16c7ec5cc909400e5dad43344b77db39fa9959a5983b6775e9bc63d433`.
+These operation controls do not close outline, editing, aggregate/process-memory,
+held-out, blind-review or release gates. The full implementation goal stays active.
+
 ### Shared physical extraction and experimental native search scheduling
 
 `JointCells` now alternates the complete original-width `source-intervals`
