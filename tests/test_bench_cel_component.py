@@ -30,6 +30,8 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(
             ink_fit,
             "--opacity-model",
             "components",
+            "--facet-fit",
+            "regional",
             "--out",
             str(tmp_path),
         ],
@@ -44,6 +46,26 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(
     assert calls[0][1]["ink_coverage"] == "fractional"
     assert calls[0][1]["ink_fit"] == ink_fit
     assert calls[0][1]["opacity_model"] == "components"
+    assert calls[0][1]["facet_fit"] == "regional"
+
+
+@pytest.mark.parametrize(
+    "extra", [[], ["--ink-support", "connected"], ["--proposal", "source-strokes"]]
+)
+def test_cli_rejects_inapplicable_regional_facets_before_loading_source(
+    monkeypatch, extra
+):
+    monkeypatch.setattr(
+        "sys.argv", ["bench_cel_component", "--facet-fit", "regional", *extra]
+    )
+    monkeypatch.setattr(
+        bench,
+        "run",
+        lambda *_a, **_k: pytest.fail("Invalid facet mode reached benchmark"),
+    )
+    with pytest.raises(SystemExit) as raised:
+        bench.main()
+    assert raised.value.code == 2
 
 
 def test_cli_rejects_component_opacity_for_stroke_only_comparison(monkeypatch):

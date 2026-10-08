@@ -14,6 +14,154 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Source regional facets with unchanged editable ink
+
+The explicit offline `--facet-fit regional` mode adds source-supported straight
+material cuts inside the existing connected material regions. It complements
+`--ink-fit source-intervals`; it does not replace, reconnect or re-style the
+physical source chains. Baseline proposals remain first and exact. Defaults
+still use `facet_fit="none"`.
+
+`FacetLines` observes multiscale normalized visible RGB with raw source ink and
+empty pixels excluded. Votes must span the actual parent sample scope. Each
+original non-ink region supplies its best positive complete-source RGB fitting
+gain. At most eight independent original-region cuts are attempted per region
+budget, ranked by that source gain. No human shape, feature box, clean target,
+source-chain ordinal or sword-specific geometry supplies a vote or priority.
+The existing 64-cell, 128-child and other source-ledger limits are unchanged.
+The finer face remains unavailable at 65 cells; one finer rubberhose cut
+reaches the 64-cell cap rather than increasing it.
+
+A right material child is inserted directly beside its parent, before later
+ink. The left child keeps its original underpaint and explicitly covers the
+right child's primary support; both preserve existing hidden ink support.
+Every unrelated material/ink support and covered-class reference is remapped.
+Only owned source primary samples move to the new class. Source stroke geometry,
+paint, caps, widths, footprints and model metadata remain exact. The complete
+source ownership ledger and component edit are constructed locally before
+yield. A failed attempt cannot enter a later prefix; a consumer invoking another
+operator cannot change that decision. Native admission still follows the
+complete exported drawing. Structural feasibility alone is not native validity.
+Cancellation never publishes a partially checked cut, while earlier complete
+baseline/prefix proposals remain available.
+
+The independent source-error audit caught an initial child-key collision:
+concatenating `r1` with `0` could alias unsplit `r10`. One late park candidate
+then replaced the wrong region. That run is superseded. Final children use
+unambiguous `/0` and `/1` suffixes; a regression with `r1`, `r10`, `r11` verifies
+unique identity, exact source class replay and additive fitting gains. The final
+matched matrix and full suite were rerun after this fix.
+
+The sword has three structurally feasible facet prefixes after five additional
+attempts fail the child bound (next allocation 129/130 against 128). All original
+material boundaries and source-ended strokes supply the starting structure.
+The existing opacity composition cap stays **two parents**: baseline and the
+first valid facet prefix seed fields; later prefixes are not composed just to
+obtain a lower artifact count.
+
+| Sword alternative | Nodes / contours / editable strokes | Human MSE | Handle MSE |
+| --- | --- | --- | --- |
+| Source-interval opacity control | 1,638 / 235 / 30 | 525.500704 | 930.317894 |
+| One facet, complete parent | 1,987 / 328 / 30 | 521.499993 | 913.842658 |
+| One facet with opacity fields | 1,645 / 236 / 30 | 521.504909 | 913.842658 |
+| Two facets, complete parent | 1,994 / 329 / 30 | 520.292057 | 913.842658 |
+| Three facets, complete parent | 2,016 / 330 / 30 | 518.495676 | 913.842658 |
+
+The source objective at complexity 50 over the **exported diagnostic pool**
+favors the one-facet opacity drawing (objective 0.0444787054 versus control
+0.0445444521). The three-facet parent is only the human-error oracle among the
+new compact proposals, with a worse source objective 0.0453320130. Neither is
+an actual selected-operation/frontier result. The modest material improvement
+adds contours and leaves supported junction/line coverage weak; it does not
+meet **800 nodes / 140 contours / MSE 497.39**, or justify new references.
+
+Tuning results below are **best clean MSE among native-valid exported component
+candidates**, not production selections. Initializers and original compact
+alternatives remain available. Human/clean scoring occurs after generation.
+
+| Tuning family | Previous best compact nodes / contours / strokes / MSE | New diagnostic best nodes / contours / strokes / MSE |
+| --- | --- | --- |
+| anime-girl | 579 / 72 / 8 / 85.915353 | 694 / 80 / 8 / 81.763455 |
+| anime-face | 533 / 53 / 17 / 105.270499 | 606 / 62 / 17 / 98.680278 |
+| western-park | 741 / 72 / 13 / 117.059518 | 849 / 81 / 13 / 111.249014 |
+| rubberhose-band | 868 / 95 / 21 / 88.745934 | 906 / 97 / 21 / 87.548766 |
+
+The current source objective over each full exported pool at complexity 50
+chooses the first coarse girl facet (386 / 33 / MSE 100.4213 instead of
+382 / 32 / 102.7566), keeps the face control (533 / 53 / 105.2705), keeps the
+park initializer (3,344 / 628 / 78.9131), and chooses the finer rubberhose cut
+(906 / 97 / 87.5488 instead of 868 / 95 / 88.7459). This remains an offline
+pool comparison, including initializers, and exposes both candidate coverage
+and selection limits. No score weight is changed to favor the clean oracle.
+
+The sword's fixed inspected bank remains **1,048 missing of 6,320 qualified
+samples** and **zero completed of seven gaps** for control, one-facet opacity
+and three-facet parent. The broader own bank remains **809 missing of 5,471**,
+with one of 15 inspected positions filled through material paint. Actual stroke
+layers are absent at all own gaps. Both banks are uncalibrated; preserved
+strokes do not prove sufficient connected handle quality.
+
+These alternatives improve material fidelity at increased representation cost.
+Editable stroke geometry is unchanged; line scores retain their respective
+parent values. No held-out case is tuned. They do not establish broad quality,
+score calibration, runtime/memory or selected-operation fidelity.
+
+Frozen production source SHA-256:
+`c522d764e1133f9cd5580d181f29706770a58293d63e9f2f66e862cd1f96fa3f`.
+Final artifacts: `.bench/cel-regional-facet-final`; matched driver
+`/tmp/vectrify-regional-facet-final-matrix.py`; independent audit
+`/tmp/vectrify-regional-facet-audit.py`. **10 complete matched reports / 64 native-valid proposals / 64 independent source-graph validations / 68 full-native model-body checks / 45 regional facet parents and one composed opacity drawing**. Raw source banks and
+complete physical stroke models remain identical across modes. None controls
+match the preceding source-interval checkpoint in canonical drawing/native
+RGBA/metrics. Source class replay, additive complete-source fitting gains,
+exact stroke geometry/metadata, unchanged two-parent composition, ownership,
+seals, saved/fresh RGBA and project reload are independently checked. Actual
+exported strokes remain absent at every own source-negative position; material
+paint still needs separate gap treatment. Maximum local/full score-term
+difference: **3.6032509129202417e-09**.
+
+**1,311 relevant tests pass in 196.39 seconds**, including the new native facet, ownership/stroke preservation,
+key collision, failure/consumer isolation, cell bounds and cancellation controls.
+Ruff/format/whitespace pass; Pyrefly reports zero errors and 62 existing warnings.
+Benchmark/test times overlap and do not establish production runtime or memory.
+The matched diagnostic allowances remain 180 seconds for sword / 60 for tuning.
+
+Preceding negative source-only diagnostics were not adopted:
+
+- `.bench/cel-material-edge-refinement-probe`: 6,134 raster material-class moves
+  lower conditional fitted-paint energy, but no complete proposal fits the
+  unchanged 128-child bound (next allocation at least 130). Full source role
+  reassignment is not a quality success.
+- `.bench/cel-material-shared-fit-probe`: primary-source paint fitting with
+  geometry-only grid refinement retains the source ledger but yields
+  2,137 nodes / 347 contours / MSE 548.0349 and new self-crossings.
+- `.bench/cel-material-shared-fit-frontier-probe`: increasing the source edge
+  price from 384 to 1,536/6,144 gives valid opacity drawings at MSE 548.2775 and
+  539.1533 for 384/6,144; the 1,536 parent has MSE 552.6476 and crossings. All
+  worsen fidelity against 525.5007. No price or geometry adjustment is adopted.
+- Single regional cuts establish useful candidate coverage; the earlier prefix
+  wrapper communicated feasibility through mutable generator/consumer feedback
+  and cannot establish which prefix was structurally admitted. Final production
+  feasibility is local to the proposal call, with explicit consumer-isolation
+  tests. Probe identities and outputs remain diagnostic only.
+
+All eight deliveries remain open. References remain deferred. Next reconstruct
+missing source-supported junctions and material-gap coverage, then combine
+compact ink/material/opacity alternatives in bounded common-frontier selection.
+The present cuts improve candidate coverage modestly; they do not make a learned
+ranker sufficient or settle the deterministic structural and rollout gates.
+
+Reproduce the sword competitor (use `--facet-fit none` for the matched control):
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py --seconds 180 --normalizer 54564 --grouping ward --boundary-fit anchored --ink-support connected --ink-roles fitted --ink-coverage fractional --ink-fit source-intervals --facet-fit regional --opacity-model components --source-line-diagnostics --out .bench/cel-regional-facet-final/regional/sword
+```
+
+For the four tuning families, replace the normalizer with `--pair anime-girl`,
+`anime-face`, `western-park` or `rubberhose-band`, and use `--seconds 60` plus a
+separate output folder. Frozen evidence/artifact identity is in
+`identity.json` and `independent-audit.json` under the artifact root.
+
 ### Source-supported intervals instead of whole-chain gap rejection
 
 The `--ink-fit source-intervals` offline competitor builds on native absence

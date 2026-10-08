@@ -32,7 +32,31 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The latest explicit offline `--ink-fit source-intervals` competitor retains
+The latest explicit offline `--facet-fit regional` competitor cuts existing
+material regions while retaining exact source-supported stroke geometry,
+widths, caps, paint and ownership. It ranks at most eight cuts per material
+budget by complete-source RGB gain, advances only locally constructed complete
+ledgers and preserves the baseline. Raw source ink/empty pixels supply no
+material votes. The one-facet opacity sword has **1,645 nodes / 236 contours /
+30 editable strokes / MSE 521.5049**, compared with 1,638 / 235 / 30 / 525.5007.
+It wins the source objective over the exported diagnostic pool at complexity
+50; this is not a selected-operation/frontier result. A three-facet parent
+reaches **MSE 518.4957** at 2,016 nodes / 330 contours; its source objective is
+worse. Handle MSE falls from 930.3179 to **913.8427**, while the line/junction
+coverage remains weak. Best clean-error exported compact alternatives also
+improve on all four tuning families at greater contour cost. All original
+compact alternatives remain available; no human repair supplies generation.
+An independent audit caught and fixed a child/region key collision before the
+final rerun. **10 matched reports / 64 native-valid and source-graph-validated
+proposals / 68 native body checks** complete; **1,311 regressions pass**. The
+64-cell/128-child bounds and two-parent opacity cap remain unchanged. Defaults,
+reference collection and all eight delivery gates remain unchanged/open.
+Next reconstruct missing source-supported junctions and material-gap coverage,
+and combine compact alternatives in bounded common-frontier selection. Exact
+identities, negative material-boundary experiments and the limits of these
+modest gains are in the progress record.
+
+The preceding explicit offline `--ink-fit source-intervals` competitor retains
 source-supported intervals of a chain rejected by the native gap check. Only
 that same physical profile's own observed internal gaps authorize new caps;
 surviving source terminals and junctions remain exact, and a recovered chain

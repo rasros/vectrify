@@ -81,6 +81,7 @@ MAX_PLANES = 32
 PLANE_PREFIXES = (1, 2, 3, 4, 6, 8, 12, 16, 24, MAX_PLANES)
 MAX_REGION_CELLS = 64
 MAX_REGION_EDGES = 16_384
+MAX_REGIONAL_FACETS = 8
 CHUNK = 65_536
 
 
@@ -161,6 +162,7 @@ class CoreCells:
         ink_roles="connected",
         ink_coverage="visible",
         ink_fit="source",
+        facet_fit="none",
         source_profiles=None,
     ):
         if layout not in {"regions", "planes", "ink-planes"} or (
@@ -211,6 +213,12 @@ class CoreCells:
         ):
             raise ValueError("Carrier ink fitting requires connected material regions")
         self.ink_fit = ink_fit
+        if facet_fit not in {"none", "regional"} or (
+            facet_fit != "none"
+            and (not joint or ink_support != "connected" or layout != "regions")
+        ):
+            raise ValueError("Regional facets require connected joint material regions")
+        self.facet_fit = facet_fit
         if source_profiles is not None and (
             ink_support != "connected" or layout != "regions"
         ):
@@ -273,6 +281,11 @@ class CoreCells:
                     "plane_prefixes",
                     "plane_cells_peak",
                     "facet_edge_points",
+                    "regional_facet_candidates",
+                    "regional_facet_attempts",
+                    "regional_facet_proposals",
+                    "regional_facet_cuts_peak",
+                    "regional_facet_cell_limits",
                     "ink_plane_seeds",
                     "ink_plane_cells",
                     "ink_plane_pixels",
@@ -398,7 +411,7 @@ class CoreCells:
         points = np.floor(xy[cell.indices]).astype(int)
         mask[points[:, 1], points[:, 0]] = True
         best = None
-        if self.layout != "regions":
+        if self.layout != "regions" or self.facet_fit == "regional":
             if self._facet_lines is None:
                 self._facet_lines = FacetLines(evidence.target, ~evidence.empty)
             votes = self._facet_lines(mask, work, scope=xy[cell.indices])
@@ -435,6 +448,149 @@ class CoreCells:
                 "points"
             ]
         return best
+
+    @staticmethod
+    def _facet_cells(cells, classes, index, split, xy):
+        """Insert one paint child before ink, remapping complete source supports.
+
+        The left child retains the parent's underpaint; the right child clips
+        that same source region. All unrelated cells retain exact drawing,
+        paint, footprint and stroke metadata. Only owned primary samples move
+        to the new class, so nearest labels outside those samples stay hints.
+        """
+        _gain, _normal, _rho, left, right = split
+        remap = np.arange(len(cells))
+        remap[index + 1 :] += 1
+        changed = remap[classes].astype(classes.dtype)
+        points = np.floor(xy[right.indices]).astype(int)
+        changed[points[:, 1], points[:, 0]] = index + 1
+        changed.flags.writeable = False
+        current = [
+            replace(
+                cell,
+                support=int(remap[i]),
+                covered_classes=tuple(int(remap[j]) for j in cell.covered_classes),
+            )
+            for i, cell in enumerate(cells)
+        ]
+        covered = current[index].covered_classes
+        current[index] = replace(
+            left,
+            key=cells[index].key + "/0",
+            support=index,
+            covered_classes=(*covered, index + 1),
+        )
+        current.insert(
+            index + 1,
+            replace(
+                right,
+                key=cells[index].key + "/1",
+                support=index + 1,
+                covered_classes=covered,
+            ),
+        )
+        return current, changed
+
+    def _regional_facets(
+        self,
+        state,
+        base,
+        selected,
+        cells,
+        classes,
+        threshold,
+        xy,
+        rgb,
+        own,
+        inner,
+        box,
+        opaque,
+        work,
+    ):
+        """Source-ranked bounded cuts; failed partitions never advance a prefix.
+
+        Structural feasibility is decided here before yielding, independently
+        of any consuming operator. Native admission and scoring still follow
+        the complete exported proposal. No human target supplies these cuts.
+        """
+        if len(cells) >= MAX_REGION_CELLS:
+            self.diagnostics["regional_facet_cell_limits"] += 1
+            return
+        if self._facet_lines is None:
+            ink = self._ink_support(work)
+            if ink is None or work.interrupted:
+                return
+            evidence = self.families.evidence
+            self._facet_lines = FacetLines(evidence.target, ~evidence.empty & ~ink)
+        candidates = []
+        for index, cell in enumerate(cells):
+            if work.interrupted:
+                return
+            if cell.ink or len(cell.indices) < 32:
+                continue
+            split = self._split(state, base, cell, xy, rgb, own, work)
+            if split is not None:
+                self.diagnostics["regional_facet_candidates"] += 1
+                candidates.append((split[0], index, split))
+        current, source_classes, cuts = cells, classes, []
+        for gain, original_index, split in sorted(
+            candidates, key=lambda c: (-c[0], c[1])
+        )[:MAX_REGIONAL_FACETS]:
+            if work.interrupted:
+                return
+            if len(current) >= MAX_REGION_CELLS:
+                self.diagnostics["regional_facet_cell_limits"] += 1
+                return
+            key = cells[original_index].key
+            index = next(i for i, c in enumerate(current) if c.key == key)
+            proposed, changed = self._facet_cells(
+                current, source_classes, index, split, xy
+            )
+            normal, rho = split[1:3]
+            proposed_cuts = [
+                *cuts,
+                (key, tuple(map(float, normal)), float(rho), float(gain)),
+            ]
+            self.diagnostics["regional_facet_attempts"] += 1
+            proposal = self._proposal(
+                state,
+                base,
+                selected,
+                proposed,
+                proposed_cuts,
+                inner,
+                box,
+                opaque,
+                work,
+                source_classes=changed,
+                region_threshold=threshold,
+            )
+            if work.interrupted:
+                return
+            if proposal is None:
+                continue
+            current, source_classes, cuts = proposed, changed, proposed_cuts
+            assert proposal.details is not None
+            proposal = replace(
+                proposal,
+                details={
+                    **proposal.details,
+                    "regional_facets": {
+                        "ranking": "source-rgb-fit-gain",
+                        "cuts": [
+                            {"parent": k, "normal": n, "rho": r, "source_gain": g}
+                            for k, n, r, g in cuts
+                        ],
+                        "structurally_feasible": True,
+                        "attempt_limit": MAX_REGIONAL_FACETS,
+                    },
+                },
+            )
+            self.diagnostics["regional_facet_proposals"] += 1
+            self.diagnostics["regional_facet_cuts_peak"] = max(
+                self.diagnostics["regional_facet_cuts_peak"], len(cuts)
+            )
+            yield proposal
 
     def _regions(self, state, base, selected, whole, xy, rgb, own, work):
         """Group source observations before partitioning complete owners once.
@@ -1448,6 +1604,22 @@ class CoreCells:
                 if proposal is not None:
                     self.diagnostics["region_proposals"] += 1
                     yield proposal
+                if self.facet_fit == "regional":
+                    yield from self._regional_facets(
+                        state,
+                        base,
+                        region_selected,
+                        regions,
+                        classes,
+                        threshold,
+                        xy,
+                        rgb,
+                        own,
+                        inner,
+                        box,
+                        opaque,
+                        work,
+                    )
             if self.joint and self.layout != "planes":
                 continue
             initial = Cell("", np.arange(len(x)), whole, whole, *fitted)
@@ -1918,6 +2090,7 @@ class CoreCells:
                     "ink_roles": self.ink_roles,
                     "ink_coverage": self.ink_coverage,
                     "ink_fit": self.ink_fit,
+                    "facet_fit": self.facet_fit,
                     "source_atom_encoding": atoms.metadata()["version"],
                     "source_chain_discovery": "complete-carrier-before-material-budget"
                     if self.ink_support == "connected"

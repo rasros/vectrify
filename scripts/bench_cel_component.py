@@ -178,6 +178,7 @@ def run(
     ink_roles="connected",
     ink_coverage="visible",
     ink_fit="source",
+    facet_fit="none",
     source_line_diagnostics=False,
     proposal="core-cells",
     compose_materials=False,
@@ -207,6 +208,15 @@ def run(
         proposal != "core-cells" or ink_support != "connected" or grouping == "static"
     ):
         raise ValueError("Source line diagnostics require connected dynamic core cells")
+    if facet_fit not in {"none", "regional"} or (
+        facet_fit != "none"
+        and (
+            proposal != "core-cells"
+            or ink_support != "connected"
+            or grouping == "static"
+        )
+    ):
+        raise ValueError("Regional facets require connected dynamic core cells")
     started, revision = time.monotonic(), source_hash()
     if case.get("paired"):
         from scripts.cel_pairs import pair
@@ -280,6 +290,7 @@ def run(
                 ink_roles=ink_roles,
                 ink_coverage=ink_coverage,
                 ink_fit=ink_fit,
+                facet_fit=facet_fit,
                 source_profiles=source_profiles,
             )
         )
@@ -464,6 +475,7 @@ def run(
         "ink_roles": ink_roles if proposal == "core-cells" else None,
         "ink_coverage": ink_coverage if proposal == "core-cells" else None,
         "ink_fit": ink_fit if proposal == "core-cells" else None,
+        "facet_fit": facet_fit if proposal == "core-cells" else None,
         "source_line_diagnostics": source_line_diagnostics,
         "normalizer_source": "source-only-baseline"
         if normalizer is None
@@ -541,6 +553,7 @@ def main():
     parser.add_argument(
         "--opacity-model", choices=("paths", "components"), default="paths"
     )
+    parser.add_argument("--facet-fit", choices=("none", "regional"), default="none")
     args = parser.parse_args()
     if args.opacity_model != "paths" and args.proposal != "core-cells":
         parser.error("Component opacity models require --proposal core-cells")
@@ -566,6 +579,12 @@ def main():
         or args.grouping == "static"
     ):
         parser.error("Source line diagnostics require connected dynamic core cells")
+    if args.facet_fit != "none" and (
+        args.proposal != "core-cells"
+        or args.ink_support != "connected"
+        or args.grouping == "static"
+    ):
+        parser.error("Regional facets require connected dynamic core cells")
     if args.ink_coverage == "fractional" and (
         args.proposal != "core-cells"
         or args.ink_support != "connected"
@@ -610,6 +629,7 @@ def main():
         ink_roles=args.ink_roles,
         ink_coverage=args.ink_coverage,
         ink_fit=args.ink_fit,
+        facet_fit=args.facet_fit,
         source_line_diagnostics=args.source_line_diagnostics,
         proposal=args.proposal,
         compose_materials=args.compose_materials,
