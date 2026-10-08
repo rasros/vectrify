@@ -554,7 +554,13 @@ def main():
     )
     parser.add_argument(
         "--ink-fit",
-        choices=("source", "carrier", "source-gaps", "source-intervals"),
+        choices=(
+            "source",
+            "carrier",
+            "source-gaps",
+            "source-intervals",
+            "source-widths",
+        ),
         default="source",
     )
     parser.add_argument(

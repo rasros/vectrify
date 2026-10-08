@@ -14,6 +14,140 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Bounded source width interpretations and native common-frontier replay
+
+The explicit offline `--ink-fit source-widths` competitor turns the preceding
+width prototype into a bounded source-only interpretation. It complements
+residual atom layout and regional material facets. Defaults still use the
+existing source interpretation. Original-width alternatives remain independently
+available through `source-intervals`; neither a width rule nor this competitor
+is automatically scheduled by the product pipeline.
+
+`SourceWidths` runs after long-chain and short-link discovery. That discovery,
+style grouping, source paints, original caps/ports and complete raw observation
+bank do not depend on trial widths. The fitter tries the original width and
+0.9/0.8/0.7/0.6 factors, with an intrinsic analysis floor and duplicate trials
+removed. It selects the widest width with the most original complete bodies
+passing native absence, retaining the original when there is no gain. The
+choice depends only on those source body tests; no source-chain ordinal,
+human outline, repaired junction or artwork detector supplies a rule.
+This is an inspected engineering hypothesis, not
+a calibrated release width estimator.
+
+Work is bounded independently to eight styles, 128 runs, 16,384 nodes and
+**256 native body trials**. A capacity failure after fitting an earlier style
+returns all original widths, never a mixed partial interpretation. Cancellation
+publishes neither models nor a partial source bank. Explicit width overrides
+bypass fitting. A no-gap source keeps its widths without raster trials.
+Complete-chain geometry and paint remain fixed. Own-gap intervals can be refit
+under their existing positive/negative observations; no neighbouring gap
+authorizes shortening a supported chain. The existing compound-body, actual
+cap, exact carrier footprint, ownership and surviving-port/link checks still
+decide which models are exported. The limits on cells, atoms and opacity
+composition are unchanged.
+
+The sword uses 175 width trials and changes one style from 2.068718 to
+1.448103 native pixels, increasing its absence-valid complete bodies from
+16 to 17. The recovered complete handle chain has its original endpoints and
+is exported as an editable stroke. The four tuning cases use 55/85/79/112
+trials respectively and change no style. Their native drawings, clean metrics,
+source banks, source-line metrics and facet alternatives remain exact.
+The sword's bank remains the same 43 physical profiles; narrowing does not
+change the diagnostic target to make the line score look better.
+
+| Sword candidate | Nodes / contours / editable strokes | Human MSE | Handle MSE | Missing own-bank samples |
+| --- | --- | --- | --- | --- |
+| Original-width opacity baseline | 1,638 / 235 / 30 | 525.500704 | 930.317894 | 809 |
+| Original-width first residual facet with opacity | 1,665 / 237 / 30 | 516.270421 | 930.317894 | 809 |
+| Fitted coarse interpretation with opacity | 1,684 / 243 / 30 | 611.380879 | 960.777646 | 775 |
+| Fitted finer interpretation | 2,913 / 412 / 30 | 517.360362 | 855.954641 | 222 |
+| Fitted finer interpretation with one facet | 2,941 / 414 / 30 | 508.055591 | 855.954641 | 222 |
+
+The coarse fit regresses substantially; recovery alone is not a faithful
+material interpretation. Fitted finer candidates become available because
+the complete width/material/ownership plan differs. The existing two-parent
+opacity cap is not raised to compose them. Their 222 missing of the same
+5,471 qualified samples are an uncalibrated inspected diagnostic. Material
+paint still fills one of 15 inspected gaps; actual exported strokes fill none.
+Other handle chains remain missing. The combined 800 / 140 / 497.39 gate
+and the connected editable-line requirement are still unmet.
+
+#### Native common-frontier choices
+
+`/tmp/vectrify-source-width-frontier-replay.py` uses the actual bounded
+`Frontier` and unchanged `Policy` on the saved validated source-generated
+pools. It compares original-width proposals with a union including fitted
+ones. Source fallback and detailed initializer are retained. The normalizer
+is frozen through the public API from that validated initializer, before
+adding alternatives. Each pool has its own policy baseline constructed from
+identical immutable evidence; a planning run's baseline is never reset.
+Clean/human metrics are consulted only after all frozen selections complete.
+No score reweighting, synthetic cost scale or clean oracle supplies selection.
+
+The sword's actual detailed cost scale is **20,818**, not the component
+diagnosis's 54,564 override. This changes the reported choices:
+
+| Complexity | Original pool | Union with fitted widths |
+| --- | --- | --- |
+| 0 / 25 / 50 | 1,638 / 235 / MSE 525.500704 | Same original drawing |
+| 75 | 1,638 / 235 / MSE 525.500704 | 2,941 / 414 / MSE 508.055591 |
+| 100 | 1,665 / 237 / MSE 516.270421 | 2,941 / 414 / MSE 508.055591 |
+
+The finer fitted drawing is therefore useful at higher complexity without
+forcing its worse coarse interpretation on Simple/Balanced choices. All
+101 values have monotonic representation cost, and the union's source
+objective does not regress at any value. All four tuning selections remain
+unchanged. Across cases, the frozen frontiers have two to four distinct slider
+choices, at most ten retained entries against twelve, and at most 2,776,624
+bytes in the frontier's SVG byte accounting against 64 MiB. These are cache
+accounting checks, not total process-memory measurements. Replay native terms
+match the benchmark exactly. This is **offline native-frontier selection**,
+not a selected Generate operation, automatic scheduling/refinement result,
+deadline comparison, complete memory audit or release gate.
+
+Under the earlier 54,564 diagnostic override, the full exported width pool at
+complexity 50 instead favors the finer faceted drawing (source objective
+0.0433241061). That result cannot be substituted for the actual detailed-scale
+frontier's Balanced selection. The earlier residual and regional checkpoint
+tables retain their explicitly stated benchmark-override scope.
+
+Frozen production source SHA-256:
+`47a0d9e7d7b067ad602749a3bb5f5e98ee8cfada60e894c9320ff21baf87047b`.
+Artifacts: `.bench/cel-source-width-final`; matched driver
+`/tmp/vectrify-source-width-final-matrix.py`; independent audit
+`/tmp/vectrify-source-width-audit.py`; frontier replay records under
+`frontier/` in that artifact root. **10 complete matched reports / 113
+native-valid proposals / 113 source-graph validations / 68 full-native
+model-body checks / 94 regional facet parents and composed drawings**.
+Original-width controls match the preceding residual checkpoint in canonical
+drawing, native RGBA and metrics. Raw banks remain identical across modes.
+The audit verifies complete ownership/seals, source fitting gains, unchanged
+stroke layers across material cuts, native gap absence, source-line metrics,
+saved/fresh native RGBA and project reload. Maximum local/full score-term
+difference: **3.6032509129202417e-09**.
+
+**1,372 relevant tests pass in 214.09 seconds**, including 29 width-fitting
+controls and extended CLI delivery/rejection coverage. Tests include actual
+native neighbouring absence and caps, unchanged source terminals, inability
+to repair a real own gap, widest-fit/no-gain behavior, intrinsic floors,
+capacity rollback, interruption, override/junction/raw-bank preservation and
+the original-width fallback. Ruff/format/whitespace pass; Pyrefly reports zero
+errors and 62 existing warnings. Test and diagnostic runtimes overlap and do
+not establish operation performance or memory. Diagnostic allowances remain
+180 seconds for sword and 60 for tuning. No held-out case is tuned.
+
+All eight deliveries remain open. New references stay deferred. Next retain
+these interpretations in bounded operation scheduling, correct missing source
+carrier/junction coverage and material gaps, then improve compact opacity and
+coherent material fitting. The human's repaired source defect remains solely
+evaluation context; no endpoint extension or connection copies it.
+
+Reproduce the fitted competitor (use `source-intervals` for original widths):
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py --seconds 180 --normalizer 54564 --grouping ward --boundary-fit anchored --ink-support connected --ink-roles fitted --ink-coverage fractional --ink-fit source-widths --facet-fit regional --atom-layout residual --opacity-model components --source-line-diagnostics --out .bench/cel-source-width-final/source-widths/sword
+```
+
 ### Residual source labels and missing handle-chain diagnosis
 
 The explicit offline `--atom-layout residual` competitor compacts the source

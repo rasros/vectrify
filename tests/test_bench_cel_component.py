@@ -5,7 +5,9 @@ import pytest
 from scripts import bench_cel_component as bench
 
 
-@pytest.mark.parametrize("ink_fit", ["carrier", "source-gaps", "source-intervals"])
+@pytest.mark.parametrize(
+    "ink_fit", ["carrier", "source-gaps", "source-intervals", "source-widths"]
+)
 @pytest.mark.parametrize("atom_layout", ["retired", "residual"])
 def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(
     monkeypatch, tmp_path, ink_fit, atom_layout
@@ -180,7 +182,9 @@ def test_cli_rejects_inapplicable_fractional_coverage_before_loading_source(
 @pytest.mark.parametrize(
     "extra", [[], ["--ink-support", "connected"], ["--proposal", "source-strokes"]]
 )
-@pytest.mark.parametrize("ink_fit", ["carrier", "source-gaps", "source-intervals"])
+@pytest.mark.parametrize(
+    "ink_fit", ["carrier", "source-gaps", "source-intervals", "source-widths"]
+)
 def test_cli_rejects_inapplicable_carrier_fitting_before_loading_source(
     monkeypatch, extra, ink_fit
 ):

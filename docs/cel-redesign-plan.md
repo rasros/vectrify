@@ -32,7 +32,29 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The latest explicit offline `--atom-layout residual` competitor retains a
+The latest explicit offline `--ink-fit source-widths` competitor fits complete
+stroke bodies only after physical chain/link discovery and raw observations
+are frozen. It tries bounded narrower widths, keeps original widths when
+there is no gain, honors width overrides and falls back atomically on its
+256-fit bound. Actual compound absence, exact carrier, interval, junction and
+ownership proofs still apply. It recovers one complete missing source-ended
+handle chain. Four tuning families retain exact drawings and metrics.
+
+A native common-frontier replay retains both original and fitted alternatives
+and freezes the validated detailed initializer's cost scale. Sword complexity
+0/25/50 keeps the original 1,638 / 235 / 30 / MSE 525.5007 drawing; 75/100
+chooses **2,941 nodes / 414 contours / 30 editable strokes / MSE 508.0556**,
+with handle MSE 855.9546 and 222 rather than 809 missing inspected raw samples.
+Cost is monotonic over all 101 slider values; all tuning choices are unchanged.
+This is offline native-frontier replay, not a Generate-operation result.
+Using the benchmark's 54,564 override instead would select differently; it is
+not the actual detailed cost scale. Coarse fitted candidates still regress.
+Ten matched reports / 113 native and source-graph validations / 68 body checks
+and 1,372 regressions pass. Generation ignores the human repair. Connected-line
+quality, the 800 / 140 / 497.39 gate, selected-operation/runtime/memory evidence
+and all eight deliveries remain open; new references stay deferred.
+
+The preceding explicit offline `--atom-layout residual` competitor retains a
 split parent's residual label in the immutable source revision, allocating
 only its other children. Exact complete-area/RLE replay, original-root
 protection, primary/secondary ownership and the 64-entry/128-new-label bounds
@@ -46,7 +68,7 @@ over the union of diagnostic pools still favors the earlier 1,645 / 236 /
 quality/structure gate remain open. Ten matched reports / 112 native-valid
 proposals and source-graph checks / 68 native stroke-body checks complete.
 
-A separate unadopted source-width prototype preserves the raw observation
+A preceding source-width prototype preserves the raw observation
 bank and source endpoints, recovers a complete missing handle chain and lowers
 inspected missing samples from 809 to 222 in a more detailed candidate.
 Its coarse candidates regress substantially. It is a lead for bounded joint

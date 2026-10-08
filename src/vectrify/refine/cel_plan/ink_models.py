@@ -28,6 +28,7 @@ from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_absence import SourceAbsence
 from vectrify.refine.cel_plan.source_intervals import SourceIntervals
+from vectrify.refine.cel_plan.source_widths import SourceWidths
 from vectrify.refine.crossings import crossings
 
 MAX_COMPONENTS = 128
@@ -419,6 +420,7 @@ def models(
     fit_carrier=False,
     source_absence=False,
     source_intervals=False,
+    fit_widths=False,
     source_profiles=None,
 ):
     """Return complete bounded models; interruption discards partial discovery."""
@@ -426,6 +428,8 @@ def models(
         return ()
     if source_intervals and not source_absence:
         raise ValueError("Source intervals require source absence constraints")
+    if fit_widths and not source_intervals:
+        raise ValueError("Source width fitting requires source interval constraints")
     components, count = label(mask, np.ones((3, 3)))
     if count > MAX_SOURCE_COMPONENTS:
         return ()
@@ -747,6 +751,8 @@ def models(
     replacement_runs: list[list[tuple[Subpath, ...]]] | None = None
     empty_runs: tuple[Subpath, ...] = ()
     intervals = None
+    width_fit = None
+    widths = tuple(options.line_width or float(np.median(g["widths"])) for g in groups)
     if source_absence:
         assert profiles is not None
         try:
@@ -757,9 +763,12 @@ def models(
                 **({"intervals": True} if source_intervals else {}),
             )
             intervals = SourceIntervals(absence) if source_intervals else None
+            if fit_widths and not options.line_width:
+                width_fit = SourceWidths(absence)
+                widths = width_fit.fit(groups, widths, scale, work)
             replacement_runs = []
-            for group in groups:
-                width = options.line_width or float(np.median(group["widths"]))
+            for i, group in enumerate(groups):
+                width = widths[i]
                 replacements: list[tuple[Subpath, ...]] = []
                 for j, sub in enumerate(group["contours"]):
                     geometry = Geometry("source-absence", (sub,))
@@ -795,7 +804,7 @@ def models(
             # authorize another style's short link.
             for i, group in enumerate(groups):
                 retained = tuple(sub for parts in replacement_runs[i] for sub in parts)
-                width = options.line_width or float(np.median(group["widths"]))
+                width = widths[i]
                 if retained and not absence.permits(
                     Geometry("source-absence-style", retained),
                     width,
@@ -865,7 +874,7 @@ def models(
         if not selected.any():
             continue
         claimed_pixels = int(selected.sum())
-        width = options.line_width or float(np.median(group["widths"]))
+        width = widths[i]
         # Standalone compound geometry also needs distinct chain/node IDs.
         contours = tuple(
             replace(
@@ -919,6 +928,11 @@ def models(
                     "runs": len(contours),
                     "width": width,
                     "linecap": group["cap"],
+                    **(
+                        {"source_width_fit": dict(width_fit.diagnostics)}
+                        if width_fit is not None
+                        else {}
+                    ),
                     "carrier_width_ceiling": min(group["ceilings"])
                     if carrier is not None
                     else None,
