@@ -32,6 +32,7 @@ from vectrify.refine.cel_plan.score import (
     opacity_measurements,
     render,
 )
+from vectrify.refine.cel_plan.search import MAX_EDIT_OBJECTS
 from vectrify.refine.cel_plan.search import search as local_search
 
 
@@ -375,8 +376,18 @@ def vectorize(
             # Individual operators get an opportunity before complete anchor
             # proposals consume the remaining search prefix. Fitting and final
             # validation keep their independent reservations.
+            # Large owned components need a native context before any sealed
+            # reconstruction can compete. Give that High-quality opportunity
+            # a larger share of the same search prefix; final validation and
+            # any previously reserved fitting time still bound its deadline.
+            large_core = options.quality == "high" and any(
+                entry.details.get("alpha_model") == "material-core-silhouette"
+                and entry.evaluation.structure["paths"] > MAX_EDIT_OBJECTS
+                for entry in frontier.entries
+            )
+            local_seconds = duration * (0.3 if large_core else 0.2)
             local_work = Work(
-                min(search.deadline, time.monotonic() + duration * 0.2),
+                min(search.deadline, time.monotonic() + local_seconds),
                 work.stop,
                 work.timings,
             )
@@ -425,6 +436,12 @@ def vectorize(
                     )
                     if operators.families._core_models is not None
                     else {},
+                    "joint_material_cells": dict(
+                        operators.families._joint_models.diagnostics
+                    )
+                    if operators.families._joint_models is not None
+                    else {},
+                    "opacity_fields": dict(operators.opacity_fields.diagnostics),
                     "ink_replacement": dict(operators.replacements.diagnostics),
                     "source_ridges": dict(operators.ridges.diagnostics),
                     "source_ridge_models": dict(operators.ridges.rim_diagnostics),
@@ -446,6 +463,7 @@ def vectorize(
                     ),
                 }
             search_ran = True
+            structural_search["discovery_allocation_seconds"] = local_seconds
             validation_seconds += structural_search.get("validation_seconds", 0)
             work.timings["structural_search"] = structural_search["seconds"]
     if frontier.baseline is None:

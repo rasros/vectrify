@@ -30,6 +30,7 @@ from vectrify.refine.cel_plan.ink import measure
 from vectrify.refine.cel_plan.ink_replace import InkReplacement
 from vectrify.refine.cel_plan.local import Box
 from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
+from vectrify.refine.cel_plan.opacity_fields import OpacityFields
 from vectrify.refine.cel_plan.overlays import ClosedOverlays
 from vectrify.refine.cel_plan.ownership import Partition
 from vectrify.refine.cel_plan.refine import (
@@ -83,6 +84,7 @@ class Operators:
         self._live_branches: WeakValueDictionary[str, Operators] = WeakValueDictionary()
         self._namespace: str | None = None
         self.families = Families(evidence, graph, options)
+        self.opacity_fields = OpacityFields(evidence, graph)
         self.replacements = InkReplacement(evidence, graph, options)
         self.ridges = SourceRidges(evidence, graph, options, resolver=self._root.branch)
         self.overlays = ClosedOverlays(
@@ -455,6 +457,8 @@ class Operators:
             iter(self.replacements(state, work)),
             iter(self.ridges(state, work)),
         ]
+        if self.options.quality == "high":
+            iterators.append(iter(self.opacity_fields(state, work)))
         alive = set(range(len(iterators)))
         try:
             for cycle in range(MAX_OPERATOR_ITEMS):
@@ -474,8 +478,9 @@ class Operators:
                         "ink-replacement": 1,
                         "closed-overlay": 5,
                         "closed-material": 5,
+                        "joint-core-cells": 7,
                     }.get(state.edits[-1]["operator"])
-                    if preferred is not None:
+                    if preferred is not None and preferred in slots:
                         slots.remove(preferred)
                         slots.insert(0, preferred)
                         self.schedule_diagnostics["composition_parents"] += 1

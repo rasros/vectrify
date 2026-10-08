@@ -10,18 +10,150 @@ The owner resumed the implementation goal after the pause checkpoint, then
 clarified the handle: clear, connected editable lines, rather than filled
 outline shapes. The human drawing repairs a defect in the raster source. That
 repair is evaluation context only; generation must not invent a connection to
-match it. The full goal and all eight deliveries remain open. Generated outputs
-are still too poor to supply useful new references, so that collection stays
-deferred while existing tuning artwork checks the experiment.
+match it. The full goal and all eight deliveries remain open. Generated-reference collection remains deferred while existing tuning artwork
+checks the experiment. On viewing the fitted Detailed sword, the owner judged
+the material/shadow treatment vastly improved and visually comparable to the
+human result, with slightly different choices. The primary remaining visual
+and editing problem is outlines represented by filled shapes instead of clean
+connected strokes. Preserve this material candidate while improving source-only
+ink extraction, complete-chain coverage and continuity; the human raster repair
+still supplies no connections.
+
+### Shared physical extraction and experimental native search scheduling
+
+`JointCells` now alternates the complete original-width `source-intervals`
+interpretation with `source-widths`. Both use the existing connected, fractional,
+fitted-role material regions, anchored boundaries, regional facets and residual
+atom ledger. The pair shares one physical extraction through `InkDiscovery`;
+filtered models, recovered intervals and fitted widths are computed independently.
+Original widths therefore remain a candidate even when the fitted coarse material
+interpretation is worse. Human geometry and repaired connections supply no input.
+
+The cache retains at most one complete extraction for one scheduler invocation.
+Its identity includes the exact source mask/dtype/shape, evidence identity/frame,
+carrier coordinates and fill rule, options and extraction flags. It drops a prior
+record before extracting another component. Failed or interrupted extraction is
+never cached. Claimed/rejected/component arrays become read-only on publication;
+source profiles already have copied read-only arrays. Both cursors are closed and
+the record released after exhaustion, cancellation, an early consumer close or
+the unchanged whole-search deadline. This is bounded source-record retention,
+not a measured process-memory or aggregate 96/64 MiB cache gate.
+
+The pair has a 64-proposal invocation cap and preserves one interpretation after
+a native boolean failure in the other. It adds explicit interpretation provenance
+to the proposal parameters. Actual native absence/caps, carrier difference,
+positive observations, surviving original ports, component seals, complete source
+ownership, cell/child/entry limits and local/full policy checks are unchanged.
+A resumed joint parent only requests the High-only opacity slot when that slot
+exists; Fast/Balanced resumes retain their ordinary reserved turns.
+
+**Experimental High-quality search now tries the pair automatically.** Ordinary
+CEL remains unchanged. Fast/Balanced do not schedule the new pair or opacity
+operator. Within High's existing family slot, a seed above the existing 256-object
+small-edit bound gets its original-width joint opportunity before broad surface
+scans; smaller seeds retain the surface opportunity first. Other operator slots
+remain reserved. A complementary `OpacityFields` operator resolves against the
+current source atom graph and gets priority on a validated joint child. This
+uses the real local search and common native frontier, rather than selecting an
+offline benchmark winner. No candidate is automatically accepted.
+
+When the High frontier contains a large owned material core, structural discovery
+can use 30% rather than 20% of the same operation allowance to include native
+context creation. The global search deadline, final-validation reserve and any
+already reserved fitting time still bound that opportunity. The actual allocated
+seconds are reported. Neither this fraction nor the scheduler closes a timing,
+repeatability, quality or memory gate.
+
+#### Matched shared-pool verification
+
+The frozen shared union reproduces the preceding source-width checkpoint's
+complete native pools on sword and the four tuning families. Diagnostic opacity
+composition keeps the original **two-parent quota per interpretation**; that
+explicit offline union has four possible opacity parents. This is separate from
+the operation's bounded beam scheduling, not a claim that the product evaluates
+all these candidates within 60 seconds.
+
+| Case | Native-valid proposals / source-graph checks | Physical extractions / reuses | Full native model-body checks |
+| --- | --- | --- | --- |
+| Sword | 13 / 13 | 1 / 1 | 16 |
+| Anime girl | 36 / 36 | 1 / 1 | 12 |
+| Anime face | 18 / 18 | 1 / 1 | 12 |
+| Western park | 32 / 32 | 1 / 1 | 12 |
+| Rubberhose band | 14 / 14 | 1 / 1 | 16 |
+
+All 113 drawings retain exactly the original standalone native RGBA, structure,
+representation cost, native score terms, post-generation target metrics and
+inspected source-line metrics. Both modes retain the exact complete raw bank;
+all 68 model geometries, paint and diagnostic details are unchanged. Complete
+source-graph replay, component seals, ownership, fresh/saved renders, project
+reload and full native bodies/caps at the fixed raw gap centres pass. Maximum
+local/full term difference remains **3.6032509129202417e-9**. This preserves useful
+alternatives; it does not improve their already inadequate fidelity.
+
+#### Operation probes and negative results
+
+Five 60-second High/complexity-50 Generate operations were also run at source
+`505c3e2bfa377e2179e1336be9ea11979eddc58991adddbc2211d33b0b4c731a`.
+The final absent-slot guard changes Fast/Balanced joint-parent resumption, rather
+than these High slots. These probes precede that guard and are explicitly
+contextual, rather than exact-current-source release evidence.
+
+| Operation | Nodes / contours / strokes | Post-generation human or clean MSE | Elapsed seconds |
+| --- | --- | --- | --- |
+| Sword | 54,320 / 8,217 / 0 | 446.790663 | 58.3066 |
+| Anime girl | 174 / 26 / 1 | 166.810033 | 43.2521 |
+| Anime face | 166 / 16 / 0 | 227.977474 | 46.2107 |
+| Western park | 322 / 34 / 13 | 194.747921 | 48.3156 |
+| Rubberhose band | 252 / 34 / 21 | 160.615209 | 35.6564 |
+
+Every selected drawing has zero native validation rejections and reported zero
+operation deadline overshoot. The sword exhausted optional work before producing
+its detailed initialization, so it selected a very dense conservative fallback.
+Its lower MSE does not pass the combined structural gate or supply editable handle
+lines. Park and rubberhose exercise shared extraction in real beam search;
+girl/face do not reach joint reconstruction. Park's clean error is worse than
+the earlier late-slot probe's 165.615057 despite its lower representation cost.
+Source-only admission/selection is not a calibrated clean-quality gate.
+
+A separate 60-second sword repeat after this task's suite/matrix finished returns
+**10,285 / 1,711 / 0 / MSE 512.807919 in 53.6693 seconds**. It retains the owned
+core but still does not reach reconstruction. Earlier scheduling prototypes
+produced **1,978 / 327 / 30 / MSE 525.633748**, but did not reproduce reliably and
+are not claimed as the final operation result. Their frozen reports are retained
+as negative scheduling context. Native export/context and optional initialization
+can consume the available prefix before fitting. Other work on the host means
+these elapsed times do not establish a hardware latency guarantee. Redundant
+native rendering and earlier bounded candidate delivery remain required.
+
+The **800 / 140 / 497.39** gate, source-connected handle quality, inspected material
+absence, calibrated scoring, selected-operation repeatability, memory/runtime,
+held-out/review gates and all eight deliveries remain open. Generated-reference
+collection stays deferred. The useful fitted Detailed alternative still exists
+offline at **2,941 / 414 / 30 / MSE 508.055591**, but automatic availability and
+selection have not been demonstrated for it. No ML ranker, target-based width
+rule, human repair or held-out tuning is introduced.
+
+Verification on the latest source: **1,410 relevant regressions pass in 312.42
+seconds**, including 38
+new physical-cache, native-pool, cancellation, boolean-failure and resumption
+controls; Ruff/format checks and Pyrefly (zero errors, 62 existing warnings).
+The frozen production source SHA-256 is
+`3ae55a1aa1260c2fa78394dcbedf8207cbad6c9cc396169ed63d0e33cb6a3340`.
+The matched matrix and independent audit at `.bench/cel-joint-pool-current` share
+that exact identity; the matrix driver SHA-256 is
+`a4d8e418189c32b19a071f3f81a3d97c59acf9593a6dc475bf9bfb95f8ef057a`.
+The independent audit confirms 113 native drawings, 113 source-graph checks and
+68 full native bodies. Large `.bench` artifacts remain ignored.
 
 ### Bounded source width interpretations and native common-frontier replay
 
-The explicit offline `--ink-fit source-widths` competitor turns the preceding
+At the preceding checkpoint, the explicit offline `--ink-fit source-widths`
+competitor turns the preceding
 width prototype into a bounded source-only interpretation. It complements
-residual atom layout and regional material facets. Defaults still use the
+residual atom layout and regional material facets. At that checkpoint, defaults still use the
 existing source interpretation. Original-width alternatives remain independently
-available through `source-intervals`; neither a width rule nor this competitor
-is automatically scheduled by the product pipeline.
+available through `source-intervals`; the automatic High-quality opportunity
+is added only by the newer shared-extraction scheduler above.
 
 `SourceWidths` runs after long-chain and short-link discovery. That discovery,
 style grouping, source paints, original caps/ports and complete raw observation

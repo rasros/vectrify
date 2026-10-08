@@ -9,7 +9,9 @@ from __future__ import annotations
 
 import hashlib
 from collections import deque
+from collections.abc import Callable
 from dataclasses import dataclass, replace
+from typing import Any
 
 import numpy as np
 import pathops
@@ -407,37 +409,79 @@ def carried(
     return [] if work.interrupted else recovered or original
 
 
-def models(
+@dataclass(frozen=True)
+class _Discovered:
+    components: np.ndarray
+    groups: list[dict[str, Any]]
+    profiles: list[SourceProfile] | None
+    claimed: np.ndarray
+    rejected: np.ndarray
+    scale: float
+    scanned: int
+    points_count: int
+    contact_budget: dict[str, int]
+    link_counts: dict[str, int]
+    carrier_fit: CarrierFit | None
+
+
+class InkDiscovery:
+    """One complete physical extraction shared by width interpretations.
+
+    A cache belongs to one bounded proposal invocation, not the global source
+    graph. It never stores filtered models, recovered intervals or fitted widths.
+    Identity includes the exact source mask, carrier, frame and extraction options.
+    """
+
+    def __init__(self):
+        self._evidence = None
+        self._key = None
+        self._value: _Discovered | None = None
+        self.diagnostics = {"extractions": 0, "reuses": 0}
+
+    def clear(self):
+        self._evidence = self._key = self._value = None
+
+    def get(self, evidence, key, discover: Callable[[], _Discovered | None], work):
+        if work.interrupted:
+            return None
+        if self._evidence is evidence and self._key == key:
+            self.diagnostics["reuses"] += 1
+            return self._value
+        # Drop the prior component before allocating another full-grid record.
+        self.clear()
+        self.diagnostics["extractions"] += 1
+        value = discover()
+        if value is not None and not work.interrupted:
+            for array in (value.components, value.claimed, value.rejected):
+                array.flags.writeable = False
+            self._evidence, self._key, self._value = evidence, key, value
+            return value
+        return None
+
+
+def _discover(
     mask,
     evidence,
     options,
     work,
     *,
-    carrier=None,
-    prune_spurs=False,
-    boundary_contacts=False,
-    fractional_coverage=False,
-    fit_carrier=False,
-    source_absence=False,
-    source_intervals=False,
-    fit_widths=False,
-    source_profiles=None,
+    carrier,
+    prune_spurs,
+    boundary_contacts,
+    fractional_coverage,
+    fit_carrier,
+    source_absence,
+    source_intervals,
+    inspect_profiles,
 ):
-    """Return complete bounded models; interruption discards partial discovery."""
-    if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
-        return ()
-    if source_intervals and not source_absence:
-        raise ValueError("Source intervals require source absence constraints")
-    if fit_widths and not source_intervals:
-        raise ValueError("Source width fitting requires source interval constraints")
     components, count = label(mask, np.ones((3, 3)))
     if count > MAX_SOURCE_COMPONENTS:
-        return ()
+        return None
     groups = []
     # Publish a complete inspected bank only after discovery finishes. Source
     # proofs include long chains which cannot be represented by a carried
     # constant-width stroke; export success must not define the line target.
-    profiles = [] if source_profiles is not None or source_absence else None
+    profiles = [] if inspect_profiles else None
     profile_namespace = (
         hashlib.sha256(mask.tobytes()).hexdigest() if profiles is not None else None
     )
@@ -461,7 +505,7 @@ def models(
     model_limit = min(MAX_MODELS, MAX_MASK_BYTES // mask.nbytes)
     for index in order:
         if work.interrupted:
-            return ()
+            return None
         slices = boxes[index - 1]
         assert slices is not None
         box = Box(slices[1].start, slices[0].start, slices[1].stop, slices[0].stop)
@@ -486,7 +530,7 @@ def models(
         runs.sort(key=lambda r: -len(r))
         for run in runs:
             if work.interrupted:
-                return ()
+                return None
             x = np.clip(np.floor(run[:, 0]).astype(int), 0, own.shape[1] - 1)
             y = np.clip(np.floor(run[:, 1]).astype(int), 0, own.shape[0] - 1)
             xx, yy = x + box.x, y + box.y
@@ -601,21 +645,16 @@ def models(
             unoffered = np.array([tuple(p) not in accepted for p in points], bool)
             rejected[yy[unoffered], xx[unoffered]] = True
     if work.interrupted:
-        return ()
-    if not groups:
-        if source_profiles is not None:
-            assert profiles is not None
-            source_profiles.extend(profiles)
-        return ()
+        return None
     link_counts = {
         "candidates": len(links),
         "profiles": 0,
         "supported": 0,
         "carrier_exclusions": 0,
     }
-    for index, points in links:
+    for index, points in links if groups else ():
         if work.interrupted:
-            return ()
+            return None
         left = ports.get((index, tuple(points[0])), ())
         right = ports.get((index, tuple(points[-1])), ())
         compatible = {}
@@ -646,7 +685,7 @@ def models(
         )
         for i in sorted(compatible):
             if work.interrupted:
-                return ()
+                return None
             if (
                 scanned >= MAX_RUNS
                 or samples > MAX_RUN_POINTS
@@ -662,7 +701,7 @@ def models(
             bodies = []
             for host, contour in sorted(compatible[i]):
                 if work.interrupted:
-                    return ()
+                    return None
                 prior = groups[host]
                 shape = footprint(
                     Geometry("source-junction", (prior["contours"][contour],)),
@@ -745,6 +784,93 @@ def models(
         rejected[py[collision], px[collision]] = True
         claimed[py, px] = i + 1
     if work.interrupted:
+        return None
+    return _Discovered(
+        components,
+        groups,
+        profiles,
+        claimed,
+        rejected,
+        scale,
+        scanned,
+        points_count,
+        contact_budget,
+        link_counts,
+        carrier_fit,
+    )
+
+
+def models(
+    mask,
+    evidence,
+    options,
+    work,
+    *,
+    carrier=None,
+    prune_spurs=False,
+    boundary_contacts=False,
+    fractional_coverage=False,
+    fit_carrier=False,
+    source_absence=False,
+    source_intervals=False,
+    fit_widths=False,
+    source_profiles=None,
+    discovery=None,
+):
+    """Return complete bounded models; interruption discards partial discovery."""
+    if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
+        return ()
+    if source_intervals and not source_absence:
+        raise ValueError("Source intervals require source absence constraints")
+    if fit_widths and not source_intervals:
+        raise ValueError("Source width fitting requires source interval constraints")
+
+    def discover():
+        return _discover(
+            mask,
+            evidence,
+            options,
+            work,
+            carrier=carrier,
+            prune_spurs=prune_spurs,
+            boundary_contacts=boundary_contacts,
+            fractional_coverage=fractional_coverage,
+            fit_carrier=fit_carrier,
+            source_absence=source_absence,
+            source_intervals=source_intervals,
+            inspect_profiles=source_profiles is not None or source_absence,
+        )
+
+    if discovery is None:
+        raw = discover()
+    else:
+        key = (
+            hashlib.sha256(mask.tobytes()).digest(),
+            mask.shape,
+            str(mask.dtype),
+            repr(tuple(carrier)) if carrier is not None else None,
+            carrier.fillType if carrier is not None else None,
+            options,
+            prune_spurs,
+            boundary_contacts,
+            fractional_coverage,
+            fit_carrier,
+            source_absence,
+            source_intervals,
+            source_profiles is not None or source_absence,
+        )
+        raw = discovery.get(evidence, key, discover, work)
+    if raw is None or work.interrupted:
+        return ()
+    components, groups, profiles = raw.components, raw.groups, raw.profiles
+    claimed, rejected, scale = raw.claimed, raw.rejected, raw.scale
+    scanned, points_count = raw.scanned, raw.points_count
+    contact_budget, link_counts = raw.contact_budget, raw.link_counts
+    carrier_fit = raw.carrier_fit
+    if not groups:
+        if source_profiles is not None:
+            assert profiles is not None
+            source_profiles.extend(profiles)
         return ()
     absence = None
     active_runs = None

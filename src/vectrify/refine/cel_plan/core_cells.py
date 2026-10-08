@@ -165,6 +165,7 @@ class CoreCells:
         facet_fit="none",
         atom_layout="retired",
         source_profiles=None,
+        ink_discovery=None,
     ):
         if layout not in {"regions", "planes", "ink-planes"} or (
             layout != "regions" and not joint
@@ -236,6 +237,7 @@ class CoreCells:
         ):
             raise ValueError("Source line profiles require connected material regions")
         self.source_profiles = source_profiles
+        self.ink_discovery = ink_discovery
         self.layout = layout
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
@@ -669,6 +671,11 @@ class CoreCells:
                 **(
                     {"source_profiles": self.source_profiles}
                     if self.source_profiles is not None
+                    else {}
+                ),
+                **(
+                    {"discovery": self.ink_discovery}
+                    if self.ink_discovery is not None
                     else {}
                 ),
             )

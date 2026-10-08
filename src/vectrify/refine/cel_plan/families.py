@@ -37,7 +37,7 @@ from vectrify.refine.cel_plan.model import Boundary, Evidence, Graph, Options, W
 from vectrify.refine.cel_plan.nested import enclosed, in_core
 from vectrify.refine.cel_plan.opacity import Paint, fit_samples
 from vectrify.refine.cel_plan.ownership import Partition, Surface
-from vectrify.refine.cel_plan.search import Proposal, State
+from vectrify.refine.cel_plan.search import MAX_EDIT_OBJECTS, Proposal, State
 
 MAX_PATHS = 128
 MAX_NODES = 6_000
@@ -120,6 +120,7 @@ class Families:
         self._split_models = None
         self._piecewise_models = None
         self._core_models = None
+        self._joint_models = None
 
     def _same_ink(self, edge: Boundary, work: Work) -> bool:
         """An internal paint partition is not a gap in a continuous dark mark.
@@ -551,6 +552,7 @@ class Families:
 
     def __call__(self, state: State, work: Work):
         from vectrify.refine.cel_plan.core_cells import CoreCells
+        from vectrify.refine.cel_plan.joint_cells import JointCells
         from vectrify.refine.cel_plan.piecewise_surfaces import PiecewiseSurfaces
         from vectrify.refine.cel_plan.surface_splits import SurfaceSplits
 
@@ -562,9 +564,20 @@ class Families:
             # Small fragment sets already have the existing local competitors.
             # Reserve the source-contour rebuild for substantial fragmentation.
             self._core_models = CoreCells(self, self.options, minimum_paths=32)
-        # Alternate material hypotheses with the established adjacency family.
-        # Both occupy the existing family slot; other operators keep their turn.
+        if self._joint_models is None and self.options.quality == "high":
+            self._joint_models = JointCells(self, self.options)
+        # A High-quality seed beyond the small local-edit object bound gets
+        # one joint opportunity before broad surface scans consume its window.
+        # Smaller seeds keep the ordinary surface opportunity first. The
+        # original interpretation precedes the fitted alternative in both cases.
+        # All hypotheses occupy the existing family slot, so other operators
+        # retain their reserved turns and the deadline is unchanged.
         cursors = [
+            iter(self._joint_models(state, work))
+            if self._joint_models is not None
+            and state.partition is not None
+            and len(state.partition.surfaces) >= 32
+            else iter(()),
             iter(self.surface_models(state, work)),
             iter(self._core_models(state, work))
             if state.partition is not None and len(state.partition.surfaces) >= 32
@@ -573,6 +586,8 @@ class Families:
             iter(self.adjacent(state, work)),
             iter(self._split_models(state, work)),
         ]
+        if state.partition is None or len(state.partition.surfaces) <= MAX_EDIT_OBJECTS:
+            cursors[0], cursors[1] = cursors[1], cursors[0]
         alive = set(range(len(cursors)))
         try:
             while alive and not work.interrupted:

@@ -32,7 +32,40 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The latest explicit offline `--ink-fit source-widths` competitor fits complete
+The newest checkpoint shares complete physical source extraction between the
+original-width and fitted-width interpretations. `JointCells` alternates both
+under unchanged native absence, carrier, ownership and ledger proofs and releases
+its one-record cache when the invocation ends. Experimental High-quality search
+tries the pair and complementary source-opacity fields automatically. Source
+repairs from the human redraw remain excluded. Ordinary CEL and Fast/Balanced
+scheduling do not adopt the pair. Thirty-percent discovery allocation for a large
+owned High core remains bounded by existing search/validation/fitting deadlines.
+
+The shared offline union exactly reproduces 113 previously native-valid drawings
+and 68 full native stroke-body checks across sword and four tuning families,
+with one physical extraction and one reuse per case. This is preservation of
+candidate availability, not a fidelity gain. The completed native/graph audit and
+1,410 passing regressions are recorded in the progress file.
+
+Owner inspection of the fitted Detailed candidate finds a large visual gain,
+with clean shadows comparable to the human drawing. Preserve those material
+choices. The next visible quality priority is replacing filled outline shapes
+with clean, connected editable strokes supported by the raster. This feedback
+does not authorize copying the human's repaired source connection or collecting
+new references yet.
+
+Operation scheduling still fails the release requirement: 60-second sword runs
+can retain only a dense fallback or the 10,285-node / 1,711-contour owned core,
+without editable strokes. An earlier prototype's 1,978 / 327 / 30 result did not
+reproduce reliably. Park also exposes a clean-error regression under the source
+objective. Neither early allocation nor native validity establishes a quality,
+runtime, memory or repeatability gate. Deliver a compact verified candidate
+before optional initialization/context exhausts the deadline, then address
+missing source-supported lines, material gaps and scoring calibration. All eight
+deliveries remain open, and new references remain deferred. Full identities,
+negative probes and validation limits are in the progress record.
+
+The preceding explicit offline `--ink-fit source-widths` competitor fits complete
 stroke bodies only after physical chain/link discovery and raw observations
 are frozen. It tries bounded narrower widths, keeps original widths when
 there is no gain, honors width overrides and falls back atomically on its
