@@ -15,7 +15,7 @@ import numpy as np
 import pathops
 from scipy.ndimage import distance_transform_edt, find_objects, gaussian_filter, label
 
-from vectrify.document import Geometry
+from vectrify.document import Geometry, Subpath
 from vectrify.document.join import curve_path, path_geometry
 from vectrify.document.lines import open_path
 from vectrify.refine import cel
@@ -27,6 +27,7 @@ from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_absence import SourceAbsence
+from vectrify.refine.cel_plan.source_intervals import SourceIntervals
 from vectrify.refine.crossings import crossings
 
 MAX_COMPONENTS = 128
@@ -417,11 +418,14 @@ def models(
     fractional_coverage=False,
     fit_carrier=False,
     source_absence=False,
+    source_intervals=False,
     source_profiles=None,
 ):
     """Return complete bounded models; interruption discards partial discovery."""
     if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
         return ()
+    if source_intervals and not source_absence:
+        raise ValueError("Source intervals require source absence constraints")
     components, count = label(mask, np.ones((3, 3)))
     if count > MAX_SOURCE_COMPONENTS:
         return ()
@@ -515,12 +519,12 @@ def models(
                 ):
                     links.append((index, points))
                 continue
+            source_profile = None
             if profiles is not None:
-                profiles.append(
-                    SourceProfile.from_ink(
-                        points, proof, evidence, component=(profile_namespace, index)
-                    )
+                source_profile = SourceProfile.from_ink(
+                    points, proof, evidence, component=(profile_namespace, index)
                 )
+                profiles.append(source_profile)
             offered = carried(
                 points,
                 proof,
@@ -575,6 +579,8 @@ def models(
                 group["paints"].append(supported.paint)
                 group["contours"].append(model.contour)
                 group["proofs"].append(supported)
+                if source_intervals:
+                    group.setdefault("source_profiles", []).append(source_profile)
                 # Only source endpoints retained by an actually carried path
                 # authorize a later short link. Trimmed contact samples cannot
                 # create a new junction. Distinct contours are distinct hosts.
@@ -720,6 +726,8 @@ def models(
             )
         group["contours"].append(model.contour)
         group["proofs"].append(proof)
+        if source_intervals:
+            group.setdefault("source_profiles", []).append(None)
         group["ceilings"].append(ceiling)
         group["junction_links"] = group.get("junction_links", 0) + 1
         link_counts["supported"] += 1
@@ -736,31 +744,57 @@ def models(
         return ()
     absence = None
     active_runs = None
+    replacement_runs: list[list[tuple[Subpath, ...]]] | None = None
+    empty_runs: tuple[Subpath, ...] = ()
+    intervals = None
     if source_absence:
         assert profiles is not None
         try:
-            absence = SourceAbsence(evidence, profiles, work)
-            active_runs = []
+            absence = SourceAbsence(
+                evidence,
+                profiles,
+                work,
+                **({"intervals": True} if source_intervals else {}),
+            )
+            intervals = SourceIntervals(absence) if source_intervals else None
+            replacement_runs = []
             for group in groups:
                 width = options.line_width or float(np.median(group["widths"]))
-                active_runs.append(
-                    [
-                        absence.permits(
-                            Geometry("source-absence", (sub,)),
-                            width,
-                            group["cap"],
-                            work,
+                replacements: list[tuple[Subpath, ...]] = []
+                for j, sub in enumerate(group["contours"]):
+                    geometry = Geometry("source-absence", (sub,))
+                    if absence.permits(geometry, width, group["cap"], work):
+                        replacements.append((sub,))
+                    elif intervals is not None:
+                        replacements.append(
+                            intervals.recover(
+                                sub,
+                                group["source_profiles"][j],
+                                width,
+                                group["cap"],
+                                options,
+                                work,
+                                lambda geometry, width=width, cap=group["cap"]: (
+                                    carrier_width(
+                                        geometry,
+                                        width,
+                                        carrier,
+                                        work,
+                                        fixed=True,
+                                        cap=cap,
+                                    )
+                                    is not None
+                                ),
+                            )
                         )
-                        for sub in group["contours"]
-                    ]
-                )
+                    else:
+                        replacements.append(())
+                replacement_runs.append(replacements)
             # Individual antialias tolerances cannot establish a compound
             # proof. Retire a failed whole style before its incident ports can
             # authorize another style's short link.
             for i, group in enumerate(groups):
-                retained = tuple(
-                    sub for j, sub in enumerate(group["contours"]) if active_runs[i][j]
-                )
+                retained = tuple(sub for parts in replacement_runs[i] for sub in parts)
                 width = options.line_width or float(np.median(group["widths"]))
                 if retained and not absence.permits(
                     Geometry("source-absence-style", retained),
@@ -768,7 +802,42 @@ def models(
                     group["cap"],
                     work,
                 ):
-                    active_runs[i] = [False] * len(group["contours"])
+                    replacement_runs[i] = [empty_runs] * len(group["contours"])
+            active_runs = [
+                [bool(parts) for parts in style] for style in replacement_runs
+            ]
+            retained_ports = [
+                [
+                    {
+                        point
+                        for part in parts
+                        for point in (part.nodes[0].endpoint, part.nodes[-1].endpoint)
+                    }
+                    for parts in style
+                ]
+                for style in replacement_runs
+            ]
+            for i, group in enumerate(groups):
+                for link, pairs in group.get("link_dependencies", {}).items():
+                    if source_intervals:
+                        ends = (
+                            group["contours"][link].nodes[0].endpoint,
+                            group["contours"][link].nodes[-1].endpoint,
+                        )
+
+                        incident = any(
+                            ends[0] in retained_ports[a[0]][a[1]]
+                            and ends[1] in retained_ports[b[0]][b[1]]
+                            for a, b in pairs
+                        )
+                    else:
+                        incident = any(
+                            active_runs[a[0]][a[1]] and active_runs[b[0]][b[1]]
+                            for a, b in pairs
+                        )
+                    active_runs[i][link] &= incident
+                    if not active_runs[i][link]:
+                        replacement_runs[i][link] = ()
         except ValueError:
             # Discovery completed, so the whole inspected source bank remains
             # useful even when this independently bounded competitor cannot
@@ -778,15 +847,6 @@ def models(
             return ()
         except StageInterruptedError:
             return ()
-        for i, group in enumerate(groups):
-            # A short link retains at least one of its originally compatible
-            # incident pairs. Ports only refer to original long chains, so no
-            # removed chain or circular link dependency can authorize a join.
-            for link, pairs in group.get("link_dependencies", {}).items():
-                active_runs[i][link] &= any(
-                    active_runs[a[0]][a[1]] and active_runs[b[0]][b[1]]
-                    for a, b in pairs
-                )
     # Source samples belong to their nearest existing skeleton run. Ambiguous
     # junctions and unsupported chains retain their independently owned fill.
     nearest = distance_transform_edt(
@@ -815,8 +875,11 @@ def models(
                     replace(n, id=f"ink-{i}-{j}-{k}") for k, n in enumerate(sub.nodes)
                 ),
             )
-            for j, sub in enumerate(group["contours"])
-            if active_runs is None or active_runs[i][j]
+            for j, sub in enumerate(
+                group["contours"]
+                if replacement_runs is None
+                else (part for parts in replacement_runs[i] for part in parts)
+            )
         )
         if not contours:
             continue
@@ -880,13 +943,48 @@ def models(
                             "source_absence_scope": "inspected-raw-source-gap-centres",
                             "source_absence_calibrated": False,
                             "source_absence_samples": len(absence.points),
-                            "source_absence_excluded_runs": len(group["contours"])
-                            - len(contours),
+                            "source_absence_excluded_runs": sum(
+                                not parts for parts in replacement_runs[i]
+                            ),
                             "source_style_junction_links": group.get(
                                 "junction_links", 0
                             ),
                         }
-                        if absence is not None
+                        if absence is not None and replacement_runs is not None
+                        else {}
+                    ),
+                    **(
+                        {
+                            "source_interval_constraints": dict(intervals.diagnostics),
+                            "source_interval_lineage": [
+                                {
+                                    "source_ends": [
+                                        group["contours"][j].nodes[0].endpoint,
+                                        group["contours"][j].nodes[-1].endpoint,
+                                    ],
+                                    "source_component": group["source_profiles"][
+                                        j
+                                    ].component,
+                                    "result_ends": [
+                                        part.nodes[0].endpoint,
+                                        part.nodes[-1].endpoint,
+                                    ],
+                                }
+                                for j, parts in enumerate(replacement_runs[i])
+                                if parts != (group["contours"][j],)
+                                for part in parts
+                            ],
+                            "source_interval_reconstructed_runs": sum(
+                                bool(parts) and parts != (group["contours"][j],)
+                                for j, parts in enumerate(replacement_runs[i])
+                            ),
+                            "source_interval_recovered_contours": sum(
+                                len(parts)
+                                for j, parts in enumerate(replacement_runs[i])
+                                if parts != (group["contours"][j],)
+                            ),
+                        }
+                        if intervals is not None and replacement_runs is not None
                         else {}
                     ),
                     **(

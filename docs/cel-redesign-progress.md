@@ -14,6 +14,122 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Source-supported intervals instead of whole-chain gap rejection
+
+The `--ink-fit source-intervals` offline competitor builds on native absence
+constraints. Inspection of the seven withheld sword chains finds five with an
+own measured source gap near one end. Two have no negative interval along
+their own profile; their bodies spill into neighbouring absence. They remain
+withheld. No human repair, source-chain ordinal or owner clip authorizes a cut.
+
+`SourceLineGuard.source_breaks` binds copied/read-only native positives and
+negatives to the original physical profile object. Facing endpoint probes and
+copied/unknown profiles cannot split a host. `SourceIntervals` fits only open
+intervals separated by that same profile's raw negatives. Closed and ambiguous
+interpretations, short pieces and unsuccessful fits retain filled ownership.
+Surviving original terminals/junctions remain exact. New internal caps start
+at qualified raw-source samples; bounded native setbacks of half the style
+width plus 1/2/3 pixels accommodate cap radius and antialiasing. They cannot
+move past half-width plus 3.5 pixels from the bounding measured gap. These are
+**engineering proposal bounds, not calibrated endpoint tolerances**.
+
+Each candidate retains original style paint, cap and measured/overridden width;
+geometry tolerance is at most 0.25 source pixels. An interval needs at least
+four samples, length at least max(8, four widths), and 45% qualified support.
+Crossings, actual native stroke body/cap absence and exact carrier footprint are
+checked. Bounds are eight intervals per chain, 256 total fits, 128 recovered
+contours and 16,384 recovered nodes; native/profile/tile bounds remain those of
+`SourceAbsence`. A limit or stop publishes no partial reconstruction. A finished
+source bank survives an independent bound failure; an interrupted bank does not.
+
+Discovery retains a tuple of replacement contours per original host. Compound
+style absence is proved before links can use its ports. A short link now needs
+a compatible host at each **exact original incident endpoint**, rather than
+only a nonempty recovered host. Final compound footprints, rendered selection,
+sealed ownership, native coverage and save/reload remain checked. Model lineage
+records original profile ends/component and recovered ends for independent
+verification. Ordinary carrier and gap-only controls retain exact drawing,
+paint and metrics; defaults do not schedule this competitor.
+
+| Sword with connected opacity fields | Carrier control | Whole-chain gap rejection | Source intervals |
+| --- | ---: | ---: | ---: |
+| Nodes / contours / editable stroke contours | 1,631 / 237 / 32 | 1,611 / 230 / 25 | **1,638 / 235 / 30** |
+| Human MSE | 526.356708 | 524.782286 | 525.500704 |
+| Handle MSE | 938.812864 | 926.490234 | 930.317894 |
+| Fixed missing samples / 6,320 | 835 | 1,602 | **1,048** |
+| Fixed gaps filled / 7 | 5 | 0 | **0** |
+| Actual exported stroke alpha at own 15 gap centres | 0.992157 | 0 | **0** |
+
+Five long wrap intervals return as editable strokes. Missing fixed samples fall
+34.6% relative to whole-chain rejection (25.35% to 16.58%), but remain above the
+carrier control's 13.21%. The recovered geometry pays roughly 0.72 more human
+MSE than gap-only rejection; the carrier parent is 1,980 / 327 / 30 / MSE
+525.495787. The actual exported stroke layer preserves all own inspected gaps,
+while the full sword still fills one position in the broader own bank through
+material paint. These diagnostic banks are **uncalibrated**, not global recall
+or a release gate. The handle is still too poor for new references, and the
+800 / 140 / 497.39 gate remains unmet.
+
+| Tuning family | Recovered intervals | Gap-only fixed misses, coarse/finer | Interval fixed misses, coarse/finer | Gap-only clean MSE, coarse/finer | Interval clean MSE, coarse/finer | Interval fixed gaps filled, coarse/finer |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 1 | 81 / 44 | 36 / 39 | 101.277228 / 81.341838 | 102.756601 / 85.915353 | 0 / 0 |
+| Anime face | 3 | 154 / 131 | 44 / unavailable | 105.674061 / 88.033338 | 105.270499 / unavailable | 0 / unavailable |
+| Western park | 7 | 585 / 268 | 562 / 157 | 155.726472 / 109.345789 | 191.656259 / 117.059518 | 3 / 19 |
+| Rubberhose band | 3 | 754 / 409 | 377 / 367 | 126.396724 / 91.470054 | 124.096706 / 88.745934 | 11 / 8 |
+
+The finer face interpretation reaches **65 complete final source cells against
+64**, so no partial proposal is returned and no limit is raised. Coarse face
+line F improves from 0.376 to 0.449; girl stays at 0.097/0.062, park changes
+0.171/0.225 to 0.158/0.184, and rubberhose changes 0.269/0.661 to 0.370/0.718.
+Actual exported strokes have zero coverage at all own inspected gaps across
+all five drawings, but complete material interpretations still fill fixed gaps
+in park and rubberhose. Better source sampling does not imply better color,
+feature, structural or selected-operation quality. Common-frontier alternatives
+must retain these conflicting interpretations within the unchanged bounds.
+
+The initial fixed-setback prototype recovers two sword intervals. Extending
+bounded cap setbacks recovers five; an exact-original-curve diagnostic fallback
+is tried, but all five accepted fits use precise source centres, so that extra
+fallback is **not added to production**. The first prototype completes native
+exports but fails diagnostic JSON serialization of a NumPy integer; the driver
+is repaired and rerun. Final qualified-cap checks account for a small measurement
+difference from the prototype. Diagnostic roots are
+`.bench/cel-source-interval-probe` and `.bench/cel-source-interval-cap-probe`;
+they do not replace the frozen final run or supply release evidence.
+
+Frozen final source SHA-256:
+`796dd094c41adb43570819c603d587f54f788bf706c7051983564e490e0bb67e`.
+`.bench/cel-source-interval-final` contains **15 complete matched reports / 29
+native-valid proposals / 29 independent source-graph validations**. Sword and
+four tuning families use unchanged 180/60-second allowances. Carrier and gap-only
+controls reproduce their retained geometry/paint/native RGBA and metrics exactly.
+Physical source banks are identical across all three modes in each case.
+
+The independent audit verifies **67 complete constrained model bodies** through
+full-native SVG rasterization/scipy sampling, independently of tiled absence.
+It verifies **19 recovered contour lineages** against native source profiles:
+correct physical component, own observed break, exact surviving original ends,
+qualified new cap centres, bounded setback, sufficient length/support and no
+negative interval crossed. Actual exported stroke layers remain absent at all
+own negative positions. Hashes, inputs/masks/targets/settings/normalizer,
+saved/fresh native RGBA, project reload, complete ownership and seals match;
+maximum local/full term difference is 3.3775796812185455e-9. These measurements
+do not establish runtime/memory or fidelity calibration; no held-out fixture
+or human repair geometry is used in generation.
+
+**1,164 relevant tests pass in 245.96 seconds**, including 28 new source-interval
+controls, existing CEL/component tests and operation/planned-benchmark controls.
+Tests cover physical-profile binding, copied observations, actual full-native
+caps, exact surviving terminals, width overrides, full/half/quarter opacity,
+analysis-frame invariance, unknown profiles, closed fallback, independent bounds,
+carrier rejection, limits after one recovery, missing original ports and
+mid-fit cancellation. Ruff/format/whitespace pass; Pyrefly has zero errors and
+62 existing warnings. Drivers are `/tmp/vectrify-source-interval-final-matrix.py`
+and `/tmp/vectrify-source-interval-audit.py`; identities and full audit are saved
+in the artifact root. Missing source junctions, material-gap coverage, coherent
+regional facets, compact coverage, common-frontier selection and all eight
+complete deliveries remain open. Generated references remain deferred.
+
 ### Raw-source absence along actual editable stroke bodies
 
 The explicit offline `--ink-fit source-gaps` competitor adds source absence to

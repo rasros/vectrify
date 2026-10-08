@@ -30,7 +30,7 @@ def _check(work):
 
 
 class SourceAbsence:
-    def __init__(self, evidence, profiles, work):
+    def __init__(self, evidence, profiles, work, *, intervals=False):
         _check(work)
         h, w = evidence.rgba.shape[:2]
         if h * w > MAX_NATIVE_PIXELS or evidence.source_size != (w, h):
@@ -49,6 +49,7 @@ class SourceAbsence:
             if samples > MAX_PROFILE_SAMPLES:
                 raise ValueError("Source absence exceeds the per-profile sample bound")
         guard = SourceLineGuard(evidence.rgba, profiles, work=work)
+        self.source_breaks = guard.source_breaks if intervals else None
         self.points = guard.gap_centres(limit=MAX_POINTS, work=work)
         self.size = (w, h)
         # Match scipy's full-frame bilinear constant sampling exactly. A query

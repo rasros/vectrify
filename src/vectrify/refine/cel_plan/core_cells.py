@@ -206,7 +206,7 @@ class CoreCells:
                 "Fractional ink coverage requires connected material regions"
             )
         self.ink_coverage = ink_coverage
-        if ink_fit not in {"source", "carrier", "source-gaps"} or (
+        if ink_fit not in {"source", "carrier", "source-gaps", "source-intervals"} or (
             ink_fit != "source" and (ink_support != "connected" or layout != "regions")
         ):
             raise ValueError("Carrier ink fitting requires connected material regions")
@@ -486,7 +486,16 @@ class CoreCells:
                     else {}
                 ),
                 **({"fit_carrier": True} if self.ink_fit != "source" else {}),
-                **({"source_absence": True} if self.ink_fit == "source-gaps" else {}),
+                **(
+                    {"source_absence": True}
+                    if self.ink_fit in {"source-gaps", "source-intervals"}
+                    else {}
+                ),
+                **(
+                    {"source_intervals": True}
+                    if self.ink_fit == "source-intervals"
+                    else {}
+                ),
                 **(
                     {"source_profiles": self.source_profiles}
                     if self.source_profiles is not None

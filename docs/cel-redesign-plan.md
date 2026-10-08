@@ -32,7 +32,29 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The explicit offline `--ink-fit source-gaps` competitor now tests actual
+The latest explicit offline `--ink-fit source-intervals` competitor retains
+source-supported intervals of a chain rejected by the native gap check. Only
+that same physical profile's own observed internal gaps authorize new caps;
+surviving source terminals and junctions remain exact, and a recovered chain
+can authorize a link only at a surviving original port. Native positive samples,
+actual absence, exact carrier footprints and full ownership remain checked.
+The sword recovers **five editable intervals**, changing the gap-only result
+from 1,611 / 230 / 25 to **1,638 nodes / 235 contours / 30 strokes**, with human
+MSE **525.5007**. Fixed missing samples fall from 1,602 to **1,048 of 6,320**;
+all seven fixed gap positions remain unfilled. This is better source-line
+retention than whole-chain rejection, but still worse recall than the carrier
+control's 835 misses, and far above the 800 / 140 / 497.39 gate. Nineteen
+recovered intervals across all five drawings have independently checked source
+lineage. Tuning tradeoffs remain, and the finer face proposal is withheld at
+65 cells against the unchanged 64-cell limit. Fifteen matched reports / 29
+native and independent source-graph proposal checks / 67 native body checks
+complete; 1,164 regressions pass. References stay deferred, defaults remain
+unchanged and all eight deliveries stay open. Next address missing supported
+junctions and material-gap coverage with coherent regional reconstruction and
+bounded common-frontier alternatives. Exact identities and limits are in the
+progress record.
+
+The preceding explicit offline `--ink-fit source-gaps` competitor tests actual
 native stroke bodies and caps at inspected raw-source gap centres, including
 observations from chains that failed export. Complete source chains retain
 original geometry, endpoints, paint, caps and width overrides; an offending

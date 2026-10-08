@@ -534,7 +534,9 @@ def main():
         "--ink-coverage", choices=("visible", "fractional"), default="visible"
     )
     parser.add_argument(
-        "--ink-fit", choices=("source", "carrier", "source-gaps"), default="source"
+        "--ink-fit",
+        choices=("source", "carrier", "source-gaps", "source-intervals"),
+        default="source",
     )
     parser.add_argument(
         "--opacity-model", choices=("paths", "components"), default="paths"

@@ -34,6 +34,15 @@ def _readonly(value):
 
 
 @dataclass(frozen=True)
+class SourceBreaks:
+    """Copied native observations for one original physical source profile."""
+
+    points: np.ndarray
+    qualified: np.ndarray
+    gaps: np.ndarray
+
+
+@dataclass(frozen=True)
 class SourceProfile:
     """Native centres and directional probes copied from original source ink."""
 
@@ -301,6 +310,7 @@ class SourceLineGuard:
         self.shape = truth.shape
         self._validate(truth)
         prepared = []
+        source = []
         count = 0
         visible = truth[..., 3] > VISIBLE
         for index, raw in enumerate(profiles):
@@ -314,6 +324,9 @@ class SourceLineGuard:
             measured = _prepare(truth, profile, visible)
             if measured is not None:
                 prepared.append(measured)
+                source.append(
+                    (raw, SourceBreaks(profile.points, measured[3], measured[4]))
+                )
         original = tuple(prepared)
         self.gap_profiles = 0
         for i, a in enumerate(original):
@@ -351,6 +364,7 @@ class SourceLineGuard:
                             )
                         )
         _check(work)
+        self._source = tuple(source)
         self._profiles = tuple(prepared)
         self._baseline = None
         self.sampled = count
@@ -374,6 +388,20 @@ class SourceLineGuard:
             result.append(_error(prepared, actual, visible))
         _check(work)
         return tuple(result)
+
+    def source_breaks(self, profile, *, work=None):
+        """Own raw gaps only; facing endpoint probes cannot split a host chain.
+
+        Identity binds observations to the original measured physical profile.
+        Unknown, copied or unsupported profiles cannot authorize reconstruction.
+        Arrays are immutable copies made during source preparation.
+        """
+        for original, observed in self._source:
+            _check(work)
+            if original is profile:
+                return observed
+        _check(work)
+        return None
 
     def gap_centres(self, *, limit=MAX_SAMPLES, work=None):
         """Copy inspected raw absence positions for a bounded body constraint.
