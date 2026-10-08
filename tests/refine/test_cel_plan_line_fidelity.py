@@ -63,6 +63,38 @@ def test_dark_surface_flood_cannot_impersonate_a_retained_line():
     assert guard.metrics(flooded)["rejections"]
 
 
+@pytest.mark.parametrize("alpha", [1, 0.5, 0.25])
+def test_equal_gap_totals_cannot_exchange_original_protected_positions(alpha):
+    def drawing(path):
+        return render(
+            '<svg width="96" height="64">'
+            f'<g opacity="{alpha}"><path d="M0 0H96V64H0Z" fill="#c4b79c"/>'
+            f'<path d="{path}" fill="none" stroke="#202020" '
+            'stroke-width="3" stroke-linecap="butt"/></g></svg>',
+            (96, 64),
+        )
+
+    truth = drawing("M10 32H30 M34 32H54 M58 32H86")
+    before = drawing("M10 32H54 M58 32H86")
+    after = drawing("M10 32H30 M34 32H86")
+    guard = SourceLineGuard(truth, [profile()])
+    guard.establish(before)
+    initial = guard.metrics(before)
+    current = guard.metrics(after)
+    assert initial["gap_completed"] == current["gap_completed"] > 0
+    assert current["new_gap_completed"] > 0
+    assert current["rejections"] == [
+        {"profile": 0, "reason": "source-line-gap-completed"}
+    ]
+    assert (
+        guard.compare(before, after)["new_gap_completed"]
+        == current["new_gap_completed"]
+    )
+    assert guard.metrics(before) == initial
+    states = guard.gap_states(after)
+    assert all(not a.flags.writeable for a in states)
+
+
 def test_a_nearby_source_trough_is_not_a_false_negative_gap():
     truth = source()
     p = profile()

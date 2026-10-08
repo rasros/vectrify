@@ -25,11 +25,20 @@ from vectrify.document.redraw import root_matrix
 from vectrify.document.topology import inverse_matrix
 from vectrify.refine.cel_plan import constraints as chains
 from vectrify.refine.cel_plan.families import Families
+from vectrify.refine.cel_plan.filled_bands import FilledBands
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure
+from vectrify.refine.cel_plan.ink_models import models as source_ink_models
 from vectrify.refine.cel_plan.ink_replace import InkReplacement
+from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 from vectrify.refine.cel_plan.local import Box
-from vectrify.refine.cel_plan.model import Evidence, Graph, Options, Work
+from vectrify.refine.cel_plan.model import (
+    Evidence,
+    Graph,
+    Options,
+    StageInterruptedError,
+    Work,
+)
 from vectrify.refine.cel_plan.opacity_fields import OpacityFields
 from vectrify.refine.cel_plan.overlays import ClosedOverlays
 from vectrify.refine.cel_plan.ownership import Partition
@@ -73,6 +82,7 @@ class Operators:
         options: Options,
         *,
         root: Operators | None = None,
+        filled_bands: bool = False,
     ):
         self.evidence, self.graph, self.options = evidence, graph, options
         self._root = self if root is None else root
@@ -84,6 +94,12 @@ class Operators:
         self._branches: OrderedDict[str, Operators] = OrderedDict()
         self._live_branches: WeakValueDictionary[str, Operators] = WeakValueDictionary()
         self._namespace: str | None = None
+        self._filled_band_guard: SourceLineGuard | None = None
+        self.bands = (
+            FilledBands(evidence, graph, options, guard=self._root.band_guard)
+            if filled_bands
+            else None
+        )
         self.families = Families(evidence, graph, options)
         self.opacity_fields = OpacityFields(evidence, graph)
         self.replacements = InkReplacement(evidence, graph, options)
@@ -148,6 +164,30 @@ class Operators:
             array(boundary.points)
         return allocations
 
+    def band_guard(self, work):
+        """Prepare an independent original source bank, shared by owned branches."""
+        if self is not self._root:
+            return self._root.band_guard(work)
+        if self._filled_band_guard is None:
+            raw = []
+            source_ink_models(
+                self.evidence.drawn & ~self.evidence.empty,
+                self.evidence,
+                self.options,
+                work,
+                prune_spurs=True,
+                fractional_coverage=True,
+                source_profiles=raw,
+            )
+            if work.interrupted:
+                raise StageInterruptedError(
+                    "Filled band source observation interrupted"
+                )
+            self._filled_band_guard = SourceLineGuard(
+                self.evidence.rgba, raw, work=work
+            )
+        return self._filled_band_guard
+
     @staticmethod
     def _graph_bytes(graph):
         return sum(Operators._graph_allocations(graph).values())
@@ -201,6 +241,7 @@ class Operators:
                 graph,
                 self.options,
                 root=self._root,
+                filled_bands=self._root.bands is not None,
             )
             branch._namespace = key
             self._branches[key] = branch
@@ -470,6 +511,8 @@ class Operators:
         if self.options.quality == "high":
             iterators.append(iter(self.opacity_fields(state, work)))
             iterators.append(iter(self.strokes(state, work)))
+        if self.bands is not None:
+            iterators.append(iter(self.bands(state, work)))
         alive = set(range(len(iterators)))
         try:
             for cycle in range(MAX_OPERATOR_ITEMS):

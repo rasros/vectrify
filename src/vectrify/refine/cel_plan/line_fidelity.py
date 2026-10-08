@@ -16,7 +16,7 @@ from vectrify.refine.cel_plan.ink import _colors
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.opacity import VISIBLE
 
-LINE_FIDELITY_VERSION = 2
+LINE_FIDELITY_VERSION = 3
 MAX_SAMPLES = 131_072
 MAX_GAP_PROFILES = 128
 MAX_PROFILES = 512
@@ -186,6 +186,12 @@ class ProfileError:
     gap_completed: int
 
 
+def _gap_state(prepared, actual, visible):
+    profile, _reference, _opacity, _qualified, gaps = prepared
+    contrast, alpha, valid, _light = _sample(actual, profile, (0,), visible)
+    return gaps & valid[:, 0] & (contrast[:, 0] >= 12) & (alpha[:, 0] > VISIBLE)
+
+
 def _error(prepared, actual, visible):
     profile, reference, opacity, qualified, gaps = prepared
     contrast, alpha, valid, _light = _sample(
@@ -205,8 +211,7 @@ def _error(prepared, actual, visible):
         peak = max(peak, current)
     # A gap is tested at its source position. Search tolerance for a retained
     # line cannot borrow a nearby source line to excuse filling this gap.
-    contrast, alpha, valid, _light = _sample(actual, profile, (0,), visible)
-    bridged = gaps & valid[:, 0] & (contrast[:, 0] >= 12) & (alpha[:, 0] > VISIBLE)
+    bridged = _gap_state(prepared, actual, visible)
     return ProfileError(
         int(qualified.sum()),
         int(missing.sum()),
@@ -382,6 +387,7 @@ class SourceLineGuard:
         self._source = tuple(source)
         self._profiles = tuple(prepared)
         self._baseline = None
+        self._baseline_gaps = None
         self.sampled = count
 
     def _validate(self, rgba):
@@ -446,26 +452,76 @@ class SourceLineGuard:
         samples = sum(r.samples for r in measured)
         if samples and sum(r.missing for r in measured) == samples:
             raise ValueError("Source line baseline cannot lose every inspected line")
-        self._baseline = measured
+        gaps = self.gap_states(actual, work=work)
+        _check(work)
+        self._baseline, self._baseline_gaps = measured, gaps
+
+    def gap_states(self, actual, *, work=None):
+        """Immutable observations at each original gap, never aggregate counts.
+
+        Representation changes can uncover one old gap while completing another.
+        Equal profile totals do not establish preservation of either position.
+        This remains the inspected, uncalibrated photometric contract.
+        """
+        self._validate(actual)
+        visible = actual[..., 3] > VISIBLE
+        result = []
+        for prepared in self._profiles:
+            _check(work)
+            result.append(_readonly(_gap_state(prepared, actual, visible)))
+        _check(work)
+        return tuple(result)
+
+    def compare(self, before, after, *, work=None):
+        """Compare a complete painted edit without changing the fixed baseline."""
+        initial = self.assess(before, work=work)
+        current = self.assess(after, work=work)
+        old_gaps = self.gap_states(before, work=work)
+        new_gaps = self.gap_states(after, work=work)
+        changes = tuple(
+            int((new & ~old).sum()) for old, new in zip(old_gaps, new_gaps, strict=True)
+        )
+        rejected = self._rejections(initial, current, changes)
+        _check(work)
+        return {
+            "version": LINE_FIDELITY_VERSION,
+            "scope": "inspected-measured-source-troughs",
+            "calibrated_release_gate": False,
+            "new_gap_completed": sum(changes),
+            "qualified_samples": sum(r.samples for r in current),
+            "missing_samples": sum(r.missing for r in current),
+            "rejections": rejected,
+        }
+
+    @staticmethod
+    def _rejections(initial, current, changes):
+        rejected = []
+        for index, (now, old, new_gaps) in enumerate(
+            zip(current, initial, changes, strict=True)
+        ):
+            allowance = max(1, round(now.samples * 0.02))
+            if (
+                now.missing > old.missing + allowance
+                or now.maximum_missing_span > old.maximum_missing_span + 2
+            ):
+                rejected.append({"profile": index, "reason": "source-line-lost"})
+            if new_gaps:
+                rejected.append(
+                    {"profile": index, "reason": "source-line-gap-completed"}
+                )
+        return rejected
 
     def metrics(self, actual, *, work=None):
         if self._baseline is None:
             raise ValueError("Source line baseline must be established")
         result = self.assess(actual, work=work)
-        rejected = []
-        for index, (current, initial) in enumerate(
-            zip(result, self._baseline, strict=True)
-        ):
-            allowance = max(1, round(current.samples * 0.02))
-            if (
-                current.missing > initial.missing + allowance
-                or current.maximum_missing_span > initial.maximum_missing_span + 2
-            ):
-                rejected.append({"profile": index, "reason": "source-line-lost"})
-            if current.gap_completed > initial.gap_completed:
-                rejected.append(
-                    {"profile": index, "reason": "source-line-gap-completed"}
-                )
+        assert self._baseline_gaps is not None
+        gaps = self.gap_states(actual, work=work)
+        changes = tuple(
+            int((now & ~old).sum())
+            for old, now in zip(self._baseline_gaps, gaps, strict=True)
+        )
+        rejected = self._rejections(self._baseline, result, changes)
         samples = sum(r.samples for r in result)
         return {
             "version": LINE_FIDELITY_VERSION,
@@ -478,6 +534,7 @@ class SourceLineGuard:
             "missing_share": sum(r.missing for r in result) / max(1, samples),
             "gap_samples": sum(r.gap_samples for r in result),
             "gap_completed": sum(r.gap_completed for r in result),
+            "new_gap_completed": sum(changes),
             "profiles": [dict(vars(r)) for r in result],
             "baseline": [dict(vars(r)) for r in self._baseline],
             "rejections": rejected,

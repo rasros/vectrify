@@ -48,6 +48,27 @@ material search. It supplies no quality or repeatability evidence. Next address
 complete exterior coverage and supported junctions with retained strokes in one
 owned replacement. New reference collection and learned ranking remain deferred.
 
+An additional explicit `Operators(filled_bands=True)` competitor now inverts a
+complete existing filled ink band in place. It retains that owner's paint,
+frame, order and source atoms, uses subpixel intrinsic coverage to fit an editable
+centerline and physical cap positions, and checks the actual painted result
+against independent original source observations. No new carrier or surrounding
+material restoration is needed for this complete-owner route. Compound marks,
+branches and strongly varying widths still require a richer owned interpretation;
+they are excluded rather than pruned into a longest stroke. This is not enabled
+in ordinary experimental High.
+
+Native source-line comparison now protects each original measured gap position;
+opening one gap cannot compensate for completing another. An isolated main-blade
+probe produces an 18-node connected stroke from its 53-node filled contour but
+still completes one protected gap, so it is not admitted. Retaining its seven
+independent marks also needs exact source-class separation: one current atom
+spans the blade and several marks, and the material parent's 64-entry split
+ledger is already full. Neither resource limits nor source-gap thresholds rise
+to accept that probe. Next fit the native body locally under these constraints
+and compose stroke/mark ownership before material splitting exhausts the shared
+ledger. Detailed evidence and remaining gates stay in the progress file.
+
 The preceding checkpoint shares complete physical source extraction between the
 original-width and fitted-width interpretations. `JointCells` alternates both
 under unchanged native absence, carrier, ownership and ledger proofs and releases

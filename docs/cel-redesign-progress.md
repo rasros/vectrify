@@ -59,6 +59,76 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Complete filled-band inversion and the remaining blade split
+
+`filled_bands.py` adds an explicit `Operators(filled_bands=True)` competitor.
+It interprets one complete existing ink owner as a real `fill="none"` centerline
+stroke, replacing its fill in place with the same paint, opacity, frame, order,
+primary atoms and hidden coverage. It creates no new opacity carrier, material
+underpaint or connection between separate physical marks. Complete native painted
+source comparison precedes publication; ordinary scoring and sealed component
+validation remain independent acceptance checks. Default scheduling is unchanged.
+
+The fitter uses bounded intrinsic vector coverage, one unpruned physical skeleton
+run, contiguous transverse subpixel centroids, a measured median width and
+existing half-coverage terminal exits. Closed bands retain closure and holes.
+Transverse profiling uses 1,024-point chunks within the 16,384-point, 256-node and
+262,144-pixel limits. Branches, disconnected independent marks, broad paint,
+unsupported styles, locks/pins and incompatible source namespaces exclude the
+whole-path competitor; no partial longest chain is published. Complete-owner
+inversion avoids the carrier containment failure of additive exterior ink.
+
+Source-line diagnostics are now version 3. They retain immutable completion bits
+at each original measured gap. Counts alone could accept opening one pre-existing
+completed gap while filling a different one within the same profile. Fixed-baseline
+metrics and stateless complete painted comparisons reject that substitution;
+comparison never changes the observer's established baseline. These thresholds
+remain engineering controls, not calibrated release criteria.
+
+`scripts/bench_cel_band_strokes.py` reproduces the complete owned-parent comparison
+without parsing the human drawing. It decodes the original raster, validates the
+preserved parent's ledger against its original graph, checks every proposed
+component, compares native/local pixels and terms, and verifies project reload.
+The actual material parent is saved at `.bench/cel-filled-band-owned-parent` with
+327 surfaces and 64 atom split entries. This avoids rebuilding the material pool
+for each inverse-fit diagnostic; the useful shadow interpretation remains intact.
+
+The final-source `.bench/cel-band-strokes-final` audit is complete. It examines
+16 ranked owners; 15 do not support whole-path inversion. Two cap variants replace
+the same small `cel-fill-1413` path. Both are native-valid and preserve complete
+ownership, unchanged shadow objects, exact local/native RGBA and project reload.
+The drawing changes from 2,941 nodes / 30 stroke contours to 2,937 / 31. Both have
+zero newly completed measured gaps. Maximum local/full term discrepancy is
+9.558789315633476e-10. **This small conversion does not fix the main blade or
+establish a sword outline-quality gain.**
+
+The main black blade path contains eight contours: its 53-node U-shaped band plus
+seven independent marks. A diagnostic retaining those marks exactly fits an
+18-node connected centerline at width 2.20784330368042. Both butt and round cap
+variants are native-valid but newly complete one protected gap in profile 48;
+they fail the source comparison and remain outside admitted results. Uniform
+widths 1.6, 1.8, 2, 2.1 and 2.4 also fail one or more individual gaps. Earlier
+centroid/tolerance probes had three or more gap mismatches, including terminals.
+These prototypes have no complete stroke/mark ownership proof and are not
+frontier or release candidates.
+
+Algorithm and benchmark source SHA-256 for this checkpoint is
+`467a7ec01121fcf0a4b0f5a2c4092900df81c975f4ddeee25053cf1943ed089e`.
+The relevant source/stroke, search, component, local-score and benchmark suite
+passes 315 tests, including 23 inversion controls and 19 native source-fidelity
+controls. Ruff, formatting and whitespace checks pass; Pyrefly reports zero
+errors and 62 existing warnings. No actual-operation selection, process-memory,
+blind preference or calibrated editing/quality release result is claimed here.
+
+Native geometric classification identifies actual separate mark atoms, but atom
+8508 also spans the main band and marks in several other contours. Assigning that
+mixed atom to a surviving stroke would be false ownership. The preserved parent
+already exhausts its 64-entry ledger. Next constrain the local native body fit
+and compose exact stroke/mark classes before material splitting exhausts the
+shared ledger. Do not raise bounds, discard small marks, create fake secondary
+owners or relax the gap threshold to admit this blade. New references and learned
+ranking remain deferred; all eight delivery/release gates remain open.
+
 ### Source cycle recovery and the remaining composition failure
 
 The editing requirement is an actual centerline stroke with `fill="none"`,
