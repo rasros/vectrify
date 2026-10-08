@@ -14,7 +14,140 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
-### Fractional source stroke coverage and source-line diagnostics
+### Complete source-ended carrier fitting and direct atom partitions
+
+The latest experiment separates a physical fit failure from ledger exhaustion.
+`CoreCells(..., ink_fit="carrier")`, exposed only by the offline benchmark's
+`--ink-fit carrier`, first tries the existing measured source profile at a
+0.25-pixel fit tolerance, then its original source skeleton at the same width
+and paint. If neither fits, it measures the actual source ridge inside the
+existing vector carrier's raster coverage. Positive contrast and gap support
+still come from the full raw source; carrier coverage cannot invent evidence.
+Source alpha stays relative to the local opacity plateau. Original endpoints
+and measured paint are retained. The conditional centroid has a width-based
+movement limit capped at two native pixels; a carrier containing less than the
+existing minimum measurable ridge width cannot supply an artificial body.
+Every complete round/butt alternative requires the existing exact vector
+footprint proof. Explicit requested widths and strict short-link caps are never
+changed. Failed alternatives retain the previous result.
+
+One lazily cached float32 carrier mask uses the cropped analysis frame and
+native pixel phase, including anisotropic scale, fractional offsets and the
+actual nonzero/evenodd fill rule. Limits remain 1536² analysis pixels, 16 MiB
+mask storage, the existing bounded tile size/count, and cancellation before and
+after each render. A cancelled mask or discovery is never published. The sword
+mask is 4,414,640 bytes in five tiles. This is a bounded mask charge, **not** a
+process-memory release measurement.
+
+Recovered strokes still could not be exported through the binary source atom
+ledger. Its 32-cell hypothesis needs 66 binary cuts, exceeding the 64-entry
+limit, including 12 intermediate children with no final owner. Direct multiway
+RLE partitions retire each mixed parent once and omit those intermediate
+children. The final sword uses **54 entries / 120 allocated children / 984 RLE
+runs / 33 exported cells**, within the unchanged **64 / 128 / 16,384 / 64**
+limits. One largest child per parent is implicit; all other children have
+sorted, disjoint exact source runs. Replay verifies full parent area, actual
+pixel ownership, original protected roots and immutable lineage. Subsequent
+binary or multiway edits and secondary coverage follow the same namespace.
+Legacy binary metadata/key identities remain version 1; mixed multiway ledgers
+use version 2. Default fitting and partition construction remain unchanged.
+
+Six original-ended chains are recovered: two by precise fitting, two by
+original source centres and two by carrier-conditioned source width. Four are
+handle exterior chains and two are guard chains. The two conditional widths
+change from 1.989953 to 1.701810 and 2.534634 to 2.160394; all six source paints
+and original ends remain. Exported grouped styles and ownership change:
+**27 becomes 32 stroke contours**, with seven newly emitted anchor pairs and
+two former short junction-link pairs gone. The lower-handle contour lost at the
+previous checkpoint returns. This does not claim exact retention of all old
+styles or wrap junctions. Human repair geometry never enters generation.
+
+| Sword metric | Previous fitted/fractional | Carrier competitor |
+| --- | ---: | ---: |
+| Nodes / contours / stroke contours | 1,927 / 323 / 27 | 1,973 / 329 / 32 |
+| Human MSE | 544.625973 | 526.351791 |
+| Tip / facet MSE | 855.996613 / 269.319828 | 731.541764 / 254.562171 |
+| Guard / handle / jewel MSE | 1,090.901502 / 939.946427 / 1,208.915491 | 1,111.202180 / 938.812864 / 1,204.357647 |
+| Missing fixed-bank samples, of 6,320 | 1,170 (18.51%) | 835 (13.21%) |
+
+The fixed bank remains `863b40e586fb666fd291b1d98dbec8e5090e68b05dd847598463a20c6f4dc2c4`.
+The detailed connected control still misses only 116 samples (1.84%). Both
+fitted competitors cover five of seven proved inspected source gap positions,
+versus the initializer's three. The new competitor has 16 fixed-bank diagnostic
+reasons, down from 19; these are uncalibrated inspected profiles, not global
+line recall or a release pass. All 43 original measured chain descriptors stay
+exact; two old short-link descriptors disappear when complete incident chains
+are recovered. Their disappearance does not change the frozen evaluation bank.
+The handle crop still has incorrect wrap junction shapes and missing lower
+segments. Guard error worsens. Counts and MSE remain above 800 / 140 / 497.39,
+and error is still worse than the initializer's 512.807919. Reference collection,
+automatic scheduling/default migration and all eight deliveries remain open.
+Next recover source-faithful wrap junctions and missing measured chains, retain
+real gaps through material reconstruction, and build coherent compact facets
+and supported opacity. Ranking cannot repair the missing alternatives.
+
+Current source SHA-256 is
+`1fe293e547c261631dde9c01cc64a3394233c777f0a4c6dc74712128f17e94dc`.
+Artifacts are `.bench/cel-source-carrier-fit`; the matrix driver is
+`7e23dd3d0ae9382d8045b204bcdeea1bfd71c516cc378392d7316ea55875ffea`
+and expanded matrix `1a3510ee...`. All **15 matched reports complete**, with
+**28 native-valid proposals and 28 independent source-graph validations** under
+the same 180-second sword / 60-second paired allowances. Independent audit
+`0ffa7bdaa384ccdcc88d500854a962f9ae541964964d9a95f4878b8568b796f5`
+reproduces finite JSON, artifact hashes, source/mask/target/settings/normalizer
+identities, reported own-bank diagnostics, fixed-bank metrics, native reload,
+complete ownership, seals and local/full agreement (maximum 3.37757969e-9).
+Default/source controls and all four paired families retain exact geometry,
+paint, saved/fresh RGBA and metrics. Multiway IDs and their actual gradient
+paint-owner references are normalized together for comparison. The new sword
+exactly reproduces the separately labelled capacity diagnosis's geometry and
+fresh RGBA, now validated at the original production limits.
+
+Native validity does not imply exact alpha retention against the initializer.
+The existing connected coarse sword already differs at 2,506 alpha pixels. The
+new sword differs from its preceding fitted control at 2,948 alpha pixels,
+maximum 0.517647, and from the initializer at 3,894 pixels. The unchanged native
+hard policy passes, but calibrated source/feature/coverage requirements remain
+open. An initial audit incorrectly assumed exact initializer-alpha equality;
+another omitted plain gradient paint-owner identity normalization. Both fail
+before the final complete audit. They supply no completed audit claim and do
+not change algorithm or admission limits.
+
+The relevant regression suite passes **1,168 cases in 189.23 seconds**. Sixty-four
+added cases cover direct capacity at unchanged limits, legacy and mixed metadata,
+complete source replay, successive binary/multiway lineage, secondary coverage,
+sibling isolation, source stealing/overlap/area rejection, bounds/cancellation,
+native-phase carrier masks/holes, source paint/end retention, explicit width/cap
+protection, minimum measured coverage, true gaps/shading, invalid mask values,
+mixed-owner native edits/reload across both fitting/coverage/role/grouping modes,
+and CLI/layout delivery/rejection. The focused files pass 130 cases in 12.61
+seconds. Ruff/import/format and whitespace checks pass; production Pyrefly has
+zero errors and 62 existing warnings. Timings overlap regression work; no speedup,
+selected-operation gain or process-runtime/memory release pass is claimed.
+
+Source-only precursor diagnostics at base `1cc7ccbb...` are distinct from the
+final implementation: `.bench/cel-source-carrier-width-diagnosis` identifies
+four same-width feasible complete chains (driver `807e9152...`);
+`.bench/cel-carrier-profile-ink-probe` recovers six but cannot emit the sword at
+normal binary limits (driver `f36edf8b...`, expanded profile `1080f10f...`);
+`.bench/cel-carrier-profile-ink-budget-probe` tries material prefixes
+8/16/24/32/48/64 and emits no sword (driver `6250f8ca...`);
+`.bench/cel-carrier-profile-ink-capacity-diagnosis` temporarily allows 96 binary
+entries solely to diagnose the 66-cut/54-parent/120-child representation (driver
+`95dc0e91...`, explicitly `release_evidence=false`). That temporary cap is restored
+before any production edits. Only the final direct ledger provides evidence at
+normal limits. No held-out families or human geometry tune these hypotheses.
+
+The complete checkpoint can be reproduced with the following commands; `.bench`
+and `/tmp` drivers are local diagnostic artifacts rather than committed inputs:
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python /tmp/vectrify-carrier-fit-matrix.py
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python /tmp/vectrify-carrier-fit-audit-v2.py
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python -m pytest tests/refine/test_cel*.py tests/operations/test_cel_planned.py tests/test_bench_cel_planned.py tests/test_bench_cel_component.py tests/test_cel_pairs.py tests/test_bench_cel_pairs.py tests/test_audit_cel_admission.py tests/document/test_lines.py -q
+```
+
+### Fractional source stroke coverage and source-line diagnostics (previous checkpoint)
 
 The width/centroid profile previously integrated binary visible support. A
 source fringe with only 20% opacity could count as a full dark pixel, pushing
@@ -136,7 +269,7 @@ all five cases and nine independent source-graph checks. A subsequent final
 implementation reproduces it rather than attributing a monkeypatch to a base
 production revision.
 
-Current source SHA-256 is
+That checkpoint source SHA-256 is
 `1cc7ccbb62955fe8a06ef66b3124c24e6a59f45409b9b7617cfa6f243e7c24ab`.
 Artifacts are `.bench/cel-source-line-coverage-v2`. All **15 matched reports
 complete**, with **28 native-valid proposals and 28 independent source-graph

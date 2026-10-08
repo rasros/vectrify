@@ -32,7 +32,33 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The latest checkpoint adds an explicit fractional-alpha stroke profile and
+The latest offline `--ink-fit carrier` competitor recovers six complete
+source-ended chains through precise/original-source fitting or genuine source
+ridge coverage inside the existing carrier. Exact footprint, source endpoint,
+paint, width-override and real-gap checks remain. Direct multiway source
+partitions remove binary intermediate children without raising resource limits:
+the sword uses 54 entries / 120 children / 984 RLE runs / 33 cells, within
+64 / 128 / 16,384 / 64. Binary metadata remains compatible; defaults do not adopt
+the competitor. Its sword has **1,973 nodes / 329 contours / 32 editable strokes /
+human MSE 526.35**, versus 1,927 / 323 / 27 / 544.63 at the preceding checkpoint.
+The fixed pre-fractional source bank shows missing samples falling from 18.51%
+to 13.21%; the detailed control remains at 1.84%. These are inspected diagnostic
+samples, not global recall or a calibrated gate. Source gaps and incorrect wrap
+junctions remain, guard error worsens, and handle error barely changes. The
+four tuning families retain exact geometry, paint and rendered output.
+
+The 800-node / 140-contour / 497.39-MSE gate, source/feature/coverage fidelity,
+selected-operation quality and runtime/memory requirements remain open. All
+15 matched reports complete with 28 native/source-graph validations, and 1,168
+relevant regression cases pass. Native validity is not exact initializer-alpha
+retention or source fidelity. All eight deliveries remain open; generated
+references stay deferred and human repair geometry stays outside generation.
+Full source/driver identities, failed diagnostics and verification limits are
+recorded in the progress document. Next correct source-faithful wrap junctions,
+missing chains and gap preservation in material reconstruction, then compact
+coherent facets/opacity and common-frontier selection.
+
+The preceding checkpoint adds an explicit fractional-alpha stroke profile and
 bounded source-line diagnostics. Source opacity fringes contribute fractional
 coverage, normalized locally so full/half/quarter opacity retains intrinsic
 width. Original source anchors, width overrides, paint and carrier/ownership

@@ -159,6 +159,7 @@ class CoreCells:
         layout="regions",
         ink_roles="connected",
         ink_coverage="visible",
+        ink_fit="source",
         source_profiles=None,
     ):
         if layout not in {"regions", "planes", "ink-planes"} or (
@@ -204,6 +205,11 @@ class CoreCells:
                 "Fractional ink coverage requires connected material regions"
             )
         self.ink_coverage = ink_coverage
+        if ink_fit not in {"source", "carrier"} or (
+            ink_fit == "carrier" and (ink_support != "connected" or layout != "regions")
+        ):
+            raise ValueError("Carrier ink fitting requires connected material regions")
+        self.ink_fit = ink_fit
         if source_profiles is not None and (
             ink_support != "connected" or layout != "regions"
         ):
@@ -474,6 +480,7 @@ class CoreCells:
                     if self.ink_coverage == "fractional"
                     else {}
                 ),
+                **({"fit_carrier": True} if self.ink_fit == "carrier" else {}),
                 **(
                     {"source_profiles": self.source_profiles}
                     if self.source_profiles is not None
@@ -1635,7 +1642,14 @@ class CoreCells:
         members = tuple(sorted(i for s in selected for i in s.members))
         atoms = state.partition.atoms or Atoms.original(graph)
         try:
-            atoms, groups = atoms.partition(graph, members, classes, len(cells), work)
+            atoms, groups = atoms.partition(
+                graph,
+                members,
+                classes,
+                len(cells),
+                work,
+                **({"compact": True} if self.ink_fit == "carrier" else {}),
+            )
         except ValueError:
             self.diagnostics["atom_exclusions"] += 1
             return None
@@ -1869,6 +1883,8 @@ class CoreCells:
                     "ink_support": self.ink_support,
                     "ink_roles": self.ink_roles,
                     "ink_coverage": self.ink_coverage,
+                    "ink_fit": self.ink_fit,
+                    "source_atom_encoding": atoms.metadata()["version"],
                     "source_chain_discovery": "complete-carrier-before-material-budget"
                     if self.ink_support == "connected"
                     else None,

@@ -73,7 +73,7 @@ class Partition:
             raise ValueError("Hidden coverage must reference owned source regions")
         if self.atoms is not None:
             retired = {c.parent for c in self.atoms.cuts}
-            count = self.atoms.count + 2 * len(self.atoms.cuts)
+            count = self.atoms.namespace_count
             if any(
                 i >= count or i in retired
                 for s in self.surfaces

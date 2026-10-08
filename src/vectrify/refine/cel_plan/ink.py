@@ -40,6 +40,7 @@ def measure(
     light: np.ndarray | None = None,
     visible: np.ndarray | None = None,
     opacity: np.ndarray | None = None,
+    coverage: np.ndarray | None = None,
 ) -> Ink | None:
     """Measure a dark ridge; source visibility permits a one-sided exterior.
 
@@ -54,7 +55,13 @@ def measure(
     if step.sum() < max(8, 4 * width):
         return None
     return _profile(
-        points, target, width, light=light, visible=visible, opacity=opacity
+        points,
+        target,
+        width,
+        light=light,
+        visible=visible,
+        opacity=opacity,
+        coverage=coverage,
     )
 
 
@@ -117,12 +124,15 @@ def _profile(
     light=None,
     visible=None,
     opacity=None,
+    coverage=None,
     strict=False,
     joined=None,
     paint=None,
 ):
     if opacity is not None and (opacity.shape != target.shape[:2] or visible is None):
         raise ValueError("Source opacity must align with target and visibility")
+    if coverage is not None and (coverage.shape != target.shape[:2] or visible is None):
+        raise ValueError("Carrier coverage must align with target and visibility")
     step = np.linalg.norm(np.diff(points, axis=0), axis=1)
     tangent = np.gradient(points, axis=0)
     normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
@@ -220,6 +230,17 @@ def _profile(
     # Limit width integration to the ridge near the center, not other marks
     # sampled outside it. A line override is applied later by the caller.
     cover[:, np.abs(offsets) > max(2, 2 * width)] = 0
+    if coverage is not None:
+        eligible = map_coordinates(
+            coverage, coordinates, order=1, mode="constant", cval=0
+        )
+        if not np.isfinite(eligible).all() or np.any((eligible < 0) | (eligible > 1)):
+            raise ValueError("Sampled carrier coverage must be finite in [0, 1]")
+        # Measure only source ink this actual carrier can replace. Raw source
+        # support/paint still come from the complete original profile. Unowned
+        # fringe ink remains independent; final vector footprints require an
+        # exact carrier proof, not this proposal mask's antialias coverage.
+        cover *= eligible
     if seen is not None:
         if opacity is not None:
             alpha = map_coordinates(
@@ -245,6 +266,10 @@ def _profile(
         cover *= active & (components == peak[:, None])
     widths = cover.sum(axis=1) * 0.5
     measured_width = float(np.median(widths[supported]))
+    if coverage is not None and measured_width < 0.8:
+        # Do not manufacture the minimum-width body when this carrier contains
+        # no measurable source ridge. Unowned ink stays in its original fill.
+        return None
     displacement = offsets[location]
     if seen is not None:
         displacement = (cover * offsets).sum(axis=1) / np.maximum(

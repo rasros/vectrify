@@ -103,8 +103,9 @@ def test_virtual_intrinsic_statistics_recompose_original_weighted_atoms(monkeypa
 @pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
 @pytest.mark.parametrize("ink_roles", ["connected", "fitted"])
 @pytest.mark.parametrize("ink_coverage", ["visible", "fractional"])
+@pytest.mark.parametrize("ink_fit", ["source", "carrier"])
 def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
-    alpha, gap, grouping, ink_roles, ink_coverage
+    alpha, gap, grouping, ink_roles, ink_coverage, ink_fit
 ):
     evidence, ink = mixed(alpha, gap)
     frontier, state, options = prepared(evidence, layers=True)
@@ -118,6 +119,7 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
         ink_support="connected",
         ink_roles=ink_roles,
         ink_coverage=ink_coverage,
+        ink_fit=ink_fit,
     )
     before = state.svg
     edits = list(factory(state, Work.start(20)))
@@ -127,6 +129,7 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
     assert supported, factory.diagnostics
     for edit in supported:
         assert edit.details["core_material_cells"]["ink_coverage"] == ink_coverage
+        assert edit.details["core_material_cells"]["ink_fit"] == ink_fit
         assert edit.details["core_material_cells"]["source_roles"] == (
             "stroke-body-and-material"
             if ink_roles == "fitted"
@@ -449,4 +452,23 @@ def test_fitted_roles_cannot_be_silently_ignored_in_another_layout(kwargs):
 )
 def test_fractional_coverage_cannot_be_silently_ignored_in_another_layout(kwargs):
     with pytest.raises(ValueError, match="Fractional ink coverage"):
+        CoreCells(None, Options(), **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"ink_fit": "unknown"},
+        {"ink_fit": "carrier"},
+        {
+            "joint": True,
+            "grouping": "ward",
+            "ink_support": "connected",
+            "ink_fit": "carrier",
+            "layout": "ink-planes",
+        },
+    ],
+)
+def test_carrier_fitting_cannot_be_silently_ignored_in_another_layout(kwargs):
+    with pytest.raises(ValueError, match="Carrier ink fitting"):
         CoreCells(None, Options(), **kwargs)

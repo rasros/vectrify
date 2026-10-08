@@ -134,3 +134,158 @@ def test_malformed_metadata_is_rejected(change):
     root = Atoms.original(build(one_atom()))
     with pytest.raises(ValueError, match=r"schema|runs"):
         Atoms.from_metadata({**root.metadata(), **change})
+
+
+def capacity_source():
+    """54 mixed parents need 66 binary cuts, but only 120 direct children."""
+    shape = (24, 162)
+    target = np.full((*shape, 3), 180, dtype=np.float32)
+    rgba = np.concatenate((target / 255, np.full((*shape, 1), 0.5)), axis=-1)
+    zero = np.zeros(shape, np.float32)
+    evidence = replace(
+        stripes(),
+        rgba=rgba,
+        target=target,
+        smooth=target,
+        coarse=target,
+        empty=zero.astype(bool),
+        drawn=zero.astype(bool),
+        line=zero.astype(bool),
+        foreground=np.ones(shape, bool),
+        darkness=zero,
+        texture=zero,
+        labels=np.broadcast_to(np.arange(162)[None, :] // 3, shape)
+        .copy()
+        .astype(np.int32),
+        source_size=(162, 24),
+        opacity=rgba[..., 3],
+    )
+    y, x = np.indices(shape)
+    classes = np.where(x < 36, y // 8, np.where(y < 12, 0, 2)).astype(np.int32)
+    return evidence, classes
+
+
+def test_direct_partition_retains_source_pixels_without_raising_capacity():
+    from vectrify.refine.cel_plan.atoms import MultiCut
+
+    evidence, classes = capacity_source()
+    graph = build(evidence)
+    original = Atoms.original(graph)
+    members = tuple(range(54))
+    with pytest.raises(ValueError, match="bounds"):
+        original.partition(graph, members, classes, 3, Work.start(10))
+    atoms, cells = original.partition(
+        graph, members, classes, 3, Work.start(10), compact=True
+    )
+    assert len(atoms.cuts) == 54 <= module.MAX_CUTS == 64
+    assert atoms.namespace_count - atoms.count == 120 <= module.MAX_CHILDREN == 128
+    assert sum(isinstance(c, MultiCut) for c in atoms.cuts) == 12
+    assert module._run_count(atoms.cuts) <= module.MAX_RUNS == 16384
+    labels = atoms.labels(graph, Work.start(10))
+    lookup = np.full(atoms.namespace_count, -1)
+    for index, children in enumerate(cells):
+        lookup[list(children)] = index
+    np.testing.assert_array_equal(lookup[labels], classes)
+    np.testing.assert_array_equal(graph.labels, evidence.labels)
+    assert not labels.flags.writeable
+    assert Atoms.from_metadata(atoms.metadata()) == atoms
+    assert atoms.metadata()["version"] == 2
+    assert original.cuts == ()
+
+
+def test_multiway_lineage_secondary_coverage_and_successive_binary_split():
+    evidence = one_atom()
+    graph = build(evidence)
+    original = Atoms.original(graph)
+    y, x = np.indices(graph.labels.shape)
+    classes = (x // 32).astype(np.int32)
+    atoms, groups = original.partition(
+        graph, (1,), classes, 3, Work.start(10), compact=True
+    )
+    assert atoms.descendants((1,)) == (2, 3, 4)
+    branch = atoms.graph(evidence, graph, Work.start(10))
+    parent = Partition((Surface("body", (1,)), Surface("base", (1,), "underlay")))
+    first = parent.split(
+        ("body",), tuple(Surface(f"c{i}", g) for i, g in enumerate(groups)), atoms
+    )
+    assert first.follows(parent)
+    assert next(s for s in first.surfaces if s.role == "underlay").members == (2, 3, 4)
+    second, left, right = atoms.split(branch, groups[0], y < 32, Work.start(10))
+    assert second.extends(atoms)
+    assert second.descendants(groups[0], start=1) == (5, 6)
+    child = first.split(("c0",), (Surface("a", left), Surface("b", right)), second)
+    assert child.follows(first)
+    assert set(next(s for s in child.surfaces if s.role == "underlay").members) == {
+        3,
+        4,
+        5,
+        6,
+    }
+    assert Partition.from_metadata(child.metadata()) == child
+    other, _ = original.partition(
+        graph, (1,), (y // 24).astype(np.int32), 3, Work.start(10), compact=True
+    )
+    assert not second.extends(other)
+    with pytest.raises(ValueError, match="namespace"):
+        other.split(branch, groups[0], y < 32, Work.start(10))
+    legacy, _, _ = original.split(graph, (1,), x < 48, Work.start(10))
+    assert legacy.metadata()["version"] == 1
+    assert "left" in legacy.metadata()["cuts"][0]
+    assert Atoms.from_metadata(legacy.metadata()).key == legacy.key
+
+
+@pytest.mark.parametrize(
+    "defect", ["overlap", "steal", "incomplete", "version", "binary-arity"]
+)
+def test_multiway_metadata_and_replay_reject_invalid_source_support(defect):
+    from vectrify.refine.cel_plan.atoms import MultiCut
+
+    graph = build(one_atom())
+    root = Atoms.original(graph)
+    _y, x = np.indices(graph.labels.shape)
+    atoms, _ = root.partition(
+        graph, (1,), (x // 32).astype(np.int32), 3, Work.start(10), compact=True
+    )
+    data = atoms.metadata()
+    if defect == "overlap":
+        data["cuts"][0]["groups"] = (data["cuts"][0]["groups"][0],) * 2
+        data["cuts"][0]["areas"] = (1152, 1152, 1280)
+    elif defect == "version":
+        data["version"] = 1
+    elif defect == "binary-arity":
+        data["cuts"][0]["groups"] = (data["cuts"][0]["groups"][0],)
+        data["cuts"][0]["areas"] = (1152, 2432)
+    else:
+        area = graph.regions[1].area
+        groups = (
+            (((0, 0, 1),), ((8, 8, 9),))
+            if defect == "steal"
+            else (((8, 8, 9),), ((8, 9, 10),))
+        )
+        broken = replace(
+            root,
+            cuts=(MultiCut(1, groups, (1, 1, area - (2 if defect == "steal" else 3))),),
+        )
+        with pytest.raises(ValueError, match=r"owner|complete support"):
+            broken.labels(graph, Work.start(10))
+        return
+    with pytest.raises(ValueError, match=r"schema|runs|area"):
+        Atoms.from_metadata(data)
+
+
+@pytest.mark.parametrize("limit", ["MAX_CUTS", "MAX_CHILDREN", "MAX_RUNS"])
+def test_direct_partition_capacity_and_cancellation_discard_entire_change(
+    monkeypatch, limit
+):
+    evidence, classes = capacity_source()
+    graph = build(evidence)
+    root = Atoms.original(graph)
+    monkeypatch.setattr(module, limit, 1)
+    with pytest.raises(ValueError, match="bounds"):
+        root.partition(graph, range(54), classes, 3, Work.start(10), compact=True)
+    work = Work.start(10)
+    work.stop.set()
+    with pytest.raises(StageInterruptedError):
+        root.partition(graph, range(54), classes, 3, work, compact=True)
+    assert root.cuts == ()
+    np.testing.assert_array_equal(graph.labels, evidence.labels)

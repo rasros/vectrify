@@ -136,6 +136,7 @@ def run(
     ink_support="paired",
     ink_roles="connected",
     ink_coverage="visible",
+    ink_fit="source",
     source_line_diagnostics=False,
     proposal="core-cells",
     compose_materials=False,
@@ -152,6 +153,10 @@ def run(
         raise ValueError(
             "Fractional ink coverage requires connected dynamic core cells"
         )
+    if ink_fit != "source" and (
+        proposal != "core-cells" or ink_support != "connected" or grouping == "static"
+    ):
+        raise ValueError("Carrier ink fitting requires connected dynamic core cells")
     if source_line_diagnostics and (
         proposal != "core-cells" or ink_support != "connected" or grouping == "static"
     ):
@@ -227,6 +232,7 @@ def run(
                 ink_support=ink_support,
                 ink_roles=ink_roles,
                 ink_coverage=ink_coverage,
+                ink_fit=ink_fit,
                 source_profiles=source_profiles,
             )
         )
@@ -404,6 +410,7 @@ def run(
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
         "ink_roles": ink_roles if proposal == "core-cells" else None,
         "ink_coverage": ink_coverage if proposal == "core-cells" else None,
+        "ink_fit": ink_fit if proposal == "core-cells" else None,
         "source_line_diagnostics": source_line_diagnostics,
         "normalizer_source": "source-only-baseline"
         if normalizer is None
@@ -473,6 +480,7 @@ def main():
     parser.add_argument(
         "--ink-coverage", choices=("visible", "fractional"), default="visible"
     )
+    parser.add_argument("--ink-fit", choices=("source", "carrier"), default="source")
     args = parser.parse_args()
     if args.compose_materials and args.proposal != "source-strokes":
         parser.error("Material composition requires --proposal source-strokes")
@@ -484,6 +492,12 @@ def main():
         or args.grouping == "static"
     ):
         parser.error("Fitted ink roles require connected dynamic core cells")
+    if args.ink_fit == "carrier" and (
+        args.proposal != "core-cells"
+        or args.ink_support != "connected"
+        or args.grouping == "static"
+    ):
+        parser.error("Carrier ink fitting requires connected dynamic core cells")
     if args.source_line_diagnostics and (
         args.proposal != "core-cells"
         or args.ink_support != "connected"
@@ -533,6 +547,7 @@ def main():
         ink_support=args.ink_support,
         ink_roles=args.ink_roles,
         ink_coverage=args.ink_coverage,
+        ink_fit=args.ink_fit,
         source_line_diagnostics=args.source_line_diagnostics,
         proposal=args.proposal,
         compose_materials=args.compose_materials,

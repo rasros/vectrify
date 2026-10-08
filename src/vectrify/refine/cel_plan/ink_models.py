@@ -21,6 +21,7 @@ from vectrify.document.lines import open_path
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure, measure_link
+from vectrify.refine.cel_plan.ink_carrier import CarrierFit
 from vectrify.refine.cel_plan.line_fidelity import SourceProfile
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
 from vectrify.refine.cel_plan.score import render
@@ -242,7 +243,7 @@ def carrier_width(geometry, width, carrier, work, *, fixed=False, cap="round"):
     return None if work.interrupted else low
 
 
-def carried(
+def _carried(
     run,
     proof,
     evidence,
@@ -359,6 +360,49 @@ def carried(
     return result
 
 
+def carried(
+    run,
+    proof,
+    evidence,
+    options,
+    carrier,
+    work,
+    contacts,
+    budget,
+    light,
+    visible,
+    *,
+    cap=None,
+    opacity=None,
+    carrier_fit=None,
+):
+    original = _carried(
+        run,
+        proof,
+        evidence,
+        options,
+        carrier,
+        work,
+        contacts,
+        budget,
+        light,
+        visible,
+        cap=cap,
+        opacity=opacity,
+    )
+    if carrier_fit is None or cap is not None or work.interrupted:
+        return original
+    if any(
+        np.array_equal(part[0], run[0]) and np.array_equal(part[-1], run[-1])
+        for part, *_ in original
+    ):
+        return original
+    recovered = carrier_fit.recover(
+        run, proof, options, work, budget, light, visible, opacity, _carried
+    )
+    return [] if work.interrupted else recovered or original
+
+
 def models(
     mask,
     evidence,
@@ -369,6 +413,7 @@ def models(
     prune_spurs=False,
     boundary_contacts=False,
     fractional_coverage=False,
+    fit_carrier=False,
     source_profiles=None,
 ):
     """Return complete bounded models; interruption discards partial discovery."""
@@ -390,6 +435,7 @@ def models(
     rejected = np.zeros(mask.shape, bool)
     visible = ~evidence.empty
     opacity = evidence.opacity if fractional_coverage else None
+    carrier_fit = CarrierFit(evidence, carrier) if fit_carrier else None
     weight = gaussian_filter(visible.astype(np.float32), 0.5)
     light = gaussian_filter(cel.lightness(evidence.target) * visible, 0.5)
     light /= np.maximum(weight, 1e-12)
@@ -484,6 +530,7 @@ def models(
                 light,
                 visible,
                 **({"opacity": opacity} if opacity is not None else {}),
+                **({"carrier_fit": carrier_fit} if carrier_fit is not None else {}),
             )
             accepted = set()
             for part, supported, model, ceiling, cap in offered:
@@ -752,6 +799,11 @@ def models(
                     "source_link_profiles_scanned": link_counts["profiles"],
                     "source_links_supported": link_counts["supported"],
                     "source_link_carrier_exclusions": link_counts["carrier_exclusions"],
+                    **(
+                        {"carrier_fit": dict(carrier_fit.diagnostics)}
+                        if carrier_fit is not None
+                        else {}
+                    ),
                 },
             )
         )
