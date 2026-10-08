@@ -102,8 +102,9 @@ def test_virtual_intrinsic_statistics_recompose_original_weighted_atoms(monkeypa
 @pytest.mark.parametrize("gap", [False, True])
 @pytest.mark.parametrize("grouping", ["ward", "paint-fit"])
 @pytest.mark.parametrize("ink_roles", ["connected", "fitted"])
+@pytest.mark.parametrize("ink_coverage", ["visible", "fractional"])
 def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
-    alpha, gap, grouping, ink_roles
+    alpha, gap, grouping, ink_roles, ink_coverage
 ):
     evidence, ink = mixed(alpha, gap)
     frontier, state, options = prepared(evidence, layers=True)
@@ -116,6 +117,7 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
         boundary_fit="anchored",
         ink_support="connected",
         ink_roles=ink_roles,
+        ink_coverage=ink_coverage,
     )
     before = state.svg
     edits = list(factory(state, Work.start(20)))
@@ -124,6 +126,7 @@ def test_joint_edit_recovers_editable_lines_inside_mixed_owners(
     supported = [e for e in edits if e.details["core_material_cells"]["stroke_models"]]
     assert supported, factory.diagnostics
     for edit in supported:
+        assert edit.details["core_material_cells"]["ink_coverage"] == ink_coverage
         assert edit.details["core_material_cells"]["source_roles"] == (
             "stroke-body-and-material"
             if ink_roles == "fitted"
@@ -427,4 +430,23 @@ def test_cancelled_early_stroke_discovery_cannot_publish_material_roles(monkeypa
 )
 def test_fitted_roles_cannot_be_silently_ignored_in_another_layout(kwargs):
     with pytest.raises(ValueError, match="Fitted ink roles"):
+        CoreCells(None, Options(), **kwargs)
+
+
+@pytest.mark.parametrize(
+    "kwargs",
+    [
+        {"ink_coverage": "unknown"},
+        {"ink_coverage": "fractional"},
+        {
+            "joint": True,
+            "grouping": "ward",
+            "ink_support": "connected",
+            "ink_coverage": "fractional",
+            "layout": "ink-planes",
+        },
+    ],
+)
+def test_fractional_coverage_cannot_be_silently_ignored_in_another_layout(kwargs):
+    with pytest.raises(ValueError, match="Fractional ink coverage"):
         CoreCells(None, Options(), **kwargs)

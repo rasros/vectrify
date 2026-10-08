@@ -32,7 +32,36 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The latest offline ink/material interpretation competitor discovers exactly the
+The latest checkpoint adds an explicit fractional-alpha stroke profile and
+bounded source-line diagnostics. Source opacity fringes contribute fractional
+coverage, normalized locally so full/half/quarter opacity retains intrinsic
+width. Original source anchors, width overrides, paint and carrier/ownership
+checks remain fixed. The offline `--ink-coverage fractional` competitor with
+fitted roles emits **1,927 nodes / 323 contours / 27 editable strokes / human
+MSE 544.63**, versus 2,355 / 325 / 25 / 570.39 with visible coverage. Two handle
+exterior contours and one guard contour become strokes; one lower-handle
+contour is no longer emitted. Handle/guard/jewel fidelity worsens slightly,
+while tip/facet and overall error improve. Paired tuning outputs stay exactly
+unchanged. Defaults, UI preferences and automatic scheduling do not adopt this
+competitor.
+
+`--source-line-diagnostics` observes all measured source troughs, including
+failed-export chains, and reports loss and filled source gaps after generation.
+Version 2 requires absence throughout the same normal matching window used
+for positive line matching, so antialiased nearby ink cannot become a false
+gap. It never proposes a connection. Engineering allowances remain diagnostic
+and uncalibrated, with explicit sample/profile/cancellation limits. A single
+fixed pre-fractional bank shows missing sword source samples at 18.51%, down
+from fitted roles' 20.87%, versus the detailed control's 1.84%. These are
+inspected profile samples, not global recall or a release gate. The handle
+still has broken wraps and missing exterior segments. Correct source-line,
+gap and feature fidelity before scheduling; preserve the 800-node /
+140-contour / 497.39-MSE balanced gate. All eight deliveries remain open and
+new reference collection stays deferred. Human repair geometry remains solely
+evaluation context. Current implementation evidence and exact identities are
+in the progress document.
+
+The preceding offline ink/material interpretation competitor discovers exactly the
 same complete source strokes, then treats their actual bodies as ink and the
 uncertain dark remainder as material/shading. It retains all 25 sword stroke
 contours unchanged, with no human repair hint. A 32-cell material alternative

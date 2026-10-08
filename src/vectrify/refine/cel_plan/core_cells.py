@@ -158,6 +158,8 @@ class CoreCells:
         ink_support="paired",
         layout="regions",
         ink_roles="connected",
+        ink_coverage="visible",
+        source_profiles=None,
     ):
         if layout not in {"regions", "planes", "ink-planes"} or (
             layout != "regions" and not joint
@@ -194,6 +196,19 @@ class CoreCells:
         self.boundary_fit = boundary_fit
         self.ink_support = ink_support
         self.ink_roles = ink_roles
+        if ink_coverage not in {"visible", "fractional"} or (
+            ink_coverage == "fractional"
+            and (ink_support != "connected" or layout != "regions")
+        ):
+            raise ValueError(
+                "Fractional ink coverage requires connected material regions"
+            )
+        self.ink_coverage = ink_coverage
+        if source_profiles is not None and (
+            ink_support != "connected" or layout != "regions"
+        ):
+            raise ValueError("Source line profiles require connected material regions")
+        self.source_profiles = source_profiles
         self.layout = layout
         self.splitter = SurfaceSplits(families, options)
         self._ink = None
@@ -454,6 +469,16 @@ class CoreCells:
                 carrier=carrier,
                 prune_spurs=True,
                 boundary_contacts=True,
+                **(
+                    {"fractional_coverage": True}
+                    if self.ink_coverage == "fractional"
+                    else {}
+                ),
+                **(
+                    {"source_profiles": self.source_profiles}
+                    if self.source_profiles is not None
+                    else {}
+                ),
             )
 
         role_ink = ink_pixels
@@ -1843,6 +1868,7 @@ class CoreCells:
                     "boundary_fit": self.boundary_fit,
                     "ink_support": self.ink_support,
                     "ink_roles": self.ink_roles,
+                    "ink_coverage": self.ink_coverage,
                     "source_chain_discovery": "complete-carrier-before-material-budget"
                     if self.ink_support == "connected"
                     else None,

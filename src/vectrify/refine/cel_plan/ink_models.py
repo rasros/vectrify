@@ -7,6 +7,7 @@ widths and source paints receive distinct bounded models.
 
 from __future__ import annotations
 
+import hashlib
 from collections import deque
 from dataclasses import dataclass, replace
 
@@ -20,6 +21,7 @@ from vectrify.document.lines import open_path
 from vectrify.refine import cel
 from vectrify.refine.cel_plan.geometry import fitted
 from vectrify.refine.cel_plan.ink import measure, measure_link
+from vectrify.refine.cel_plan.line_fidelity import SourceProfile
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
 from vectrify.refine.cel_plan.score import render
 from vectrify.refine.crossings import crossings
@@ -253,6 +255,7 @@ def carried(
     visible,
     *,
     cap=None,
+    opacity=None,
 ):
     """Fit source chains inside the carrier with proved complete footprints.
 
@@ -342,7 +345,12 @@ def carried(
         budget["runs"] += 1
         budget["points"] += len(part)
         supported = measure(
-            part, evidence.target, proof.width, light=light, visible=visible
+            part,
+            evidence.target,
+            proof.width,
+            light=light,
+            visible=visible,
+            opacity=opacity,
         )
         if supported is not None:
             candidate = fit(part, supported)
@@ -360,6 +368,8 @@ def models(
     carrier=None,
     prune_spurs=False,
     boundary_contacts=False,
+    fractional_coverage=False,
+    source_profiles=None,
 ):
     """Return complete bounded models; interruption discards partial discovery."""
     if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
@@ -368,10 +378,18 @@ def models(
     if count > MAX_SOURCE_COMPONENTS:
         return ()
     groups = []
+    # Publish a complete inspected bank only after discovery finishes. Source
+    # proofs include long chains which cannot be represented by a carried
+    # constant-width stroke; export success must not define the line target.
+    profiles = [] if source_profiles is not None else None
+    profile_namespace = (
+        hashlib.sha256(mask.tobytes()).hexdigest() if profiles is not None else None
+    )
     ports, links = {}, []
     claimed = np.zeros(mask.shape, np.uint8)
     rejected = np.zeros(mask.shape, bool)
     visible = ~evidence.empty
+    opacity = evidence.opacity if fractional_coverage else None
     weight = gaussian_filter(visible.astype(np.float32), 0.5)
     light = gaussian_filter(cel.lightness(evidence.target) * visible, 0.5)
     light /= np.maximum(weight, 1e-12)
@@ -432,7 +450,12 @@ def models(
             points_count += len(run)
             points = run + np.array((box.x, box.y))
             proof = measure(
-                points, evidence.target, typical, light=light, visible=visible
+                points,
+                evidence.target,
+                typical,
+                light=light,
+                visible=visible,
+                opacity=opacity,
             )
             if proof is None:
                 rejected[yy, xx] = True
@@ -443,6 +466,12 @@ def models(
                 ):
                     links.append((index, points))
                 continue
+            if profiles is not None:
+                profiles.append(
+                    SourceProfile.from_ink(
+                        points, proof, evidence, component=(profile_namespace, index)
+                    )
+                )
             offered = carried(
                 points,
                 proof,
@@ -454,6 +483,7 @@ def models(
                 contact_budget,
                 light,
                 visible,
+                **({"opacity": opacity} if opacity is not None else {}),
             )
             accepted = set()
             for part, supported, model, ceiling, cap in offered:
@@ -510,7 +540,12 @@ def models(
                 claimed[py, px] = group_index + 1
             unoffered = np.array([tuple(p) not in accepted for p in points], bool)
             rejected[yy[unoffered], xx[unoffered]] = True
-    if work.interrupted or not groups:
+    if work.interrupted:
+        return ()
+    if not groups:
+        if source_profiles is not None:
+            assert profiles is not None
+            source_profiles.extend(profiles)
         return ()
     link_counts = {
         "candidates": len(links),
@@ -587,11 +622,18 @@ def models(
                 width * scale,
                 light=light,
                 visible=visible,
+                opacity=opacity,
                 junctions=junctions,
                 paint=paint,
             )
             if proof is None or not np.all(np.abs(proof.paint - paint) <= PAINT_SPREAD):
                 continue
+            if profiles is not None:
+                profiles.append(
+                    SourceProfile.from_ink(
+                        points, proof, evidence, component=(profile_namespace, index)
+                    )
+                )
             # Reuse the established style exactly. A junction cannot change
             # widths/paints of the incident long chains by shifting a median.
             error = float(np.square(proof.paint - paint).sum())
@@ -713,7 +755,12 @@ def models(
                 },
             )
         )
-    return () if work.interrupted else tuple(result)
+    if work.interrupted:
+        return ()
+    if source_profiles is not None:
+        assert profiles is not None
+        source_profiles.extend(profiles)
+    return tuple(result)
 
 
 def decoded(mask, evidence, options, work, *, carrier=None):

@@ -39,6 +39,7 @@ def measure(
     *,
     light: np.ndarray | None = None,
     visible: np.ndarray | None = None,
+    opacity: np.ndarray | None = None,
 ) -> Ink | None:
     """Measure a dark ridge; source visibility permits a one-sided exterior.
 
@@ -52,11 +53,21 @@ def measure(
     step = np.linalg.norm(np.diff(points, axis=0), axis=1)
     if step.sum() < max(8, 4 * width):
         return None
-    return _profile(points, target, width, light=light, visible=visible)
+    return _profile(
+        points, target, width, light=light, visible=visible, opacity=opacity
+    )
 
 
 def measure_link(
-    points, target, width, *, light=None, visible=None, junctions=None, paint=None
+    points,
+    target,
+    width,
+    *,
+    light=None,
+    visible=None,
+    opacity=None,
+    junctions=None,
+    paint=None,
 ):
     """Prove a short existing junction link at every original source sample.
 
@@ -91,6 +102,7 @@ def measure_link(
         width,
         light=light,
         visible=visible,
+        opacity=opacity,
         strict=True,
         joined=joined,
         paint=paint,
@@ -104,10 +116,13 @@ def _profile(
     *,
     light=None,
     visible=None,
+    opacity=None,
     strict=False,
     joined=None,
     paint=None,
 ):
+    if opacity is not None and (opacity.shape != target.shape[:2] or visible is None):
+        raise ValueError("Source opacity must align with target and visibility")
     step = np.linalg.norm(np.diff(points, axis=0), axis=1)
     tangent = np.gradient(points, axis=0)
     normal = np.column_stack((-tangent[:, 1], tangent[:, 0]))
@@ -206,7 +221,21 @@ def _profile(
     # sampled outside it. A line override is applied later by the caller.
     cover[:, np.abs(offsets) > max(2, 2 * width)] = 0
     if seen is not None:
-        cover *= seen
+        if opacity is not None:
+            alpha = map_coordinates(
+                opacity, coordinates, order=1, mode="constant", cval=0
+            )
+            if not np.isfinite(alpha).all() or np.any((alpha < 0) | (alpha > 1)):
+                raise ValueError("Sampled source opacity must be finite in [0, 1]")
+            # A faint exterior fringe contributes fractional line coverage.
+            # Normalize within this source profile so uniform half/quarter
+            # opacity retains its intrinsic width and centroid. Source alpha
+            # uses the same cropped analysis grid as RGB; hidden RGB and other
+            # disconnected marks still cannot supply contrast or coverage.
+            level = np.maximum(alpha.max(axis=1, keepdims=True), 1e-12)
+            cover *= seen * np.clip(alpha / level, 0, 1)
+        else:
+            cover *= seen
         # Keep the one-dimensional component containing the supported peak.
         # A second nearby dark mark cannot lend width or pull the centroid
         # across an actual zero-coverage profile gap.

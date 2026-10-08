@@ -1,6 +1,7 @@
 """Ink proofs distinguish a paired dark ridge from shading and blank gaps."""
 
 import numpy as np
+import pytest
 
 from vectrify.refine.cel_plan.ink import measure
 
@@ -96,3 +97,67 @@ def test_a_separate_profile_mark_cannot_pull_the_source_centroid_across_a_gap():
     assert changed is not None
     np.testing.assert_allclose(changed.points, proof.points)
     assert changed.width == proof.width
+
+
+def exterior_profile(alpha=1):
+    target = np.full((80, 100, 3), 180.0)
+    target[:40] = 255
+    target[40:44, 8:92] = 15
+    opacity = np.zeros((80, 100), float)
+    opacity[40:] = alpha
+    opacity[40] *= 0.2
+    points = line().copy()
+    points[:, 1] = 42.5
+    return points, target, opacity
+
+
+@pytest.mark.parametrize("alpha", [1, 0.5, 0.25])
+def test_fractional_exterior_coverage_keeps_intrinsic_width_at_each_opacity(alpha):
+    points, target, opacity = exterior_profile(alpha)
+    visible = opacity > 8 / 255
+    proof = measure(points, target, 4, visible=visible, opacity=opacity)
+    assert proof is not None
+    assert 3 <= proof.width <= 3.4
+    binary = measure(points, target, 4, visible=visible)
+    assert binary is not None
+    assert binary.width > proof.width + 0.4
+    opaque = measure(points, target, 4, visible=visible, opacity=opacity / alpha)
+    assert opaque is not None
+    np.testing.assert_allclose(proof.points, opaque.points, atol=1e-6)
+    assert proof.width == pytest.approx(opaque.width, abs=1e-6)
+    np.testing.assert_array_equal(proof.points[[0, -1]], points[[0, -1]])
+    np.testing.assert_array_equal(proof.paint, binary.paint)
+    # The faint first pixel contributes fractional coverage. The centre moves
+    # inward; a uniform translucent drawing must retain the same shape.
+    assert np.mean(proof.points[1:-1, 1]) > np.mean(binary.points[1:-1, 1])
+
+
+def test_fractional_coverage_cannot_use_hidden_rgb_or_complete_a_source_gap():
+    points, target, opacity = exterior_profile()
+    visible = opacity > 8 / 255
+    proof = measure(points, target, 4, visible=visible, opacity=opacity)
+    assert proof is not None
+    target[~visible] = (0, 220, 30)
+    hidden = measure(points, target, 4, visible=visible, opacity=opacity)
+    assert hidden is not None
+    np.testing.assert_allclose(hidden.points, proof.points)
+    np.testing.assert_allclose(hidden.paint, proof.paint)
+    assert hidden.width == proof.width
+    target[40:44, 38:62] = 180
+    assert measure(points, target, 4, visible=visible, opacity=opacity) is None
+
+
+@pytest.mark.parametrize("invalid", ["shape", "nonfinite", "negative", "too-large"])
+def test_fractional_coverage_requires_aligned_valid_source_opacity(invalid):
+    points, target, opacity = exterior_profile()
+    visible = opacity > 8 / 255
+    if invalid == "shape":
+        opacity = opacity[:-1]
+    elif invalid == "nonfinite":
+        opacity[:] = np.nan
+    elif invalid == "negative":
+        opacity[:] = -1
+    else:
+        opacity[:] = 2
+    with pytest.raises(ValueError, match="opacity"):
+        measure(points, target, 4, visible=visible, opacity=opacity)

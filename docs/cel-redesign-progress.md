@@ -14,6 +14,162 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Fractional source stroke coverage and source-line diagnostics
+
+The width/centroid profile previously integrated binary visible support. A
+source fringe with only 20% opacity could count as a full dark pixel, pushing
+an exterior stroke outward and overestimating its width. A competing profile
+integrates actual alpha relative to the highest painted opacity in that local
+profile. Uniform full/half/quarter opacity keeps intrinsic width and centroid;
+transparent RGB cannot contribute contrast. Alpha uses the **cropped analysis
+frame**, while exported anchors and source-line observations use native
+coordinates. This is `CoreCells(..., ink_coverage="fractional")`, exposed only
+as the offline benchmark's `--ink-coverage fractional`. The default is
+`"visible"`; production scheduling, UI settings and legacy CEL are unchanged.
+
+Complete source anchors, measured source paint, explicit width overrides,
+strict raw-source short-link checks and the existing carrier/ownership/resource
+proofs remain in force. Fractional coverage changes a physical hypothesis,
+not its admission allowances. It applies to original chains and remeasured
+contact pieces. An uncertain dark remainder still competes under the chosen
+connected/fitted role interpretation. No human repair supplies a line or a gap.
+
+The nominal 32-cell fitted-role sword changes from 2,355 nodes / 325 contours /
+25 strokes / human MSE 570.394090 to **1,927 / 323 / 27 / 544.625973**. Three
+source-ended contours appear: left handle `(331.5, 1732.5)` to
+`(331.5, 1754.5)`, right handle `(392.5, 1879.5)` to `(392.5, 1908.5)`, and guard
+`(286.5, 1585.5)` to `(306.5, 1585.5)`. The former lower-handle contour
+`(334.5, 1909.5)` to `(374.5, 1909.5)` is no longer emitted. Compatible grouping
+changes widths/paints, so this is **not** an exact retention of the preceding
+25 stroke styles. All four paired tuning families reproduce their earlier
+fitted-role geometry, renders and metrics exactly.
+
+Overall sword error improves, but handle error worsens from 922.763836 to
+939.946427; guard error worsens from 1,071.804846 to 1,090.901502 and jewel from
+1,176.831393 to 1,208.915491. Tip error improves from 1,027.196206 to 855.996613
+and blade facets from 302.321565 to 269.319828. The handle comparison still
+shows missing exterior segments and broken wraps. Structure/error now fall
+below the legacy numerical counts/error, but the feature and source-fidelity
+requirements do not pass. The balanced 800-node / 140-contour / 497.39-MSE gate
+and selected-operation/runtime requirements remain open. This is an available
+experimental interpretation, not a release-quality or automatically selected
+result; it remains worse in human error than the initializer's 512.807919.
+
+Native alpha/topology/ownership validity was insufficient to detect missing
+ink or a dark material model covering a source gap. `line_fidelity.py` now
+provides a bounded, immutable, source-only diagnostic bank from all measured
+source troughs, including supported chains which cannot pass stroke export.
+Discovery publishes the bank only when that discovery completes. Descriptors
+copy native centres, original directions, matching windows and component
+identity; observing them cannot mutate source proofs or generated models.
+The offline flag is `--source-line-diagnostics` and requires direct connected
+dynamic material regions. Diagnostics run **after generation** and never filter
+or rank the current candidate pool.
+
+Native profiles are densified to at most half-pixel spacing. Raw painted RGB
+and alpha establish positive trough support; unpainted RGB cannot establish
+contrast. Matching allows bounded normal displacement. Negative bright or
+transparent intervals need source ink on both ends and absence throughout
+that same normal matching window. This latter check prevents an antialiased
+line just beside a bright measured centre from becoming a false gap. A
+regression first reproduces that erroneous gap-completion rejection, then
+accepts the legitimate one-pixel displacement. Distinct facing source
+components can supply bounded endpoint-gap observations; these observations
+**never generate a connection**. A same-component branch is not presumed to
+be an inter-component gap.
+
+The version-2 diagnostic establishes one immutable initializer allowance per
+profile, detects additional missing samples/long missing spans and new gap
+completion, and reports each reason separately from native validity. The
+engineering margins are uncalibrated: `calibrated_release_gate` is always
+false. It inspects measured source troughs, not global line recall. Incomplete
+source discovery, already deficient baseline lines/gaps, unsupported isolated
+marks and missing feature calibration remain explicit limitations. Work is
+bounded to 512 original profiles, 131,072 sampled positions and 128 endpoint
+gap profiles; exhausted resources/cancellation never publish a partial score.
+
+One **fixed pre-fractional source bank** checks all three interpretations,
+without allowing changed width/centroid profiles to redefine success:
+
+| Sword row | Missing inspected source samples (of 6,320) | Missing share |
+| --- | --- | --- |
+| Initializer | 118 | 1.87% |
+| Connected higher-detail control | 116 | 1.84% |
+| Fitted roles, visible coverage | 1,319 | 20.87% |
+| Fitted roles, fractional coverage | 1,170 | 18.51% |
+
+These include failed-export source lines and are **diagnostic profile samples,
+not global line recall or a passed fidelity gate**. Fractional coverage helps
+some source ink but loses much more than the detailed control. Remaining source
+line loss, real gap completion and local feature regressions must be corrected
+before automatic scheduling; a learned ranker cannot repair missing faithful
+alternatives. Coherent compact facets/opacity and a shared cost frontier are
+still required. All eight deliveries stay open, and reference collection stays
+deferred. Human repair geometry remains solely evaluation context.
+
+An earlier source-anchor fallback at base `4e17cef...` tried original-ended
+source centre paths at the same measured width/paint with complete round/butt
+carrier proof. It recovers **zero** chains across five complete reports and
+nine native/source-graph-valid proposals. Independent auditing proves exact
+unchanged geometry, saved/fresh native RGBA and metrics. Driver identity is
+`a0231b388dd1de48d935551af6421cd8c2166670a61c58ecd534f27ccaedbeae`;
+artifacts are `.bench/cel-source-anchor-carrier-probe`. This does not justify
+an anchor or containment relaxation. A prior instrumentation attempt fails
+before emitting a candidate and is preserved separately.
+
+The first source profile diagnosis reproduced 43 historical measured source
+centres against the same native source and found 449 missing samples among
+2,284 source-qualified sparse positions for compact fitted roles (19.66%),
+versus 37 (1.62%) for the detailed control. The new complete diagnostic bank
+supersedes that sparse comparison; historical source geometry never supplied
+new generated candidates. Artifacts are
+`.bench/cel-source-profile-fidelity-diagnosis` with their own driver identity.
+
+The fractional prototype is separately identified at
+`.bench/cel-fractional-ink-width-probe`, base source `1cf2f704...`, driver
+`211a7cf8b9a2d321e574eb95089bb6eac5b7f47d560b8c31ee40eb7219347c10`,
+expanded profile `21d2573b...` and expanded matrix `364cceae...`. An initial
+incorrect native/analysis-alpha instrumentation attempt was cancelled before
+any completed report and moved to a discarded-instrumentation directory;
+no measurements or timings from it are used. The corrected prototype completes
+all five cases and nine independent source-graph checks. A subsequent final
+implementation reproduces it rather than attributing a monkeypatch to a base
+production revision.
+
+Current source SHA-256 is
+`1cc7ccbb62955fe8a06ef66b3124c24e6a59f45409b9b7617cfa6f243e7c24ab`.
+Artifacts are `.bench/cel-source-line-coverage-v2`. All **15 matched reports
+complete**, with **28 native-valid proposals and 28 independent source-graph
+validations**, under unchanged 180-second sword and 60-second paired
+allowances. Strict finite JSON, SVG hashes, source RGBA/masks/settings/
+normalizers/targets and reported source-line metrics independently reproduce.
+Connected and fitted visible-coverage drawings exactly match the preceding
+checkpoint; the fractional implementation exactly matches the separately
+identified prototype. Canonical geometry/paint, saved RGBA, fresh unquantized
+native RGBA and all quality/native metrics agree. Maximum local/full score-term
+difference is 3.37757969e-9. The fixed source bank SHA-256 is
+`863b40e586fb666fd291b1d98dbec8e5090e68b05dd847598463a20c6f4dc2c4`. Version-2 gap sampling leaves seven proved inspected sword
+gap positions: the initializer covers three, the detailed control four, and
+both fitted-role competitors five. Additional missing-line/span/gap diagnostics
+still reject each competitor; these diagnostics do not change native admission.
+
+The relevant suite passes **1,104 cases in 425.93 seconds**. Fifty-one added
+cases cover fractional exterior coverage at full/half/quarter opacity,
+unchanged source ends/paint, true gaps and invisible RGB; finite frame/opacity
+bounds; native mixed-owner edits under both coverage/role/grouping choices;
+explicit layout/CLI delivery/rejection; immutable anisotropic native profiles;
+failed-export source evidence; whole-bank cancellation; long line loss, dark
+floods, genuine bright/transparent gaps and corrected nearby-ink gap semantics.
+The final diagnostic/coverage/CLI focused files pass **44 cases in 1.65 seconds**.
+Ruff/import/format and whitespace checks pass; production Pyrefly reports zero
+errors and 62 warnings. Earlier version-1 diagnostics and the 1,103-test
+pre-correction run remain evidence only for source `63970ad3...`, not current
+version-2 gap metrics. Existing composed/plane matrices remain evidence for
+their earlier revisions and were not rerun for this direct coverage experiment.
+Timings overlap other CPU-heavy builds and regression work, so no speedup or
+runtime/memory release pass is claimed. All eight deliveries remain open.
+
+
 ### Ink versus material interpretation competitor
 
 A source-only ablation separates physical stroke discovery from interpretation
@@ -90,7 +246,7 @@ native admission, source-graph validation, ownership, component seals and
 local/full agreement; inputs and initializers match exactly. Ridge wrappers
 also record the hash of their expanded program separately.
 
-Current implementation source SHA-256 is
+The preceding fitted-role checkpoint source SHA-256 is
 `4e17cef70003d78784bb040eeca7396940327c1d53831dd93f34b9f8a35a7eac`.
 All ten current connected/fitted reports complete under the unchanged sword
 180-second and paired 60-second allowances, with **19 native-valid proposals
@@ -104,7 +260,7 @@ its earlier source hash; it was not repeated for this explicit direct-region
 competitor. Timings overlap regression work and other CPU-heavy builds, so no
 speedup or runtime gate is claimed.
 
-The current relevant suite passes **1,053 cases in 338.13 seconds**. Seventeen
+That fitted-role checkpoint suite passes **1,053 cases in 338.13 seconds**. Seventeen
 added cases extend native mixed-owner controls to the fitted role interpretation
 across true gaps, half/quarter opacity and Ward/paint-fit grouping; establish
 identical complete chain discovery exactly once; discard cancellation before

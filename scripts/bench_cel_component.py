@@ -36,6 +36,7 @@ from vectrify.refine.cel_plan.evidence import collect
 from vectrify.refine.cel_plan.export import export
 from vectrify.refine.cel_plan.families import Families
 from vectrify.refine.cel_plan.graph import build
+from vectrify.refine.cel_plan.line_fidelity import SourceLineGuard
 from vectrify.refine.cel_plan.local import LocalPolicy
 from vectrify.refine.cel_plan.model import Options, StageInterruptedError, Work
 from vectrify.refine.cel_plan.ownership import Partition
@@ -134,6 +135,8 @@ def run(
     boundary_fit="polygon",
     ink_support="paired",
     ink_roles="connected",
+    ink_coverage="visible",
+    source_line_diagnostics=False,
     proposal="core-cells",
     compose_materials=False,
     boundary_contacts=False,
@@ -143,6 +146,16 @@ def run(
 ):
     if ink_roles != "connected" and proposal != "core-cells":
         raise ValueError("Ink role alternatives require a direct core-cell comparison")
+    if ink_coverage != "visible" and (
+        proposal != "core-cells" or ink_support != "connected" or grouping == "static"
+    ):
+        raise ValueError(
+            "Fractional ink coverage requires connected dynamic core cells"
+        )
+    if source_line_diagnostics and (
+        proposal != "core-cells" or ink_support != "connected" or grouping == "static"
+    ):
+        raise ValueError("Source line diagnostics require connected dynamic core cells")
     started, revision = time.monotonic(), source_hash()
     if case.get("paired"):
         from scripts.cel_pairs import pair
@@ -178,6 +191,7 @@ def run(
         preparation = {**preparation, "stroke_parent": "conservative-fallback"}
     rows, factory, status = [], None, "unsupported"
     composition_diagnostics = []
+    source_profiles = [] if source_line_diagnostics else None
     if result is not None:
         svg, metadata = result
         full = policy.evaluate(svg)
@@ -212,6 +226,8 @@ def run(
                 boundary_fit=boundary_fit,
                 ink_support=ink_support,
                 ink_roles=ink_roles,
+                ink_coverage=ink_coverage,
+                source_profiles=source_profiles,
             )
         )
         (output / "initializer.svg").write_text(svg)
@@ -308,9 +324,17 @@ def run(
     else:
         human_svg, _ = load_case(DATA / case["file"])
     human = render(human_svg, evidence.source_size)
+    source_line_guard = None
+    if source_profiles is not None and rows:
+        source_line_guard = SourceLineGuard(truth, source_profiles)
+        source_line_guard.establish(
+            render((output / "initializer.svg").read_text(), evidence.source_size)
+        )
     for row in rows:
         svg = (output / f"{row['name']}.svg").read_text()
         actual = render(svg, evidence.source_size)
+        if source_line_guard is not None:
+            row["source_lines"] = source_line_guard.metrics(actual)
         metric = "clean" if case.get("paired") else "human"
         row[metric] = measurements(actual, human, mask, features=case["features"])
         if case.get("paired"):
@@ -379,6 +403,8 @@ def run(
         "boundary_fit": boundary_fit if proposal == "core-cells" else None,
         "ink_support": ink_support if proposal == "core-cells" else "source-drawn",
         "ink_roles": ink_roles if proposal == "core-cells" else None,
+        "ink_coverage": ink_coverage if proposal == "core-cells" else None,
+        "source_line_diagnostics": source_line_diagnostics,
         "normalizer_source": "source-only-baseline"
         if normalizer is None
         else "override",
@@ -443,6 +469,10 @@ def main():
         help="Offline role competitor; fitted strokes versus uncertain dark paint",
     )
     parser.add_argument("--out", type=Path, default=Path(".bench/cel-component"))
+    parser.add_argument("--source-line-diagnostics", action="store_true")
+    parser.add_argument(
+        "--ink-coverage", choices=("visible", "fractional"), default="visible"
+    )
     args = parser.parse_args()
     if args.compose_materials and args.proposal != "source-strokes":
         parser.error("Material composition requires --proposal source-strokes")
@@ -454,6 +484,18 @@ def main():
         or args.grouping == "static"
     ):
         parser.error("Fitted ink roles require connected dynamic core cells")
+    if args.source_line_diagnostics and (
+        args.proposal != "core-cells"
+        or args.ink_support != "connected"
+        or args.grouping == "static"
+    ):
+        parser.error("Source line diagnostics require connected dynamic core cells")
+    if args.ink_coverage == "fractional" and (
+        args.proposal != "core-cells"
+        or args.ink_support != "connected"
+        or args.grouping == "static"
+    ):
+        parser.error("Fractional ink coverage requires connected dynamic core cells")
     if not math.isfinite(args.seconds) or args.seconds <= 0:
         parser.error("Seconds must be finite and positive")
     if args.normalizer is not None and (
@@ -490,6 +532,8 @@ def main():
         boundary_fit=args.boundary_fit,
         ink_support=args.ink_support,
         ink_roles=args.ink_roles,
+        ink_coverage=args.ink_coverage,
+        source_line_diagnostics=args.source_line_diagnostics,
         proposal=args.proposal,
         compose_materials=args.compose_materials,
         boundary_contacts=args.boundary_contacts,
