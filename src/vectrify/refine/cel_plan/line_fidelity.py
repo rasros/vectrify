@@ -186,6 +186,19 @@ class ProfileError:
     gap_completed: int
 
 
+@dataclass(frozen=True, eq=False)
+class LineObservation:
+    """Complete immutable painted observations bound to one source bank.
+
+    This is a comparison parent, not a replacement for the guard's fixed
+    established baseline. It retains bounded sampled values, never the raster.
+    """
+
+    authority: object
+    profiles: tuple[ProfileError, ...]
+    gaps: tuple[np.ndarray, ...]
+
+
 def _gap_state(prepared, actual, visible):
     profile, _reference, _opacity, _qualified, gaps = prepared
     contrast, alpha, valid, _light = _sample(actual, profile, (0,), visible)
@@ -388,6 +401,7 @@ class SourceLineGuard:
         self._profiles = tuple(prepared)
         self._baseline = None
         self._baseline_gaps = None
+        self._authority = object()
         self.sampled = count
 
     def _validate(self, rgba):
@@ -474,14 +488,30 @@ class SourceLineGuard:
 
     def compare(self, before, after, *, work=None):
         """Compare a complete painted edit without changing the fixed baseline."""
-        initial = self.assess(before, work=work)
+        return self.compare_observed(self.observe(before, work=work), after, work=work)
+
+    def observe(self, actual, *, work=None):
+        """Measure one parent once for its bounded geometry/width alternatives."""
+        profiles = self.assess(actual, work=work)
+        gaps = self.gap_states(actual, work=work)
+        _check(work)
+        return LineObservation(self._authority, profiles, gaps)
+
+    def compare_observed(self, before, after, *, work=None):
+        """Compare against a complete observation from this exact source bank."""
+        _check(work)
+        if (
+            not isinstance(before, LineObservation)
+            or before.authority is not self._authority
+        ):
+            raise ValueError("Painted line observation belongs to another source bank")
         current = self.assess(after, work=work)
-        old_gaps = self.gap_states(before, work=work)
         new_gaps = self.gap_states(after, work=work)
         changes = tuple(
-            int((new & ~old).sum()) for old, new in zip(old_gaps, new_gaps, strict=True)
+            int((new & ~old).sum())
+            for old, new in zip(before.gaps, new_gaps, strict=True)
         )
-        rejected = self._rejections(initial, current, changes)
+        rejected = self._rejections(before.profiles, current, changes)
         _check(work)
         return {
             "version": LINE_FIDELITY_VERSION,

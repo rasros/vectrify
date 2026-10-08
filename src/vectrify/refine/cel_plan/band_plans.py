@@ -190,8 +190,9 @@ class BandPlans:
                 if guard is None:
                     return
             if before is None:
-                before = render(
-                    export_svg(proposal.document), self.evidence.source_size
+                before = guard.observe(
+                    render(export_svg(proposal.document), self.evidence.source_size),
+                    work=work,
                 )
             cached = None
             published = 0
@@ -221,7 +222,7 @@ class BandPlans:
                     document = self.document(
                         proposal.document, surface.id, newid, variant, marks, style
                     )
-                    comparison = guard.compare(
+                    comparison = guard.compare_observed(
                         before,
                         render(export_svg(document), self.evidence.source_size),
                         work=work,

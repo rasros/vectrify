@@ -59,6 +59,75 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Native validation overhead and actual-operation search limits
+
+The current algorithm source SHA-256 is
+`d5c2cafc6f3de7e71410c181fc30330e7d416500e47d943977377b56dce2d4dc`.
+Document validation now indexes reference users once per validation, preserving
+private-gradient ownership and dangling/cyclic reference checks. Each band's
+geometry/width alternatives reuse complete immutable parent line observations
+bound to their exact original source bank. They retain sampled values rather
+than the full parent raster, never replace the guard's fixed baseline, and still
+protect each original gap position. Native robust-loss temporaries are chunked
+with identical elementwise values and reduction order. Native evaluation also
+uses the existing validated `svg_metrics` import instead of parsing twice.
+
+Serial isolated captured-proposal replays compare the published `c203505` tree
+against this checkpoint under the same Python runtime and four-thread BLAS
+settings. The baseline is an exact Git archive, not modified workspace code.
+Both runs finish with four proposals and six source exclusions. Every row's
+metadata, SVG, PNG, project document and source partition is byte-exact; selected
+widths, all source checks and score terms are unchanged. The audit lives at
+`.bench/cel-band-plans-optimized/preservation.json`; the two complete reports are
+in that directory and `.bench/cel-band-plans-baseline-isolated`.
+
+| Serial diagnostic | Wall time | Peak process RSS |
+| --- | ---: | ---: |
+| Published implementation | 29.17 s | 746,704 KiB |
+| Current implementation | 24.37 s | 686,052 KiB |
+
+This single pair is about 16 percent faster and uses about 8 percent less peak
+RSS. It is not a repeated production benchmark or release gate. The earlier
+122.43-second run included concurrent tests and is not the matched baseline.
+The isolated document-validation measurement improves the 327-path,
+38-private-gradient material document's median from 17.206 to 3.508 milliseconds;
+that roughly fivefold result applies only to validation, not total generation.
+
+Two real Generate/apply probes use only the original source raster, complexity
+100, High quality, automatic CPU refinement and the explicit prototype
+`Operators(filled_bands=True)` route. Their observer cannot alter acceptance.
+Reports and replay drivers are saved in `.bench/cel-band-operation-probe` and
+`.bench/cel-band-operation-long-probe`. Neither changes the ordinary default.
+
+The 60-second probe completes in 54.677 seconds with 10,285 nodes, 1,711 contours
+and zero strokes, peaking at 740,320 KiB. Structural search attempts zero edits;
+initialization and checkpoint reservations consume its opportunity. Short tests
+ran concurrently, so its timing is a diagnostic rather than isolated release
+evidence. A serial 180-second probe completes in 162.215 seconds with 9,739 nodes,
+1,568 contours and zero strokes, peaking at 981,868 KiB. It evaluates 59 local
+proposals, admits 45 and checks eight complete checkpoints with zero score
+disagreements. It generates 30-contour stroke candidates and some alternatives
+with a ninth stroke object, but selects the dense filled drawing. That extra
+stroke converts a separate small owner; it is not the co-planned blade result.
+
+The longer run calls the joint cursor on three parents and obtains only their
+first coarse `source-intervals` proposal. It records no extraction reuse or
+resumed expansion, and never evaluates the fitted Detailed sibling or its blade
+co-plan. Thus more total time does not establish the desired result. Beam
+retention, nested cursor scheduling and the source objective all still need
+work: retain useful complete original/fitted material alternatives before
+descendant edits displace their ancestors, then measure selection with the
+supported outline representation available. Do not force stroke selection by
+copying the human repair or converting dark shadow regions into lines.
+
+The relevant final suite passes **593 tests in 23.57 seconds**. New controls cover
+source-bank binding, immutable sampled parents, fixed-baseline preservation,
+cancellation and exact robust-loss values across float types, layouts, scalar
+and empty inputs. Ruff, formatting and whitespace checks pass; Pyrefly reports
+zero errors and the same 62 warnings. The offline blade's 2,923 / 414 / 31 result
+is preserved, not further improved. Complete outline/junction conversion,
+actual-operation selection and all eight delivery/release gates remain open.
+
 ### Co-planned blade stroke with exact marks and ordinary selection
 
 `band_plans.py` extends the explicit `Operators(filled_bands=True)` experiment.

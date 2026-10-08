@@ -377,9 +377,20 @@ class Document:
         if self.root.tag != "svg":
             raise DocumentError("Document root must be svg")
         edges = {}
+        known_objects = set(object_ids)
+        known_geometries = set(geometry_ids)
         parents = {c.id: e.tag for e in elements for c in e.children}
+        # Validate attributes before indexing their references. A private
+        # gradient may be used only by its owner; one inverse index checks this
+        # for every gradient without repeatedly scanning the complete drawing.
         for element in elements:
             validate_attributes(element.tag, dict(element.attributes))
+        references_by_id = {e.id: references(e) for e in elements}
+        reference_users: dict[str, set[str]] = {}
+        for element in elements:
+            for reference in references_by_id[element.id]:
+                reference_users.setdefault(reference, set()).add(element.id)
+        for element in elements:
             if element.children and element.tag not in CONTAINERS | {"linearGradient"}:
                 raise DocumentError(f"{element.tag} cannot contain children")
             problem = gradient_placement(
@@ -399,27 +410,24 @@ class Document:
                     "Identity and path geometry are not ordinary attributes"
                 )
             if element.tag == "path":
-                if element.geometry_id not in geometry_ids:
+                if element.geometry_id not in known_geometries:
                     raise DocumentError("Path must reference existing geometry")
             elif element.geometry_id is not None:
                 raise DocumentError("Only paths may own geometry")
             if element.paint_owner is not None:
                 if (
                     element.tag != "linearGradient"
-                    or element.paint_owner not in object_ids
+                    or element.paint_owner not in known_objects
                     or self.element(element.paint_owner).tag
                     not in {"path", "rect", "circle", "ellipse", "line", "use"}
                 ):
                     raise DocumentError("Private gradients need a graphic owner")
-                if element.id not in references(self.element(element.paint_owner)):
+                if element.id not in references_by_id[element.paint_owner]:
                     raise DocumentError("Private gradients must be used by their owner")
-                if any(
-                    e.id != element.paint_owner and element.id in references(e)
-                    for e in elements
-                ):
+                if reference_users.get(element.id, set()) - {element.paint_owner}:
                     raise DocumentError("Private gradients cannot be shared directly")
-            refs = references(element)
-            if any(ref not in object_ids for ref in refs):
+            refs = references_by_id[element.id]
+            if any(ref not in known_objects for ref in refs):
                 raise DocumentError(f"Dangling reference on {element.id}")
             clip = element.get("clip-path")
             if clip and clip != "none" and self.element(clip[5:-1]).tag != "clipPath":

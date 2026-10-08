@@ -21,7 +21,6 @@ from scipy.ndimage import (
     label,
 )
 
-from vectrify.document import import_svg
 from vectrify.refine.cel_plan.coverage import COVERAGE_VERSION, from_alpha
 from vectrify.refine.cel_plan.model import Evidence, Graph
 from vectrify.refine.cel_plan.opacity import VISIBLE
@@ -91,8 +90,24 @@ class Evaluation:
 
 
 def _robust(difference: np.ndarray, delta: float = 0.1) -> np.ndarray:
-    absolute = np.abs(difference)
-    return np.where(absolute <= delta, difference**2, 2 * delta * absolute - delta**2)
+    # Preserve the elementwise formula while bounding its temporary arrays.
+    # Native RGB losses otherwise materialize both branches across the complete
+    # canvas for every scale and backdrop, even when nearly all errors are small.
+    if difference.ndim == 0 or difference.dtype.kind != "f":
+        absolute = np.abs(difference)
+        return np.where(
+            absolute <= delta, difference**2, 2 * delta * absolute - delta**2
+        )
+    result = np.empty_like(difference)
+    stride = max(1, 131_072 // max(1, int(np.prod(difference.shape[1:]))))
+    for start in range(0, len(difference), stride):
+        values = difference[start : start + stride]
+        output = result[start : start + stride]
+        np.square(values, out=output)
+        linear = ~(np.abs(values) <= delta)
+        if linear.any():
+            output[linear] = 2 * delta * np.abs(values[linear]) - delta**2
+    return result
 
 
 def source_field(field: np.ndarray, evidence: Evidence) -> np.ndarray:
@@ -371,8 +386,7 @@ class Policy:
         }
 
     def evaluate(self, svg: str, *, pixels: np.ndarray | None = None) -> Evaluation:
-        document = import_svg(svg)
-        document.validate()
+        # svg_metrics imports and validates once before measurement/rendering.
         structure = svg_metrics(svg, include_crossings=True)
         actual = (
             render(svg, (self.truth.shape[1], self.truth.shape[0]))

@@ -4,12 +4,44 @@ import numpy as np
 import pytest
 
 from vectrify.document import import_svg
-from vectrify.refine.cel_plan.policy import Feature, Policy
+from vectrify.refine.cel_plan.policy import Feature, Policy, _robust
 from vectrify.refine.cel_plan.score import render, representation
 
 
 def drawing(body, size=64):
     return f'<svg width="{size}" height="{size}">{body}</svg>'
+
+
+@pytest.mark.parametrize("dtype", [np.float16, np.float32, np.float64])
+@pytest.mark.parametrize("layout", ["rows", "transpose", "slice"])
+def test_bounded_native_loss_preserves_elementwise_values_and_readonly_input(
+    dtype, layout
+):
+    values = np.random.default_rng(43).uniform(-1, 1, (211, 823, 3)).astype(dtype)
+    values[0, :7, 0] = (-0.1, 0.1, 0, -0.0, 1, -1, 0.05)
+    if layout == "transpose":
+        values = values.transpose(1, 0, 2)
+    elif layout == "slice":
+        values = values[::2, ::2]
+    values.flags.writeable = False
+    before = values.copy()
+    absolute = np.abs(values)
+    expected = np.where(absolute <= 0.1, values**2, 0.2 * absolute - 0.1**2)
+    actual = _robust(values)
+    assert actual.dtype == expected.dtype
+    np.testing.assert_array_equal(actual, expected)
+    np.testing.assert_array_equal(values, before)
+    assert not np.shares_memory(values, actual)
+
+
+@pytest.mark.parametrize(
+    "values", [np.array(0.4), np.array([], dtype=np.float32), np.array([-1, 0, 1])]
+)
+def test_empty_scalar_and_non_float_loss_preserve_existing_formula(values):
+    absolute = np.abs(values)
+    np.testing.assert_array_equal(
+        _robust(values), np.where(absolute <= 0.1, values**2, 0.2 * absolute - 0.1**2)
+    )
 
 
 def test_used_geometry_and_inherited_strokes_are_charged_per_instance():

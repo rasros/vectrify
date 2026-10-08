@@ -296,7 +296,9 @@ class FilledBands:
                 self.diagnostics["source_exclusions"] += 1
                 continue
             if before is None:
-                before = render(export_svg(document), self.evidence.source_size)
+                before = guard.observe(
+                    render(export_svg(document), self.evidence.source_size), work=work
+                )
                 _check(work)
             parent = document.ancestry(surface.id)[-2].id
             component = ComponentEdit.bind(document, partition, parent, work)
@@ -323,7 +325,7 @@ class FilledBands:
                     )
                 proposed = editor.snapshot.document
                 actual = render(export_svg(proposed), self.evidence.source_size)
-                comparison = guard.compare(before, actual, work=work)
+                comparison = guard.compare_observed(before, actual, work=work)
                 if not comparison["qualified_samples"] or comparison["rejections"]:
                     self.diagnostics["source_exclusions"] += 1
                     continue

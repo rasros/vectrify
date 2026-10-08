@@ -84,6 +84,17 @@ still does not enable that flag. Remaining blade/guard/handle outlines, complete
 operation scheduling, runtime/memory and the eight delivery/release gates remain
 open. Detailed identities, verification and pending work stay in the progress file.
 
+Validation now reuses bounded immutable parent line observations and indexes
+document references once, while retaining complete native gap and ownership
+checks. An isolated replay preserves all four candidates and their exact pixels,
+metadata and selection; one serial timing pair improves from 29.17 to 24.37
+seconds. Actual Generate probes still select filled drawings: the longer probe
+explores only the first coarse joint proposal on each parent, never reaching
+the fitted Detailed sibling or co-planned blade. Give complete original/fitted
+material alternatives an opportunity before descendant edits displace their
+ancestor cursors, then verify selection with supported editable outlines
+available. These diagnostics pass no additional delivery/release gate.
+
 The preceding checkpoint shares complete physical source extraction between the
 original-width and fitted-width interpretations. `JointCells` alternates both
 under unchanged native absence, carrier, ownership and ledger proofs and releases

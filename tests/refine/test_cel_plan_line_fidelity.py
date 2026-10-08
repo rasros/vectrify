@@ -184,6 +184,58 @@ def test_baseline_is_fixed_and_rasters_must_match_the_source():
             guard.metrics(invalid)
 
 
+@pytest.mark.parametrize("alpha", [1, 0.5, 0.25])
+def test_reused_painted_observation_keeps_exact_source_checks_and_fixed_baseline(alpha):
+    truth = source(alpha=alpha, gap=True)
+    guard = SourceLineGuard(truth, [profile()])
+    guard.establish(truth)
+    before = truth.copy()
+    observed = guard.observe(before)
+    baseline = guard.metrics(truth)
+    for after in (
+        source(alpha=alpha),
+        source(alpha=alpha, gap=True),
+        source(alpha=alpha, blank=True),
+    ):
+        assert guard.compare_observed(observed, after) == guard.compare(before, after)
+    # The snapshot owns sampled observations, never views into caller pixels.
+    before[:] = source(alpha=alpha)
+    result = guard.compare_observed(observed, before)
+    assert result["new_gap_completed"] > 0
+    assert result["rejections"]
+    assert all(not gaps.flags.writeable for gaps in observed.gaps)
+    assert guard.metrics(truth) == baseline
+
+
+def test_observation_from_identical_but_different_source_bank_is_rejected():
+    truth = source(gap=True)
+    a = SourceLineGuard(truth, [profile()])
+    b = SourceLineGuard(truth, [profile()])
+    with pytest.raises(ValueError, match="another source bank"):
+        b.compare_observed(a.observe(truth), truth)
+
+
+def test_interrupted_parent_observation_does_not_publish_or_change_baseline(
+    monkeypatch,
+):
+    truth = source(gap=True)
+    guard = SourceLineGuard(truth, [profile(), profile()])
+    guard.establish(truth)
+    baseline = guard.metrics(truth)
+    work = Work.start(10)
+    original = line_fidelity._gap_state
+
+    def interrupted(*args):
+        result = original(*args)
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(line_fidelity, "_gap_state", interrupted)
+    with pytest.raises(StageInterruptedError, match="line fidelity"):
+        guard.observe(truth, work=work)
+    assert guard.metrics(truth) == baseline
+
+
 def test_sample_limit_and_cancellation_never_publish_partial_fidelity(monkeypatch):
     truth = source()
     p = profile()
