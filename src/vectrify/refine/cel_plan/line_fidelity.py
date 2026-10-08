@@ -438,6 +438,16 @@ class SourceLineGuard:
         _check(work)
         return None
 
+    def original_profiles(self, *, work=None):
+        """Original identities for queries of copied physical observations.
+
+        Consumers must use ``source_breaks`` for coordinates and qualification;
+        the original profile is an identity, not a mutable replacement witness.
+        Facing endpoint probes cannot authorize extending a physical chain.
+        """
+        _check(work)
+        return tuple(original for original, _observed in self._source)
+
     def gap_centres(self, *, limit=MAX_SAMPLES, work=None):
         """Copy inspected raw absence positions for a bounded body constraint.
 

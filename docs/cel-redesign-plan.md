@@ -97,6 +97,21 @@ material parent's 508.055591. Attached outline/shadow branches, variable-width
 handle ink, calibrated stroke selection and actual-operation delivery remain
 unfinished; this is not completion of the outline requirement.
 
+A further source-only offline handle experiment fits a complete four-node
+centerline and recovers the two neighboring stroke caps within their own
+original measured intervals. `SourceCaps` provides the bounded reusable cap
+competitor; original physical endpoints, source gaps, paint, width and other
+controls remain protected. The complete combined replay has 2,910 nodes / 414
+contours / 33 stroke contours, native body absence for the new handle stroke,
+zero new completed inspected painted gaps, complete ownership and exact
+save/reload. Human MSE is 523.206190, still worse than the preserved material
+parent's 508.055591. The fitted handle and cap helper are not yet integrated into
+Generate. Pale newly exposed junction slivers need material restoration inside
+the affected ink footprint. Next integrate bounded joint source fitting,
+qualified cap alternatives and that restoration as one owned candidate; do not
+publish an isolated fill removal or relax the source contracts. This is a local
+feasibility result and passes no additional release gate.
+
 Those captured-proposal results are offline candidate/selection evidence, not a
 completed outline release. The co-planned alternative is available through the
 explicit `Operators(filled_bands=True)` joint cursor. Ordinary experimental High

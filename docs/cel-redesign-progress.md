@@ -59,6 +59,79 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Source-fitted handle and recovered neighboring caps
+
+The remaining nine-node handle contour is a complete physical band, but its
+90th/10th intrinsic width ratio is about 2.38. A uniform inversion is excluded.
+Its filled terminals also supply small pieces of two neighboring wrap lines.
+Replacing it alone either completes an inspected gap or loses those neighboring
+samples. Relaxing the width-ratio proposal filter does not solve this: all 30
+constant-width trials fail the unchanged native line/gap comparison. All 16
+piecewise-width trials fail too. Forty-eight source-profile fitting/paint/cap
+trials retain neighboring line failures; nine joint default-source-model trials
+also fail. These are diagnostic-only probes, not generator changes.
+
+A bounded source-only geometry experiment holds the original native junctions
+at (331.5, 1790.5) and (331.5, 1833.5). It fits eight horizontal cubic coordinates
+within two native pixels and the width within 1.5–4, keeping vertical coordinates
+and endpoints fixed. Powell performs 278 crop evaluations under a 600-evaluation
+bound, using source RGB, original line observations and actual body alpha at
+source gaps. Its four-node stroke at width 2.6998074474145435 passes independent
+native body absence. It still fails the two neighboring wrap profiles in
+isolation. This artwork-selected diagnostic is not an automatic fitting policy.
+
+`SourceCaps` now provides a reusable complete cap competitor. Both existing
+stroke endpoints must match the same original physical source profile inside
+one non-gap interval; ambiguous matches exclude the subpath. Only that profile's
+own original gaps authorize extending a truncated cap toward a qualified sample.
+Physical terminals/junctions, paint, width, frame, other controls and unrelated
+subpaths remain exact. Native movement is bounded at three pixels, with explicit
+path/node bounds, scope, pins/effects exclusions and cancellation. A copied
+source-observation query protects this process from later mutation of the
+original identity object. This helper constructs a proposal; qualification alone
+is not a native body or painted-gap proof. A zero-margin control explicitly
+creates a native gap violation and must be rejected by the caller.
+
+With the helper's 0.5 margin, the neighboring wrap starts/ends move only to their
+own qualified samples: (335.1666666666667, 1791.1909249753837) and
+(337.25, 1832.1459336690525). No endpoint crosses its original source gap. Combined
+with the fitted stroke, this passes the complete native painted comparison:
+zero new completed inspected gaps, no line rejections, 13,145 qualified samples
+and 1,629 missing, versus the preceding parent's 1,634. The former handle fill
+becomes a real `fill="none"` stroke; its other 29 contours retain exact geometry.
+All independent materials and all other stroke nodes/controls remain exact.
+
+The complete ancestor replay at `.bench/cel-owned-handle-source-caps` passes
+original-graph ownership, component validation, independent local/native pixels,
+score-term agreement (maximum 6.943e-10), zero crossings and exact save/reload.
+It retains 64 ledger entries with no inherited unrepresented handle pixels.
+The result is **2,910 nodes / 414 contours / 33 stroke contours**. Native validation
+is successful. Post-terminal human evaluation gives **MSE 523.206190**, versus
+the matching blade-plus-guard parent's 524.897535 and the preserved material
+parent's 508.055591. The frozen source-mask hash remains
+`f2e692b86e2814f5958c0ca6cc19800a34c12891a527449e68e1624c8bdfe514`.
+Human geometry supplies no fitting, cap choice or connection repair.
+
+The final helper/benchmark source SHA-256 is
+`39ff8a92d0b59764de437625986f23bd86ad12d9343fc29566a6def89c1a7f4c`;
+the standalone owned audit driver SHA-256 is
+`1fcd11cfbfae8c961d7f2e6280f95663ca6ad320bbb3a0a6aeebdfcbbcdb6753`.
+The source raster and fitted-input hashes are saved in its report. The helper
+passes 11 new controls, and the relevant line, absence, interval, band and cap
+suite passes **153 tests**. Ruff/format/whitespace pass; Pyrefly has zero errors
+and 62 warnings. The offline replay is saved independently of temporary drivers.
+
+This demonstrates a feasible owned local replacement, not automatic candidate
+selection or Generate delivery. `SourceCaps` is currently used by the offline
+experiment; the generator does not yet schedule this fitted-handle interpretation.
+The preview also exposes pale slivers at the junctions after removing the old
+filled band. Restore the surrounding material only within the affected old/new
+ink footprint, then integrate source-profile selection, bounded joint fitting
+and cap recovery into the complete proposal cursor. Broader attached outlines,
+source-score calibration, actual operation/runtime evidence and all eight
+release/delivery gates remain open. New reference collection and ML ranking
+remain deferred; the full implementation goal remains active.
+
 ### Separable guard stroke alongside the blade
 
 The explicit band cursor now retains all original blade-width alternatives,
