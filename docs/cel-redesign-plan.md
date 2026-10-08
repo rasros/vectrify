@@ -38,6 +38,15 @@ and observation chunk seams do not. Exported replacements must be actual
 `fill="none"` strokes with editable centerlines and widths, complete ink ownership
 and valid surrounding paint/alpha. The useful fitted materials remain available.
 
+Outline completion is a representation requirement: each supported physical ink
+chain must have an editable centerline and width, with shared endpoints at
+source-supported junctions. Its former filled outline must be removed in the
+same owned replacement. Counting stroke objects or reducing raster error alone
+does not prove this. A path containing both a shadow and an outline needs joint
+ink/material decomposition; the shadow remains a filled region. Preserve the
+inspected material candidate and the source's real gaps, including the handle
+defect that the human drawing repaired.
+
 Recovery now works in native controls and supplies a few source-only sword runs,
 but none composes into a usable replacement on the fitted material candidate.
 Long blade runs still fail native body/gap constraints. Cycle recovery therefore

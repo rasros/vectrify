@@ -59,6 +59,28 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Rejected isolated centerline fitting changes
+
+The owner's further clarification makes actual stroke representation the
+acceptance requirement. Connected filled bands still fail it even when their
+raster appearance is good. The blade competitor addresses one such band;
+remaining mixed outline/shadow owners need joint decomposition rather than
+blanket fill-to-stroke conversion. Materials and the source's real gaps remain
+protected.
+
+`.bench/cel-band-fitting-diagnostics` records two isolated fitting probes under
+algorithm source hash
+`5df1f8a70f7b4dd324ff9db4c88f200947d2803c9050a9adb80e70e5091ee64b`.
+Both use only the captured main filled blade and compare intrinsic alpha at
+twice its geometry resolution. Removing the fill fitter's additional smoothing
+at tolerance 0.15 increases nodes from 35 to 49 and alpha MSE from 0.001699 to
+0.001753. Doubling transverse raster resolution instead gives 31 nodes but MSE
+0.001794. Tighter fits yield small, inconsistent changes and more nodes. These
+probes measure neither source-line validity nor human resemblance. No fitter,
+selection weight, native constraint or production default changes as a result.
+The useful next work is complete source-supported ink/material decomposition,
+with actual centerlines, widths, junctions and removal of the old filled outline.
+
 ### Complete sibling scheduling and one selected Generate blade
 
 The algorithm source SHA-256 is
