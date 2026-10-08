@@ -32,7 +32,30 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The latest explicit offline `--facet-fit regional` competitor cuts existing
+The latest explicit offline `--atom-layout residual` competitor retains a
+split parent's residual label in the immutable source revision, allocating
+only its other children. Exact complete-area/RLE replay, original-root
+protection, primary/secondary ownership and the 64-entry/128-new-label bounds
+remain required. Legacy atom metadata and the default retired layout remain
+unchanged. This makes a previously unavailable regional cut feasible: the
+sword's first-facet opacity drawing has **1,665 nodes / 237 contours / 30
+editable strokes / MSE 516.2704**. Three cuts reach **MSE 511.0618** at
+2,021 / 331 / 30. These are candidate-availability gains; the source objective
+over the union of diagnostic pools still favors the earlier 1,645 / 236 /
+521.5049 drawing. Actual selection, connected-line fidelity and the combined
+quality/structure gate remain open. Ten matched reports / 112 native-valid
+proposals and source-graph checks / 68 native stroke-body checks complete.
+
+A separate unadopted source-width prototype preserves the raw observation
+bank and source endpoints, recovers a complete missing handle chain and lowers
+inspected missing samples from 809 to 222 in a more detailed candidate.
+Its coarse candidates regress substantially. It is a lead for bounded joint
+width/material fitting, rather than a production width rule or new reference.
+Human raster repair supplies no geometry. All eight deliveries remain open;
+defaults and reference collection remain unchanged. Exact controls, diagnostic
+limitations and verification are in the progress record.
+
+The preceding explicit offline `--facet-fit regional` competitor cuts existing
 material regions while retaining exact source-supported stroke geometry,
 widths, caps, paint and ownership. It ranks at most eight cuts per material
 budget by complete-source RGB gain, advances only locally constructed complete

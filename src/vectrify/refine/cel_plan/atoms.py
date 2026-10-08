@@ -65,6 +65,24 @@ class MultiCut:
     areas: tuple[int, ...]
 
 
+@dataclass(frozen=True)
+class ResidualCut:
+    """Split off exact supports while the parent ID retains the residual.
+
+    Atom IDs are scoped by an immutable ledger revision. Keeping the residual
+    in that revision avoids allocating a replacement for an already available
+    label; the complete pre-cut area still proves lineage during replay.
+    """
+
+    parent: int
+    groups: tuple[tuple[tuple[int, int, int], ...], ...]
+    areas: tuple[int, ...]
+
+
+def _children(cut):
+    return len(cut.areas) - int(isinstance(cut, ResidualCut))
+
+
 def _blocks(cut):
     return (cut.left,) if isinstance(cut, Cut) else cut.groups
 
@@ -78,7 +96,7 @@ class Atoms:
     source: str
     shape: tuple[int, int]
     count: int
-    cuts: tuple[Cut | MultiCut, ...] = ()
+    cuts: tuple[Cut | MultiCut | ResidualCut, ...] = ()
 
     def __post_init__(self):
         if (
@@ -89,7 +107,7 @@ class Atoms:
             or any(type(i) is not int for i in self.shape)
             or type(self.count) is not int
             or not isinstance(self.cuts, tuple)
-            or any(not isinstance(c, (Cut, MultiCut)) for c in self.cuts)
+            or any(not isinstance(c, (Cut, MultiCut, ResidualCut)) for c in self.cuts)
         ):
             raise ValueError("Invalid source atom schema")
         if (
@@ -128,7 +146,7 @@ class Atoms:
             runs += sum(len(block) for block in blocks)
             if (
                 runs > MAX_RUNS
-                or next_child + len(cut.areas) > self.count + MAX_CHILDREN
+                or next_child + _children(cut) > self.count + MAX_CHILDREN
             ):
                 raise ValueError("Source atom bounds exceeded")
             if (
@@ -139,7 +157,8 @@ class Atoms:
                 or any(not block for block in blocks)
             ):
                 raise ValueError("Invalid source atom split lineage")
-            retired.add(cut.parent)
+            if not isinstance(cut, ResidualCut):
+                retired.add(cut.parent)
             for block, expected in zip(blocks, cut.areas[:-1], strict=True):
                 previous = (-1, 0, 0)
                 area = 0
@@ -162,11 +181,15 @@ class Atoms:
                 if y == previous[0] and start < previous[2]:
                     raise ValueError("Source atom runs must be sorted and disjoint")
                 previous = (y, start, end)
-            next_child += len(cut.areas)
+            next_child += _children(cut)
 
     @property
     def namespace_count(self):
-        return self.count + sum(len(c.areas) for c in self.cuts)
+        return self.count + sum(_children(c) for c in self.cuts)
+
+    @property
+    def retired(self):
+        return frozenset(c.parent for c in self.cuts if not isinstance(c, ResidualCut))
 
     @property
     def key(self) -> str:
@@ -186,12 +209,13 @@ class Atoms:
 
     def descendants(self, members, start=0) -> tuple[int, ...]:
         leaves = set(members)
-        child = self.count + sum(len(c.areas) for c in self.cuts[:start])
+        child = self.count + sum(_children(c) for c in self.cuts[:start])
         for cut in self.cuts[start:]:
             if cut.parent in leaves:
-                leaves.remove(cut.parent)
-                leaves.update(range(child, child + len(cut.areas)))
-            child += len(cut.areas)
+                if not isinstance(cut, ResidualCut):
+                    leaves.remove(cut.parent)
+                leaves.update(range(child, child + _children(cut)))
+            child += _children(cut)
         return tuple(sorted(leaves))
 
     def labels(self, original: Graph, work: Work) -> np.ndarray:
@@ -214,8 +238,10 @@ class Atoms:
             root = roots[cut.parent]
             if root in original.hidden or original.regions[root].fixed:
                 raise ValueError("Protected source atoms cannot be split")
-            roots.extend([root] * len(cut.areas))
-            implicit = low + len(cut.areas) - 1
+            roots.extend([root] * _children(cut))
+            implicit = (
+                cut.parent if isinstance(cut, ResidualCut) else low + len(cut.areas) - 1
+            )
             area = 0
             flat = labels.ravel()
             for start in range(0, flat.size, CHUNK_PIXELS):
@@ -238,7 +264,7 @@ class Atoms:
                             "Source atom run claims another owner's pixels"
                         )
                     labels[y, start:end] = low + index
-            low += len(cut.areas)
+            low += _children(cut)
         if work.interrupted:
             raise StageInterruptedError("Source atom rebuilding interrupted")
         labels.flags.writeable = False
@@ -326,6 +352,7 @@ class Atoms:
         work: Work,
         *,
         compact=False,
+        retain_parent=False,
     ):
         """Partition complete atoms into several cells without rebuilding per cut.
 
@@ -350,8 +377,12 @@ class Atoms:
             or (not self.cuts and identity(graph.labels) != self.source)
         ):
             raise ValueError("Source cells do not match their atom namespace")
+        if type(retain_parent) is not bool or (retain_parent and not compact):
+            raise ValueError("Residual source atoms require compact partitioning")
         if compact:
-            return self._compact_partition(graph, members, classes, count, work)
+            return self._compact_partition(
+                graph, members, classes, count, work, retain_parent=retain_parent
+            )
         cuts = list(self.cuts)
         run_count = _run_count(cuts)
         next_child = self.namespace_count
@@ -412,7 +443,9 @@ class Atoms:
         refined = Atoms(self.source, self.shape, self.count, tuple(cuts))
         return refined, tuple(tuple(sorted(c)) for c in cells)
 
-    def _compact_partition(self, graph, members, classes, count, work):
+    def _compact_partition(
+        self, graph, members, classes, count, work, *, retain_parent=False
+    ):
         """Retire each parent once, preserving the same entry/child/run limits.
 
         Binary staging introduces intermediate regions for multi-class parents.
@@ -439,7 +472,8 @@ class Atoms:
                 continue
             if graph.regions[member].fixed or member in graph.hidden:
                 raise ValueError("Protected source atoms cannot be split")
-            _capacity(len(cuts) + 1, next_child + len(occupied) - self.count)
+            allocated = len(occupied) - int(retain_parent)
+            _capacity(len(cuts) + 1, next_child + allocated - self.count)
             implicit = int(np.argmax(areas))
             order = [i for i in range(len(occupied)) if i != implicit] + [implicit]
             blocks = []
@@ -471,13 +505,20 @@ class Atoms:
                 run_count += len(block)
             actual_areas = tuple(int(areas[i]) for i in order)
             cuts.append(
-                Cut(member, blocks[0], (actual_areas[0], actual_areas[1]))
+                ResidualCut(member, tuple(blocks), actual_areas)
+                if retain_parent
+                else Cut(member, blocks[0], (actual_areas[0], actual_areas[1]))
                 if len(occupied) == 2
                 else MultiCut(member, tuple(blocks), actual_areas)
             )
             for offset, index in enumerate(order):
-                cells[int(occupied[index])].append(next_child + offset)
-            next_child += len(occupied)
+                child = (
+                    member
+                    if retain_parent and offset == len(order) - 1
+                    else next_child + offset
+                )
+                cells[int(occupied[index])].append(child)
+            next_child += allocated
         if work.interrupted:
             raise StageInterruptedError("Source cell splitting interrupted")
         refined = Atoms(self.source, self.shape, self.count, tuple(cuts))
@@ -485,14 +526,23 @@ class Atoms:
 
     def metadata(self) -> dict:
         return {
-            "version": 2 if any(isinstance(c, MultiCut) for c in self.cuts) else 1,
+            "version": 3
+            if any(isinstance(c, ResidualCut) for c in self.cuts)
+            else 2
+            if any(isinstance(c, MultiCut) for c in self.cuts)
+            else 1,
             "source": self.source,
             "shape": self.shape,
             "count": self.count,
             "cuts": [
                 {"parent": c.parent, "left": c.left, "areas": c.areas}
                 if isinstance(c, Cut)
-                else {"parent": c.parent, "groups": c.groups, "areas": c.areas}
+                else {
+                    "parent": c.parent,
+                    "groups": c.groups,
+                    "areas": c.areas,
+                    **({"retain_parent": True} if isinstance(c, ResidualCut) else {}),
+                }
                 for c in self.cuts
             ],
         }
@@ -504,32 +554,43 @@ class Atoms:
         if (
             not isinstance(data, dict)
             or type(data.get("version")) is not int
-            or data["version"] not in (1, 2)
+            or data["version"] not in (1, 2, 3)
         ):
             raise ValueError("Unknown source atom format")
         try:
             if len(data["cuts"]) > MAX_CUTS:
                 raise ValueError("Source atom bounds exceeded")
-            cuts: list[Cut | MultiCut] = []
+            cuts: list[Cut | MultiCut | ResidualCut] = []
             runs = children = 0
             for c in data["cuts"]:
                 if ("left" in c) == ("groups" in c) or (
-                    "groups" in c and data["version"] != 2
+                    "groups" in c and data["version"] == 1
                 ):
                     raise ValueError("Invalid source atom schema")
+                residual = "retain_parent" in c
+                if residual and (
+                    data["version"] != 3
+                    or c["retain_parent"] is not True
+                    or "groups" not in c
+                ):
+                    raise ValueError("Invalid residual source atom schema")
                 blocks = [c["left"]] if "left" in c else c["groups"]
                 if not 1 <= len(blocks) < MAX_PARTS:
                     raise ValueError("Source atom bounds exceeded")
                 runs += sum(len(block) for block in blocks)
-                children += len(blocks) + 1
+                children += len(blocks) + int(not residual)
                 if runs > MAX_RUNS or children > MAX_CHILDREN:
                     raise ValueError("Source atom bounds exceeded")
                 areas = tuple(c["areas"])
                 encoded = tuple(tuple(tuple(r) for r in block) for block in blocks)
-                if len(areas) != len(encoded) + 1 or ("groups" in c and len(areas) < 3):
+                if len(areas) != len(encoded) + 1 or (
+                    "groups" in c and not residual and len(areas) < 3
+                ):
                     raise ValueError("Invalid source atom schema")
                 cuts.append(
-                    Cut(c["parent"], encoded[0], (areas[0], areas[1]))
+                    ResidualCut(c["parent"], encoded, areas)
+                    if residual
+                    else Cut(c["parent"], encoded[0], (areas[0], areas[1]))
                     if "left" in c
                     else MultiCut(c["parent"], encoded, areas)
                 )

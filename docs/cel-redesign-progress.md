@@ -14,6 +14,147 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Residual source labels and missing handle-chain diagnosis
+
+The explicit offline `--atom-layout residual` competitor compacts the source
+ledger rather than increasing its allowance. `ResidualCut` stores each
+explicit child as sorted, disjoint RLE support and keeps the largest residual
+under the existing parent label. Labels belong to an immutable ledger revision;
+the parent is not assumed to keep its old support across revisions. Replay
+proves the complete pre-cut area, every claimed pixel, the remaining area and
+the original protected root. Successive residual, binary and multiway splits
+retain exact lineage and complete primary/secondary ownership. Reusing a
+pixel already split off, stealing another owner's pixel, incomplete areas,
+foreign revisions and malformed metadata are rejected.
+
+Version 3 atom metadata marks residual cuts explicitly; versions 1 and 2
+retain their existing schemas, identities and replay. The default
+`atom_layout="retired"` remains unchanged. Residual layout requires compact
+joint source cells and remains an offline option. No production scheduling,
+score weights, cell limit or two-parent opacity composition cap changes.
+The 64-entry, 128-allocated-label and 16,384-run limits still apply. A synthetic
+54-parent classification needs 66 new labels instead of 120, with exactly the
+same source classes and RLE count. The residual label already exists in the
+namespace; no additional namespace slot is charged for it. Native geometry,
+coverage and ownership checks are unchanged.
+
+The sword baseline is identical in both layouts. Retired layout cannot admit
+the highest-ranked regional cut because it needs another child allocation
+beyond 128. Residual layout admits that cut, followed by three more feasible
+prefixes. Four subsequent attempts need a 65th entry against the unchanged
+64-entry limit; the finer material budget still exceeds the 64-cell limit.
+The retained-mode pools consequently contain different facet prefixes.
+Complete baseline drawings and all physical source models/banks remain exact.
+
+| Sword alternative | Nodes / contours / editable strokes | Human MSE | Handle MSE |
+| --- | --- | --- | --- |
+| Original source-interval opacity baseline | 1,638 / 235 / 30 | 525.500704 | 930.317894 |
+| Retired-layout first facet with opacity | 1,645 / 236 / 30 | 521.504909 | 913.842658 |
+| Residual-layout first facet with opacity | 1,665 / 237 / 30 | 516.270421 | 930.317894 |
+| Residual-layout two-facet parent | 2,014 / 330 / 30 | 512.269709 | 913.842658 |
+| Residual-layout three-facet parent | 2,021 / 331 / 30 | 511.061774 | 913.842658 |
+| Residual-layout four-facet parent | 2,064 / 332 / 30 | 512.100485 | 873.951786 |
+
+The first residual facet improves material elsewhere, not handle lines. The
+fourth improves handle paint, with unchanged strokes and a slight increase
+in missing source-line samples. The source objective at complexity 50 in the
+residual-only exported pool chooses its first-facet opacity drawing
+(0.0445444400); the earlier retired-layout first-facet opacity drawing has the
+better source objective (0.0444787054). The union of the diagnostic pools thus
+still chooses that earlier drawing. This is **candidate availability**, not
+an actual selected-operation/common-frontier improvement or score calibration.
+Human MSE is an evaluation metric and never supplies generation or ranking.
+
+Girl, park and rubberhose exported metrics remain exact. Face gains one
+additional native-valid compact facet alternative: its best clean MSE changes
+from 98.680278 at 606 / 62 / 17 to 98.538322 at 624 / 64 / 17. Source-objective
+choices on all four tuning families remain unchanged. No held-out case is
+tuned. All original mode controls remain available through retired layout.
+
+Frozen production source SHA-256:
+`6428f2f0a5a8727220835be01fe6e06bcb5ee174634fefe6d636427824a1e2fd`.
+Artifacts: `.bench/cel-residual-atom-final`; matched driver
+`/tmp/vectrify-residual-atom-final-matrix.py`; independent audit
+`/tmp/vectrify-residual-atom-audit.py`. **10 complete matched reports / 112
+native-valid proposals / 112 source-graph validations / 68 full-native
+model-body checks / 94 regional facet parents and composed drawings**.
+Retired controls match the preceding regional-facet checkpoint in canonical
+drawing, native RGBA and metrics. Baseline RGBA, source banks and physical
+models are identical across encodings. The audit verifies additive source
+fit gains, exact strokes above paint, ownership/seals, saved/fresh native RGBA,
+source-line metrics and project reload. Actual exported strokes remain absent
+at all own inspected gaps. Maximum local/full score-term difference remains
+**3.6032509129202417e-09**. Diagnostic times overlap tests; no production
+runtime/memory or release performance pass is claimed.
+
+**1,338 relevant regressions pass** across the planner/benchmark/operation suite
+(1,231 in 268.09 seconds), existing CEL/pair/generation controls (95 in 10.90
+seconds), and admission audit controls (12 in 0.61 seconds). New controls cover
+residual allocation, repeated and mixed lineage, exact source classes,
+secondary ownership, revision isolation, protected roots, malformed metadata,
+capacity/cancellation, native paint/holes/reload and explicit CLI delivery.
+Ruff/format/whitespace pass; Pyrefly reports zero errors and 62 existing warnings.
+
+#### Source-only width hypotheses, not adopted
+
+The missing-line atlas `.bench/cel-missing-source-ink-atlas` attributes the
+current 809 missing of 5,471 qualified raw-source samples to discovery/carrier
+loss, withheld complete bodies, interval recovery and geometry/paint mismatch.
+Several exterior/guard chains never become carried models. Two complete wrap
+chains are withheld despite having no own measured gap: their actual bodies
+overlap a neighbouring raw absence position. These are source observations;
+the human's repaired junctions are not used. The source atlas and native body/
+cap probes (`.bench/cel-source-host-gap-body-probe` and
+`.bench/cel-source-host-gap-cap-probe`) are diagnostics, not calibrated recall.
+
+Narrowing all styles only after long-chain/short-link discovery preserves the
+complete raw bank, but every narrower full candidate fails the retired
+128-label allocation bound. A generic 16/24/32/64 material-budget ladder still
+cannot admit these widths. At original widths its coarser candidates are
+available, but their best human errors are substantially worse. An initial
+ladder driver accidentally retained an old discovery function in a copied
+namespace, so its factor-labelled outputs were identical and are superseded.
+Only `.bench/cel-source-width-budget-ladder-fixed-probe` is evidence for the
+joint comparison; its captured models and nonempty source banks verify that
+the width hypotheses actually reached generation.
+
+The separate `.bench/cel-source-adaptive-residual-width-probe` uses a source-only
+width hypothesis after freezing the raw bank. It tries factors 1/.9/.8/.7/.6,
+retaining the widest factor with the most complete bodies passing native
+absence, and keeps the original width when there is no gain. Complete-chain
+geometry, paint, caps, original endpoints and explicit width overrides are
+held; own-gap intervals are refit under their existing source rules.
+Only one style changes, from 2.068718 to
+1.448103 native pixels. A previously withheld complete wrap chain is exported
+with its exact original endpoints. No neighbouring gap authorizes shortening
+or disconnecting it. Existing own-gap interval/carrier proofs still apply.
+
+The coarse prototype has 1,684 / 243 / 30, MSE 611.380879 and 775 missing raw
+samples: a fidelity regression. A newly available finer candidate has
+2,913 / 412 / 30, MSE 517.360362, handle MSE 855.954641 and **222 missing of
+the same 5,471 samples**. One material facet gives 2,941 / 414 / 30 and
+MSE 508.055591 with the same line coverage. Both still fill one inspected
+gap through material paint; actual strokes fill none. The two-parent opacity
+cap was not raised to compose these later drawings. The prototype's eight
+complete native model bodies and seven native/reload/line-metric rows are
+independently checked by `/tmp/vectrify-source-adaptive-residual-width-audit.py`.
+This does not prove sufficient handle continuity, general fitting quality,
+source-score selection or runtime. No width rule or lower material budget is
+adopted in production.
+
+The width lead requires bounded source fitting and matched four-family checks,
+with original interpretations retained in a common frontier. Material-gap
+coverage, carrier losses, compact opacity representation and selection remain
+required. The 800 / 140 / 497.39 gate and all eight deliveries stay open;
+generated references remain deferred. No source-chain ordinal, human repair,
+score reweighting or relaxed coverage limit supplies any of these results.
+
+Reproduce the residual competitor (use `--atom-layout retired` for control):
+
+```sh
+PYTHONPATH=src:. OPENBLAS_NUM_THREADS=4 OMP_NUM_THREADS=4 /home/rasmus/Workspaces/vectrify/.venv/bin/python scripts/bench_cel_component.py --seconds 180 --normalizer 54564 --grouping ward --boundary-fit anchored --ink-support connected --ink-roles fitted --ink-coverage fractional --ink-fit source-intervals --facet-fit regional --atom-layout residual --opacity-model components --source-line-diagnostics --out .bench/cel-residual-atom-final/residual/sword
+```
+
 ### Source regional facets with unchanged editable ink
 
 The explicit offline `--facet-fit regional` mode adds source-supported straight

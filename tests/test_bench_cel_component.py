@@ -6,8 +6,9 @@ from scripts import bench_cel_component as bench
 
 
 @pytest.mark.parametrize("ink_fit", ["carrier", "source-gaps", "source-intervals"])
+@pytest.mark.parametrize("atom_layout", ["retired", "residual"])
 def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(
-    monkeypatch, tmp_path, ink_fit
+    monkeypatch, tmp_path, ink_fit, atom_layout
 ):
     calls = []
     monkeypatch.setattr(bench, "run", lambda *a, **k: calls.append((a, k)))
@@ -32,6 +33,8 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(
             "components",
             "--facet-fit",
             "regional",
+            "--atom-layout",
+            atom_layout,
             "--out",
             str(tmp_path),
         ],
@@ -47,6 +50,31 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(
     assert calls[0][1]["ink_fit"] == ink_fit
     assert calls[0][1]["opacity_model"] == "components"
     assert calls[0][1]["facet_fit"] == "regional"
+    assert calls[0][1]["atom_layout"] == atom_layout
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        [],
+        ["--ink-fit", "carrier"],
+        ["--proposal", "source-strokes", "--ink-fit", "carrier"],
+    ],
+)
+def test_cli_rejects_inapplicable_residual_atoms_before_loading_source(
+    monkeypatch, extra
+):
+    monkeypatch.setattr(
+        "sys.argv", ["bench_cel_component", "--atom-layout", "residual", *extra]
+    )
+    monkeypatch.setattr(
+        bench,
+        "run",
+        lambda *_a, **_k: pytest.fail("Invalid atom mode reached benchmark"),
+    )
+    with pytest.raises(SystemExit) as raised:
+        bench.main()
+    assert raised.value.code == 2
 
 
 @pytest.mark.parametrize(

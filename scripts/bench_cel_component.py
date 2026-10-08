@@ -179,6 +179,7 @@ def run(
     ink_coverage="visible",
     ink_fit="source",
     facet_fit="none",
+    atom_layout="retired",
     source_line_diagnostics=False,
     proposal="core-cells",
     compose_materials=False,
@@ -192,6 +193,10 @@ def run(
         opacity_model != "paths" and proposal != "core-cells"
     ):
         raise ValueError("Component opacity models require a core-cell comparison")
+    if atom_layout not in {"retired", "residual"} or (
+        atom_layout != "retired" and (proposal != "core-cells" or ink_fit == "source")
+    ):
+        raise ValueError("Residual atom layout requires compact core cells")
     if ink_roles != "connected" and proposal != "core-cells":
         raise ValueError("Ink role alternatives require a direct core-cell comparison")
     if ink_coverage != "visible" and (
@@ -291,6 +296,7 @@ def run(
                 ink_coverage=ink_coverage,
                 ink_fit=ink_fit,
                 facet_fit=facet_fit,
+                atom_layout=atom_layout,
                 source_profiles=source_profiles,
             )
         )
@@ -476,6 +482,7 @@ def run(
         "ink_coverage": ink_coverage if proposal == "core-cells" else None,
         "ink_fit": ink_fit if proposal == "core-cells" else None,
         "facet_fit": facet_fit if proposal == "core-cells" else None,
+        "atom_layout": atom_layout if proposal == "core-cells" else None,
         "source_line_diagnostics": source_line_diagnostics,
         "normalizer_source": "source-only-baseline"
         if normalizer is None
@@ -554,7 +561,14 @@ def main():
         "--opacity-model", choices=("paths", "components"), default="paths"
     )
     parser.add_argument("--facet-fit", choices=("none", "regional"), default="none")
+    parser.add_argument(
+        "--atom-layout", choices=("retired", "residual"), default="retired"
+    )
     args = parser.parse_args()
+    if args.atom_layout != "retired" and (
+        args.proposal != "core-cells" or args.ink_fit == "source"
+    ):
+        parser.error("Residual atom layout requires compact core cells")
     if args.opacity_model != "paths" and args.proposal != "core-cells":
         parser.error("Component opacity models require --proposal core-cells")
     if args.compose_materials and args.proposal != "source-strokes":
@@ -630,6 +644,7 @@ def main():
         ink_coverage=args.ink_coverage,
         ink_fit=args.ink_fit,
         facet_fit=args.facet_fit,
+        atom_layout=args.atom_layout,
         source_line_diagnostics=args.source_line_diagnostics,
         proposal=args.proposal,
         compose_materials=args.compose_materials,

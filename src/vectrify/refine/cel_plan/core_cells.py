@@ -163,6 +163,7 @@ class CoreCells:
         ink_coverage="visible",
         ink_fit="source",
         facet_fit="none",
+        atom_layout="retired",
         source_profiles=None,
     ):
         if layout not in {"regions", "planes", "ink-planes"} or (
@@ -219,6 +220,11 @@ class CoreCells:
         ):
             raise ValueError("Regional facets require connected joint material regions")
         self.facet_fit = facet_fit
+        if atom_layout not in {"retired", "residual"} or (
+            atom_layout == "residual" and (not joint or ink_fit == "source")
+        ):
+            raise ValueError("Residual atom layout requires compact joint source cells")
+        self.atom_layout = atom_layout
         if source_profiles is not None and (
             ink_support != "connected" or layout != "regions"
         ):
@@ -1836,6 +1842,7 @@ class CoreCells:
                 len(cells),
                 work,
                 **({"compact": True} if self.ink_fit != "source" else {}),
+                **({"retain_parent": True} if self.atom_layout == "residual" else {}),
             )
         except ValueError as error:
             self.diagnostics["atom_exclusions"] += 1
@@ -2091,6 +2098,7 @@ class CoreCells:
                     "ink_coverage": self.ink_coverage,
                     "ink_fit": self.ink_fit,
                     "facet_fit": self.facet_fit,
+                    "atom_layout": self.atom_layout,
                     "source_atom_encoding": atoms.metadata()["version"],
                     "source_chain_discovery": "complete-carrier-before-material-budget"
                     if self.ink_support == "connected"
