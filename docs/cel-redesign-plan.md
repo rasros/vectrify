@@ -106,11 +106,18 @@ contours / 33 stroke contours, native body absence for the new handle stroke,
 zero new completed inspected painted gaps, complete ownership and exact
 save/reload. Human MSE is 523.206190, still worse than the preserved material
 parent's 508.055591. The fitted handle and cap helper are not yet integrated into
-Generate. Pale newly exposed junction slivers need material restoration inside
-the affected ink footprint. Next integrate bounded joint source fitting,
-qualified cap alternatives and that restoration as one owned candidate; do not
-publish an isolated fill removal or relax the source contracts. This is a local
-feasibility result and passes no additional release gate.
+Generate. A further offline owned candidate now restores the exposed junction
+slivers by continuing adjacent material inside the removed fill and an opaque
+interior. It preserves original material contours and gradient frames. Complete
+native alpha remains byte-exact to the preceding stroke prototype; paint-order
+changes are confined to the removed fill and actual stroke body. The result has
+2,924 nodes / 415 contours / 33 stroke contours and human MSE 522.686750, still
+worse than the preserved material parent's 508.055591. `PaintContinuation`
+constructs this bounded competitor; callers must prove complete source ownership,
+native paint/alpha/gaps and locality. Next integrate source-profile selection,
+bounded joint fitting, cap alternatives and that restoration as one owned
+candidate; do not publish an isolated fill removal or relax the source contracts.
+These offline feasibility results pass no additional release gate.
 
 Those captured-proposal results are offline candidate/selection evidence, not a
 completed outline release. The co-planned alternative is available through the

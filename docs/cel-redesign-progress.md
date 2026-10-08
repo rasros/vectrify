@@ -59,6 +59,65 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Material continuation beneath the editable handle stroke
+
+`PaintContinuation` appends exclusive material contours inside the complete
+removed fill footprint. It retains the existing material contours, paint server,
+gradient frame and node identities exactly. Bounding-box gradients, partial
+object/fill opacity, shared assets, references, different parents, pins, locks
+and unsupported effects exclude this competitor. The stroke moves above the
+continued material while other siblings retain their relative order. The helper
+constructs a bounded candidate; it does not prove source ownership or acceptance.
+
+An unrestricted diagnostic removes the blue junction slivers but introduces
+19 new alpha-excess pixels against the old filled parent. It also changes 39
+pixels outside the old fill because moving the stroke exposes its own body.
+Native policy alone admits that version. The accepted offline audit therefore
+uses an explicit native opaque-interior core for paint and independently proves
+full alpha equality. Added material stays strictly inside the old fill; stroke
+order changes stay inside the actual stroke body. There are zero changed native
+pixels outside their union, zero new alpha excess, and full alpha is byte-exact
+to the preceding cap/stroke prototype. Its four existing alpha-excess pixels
+against the earlier filled parent remain; this does not claim exact alpha to
+that earlier parent. No source contract is relaxed.
+
+The source-only adjacent-material vote selects the existing gradient neighbor.
+Fourteen new material nodes remove the visible junction slivers; the handle
+remains a four-node `fill="none"` stroke with its 29 independent residual contours
+exact. All other material geometry and paint remain exact. Complete ancestor
+replay retains 64 ledger entries. Original-graph ownership, component validation,
+native hard validity, zero new completed inspected painted gaps, independent
+local/native pixels, score agreement (maximum 6.943e-10) and exact save/reload
+pass. The new handle's independent native body absence still passes. This is
+not an absolute body-absence proof for every recovered neighboring cap.
+
+`.bench/cel-owned-handle-paint-continuation` saves the independent audit, candidate,
+partition and comparison. Helper/benchmark source SHA-256 is
+`24591824316cec0ec800bf6c442dc31ed7cec39e251869b178a2322365d0cc3b`;
+audit driver SHA-256 is
+`fa51914cabd26a96cf26b37f7b4ce84c5e13107e603acf1543f95932c9252fed`.
+The source raster hash remains
+`fdfc4bf6d6621f79994e82b113c7e726928d58508324208871b08528b0d6413f`.
+Post-terminal evaluation uses the same frozen source mask and yields human
+MSE **522.686750**, versus the matching prototype's **523.206190** and the
+preserved material parent's **508.055591**. The candidate has **2,924 nodes /
+415 contours / 33 stroke contours**, representation cost 5,700, and zero
+crossings. No human geometry supplies fitting, restoration or connection repair.
+
+Thirteen synthetic controls cover exact original curves, transforms, holes,
+gradient frames, unsupported context, pins/shared assets, atomic interruption,
+order, an explicit core, and a translucent outer-edge failure. The combined
+line/absence/interval/band/cap/continuation suite passes **166 tests**. Ruff,
+format and whitespace pass; Pyrefly reports zero errors and 62 warnings.
+
+This is a verified offline combined candidate and a reusable restoration helper.
+The fitted handle, cap recovery and restoration are not scheduled by Generate.
+Next integrate generic source-profile selection and bounded joint fitting with
+these helpers, preserving complete ownership and exact native acceptance.
+Attached outline/shadow branches, score calibration, actual operation delivery,
+runtime/memory and all eight release/delivery gates remain open. Reference
+collection and learned ranking remain deferred; the full goal remains active.
+
 ### Source-fitted handle and recovered neighboring caps
 
 The remaining nine-node handle contour is a complete physical band, but its
