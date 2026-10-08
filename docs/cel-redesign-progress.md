@@ -19,6 +19,46 @@ connected strokes. Preserve this material candidate while improving source-only
 ink extraction, complete-chain coverage and continuity; the human raster repair
 still supplies no connections.
 
+### Owner feedback: preserve materials and fix stroke representation
+
+The owner inspected the actual fitted Detailed image and identified a large
+visual improvement: shadows are clean and comparable to the human rendering,
+with different choices. Filled outlines are now the primary visible/editing
+problem. SVG inspection confirms eight actual `fill="none"` stroke objects with
+30 contours; remaining outline appearance comes from filled material/ink paths.
+A lower global target MSE cannot establish that those outlines are editable.
+
+An observer at `.bench/cel-actual-outline-stages` captures the exact source mask,
+carrier and native source models inside the benchmark, ending intentionally before
+material generation. Its eight model records and all 43 raw profile records are
+exactly equal to the preceding fitted pool after canonical JSON serialization.
+The source identity remains
+`3ae55a1aa1260c2fa78394dcbedf8207cbad6c9cc396169ed63d0e33cb6a3340`;
+the observer driver SHA-256 is
+`f0ef566eb3a7f83410a990f7a4684d78a26c6404be7f2ea94757b23128447807`.
+It inspects 108 runs / 3,917 points. Five inspected spans wholly inside the blade
+crop fail ridge measurement; none reaches complete carrier fitting. Some supported
+guard and handle chains also fail complete-carrier fitting and retain fills.
+These observations diagnose this pool, not a newly generated quality result.
+
+The current joint extractor uses `ink_pixels & support`, where support belongs
+to the selected coverage carrier's source atoms. Its physical extraction is
+independent of material budgets, but it is still conditioned on that carrier.
+Source ink outside this opaque core cannot become a complete outline through
+that pool; exact complete-body containment can exclude a fitted exterior chain
+as well. Preserve independent source observations before carrier conditioning,
+then offer an atomic source-supported outline/coverage interpretation with
+complete ownership, native alpha/gap checks and material restoration confined
+to the old/new ink footprint. Replacing a dark fill with an additive stroke while
+leaving the old outline behind does not satisfy the editing requirement.
+
+The next comparison should hold the useful material candidate available and
+inspect actual stroke elements, complete source-chain coverage, supported
+junction continuity and real-gap preservation alongside native renders. Do not
+copy the human's repaired connection, blindly stroke every shade boundary,
+change unrelated shadow regions, or waive alpha/ownership proofs. No new
+references or learned ranker are introduced by this feedback.
+
 ### Shared physical extraction and experimental native search scheduling
 
 `JointCells` now alternates the complete original-width `source-intervals`

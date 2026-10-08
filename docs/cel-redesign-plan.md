@@ -50,7 +50,12 @@ candidate availability, not a fidelity gain. The completed native/graph audit an
 Owner inspection of the fitted Detailed candidate finds a large visual gain,
 with clean shadows comparable to the human drawing. Preserve those material
 choices. The next visible quality priority is replacing filled outline shapes
-with clean, connected editable strokes supported by the raster. This feedback
+with clean, connected editable strokes supported by the raster. Inspect actual
+stroke elements and complete-chain coverage, and recover physical exterior
+observations before conditioning them on an opaque carrier. Any replacement
+needs atomic ownership, source-gap/alpha checks and restoration restricted to
+its affected ink footprint; unrelated material/shadow choices stay available.
+This feedback
 does not authorize copying the human's repaired source connection or collecting
 new references yet.
 
