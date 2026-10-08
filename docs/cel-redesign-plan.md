@@ -32,7 +32,27 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The latest source-only width diagnosis finds individually feasible complete
+The explicit offline `--ink-fit source-gaps` competitor now tests actual
+native stroke bodies and caps at inspected raw-source gap centres, including
+observations from chains that failed export. Complete source chains retain
+original geometry, endpoints, paint, caps and width overrides; an offending
+chain remains source-derived fill. Removed hosts cannot authorize a short
+junction link. No human repair, cropped chain or invented endpoint is used.
+The matched sword with opacity fields has **1,611 nodes / 230 contours / 25
+editable strokes / MSE 524.7823**. Five filled positions in the fixed inspected
+gap bank become zero, but missing line samples rise from **835 to 1,602 of
+6,320**. This validator loses useful ink and is not a quality solution. The
+four tuning drawings also change: actual exported strokes preserve their own
+inspected gaps, while some material interpretations still fill fixed gaps and
+line recall worsens. All eight deliveries remain open, references stay deferred
+and defaults are unchanged. Next reconstruct source-supported portions and
+junctions of rejected chains without bridging real gaps, then resolve material
+coverage, coherent regional facets and common-frontier selection. Ten matched
+reports / 20 native and independent source-graph proposal checks / 33 full
+native model-body checks complete; 1,132 relevant regressions pass. Exact
+identities and limits are in the progress record.
+
+The preceding source-only width diagnosis finds individually feasible complete
 chains, but taking them together exceeds the child ledger: the next allocation
 needs at least 130 children against the unchanged 128-child limit. Resource
 failures now distinguish entries, children and RLE runs without publishing a

@@ -14,6 +14,113 @@ match it. The full goal and all eight deliveries remain open. Generated outputs
 are still too poor to supply useful new references, so that collection stays
 deferred while existing tuning artwork checks the experiment.
 
+### Raw-source absence along actual editable stroke bodies
+
+The explicit offline `--ink-fit source-gaps` competitor adds source absence to
+carrier fitting. `SourceAbsence` derives native negative positions from the
+complete raw-source profile bank, including failed stroke discoveries. It
+rasterizes the actual SVG stroke body, round joins and supported round/butt
+caps on bounded native-phase tiles, then uses full-frame-equivalent bilinear
+sampling, including tile seams. A permitted body has alpha at most 1/255 plus
+1e-7 at every inspected negative position. This is an **uncalibrated inspected
+engineering constraint**, not global gap recall or a release guarantee. Human
+geometry is absent from discovery and is scored only after generation.
+
+Models retain original source geometry, endpoints, paint, caps and measured or
+explicitly overridden width. Rejected complete chains retain their original
+owned fill; no source chain is cut into invented endpoints. Individually
+permitted contours also receive a compound-style proof before another style's
+short link can use their incident ports. A link requires an original compatible
+pair of retained long chains. Final compound geometry, carrier footprint,
+source ownership, sealed edits and native admission remain checked. Discovery
+failure or cancellation cannot publish partial models or an interrupted bank.
+A completed bank remains available if the independent absence bounds fail.
+
+Bounds are 1536² native pixels, 4,096 dense samples per profile, 4,096 negative
+positions, 32 tiles of side 64, and 16 MiB of mask storage. Native source frame
+and source size must agree. Query arrays are copied/read-only; no full native
+stroke or patched source RGB image is allocated by this stage. Existing ledger,
+coverage and component limits are unchanged. The option requires connected
+support and regional layout and remains an explicit benchmark competitor.
+
+| Sword, with connected opacity fields | Carrier control | Source-gap constraint |
+| --- | ---: | ---: |
+| Nodes / contours / editable stroke contours | 1,631 / 237 / 32 | **1,611 / 230 / 25** |
+| Human MSE | 526.356708 | 524.782286 |
+| Handle MSE | 938.812864 | 926.490234 |
+| Fixed missing samples / 6,320 | 835 (13.21%) | **1,602 (25.35%)** |
+| Fixed gaps filled / 7 | 5 | **0** |
+| Maximum exported stroke alpha at own 15 gap centres | 0.992157 | **0** |
+
+The carrier parents are 1,973 / 329 / 32 / MSE 526.351791 and
+1,953 / 322 / 25 / MSE 524.777369 respectively. The new check preserves the
+inspected gaps but withholds seven editable contours and nearly doubles missing
+line samples. The 1.57-MSE improvement does not solve handle continuity or pass
+800 nodes / 140 contours / 497.39 MSE. These drawings are not new references.
+Next retain supported portions of rejected chains and their genuine junctions,
+without using human repair or relaxing ownership limits to admit bad drawings.
+
+All four tuning drawings change under the new competitor; only the ordinary
+carrier **controls** remain exact. In the following table each pair is coarse /
+finer. Fixed-bank counts refer to complete drawings, including material paint.
+
+| Tuning family | Control clean MSE | Source-gap clean MSE | Control missing samples | Source-gap missing samples | Control filled gaps | Source-gap filled gaps |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| Anime girl | 113.273949 / 84.204501 | 101.277228 / 81.341838 | 14 / 20 | 81 / 44 | 7 / 3 | 0 / 1 |
+| Anime face | 105.861350 / 87.663099 | 105.674061 / 88.033338 | 17 / 23 | 154 / 131 | 12 / 12 | 0 / 1 |
+| Western park | 195.218407 / 123.913194 | 155.726472 / 109.345789 | 345 / 134 | 585 / 268 | 54 / 30 | 7 / 19 |
+| Rubberhose band | 136.951610 / 97.728911 | 126.396724 / 91.470054 | 438 / 343 | 754 / 409 | 30 / 29 | 11 / 11 |
+
+Actual exported stroke alpha is zero at the own raw bank's 10 / 16 / 80 / 34
+negative positions respectively. Remaining fixed gaps filled by complete
+drawings expose material reconstruction failures. Line F changes from
+0.129/0.096 to 0.097/0.062 (girl), 0.447/0.485 to 0.376/0.418 (face),
+0.162/0.201 to 0.171/0.225 (park), and 0.413/0.714 to 0.269/0.661
+(rubberhose). Clean pixel improvements therefore do not establish line quality.
+Fixed and own source banks remain uncalibrated diagnostic measurements.
+
+Earlier diagnostic probes did not supply a repair: rejecting whole styles
+leaves only 12 sword stroke contours and worsens MSE to 537.53; per-chain precise
+geometry and 90%/80% widths recover no additional chain; forcing butt caps also
+recovers no additional chain. No width or cap heuristic is adopted. The probe
+artifacts are `.bench/cel-source-gap-width-probe`,
+`.bench/cel-source-gap-chain-probe` and `.bench/cel-source-gap-butt-probe`.
+Their full-native temporary buffers are diagnostic, unlike the bounded stage.
+
+Frozen final source SHA-256:
+`5aefece4ec327f906d628cf2b76092ff50bec096b3f3f9636c9ebf8b5d6aa8aa`.
+`.bench/cel-source-absence-final` contains **10 complete reports / 20 native-valid
+proposals / 20 independent source-graph validations**, using unchanged
+180-second sword and 60-second tuning allowances. Physical raw-source profile
+banks are identical between both modes in all five cases. Ordinary controls
+retain exact geometry, paint, native RGBA and metrics against
+`.bench/cel-source-budget-control-final/control`.
+
+The independent audit checks **33 complete returned models** using full native
+SVG rasterization and scipy bilinear sampling, independently of tiled absence
+implementation. Every constrained body satisfies the observed absence bound.
+It also removes fills from actual exported SVGs while retaining transforms,
+styles and opacity: all constrained stroke layers have zero alpha at their own
+negative positions. Saved/fresh native RGBA and project-save/reload RGBA match;
+source ownership, seals, reported metrics, artifact hashes, inputs, masks,
+targets and normalizer are checked. Maximum local/full term difference is
+3.3775796812185455e-9. This is native/engineering verification, not calibrated
+fidelity, runtime or release evidence. No held-out case is used.
+
+The final CEL suite passes **1,117 tests in 160.38 seconds**, including 45 new
+absence controls; operation and planned-benchmark controls pass **15 in 10.46
+seconds**, for **1,132 relevant tests**. New cases cover copied banks,
+full-native/tile equality, bilinear seams, analysis-frame invariance, independent
+bounds, mid-render cancellation, real source gaps, retained junctions and width
+overrides at full/half/quarter opacity, missing incident hosts and failed compound
+styles authorizing links. Ruff/format/whitespace pass; Pyrefly has zero errors
+and 62 existing warnings. Drivers are
+`/tmp/vectrify-source-absence-final-matrix.py` and
+`/tmp/vectrify-source-absence-audit.py`; identities and full audit are saved in
+the artifact root. All eight deliveries remain open. Source-supported ink and
+material reconstruction, coherent facets and common-frontier selection remain
+required before reference collection, score calibration or learned ranking.
+
 ### Source width alternatives and exact ownership-limit diagnosis
 
 The handle requirement remains clear, connected editable strokes wherever the

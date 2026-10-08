@@ -533,7 +533,9 @@ def main():
     parser.add_argument(
         "--ink-coverage", choices=("visible", "fractional"), default="visible"
     )
-    parser.add_argument("--ink-fit", choices=("source", "carrier"), default="source")
+    parser.add_argument(
+        "--ink-fit", choices=("source", "carrier", "source-gaps"), default="source"
+    )
     parser.add_argument(
         "--opacity-model", choices=("paths", "components"), default="paths"
     )
@@ -550,7 +552,7 @@ def main():
         or args.grouping == "static"
     ):
         parser.error("Fitted ink roles require connected dynamic core cells")
-    if args.ink_fit == "carrier" and (
+    if args.ink_fit != "source" and (
         args.proposal != "core-cells"
         or args.ink_support != "connected"
         or args.grouping == "static"

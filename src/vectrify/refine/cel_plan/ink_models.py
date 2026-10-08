@@ -24,7 +24,9 @@ from vectrify.refine.cel_plan.ink import measure, measure_link
 from vectrify.refine.cel_plan.ink_carrier import CarrierFit
 from vectrify.refine.cel_plan.line_fidelity import SourceProfile
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
+from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.score import render
+from vectrify.refine.cel_plan.source_absence import SourceAbsence
 from vectrify.refine.crossings import crossings
 
 MAX_COMPONENTS = 128
@@ -414,6 +416,7 @@ def models(
     boundary_contacts=False,
     fractional_coverage=False,
     fit_carrier=False,
+    source_absence=False,
     source_profiles=None,
 ):
     """Return complete bounded models; interruption discards partial discovery."""
@@ -426,7 +429,7 @@ def models(
     # Publish a complete inspected bank only after discovery finishes. Source
     # proofs include long chains which cannot be represented by a carried
     # constant-width stroke; export success must not define the line target.
-    profiles = [] if source_profiles is not None else None
+    profiles = [] if source_profiles is not None or source_absence else None
     profile_namespace = (
         hashlib.sha256(mask.tobytes()).hexdigest() if profiles is not None else None
     )
@@ -606,6 +609,7 @@ def models(
         left = ports.get((index, tuple(points[0])), ())
         right = ports.get((index, tuple(points[-1])), ())
         compatible = {}
+        host_pairs = {}
         for a in left:
             for b in right:
                 if a == b:
@@ -622,6 +626,8 @@ def models(
                 ):
                     for i in (a[0], b[0]):
                         compatible.setdefault(i, set()).update((a, b))
+                        if source_absence:
+                            host_pairs.setdefault(i, set()).add((a, b))
         candidates = []
         samples = 1 + int(
             np.maximum(
@@ -708,6 +714,10 @@ def models(
             candidates, key=lambda r: (r[0], r[1])
         )
         group = groups[i]
+        if source_absence:
+            group.setdefault("link_dependencies", {})[len(group["contours"])] = tuple(
+                sorted(host_pairs[i])
+            )
         group["contours"].append(model.contour)
         group["proofs"].append(proof)
         group["ceilings"].append(ceiling)
@@ -724,6 +734,59 @@ def models(
         claimed[py, px] = i + 1
     if work.interrupted:
         return ()
+    absence = None
+    active_runs = None
+    if source_absence:
+        assert profiles is not None
+        try:
+            absence = SourceAbsence(evidence, profiles, work)
+            active_runs = []
+            for group in groups:
+                width = options.line_width or float(np.median(group["widths"]))
+                active_runs.append(
+                    [
+                        absence.permits(
+                            Geometry("source-absence", (sub,)),
+                            width,
+                            group["cap"],
+                            work,
+                        )
+                        for sub in group["contours"]
+                    ]
+                )
+            # Individual antialias tolerances cannot establish a compound
+            # proof. Retire a failed whole style before its incident ports can
+            # authorize another style's short link.
+            for i, group in enumerate(groups):
+                retained = tuple(
+                    sub for j, sub in enumerate(group["contours"]) if active_runs[i][j]
+                )
+                width = options.line_width or float(np.median(group["widths"]))
+                if retained and not absence.permits(
+                    Geometry("source-absence-style", retained),
+                    width,
+                    group["cap"],
+                    work,
+                ):
+                    active_runs[i] = [False] * len(group["contours"])
+        except ValueError:
+            # Discovery completed, so the whole inspected source bank remains
+            # useful even when this independently bounded competitor cannot
+            # prove a body. No unfiltered or partial model is published.
+            if source_profiles is not None:
+                source_profiles.extend(profiles)
+            return ()
+        except StageInterruptedError:
+            return ()
+        for i, group in enumerate(groups):
+            # A short link retains at least one of its originally compatible
+            # incident pairs. Ports only refer to original long chains, so no
+            # removed chain or circular link dependency can authorize a join.
+            for link, pairs in group.get("link_dependencies", {}).items():
+                active_runs[i][link] &= any(
+                    active_runs[a[0]][a[1]] and active_runs[b[0]][b[1]]
+                    for a, b in pairs
+                )
     # Source samples belong to their nearest existing skeleton run. Ambiguous
     # junctions and unsupported chains retain their independently owned fill.
     nearest = distance_transform_edt(
@@ -753,8 +816,17 @@ def models(
                 ),
             )
             for j, sub in enumerate(group["contours"])
+            if active_runs is None or active_runs[i][j]
         )
+        if not contours:
+            continue
         geometry = Geometry(f"source-ink-{i}", contours)
+        if absence is not None:
+            try:
+                if not absence.permits(geometry, width, group["cap"], work):
+                    continue
+            except StageInterruptedError:
+                return ()
         shape = footprint(geometry, width, cap=group["cap"])
         if carrier is not None:
             outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
@@ -794,11 +866,29 @@ def models(
                     "boundary_contacts": boundary_contacts,
                     "contact_runs_scanned": contact_budget["runs"],
                     "contact_points_scanned": contact_budget["points"],
-                    "junction_links": group.get("junction_links", 0),
+                    "junction_links": sum(
+                        active_runs[i][j] for j in group.get("link_dependencies", {})
+                    )
+                    if active_runs is not None
+                    else group.get("junction_links", 0),
                     "source_link_candidates": link_counts["candidates"],
                     "source_link_profiles_scanned": link_counts["profiles"],
                     "source_links_supported": link_counts["supported"],
                     "source_link_carrier_exclusions": link_counts["carrier_exclusions"],
+                    **(
+                        {
+                            "source_absence_scope": "inspected-raw-source-gap-centres",
+                            "source_absence_calibrated": False,
+                            "source_absence_samples": len(absence.points),
+                            "source_absence_excluded_runs": len(group["contours"])
+                            - len(contours),
+                            "source_style_junction_links": group.get(
+                                "junction_links", 0
+                            ),
+                        }
+                        if absence is not None
+                        else {}
+                    ),
                     **(
                         {"carrier_fit": dict(carrier_fit.diagnostics)}
                         if carrier_fit is not None

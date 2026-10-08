@@ -5,7 +5,10 @@ import pytest
 from scripts import bench_cel_component as bench
 
 
-def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(monkeypatch, tmp_path):
+@pytest.mark.parametrize("ink_fit", ["carrier", "source-gaps"])
+def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(
+    monkeypatch, tmp_path, ink_fit
+):
     calls = []
     monkeypatch.setattr(bench, "run", lambda *a, **k: calls.append((a, k)))
     monkeypatch.setattr(
@@ -24,7 +27,7 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(monkeypatch, tmp
             "--ink-coverage",
             "fractional",
             "--ink-fit",
-            "carrier",
+            ink_fit,
             "--opacity-model",
             "components",
             "--out",
@@ -39,7 +42,7 @@ def test_cli_passes_explicit_fitted_roles_and_anchored_boundary(monkeypatch, tmp
     assert calls[0][1]["boundary_fit"] == "anchored"
     assert calls[0][1]["source_line_diagnostics"] is True
     assert calls[0][1]["ink_coverage"] == "fractional"
-    assert calls[0][1]["ink_fit"] == "carrier"
+    assert calls[0][1]["ink_fit"] == ink_fit
     assert calls[0][1]["opacity_model"] == "components"
 
 
@@ -127,11 +130,12 @@ def test_cli_rejects_inapplicable_fractional_coverage_before_loading_source(
 @pytest.mark.parametrize(
     "extra", [[], ["--ink-support", "connected"], ["--proposal", "source-strokes"]]
 )
+@pytest.mark.parametrize("ink_fit", ["carrier", "source-gaps"])
 def test_cli_rejects_inapplicable_carrier_fitting_before_loading_source(
-    monkeypatch, extra
+    monkeypatch, extra, ink_fit
 ):
     monkeypatch.setattr(
-        "sys.argv", ["bench_cel_component", "--ink-fit", "carrier", *extra]
+        "sys.argv", ["bench_cel_component", "--ink-fit", ink_fit, *extra]
     )
     monkeypatch.setattr(
         bench,

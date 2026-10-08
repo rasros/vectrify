@@ -197,7 +197,9 @@ def _error(prepared, actual, visible):
     )
 
 
-def _prepare(truth, profile, visible):
+def _prepare(
+    truth, profile, visible
+) -> tuple[SourceProfile, np.ndarray, np.ndarray, np.ndarray, np.ndarray] | None:
     contrast, opacity, valid, light = _sample(truth, profile, (0,), visible)
     contrast, opacity, valid, light = (
         v[:, 0] for v in (contrast, opacity, valid, light)
@@ -240,7 +242,13 @@ def _prepare(truth, profile, visible):
             )
             supported = seen & (nearby >= 6) & (alpha > VISIBLE)
             gaps &= ~supported.any(axis=1)
-        return (profile, *(_readonly(v) for v in (contrast, opacity, qualified, gaps)))
+        return (
+            profile,
+            _readonly(contrast),
+            _readonly(opacity),
+            _readonly(qualified),
+            _readonly(gaps),
+        )
     return None
 
 
@@ -366,6 +374,27 @@ class SourceLineGuard:
             result.append(_error(prepared, actual, visible))
         _check(work)
         return tuple(result)
+
+    def gap_centres(self, *, limit=MAX_SAMPLES, work=None):
+        """Copy inspected raw absence positions for a bounded body constraint.
+
+        These are source observations, including failed source chains and
+        facing endpoint gaps. They do not authorize moving an endpoint or
+        generating a link, and their engineering thresholds are uncalibrated.
+        Check the requested allocation before concatenating the observations.
+        """
+        if not isinstance(limit, int) or limit < 0:
+            raise ValueError("Source absence requires a nonnegative point limit")
+        count = 0
+        pieces = []
+        for profile, _contrast, _alpha, _qualified, gaps in self._profiles:
+            _check(work)
+            count += int(gaps.sum())
+            if count > limit:
+                raise ValueError("Source absence exceeds the bounded point limit")
+            pieces.append(profile.points[gaps])
+        _check(work)
+        return _readonly(np.concatenate(pieces) if pieces else np.empty((0, 2)))
 
     def establish(self, actual, *, work=None):
         if self._baseline is not None:
