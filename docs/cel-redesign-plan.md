@@ -32,7 +32,23 @@ for the deterministic quality gates.
 
 ## Resumed implementation and reference policy
 
-The newest checkpoint shares complete physical source extraction between the
+The current outline experiment recovers open centerline runs from measured
+perimeters. Only their own native source gaps authorize new caps; serialization
+and observation chunk seams do not. Exported replacements must be actual
+`fill="none"` strokes with editable centerlines and widths, complete ink ownership
+and valid surrounding paint/alpha. The useful fitted materials remain available.
+
+Recovery now works in native controls and supplies a few source-only sword runs,
+but none composes into a usable replacement on the fitted material candidate.
+Long blade runs still fail native body/gap constraints. Cycle recovery therefore
+remains an explicit `SourceStrokes(outline_intervals=True)` experiment; the
+ordinary experimental High cursor retains its preceding whole-perimeter route.
+A prototype that enabled recovery there selected the dense fallback before useful
+material search. It supplies no quality or repeatability evidence. Next address
+complete exterior coverage and supported junctions with retained strokes in one
+owned replacement. New reference collection and learned ranking remain deferred.
+
+The preceding checkpoint shares complete physical source extraction between the
 original-width and fitted-width interpretations. `JointCells` alternates both
 under unchanged native absence, carrier, ownership and ledger proofs and releases
 its one-record cache when the invocation ends. Experimental High-quality search

@@ -59,6 +59,107 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Source cycle recovery and the remaining composition failure
+
+The editing requirement is an actual centerline stroke with `fill="none"`,
+stroke width and connected source-supported geometry. Selected filled ink must
+be removed through ownership cuts and material continuation. Shadow/material
+shapes remain fills. Adding a stroke over retained filled ink does not establish
+the requested representation, and generation still ignores the human repair.
+
+`SourceCycle` maps every identity-bound native observation from overlapping
+chunks back onto the complete original dense cyclic grid. Missing coverage
+excludes recovery; duplicate observations can add gaps, never waive them.
+Only a cycle's own native gaps authorize new physical caps. A canonical seam
+inside a measured gap makes serialization rotation independent of cap placement.
+Complete intervals are enumerated before source-length/support ranking; unknown
+profiles and neighboring gaps cannot split a fully supported host.
+
+At most eight supported intervals compete. Existing 128-interval, 256-fit and
+16,384-node bounds remain, with exact positive source endpoints and bounded cap
+setbacks. Original fits compete with quarter-pixel simplification and a one-sample
+smoothing variant whose displacement is at most min(1 pixel, width/2); smoothing
+keeps caps fixed. Every actual native body/cap and self-crossing check still applies.
+Widths compare the existing measured interpretation and a bounded narrower one;
+requested widths stay fixed. Capacity/interruption errors publish no partial
+recovery. Bounds do not rise to admit the sword.
+
+The opt-in perimeter bank records native observations even for crossed complete
+fits, then offers each recovered physical run as a separate model. This retains
+complete local footprints for the existing carrier/cut/restoration/ordering
+checks. A perimeter-only cursor with a proved empty bank returns before walking
+carriers. **Recovery is an explicit `outline_intervals=True` experiment.** Ordinary
+High keeps the earlier whole-perimeter interpretation and its early crossing
+exclusion. Enabling recovery by default has no demonstrated quality benefit.
+
+Native controls recover a broken outline as an open editable stroke, with actual
+filled-owner cuts, complete source-graph validation, unchanged alpha, gap-center,
+interior and exterior pixels, exact local/full raster agreement and project
+save/reload. A larger two-gap cycle crosses several observation chunk seams and
+retains two open strokes. Other controls cover opacity levels, seam rotation,
+unknown observers, invalid fields/styles, complete observation coverage, fit/run/
+node bounds, rejected bodies, interruption and the default scheduling guard.
+These are engineering controls, not a sword quality gain.
+
+The final source identity is
+`1fd510326a8f0c21890e0b859eca6f8ff59c2d09216ae5d5813bdaa29a61f29e`.
+The preceding unguarded feature source is
+`e18591cc206f3fbabeb7496aad0b9759f87f28741ad091a8e355c212dfb56d74`;
+its full relevant suite passes **1,455 tests in 418.62 seconds**. The final source
+guard passes **219 relevant tests in 92.02 seconds**, including all 25 new cycle
+controls plus existing stroke, scheduling, interruption, operation and benchmark
+checks. Ruff/format/whitespace pass; Pyrefly reports zero
+errors and the existing 62 warnings. No process-memory or repeatability gate is
+claimed from these checks.
+
+The opt-in source bank at `.bench/cel-cycle-bank-guarded` retains 99 independent
+raw sword profiles, inspects three perimeters and emits five source-gap-valid
+models after 83 fit attempts. Three are pommel/handle fragments; two nearly
+identical short blade runs arise from different measured seeds. There is no
+complete long blade outline. The four existing half-opacity tuning families
+still emit none: their complete perimeter ridge test fails. No held-out cases
+or generated references enter discovery.
+
+On the preserved fitted Detailed parent, `.bench/cel-cycle-material-guarded`
+attempts every model against four carriers. It emits **zero replacement proposals**:
+12 checks exclude overlap with retained stroke bodies, and eight fail complete
+ownership/carrier containment. No cut or restoration is reached, and the probe
+finishes without interruption or error. These counts are model/carrier attempts,
+not 20 independent models. The candidate bank has improved coverage, but the
+composition remains inadequate. Long blade fits can lose their small crossings
+after simplification and still fail source-gap checks; normal-displacement and
+broader smoothing prototypes do not justify waiving that contract.
+
+The unguarded actual Generate High/50 probe at `.bench/cel-cycle-operation-final`
+uses the unchanged 60-second allowance and selects **10,285 nodes / 1,711 contours /
+zero editable stroke contours / human MSE 519.541877** in **54.53 seconds**.
+Joint material discovery starts with only 0.62 seconds available and emits none.
+This is a negative scheduling result, not improved outline quality. The final
+default guard avoids scheduling this additional recovery. One run cannot attribute
+all variability to the new route or establish that the guard fixes repeatability.
+Earlier dense fallbacks remain relevant evidence.
+
+The first material-matching probe used literal SVG hashes and failed to recognize
+the preserved drawing because imported object IDs are newly generated. The
+verified probe normalizes IDs and their references for matching, then checks
+native pixels independently. No ID normalization changes the generated drawing.
+The final-source native-pool audit checks **13 native-valid sword drawings,
+13 complete source-graph validations and 16 native stroke body/cap proofs**.
+Both original and fitted pools retain exactly the preceding native RGBA,
+representation, scores, source-profile banks and geometry/paint diagnostics.
+Fresh PNG pixels and project save/reload agree; maximum local/full score-term
+difference is **1.011e-9**. One physical extraction and one reuse are retained.
+The fitted Detailed candidate remains **2,941 nodes / 414 contours / 30 editable
+stroke contours / human MSE 508.055591**. This preserves its material/shadow
+result; it is not a new outline-quality gain. The current five-case source-bank
+probe is separate from this sword-only fresh material audit. The preceding
+five-case material audit remains evidence at its original source identity.
+
+Next compose exterior source coverage with materials and compatible retained
+stroke junctions, recover long supported blade runs, and inspect actual editable
+outline coverage. The full goal and all eight delivery/release gates remain open.
+New references and learned ranking remain deferred.
+
 ### Source-perimeter stroke interpretation
 
 The current checkpoint adds a source-perimeter primitive and connects it to the

@@ -36,6 +36,7 @@ from vectrify.refine.cel_plan.line_fidelity import SourceProfile
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.source_absence import SourceAbsence
+from vectrify.refine.cel_plan.source_cycles import SourceCycle
 from vectrify.refine.cel_plan.source_widths import SourceWidths
 from vectrify.refine.crossings import crossings
 from vectrify.refine.tracing import _loops
@@ -78,8 +79,9 @@ def profiles(original, proof, evidence, component):
 
 
 class SilhouetteInk:
-    def __init__(self, evidence, options):
+    def __init__(self, evidence, options, *, intervals=False):
         self.evidence, self.options = evidence, options
+        self.intervals = intervals
         self.diagnostics = dict.fromkeys(
             (
                 "components",
@@ -95,6 +97,10 @@ class SilhouetteInk:
                 "models",
                 "width_trials",
                 "cancelled",
+                "cycles",
+                "cycle_fits",
+                "cycle_intervals",
+                "recovered_runs",
             ),
             0,
         )
@@ -213,76 +219,156 @@ class SilhouetteInk:
                             options.tolerance or 0.75,
                         )
                         geometry = Geometry(
-                            f"source-silhouette-{component}-{loops}", (model.contour,)
+                            f"source-silhouette-{component}-{loops}",
+                            (model.contour,),
                         )
-                        if crossings(geometry):
+                        crossed = crossings(geometry)
+                        if crossed:
                             self.diagnostics["geometry_exclusions"] += 1
-                            continue
-                        loop_profiles = profiles(
-                            original, proof, evidence, (namespace, component)
-                        )
+                            if not self.intervals:
+                                continue
                         try:
+                            cycle = (
+                                SourceCycle(
+                                    SourceProfile.from_ink(
+                                        original,
+                                        proof,
+                                        evidence,
+                                        component=(namespace, component),
+                                        cyclic=True,
+                                    )
+                                )
+                                if self.intervals
+                                else None
+                            )
+                            loop_profiles = (
+                                cycle.profiles
+                                if cycle is not None
+                                else profiles(
+                                    original, proof, evidence, (namespace, component)
+                                )
+                            )
                             absence = SourceAbsence(
-                                evidence, (*raw_profiles, *loop_profiles), work
+                                evidence,
+                                (*raw_profiles, *loop_profiles),
+                                work,
+                                intervals=self.intervals,
                             )
                             self.diagnostics["gap_samples_peak"] = max(
                                 self.diagnostics["gap_samples_peak"],
                                 len(absence.points),
                             )
-                            width = options.line_width or proof.width / np.sqrt(
-                                np.prod(evidence.scale)
-                            )
+                            scale = np.sqrt(np.prod(evidence.scale))
+                            width = options.line_width or proof.width / scale
                             fitter = SourceWidths(absence)
-                            if not options.line_width:
+                            if not crossed and not options.line_width:
                                 width = fitter.fit(
                                     ({"contours": [model.contour], "cap": "round"},),
                                     (width,),
-                                    np.sqrt(np.prod(evidence.scale)),
+                                    scale,
                                     work,
                                 )[0]
                             self.diagnostics["width_trials"] += fitter.diagnostics[
                                 "fits"
                             ]
-                            permitted = absence.permits(geometry, width, "round", work)
+                            permitted = not crossed and absence.permits(
+                                geometry,
+                                width,
+                                "round",
+                                work,
+                            )
+                            contours = (model.contour,) if permitted else ()
+                            if not permitted:
+                                if not crossed:
+                                    self.diagnostics["absence_exclusions"] += 1
+                                if cycle is not None:
+                                    self.diagnostics["cycles"] += 1
+                                    # Compare complete physical runs, with fixed
+                                    # endpoints. A narrower interpretation never
+                                    # changes a user-requested width.
+                                    widths = (
+                                        (width,)
+                                        if options.line_width
+                                        else tuple(
+                                            dict.fromkeys(
+                                                (
+                                                    width,
+                                                    min(
+                                                        width,
+                                                        max(0.8 / scale, width * 0.6),
+                                                    ),
+                                                )
+                                            )
+                                        )
+                                    )
+                                    for trial_width in widths:
+                                        recovered = cycle.recover(
+                                            absence,
+                                            trial_width,
+                                            "round",
+                                            options,
+                                            work,
+                                        )
+                                        if len(recovered) > len(contours):
+                                            width, contours = trial_width, recovered
+                                    self.diagnostics["cycle_fits"] += cycle.diagnostics[
+                                        "fits"
+                                    ]
+                                    self.diagnostics["cycle_intervals"] += (
+                                        cycle.diagnostics["intervals"]
+                                    )
+                                    self.diagnostics["recovered_runs"] += len(contours)
                         except ValueError:
                             self.diagnostics["bounds_exclusions"] += 1
                             continue
-                        if not permitted:
-                            self.diagnostics["absence_exclusions"] += 1
-                            continue
-                        selected = covered_selection(
-                            evidence.drawn & (components == component),
-                            geometry,
-                            width,
-                            evidence,
-                            work,
-                        )
-                        if selected is None or not selected.any():
-                            continue
-                        selected.flags.writeable = False
-                        result.append(
-                            InkModel(
-                                geometry,
-                                footprint(geometry, width),
-                                proof.paint,
-                                selected,
-                                {
-                                    "model": "source-silhouette-stroke",
-                                    "ownership": "rendered-stroke-coverage",
-                                    "width": float(width),
-                                    "linecap": "round",
-                                    "runs": 1,
-                                    "support": proof.support,
-                                    "peak_gap": proof.peak_gap,
-                                    "source_alpha_level": 0.5,
-                                    "source_component": component,
-                                    "source_absence_samples": len(absence.points),
-                                    "source_profiles": len(raw_profiles)
-                                    + len(loop_profiles),
-                                    "source_width_fit": dict(fitter.diagnostics),
-                                },
+                        for run, contour in enumerate(contours):
+                            geometry = Geometry(
+                                f"source-silhouette-{component}-{loops}-{run}",
+                                (contour,),
                             )
-                        )
+                            selected = covered_selection(
+                                evidence.drawn & (components == component),
+                                geometry,
+                                width,
+                                evidence,
+                                work,
+                            )
+                            if selected is None or not selected.any():
+                                continue
+                            selected.flags.writeable = False
+                            result.append(
+                                InkModel(
+                                    geometry,
+                                    footprint(geometry, width),
+                                    proof.paint,
+                                    selected,
+                                    {
+                                        "model": "source-silhouette-stroke",
+                                        "ownership": "rendered-stroke-coverage",
+                                        "width": float(width),
+                                        "linecap": "round",
+                                        "runs": 1,
+                                        "support": proof.support,
+                                        "peak_gap": proof.peak_gap,
+                                        "source_alpha_level": 0.5,
+                                        "source_component": component,
+                                        "source_absence_samples": len(absence.points),
+                                        "source_profiles": len(raw_profiles)
+                                        + len(loop_profiles),
+                                        "source_width_fit": dict(fitter.diagnostics),
+                                        "source_cycle": dict(cycle.diagnostics)
+                                        if cycle is not None
+                                        else None,
+                                    },
+                                )
+                            )
+                            if work.interrupted:
+                                raise StageInterruptedError(
+                                    "Source silhouettes interrupted"
+                                )
+                            if len(result) >= maximum_models:
+                                self.diagnostics["models"] += len(result)
+                                return tuple(result)
                         if work.interrupted:
                             raise StageInterruptedError(
                                 "Source silhouettes interrupted"

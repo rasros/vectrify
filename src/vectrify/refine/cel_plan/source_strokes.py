@@ -67,15 +67,18 @@ class SourceStrokes:
         boundary_contacts=False,
         outlines=False,
         perimeter_only=False,
+        outline_intervals=False,
     ):
-        if perimeter_only and not outlines:
-            raise ValueError(
-                "Perimeter-only proposals require source outline discovery"
-            )
+        if (perimeter_only or outline_intervals) and not outlines:
+            raise ValueError("Perimeter proposals require source outline discovery")
         self.evidence, self.graph, self.options = evidence, graph, options
         self.boundary_contacts = boundary_contacts
         self.perimeter_only = perimeter_only
-        self.silhouettes = SilhouetteInk(evidence, options) if outlines else None
+        self.silhouettes = (
+            SilhouetteInk(evidence, options, intervals=outline_intervals)
+            if outlines
+            else None
+        )
         self._outline_models = None
         self.cutter = SourceRidges(
             evidence,
@@ -229,6 +232,8 @@ class SourceStrokes:
             # Only complete source discovery is cached, including a proved
             # empty pool. Ownership and current carrier proofs remain per state.
             self._outline_models = outline_models
+        if self.perimeter_only and not self._outline_models:
+            return
         retained = self.retained_strokes(state, work) if self._outline_models else ()
         for members, carrier in self.carriers(state, work):
             if work.interrupted:
