@@ -805,6 +805,8 @@ class OptimizeNodes:
 
     def validate(self, request: OperationRequest) -> None:
         settings = read_settings(request.settings, SETTINGS, LABEL)
+        if settings["detail"] and not settings["snap"]:
+            raise DocumentError("detail requires snap=true")
         if not any(settings[step] for step in STEPS):
             raise DocumentError("Choose at least one step")
         selected_paths(request, area(settings))

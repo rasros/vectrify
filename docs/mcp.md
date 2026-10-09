@@ -490,3 +490,18 @@ the agent reads them with `describe()` and never sets them.
 - `trace_reference` traces the reference at its own resolution there, at
   least 256 and at most 1024 pixels on the long side; finer detail needs a
   smaller region.
+
+### Job settings and diagnostics
+
+Call `settings_schema(action, method)` for the operation's JSON schema:
+`generate/cel`, `generate/colour-regions`, `generate/cel-planned`,
+`improve/nodes` (tidy), `improve/colours`, `improve/path-fit`, `snap/edges`
+and `simplify/cleanup`. The schema lists types, defaults, ranges, enums and
+interactions, with `additionalProperties=false`. Existing settings dictionaries
+remain supported; unknown keys and invalid values are rejected before starting
+work. Defaults are reported as `effective_settings` in every job reply.
+
+Proposal `diagnostics` are data, separate from tool guidance and pixel metrics.
+They list created/removed objects, node removal, straight-to-curve changes,
+endpoint movement, paint and stacking changes, detectable contour merge lineage,
+and pin violations. Node effects identify object, contour and node IDs.

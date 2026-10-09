@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import math
 from typing import ClassVar
 
-from vectrify.document import DocumentError
 from vectrify.operations.contract import (
     OperationRequest,
     OperationResult,
@@ -14,16 +12,13 @@ from vectrify.operations.contract import (
     register,
 )
 from vectrify.operations.previews import render_previews
+from vectrify.operations.settings import Setting, read_settings
+
+SETTINGS = {"tolerance": Setting(float, 1.0, minimum=0, label="contact distance")}
 
 
 def _tolerance(request: OperationRequest) -> float:
-    unknown = set(request.settings) - {"tolerance"}
-    if unknown:
-        raise DocumentError(f"Unknown snap setting: {sorted(unknown)[0]}")
-    tolerance = float(request.settings.get("tolerance", 1))
-    if not math.isfinite(tolerance):
-        raise DocumentError("Enter a finite contact distance")
-    return tolerance
+    return read_settings(request.settings, SETTINGS, "snap")["tolerance"]
 
 
 class EdgeSnap:
