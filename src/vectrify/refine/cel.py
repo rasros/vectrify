@@ -41,6 +41,7 @@ from __future__ import annotations
 
 import heapq
 import time
+from collections.abc import Callable
 from itertools import pairwise
 from typing import TYPE_CHECKING, Any
 
@@ -1027,7 +1028,14 @@ def _data(start, nodes, closed: bool) -> str:
     return " ".join(parts) + (" Z" if closed else "")
 
 
-def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
+def region_outlines(
+    labels: np.ndarray,
+    tolerance: float,
+    *,
+    fit_boundary: Callable[[np.ndarray, float], list[tuple[str, tuple[float, ...]]]]
+    | None = None,
+    check: Callable[[], None] | None = None,
+) -> dict[int, str]:
     """Each region's outline as path data, traced once per shared edge.
 
     Every edge between two regions is fitted once and used, forwards and
@@ -1036,7 +1044,7 @@ def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
     """
     padded = np.pad(labels, 1, constant_values=-1)
     pieces: dict[int, list[tuple[tuple, list]]] = {}
-    for points in boundary_chains(padded):
+    for points in boundary_chains(padded, check=check):
         middle = (points[0] + points[1]) / 2
         direction = points[1] - points[0]
         normal = np.array([-direction[1], direction[0]]) * 0.25
@@ -1050,6 +1058,8 @@ def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
             nodes: list[tuple[str, tuple[float, ...]]] = [
                 ("L", (float(x), float(y))) for x, y in simplify(points, 0)[1:]
             ]
+        elif fit_boundary is not None:
+            nodes = fit_boundary(points, tolerance)
         else:
             nodes = curve_nodes(points, tolerance, smooth=FILL_SMOOTH, fit=FILL_FIT)
         end = (float(points[-1, 0]), float(points[-1, 1]))
@@ -1059,17 +1069,23 @@ def region_outlines(labels: np.ndarray, tolerance: float) -> dict[int, str]:
             pieces.setdefault(right, []).append((end, _reversed(start, nodes)))
     outlines = {}
     for index, segments in pieces.items():
+        if check is not None:
+            check()
         starts: dict[tuple, list[int]] = {}
         for n, (start, _) in enumerate(segments):
             starts.setdefault(_key(start), []).append(n)
         unused = set(range(len(segments)))
         parts = []
         while unused:
+            if check is not None:
+                check()
             n = min(unused)
             unused.remove(n)
             start, nodes = segments[n]
             loop = list(nodes)
             while _key(loop[-1][1][-2:]) != _key(start):
+                if check is not None:
+                    check()
                 following = next(
                     m for m in starts[_key(loop[-1][1][-2:])] if m in unused
                 )

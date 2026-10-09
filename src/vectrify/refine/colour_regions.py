@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import logging
 import time
+from collections.abc import Callable
 from heapq import heappop, heappush
 from itertools import pairwise
 from typing import cast
@@ -273,12 +274,16 @@ def append_outlines(
     return ET.tostring(root, encoding="unicode"), metadata
 
 
-def boundary_chains(labels: np.ndarray) -> list[np.ndarray]:
+def boundary_chains(
+    labels: np.ndarray, *, check: Callable[[], None] | None = None
+) -> list[np.ndarray]:
     """Trace every shared region edge once, including loops and junctions."""
     _height, width = labels.shape
     graph: dict[int, list[int]] = {}
 
     def add(first: int, second: int) -> None:
+        if check is not None and len(graph) % 1024 == 0:
+            check()
         graph.setdefault(first, []).append(second)
         graph.setdefault(second, []).append(first)
 
@@ -296,12 +301,16 @@ def boundary_chains(labels: np.ndarray) -> list[np.ndarray]:
 
     nodes = sorted(point for point, neighbours in graph.items() if len(neighbours) != 2)
     for start in [*nodes, *sorted(graph)]:
+        if check is not None:
+            check()
         for following in graph[start]:
             if edge(start, following) in visited:
                 continue
             trace, previous, current = [start], start, following
             visited.add(edge(start, following))
             while True:
+                if check is not None and len(trace) % 1024 == 0:
+                    check()
                 trace.append(current)
                 if current == start or len(graph[current]) != 2:
                     break

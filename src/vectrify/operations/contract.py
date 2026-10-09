@@ -23,6 +23,10 @@ from vectrify.document.editor import Transaction
 ACTIONS = ("generate", "improve", "simplify", "snap")
 
 
+class OperationCancelledError(RuntimeError):
+    """A method stopped before it had a proposal it could safely retain."""
+
+
 @dataclass(frozen=True)
 class Permissions:
     """What an operation may change, on top of selection and locks."""

@@ -2,6 +2,7 @@
 
 from vectrify.operations.methods import (
     cel,
+    cel_planned,
     cleanup,
     colour_regions,
     colours,
@@ -12,6 +13,7 @@ from vectrify.operations.methods import (
 
 __all__ = [
     "cel",
+    "cel_planned",
     "cleanup",
     "colour_regions",
     "colours",

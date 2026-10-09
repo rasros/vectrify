@@ -10,6 +10,7 @@ from uuid import uuid4
 from vectrify.document import DocumentError, StaleRevisionError
 from vectrify.operations.contract import (
     Method,
+    OperationCancelledError,
     OperationRequest,
     OperationResult,
     RunContext,
@@ -95,6 +96,9 @@ class Job:
                     if self.stop.is_set()
                     else "Preview ready"
                 )
+        except OperationCancelledError as exc:
+            with self._lock:
+                self.status, self.message = "cancelled", str(exc)
         except Exception as exc:
             if not isinstance(exc, DocumentError):
                 log.exception("%s/%s failed", self.method.action, self.method.name)

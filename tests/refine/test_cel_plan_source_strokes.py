@@ -1,0 +1,790 @@
+"""Ink replacement preserves existing materials and source-only topology."""
+
+from dataclasses import replace
+
+import numpy as np
+import pytest
+from PIL import Image
+
+from tests.helpers import required
+from tests.refine.test_cel_plan_families import prepared
+from tests.refine.test_cel_plan_ink_models import drawing
+from vectrify.document import Editor, Selection, export_svg, load_project, save_project
+from vectrify.document.hit_test import multiply
+from vectrify.document.join import path_style, transformed_geometry
+from vectrify.document.redraw import root_matrix
+from vectrify.document.svg import parse_path
+from vectrify.document.topology import inverse_matrix
+from vectrify.refine.cel_plan.core_cells import CoreCells
+from vectrify.refine.cel_plan.evidence import collect
+from vectrify.refine.cel_plan.graph import build
+from vectrify.refine.cel_plan.local import LocalPolicy
+from vectrify.refine.cel_plan.model import Options, Work
+from vectrify.refine.cel_plan.proposals import Operators
+from vectrify.refine.cel_plan.score import render
+from vectrify.refine.cel_plan.search import State
+from vectrify.refine.cel_plan.source_strokes import SourceStrokes
+
+
+def fragmented(alpha=128, gap=False):
+    evidence, ink = drawing(alpha, gap=gap)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y // 8) * 12 + x // 8)
+    labels[ink] += 200
+    return replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
+
+
+def mixed_owner_mark():
+    evidence = fragmented()
+    labels, target, rgba, drawn = (
+        a.copy()
+        for a in (evidence.labels, evidence.target, evidence.rgba, evidence.drawn)
+    )
+    owner = int(np.bincount(labels[drawn]).argmax())
+    labels[72:77, 78:83] = owner
+    target[72:77, 78:83] = 32
+    rgba[72:77, 78:83, :3] = 32 / 255
+    drawn[72:77, 78:83] = True
+    return replace(
+        evidence, labels=labels, target=target, rgba=rgba, drawn=drawn, line=drawn
+    )
+
+
+def contact_drawing(alpha, gap):
+    line = "M8 28H42 M54 28H88" if gap else "M8 28H88"
+    svg = (
+        '<svg width="96" height="96"><defs><clipPath id="source">'
+        '<path d="M8 8H88V88H8Z"/></clipPath></defs>'
+        f'<g opacity="{alpha / 255}" clip-path="url(#source)">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M48 8H88V88H48Z" fill="#9d8065"/>'
+        f'<path d="{line}" fill="none" stroke="#202020" stroke-width="3"/>'
+        "</g></svg>"
+    )
+    rgba = render(svg, (96, 96))
+    evidence = collect(
+        Image.fromarray((rgba * 255).round().astype(np.uint8)),
+        None,
+        Options(refine=False),
+        Work.start(10),
+    )
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 65)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y // 8) * 12 + x // 8)
+    labels[ink] += 200
+    return replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+@pytest.mark.parametrize("gap", [False, True])
+def test_proved_contact_body_keeps_source_gaps_and_becomes_a_complete_butt_stroke(
+    alpha, gap
+):
+    evidence = contact_drawing(alpha, gap)
+    frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    unchanged = SourceStrokes(evidence, ops.graph, options, resolver=ops.branch)
+    assert list(unchanged.proposals(state, Work.start(20))) == []
+    trimmed = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    edits = list(trimmed.proposals(state, Work.start(20)))
+    assert edits, (trimmed.diagnostics, trimmed.cutter.diagnostics)
+    original = render(export_svg(state.document), evidence.source_size)
+    for edit in edits:
+        assert edit.partition is not None
+        assert edit.details is not None
+        assert edit.details["source_strokes"]["contact_runs_scanned"] == 0
+        assert edit.details["source_strokes"]["linecap"] == "butt"
+        svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(svg)
+        assert full.valid, full.rejections
+        ops.validate_partition(edit.partition, Work.start(10))
+        actual = render(svg, evidence.source_size)
+        np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+        # The canonical butt body starts at x9.5; its uncovered x8 source
+        # endpoint remains independently filled rather than being underpainted.
+        np.testing.assert_array_equal(actual[26:30, 8], original[26:30, 8])
+        strokes = [
+            e for e in edit.document.elements() if e.get("stroke") not in (None, "none")
+        ]
+        assert len(strokes) == 1
+        assert strokes[0].get("fill") == "none"
+        assert strokes[0].get("stroke-linecap") == "butt"
+        chains = edit.document.geometry_for(strokes[0].id).subpaths
+        assert len(chains) == (2 if gap else 1)
+        endpoints = [
+            node.endpoint for s in chains for node in (s.nodes[0], s.nodes[-1])
+        ]
+        # Thinning places the original source ends one pixel inside its cap.
+        # This complete chain retains those ends instead of interval trimming.
+        assert min(p[0] for p in endpoints) == 9.5
+        assert max(p[0] for p in endpoints) == 86.5
+        if gap:
+            np.testing.assert_array_equal(actual[24:33, 45:51], original[24:33, 45:51])
+        assert "clipPath" not in svg
+        assert full.structure["stroke_contours"] >= (2 if gap else 1)
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, svg, edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        restored, _ = load_project(save_project(edit.document))
+        np.testing.assert_array_equal(
+            render(export_svg(restored), evidence.source_size), actual
+        )
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+def test_a_contact_cap_needs_carrier_coverage_of_the_old_mark_as_well_as_its_body(
+    alpha,
+):
+    evidence = contact_drawing(alpha, False)
+    _frontier, state, options = prepared(evidence, layers=True)
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    # The x8 endpoint pixel now stays filled because the butt body starts at
+    # x9.5. Intersect the replaced x9 pixel instead: its old geometry extends
+    # outside x9.25, although the actual new stroke body fits the carrier.
+    with editor.transaction("Restrict carrier before the source endpoint") as tx:
+        tx.replace_geometry(
+            base.id,
+            replace(
+                transformed_geometry(
+                    parse_path("M9.25 8H88V88H9.25Z"),
+                    inverse_matrix(root_matrix(state.document, base.id)),
+                ),
+                id=base.id,
+            ),
+        )
+    state = replace(state, document=editor.snapshot.document)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    assert list(factory.proposals(state, Work.start(20))) == []
+    assert factory.restoration_rejections.get("unproved-core-coverage", 0) > 0
+
+
+@pytest.mark.parametrize("closed", [False, True])
+@pytest.mark.parametrize("cap", ["round", "butt"])
+def test_material_retention_proves_the_actual_open_or_closed_stroke(closed, cap):
+    evidence = fragmented()
+    _frontier, state, options = prepared(evidence, layers=True)
+    base = next(s for s in required(state.partition).surfaces if s.role == "underlay")
+    mark = next(s for s in required(state.partition).surfaces if s.role == "surface")
+    parent = state.document.ancestry(mark.id)[-2]
+    frame = inverse_matrix(root_matrix(state.document, parent.id))
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    with editor.transaction("Prove an open stroke in a concave carrier") as tx:
+        tx.replace_geometry(
+            base.id,
+            transformed_geometry(
+                parse_path("M14 14H76V76H64V26H14Z"),
+                inverse_matrix(root_matrix(state.document, base.id)),
+            ),
+        )
+        tx.replace_geometry(
+            mark.id, parse_path("M20 20H70V70" + ("Z" if closed else ""))
+        )
+        tx.set_attributes(
+            mark.id,
+            {
+                "fill": "none",
+                "stroke": "#202020",
+                "stroke-width": "3",
+                "stroke-opacity": "1",
+                "stroke-linecap": cap,
+                "stroke-linejoin": "round",
+                "opacity": "1",
+                "transform": "matrix(" + " ".join(str(v) for v in frame) + ")",
+            },
+        )
+    assert state.partition is not None
+    state = replace(
+        state,
+        document=editor.snapshot.document,
+        partition=replace(
+            state.partition,
+            surfaces=tuple(
+                replace(s, role="overlay") if s.id == mark.id else s
+                for s in required(state.partition).surfaces
+            ),
+        ),
+    )
+    selected = tuple(
+        s for s in required(state.partition).surfaces if s.id not in (base.id, mark.id)
+    )
+    factory = CoreCells(Operators(evidence, build(evidence), options).families, options)
+    assert factory._retained(
+        state, base, selected, state.document.geometry_for(base.id), Work.start(10)
+    ) == (not closed)
+
+
+@pytest.mark.parametrize("alpha", [255, 128, 64])
+@pytest.mark.parametrize("gap", [False, True])
+def test_native_stroke_replaces_fragments_without_collapsing_existing_paint(alpha, gap):
+    evidence = fragmented(alpha, gap)
+    frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
+    graph = build(evidence)
+    factory = SourceStrokes(evidence, graph, options)
+    edits = list(factory.proposals(state, Work.start(20)))
+    assert edits, (
+        factory.diagnostics,
+        factory.cutter.diagnostics,
+        factory.restoration_rejections,
+    )
+    original = render(state.svg, evidence.source_size)
+    for edit in edits:
+        assert edit.partition is not None
+        assert edit.component is not None
+        actual = render(export_svg(edit.document), evidence.source_size)
+        full = frontier.policy.evaluate(export_svg(edit.document))
+        assert full.valid, full.rejections
+        assert edit.partition.follows(state.partition)
+        Operators(evidence, graph, options).validate_partition(
+            edit.partition, Work.start(10)
+        )
+        assert edit.component.validate(
+            state.document,
+            edit.document,
+            state.partition,
+            edit.partition,
+            edit.ids,
+            edit.bounds,
+            Work.start(10),
+        )
+        np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+        # Paint away from the source stroke footprint is unchanged. Both source
+        # materials remain independently editable, with their original paints.
+        np.testing.assert_array_equal(actual[70:80, 12:82], original[70:80, 12:82])
+        if gap:
+            np.testing.assert_array_equal(actual[26:31, 47:49], original[26:31, 47:49])
+        for surface in state.partition.surfaces:
+            if surface.id in {e.id for e in edit.document.elements()}:
+                before = path_style(state.document, state.document.element(surface.id))
+                after = path_style(edit.document, edit.document.element(surface.id))
+                if after["stroke"] == "none":
+                    assert after["fill"] == before["fill"]
+        strokes = [
+            e for e in edit.document.elements() if e.get("stroke", "none") != "none"
+        ]
+        assert strokes
+        assert all(e.get("fill") == "none" for e in strokes)
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, export_svg(edit.document), edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        restored, _ = load_project(save_project(edit.document))
+        np.testing.assert_array_equal(
+            render(export_svg(restored), evidence.source_size), actual
+        )
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+@pytest.mark.parametrize("gap", [False, True])
+@pytest.mark.parametrize("layout", ["regions", "planes", "ink-planes"])
+@pytest.mark.parametrize("boundary_fit", ["curve", "anchored"])
+def test_material_compaction_composes_after_source_strokes(
+    alpha, gap, layout, boundary_fit, monkeypatch
+):
+    from vectrify.refine.cel_plan import core_cells
+
+    # Exercise several complete material prefixes in this carried-stroke
+    # control. Larger trees and model exhaustion have separate controls and
+    # the native artwork pools; they do not add another stroke interpretation.
+    monkeypatch.setattr(core_cells, "MAX_PLANES", 4)
+    evidence = fragmented(alpha, gap)
+    frontier, initial, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(evidence, ops.graph, options, resolver=ops.branch)
+    ink = next(factory.proposals(initial, Work.start(20)))
+    assert ink.details is not None
+    svg = export_svg(ink.document)
+    full = frontier.policy.evaluate(svg)
+    assert full.valid
+    state = State(
+        ink.document,
+        svg,
+        LocalPolicy(frontier.policy).start(svg, full),
+        "stroke-parent",
+        {**initial.details, **ink.details},
+        partition=ink.partition,
+    )
+    assert state.partition is not None
+    branch = ops.branch(state.partition, Work.start(10))
+    material = CoreCells(
+        branch.families,
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit=boundary_fit,
+        layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
+    )
+    edits = list(material(state, Work.start(20)))
+    assert edits, material.diagnostics
+    strokes = [
+        e for e in state.document.elements() if e.get("stroke", "none") != "none"
+    ]
+    assert strokes
+    for edit in edits:
+        assert edit.partition is not None
+        final_svg = export_svg(edit.document)
+        final = frontier.policy.evaluate(final_svg)
+        assert final.valid, final.rejections
+        assert edit.partition.follows(state.partition)
+        ops.validate_partition(edit.partition, Work.start(10))
+        for stroke in strokes:
+            assert edit.document.element(stroke.id) == stroke
+            assert edit.document.geometry_for(stroke.id) == state.document.geometry_for(
+                stroke.id
+            )
+        actual = render(final_svg, evidence.source_size)
+        np.testing.assert_array_equal(
+            actual[..., 3], render(svg, evidence.source_size)[..., 3]
+        )
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, final_svg, edit.bounds, final.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(final.terms, abs=2e-7)
+
+
+def test_cancellation_after_source_cut_does_not_publish_a_partial_edit(monkeypatch):
+    evidence = mixed_owner_mark()
+    _frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(evidence, ops.graph, options, resolver=ops.branch)
+    work = Work.start(10)
+    original = factory.cutter.prepare
+    before = export_svg(state.document)
+
+    def stopped(*args):
+        result = original(*args)
+        assert result is not None
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(factory.cutter, "prepare", stopped)
+    assert list(factory.proposals(state, work)) == []
+    assert export_svg(state.document) == before
+    assert ops.schedule_diagnostics["source_graph_rebuilds"] > 0
+
+
+def test_disconnected_mark_sharing_a_source_owner_survives_exact_ink_cut():
+    evidence = mixed_owner_mark()
+    frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(evidence, ops.graph, options, resolver=ops.branch)
+    edits = list(factory.proposals(state, Work.start(20)))
+    assert edits
+    original = render(export_svg(state.document), evidence.source_size)
+    for edit in edits:
+        assert edit.partition is not None
+        assert edit.details is not None
+        svg = export_svg(edit.document)
+        assert frontier.policy.evaluate(svg).valid
+        assert edit.details["source_strokes"]["cuts"] > 0
+        ops.validate_partition(edit.partition, Work.start(10))
+        np.testing.assert_array_equal(
+            render(svg, evidence.source_size)[71:78, 77:84], original[71:78, 77:84]
+        )
+
+
+def test_paint_constrained_source_owners_are_not_reinterpreted():
+    evidence = fragmented()
+    _frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
+    owners = state.partition.owners
+    protected = {owners[int(i)] for i in np.unique(evidence.labels[evidence.drawn])}
+    state = replace(
+        state, details={**state.details, "paint_constraints": sorted(protected)}
+    )
+    factory = SourceStrokes(evidence, build(evidence), options)
+    assert list(factory.proposals(state, Work.start(10))) == []
+    assert factory.diagnostics["owner_exclusions"] > 0
+
+
+def test_retained_stroke_centerline_does_not_prove_its_whole_width_is_in_carrier():
+    evidence = fragmented()
+    frontier, initial, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    ink = next(
+        SourceStrokes(evidence, ops.graph, options, resolver=ops.branch).proposals(
+            initial, Work.start(20)
+        )
+    )
+    assert ink.details is not None
+    stroke = next(
+        e for e in ink.document.elements() if e.get("stroke", "none") != "none"
+    )
+    editor = Editor(ink.document, selection=Selection(whole_document=True))
+    with editor.transaction("Force an unsupported wide stroke") as tx:
+        tx.set_attributes(stroke.id, {"stroke-width": "200"})
+    document = editor.snapshot.document
+    svg = export_svg(document)
+    state = State(
+        document,
+        svg,
+        LocalPolicy(frontier.policy).start(svg, frontier.policy.evaluate(svg)),
+        "wide-stroke",
+        {**initial.details, **ink.details},
+        partition=ink.partition,
+    )
+    branch = ops.branch(ink.partition, Work.start(10))
+    factory = CoreCells(
+        branch.families, options, joint=True, grouping="ward", boundary_fit="curve"
+    )
+    assert list(factory(state, Work.start(20))) == []
+    assert factory.diagnostics["style_exclusions"] > 0
+
+
+def test_source_replacement_preserves_skewed_neighbor_frames_and_native_stroke_width():
+    evidence = fragmented()
+    frontier, state, options = prepared(evidence, layers=True)
+    assert state.partition is not None
+    matrix = (1.2, 0.15, 0.2, 1.0, 6, -10)
+    editor = Editor(state.document, selection=Selection(whole_document=True))
+    with editor.transaction("Reexpress paint frames") as tx:
+        for surface in state.partition.surfaces:
+            tx.replace_geometry(
+                surface.id,
+                transformed_geometry(
+                    state.document.geometry_for(surface.id),
+                    multiply(
+                        inverse_matrix(matrix), root_matrix(state.document, surface.id)
+                    ),
+                ),
+            )
+            tx.set_attributes(
+                surface.id,
+                {"transform": f"matrix({' '.join(str(v) for v in matrix)})"},
+            )
+    document = editor.snapshot.document
+    svg = export_svg(document)
+    assert frontier.policy.evaluate(svg).valid
+    state = replace(
+        state,
+        document=document,
+        svg=svg,
+        snapshot=LocalPolicy(frontier.policy).start(svg, frontier.policy.evaluate(svg)),
+    )
+    ops = Operators(evidence, build(evidence), options)
+    edits = list(
+        SourceStrokes(evidence, ops.graph, options, resolver=ops.branch).proposals(
+            state, Work.start(20)
+        )
+    )
+    assert edits
+    for edit in edits:
+        final_svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(final_svg)
+        assert full.valid, full.rejections
+        for element in edit.document.elements():
+            if element.get("fill", "none") == "none":
+                continue
+            try:
+                before = document.element(element.id)
+            except KeyError:
+                continue
+            assert element.get("transform") == before.get("transform")
+            assert (
+                path_style(edit.document, element)["fill"]
+                == path_style(document, before)["fill"]
+            )
+        actual = render(final_svg, evidence.source_size)
+        np.testing.assert_array_equal(
+            actual[..., 3], render(svg, evidence.source_size)[..., 3]
+        )
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, final_svg, edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+
+
+def styled_drawing(alpha, shared_owner):
+    svg = (
+        '<svg width="96" height="96">'
+        f'<g opacity="{alpha / 255}">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M48 8H88V88H48Z" fill="#9d8065"/>'
+        '<path d="M8 28H42 M54 28H88" fill="none" '
+        'stroke="#202020" stroke-width="3"/>'
+        '<path d="M20 58H42 M54 58H76" fill="none" '
+        'stroke="#404040" stroke-width="5" stroke-linecap="round"/>'
+        "</g></svg>"
+    )
+    rgba = render(svg, (96, 96))
+    evidence = collect(
+        Image.fromarray((rgba * 255).round().astype(np.uint8)),
+        None,
+        Options(refine=False),
+        Work.start(10),
+    )
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 75)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y // 8) * 12 + x // 8)
+    labels[ink] = 201 if shared_owner else labels[ink] + 200
+    return replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+@pytest.mark.parametrize("shared_owner", [False, True])
+@pytest.mark.parametrize("affine", [False, True])
+def test_source_styles_are_one_atomic_edit_with_distinct_width_paint_and_caps(
+    alpha, shared_owner, affine
+):
+    evidence = styled_drawing(alpha, shared_owner)
+    frontier, state, options = prepared(evidence, layers=True)
+    if affine:
+        matrix = (1.2, 0.15, 0.2, 1.0, 6, -10)
+        editor = Editor(state.document, selection=Selection(whole_document=True))
+        assert state.partition is not None
+        with editor.transaction("Reexpress source frames") as tx:
+            for surface in state.partition.surfaces:
+                tx.replace_geometry(
+                    surface.id,
+                    transformed_geometry(
+                        state.document.geometry_for(surface.id),
+                        multiply(
+                            inverse_matrix(matrix),
+                            root_matrix(state.document, surface.id),
+                        ),
+                    ),
+                )
+                tx.set_attributes(
+                    surface.id,
+                    {"transform": f"matrix({' '.join(str(v) for v in matrix)})"},
+                )
+        svg = export_svg(editor.snapshot.document)
+        state = replace(
+            state,
+            document=editor.snapshot.document,
+            svg=svg,
+            snapshot=LocalPolicy(frontier.policy).start(
+                svg, frontier.policy.evaluate(svg)
+            ),
+        )
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    edit = next(factory.proposals(state, Work.start(20)))
+    assert edit.details is not None
+    assert edit.details["source_strokes"]["model"] == "source-stroke-bundle"
+    assert edit.details["source_strokes"]["runs"] == 4
+    assert len(edit.details["source_strokes"]["groups"]) == 2
+    assert edit.partition is not None
+    assert state.partition is not None
+    assert edit.partition.follows(state.partition)
+    ops.validate_partition(edit.partition, Work.start(10))
+    assert edit.component is not None
+    assert edit.component.validate(
+        state.document,
+        edit.document,
+        state.partition,
+        edit.partition,
+        edit.ids,
+        edit.bounds,
+        Work.start(10),
+    )
+    svg = export_svg(edit.document)
+    full = frontier.policy.evaluate(svg)
+    assert full.valid, full.rejections
+    strokes = [e for e in edit.document.elements() if e.get("stroke", "none") != "none"]
+    assert len(strokes) == 2
+    assert {e.get("stroke-linecap") for e in strokes} == {"round", "butt"}
+    assert len({e.get("stroke") for e in strokes}) == 2
+    assert len({e.get("stroke-width") for e in strokes}) == 2
+    for stroke in strokes:
+        assert stroke.get("fill") == "none"
+        chains = edit.document.geometry_for(stroke.id).subpaths
+        assert len(chains) == 2
+        assert all(not s.closed for s in chains)
+        assert stroke.id in edit.ids
+        surface = next(
+            s for s in required(edit.partition).surfaces if s.id == stroke.id
+        )
+        assert surface.role == "overlay"
+        assert surface.members
+    if shared_owner:
+        assert edit.details["source_strokes"]["cuts"] > 0
+    actual = render(svg, evidence.source_size)
+    original = render(state.svg, evidence.source_size)
+    np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+    # Both real source gaps and unrelated material remain unchanged.
+    np.testing.assert_array_equal(actual[24:33, 45:51], original[24:33, 45:51])
+    np.testing.assert_array_equal(actual[53:64, 45:51], original[53:64, 45:51])
+    np.testing.assert_array_equal(actual[72:82, 12:82], original[72:82, 12:82])
+    local = LocalPolicy(frontier.policy).update(
+        state.snapshot, svg, edit.bounds, full.structure
+    )
+    assert local.canvas.matches(actual)
+    assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+    restored, _ = load_project(save_project(edit.document))
+    np.testing.assert_array_equal(
+        render(export_svg(restored), evidence.source_size), actual
+    )
+
+
+@pytest.mark.parametrize("layout", ["regions", "planes", "ink-planes"])
+def test_material_fitting_retains_all_bundled_styles(layout, monkeypatch):
+    from vectrify.refine.cel_plan import core_cells
+
+    monkeypatch.setattr(core_cells, "MAX_PLANES", 4)
+    evidence = styled_drawing(64, True)
+    frontier, initial, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    ink = next(
+        SourceStrokes(
+            evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+        ).proposals(initial, Work.start(20))
+    )
+    svg = export_svg(ink.document)
+    assert ink.details is not None
+    state = State(
+        ink.document,
+        svg,
+        LocalPolicy(frontier.policy).start(svg, frontier.policy.evaluate(svg)),
+        "bundled-strokes",
+        {**initial.details, **ink.details},
+        partition=ink.partition,
+    )
+    branch = ops.branch(state.partition, Work.start(10))
+    material = CoreCells(
+        branch.families,
+        options,
+        joint=True,
+        grouping="ward",
+        boundary_fit="anchored",
+        layout=layout,
+        ink_support="connected" if layout == "ink-planes" else "paired",
+    )
+    strokes = [
+        e for e in state.document.elements() if e.get("stroke", "none") != "none"
+    ]
+    assert len(strokes) == 2
+    edits = list(material(state, Work.start(20)))
+    assert edits, material.diagnostics
+    for edit in edits:
+        assert edit.partition is not None
+        ops.validate_partition(edit.partition, Work.start(10))
+        for stroke in strokes:
+            assert edit.document.element(stroke.id) == stroke
+            assert edit.document.geometry_for(stroke.id) == state.document.geometry_for(
+                stroke.id
+            )
+        svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(svg)
+        assert full.valid, full.rejections
+        actual = render(svg, evidence.source_size)
+        np.testing.assert_array_equal(
+            actual[..., 3], render(state.svg, evidence.source_size)[..., 3]
+        )
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, svg, edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+
+
+def test_cancellation_after_style_partition_does_not_publish_a_bundle(monkeypatch):
+    from vectrify.refine.cel_plan.atoms import Atoms
+
+    evidence = styled_drawing(128, True)
+    _frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(
+        evidence, ops.graph, options, resolver=ops.branch, boundary_contacts=True
+    )
+    work = Work.start(20)
+    original = Atoms.partition
+    before = export_svg(state.document)
+
+    def stopped(*args, **kwargs):
+        result = original(*args, **kwargs)
+        work.stop.set()
+        return result
+
+    monkeypatch.setattr(Atoms, "partition", stopped)
+    assert list(factory.proposals(state, work)) == []
+    assert export_svg(state.document) == before
+    assert factory.diagnostics["proposals"] == 0
+
+
+@pytest.mark.parametrize("alpha", [128, 64])
+def test_stroke_cut_preserves_connected_unrepresented_ink_with_native_ownership(alpha):
+    svg = (
+        '<svg width="96" height="96">'
+        f'<g opacity="{alpha / 255}">'
+        '<path d="M8 8H88V88H8Z" fill="#ad8665"/>'
+        '<path d="M20 28H76" fill="none" stroke="#202020" stroke-width="3"/>'
+        '<path d="M50 25H65V31H50Z" fill="#202020"/>'
+        "</g></svg>"
+    )
+    evidence = collect(
+        Image.fromarray((render(svg, (96, 96)) * 255).round().astype(np.uint8)),
+        None,
+        Options(refine=False),
+        Work.start(10),
+    )
+    ink = ~evidence.empty & (evidence.target.mean(axis=-1) < 65)
+    y, x = np.indices(evidence.labels.shape)
+    labels = np.where(evidence.empty, 0, 1 + (y // 8) * 12 + x // 8)
+    labels[ink] += 200
+    evidence = replace(evidence, labels=labels.astype(np.int32), drawn=ink, line=ink)
+    frontier, state, options = prepared(evidence, layers=True)
+    ops = Operators(evidence, build(evidence), options)
+    factory = SourceStrokes(evidence, ops.graph, options, resolver=ops.branch)
+    edits = list(factory.proposals(state, Work.start(20)))
+    assert edits, (factory.diagnostics, factory.cutter.diagnostics)
+    original = render(state.svg, evidence.source_size)
+    for edit in edits:
+        assert edit.details is not None
+        assert edit.details["source_strokes"]["retained_ink_pixels"] == 15
+        assert edit.details["source_strokes"]["pixels"] == 157
+        assert edit.partition is not None
+        assert state.partition is not None
+        assert edit.partition.follows(state.partition)
+        ops.validate_partition(edit.partition, Work.start(10))
+        assert edit.component is not None
+        assert edit.component.validate(
+            state.document,
+            edit.document,
+            state.partition,
+            edit.partition,
+            edit.ids,
+            edit.bounds,
+            Work.start(10),
+        )
+        svg = export_svg(edit.document)
+        full = frontier.policy.evaluate(svg)
+        assert full.valid, full.rejections
+        actual = render(svg, evidence.source_size)
+        np.testing.assert_array_equal(actual[..., 3], original[..., 3])
+        # The widened portion is physically attached to the line. Its source
+        # paint survives where the constant-width replacement has no coverage.
+        branch = ops.branch(edit.partition, Work.start(10))
+        for label in np.unique(branch.graph.labels[30, 50:65]):
+            oid = edit.partition.owners[int(label)]
+            surface = next(s for s in required(edit.partition).surfaces if s.id == oid)
+            assert surface.role == "surface"
+            style = path_style(edit.document, edit.document.element(oid))
+            assert style["fill"] == "#202020"
+            assert style["stroke"] == "none"
+        # Underpaint changes mixed antialias pixels at the original curved
+        # edge; the retained source paint and its opaque interior stay exact.
+        np.testing.assert_array_equal(actual[30, 54:64], original[30, 54:64])
+        local = LocalPolicy(frontier.policy).update(
+            state.snapshot, svg, edit.bounds, full.structure
+        )
+        assert local.canvas.matches(actual)
+        assert local.evaluation.terms == pytest.approx(full.terms, abs=2e-7)
+        restored, _ = load_project(save_project(edit.document))
+        np.testing.assert_array_equal(
+            render(export_svg(restored), evidence.source_size), actual
+        )

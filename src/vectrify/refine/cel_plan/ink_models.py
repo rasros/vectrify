@@ -1,0 +1,1149 @@
+"""Source chains become editable strokes before surrounding paint is decoded.
+
+Unsupported runs retain filled evidence. Existing skeleton junctions are
+anchors; no joining or gap completion uses a human redraw. Different supported
+widths and source paints receive distinct bounded models.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections import deque
+from collections.abc import Callable
+from dataclasses import dataclass, replace
+from typing import Any
+
+import numpy as np
+import pathops
+from scipy.ndimage import distance_transform_edt, find_objects, gaussian_filter, label
+
+from vectrify.document import Geometry, Subpath
+from vectrify.document.join import curve_path, path_geometry
+from vectrify.document.lines import open_path
+from vectrify.refine import cel
+from vectrify.refine.cel_plan.geometry import fitted
+from vectrify.refine.cel_plan.ink import measure, measure_link
+from vectrify.refine.cel_plan.ink_carrier import CarrierFit
+from vectrify.refine.cel_plan.line_fidelity import SourceProfile
+from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, MAX_TILES, Box
+from vectrify.refine.cel_plan.model import StageInterruptedError
+from vectrify.refine.cel_plan.score import render
+from vectrify.refine.cel_plan.source_absence import SourceAbsence
+from vectrify.refine.cel_plan.source_intervals import SourceIntervals
+from vectrify.refine.cel_plan.source_widths import SourceWidths
+from vectrify.refine.crossings import crossings
+
+MAX_COMPONENTS = 128
+MAX_SOURCE_COMPONENTS = 8192
+MAX_RUNS = 128
+MAX_DISCOVERY_RUNS = 4096
+MAX_POINTS = 16_384
+MAX_RUN_POINTS = 2048
+MAX_WIDTH = 16
+MAX_RUN_VARIATION = 3
+MAX_PIXELS = 1536**2
+MAX_MODELS = 8
+MAX_MASK_BYTES = 16 * 1024**2
+PAINT_SPREAD = 24
+MAX_CONTACT_PIECES = 8
+
+
+@dataclass(frozen=True)
+class InkModel:
+    geometry: Geometry
+    footprint: Geometry
+    paint: np.ndarray
+    selected: np.ndarray
+    details: dict
+
+
+def footprint(geometry, width, *, cap="round"):
+    # Fill boolean paths close all contours; stroke coverage must not include
+    # an invisible endpoint-to-endpoint chord in an actual open source chain.
+    shape = open_path(geometry)
+    shape.stroke(
+        width,
+        {"round": pathops.LineCap.ROUND_CAP, "butt": pathops.LineCap.BUTT_CAP}[cap],
+        pathops.LineJoin.ROUND_JOIN,
+        4,
+    )
+    shape.convertConicsToQuads(0.05)
+    shape.simplify()
+    return path_geometry(shape)
+
+
+def covered_selection(selected, geometry, stroke_width, evidence, work, *, cap="round"):
+    """Own only source pixels hit by the actual replacement stroke body.
+
+    Nearest-run assignment determines style, not replacement coverage. A dark
+    connected component may contain broad material or unmodeled ink beyond a
+    supported chain. Actual stroke rasterization on the source-atom grid
+    retains those pixels independently. Nonzero antialias coverage admits a
+    boundary pixel without adding a distance/dilation tolerance or repairing a
+    source gap. Bounded tiles preserve the full-grid sampling phase.
+    """
+    if work.interrupted:
+        return None
+    rows = np.flatnonzero(selected.any(axis=1))
+    columns = np.flatnonzero(selected.any(axis=0))
+    if not len(rows) or not len(columns):
+        return selected.copy()
+    box = Box(int(columns[0]), int(rows[0]), int(columns[-1]) + 1, int(rows[-1]) + 1)
+    tiles = tuple(box.chunks(MAX_CROP_PIXELS))
+    if len(tiles) > MAX_TILES:
+        return None
+    data = geometry.path_data()
+    sx, sy = evidence.scale
+    ox, oy = evidence.offset
+    output = selected.copy()
+    for tile in tiles:
+        if work.interrupted:
+            return None
+        if not output[tile.slices].any():
+            continue
+        width, height = tile.right - tile.x, tile.bottom - tile.y
+        # The stroke is in native coordinates. The viewport is the exact
+        # source-atom pixel rectangle, including anisotropic analysis scale and
+        # any source crop offset, rather than a separately normalized crop.
+        svg = (
+            '<svg xmlns="http://www.w3.org/2000/svg" '
+            f'width="{width}" height="{height}" '
+            f'viewBox="{tile.x / sx + ox} {tile.y / sy + oy} '
+            f'{width / sx} {height / sy}" preserveAspectRatio="none">'
+            f'<path d="{data}" fill="none" stroke="#000000" '
+            f'stroke-width="{stroke_width}" stroke-linecap="{cap}" '
+            'stroke-linejoin="round"/></svg>'
+        )
+        pixels = render(svg, (width, height))
+        if work.interrupted:
+            return None
+        output[tile.slices] &= pixels[..., 3] > 0
+    return None if work.interrupted else output
+
+
+def connected_runs(runs, work):
+    """Join only a degree-two source junction; never join distinct endpoints."""
+    ends = {}
+    for i, run in enumerate(runs):
+        for side in (0, -1):
+            ends.setdefault(tuple(run[side]), []).append((i, side))
+    seen, result = set(), []
+    for seed, run in enumerate(runs):
+        if work.interrupted:
+            return []
+        if seed in seen:
+            continue
+        seen.add(seed)
+        pieces = deque([run])
+        for side in (-1, 0):
+            point = run[side]
+            while len(ends[tuple(point)]) == 2:
+                if work.interrupted:
+                    return []
+                other = [r for r in ends[tuple(point)] if r[0] not in seen]
+                if not other:
+                    break
+                index, endpoint = other[0]
+                seen.add(index)
+                part = runs[index]
+                if endpoint == side:
+                    part = part[::-1]
+                if side == -1:
+                    pieces.append(part[1:])
+                else:
+                    pieces.appendleft(part[:-1])
+                point = part[side]
+        result.append(np.vstack(pieces))
+    return result
+
+
+def owned_model(model, owned, evidence, work):
+    """Retain complete discovered chains, never crop a run to owner eligibility.
+
+    Compatible paint groups can contain independent physical chains. A held
+    owner touching one chain must not suppress all the others, or turn the
+    held chain into budget-dependent fragments. Raster queries use the actual
+    complete path and the same source-grid coverage contract as discovery.
+    """
+    if work.interrupted:
+        return None
+    if not np.any(model.selected & ~owned):
+        return model
+    contours = []
+    selected = np.zeros(model.selected.shape, bool)
+    for sub in model.geometry.subpaths:
+        if work.interrupted:
+            return None
+        geometry = Geometry(model.geometry.id, (sub,))
+        covered = covered_selection(
+            model.selected,
+            geometry,
+            model.details["width"],
+            evidence,
+            work,
+            cap=model.details["linecap"],
+        )
+        if covered is None:
+            return None
+        if not covered.any() or np.any(covered & ~owned):
+            continue
+        contours.append(sub)
+        selected |= covered
+    if work.interrupted or not contours:
+        return None
+    geometry = replace(model.geometry, subpaths=tuple(contours))
+    shape = footprint(geometry, model.details["width"], cap=model.details["linecap"])
+    if work.interrupted:
+        return None
+    selected.flags.writeable = False
+    links = model.details.get("junction_links", 0)
+    link_ids = {s.id for s in model.geometry.subpaths[-links:]} if links else set()
+    return replace(
+        model,
+        geometry=geometry,
+        footprint=shape,
+        selected=selected,
+        details={
+            **model.details,
+            "source_style_runs": model.details["runs"],
+            "runs": len(contours),
+            "owner_excluded_runs": len(model.geometry.subpaths) - len(contours),
+            "source_style_junction_links": links,
+            "junction_links": sum(s.id in link_ids for s in contours),
+        },
+    )
+
+
+def carrier_width(geometry, width, carrier, work, *, fixed=False, cap="round"):
+    """A proved width ceiling for one source run, before compatible grouping.
+
+    Every retained width has an exact footprint/carrier difference proof. A
+    bounded search may recover safe headroom below the grouping factor; its
+    unproved upper endpoint is never used. Cancellation discards discovery.
+    """
+    if carrier is None:
+        return float("inf")
+
+    def fits(value):
+        if work.interrupted:
+            return False
+        shape = footprint(geometry, value, cap=cap)
+        if work.interrupted:
+            return False
+        outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
+        return abs(outside.area) <= 1e-8
+
+    if not fits(width):
+        return None
+    if fixed:
+        return width
+    low, high = width, 1.6 * width
+    if fits(high):
+        return high
+    for _ in range(6):
+        middle = (low + high) / 2
+        if fits(middle):
+            low = middle
+        else:
+            high = middle
+    return None if work.interrupted else low
+
+
+def _carried(
+    run,
+    proof,
+    evidence,
+    options,
+    carrier,
+    work,
+    contacts,
+    budget,
+    light,
+    visible,
+    *,
+    cap=None,
+    opacity=None,
+):
+    """Fit source chains inside the carrier with proved complete footprints.
+
+    No endpoint is extended or joined. The optional contact hypothesis tries
+    an original-ended butt-cap body before shortening at existing samples and
+    retaining filled contact ends. Every choice needs exact footprint proofs.
+    """
+    tolerance = options.tolerance or 0.75
+    scale = float(np.sqrt(np.prod(evidence.scale)))
+
+    def fit(part, supported, cap="round"):
+        if work.interrupted:
+            return None
+        native = supported.points / evidence.scale + evidence.offset
+        model = fitted(native, tolerance)
+        if work.interrupted:
+            return None
+        geometry = Geometry("run", (model.contour,))
+        if crossings(geometry):
+            model = fitted(native, min(tolerance, 0.25))
+            if work.interrupted:
+                return None
+            geometry = Geometry("run", (model.contour,))
+        if crossings(geometry):
+            # Profile centering can fold a noisy run even though its original
+            # source skeleton is simple. Retain that anchored source chain as
+            # a precise competitor; an unstable chain stays filled.
+            native = part / evidence.scale + evidence.offset
+            model = fitted(native, min(tolerance, 0.25))
+            if work.interrupted:
+                return None
+            geometry = Geometry("run", (model.contour,))
+        if crossings(geometry) or work.interrupted:
+            return None
+        width = supported.width / scale
+        ceiling = carrier_width(
+            geometry,
+            options.line_width or width,
+            carrier,
+            work,
+            fixed=bool(options.line_width),
+            cap=cap,
+        )
+        return None if ceiling is None else (part, supported, model, ceiling, cap)
+
+    complete = fit(run, proof, cap or "round")
+    if complete is not None:
+        return [complete]
+    if cap is not None:
+        # An existing-style junction link must keep its exact cap and ends.
+        return []
+    if not contacts or carrier is None or work.interrupted:
+        return []
+    # Some original source endpoints touch the carrier. A round cap spills
+    # even when the complete open stroke body fits. Prove a butt-cap model
+    # before shortening that source chain; its endpoints and junctions stay
+    # exact, and its width is bounded using the same actual cap geometry.
+    complete = fit(run, proof, "butt")
+    if complete is not None:
+        return [complete]
+    if work.interrupted:
+        return []
+    upper = options.line_width or 1.6 * proof.width / scale
+    edge = pathops.Path(carrier)
+    edge.stroke(
+        upper + 2 * tolerance,
+        pathops.LineCap.ROUND_CAP,
+        pathops.LineJoin.ROUND_JOIN,
+        4,
+    )
+    edge.convertConicsToQuads(0.05)
+    interior = pathops.op(carrier, edge, pathops.PathOp.DIFFERENCE)
+    native = proof.points / evidence.scale + evidence.offset
+    inside = np.array([interior.contains(tuple(p)) for p in native], bool)
+    starts = np.flatnonzero(inside & ~np.r_[False, inside[:-1]])
+    ends = np.flatnonzero(inside & ~np.r_[inside[1:], False]) + 1
+    spans = sorted(zip(starts, ends, strict=True), key=lambda p: -(p[1] - p[0]))
+    result = []
+    for first, last in spans[:MAX_CONTACT_PIECES]:
+        if work.interrupted:
+            return []
+        part = run[first:last]
+        if len(part) < 4:
+            continue
+        if budget["runs"] >= MAX_RUNS or budget["points"] + len(part) > MAX_POINTS:
+            break
+        budget["runs"] += 1
+        budget["points"] += len(part)
+        supported = measure(
+            part,
+            evidence.target,
+            proof.width,
+            light=light,
+            visible=visible,
+            opacity=opacity,
+        )
+        if supported is not None:
+            candidate = fit(part, supported)
+            if candidate is not None:
+                result.append(candidate)
+    return result
+
+
+def carried(
+    run,
+    proof,
+    evidence,
+    options,
+    carrier,
+    work,
+    contacts,
+    budget,
+    light,
+    visible,
+    *,
+    cap=None,
+    opacity=None,
+    carrier_fit=None,
+):
+    original = _carried(
+        run,
+        proof,
+        evidence,
+        options,
+        carrier,
+        work,
+        contacts,
+        budget,
+        light,
+        visible,
+        cap=cap,
+        opacity=opacity,
+    )
+    if carrier_fit is None or cap is not None or work.interrupted:
+        return original
+    if any(
+        np.array_equal(part[0], run[0]) and np.array_equal(part[-1], run[-1])
+        for part, *_ in original
+    ):
+        return original
+    recovered = carrier_fit.recover(
+        run, proof, options, work, budget, light, visible, opacity, _carried
+    )
+    return [] if work.interrupted else recovered or original
+
+
+@dataclass(frozen=True)
+class _Discovered:
+    components: np.ndarray
+    groups: list[dict[str, Any]]
+    profiles: list[SourceProfile] | None
+    claimed: np.ndarray
+    rejected: np.ndarray
+    scale: float
+    scanned: int
+    points_count: int
+    contact_budget: dict[str, int]
+    link_counts: dict[str, int]
+    carrier_fit: CarrierFit | None
+
+
+class InkDiscovery:
+    """One complete physical extraction shared by width interpretations.
+
+    A cache belongs to one bounded proposal invocation, not the global source
+    graph. It never stores filtered models, recovered intervals or fitted widths.
+    Identity includes the exact source mask, carrier, frame and extraction options.
+    """
+
+    def __init__(self):
+        self._evidence = None
+        self._key = None
+        self._value: _Discovered | None = None
+        self.diagnostics = {"extractions": 0, "reuses": 0}
+
+    def clear(self):
+        self._evidence = self._key = self._value = None
+
+    def get(self, evidence, key, discover: Callable[[], _Discovered | None], work):
+        if work.interrupted:
+            return None
+        if self._evidence is evidence and self._key == key:
+            self.diagnostics["reuses"] += 1
+            return self._value
+        # Drop the prior component before allocating another full-grid record.
+        self.clear()
+        self.diagnostics["extractions"] += 1
+        value = discover()
+        if value is not None and not work.interrupted:
+            for array in (value.components, value.claimed, value.rejected):
+                array.flags.writeable = False
+            self._evidence, self._key, self._value = evidence, key, value
+            return value
+        return None
+
+
+def _discover(
+    mask,
+    evidence,
+    options,
+    work,
+    *,
+    carrier,
+    prune_spurs,
+    boundary_contacts,
+    fractional_coverage,
+    fit_carrier,
+    source_absence,
+    source_intervals,
+    inspect_profiles,
+):
+    components, count = label(mask, np.ones((3, 3)))
+    if count > MAX_SOURCE_COMPONENTS:
+        return None
+    groups = []
+    # Publish a complete inspected bank only after discovery finishes. Source
+    # proofs include long chains which cannot be represented by a carried
+    # constant-width stroke; export success must not define the line target.
+    profiles = [] if inspect_profiles else None
+    profile_namespace = (
+        hashlib.sha256(mask.tobytes()).hexdigest() if profiles is not None else None
+    )
+    ports, links = {}, []
+    claimed = np.zeros(mask.shape, np.uint8)
+    rejected = np.zeros(mask.shape, bool)
+    visible = ~evidence.empty
+    opacity = evidence.opacity if fractional_coverage else None
+    carrier_fit = CarrierFit(evidence, carrier) if fit_carrier else None
+    weight = gaussian_filter(visible.astype(np.float32), 0.5)
+    light = gaussian_filter(cel.lightness(evidence.target) * visible, 0.5)
+    light /= np.maximum(weight, 1e-12)
+    del weight
+    areas = np.bincount(components.ravel(), minlength=count + 1)
+    order = sorted(range(1, count + 1), key=lambda i: (-areas[i], i))[:MAX_COMPONENTS]
+    rejected |= mask & ~np.isin(components, order)
+    boxes = find_objects(components)
+    scanned = points_count = 0
+    contact_budget = {"runs": 0, "points": 0}
+    scale = float(np.sqrt(np.prod(evidence.scale)))
+    model_limit = min(MAX_MODELS, MAX_MASK_BYTES // mask.nbytes)
+    for index in order:
+        if work.interrupted:
+            return None
+        slices = boxes[index - 1]
+        assert slices is not None
+        box = Box(slices[1].start, slices[0].start, slices[1].stop, slices[0].stop)
+        box = box.expand(2, mask.shape)
+        own = components[box.slices] == index
+        depth = np.asarray(distance_transform_edt(own))
+        skeleton = cel.thin(own)
+        runs = cel.line_runs(skeleton, spur=0, depth=depth)
+        if not runs or len(runs) > MAX_DISCOVERY_RUNS:
+            rejected[box.slices] |= own
+            continue
+        if prune_spurs and skeleton.any():
+            typical = float(np.median(2 * depth[skeleton]))
+            # The existing depth proof retains a short branch which genuinely
+            # extends beyond its incident ink. Only thinning whiskers go; the
+            # newly degree-two junctions can then form complete source chains.
+            runs = connected_runs(
+                cel.line_runs(skeleton, spur=2 * typical + 2, depth=depth), work
+            )
+        # Long source chains compete before small skeleton spurs. Unexamined
+        # chains stay filled; the bounded scan never discards their evidence.
+        runs.sort(key=lambda r: -len(r))
+        for run in runs:
+            if work.interrupted:
+                return None
+            x = np.clip(np.floor(run[:, 0]).astype(int), 0, own.shape[1] - 1)
+            y = np.clip(np.floor(run[:, 1]).astype(int), 0, own.shape[0] - 1)
+            xx, yy = x + box.x, y + box.y
+            thickness = 2 * depth[y, x]
+            middle = thickness[2:-2] if len(thickness) > 8 else thickness
+            typical = max(0.8, float(np.median(middle)))
+            if (
+                scanned >= MAX_RUNS
+                or len(run) > MAX_RUN_POINTS
+                or points_count + len(run) > MAX_POINTS
+                or typical > MAX_WIDTH
+                or np.percentile(middle, 90)
+                > MAX_RUN_VARIATION * max(np.percentile(middle, 10), 0.5)
+            ):
+                rejected[yy, xx] = True
+                continue
+            scanned += 1
+            points_count += len(run)
+            points = run + np.array((box.x, box.y))
+            proof = measure(
+                points,
+                evidence.target,
+                typical,
+                light=light,
+                visible=visible,
+                opacity=opacity,
+            )
+            if proof is None:
+                rejected[yy, xx] = True
+                if prune_spurs and (
+                    len(points) < 4
+                    or np.linalg.norm(np.diff(points, axis=0), axis=1).sum()
+                    < max(8, 4 * typical)
+                ):
+                    links.append((index, points))
+                continue
+            source_profile = None
+            if profiles is not None:
+                source_profile = SourceProfile.from_ink(
+                    points, proof, evidence, component=(profile_namespace, index)
+                )
+                profiles.append(source_profile)
+            offered = carried(
+                points,
+                proof,
+                evidence,
+                options,
+                carrier,
+                work,
+                boundary_contacts,
+                contact_budget,
+                light,
+                visible,
+                **({"opacity": opacity} if opacity is not None else {}),
+                **({"carrier_fit": carrier_fit} if carrier_fit is not None else {}),
+            )
+            accepted = set()
+            for part, supported, model, ceiling, cap in offered:
+                accepted.update(tuple(p) for p in part)
+                px = np.clip(np.floor(part[:, 0]).astype(int), 0, mask.shape[1] - 1)
+                py = np.clip(np.floor(part[:, 1]).astype(int), 0, mask.shape[0] - 1)
+                width = supported.width / scale
+                group_index = None
+                for i, group in enumerate(groups):
+                    widths = [*group["widths"], width]
+                    paints = np.array([*group["paints"], supported.paint])
+                    common_width = options.line_width or float(np.median(widths))
+                    if (
+                        cap == group["cap"]
+                        and common_width <= min(ceiling, *group["ceilings"])
+                        and (options.line_width or max(widths) <= 1.6 * min(widths))
+                        and (np.ptp(paints, axis=0) <= PAINT_SPREAD).all()
+                    ):
+                        group_index = i
+                        break
+                if group_index is None:
+                    if len(groups) >= model_limit:
+                        rejected[py, px] = True
+                        continue
+                    group_index = len(groups)
+                    groups.append(
+                        {
+                            "widths": [],
+                            "ceilings": [],
+                            "paints": [],
+                            "contours": [],
+                            "proofs": [],
+                            "cap": cap,
+                        }
+                    )
+                group = groups[group_index]
+                group["widths"].append(width)
+                group["ceilings"].append(ceiling)
+                group["paints"].append(supported.paint)
+                group["contours"].append(model.contour)
+                group["proofs"].append(supported)
+                if source_intervals:
+                    group.setdefault("source_profiles", []).append(source_profile)
+                # Only source endpoints retained by an actually carried path
+                # authorize a later short link. Trimmed contact samples cannot
+                # create a new junction. Distinct contours are distinct hosts.
+                for end in (0, -1):
+                    if np.array_equal(part[end], points[end]):
+                        ports.setdefault((index, tuple(part[end])), set()).add(
+                            (group_index, len(group["contours"]) - 1)
+                        )
+                collision = (claimed[py, px] != 0) & (
+                    claimed[py, px] != group_index + 1
+                )
+                rejected[py[collision], px[collision]] = True
+                claimed[py, px] = group_index + 1
+            unoffered = np.array([tuple(p) not in accepted for p in points], bool)
+            rejected[yy[unoffered], xx[unoffered]] = True
+    if work.interrupted:
+        return None
+    link_counts = {
+        "candidates": len(links),
+        "profiles": 0,
+        "supported": 0,
+        "carrier_exclusions": 0,
+    }
+    for index, points in links if groups else ():
+        if work.interrupted:
+            return None
+        left = ports.get((index, tuple(points[0])), ())
+        right = ports.get((index, tuple(points[-1])), ())
+        compatible = {}
+        host_pairs = {}
+        for a in left:
+            for b in right:
+                if a == b:
+                    continue
+                ga, gb = groups[a[0]], groups[b[0]]
+                wa = options.line_width or float(np.median(ga["widths"]))
+                wb = options.line_width or float(np.median(gb["widths"]))
+                pa, pb = (
+                    np.median(ga["paints"], axis=0),
+                    np.median(gb["paints"], axis=0),
+                )
+                if max(wa, wb) <= 1.6 * min(wa, wb) and np.all(
+                    np.abs(pa - pb) <= PAINT_SPREAD
+                ):
+                    for i in (a[0], b[0]):
+                        compatible.setdefault(i, set()).update((a, b))
+                        if source_absence:
+                            host_pairs.setdefault(i, set()).add((a, b))
+        candidates = []
+        samples = 1 + int(
+            np.maximum(
+                1, np.ceil(2 * np.linalg.norm(np.diff(points, axis=0), axis=1))
+            ).sum()
+        )
+        for i in sorted(compatible):
+            if work.interrupted:
+                return None
+            if (
+                scanned >= MAX_RUNS
+                or samples > MAX_RUN_POINTS
+                or points_count + samples > MAX_POINTS
+            ):
+                break
+            scanned += 1
+            points_count += samples
+            link_counts["profiles"] += 1
+            group = groups[i]
+            width = options.line_width or float(np.median(group["widths"]))
+            paint = np.median(group["paints"], axis=0)
+            bodies = []
+            for host, contour in sorted(compatible[i]):
+                if work.interrupted:
+                    return None
+                prior = groups[host]
+                shape = footprint(
+                    Geometry("source-junction", (prior["contours"][contour],)),
+                    options.line_width or float(np.median(prior["widths"])),
+                    cap=prior["cap"],
+                )
+                bodies.append(curve_path(shape))
+
+            def junctions(samples, _bodies=tuple(bodies)):
+                joined = np.zeros(len(samples), bool)
+                for j, point in enumerate(samples / evidence.scale + evidence.offset):
+                    if work.interrupted:
+                        return joined
+                    joined[j] = any(body.contains(tuple(point)) for body in _bodies)
+                return joined
+
+            proof = measure_link(
+                points,
+                evidence.target,
+                width * scale,
+                light=light,
+                visible=visible,
+                opacity=opacity,
+                junctions=junctions,
+                paint=paint,
+            )
+            if proof is None or not np.all(np.abs(proof.paint - paint) <= PAINT_SPREAD):
+                continue
+            if profiles is not None:
+                profiles.append(
+                    SourceProfile.from_ink(
+                        points, proof, evidence, component=(profile_namespace, index)
+                    )
+                )
+            # Reuse the established style exactly. A junction cannot change
+            # widths/paints of the incident long chains by shifting a median.
+            error = float(np.square(proof.paint - paint).sum())
+            proof = replace(proof, width=width * scale, paint=paint)
+            offered = carried(
+                points,
+                proof,
+                evidence,
+                options,
+                carrier,
+                work,
+                False,
+                contact_budget,
+                light,
+                visible,
+                cap=group["cap"],
+            )
+            if not offered or offered[0][-1] != group["cap"]:
+                link_counts["carrier_exclusions"] += 1
+                continue
+            candidates.append((error, i, offered[0]))
+        if not candidates:
+            continue
+        _error, i, (_part, proof, model, ceiling, _cap) = min(
+            candidates, key=lambda r: (r[0], r[1])
+        )
+        group = groups[i]
+        if source_absence:
+            group.setdefault("link_dependencies", {})[len(group["contours"])] = tuple(
+                sorted(host_pairs[i])
+            )
+        group["contours"].append(model.contour)
+        group["proofs"].append(proof)
+        if source_intervals:
+            group.setdefault("source_profiles", []).append(None)
+        group["ceilings"].append(ceiling)
+        group["junction_links"] = group.get("junction_links", 0) + 1
+        link_counts["supported"] += 1
+        px, py = np.floor(points).astype(int).T
+        collision = (claimed[py, px] != 0) & (claimed[py, px] != i + 1)
+        # Preserve ambiguous endpoint ownership. Only this proved physical
+        # link's interior can replace its previous unsupported classification.
+        clear = ~collision
+        clear[0] = clear[-1] = False
+        rejected[py[clear], px[clear]] = False
+        rejected[py[collision], px[collision]] = True
+        claimed[py, px] = i + 1
+    if work.interrupted:
+        return None
+    return _Discovered(
+        components,
+        groups,
+        profiles,
+        claimed,
+        rejected,
+        scale,
+        scanned,
+        points_count,
+        contact_budget,
+        link_counts,
+        carrier_fit,
+    )
+
+
+def models(
+    mask,
+    evidence,
+    options,
+    work,
+    *,
+    carrier=None,
+    prune_spurs=False,
+    boundary_contacts=False,
+    fractional_coverage=False,
+    fit_carrier=False,
+    source_absence=False,
+    source_intervals=False,
+    fit_widths=False,
+    source_profiles=None,
+    discovery=None,
+):
+    """Return complete bounded models; interruption discards partial discovery."""
+    if work.interrupted or mask.size > MAX_PIXELS or not mask.any():
+        return ()
+    if source_intervals and not source_absence:
+        raise ValueError("Source intervals require source absence constraints")
+    if fit_widths and not source_intervals:
+        raise ValueError("Source width fitting requires source interval constraints")
+
+    def discover():
+        return _discover(
+            mask,
+            evidence,
+            options,
+            work,
+            carrier=carrier,
+            prune_spurs=prune_spurs,
+            boundary_contacts=boundary_contacts,
+            fractional_coverage=fractional_coverage,
+            fit_carrier=fit_carrier,
+            source_absence=source_absence,
+            source_intervals=source_intervals,
+            inspect_profiles=source_profiles is not None or source_absence,
+        )
+
+    if discovery is None:
+        raw = discover()
+    else:
+        key = (
+            hashlib.sha256(mask.tobytes()).digest(),
+            mask.shape,
+            str(mask.dtype),
+            repr(tuple(carrier)) if carrier is not None else None,
+            carrier.fillType if carrier is not None else None,
+            options,
+            prune_spurs,
+            boundary_contacts,
+            fractional_coverage,
+            fit_carrier,
+            source_absence,
+            source_intervals,
+            source_profiles is not None or source_absence,
+        )
+        raw = discovery.get(evidence, key, discover, work)
+    if raw is None or work.interrupted:
+        return ()
+    components, groups, profiles = raw.components, raw.groups, raw.profiles
+    claimed, rejected, scale = raw.claimed, raw.rejected, raw.scale
+    scanned, points_count = raw.scanned, raw.points_count
+    contact_budget, link_counts = raw.contact_budget, raw.link_counts
+    carrier_fit = raw.carrier_fit
+    if not groups:
+        if source_profiles is not None:
+            assert profiles is not None
+            source_profiles.extend(profiles)
+        return ()
+    absence = None
+    active_runs = None
+    replacement_runs: list[list[tuple[Subpath, ...]]] | None = None
+    empty_runs: tuple[Subpath, ...] = ()
+    intervals = None
+    width_fit = None
+    widths = tuple(options.line_width or float(np.median(g["widths"])) for g in groups)
+    if source_absence:
+        assert profiles is not None
+        try:
+            absence = SourceAbsence(
+                evidence,
+                profiles,
+                work,
+                **({"intervals": True} if source_intervals else {}),
+            )
+            intervals = SourceIntervals(absence) if source_intervals else None
+            if fit_widths and not options.line_width:
+                width_fit = SourceWidths(absence)
+                widths = width_fit.fit(groups, widths, scale, work)
+            replacement_runs = []
+            for i, group in enumerate(groups):
+                width = widths[i]
+                replacements: list[tuple[Subpath, ...]] = []
+                for j, sub in enumerate(group["contours"]):
+                    geometry = Geometry("source-absence", (sub,))
+                    if absence.permits(geometry, width, group["cap"], work):
+                        replacements.append((sub,))
+                    elif intervals is not None:
+                        replacements.append(
+                            intervals.recover(
+                                sub,
+                                group["source_profiles"][j],
+                                width,
+                                group["cap"],
+                                options,
+                                work,
+                                lambda geometry, width=width, cap=group["cap"]: (
+                                    carrier_width(
+                                        geometry,
+                                        width,
+                                        carrier,
+                                        work,
+                                        fixed=True,
+                                        cap=cap,
+                                    )
+                                    is not None
+                                ),
+                            )
+                        )
+                    else:
+                        replacements.append(())
+                replacement_runs.append(replacements)
+            # Individual antialias tolerances cannot establish a compound
+            # proof. Retire a failed whole style before its incident ports can
+            # authorize another style's short link.
+            for i, group in enumerate(groups):
+                retained = tuple(sub for parts in replacement_runs[i] for sub in parts)
+                width = widths[i]
+                if retained and not absence.permits(
+                    Geometry("source-absence-style", retained),
+                    width,
+                    group["cap"],
+                    work,
+                ):
+                    replacement_runs[i] = [empty_runs] * len(group["contours"])
+            active_runs = [
+                [bool(parts) for parts in style] for style in replacement_runs
+            ]
+            retained_ports = [
+                [
+                    {
+                        point
+                        for part in parts
+                        for point in (part.nodes[0].endpoint, part.nodes[-1].endpoint)
+                    }
+                    for parts in style
+                ]
+                for style in replacement_runs
+            ]
+            for i, group in enumerate(groups):
+                for link, pairs in group.get("link_dependencies", {}).items():
+                    if source_intervals:
+                        ends = (
+                            group["contours"][link].nodes[0].endpoint,
+                            group["contours"][link].nodes[-1].endpoint,
+                        )
+
+                        incident = any(
+                            ends[0] in retained_ports[a[0]][a[1]]
+                            and ends[1] in retained_ports[b[0]][b[1]]
+                            for a, b in pairs
+                        )
+                    else:
+                        incident = any(
+                            active_runs[a[0]][a[1]] and active_runs[b[0]][b[1]]
+                            for a, b in pairs
+                        )
+                    active_runs[i][link] &= incident
+                    if not active_runs[i][link]:
+                        replacement_runs[i][link] = ()
+        except ValueError:
+            # Discovery completed, so the whole inspected source bank remains
+            # useful even when this independently bounded competitor cannot
+            # prove a body. No unfiltered or partial model is published.
+            if source_profiles is not None:
+                source_profiles.extend(profiles)
+            return ()
+        except StageInterruptedError:
+            return ()
+    # Source samples belong to their nearest existing skeleton run. Ambiguous
+    # junctions and unsupported chains retain their independently owned fill.
+    nearest = distance_transform_edt(
+        ~((claimed > 0) | rejected), return_distances=False, return_indices=True
+    )
+    assert nearest is not None
+    ownership = np.where(rejected, 0, claimed)[tuple(nearest)]
+    # A nearest run in another physical component cannot own this source mark.
+    # Tiny islands can thin to a single point with no discoverable line run.
+    ownership[components[tuple(nearest)] != components] = 0
+    result = []
+    for i, group in enumerate(groups):
+        if work.interrupted:
+            return ()
+        selected = mask & (ownership == i + 1)
+        if not selected.any():
+            continue
+        claimed_pixels = int(selected.sum())
+        width = widths[i]
+        # Standalone compound geometry also needs distinct chain/node IDs.
+        contours = tuple(
+            replace(
+                sub,
+                id=f"ink-{i}-{j}",
+                nodes=tuple(
+                    replace(n, id=f"ink-{i}-{j}-{k}") for k, n in enumerate(sub.nodes)
+                ),
+            )
+            for j, sub in enumerate(
+                group["contours"]
+                if replacement_runs is None
+                else (part for parts in replacement_runs[i] for part in parts)
+            )
+        )
+        if not contours:
+            continue
+        geometry = Geometry(f"source-ink-{i}", contours)
+        if absence is not None:
+            try:
+                if not absence.permits(geometry, width, group["cap"], work):
+                    continue
+            except StageInterruptedError:
+                return ()
+        shape = footprint(geometry, width, cap=group["cap"])
+        if carrier is not None:
+            outside = pathops.op(curve_path(shape), carrier, pathops.PathOp.DIFFERENCE)
+            if abs(outside.area) > 1e-8:
+                continue
+        selected = covered_selection(
+            selected, geometry, width, evidence, work, cap=group["cap"]
+        )
+        if selected is None:
+            if work.interrupted:
+                return ()
+            continue
+        if not selected.any():
+            continue
+        selected.flags.writeable = False
+        result.append(
+            InkModel(
+                geometry,
+                shape,
+                np.median(group["paints"], axis=0),
+                selected,
+                {
+                    "model": "source-stroke",
+                    "ownership": "rendered-stroke-coverage",
+                    "claimed_pixels": claimed_pixels,
+                    "retained_ink_pixels": claimed_pixels - int(selected.sum()),
+                    "runs": len(contours),
+                    "width": width,
+                    "linecap": group["cap"],
+                    **(
+                        {"source_width_fit": dict(width_fit.diagnostics)}
+                        if width_fit is not None
+                        else {}
+                    ),
+                    "carrier_width_ceiling": min(group["ceilings"])
+                    if carrier is not None
+                    else None,
+                    "support": min(p.support for p in group["proofs"]),
+                    "peak_gap": max(p.peak_gap for p in group["proofs"]),
+                    "source_runs_scanned": scanned,
+                    "source_points_scanned": points_count,
+                    "boundary_contacts": boundary_contacts,
+                    "contact_runs_scanned": contact_budget["runs"],
+                    "contact_points_scanned": contact_budget["points"],
+                    "junction_links": sum(
+                        active_runs[i][j] for j in group.get("link_dependencies", {})
+                    )
+                    if active_runs is not None
+                    else group.get("junction_links", 0),
+                    "source_link_candidates": link_counts["candidates"],
+                    "source_link_profiles_scanned": link_counts["profiles"],
+                    "source_links_supported": link_counts["supported"],
+                    "source_link_carrier_exclusions": link_counts["carrier_exclusions"],
+                    **(
+                        {
+                            "source_absence_scope": "inspected-raw-source-gap-centres",
+                            "source_absence_calibrated": False,
+                            "source_absence_samples": len(absence.points),
+                            "source_absence_excluded_runs": sum(
+                                not parts for parts in replacement_runs[i]
+                            ),
+                            "source_style_junction_links": group.get(
+                                "junction_links", 0
+                            ),
+                        }
+                        if absence is not None and replacement_runs is not None
+                        else {}
+                    ),
+                    **(
+                        {
+                            "source_interval_constraints": dict(intervals.diagnostics),
+                            "source_interval_lineage": [
+                                {
+                                    "source_ends": [
+                                        group["contours"][j].nodes[0].endpoint,
+                                        group["contours"][j].nodes[-1].endpoint,
+                                    ],
+                                    "source_component": group["source_profiles"][
+                                        j
+                                    ].component,
+                                    "result_ends": [
+                                        part.nodes[0].endpoint,
+                                        part.nodes[-1].endpoint,
+                                    ],
+                                }
+                                for j, parts in enumerate(replacement_runs[i])
+                                if parts != (group["contours"][j],)
+                                for part in parts
+                            ],
+                            "source_interval_reconstructed_runs": sum(
+                                bool(parts) and parts != (group["contours"][j],)
+                                for j, parts in enumerate(replacement_runs[i])
+                            ),
+                            "source_interval_recovered_contours": sum(
+                                len(parts)
+                                for j, parts in enumerate(replacement_runs[i])
+                                if parts != (group["contours"][j],)
+                            ),
+                        }
+                        if intervals is not None and replacement_runs is not None
+                        else {}
+                    ),
+                    **(
+                        {"carrier_fit": dict(carrier_fit.diagnostics)}
+                        if carrier_fit is not None
+                        else {}
+                    ),
+                },
+            )
+        )
+    if work.interrupted:
+        return ()
+    if source_profiles is not None:
+        assert profiles is not None
+        source_profiles.extend(profiles)
+    return tuple(result)
+
+
+def decoded(mask, evidence, options, work, *, carrier=None):
+    """A single-paint consumer may use only a single compatible source model."""
+    found = models(mask, evidence, options, work, carrier=carrier)
+    return found[0] if len(found) == 1 else None

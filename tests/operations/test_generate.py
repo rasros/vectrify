@@ -1,6 +1,7 @@
 """Generate methods insert reference-space SVG into the document as one edit."""
 
 import time
+from dataclasses import replace
 
 import numpy as np
 import pytest
@@ -174,6 +175,17 @@ def test_cel_rejects_bad_settings_and_missing_permission():
 def test_artboard_defaults_without_a_viewbox():
     assert import_svg('<svg width="30" height="40"/>').artboard() == (0, 0, 30, 40)
     assert import_svg('<svg viewBox="1,2 3 4"/>').artboard() == (1, 2, 3, 4)
+
+
+def test_target_region_keeps_original_translucent_colors_beside_white_preview():
+    editor = Editor(import_svg('<svg width="40" height="40"/>'))
+    image = Image.new("RGBA", (40, 40), (176, 80, 48, 1))
+    req = request(editor, Selection.all(), method="cel-planned")
+    req = replace(req, reference=image)
+    region = target_region(req)
+    assert region.rgba is not None
+    assert region.rgba.getpixel((20, 20)) == (176, 80, 48, 1)
+    assert region.image.getpixel((20, 20)) != (176, 80, 48)
 
 
 def test_session_scope_drawing_generates_without_selecting_everything(monkeypatch):
