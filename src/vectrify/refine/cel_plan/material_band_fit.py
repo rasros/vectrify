@@ -89,7 +89,9 @@ def _edge_variables(patch, error_points, limit):
     for s, sub in enumerate(patch.subpaths):
         for n, node in enumerate(sub.nodes):
             unique.setdefault(node.endpoint, []).append((s, n))
-            if not n or node.command != "L":
+            # Z closes the last endpoint to M with a straight edge. Its middle
+            # can control failed pixels even when both endpoints are far away.
+            if (not n and not sub.closed) or (n and node.command != "L"):
                 continue
             a, b = np.asarray(sub.nodes[n - 1].endpoint), np.asarray(node.endpoint)
             edge = b - a
@@ -412,6 +414,7 @@ class MaterialBandFit:
             return None
         material.set("d", document.geometry_for(target).path_data())
         stroke.set("d", document.geometry_for(oid).path_data())
+        stroke.set("stroke-width", repr(width / scale))
         if not np.array_equal(
             whole.values(box), _native_raster(root, native_size).values(box)
         ):

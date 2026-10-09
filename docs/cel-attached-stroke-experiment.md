@@ -51,8 +51,10 @@ route can jointly fit exclusive material restoration and the new centerline.
 The original material commands, user-space paint server/frame and sealed shadow
 remain fixed. A native-tolerance flattening seeds only the added material;
 projecting failed pixels onto its edges selects controlling endpoints, including
-long edges whose endpoints are farther away. At most 24 parameters move material
-endpoints 0.0625 pixels normal to the physical port chord and 0.625 pixels along
+long edges whose endpoints are farther away, including implicit closing edges.
+Final crop verification restores the retained stroke width after optimization,
+rather than leaving the last evaluated trial in the crop. At most 24 parameters
+move material endpoints 0.0625 pixels normal to the physical port chord and 0.625 pixels along
 it, stroke controls two pixels normally, and width within the existing bounds.
 The search has at most 600 evaluations. It retains only crop-alpha-exact,
 source-line/gap-feasible, exclusive-material vectors, then independently checks
@@ -86,6 +88,20 @@ alone cannot establish these properties: same-colored old ink beneath a stroke,
 or a fill attribute on a straight open path, can be invisible to raster checks.
 
 ## Current evidence and limits
+
+- Closing-edge selection and retained-width verification have regression controls.
+  A cold targeted profile-43 replay after the closing-edge fix produces an SVG
+  byte-identical to the accepted automatic result. Independent alpha, locality,
+  source, original material/shadow and reload checks still pass. This preserves
+  the existing improvement; it does not establish another completed chain.
+- Profile 54 still produces no accepted candidate with the corrected edge
+  selection. Runtime diagnostics with wider material motion, additional local
+  edge nodes and a thinner stroke also remain rejected. At its fixed terminal,
+  isolated retained context and stroke coverage explain why positive material
+  restoration alone can fail: with the unextended cut, context alpha is 117 and
+  the 0.8-pixel seed stroke body is 104 where parent alpha is 162. Continuous
+  composition estimates excess coverage; these measurements do not prove every
+  possible native vector infeasible. Complete native assembly remains the gate.
 
 - The unmodified automatic attached proposal search on fitted candidate 11
   completes in 358.55 seconds and generates profile 43 through the joint fitter
@@ -227,17 +243,17 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
 
 The focused source-slice, band-plan, source-band, source-junction, source-cap,
 material-continuation, joint material/stroke and line-fidelity suite passes:
-144 tests in 9.48 seconds at the cold joint-fit checkpoint. New synthetic controls
-restore fractional silhouette coverage which a bounded stroke alone cannot
+146 tests in 11.09 seconds after the closing-edge and retained-width fixes.
+Synthetic controls restore fractional silhouette coverage which a bounded stroke alone cannot
 preserve, including translucent groups and user-space gradients. A control reaches
 crop fitting but rejects an unrelated remote alpha change at the full native
 check; another preserves fixed width and excludes bounding-box material paint.
 Ruff and the full source/test Pyrefly check pass at this checkpoint
 (0 type errors, two suppressions and 70 warnings). The changed Python files pass
 formatting; the global formatter flags pre-existing blank lines in unchanged
-`tests/ui/test_server.py`. Draft CI is green at the source-gap retention commit
-`f378494` (lint and test, 6m13s), and documentation head `e847f0b` is also green
-(lint and test, 8m13s). Subsequent changes need their own CI.
+`tests/ui/test_server.py`. The automatic joint-fit head `d4be68d` is
+[green in GitHub CI](https://github.com/rasros/vectrify/actions/runs/37983035298).
+The subsequent closing-edge and retained-width corrections need their own CI.
 The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
 12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
@@ -327,12 +343,30 @@ Completed ignored diagnostics:
   source, locality, ownership/component and reload gates stay intact; independent
   validation and a stroke/body preview accompany the exported drawing.
 
+- `.bench/cel-attached-closing-edge-43-replay/`: the cold targeted production
+  replay after closing-edge selection was corrected. Exported SVG is byte-identical
+  to the accepted automatic profile-43 result. Independent validation passes.
+- `.bench/cel-attached-closing-edge-54-replay/`,
+  `.bench/cel-attached-wide-material-54-replay/`,
+  `.bench/cel-attached-local-material-54-replay/` and
+  `.bench/cel-attached-local-thin-material-54-replay/`: corrected-edge and runtime
+  material/width feasibility diagnostics. None emits an accepted candidate;
+  runtime subdivisions and wider bounds are not production changes.
+- `.bench/cel-attached-port-alpha-floor/`: native isolated context/stroke coverage
+  measurements at profile 54's source ports. Analytic composition is explicitly
+  diagnostic, not evidence of a complete native candidate.
+
 Each replay records its algorithm source hash and checks it at completion. Saved
 drivers and logs provide diagnostic provenance, not automated-operation release
 or reference-corpus evidence. Dependent diagnostic inputs retain their own source
 revision; a current source hash does not retroactively validate an earlier input.
 
 ## Resume here
+
+The next feasibility experiment jointly fits stroke paint coverage with material
+and centerline controls. It must preserve a visibly supported editable stroke,
+physical source ports, real gaps and exact complete native alpha. No opacity
+parameter or relaxed material bounds are currently enabled in production.
 
 1. Co-plan the continued material's partial silhouette and editable stroke using
    the edges that control failed pixels, rather than only nearby vertices. The
