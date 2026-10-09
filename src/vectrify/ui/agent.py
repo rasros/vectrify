@@ -25,6 +25,7 @@ import base64
 import contextlib
 import io
 import itertools
+import json
 import math
 import time
 import xml.etree.ElementTree as ET
@@ -111,6 +112,7 @@ CONTOURS = 30
 EDITS: dict[str, tuple[str, ...]] = {
     "linked_outline": (),
     "protect_features": (),
+    "isolate_components": (),
     "properties": ("paint", "rename", "locks"),
     "transform": ("resize", "move"),
     "arrange": ("reorder", "move_objects"),
@@ -162,6 +164,7 @@ LOOKS = frozenset(
     {
         "hello",
         "settings_schema",
+        "isolate_feature",
         "describe",
         "render",
         "compare",
@@ -784,6 +787,13 @@ class Agent:
         for key in ("locks", "inherited_locks"):
             if row[key]:
                 item[key] = row[key]
+        if attributes.get("data-vectrify-feature-sources"):
+            try:
+                item["feature_sources"] = json.loads(
+                    attributes["data-vectrify-feature-sources"]
+                )
+            except ValueError:
+                item["feature_sources"] = attributes["data-vectrify-feature-sources"]
         if attributes.get("data-vectrify-outline-source"):
             item["outline_source"] = attributes["data-vectrify-outline-source"]
         if row["shared"]:
@@ -1439,6 +1449,89 @@ class Agent:
             )
 
     # Editing ------------------------------------------------------------
+
+    def tool_isolate_feature(
+        self,
+        seen: Any,
+        action: str = "inspect",
+        region: Any = None,
+        seed: Any = None,
+        radius: float = 12,
+        members: Any = None,
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> Reply:
+        from vectrify.ui.agent_features import ROLES, inspect
+
+        if region is None:
+            if not isinstance(seed, list) or len(seed) != 2:
+                raise DocumentError("Start with a region or seed=[x,y]")
+            radius = _finite(radius, "radius")
+            if radius <= 0:
+                raise DocumentError("Seed radius must be positive")
+            x, y = (_finite(v, "seed coordinate") for v in seed)
+            region = [x - radius, y - radius, 2 * radius, 2 * radius]
+        polygon = region_polygon(region)
+        with self.session.lock:
+            if action == "inspect":
+                candidates, preview = inspect(self, polygon, cut)
+                return Reply(
+                    {
+                        **self._where(),
+                        "region": region,
+                        "candidates": candidates[:200],
+                        "more": max(0, len(candidates) - 200),
+                        "roles": sorted(ROLES),
+                        "membership_required": True,
+                    },
+                    [("candidate_contours", preview)],
+                )
+            if action != "stage":
+                raise DocumentError(
+                    "action is inspect or stage; use edit_batch to apply"
+                )
+            reply = self.tool_edit_batch(
+                seen,
+                edits=[
+                    {
+                        "tool": "isolate_components",
+                        "args": {
+                            "region": region,
+                            "members": members,
+                            "name": name,
+                            "cut": cut,
+                            "detach": detach,
+                        },
+                    }
+                ],
+                region=region,
+                close_region=region,
+                label=f"Isolate {name}",
+            )
+            reply.data["feature"] = reply.data["edits"][0]["feature"]
+            return reply
+
+    def tool_isolate_components(
+        self,
+        seen: Any,
+        region: Any,
+        members: Any,
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> Reply:
+        from vectrify.ui.agent_features import isolate
+
+        polygon = region_polygon(region)
+        feature = {}
+
+        def edit() -> None:
+            feature.update(isolate(self, polygon, members, name, cut, detach))
+
+        reply = self._edit(seen, [edit], f"Isolate {name}")
+        reply.data["feature"] = feature
+        return reply
 
     def tool_protect_features(
         self, seen: Any, points: Any, kind: str = "corner"

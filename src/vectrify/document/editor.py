@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import re
 from collections import OrderedDict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field, replace
 
@@ -2556,6 +2556,7 @@ class Transaction:
         *,
         cut: bool = True,
         delete: bool = False,
+        contours: Mapping[str, frozenset[str]] | None = None,
     ) -> tuple[tuple[str, str | None], ...]:
         """Take the contours of the selected paths that lie inside *polygon*
         (root user space) into a path of their own, or delete them.
@@ -2587,6 +2588,8 @@ class Transaction:
                     e.tag in {"defs", "clipPath"} for e in document.ancestry(element.id)
                 ):
                     continue
+                if contours is not None and element.id not in contours:
+                    continue
                 style = path_style(document, element)
                 shape = element.tag in SHAPES
                 filled = style["fill"] != "none" and element.tag != "line"
@@ -2597,14 +2600,31 @@ class Transaction:
                     if shape
                     else document.geometry_for(element.id)
                 )
+                omitted = ()
+                chosen_geometry = geometry
+                if contours is not None:
+                    wanted = contours[element.id]
+                    present = {sp.id for sp in geometry.subpaths}
+                    if not wanted or not wanted <= present:
+                        raise EditRejectedError("Choose existing contour IDs")
+                    omitted = tuple(
+                        sp for sp in geometry.subpaths if sp.id not in wanted
+                    )
+                    chosen_geometry = replace(
+                        geometry,
+                        subpaths=tuple(
+                            sp for sp in geometry.subpaths if sp.id in wanted
+                        ),
+                    )
                 split = split_geometry(
-                    geometry,
+                    chosen_geometry,
                     object_matrix(document, element.id),
                     polygon,
                     filled=filled,
                     rule=style["fill-rule"],
                     cut=cut,
                 )
+                split = replace(split, outside=(*omitted, *split.outside))
                 if not split.inside:
                     continue
                 self._authorize(document.dependents({element.id}), EditKind.STRUCTURE)
@@ -2649,7 +2669,7 @@ class Transaction:
                     # A basic shape's generated outline never had document node IDs.
                     self._record_removed_nodes(geometry.subpaths, surviving)
                 changed.append((element.id, made))
-            if not changed:
+            if not changed and contours is None:
                 raise EditRejectedError(
                     "No contour of these paths lies inside the region"
                     + ("" if cut else "; cut=true takes the parts of ones crossing it")
