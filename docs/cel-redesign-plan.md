@@ -135,6 +135,17 @@ snap. More attached filled outline sections and junctions remain unfinished.
 Actual editable strokes, supported connections and removal of filled outlines
 are the primary next acceptance criteria. No human repair supplies a connection.
 
+A source-only `StrokeInventory` now reports qualified source positions supported
+by exported editable stroke bodies and literal shared centerline ports. It
+distinguishes filled/stroked drawings even when their native pixels match and
+retains actual frame, width, cap, join and group opacity. The shared-junction
+candidate has 33 stroke contours; 2,287 of 13,145 qualified nongap source samples
+still lack stroke-body support. That 82.6-percent sample coverage does not prove
+complete chains, removed old fills or valid junctions. Attached-band probes are
+still excluded by pixel locality and have no complete ownership replay. Preserve
+the verified shadows and continue those stroke replacements; the inventory is
+diagnosis and a review preview, with no new accepted conversion or release gate.
+
 Post-generation MSE for the matching bundle improves from 524.897535 to
 521.989863; the preserved material parent's 508.055591 remains better. The
 unchanged objective still selects the preceding alternatives at the sampled

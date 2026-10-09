@@ -65,6 +65,64 @@ copy the human's repaired connection, blindly stroke every shade boundary,
 change unrelated shadow regions, or waive alpha/ownership proofs. No new
 references or learned ranker are introduced by this feedback.
 
+### Source-only editable stroke inventory checkpoint
+
+`StrokeInventory` now measures the representation directly, using the frozen
+original source bank and exported `fill="none"` bodies in the complete native
+viewport. It uses actual widths, transforms, caps, joins and group opacity.
+Filled bands, dormant definitions, invisible or locked strokes and unsupported
+effects supply no editable support. It reports literal shared centerline ports
+without authorizing a source repair. Coverage of sample positions does not prove
+complete chains, correct paint, ownership, removed old fills or valid junctions;
+the report explicitly leaves outline completion unproved. This checkpoint adds
+diagnosis and a reproducible preview; it does not add another accepted conversion
+or change Generate, fitting, candidate ranking or its objective.
+
+The source-only replay at `.bench/cel-stroke-inventory-final` inspects the
+unchanged shared-junction candidate 11. It finds 11 actual stroke objects, 33
+stroke contours and 143 centerline nodes. Of 13,145 original qualified nongap
+sample positions, 2,287 lack actual stroke-body support at alpha 0.05: 82.60175
+percent are supported. This is sample coverage, not the percentage of complete
+outlines. Both fitted-handle endpoints remain literally shared with adjacent
+strokes. The inventory reports 15 shared ports across the drawing; this count
+does not establish 15 supported physical source junctions. The earlier independent
+junction/gap/ownership audit remains the proof for the fitted handle.
+
+The preview uses blue centerlines, green literal shared ports and pink missing
+source samples. The remaining samples lie heavily on the handle exterior and
+inside the compound ink/shadow owner, with some blade exterior support missing.
+This is a concrete inventory of the remaining stroke work, without a human target
+or raster-error ranking. Source-only attached-band probes remove another old
+filled section and fit a two-node stroke, but they still change native pixels
+outside the edit footprint. The initial Boolean rewrite changes 34 such pixels;
+preserving original shadow curves with an equivalent cutout reduces this to one
+transparent fringe pixel, whose alpha changes from 10 to 11 / 255. These probes
+have no complete ownership replay and are not accepted candidates. They do not
+replace the verified material/stroke checkpoint or waive locality/alpha proofs.
+
+Reproduce the terminal inventory with:
+
+```sh
+PYTHONPATH=src:. python scripts/bench_cel_stroke_inventory.py --case sword \
+  --candidate .bench/cel-source-junction-band-plans-final/candidate-11.project.json \
+  --out .bench/cel-stroke-inventory-final --crop 310 1640 420 1870
+```
+
+The inventory source SHA-256 is
+`25958416b4337782e536fb43c9c24263d4bef77a93e0a356869abb10725d00f3`,
+driver SHA-256 is
+`0a26d22af086beedfb0e52477eec0802d431a186ffc639ad6c68340a7926af06`,
+and inspected project SHA-256 is
+`b606759c1237cab277e5ba383e418839467c68aeb29e857cf15dd1fc82f3bb1f`.
+Seventy-one targeted inventory, source-fit, junction and co-planning tests pass.
+Fifteen new controls distinguish byte-identical filled/stroked rasters, actual
+native caps/rotation, inherited group opacity, unsupported/dormant strokes,
+frozen source observations, shared ports, bounds and cancellation. Ruff and
+formatting pass; Pyrefly reports zero errors and 63 warnings. No release gate
+passes from this diagnostic. Continue on complete attached ink/shadow
+decomposition, exterior stroke coverage, supported junctions and owned removal
+of former filled outlines while preserving the inspected material choices.
+
 ### Shared physical source junctions between editable strokes
 
 The next checkpoint focuses on stroke topology, with no human-target error
