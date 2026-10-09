@@ -99,3 +99,17 @@ def test_corner_checks_use_first_nonzero_tangent_when_handles_collapse():
         doc, [{"object": "tip", "node": node.id, "expected": [5, 0], "min_turn": 60}]
     )[0]
     assert result["corner_pass"]
+
+
+def test_threshold_scale_is_independent_of_unrelated_colour_channels():
+    from vectrify.ui.agent_edges import edges
+
+    gray = np.zeros((30, 30, 3), dtype=np.uint8)
+    gray[:, 15:] = 255
+    green = np.zeros_like(gray)
+    green[:, 15:, 1] = 255
+    for threshold in (0.05, 0.3, 0.5, 0.9):
+        assert np.array_equal(
+            edges(Image.fromarray(gray), threshold),
+            edges(Image.fromarray(green), threshold),
+        )
