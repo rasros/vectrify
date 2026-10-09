@@ -29,7 +29,7 @@ from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import Box, _native_raster
 from vectrify.refine.cel_plan.refine import _bounds
 from vectrify.refine.cel_plan.score import composite, render
-from vectrify.refine.cel_plan.source_absence import SourceAbsence
+from vectrify.refine.cel_plan.source_absence import ALPHA_TOLERANCE, SourceAbsence
 from vectrify.refine.crossings import crossings
 from vectrify.refine.tracing import _loops
 
@@ -320,7 +320,15 @@ class BandFit:
                 # but only retain exactly feasible vectors. A penalty alone can
                 # still choose an attractive stroke spilling past the silhouette.
                 value += float(np.abs(actual[..., 3] - baseline[..., 3]).sum()) * 255e6
-            if (not preserve_alpha or alpha_exact) and value < best_value:
+            # A gap penalty guides the search but cannot retain an infeasible
+            # body over a valid one. Recheck every native tile independently
+            # after assembly, just as the complete alpha check follows fitting.
+            gaps_exact = bool(np.all(alpha <= ALPHA_TOLERANCE))
+            if (
+                gaps_exact
+                and (not preserve_alpha or alpha_exact)
+                and value < best_value
+            ):
                 best_value = value
                 best_parameters = np.array(values, copy=True)
             _check(work)
