@@ -435,14 +435,35 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         region: Region | View | None = None,
         max_side: int | None = None,
         grid: bool = False,
+        edge_aware: bool = False,
+        edge_threshold: float = 0.05,
+        edge_tolerance: float = 1.0,
+        feature_checks: list[dict[str, Any]] | None = None,
+        close_region: Region | None = None,
     ) -> CallToolResult:
         """How far the drawing is from the reference, over region or all.
+
+        edge_aware adds separate boundary displacement, edge precision/recall,
+        missing/extra/duplicated edge annotation and reference/drawing crops.
+        edge_tolerance is in document units; edge_threshold is normalized RGB
+        gradient magnitude. feature_checks use object/node/expected [x,y],
+        max_displacement and min_turn (degrees). close_region adds a 1024px crop.
 
         Gives the mean squared error (0 is identical), the worst cells of a
         4 x 4 grid as regions to look at next, and a heat map (black agrees).
         """
         return state.call(
-            "compare", {"region": region, "max_side": max_side, "grid": grid}
+            "compare",
+            {
+                "region": region,
+                "max_side": max_side,
+                "grid": grid,
+                "edge_aware": edge_aware,
+                "edge_threshold": edge_threshold,
+                "edge_tolerance": edge_tolerance,
+                "feature_checks": feature_checks,
+                "close_region": close_region,
+            },
         )
 
     @look
