@@ -22,42 +22,65 @@ The prototype distinguishes exact alpha from premultiplied-color quantization:
 `color_quantization` permits at most one premultiplied color byte outside the
 selected field, with alpha unchanged exactly. This is explicitly weaker than
 byte-exact RGBA locality. Its intended use depends on exact geometric subtraction
-and unchanged original controls/paint. The final complete-candidate locality
-proof still needs work; the helper is not a release acceptance policy.
+and unchanged original controls/paint. A complete-candidate check now compares the final fitted drawing with its actual
+material parent, bounding changes by the removed field and old/new affected
+stroke bodies. Retained shadow bounds do not authorize unrelated changes.
+Global native alpha equality is mandatory. Off-field color quantization remains
+reported separately from byte-exact locality and is not a release policy.
 
 ## Current evidence and limits
 
-- Six synthetic controls pass. The opaque fixture publishes a two-node editable
-  stroke, removes its old filled field, retains original shadow commands/values,
-  replays a saturated ancestor ledger and round-trips the native rendering.
-  Published residuals receive fresh editing ids; geometric controls remain exact.
-- The partial-opacity fixture remains excluded. Its test verifies that no partial
-  interpretation is published and that the original documents/ownership remain
-  unchanged. This records a safe rejection, not successful translucent support.
-- The pre-merge prototype sword replay completed with the original twelve
-  candidates and **no accepted attached-band candidate**. One thin handle chain
-  still changes an off-field alpha byte and remains rejected. Another passes the
-  initial cut screen but fails later publication. Diagnose that later exclusion.
+- Eight synthetic controls pass. Opaque, translucent and nested-group cases
+  publish a two-node editable stroke, remove its old filled field, retain shadow
+  commands/values, replay a saturated ancestor ledger and round-trip rendering.
+  Background paint changes, changed group alpha and displaced retained shadows
+  fail the complete-candidate locality check.
+- The previous partial-opacity exclusion was caused by comparing a native alpha
+  byte with an unrounded opacity product. `opaque_core` now measures a fully
+  covered pixel through the same group-opacity stack in the native renderer.
+  This bounds construction; it does not relax the final alpha equality check.
+- A source-only direct replay on the previously accepted fitted sword parent
+  still publishes **no attached-band candidate**. Profile 54 passes subtraction,
+  seed selection, material continuation and bounded fitting. Its continuation
+  complement differs at one alpha pixel; the final drawing differs from its
+  material parent at 61 alpha pixels and fails the complete-parent check as well.
+  A successful fit alone does not prove an acceptable replacement.
 - Broad shadow interiors, internal source gaps, ambiguous chains, unsupported
   winding and bounded/interrupted work remain excluded. Source observations never
   copy the human rendering's repaired handle connection.
 
-Ruff, formatting and the full source/test Pyrefly check pass locally. The 62
-source-slice, band-plan, source-band and source-junction tests pass in 4.46 seconds.
-The full suite passed on the merged parent (2,618 passed, 36 skipped); it has not
-been rerun locally for this draft. Draft CI remains the separate full gate.
+Ruff, formatting and the full source/test Pyrefly check pass locally. The 88
+source-slice, band-plan, source-band, source-junction, cap and material-continuation
+tests pass in 6.02 seconds. Draft CI was
+green at `06949c5`; the changes described here require their own CI gate.
+
+## Active goal
+
+Make complete source-supported attached outline chains on the fitted material
+candidate into clean editable strokes, removing their former filled outlines
+atomically while preserving the inspected shadows and real source gaps.
+Validate complete-candidate pixel locality, exact native alpha, original
+ownership ledgers and save/reload. Demonstrate a visible sword improvement with
+focused synthetic controls, then present a stroke preview for review. Learned
+ranking and broader reference collection remain deferred.
+
+The current direct diagnostic is in the ignored
+`.bench/cel-attached-complete-locality-probe/` directory. It uses the captured
+material ancestor and fitted candidate 11, receives no human target and records
+the completed rejection stages. Its rejected project is a diagnostic, not an
+accepted candidate or a new quality result.
 
 ## Resume here
 
-1. Diagnose the publication failure after the successful initial cut screen.
-2. Prove locality on the complete final candidate relative to its parent, not
-   merely on the raw subtraction and restoration complement. Decide the color
-   quantization policy explicitly without relaxing native alpha or real gaps.
-3. Establish partial-opacity support, or retain a documented exclusion with no
-   claim that those chains are complete.
-4. Replay complete ownership, original ledgers, residual controls, native body
-   gaps, save/reload and the exported editable stroke inventory. Preserve the
-   useful shadows and remove each replaced filled outline atomically.
+1. Fit the attached stroke and its material restoration so the final drawing
+   retains its parent's native silhouette/alpha. Keep the 61-pixel profile-54
+   rejection as the concrete diagnosis; do not waive those changes.
+2. Preserve exact residual shadow controls and removed-field geometry. Any
+   accepted replacement must pass the complete-parent locality check, including
+   real gaps, caps and source-supported junctions.
+3. Replay complete ownership, original ledgers, residual controls, native body
+   gaps, save/reload and the exported editable stroke inventory, then show the
+   actual strokes for visual feedback.
 
 No new reference corpus, learned ranking, automatic-operation quality result or
-release gate is claimed by this draft. Further algorithm work is deferred.
+release gate is claimed by this draft. The active goal remains unfinished.

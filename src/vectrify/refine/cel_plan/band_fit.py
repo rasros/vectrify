@@ -107,9 +107,16 @@ def opaque_core(document, oid, footprint, size, work):
     stroke = next(element for element in root.iter() if element.get("id") == oid)
     stroke.set("stroke", "none")
     actual = _native_raster(root, size).crop(Box(*bounds))
-    opacity = float(
-        np.prod([float(a.get("opacity", "1")) for a in document.ancestry(oid)[:-1]])
-    )
+    # Cairo rounds opacity at each group boundary. An analytic product can
+    # exceed every fully covered native pixel (0.75 becomes 191/255), or
+    # disagree across nested groups. Measure the identical opacity stack on
+    # one fully covered pixel; this bounds proposals, not alpha acceptance.
+    swatch = ET.Element("svg", {"width": "1", "height": "1"})
+    parent = swatch
+    for ancestor in document.ancestry(oid)[:-1]:
+        parent = ET.SubElement(parent, "g", {"opacity": ancestor.get("opacity", "1")})
+    ET.SubElement(parent, "rect", {"width": "1", "height": "1", "fill": "white"})
+    opacity = float(_native_raster(swatch, (1, 1)).root[0, 0, 3]) / 255
     if opacity <= 1 / 255:
         return None
     loops = _loops(actual[..., 3] >= opacity - 1e-7)
