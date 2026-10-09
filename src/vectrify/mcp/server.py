@@ -300,6 +300,25 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
         )
 
     @tool(structured_output=False)
+    def linked_outline(
+        id: str,  # noqa: A002
+        colour: str = "#000000",
+        width: float = 1.0,
+        layer: str = "Outlines",
+    ) -> CallToolResult:
+        """Create or update a stroke-only outline sharing a filled path's geometry.
+
+        The named top-level layer is placed above fills/shading. Width is in
+        source-local units; the source's effective transform is copied. Node
+        edits update both; describe/points report source and geometry users.
+        Call again to refresh placement/transform or configure colour/width.
+        """
+        return state.call(
+            "linked_outline",
+            {"id": id, "colour": colour, "width": width, "layer": layer},
+        )
+
+    @tool(structured_output=False)
     def edit_batch(
         action: Literal["stage", "status", "apply", "discard"] = "stage",
         edits: list[dict[str, Any]] | None = None,
