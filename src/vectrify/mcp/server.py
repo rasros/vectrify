@@ -299,6 +299,34 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
             },
         )
 
+    @tool(structured_output=False)
+    def edit_batch(
+        action: Literal["stage", "status", "apply", "discard"] = "stage",
+        edits: list[dict[str, Any]] | None = None,
+        id: str | None = None,  # noqa: A002
+        region: Region | None = None,
+        close_region: Region | None = None,
+        label: str = "Edit batch",
+    ) -> CallToolResult:
+        """Stage drawing edits privately, inspect eight normal/close views, apply once.
+
+        edits=[{tool: 'properties', args: {ids: ['path'], fill: 'green'}}].
+        Each supported drawing edit can be staged; history/reference/job calls cannot.
+        An edit's optional `as` names its result; later arguments use '$name'.
+        Apply merges against the staged revision and refuses conflicts atomically.
+        """
+        return state.call(
+            "edit_batch",
+            {
+                "action": action,
+                "edits": edits,
+                "id": id,
+                "region": region,
+                "close_region": close_region,
+                "label": label,
+            },
+        )
+
     # Looking -----------------------------------------------------------
 
     @look
