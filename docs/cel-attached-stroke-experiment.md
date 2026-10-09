@@ -535,6 +535,104 @@ and gaps fixed, and distinguish these new guides from protected original ports.
 No such policy, new restoration surface, enlarged fitting bounds or alpha
 exception is enabled in production.
 
+## Generic primitive discovery and complete U restoration
+
+`source_spans.discover` now constructs bounded alternatives around the complete
+former field without fixture primitive indices. It enumerates pairs of short
+transverse cuts on one original closed contour, copies the opposing original
+curve primitives, and keeps the original retained command prefix. It proves
+geometric containment, exact subtraction and empty retained intersection. Up to
+256 cut candidates and 32 retained alternatives are allowed, within the existing
+native extent/node bounds; interruption is checked during enumeration. The
+read-only midpoint guide supplies a raw-source search domain, not physical ports
+or positive stroke proof. **The helper is not enabled in production search.**
+
+Eleven focused constructor tests cover curved bands attached to broad material,
+complete U-shaped rails attached to a broad pad,
+reversed contours, rotated SVG starts crossing the implicit closing edge,
+transformed and translucent owners, complete original curve preservation,
+fragment/gap/low-support/broad-field exclusions, deterministic bounds and
+interruption. Constructor tests deliberately make no native body, ownership or
+full-candidate acceptance claim. All 1,486 CEL planning tests pass in 200.07
+seconds before the final U constructor control was added; all eleven current
+constructor tests pass in 0.50 seconds. Ruff and formatting pass for the new files,
+and Pyrefly reports zero
+errors with the two existing suppressions and 70 warnings.
+
+A cold sword diagnostic found 31 alternatives. Selecting by complete restored
+native alpha, literal outside RGBA locality and raw nongap evidence finds a
+20-node field covering both sides of the pommel U. The retained context has no
+alpha gains; separate restoration reproduces **every original alpha byte before
+adding a stroke** and preserves outside-field RGBA exactly. The full raw guide
+measures 448 qualified samples, no source gaps and support 1.0, and fits a
+six-node open curve. This is construction evidence only: the Gold restoration
+paint still needs a right-face material proof and original ownership/component
+declaration. The single accepted production handle chain remains unchanged.
+
+The first cold U body trial was rejected. Requiring the new U alone to reproduce
+all profiles touched by its removal field mistakenly included the complete
+horizontal collar profile. Its 185 qualified samples belong predominantly to an
+existing genuine stroke: isolated native rendering supports 184, with one
+pre-existing missing sample. The original source bank is unchanged; that missing
+sample is recorded, not waived. The existing collar's physical endpoints are
+(333.5, 1941.5) and (393.5, 1941.5), under the same component parent as the U. Its
+geometry, width, round caps, paint, opacity and order must remain intact. A new
+construction guide may bind to those actual source-supported ports before fresh
+raw measurement; original physical ports and frozen observations may not move.
+The U needs its own body proof for the original side profiles and the additional
+raw trace; the collar junction needs a separate native proof from the combined
+**genuine strokes** under their actual shared opacity hierarchy.
+
+The discovery, raw measurement, full native floors, rejected body trial and
+existing collar observations are recorded separately under
+`.bench/cel-attached-generic-primitive-full-u-body-replay/`,
+`.bench/cel-attached-full-u-profile-scope-probe/` and
+`.bench/cel-attached-full-u-existing-port-probe/`, at algorithm SHA
+`806df7da36fb5d43259d852bb7d369d32d852194c6e94a50cf9ff9d42f342b14`.
+The earlier floor probe used `cKDTree`; the checked-in helper uses its typed public
+`KDTree` equivalent. Its cold U replay repeats discovery and all complete floors.
+These artifacts are excluded from version control and are not accepted examples.
+
+The next cold trial binds only the new construction guide to the genuine collar
+ports before raw measurement, giving a separately frozen 449-sample profile.
+It renders the new U alone for the original side profiles and the additional
+trace, and the new U plus the unchanged collar together under their actual shared
+opacity hierarchy for the collar obligation. A 21-parameter planar-control fit
+supports all 449 new samples and all 185 collar samples, but misses two original
+right-tip samples and changes five complete alpha pixels. Its independent saved-
+guide audit also finds painted-source regressions on original profiles 67 and 97.
+The Gold restoration creates a visible right-edge fringe; exact restoration
+alpha therefore does not establish the correct material face.
+
+A fresh 14-parameter fit instead moves each control and noncorner fitted vertex
+along its **local** curve normal. Original source observations, existing physical
+junction ports and the measured raw corner remain fixed. At 600 evaluations the
+new U supports all 70, 63 and 46 qualified samples on the original side profiles,
+all 449 added qualified samples, and all 185 collar samples through the genuine
+joint body. It remains rejected: ten alpha pixels gain one byte. No saved body
+parameters seed either cold trial, and neither changes production generation.
+
+The planar trial, independent audit/preview, and local-normal trial are recorded
+under `.bench/cel-attached-generic-primitive-full-u-junction-replay/`,
+`.bench/cel-attached-full-u-junction-guide-audit/` and
+`.bench/cel-attached-generic-primitive-full-u-local-normal-replay/`, with the same
+algorithm hash above and separate driver/helper hashes. The independent planar
+preview audit verifies exact original material geometry, retained original shadow
+commands, complete field removal, exact native reload, true source-gap exclusion,
+and exact RGBA outside the literal field **plus actual body**. Outside the field
+alone is not exact because the new body extends beyond it; the report records
+both rather than treating the field as the entire allowed footprint. Reassigned
+node IDs differ, so original command/value prefix equality is reported separately
+from full dataclass identity. Original ownership/component acceptance remains
+unproved. Its separate full-scene audit under
+`.bench/cel-attached-full-u-local-normal-guide-audit/` confirms all original and
+added isolated-body obligations, the ten one-byte alpha gains, exact original
+material geometry and retained shadow commands, complete field removal, unchanged
+gaps, native reload and outside field-plus-body RGBA locality. Painted original
+profiles 67 and 97 still regress despite the complete isolated-body support; the
+additional 449-sample painted profile passes. Both the visible material fringe
+and painted-source contracts need restoration/placement work before acceptance.
+
 ## Resume here
 
 The current production route still accepts only the previously verified handle
@@ -542,7 +640,7 @@ chain. Whole original curve spans and separate material surfaces improve the
 construction, but the larger complete drawings remain rejected. Repeating the
 partial-field subtraction or its material optimizer is not the next step.
 
-1. Discover opposing whole primitive spans generically, with bounded node/extent
+1. Use the disabled generic primitive constructor, with bounded node/extent
    work, complete original-field containment, exact original curve controls and
    independent native retained-context checks. Measure an additional raw source
    trace across the entire selected span; retain every original qualified sample
