@@ -17,12 +17,14 @@ from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
+import pathops
 from PIL import Image
 
 from scripts.bench_cel_planned import DATA, MANIFEST, source_hash
 from vectrify.document import export_svg, load_project, save_project
-from vectrify.document.join import transformed_geometry
+from vectrify.document.join import curve_path, transformed_geometry
 from vectrify.document.redraw import root_matrix
+from vectrify.document.svg import parse_path
 from vectrify.project_file import decode_source
 from vectrify.refine.cel_plan.component_edits import ComponentEdit
 from vectrify.refine.cel_plan.evidence import collect
@@ -122,11 +124,20 @@ def run(case, captured, output, *, seconds=180):
         )
         changed_ids = {item["id"] for item in converted}
         fitted = proposed.details["planned_band_stroke"].get("source_fit", {})
-        caps = (*fitted.get("caps", ()), *fitted.get("junctions", ()))
-        continuation = fitted.get("continuation")
+        stages = (*fitted.get("prior_fits", ()), fitted)
+        caps = tuple(
+            w
+            for stage in stages
+            for key in ("caps", "junctions")
+            for w in stage.get(key, ())
+        )
+        continuations = [
+            stage["continuation"]
+            for stage in stages
+            if stage.get("continuation") is not None
+        ]
         changed_ids.update(witness["id"] for witness in caps)
-        if continuation is not None:
-            changed_ids.add(continuation["material"])
+        changed_ids.update(c["material"] for c in continuations)
         for element in planned.elements():
             if (
                 element.tag == "path"
@@ -147,6 +158,36 @@ def run(case, captured, output, *, seconds=180):
         }
         for item in converted:
             original = residuals[item["id"]]
+            if item.get("attached"):
+                removed, retained = (
+                    parse_path(item["removed"]),
+                    parse_path(item["retained"]),
+                )
+                old, cut, remaining = (
+                    curve_path(original),
+                    curve_path(removed),
+                    curve_path(retained),
+                )
+                difference = pathops.op(old, cut, pathops.PathOp.DIFFERENCE)
+                if (
+                    pathops.op(remaining, difference, pathops.PathOp.XOR).area != 0
+                    or pathops.op(remaining, cut, pathops.PathOp.INTERSECTION).area != 0
+                ):
+                    raise ValueError(
+                        "Attached band was not removed from its shadow owner"
+                    )
+                if tuple(
+                    (n.command, n.values)
+                    for s in retained.subpaths[: len(original.subpaths)]
+                    for n in s.nodes
+                ) != tuple(
+                    (n.command, n.values) for s in original.subpaths for n in s.nodes
+                ):
+                    raise ValueError(
+                        "Attached subtraction changed original shadow controls"
+                    )
+                residuals[item["marks"]] = retained
+                continue
             contour_index = item.get(
                 "contour",
                 max(
@@ -198,7 +239,7 @@ def run(case, captured, output, *, seconds=180):
                 actual_geometry, subpaths=tuple(subs)
             ) != original or proposed.document.element(oid) != planned.element(oid):
                 raise ValueError("Cap recovery changed unrelated nodes or stroke style")
-        if continuation is not None:
+        for continuation in continuations:
             oid = continuation["material"]
             original = planned.geometry_for(oid)
             actual_geometry = proposed.document.geometry_for(oid)
@@ -206,7 +247,12 @@ def run(case, captured, output, *, seconds=180):
                 actual_geometry.subpaths[: len(original.subpaths)] != original.subpaths
                 or proposed.document.element(oid) != planned.element(oid)
                 or not continuation["native_alpha_exact"]
-                or not continuation["native_footprint_exact"]
+                or not (
+                    continuation["native_footprint_exact"]
+                    or continuation.get("color_quantization", {}).get(
+                        "alpha_exact", False
+                    )
+                )
             ):
                 raise ValueError(
                     "Continuation changed original material or native alpha"

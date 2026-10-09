@@ -47,12 +47,33 @@ from vectrify.refine.cel_plan.score import render
 from vectrify.refine.cel_plan.source_bands import SourceBands
 from vectrify.refine.cel_plan.source_caps import SourceCaps
 from vectrify.refine.cel_plan.source_junctions import SourceJunctions
+from vectrify.refine.cel_plan.source_slices import source_slice
+from vectrify.refine.cel_plan.stroke_inventory import StrokeInventory
 
 TOLERANCES = (0.25, 0.15, 0.1)
 MAX_SUBPATHS = 16
 MAX_COMPOUND_NODES = 1024
 MAX_COMPOUND_SUBPATHS = 64
 MAX_EXTENSIONS = 5
+
+
+def color_quantization(before, after, outside):
+    """Keep alpha exact; bound RGB rasterization to one premultiplied byte.
+
+    Used only with independently proved exact vector subtraction / continuation
+    and unchanged original paint/controls. It is not a geometry tolerance.
+    """
+    if not np.array_equal(before[..., 3][outside], after[..., 3][outside]):
+        return None
+    a, b = before[outside].astype(np.int32), after[outside].astype(np.int32)
+    difference = np.abs(a[:, :3] * a[:, 3:] - b[:, :3] * b[:, 3:])
+    if (difference > 255).any():
+        return None
+    return {
+        "changed_pixels": int(np.any(a != b, axis=-1).sum()),
+        "max_premultiplied_byte_delta": float(difference.max(initial=0) / 255),
+        "alpha_exact": True,
+    }
 
 
 def separate(geometry, rule, work, *, index=None):
@@ -156,16 +177,26 @@ class BandPlans:
                         extended.append(sibling)
             # Keep the entire preceding intrinsic-band prefix before complete
             # source-fitted siblings. Every ledger replays the same ancestor.
+            fitted = []
             for candidate in extended:
-                yield from self.proposals(
+                for sibling in self.proposals(
                     state, candidate, work, isolated=True, source_fit=True
+                ):
+                    yield sibling
+                    if len(fitted) < MAX_EXTENSIONS:
+                        fitted.append(sibling)
+            for candidate in fitted:
+                yield from self.proposals(
+                    state, candidate, work, source_fit=True, attached=True
                 )
         except StageInterruptedError:
             return
         except (AtomLimitError, pathops.PathOpsError):
             self.diagnostics["bounded"] += 1
 
-    def proposals(self, state, proposal, work, *, isolated=False, source_fit=False):
+    def proposals(
+        self, state, proposal, work, *, isolated=False, source_fit=False, attached=False
+    ):
         _check(work)
         old, part = state.partition, proposal.partition
         if (
@@ -194,7 +225,57 @@ class BandPlans:
             return
         labels = part.atoms.labels(self.original, work)
         eligible: list[tuple[int, Surface, dict[str, str], int | None]] = []
+        guard = None
+        observations = {}
+        if attached:
+            guard = self.guard(work)
+            if guard is None:
+                return
+            inventory: dict[str, Any] = StrokeInventory(guard).observe(
+                proposal.document, work
+            )
+            profiles = guard.original_profiles(work=work)
+            lookup = {i: s for s in scoped for i in s.members}
+            for row in inventory["profiles"]:
+                _check(work)
+                if row["source_gap_samples"] or row["missing_samples"] < max(
+                    8, row["qualified_samples"] * 0.5
+                ):
+                    continue
+                observed = guard.source_breaks(profiles[row["profile"]], work=work)
+                xy = np.floor(
+                    (observed.points[row["missing_indices"]] - self.evidence.offset)
+                    * self.evidence.scale
+                ).astype(int)
+                inside = (
+                    (xy[:, 0] >= 0)
+                    & (xy[:, 1] >= 0)
+                    & (xy[:, 0] < labels.shape[1])
+                    & (xy[:, 1] < labels.shape[0])
+                )
+                xy = xy[inside]
+                votes = {}
+                for value, count in zip(
+                    *np.unique(labels[xy[:, 1], xy[:, 0]], return_counts=True),
+                    strict=True,
+                ):
+                    if int(value) in lookup:
+                        oid = lookup[int(value)].id
+                        votes[oid] = votes.get(oid, 0) + int(count)
+                if not votes:
+                    continue
+                oid = max(votes, key=lambda oid: (votes[oid], oid))
+                surface = next(s for s in scoped if s.id == oid)
+                style = supported_style(proposal.document, oid)
+                if style is None or style["fill-rule"] != "nonzero":
+                    continue
+                observations[row["profile"]] = observed
+                eligible.append(
+                    (row["missing_samples"], surface, style, row["profile"])
+                )
         for surface in scoped:
+            if attached:
+                break
             _check(work)
             style = supported_style(proposal.document, surface.id)
             if style is None:
@@ -224,13 +305,23 @@ class BandPlans:
             elif 2 <= len(geometry.subpaths) <= MAX_SUBPATHS and nodes <= MAX_NODES:
                 eligible.append((nodes, surface, style, None))
         eligible.sort(key=lambda v: (-v[0], v[1].id))
-        before, guard = None, None
+        before, native_before = None, None
         for _priority, surface, style, index in eligible[:MAX_PATHS]:
             _check(work)
             self.diagnostics["eligible"] += 1
             geometry = proposal.document.geometry_for(surface.id)
             old_nodes = sum(len(s.nodes) for s in geometry.subpaths)
-            parts = separate(geometry, style["fill-rule"], work, index=index)
+            parts = (
+                source_slice(
+                    proposal.document,
+                    surface.id,
+                    observations[index],
+                    work,
+                    tolerance=self.tolerance or 0.75,
+                )
+                if attached
+                else separate(geometry, style["fill-rule"], work, index=index)
+            )
             if parts is None:
                 continue
             main, marks = parts
@@ -250,13 +341,65 @@ class BandPlans:
                     or self.evidence.drawn[box.slices][sampled].mean() < 0.6
                 ):
                     continue
-            classified = mark_components(
-                own[box.slices], mainalpha, raster(marks), self.evidence.scale, work
-            )
+            if attached:
+                selected = own[box.slices] & (mainalpha > 0.05)
+                localmarks = own[box.slices] & ~selected
+                classified = (
+                    (localmarks, 0)
+                    if selected.any()
+                    and localmarks.any()
+                    and self.evidence.drawn[box.slices][selected].mean() >= 0.6
+                    else None
+                )
+            else:
+                classified = mark_components(
+                    own[box.slices], mainalpha, raster(marks), self.evidence.scale, work
+                )
             if classified is None:
                 self.diagnostics["ambiguous"] += 1
                 continue
             localmarks, inherited = classified
+            cut_quantization = None
+            if attached:
+                if native_before is None:
+                    native_before = _native_raster(
+                        ET.fromstring(export_svg(proposal.document)),
+                        self.evidence.source_size,
+                    ).root
+                editor = Editor(
+                    proposal.document, selection=Selection(whole_document=True)
+                )
+                with editor.transaction("Check source band subtraction") as tx:
+                    tx.replace_geometry(surface.id, identified(marks, surface.id))
+                after = _native_raster(
+                    ET.fromstring(export_svg(editor.snapshot.document)),
+                    self.evidence.source_size,
+                ).root
+                root = ET.Element(
+                    "svg",
+                    {
+                        "width": str(self.evidence.source_size[0]),
+                        "height": str(self.evidence.source_size[1]),
+                    },
+                )
+                ET.SubElement(
+                    root,
+                    "path",
+                    {
+                        "d": main.path_data(),
+                        "transform": "matrix("
+                        + " ".join(map(str, root_matrix(proposal.document, surface.id)))
+                        + ")",
+                        "fill": "white",
+                    },
+                )
+                allowed = (
+                    _native_raster(root, self.evidence.source_size).root[..., 3] > 0
+                )
+                cut_quantization = color_quantization(native_before, after, ~allowed)
+                if cut_quantization is None:
+                    self.diagnostics["source_exclusions"] += 1
+                    continue
             if guard is None:
                 try:
                     guard = self.guard(work)
@@ -285,6 +428,19 @@ class BandPlans:
                 )
                 if source_seed is None:
                     continue
+                if attached and source_seed.profile != index:
+                    continue
+            cut_details = (
+                {
+                    "attached": True,
+                    "removed": main.path_data(),
+                    "retained": marks.path_data(),
+                    "profile": index,
+                    "cut_quantization": cut_quantization,
+                }
+                if attached
+                else {}
+            )
             for tolerance in (self.tolerance or 0.75,) if source_fit else TOLERANCES:
                 _check(work)
                 model = (
@@ -336,11 +492,30 @@ class BandPlans:
                             labels,
                             guard,
                             work,
+                            attached=attached,
                         )
                         if fitted is None:
                             self.diagnostics["source_exclusions"] += 1
                             continue
                         document, extra_ids, source_details = fitted
+                        if attached:
+                            previous_fit = (
+                                (proposal.details or {})
+                                .get("planned_band_stroke", {})
+                                .get("source_fit")
+                            )
+                            if previous_fit is not None:
+                                source_details = {
+                                    **source_details,
+                                    "prior_fits": [
+                                        *previous_fit.get("prior_fits", ()),
+                                        {
+                                            k: v
+                                            for k, v in previous_fit.items()
+                                            if k != "prior_fits"
+                                        },
+                                    ],
+                                }
                         variant = replace(
                             model,
                             geometry=document.geometry_for(surface.id),
@@ -478,6 +653,7 @@ class BandPlans:
                                 "id": surface.id,
                                 "marks": newid,
                                 **({"contour": index} if isolated else {}),
+                                **cut_details,
                                 "tolerance": tolerance,
                                 "width": variant.width,
                                 **(
@@ -506,7 +682,8 @@ class BandPlans:
                                         {
                                             "id": surface.id,
                                             "marks": newid,
-                                            "contour": index,
+                                            **({"contour": index} if isolated else {}),
+                                            **cut_details,
                                             "width": variant.width,
                                             "stroke_nodes": len(
                                                 model.geometry.subpaths[0].nodes
@@ -514,19 +691,32 @@ class BandPlans:
                                         },
                                     ]
                                 }
-                                if isolated
+                                if isolated or attached
                                 else {}
                             ),
                         },
                     )
                     published += 1
-                    if isolated:
+                    if isolated or attached:
                         return
                 if published:
                     return
 
     def source_document(
-        self, proposal, oid, newid, main, marks, style, seed, own, labels, guard, work
+        self,
+        proposal,
+        oid,
+        newid,
+        main,
+        marks,
+        style,
+        seed,
+        own,
+        labels,
+        guard,
+        work,
+        *,
+        attached=False,
     ):
         """Assemble source caps and adjacent material before bounded fitting."""
         frame = root_matrix(proposal.document, oid)
@@ -678,12 +868,17 @@ class BandPlans:
             )
             allowed |= _native_raster(root, self.evidence.source_size).root[..., 3] > 0
             _check(work)
-            if (np.any(native != complement, axis=-1) & ~allowed).any():
+            changed_outside = (np.any(native != complement, axis=-1) & ~allowed).any()
+            quantization = (
+                color_quantization(native, complement, ~allowed) if attached else None
+            )
+            if changed_outside and (not attached or quantization is None):
                 return None
             continuation = {
                 **continuation,
                 "native_alpha_exact": True,
-                "native_footprint_exact": True,
+                "native_footprint_exact": not bool(changed_outside),
+                **({"color_quantization": quantization} if attached else {}),
             }
         return (
             document,
