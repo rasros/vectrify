@@ -147,6 +147,8 @@ def test_color_quantization_cannot_hide_alpha_or_more_than_one_premultiplied_byt
         (0.5, 1, "terminal", "normal"),
         (1, 1, True, "deferred"),
         (1, 1, True, "reject_final"),
+        (1, 1, False, "ghost_outline"),
+        (1, 1, False, "filled_stroke"),
     ],
 )
 def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
@@ -200,7 +202,7 @@ def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
     )
     monkeypatch.setattr(atom_module, "MAX_CUTS", 1)
     proof_calls = []
-    if proof_mode != "normal":
+    if proof_mode in {"deferred", "reject_final"}:
 
         def pending(before, after, outside):
             proof_calls.append(None)
@@ -211,14 +213,66 @@ def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
             return color_quantization(before, after, outside)
 
         monkeypatch.setattr(band_module, "color_quantization", pending)
+    if proof_mode in {"ghost_outline", "filled_stroke"}:
+        from vectrify.refine.cel_plan.band_fit import BandFit
+        from vectrify.refine.cel_plan.ink_replace import identified
+
+        original_fit = BandFit.fit
+
+        def resurrect(fitter, before, assembled, oid, seed, work, **kwargs):
+            result = original_fit(fitter, before, assembled, oid, seed, work, **kwargs)
+            assert result is not None
+            fitted, witness = result
+            editor = Editor(fitted, selection=Selection(whole_document=True))
+            with editor.transaction("Incorrectly restore old filled outline") as tx:
+                if proof_mode == "ghost_outline":
+                    tx.replace_geometry(
+                        "ink-band-marks",
+                        identified(document.geometry_for("ink"), "ink-band-marks"),
+                    )
+                else:
+                    tx.set_fill(
+                        oid, path_style(document, document.element("ink"))["fill"]
+                    )
+
+            ghost = editor.snapshot.document
+            # The restored filled outline has the same paint as the new stroke.
+            # Native locality alone can accept its unchanged alpha, even
+            # though the promised field removal has been undone under the ink.
+            assert np.array_equal(
+                render(export_svg(ghost), (96, 96))[..., 3],
+                render(svg, (96, 96))[..., 3],
+            )
+            if proof_mode == "filled_stroke":
+                # A straight open path has zero fill area, so an incorrect fill
+                # attribute is invisible until somebody edits the centerline.
+                assert np.array_equal(
+                    render(export_svg(ghost), (96, 96)),
+                    render(export_svg(fitted), (96, 96)),
+                )
+            selected = source_slice(
+                document, "ink", guard.source_breaks(guard.original_profiles()[0]), work
+            )
+            assert selected is not None
+            assert (
+                attached_locality(
+                    document, ghost, "ink", selected[0], (), (96, 96), work
+                )
+                is not None
+            )
+            proof_calls.append(None)
+            return ghost, witness
+
+        monkeypatch.setattr(BandFit, "fit", resurrect)
     planner = BandPlans(e, graph, graph, guard=lambda _work: guard)
     alternatives = list(
         planner.proposals(state, edit, Work.start(20), source_fit=True, attached=True)
     )
-    if proof_mode != "normal":
+    if proof_mode in {"deferred", "reject_final"}:
         assert len(proof_calls) >= 3
-    if proof_mode == "reject_final":
+    if proof_mode in {"reject_final", "ghost_outline", "filled_stroke"}:
         assert alternatives == []
+        assert proof_calls
         return
     assert len(alternatives) == 1, planner.diagnostics
     candidate = alternatives[0]
@@ -244,6 +298,11 @@ def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
     record = candidate.details["planned_band_stroke"]
     assert record["attached"]
     assert record["source_line_comparison"]["rejections"] == []
+    assert record["source_fit"]["retained_shadow"] == {
+        "id": record["marks"],
+        "geometry_exact": True,
+        "paint_exact": True,
+    }
     assert record["source_fit"]["fit"]["native_body_absence"]
     assert record["source_fit"]["fit"]["native_alpha_exact"]
     if proof_mode == "deferred":

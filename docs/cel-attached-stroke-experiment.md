@@ -53,6 +53,12 @@ constraint and actual butt/round cap are part of the fit-cache key. White-body
 source-gap checks and ownership coverage use the actual stroke cap as well.
 Physical source ports and supported corners remain fixed.
 
+Before the final native checks, assembly must also preserve the exact proved
+residual element and geometry. The new centerline must remain a single open
+subpath with `fill="none"` and a positive painted stroke width. Native pixels
+alone cannot establish these properties: same-colored old ink beneath a stroke,
+or a fill attribute on a straight open path, can be invisible to raster checks.
+
 ## Current evidence and limits
 
 - Synthetic controls publish two-node editable strokes for opaque, translucent
@@ -66,6 +72,10 @@ Physical source ports and supported corners remain fixed.
   final complete-parent proof. Rejecting that final proof excludes the candidate.
   Background paint changes, changed group alpha and displaced retained shadows
   also fail the final locality check.
+- Two corruption controls deliberately resurrect the former filled owner beneath
+  the new stroke or give the straight centerline a fill attribute. Both pass the
+  native pixel checks but are rejected by the final structural checks. Accepted
+  attached witnesses explicitly record exact residual geometry and paint.
 - Straight and rotated support controls verify that native-cell restoration uses
   exactly the opaque cells touched by the removed field in the original frame.
   Butt and round fitting controls verify the actual cap, source ports, native
@@ -87,12 +97,21 @@ Physical source ports and supported corners remain fixed.
   reduce alpha discrepancies to 12 pixels and 15 total alpha bytes, but still
   fail exact equality. It is an XML diagnostic without a published ownership
   interpretation, not a supported production restoration mode.
-- A tightly bounded vector-clip diagnostic keeps the original owner outside the
-  removed field and the subtracted remainder inside it. With no box margin,
-  profiles 43 and 67 pass off-field alpha/color locality. Other profiles still
-  fail, and clipped material restoration changes alpha inside the field. No
-  production clip dependencies or clipped ownership proof are implemented.
-  Equivalent direct and even-odd cut representations do not repair locality.
+- The earlier tight-clip locality result is withdrawn. The native renderer ignores
+  even-odd clip rules, so a same-winding inner contour did not remove the old ink
+  inside the cut. Correct opposite winding and disjoint rectangular clips both
+  remove that outside ink, but change seven remote alpha bytes on profile 43.
+  An independent ink-only raster now checks that the outside piece contributes
+  no old ink inside the removed field. No production clip support is implemented.
+- Fitting a separate 29-node material patch derived from the native flattening of
+  the original shadow makes profile 43's fitting-crop alpha exact. Six bounded
+  material parameters are fitted; the physical stroke ports and original shadow
+  controls stay fixed. Complete-viewport alpha still changes one remote byte,
+  so the drawing remains rejected. No ownership interpretation or production
+  material-patch fitter is claimed by this diagnostic.
+- A vector-mask feasibility diagnostic also leaves one remote alpha discrepancy.
+  Masks are unsupported by the editor's static SVG subset; this is not a native
+  candidate or a proposed mask-support implementation.
 - Profile 43's complete subtraction also changes a remote alpha byte at native
   (397, 1722), from 10 to 11. Equivalent contour ordering, exact subdivision and
   cut representations have not repaired it. Restricting subtraction to opaque
@@ -102,12 +121,13 @@ Physical source ports and supported corners remain fixed.
   copy the human rendering's repaired handle connection.
 
 The focused source-slice, band-plan, source-band, source-junction, source-cap,
-material-continuation and line-fidelity suite passes: 130 tests in 7.04 seconds.
-Ruff and the full source/test Pyrefly check pass at the restoration checkpoint
+material-continuation and line-fidelity suite passes: 132 tests in 6.88 seconds.
+Ruff and the full source/test Pyrefly check pass at the structural-check checkpoint
 (0 type errors, two suppressions and 70 warnings). The changed Python files pass
 formatting; the global formatter flags pre-existing blank lines in unchanged
-`tests/ui/test_server.py`. Draft CI is green at `8bf5367` (lint and test, 6m05s).
-The full bounded captured-proposal replay completes with 12 proposals, all
+`tests/ui/test_server.py`. Draft CI is green at preceding documentation commit
+`30ba53d` (lint and test, 5m25s); the structural-check changes need their own CI.
+The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
 12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
 suffix adds no candidate.
@@ -132,14 +152,20 @@ Completed ignored diagnostics:
   byte-exact prefix verification.
 - `.bench/cel-attached-separate-material-probe/`: distinct field paint and bounded
   width diagnostics, with a rejected left-handle stroke inspection.
-- `.bench/cel-attached-tight-clip-probe/` and
-  `.bench/cel-attached-cell-split-material-probe/`: off-field and inside-field
-  coverage diagnostics for clipped constructions. They are not production
-  clip support or accepted candidates.
+- `.bench/cel-attached-tight-clip-probe/`: invalid even-odd clip-hole diagnostic;
+  its apparent locality proof is withdrawn.
+- `.bench/cel-attached-corrected-local-shadow-probe/` and
+  `.bench/cel-attached-rect-local-shadow-probe/`: corrected clip diagnostics and
+  independent old-ink visibility checks; both fail remote alpha locality.
+- `.bench/cel-attached-native-flat-fit-probe/`: exact fitting-crop alpha for a
+  separate material patch, with one remaining complete-viewport alpha byte.
+- `.bench/cel-attached-masked-cell-material-probe/`: unsupported vector-mask
+  diagnostic with one remaining remote alpha byte; no ownership or subset proof.
 
 Each replay records its algorithm source hash and checks it at completion. Saved
 drivers and logs provide diagnostic provenance, not automated-operation release
-or reference-corpus evidence.
+or reference-corpus evidence. Dependent diagnostic inputs retain their own source
+revision; a current source hash does not retroactively validate an earlier input.
 
 ## Resume here
 
