@@ -87,11 +87,15 @@ def painted_context(document, bounds, work, *, keep=()):
     return root
 
 
-def opaque_core(document, oid, footprint, size, work):
-    """A conservative native material core with the replacement stroke hidden.
+def opaque_core(document, oid, footprint, size, work, *, footprint_cells=False):
+    """Native fully covered parent pixel cells with its queried stroke hidden.
 
-    Native pixel cells at the common parent's opacity bound added paint. This
-    is only a proposal bound; complete native alpha must still be checked.
+    The caller can pass the original filled parent so removed ink can contribute
+    its coverage to the restoration bound. This is only a proposal bound;
+    complete final native alpha must still be checked against the actual parent.
+    With footprint_cells, return whole opaque pixel cells touched by the old
+    field, including its antialias fringe. This can avoid internal coverage seams
+    between the exact retained shadow and continued material.
     """
     _check(work)
     frame = root_matrix(document, oid)
@@ -119,7 +123,20 @@ def opaque_core(document, oid, footprint, size, work):
     opacity = float(_native_raster(swatch, (1, 1)).root[0, 0, 3]) / 255
     if opacity <= 1 / 255:
         return None
-    loops = _loops(actual[..., 3] >= opacity - 1e-7)
+    covered = actual[..., 3] >= opacity - 1e-7
+    if footprint_cells:
+        field = ET.Element("svg", {"width": str(size[0]), "height": str(size[1])})
+        ET.SubElement(
+            field,
+            "path",
+            {
+                "d": footprint.path_data(),
+                "transform": "matrix(" + " ".join(map(str, frame)) + ")",
+                "fill": "white",
+            },
+        )
+        covered &= _native_raster(field, size).crop(Box(*bounds))[..., 3] > 0
+    loops = _loops(covered)
     _check(work)
     if not loops or sum(len(loop) for loop in loops) > MAX_CORE_NODES:
         return None
@@ -216,6 +233,10 @@ class BandFit:
         ):
             return None
         stroke = next(element for element in root.iter() if element.get("id") == oid)
+        ink_style = path_style(assembled, assembled.element(oid))
+        cap = ink_style["stroke-linecap"]
+        if cap not in {"butt", "round"} or ink_style["stroke-linejoin"] != "round":
+            return None
         gaps = self.guard.gap_centres(limit=4096, work=work)
         inside = ((gaps >= bounds[:2]) & (gaps < bounds[2:])).all(axis=1)
         queries = gaps[inside] - bounds[:2] - 0.5
@@ -234,6 +255,7 @@ class BandFit:
                     seed.band.width,
                     width_fixed,
                     preserve_alpha,
+                    cap,
                     tuple(frame),
                     sorted(corners),
                 )
@@ -281,7 +303,7 @@ class BandFit:
                 f'viewBox="{bounds[0]} {bounds[1]} {size[0]} {size[1]}">'
                 f'<path d="{geometry.path_data()}" fill="none" stroke="white" '
                 f'stroke-width="{width}" '
-                'stroke-linecap="butt" stroke-linejoin="round"/></svg>',
+                f'stroke-linecap="{cap}" stroke-linejoin="round"/></svg>',
                 size,
             )[..., 3]
             alpha = map_coordinates(
@@ -341,7 +363,7 @@ class BandFit:
         if crossings(fitted):
             return None
         absence = SourceAbsence(self.evidence, (), work, guard=self.guard)
-        if not absence.permits(fitted, width, "butt", work):
+        if not absence.permits(fitted, width, cap, work):
             return None
         editor = Editor(assembled, selection=Selection(whole_document=True))
         with editor.transaction("Fit source-supported editable outline") as tx:
@@ -387,6 +409,7 @@ class BandFit:
             "parameters": best_parameters.tolist(),
             "movement": MAX_MOVEMENT,
             "native_body_absence": True,
+            "linecap": cap,
             **({"native_alpha_exact": True} if preserve_alpha else {}),
             "source_line_comparison": comparison,
             "source_ports": [list(nodes[0].endpoint), list(nodes[-1].endpoint)],
