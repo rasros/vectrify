@@ -46,6 +46,25 @@ changes. `color_quantization` permits at most one premultiplied color byte outsi
 that support, with alpha unchanged exactly. This is explicitly weaker than
 byte-exact RGBA locality, is reported separately and is not a release policy.
 
+After the geometric and native-cell stroke-only attempts fail, the attached
+route can jointly fit exclusive material restoration and the new centerline.
+The original material commands, user-space paint server/frame and sealed shadow
+remain fixed. A native-tolerance flattening seeds only the added material;
+projecting failed pixels onto its edges selects controlling endpoints, including
+long edges whose endpoints are farther away. At most 24 parameters move material
+endpoints 0.0625 pixels normal to the physical port chord and 0.625 pixels along
+it, stroke controls two pixels normally, and width within the existing bounds.
+The search has at most 600 evaluations. It retains only crop-alpha-exact,
+source-line/gap-feasible, exclusive-material vectors, then independently checks
+the whole drawing's alpha, crop consistency and complete original source bank.
+Ownership, sealed residuals and final locality still require the enclosing planner.
+
+If the complete zero-extension attached attempt publishes no candidate, planning
+tries a half-pixel removal extension at the end, then at the start. The first
+domain that publishes candidates stops the fallback sequence. These are cut
+alternatives with unchanged physical stroke ports, not source-gap completion.
+The explicit API still bounds any requested extension to two native pixels.
+
 Attached fitting retains only parameter vectors with exact parent alpha in the
 independent native fitting crop, then rechecks the complete drawing. Alpha
 penalties guide the search but cannot make an infeasible vector publishable. The
@@ -68,6 +87,26 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
 
 ## Current evidence and limits
 
+- The unmodified automatic attached proposal search on fitted candidate 11
+  completes in 358.55 seconds and generates profile 43 through the joint fitter
+  and half-pixel terminal-cut fallback. No optimizer/proposal filters, saved
+  fitting parameters or acceptance overrides are used. Complete native alpha,
+  static SVG subset, original ownership/component replay and native reload pass,
+  with 64 cuts and 81 allocated children. This is one complete attached-chain
+  improvement; it does not complete every sword outline or the CEL release plan.
+- A cold production joint fit generates profile 43 without saved parameters.
+  Its zero-extension attempt reaches crop feasibility but fails full alpha;
+  the automatic half-pixel terminal cut then produces an open two-node stroke
+  of width 1.27222. Independent checks verify full native alpha, byte-exact RGBA
+  outside the literal 167-pixel footprint, unchanged original shadow/material
+  commands, paint and frames, complete former-field removal, source ports/body
+  gaps, painted source lines and exact reload. Original ownership/component
+  replay passes with 64 cuts and 81 allocated children, and editable-stroke
+  missing samples fall from 2,287 to 2,191. The targeted replay skips preceding
+  stroke-only optimization and unrelated profiles for work bounds; it does not
+  bypass any acceptance gate. The successful joint search takes 243 optimizer
+  evaluations plus its initial seed evaluation, and the replay completes in
+  45.07 seconds. The complete unmodified search is reported above.
 - A later source-only construction passes every attached acceptance check on
   profile 43. Extending only the removal domain half a native pixel beyond the
   terminal preserves full-viewport alpha exactly, with byte-exact RGBA outside
@@ -78,14 +117,15 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   Original ownership/component replay passes with 64 cuts and 81 allocated
   children; source-body gaps, painted source lines and native save/reload pass.
   Editable-stroke missing samples fall from 2,287 to 2,191. No acceptance guard is
-  bypassed. This construction still supplies saved source-only material/stroke
-  fitting parameters: the automatic joint fitter remains unfinished.
+  bypassed. This earlier construction supplies saved source-only material/stroke
+  fitting parameters; the subsequent cold production fit above removes that
+  dependency.
 - The removal recipe is now available through explicit `port_extension` on the
   attached proposal API. Each extension is bounded to two native pixels and
   independently contains the complete original field. It extends only the cut,
-  never the physical source anchors or the stroke. The default remains zero;
-  automatic variant enumeration is not implemented. Forward/reversed synthetic
-  controls verify containment, untouched ports/shadow commands and rejection of
+  never the physical source anchors or the stroke. The first attempt remains
+  zero, with the half-pixel automatic fallbacks described above. Forward/reversed
+  synthetic controls verify containment, untouched ports/shadow commands and rejection of
   invalid bounds and real source gaps. Independent sword replay uses this
   production cut recipe with all acceptance/ownership checks intact.
 - Synthetic controls publish two-node editable strokes for opaque, translucent
@@ -107,8 +147,8 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   exactly the opaque cells touched by the removed field in the original frame.
   Butt and round fitting controls verify the actual cap, source ports, native
   fitting context and round trip.
-- The source-only direct sword replay on accepted fitted candidate 11 still
-  publishes **no attached-band candidate**, without interruption. Five of 13
+- The earlier source-gap retention replay on fitted candidate 11 publishes
+  **no attached-band candidate**, without interruption. Five of 13
   eligible profiles reach both bounded fitting attempts; no exactly feasible
   native-alpha vector is found. Round caps alone also yielded no candidate in an
   exploratory runtime-only replay; there is no production round-cap generator.
@@ -186,8 +226,12 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   copy the human rendering's repaired handle connection.
 
 The focused source-slice, band-plan, source-band, source-junction, source-cap,
-material-continuation and line-fidelity suite passes: 139 tests in 7.47 seconds
-at the bounded removal-extension checkpoint.
+material-continuation, joint material/stroke and line-fidelity suite passes:
+144 tests in 9.48 seconds at the cold joint-fit checkpoint. New synthetic controls
+restore fractional silhouette coverage which a bounded stroke alone cannot
+preserve, including translucent groups and user-space gradients. A control reaches
+crop fitting but rejects an unrelated remote alpha change at the full native
+check; another preserves fixed width and excludes bounding-box material paint.
 Ruff and the full source/test Pyrefly check pass at this checkpoint
 (0 type errors, two suppressions and 70 warnings). The changed Python files pass
 formatting; the global formatter flags pre-existing blank lines in unchanged
@@ -271,6 +315,17 @@ Completed ignored diagnostics:
   feasible joint fit reduces alpha-byte discrepancy from 65 to 45. Independent
   body/painted-source, material and reload checks pass, but alpha remains unequal;
   that drawing is rejected.
+- `.bench/cel-attached-cold-joint-sword-replay/`: cold production joint fitting and
+  automatic terminal-cut fallback on profile 43, with preceding stroke-only
+  optimization and unrelated profiles excluded solely for work bounds. No saved
+  parameter vector or acceptance override is used. Independent `validation.json`
+  and `stroke-preview.png` check and show the generated drawing. Its algorithm
+  source hash is `4b9d78e850be9557af70041e4d8d54270c979f92cdaf0bb3eb54a9603eae76fb`.
+- `.bench/cel-attached-full-joint-sword-replay/`: unmodified automatic attached
+  planning on fitted candidate 11, complete in 358.55 seconds with one generated
+  attached candidate. Its source hash matches the cold replay. Original native,
+  source, locality, ownership/component and reload gates stay intact; independent
+  validation and a stroke/body preview accompany the exported drawing.
 
 Each replay records its algorithm source hash and checks it at completion. Saved
 drivers and logs provide diagnostic provenance, not automated-operation release
@@ -287,13 +342,12 @@ revision; a current source hash does not retroactively validate an earlier input
    stroke and retained context. A positive underpaint cannot subtract that excess.
    Plan interacting source chains together when one field removes another chain;
    a nominal profile is not automatically an independent replacement.
-2. Port the successful source-only material/stroke fitting procedure into the
-   bounded generator, then enumerate removal-domain alternatives with unchanged
-   physical stroke ports. Profile 43 now has a fully validated construction; its
-   half-pixel terminal removal fixes the remote native discrepancy without an
-   alpha exception. Keep exact residual controls, complete removal and all final
-   locality/source/ownership gates. Do not substitute saved fitted parameters for
-   automatic generation evidence.
+2. Extend complete planning to the remaining attached chains, including closing
+   material edges and interactions with adjacent source support. The unmodified
+   search now generates a fully verified profile-43 stroke without saved
+   parameters; the other chains still lack complete native-feasible proposals.
+   Keep exact residual controls, complete removal and all final native,
+   locality/source/ownership gates.
 3. Replay complete ownership, original ledgers, residual controls, native body
    gaps, save/reload and the exported editable stroke inventory, then show the
    actual strokes for visual feedback.

@@ -15,7 +15,7 @@ from vectrify.document import (
     load_project,
     save_project,
 )
-from vectrify.document.join import curve_path, path_style
+from vectrify.document.join import curve_path, path_geometry, path_style
 from vectrify.document.svg import parse_path
 from vectrify.refine.cel_plan import atoms as atom_module
 from vectrify.refine.cel_plan import band_plans as band_module
@@ -320,14 +320,18 @@ def test_attached_stroke_replays_ancestor_and_roundtrips_partial_group_opacity(
                     render(export_svg(ghost), (96, 96)),
                     render(export_svg(fitted), (96, 96)),
                 )
-            selected = source_slice(
-                document, "ink", guard.source_breaks(guard.original_profiles()[0]), work
-            )
-            assert selected is not None
-            assert (
-                attached_locality(
-                    document, ghost, "ink", selected[0], (), (96, 96), work
+            # Each removal-domain alternative has its own literal footprint.
+            # Derive it from the still-sealed input, before corruption, rather
+            # than comparing a terminal extension with the zero-extension mask.
+            selected = path_geometry(
+                pathops.op(
+                    curve_path(document.geometry_for("ink")),
+                    curve_path(assembled.geometry_for("ink-band-marks")),
+                    pathops.PathOp.DIFFERENCE,
                 )
+            )
+            assert (
+                attached_locality(document, ghost, "ink", selected, (), (96, 96), work)
                 is not None
             )
             proof_calls.append(None)

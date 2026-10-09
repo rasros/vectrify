@@ -40,6 +40,7 @@ from vectrify.refine.cel_plan.filled_bands import (
 )
 from vectrify.refine.cel_plan.ink_replace import identified
 from vectrify.refine.cel_plan.local import MAX_CROP_PIXELS, Box, _native_raster
+from vectrify.refine.cel_plan.material_band_fit import MaterialBandFit
 from vectrify.refine.cel_plan.model import StageInterruptedError
 from vectrify.refine.cel_plan.ownership import Partition, Surface
 from vectrify.refine.cel_plan.paint_continuation import PaintContinuation
@@ -270,9 +271,30 @@ class BandPlans:
         isolated=False,
         source_fit=False,
         attached=False,
-        port_extension=(0.0, 0.0),
+        port_extension=None,
     ):
         _check(work)
+        if attached and port_extension is None:
+            # Preserve the original complete attempt before trying a native
+            # half-pixel cut extension. Physical stroke ports stay fixed.
+            for extension in ((0.0, 0.0), (0.0, 0.5), (0.5, 0.0)):
+                published = False
+                for candidate in self.proposals(
+                    state,
+                    proposal,
+                    work,
+                    isolated=isolated,
+                    source_fit=source_fit,
+                    attached=True,
+                    port_extension=extension,
+                ):
+                    published = True
+                    yield candidate
+                if published:
+                    return
+            return
+        if port_extension is None:
+            port_extension = (0.0, 0.0)
         if not attached and any(port_extension):
             raise ValueError("Removal port extensions require an attached source chain")
         old, part = state.partition, proposal.partition
@@ -926,6 +948,32 @@ class BandPlans:
             width_fixed=self.width_fixed or self.evidence.filled_line_width > 0,
             preserve_alpha=attached,
         )
+        if (
+            result is None
+            and attached
+            and native_restoration
+            and continuation is not None
+        ):
+            result = MaterialBandFit(self.evidence, guard).fit(
+                proposal.document,
+                document,
+                oid,
+                seed,
+                continuation["material"],
+                work,
+                width_fixed=self.width_fixed or self.evidence.filled_line_width > 0,
+            )
+            if result is not None:
+                _, joint = result
+                continuation = {
+                    **continuation,
+                    "initial_restoration": continuation,
+                    "scope": "source-fitted-material-restoration",
+                    "opaque_core": False,
+                    "patch_nodes": joint["material_patch_nodes"],
+                    "patch_contours": joint["material_patch_contours"],
+                    "native_bounds": joint["material_native_bounds"],
+                }
         if result is None:
             return None
         document, fit = result
