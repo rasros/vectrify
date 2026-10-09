@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
+import math
+
 from vectrify.document import Document
+from vectrify.document.regions import object_matrix
+from vectrify.document.svg import PAINT
+from vectrify.document.topology import mapped_point
 
 
 def edit_diagnostics(before: Document, after: Document) -> dict:
@@ -12,6 +17,7 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
         key: []
         for key in (
             "nodes_removed",
+            "nodes_transferred",
             "corners_rounded",
             "geometry_moved",
             "paint_changed",
@@ -20,9 +26,18 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
             "protected_feature_violations",
         )
     }
+    locations = {
+        n.id: {"object": e.id, "contour": sp.id}
+        for e in after.elements()
+        if e.geometry_id is not None
+        for sp in after.geometry_for(e.id).subpaths
+        for n in sp.nodes
+    }
     for oid in old.keys() & new.keys():
         a, b = old[oid], new[oid]
-        if a.attributes != b.attributes:
+        if {k: v for k, v in a.attributes if k in PAINT} != {
+            k: v for k, v in b.attributes if k in PAINT
+        }:
             effects["paint_changed"].append(oid)
         if [c.id for c in a.children] != [c.id for c in b.children]:
             effects["stacking_changed"].append(oid)
@@ -34,12 +49,25 @@ def edit_diagnostics(before: Document, after: Document) -> dict:
         for nid, (contour, node) in na.items():
             ref = {"object": oid, "contour": contour, "node": nid}
             if nid not in nb:
-                effects["nodes_removed"].append(ref)
-            elif node.endpoint != nb[nid].endpoint:
+                if nid in locations:
+                    effects["nodes_transferred"].append({**ref, "to": locations[nid]})
+                else:
+                    effects["nodes_removed"].append(ref)
+            elif not all(
+                math.isclose(x, y, abs_tol=1e-9)
+                for x, y in zip(
+                    mapped_point(node.endpoint, object_matrix(before, oid)),
+                    mapped_point(nb[nid].endpoint, object_matrix(after, oid)),
+                    strict=True,
+                )
+            ):
                 effects["geometry_moved"].append(ref)
             elif node.command != "C" and nb[nid].command == "C":
                 effects["corners_rounded"].append(ref)
-            if node.pinned and (nid not in nb or node.endpoint != nb[nid].endpoint):
+            if node.pinned and (
+                nid not in locations
+                or (nid in nb and node.endpoint != nb[nid].endpoint)
+            ):
                 effects["protected_feature_violations"].append({**ref, "kind": "pin"})
     removed = sorted(old.keys() - new.keys())
     # Report lineage only when a surviving path acquired removed contours.

@@ -21,6 +21,8 @@ class Setting:
 
     def read(self, name: str, value: Any) -> Any:
         label = self.label or name.replace("_", " ")
+        if value is None and self.default is None:
+            return None
         if self.kind is bool:
             if type(value) is not bool:
                 raise DocumentError(f"{label.capitalize()} must be on or off")

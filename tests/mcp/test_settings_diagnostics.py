@@ -49,3 +49,20 @@ def test_job_reports_effective_settings_and_diagnostics():
     state = agent.call("cleanup", {"seen": seen, "ids": ["hill"]}).data
     assert state["effective_settings"] == {}
     assert "effects" in state["result"]["diagnostics"]
+
+
+def test_transforms_are_geometry_effects_and_nullable_settings_match_schema():
+    from vectrify.operations.settings import method_settings, read_settings
+
+    agent, seen = fresh()
+    before = agent.session.editor.snapshot.document
+    agent.call("transform", {"seen": seen, "ids": ["hill"], "dx": 2})
+    diagnostics = edit_diagnostics(before, agent.session.editor.snapshot.document)
+    assert diagnostics["effects"]["geometry_moved"]
+    assert not diagnostics["effects"]["paint_changed"]
+    assert (
+        read_settings({"region": None}, method_settings("improve", "nodes"), "nodes")[
+            "region"
+        ]
+        is None
+    )

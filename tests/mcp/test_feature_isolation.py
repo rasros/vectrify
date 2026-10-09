@@ -185,3 +185,20 @@ def test_isolation_transfers_protected_tip_and_retains_single_undo():
     assert after.geometry_for(piece).node(node.id).feature == "tip"
     agent.call("undo", {"seen": [seen[0], 2], "ids": [applied["edit_id"]]})
     assert agent.session.editor.snapshot.document == before
+
+
+def test_extracted_nodes_are_transferred_in_diagnostics():
+    agent, seen = fresh()
+    batch = agent.call(
+        "isolate_feature",
+        {
+            "seen": seen,
+            "action": "stage",
+            "region": [5, 5, 25, 66],
+            "members": membership(agent),
+        },
+    ).data
+    effects = batch["diagnostics"]["effects"]
+    assert effects["nodes_transferred"]
+    assert not effects["nodes_removed"]
+    assert not effects["protected_feature_violations"]
