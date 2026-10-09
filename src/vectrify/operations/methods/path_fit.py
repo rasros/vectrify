@@ -12,6 +12,7 @@ from vectrify.operations.contract import (
     RunContext,
     register,
 )
+from vectrify.operations.settings import Setting, read_settings
 from vectrify.refine.selected import (
     FitOptions,
     fit_problem,
@@ -21,14 +22,21 @@ from vectrify.refine.selected import (
 
 DEFAULT_STEPS = 8
 
+SETTINGS = {
+    "nodes": Setting(bool, True),
+    "handles": Setting(bool, True),
+    "color": Setting(bool, False),
+    "snap": Setting(bool, True),
+    "displacement": Setting(float, 2.0, minimum=0, maximum=100),
+    "resolution": Setting(int, 768, minimum=64, maximum=2048),
+}
+
 
 def fit_options(request: OperationRequest) -> FitOptions:
-    settings = dict(request.settings)
-    known = {"nodes", "handles", "color", "displacement", "resolution", "snap"}
-    unknown = set(settings) - known
-    if unknown:
-        raise DocumentError(f"Unknown path-fit setting: {sorted(unknown)[0]}")
-    options = FitOptions(steps=request.budget.steps or DEFAULT_STEPS, **settings)
+    options = FitOptions(
+        steps=request.budget.steps or DEFAULT_STEPS,
+        **read_settings(request.settings, SETTINGS, "path-fit"),
+    )
     if (options.nodes or options.handles) and not request.permissions.geometry:
         raise DocumentError("Allow geometry changes to move nodes or handles")
     if options.color and not request.permissions.paint:

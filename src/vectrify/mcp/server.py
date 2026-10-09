@@ -302,6 +302,16 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
     # Looking -----------------------------------------------------------
 
     @look
+    def settings_schema(action: str, method: str) -> CallToolResult:
+        """Discover a job's JSON settings schema, defaults, ranges and interactions.
+
+        Use generate/cel, generate/colour-regions, generate/cel-planned,
+        improve/nodes (tidy), improve/colours, improve/path-fit,
+        snap/edges or simplify/cleanup. Unknown settings are refused before work.
+        """
+        return state.call("settings_schema", {"action": action, "method": method})
+
+    @look
     def describe(
         page: int = 0,
         page_size: int = 100,

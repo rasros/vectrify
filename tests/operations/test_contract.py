@@ -66,7 +66,9 @@ def test_proposal_applies_as_one_undoable_edit():
     state = job.state()
     assert state["status"] == "ready"
     assert state["step"] == state["steps"] == 1
-    assert state["alternatives"] == [{"changed": False, "metrics": {}}]
+    assert state["alternatives"][0]["changed"] is False
+    assert state["alternatives"][0]["metrics"] == {}
+    assert "diagnostics" in state["alternatives"][0]
     assert ed.snapshot.revision == 0
     job.apply()
     assert ed.undo_labels == ("Recolour",)

@@ -111,6 +111,11 @@ class Proposal:
 
     def summary(self, *, previews: bool = False) -> dict[str, Any]:
         result: dict[str, Any] = {"changed": self.changed, "metrics": self.metrics}
+        from vectrify.operations.diagnostics import edit_diagnostics
+
+        result["diagnostics"] = edit_diagnostics(
+            self.transaction.base_document, self.transaction.preview
+        )
         if self.label:
             result["label"] = self.label
         if previews:

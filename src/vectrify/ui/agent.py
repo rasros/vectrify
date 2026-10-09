@@ -158,6 +158,7 @@ LEFT_OUT = {
 LOOKS = frozenset(
     {
         "hello",
+        "settings_schema",
         "describe",
         "render",
         "compare",
@@ -726,6 +727,18 @@ class Agent:
             return tuple(view["region"]), side
         return self._region(region), self._side(
             max_side if max_side is not None else default
+        )
+
+    def tool_settings_schema(self, _seen: Any, action: str, method: str) -> Reply:
+        from vectrify.operations.settings import settings_schema
+
+        return Reply(
+            {
+                **self._where(),
+                "action": action,
+                "method": method,
+                "schema": settings_schema(action, method),
+            }
         )
 
     def tool_hello(self, _seen: Any) -> Reply:
@@ -2355,6 +2368,8 @@ class Agent:
             settings["region"] = [
                 list(p) if isinstance(p, list | tuple) else p for p in region
             ]
+        if chosen["detail"] and not chosen["snap"]:
+            raise DocumentError("detail requires snap=true")
         structure = bool((chosen["snap"] and chosen["detail"]) or chosen["simplify"])
         return self._start(
             seen,

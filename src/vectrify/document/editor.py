@@ -559,6 +559,10 @@ class Transaction:
         self._rebase = rebase
 
     @property
+    def base_document(self) -> Document:
+        return self._base.document
+
+    @property
     def preview(self) -> Document:
         return self._working
 
