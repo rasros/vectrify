@@ -53,6 +53,13 @@ constraint and actual butt/round cap are part of the fit-cache key. White-body
 source-gap checks and ownership coverage use the actual stroke cap as well.
 Physical source ports and supported corners remain fixed.
 
+Fitting also retains only vectors whose native white stroke body leaves the
+observed source-gap positions empty within the existing absence tolerance. A
+gap penalty can guide search but cannot select a cheaper invalid body over a
+valid one. The independent tiled absence check still runs after assembly. A
+tapered-terminal regression evaluates a cheaper wider stroke that covers a real
+source-negative point and verifies that the valid narrower stroke is retained.
+
 Before the final native checks, assembly must also preserve the exact proved
 residual element and geometry. The new centerline must remain a single open
 subpath with `fill="none"` and a positive painted stroke width. Native pixels
@@ -109,6 +116,17 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   controls stay fixed. Complete-viewport alpha still changes one remote byte,
   so the drawing remains rejected. No ownership interpretation or production
   material-patch fitter is claimed by this diagnostic.
+- Selecting material vertices by their distance from failed pixels misses long
+  edges whose endpoints are farther away. A source-only joint diagnostic instead
+  projects those pixels onto material edges and fits their endpoints. It reaches
+  exact fitting-crop alpha in 455 evaluations with fixed physical ports and exact
+  retained shadow commands. Independent checks verify an open `fill="none"`
+  stroke, no crossings, source-body absence, no painted source-line rejection,
+  exact residual subtraction and save/reload pixels. Actual editable-stroke
+  support gains 96 of 13,145 qualified source samples (missing samples fall from
+  2,287 to 2,191). Complete alpha still differs at (397, 1722), from 10 to 11.
+  The distinct restored material object has no published ownership interpretation;
+  the drawing remains rejected and is not an accepted quality result.
 - A vector-mask feasibility diagnostic also leaves one remote alpha discrepancy.
   Masks are unsupported by the editor's static SVG subset; this is not a native
   candidate or a proposed mask-support implementation.
@@ -121,12 +139,12 @@ or a fill attribute on a straight open path, can be invisible to raster checks.
   copy the human rendering's repaired handle connection.
 
 The focused source-slice, band-plan, source-band, source-junction, source-cap,
-material-continuation and line-fidelity suite passes: 132 tests in 6.88 seconds.
-Ruff and the full source/test Pyrefly check pass at the structural-check checkpoint
+material-continuation and line-fidelity suite passes: 133 tests in 8.14 seconds.
+Ruff and the full source/test Pyrefly check pass at the source-gap retention checkpoint
 (0 type errors, two suppressions and 70 warnings). The changed Python files pass
 formatting; the global formatter flags pre-existing blank lines in unchanged
-`tests/ui/test_server.py`. Draft CI is green at preceding documentation commit
-`30ba53d` (lint and test, 5m25s); the structural-check changes need their own CI.
+`tests/ui/test_server.py`. Draft CI is green at preceding structural-check commit
+`d69824e` (lint and test, 6m39s); the source-gap retention changes need their own CI.
 The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
 12 SVGs are byte-for-byte unchanged from the previous accepted pool. Its attached
@@ -159,6 +177,10 @@ Completed ignored diagnostics:
   independent old-ink visibility checks; both fail remote alpha locality.
 - `.bench/cel-attached-native-flat-fit-probe/`: exact fitting-crop alpha for a
   separate material patch, with one remaining complete-viewport alpha byte.
+- `.bench/cel-attached-material-edge-fit-probe/`: generic projected-edge endpoint
+  selection and independent checks of the saved rejected stroke/material fit;
+  exact crop alpha and 96 additional supported source samples, one remote alpha
+  byte, and no published original-source ownership proof.
 - `.bench/cel-attached-masked-cell-material-probe/`: unsupported vector-mask
   diagnostic with one remaining remote alpha byte; no ownership or subset proof.
 
@@ -169,7 +191,8 @@ revision; a current source hash does not retroactively validate an earlier input
 
 ## Resume here
 
-1. Co-plan the continued material's partial silhouette and editable stroke. The
+1. Co-plan the continued material's partial silhouette and editable stroke using
+   the edges that control failed pixels, rather than only nearby vertices. The
    opaque interior restoration is insufficient at these edges. Preserve physical
    source ports and real gaps; do not waive final alpha to obtain a candidate.
 2. Preserve exact residual shadow controls and complete removed-field geometry.

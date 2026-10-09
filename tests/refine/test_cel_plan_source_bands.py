@@ -452,6 +452,73 @@ def test_alpha_constrained_fit_retains_a_feasible_width_over_a_thinner_source_ma
     )
 
 
+def test_fitting_keeps_a_gap_valid_width_when_a_wider_source_match_is_cheaper(
+    monkeypatch,
+):
+    from scipy.ndimage import map_coordinates
+
+    evidence, original_guard, document, main, marks = fixture()
+    # The source narrows at its physical terminal. A constant-width stroke
+    # matches most of the long body better when wider, but must not cover the
+    # independently observed empty point beside that terminal.
+    taper = "M20.25 28.25L22 26.25H74L76.25 28.25L74 30.25H22Z"
+    body = f'<path d="{taper}" fill="#121008"/>'
+    svg = (
+        '<svg width="96" height="96">'
+        '<path d="M0 0H96V96H0Z" fill="#ad8665"/>'
+        f"{body}</svg>"
+    )
+    rgba = render(svg, (96, 96))
+    evidence = collect(
+        Image.fromarray(np.rint(rgba * 255).astype(np.uint8)),
+        None,
+        Options(),
+        Work.start(10),
+    )
+    guard = SourceLineGuard(evidence.rgba, original_guard.original_profiles())
+    gap = np.array([[19.535, 26.5]])
+    gap.flags.writeable = False
+    source_body = render(f'<svg width="96" height="96">{body}</svg>', (96, 96))[..., 3]
+    assert (
+        map_coordinates(source_body, [gap[:, 1] - 0.5, gap[:, 0] - 0.5], order=1)[0]
+        == 0
+    )
+    monkeypatch.setattr(guard, "gap_centres", lambda **_kwargs: gap)
+    work = Work.start(20)
+    seed = required(
+        SourceBands(evidence, guard).seed(
+            document, "ink", main, "nonzero", work, width=2
+        )
+    )
+    assembled = BandPlans.document(
+        document,
+        "ink",
+        "ink-marks",
+        seed.band,
+        marks,
+        {"fill": seed.paint, "fill-opacity": "1"},
+    )
+    losses = {}
+
+    def candidates(score, values, **_kwargs):
+        losses[3] = score(np.array([3.0]))
+        losses[2] = score(values)
+
+    monkeypatch.setattr(band_fit, "minimize", candidates)
+    result = BandFit(evidence, guard).fit(
+        document, assembled, "ink", seed, work, preserve_alpha=True
+    )
+    assert losses[3] < losses[2]
+    candidate, details = required(result)
+    assert details["width"] == 2
+    assert details["native_body_absence"]
+    assert details["native_alpha_exact"]
+    np.testing.assert_array_equal(
+        render(export_svg(document), evidence.source_size)[..., 3],
+        render(export_svg(candidate), evidence.source_size)[..., 3],
+    )
+
+
 def test_bounds_and_interruption_discard_seed_and_fit_without_mutating_input(
     monkeypatch,
 ):
