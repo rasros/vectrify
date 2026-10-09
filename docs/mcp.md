@@ -537,3 +537,26 @@ the outline and highlight strokes independent. `points` lists geometry users;
 call `linked_outline` again to refresh its transform or move its named layer.
 Clipped sources are refused because relocating their clip would change paint.
 Shared geometry survives project save/reload. Use `edit_batch` to preview it.
+
+### Protected tips, corners and junctions
+
+`protect_features(points=[[object,node], ...], kind="tip"|"corner"|"junction")`
+marks explicit feature nodes. Protection keeps their position, identity and
+incoming/outgoing geometry, conservatively freezing neighboring nodes during
+Tidy. `kind="position"` fixes only the endpoint. A positional `pinned=true`
+still permits handle adjustment; feature protection is independent. Use
+`kind="none"` to release it, and save a project to retain it across reloads.
+
+Tidy rejects candidate steps violating protection and reports them in `skipped`;
+other unprotected curves may simplify. Redraw and other transactions refuse
+unsatisfiable feature changes with node IDs before committing. Batch diagnostics
+show rounded/moved/removed geometry and protected-feature violations. To redraw
+around a protected tip, use stretches ending before and starting after it.
+
+`trace_reference(protected_features=[{x,y,kind,reach?}, ...])` preserves explicit
+reference points in document coordinates. A tip/corner/junction attaches to a
+traced vertex within `reach` (default three inspection pixels), replaces it
+with the exact point and makes adjacent segments straight to preserve a cusp.
+It reports trace displacement and contour/node indices, or refuses unmatched
+points. Inspect the preview before adding the resulting paths and mark their
+corresponding nodes with `protect_features` for subsequent operations.

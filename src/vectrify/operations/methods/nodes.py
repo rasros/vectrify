@@ -322,7 +322,23 @@ class _Until(threading.Event):
 
 
 def _with(document: Document, geometries: dict[str, Geometry]) -> Document:
+    from vectrify.document.features import held_nodes
+
     for geometry in geometries.values():
+        original = document.geometry(geometry.id)
+        held = held_nodes(original)
+        if held:
+            old = {n.id: n for sp in original.subpaths for n in sp.nodes}
+            geometry = replace(
+                geometry,
+                subpaths=tuple(
+                    replace(
+                        sp,
+                        nodes=tuple(old[n.id] if n.id in held else n for n in sp.nodes),
+                    )
+                    for sp in geometry.subpaths
+                ),
+            )
         document = document.replace_geometry(geometry)
     return document
 
@@ -847,6 +863,11 @@ class OptimizeNodes:
             )
             held = frozenset()
         shared = _shared_edges(start, oids) if settings["shared"] else []
+        from vectrify.document.features import held_nodes
+
+        held |= frozenset(
+            n for oid in oids for n in held_nodes(start.geometry_for(oid))
+        )
         region_held = held
         if shared:
             from vectrify.refine.shared import frozen_points
@@ -928,6 +949,16 @@ class OptimizeNodes:
                     step: (after, _Scored.of(pixels, region))
                     for step, (after, pixels, _why) in results.items()
                 }
+                from vectrify.document.features import violations
+
+                for step, (candidate, _) in list(scored.items()):
+                    problems = violations(start, candidate)
+                    if problems:
+                        skipped[step] = (
+                            f"Protected feature {problems[0]['node']}: "
+                            f"{problems[0]['reason']}"
+                        )
+                        del scored[step]
                 chosen = _choose(
                     scored,
                     current,

@@ -35,6 +35,6 @@ def frozen(paths: Paths) -> Frozen:
             for g in paths.geometries.values()
             for s in g.subpaths
             for n in s.nodes
-            if n.pinned
+            if n.pinned or n.feature is not None
         )
     )

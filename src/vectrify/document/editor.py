@@ -273,6 +273,12 @@ class Editor:
         self, base: Snapshot, document: Document, label: str, selection: Selection
     ) -> Snapshot:
         merged = merge_edit(base.document, document, self._document)
+        from vectrify.document.features import require_preserved
+
+        # A plan may explicitly release protection, but may not mutate a protected
+        # feature newly imposed in live state.
+        if base.document != self._document:
+            require_preserved(self._document, merged)
         return self._apply(
             merged, label, self._revision, kept_selection(selection, merged)
         )
@@ -458,6 +464,24 @@ class Editor:
         if len(points) > 1:
             label += "s"
         return self._apply(document, label, self._revision)
+
+    def protect_features(
+        self, points: Iterable[tuple[str, str]], kind: str | None
+    ) -> Snapshot:
+        from vectrify.document.features import KINDS
+
+        if kind is not None and kind not in KINDS:
+            raise DocumentError("kind is position, tip, corner, junction or none")
+        document = self._document
+        for oid, nid in points:
+            geometry = document.geometry_for(oid)
+            node = geometry.node(nid)
+            document = document.replace_geometry(
+                geometry.replace_node(replace(node, feature=kind))
+            )
+        return self._apply(
+            document, "Protect features" if kind else "Release features", self._revision
+        )
 
     def undo(
         self,
@@ -3091,6 +3115,9 @@ class Transaction:
             return ids
 
     def commit(self) -> Snapshot:
+        from vectrify.document.features import require_preserved
+
+        require_preserved(self._base.document, self._working)
         if self._closed or self._failed:
             raise EditRejectedError("Transaction is closed or has a failed edit")
         self._closed = True
