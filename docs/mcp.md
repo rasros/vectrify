@@ -560,3 +560,29 @@ with the exact point and makes adjacent segments straight to preserve a cusp.
 It reports trace displacement and contour/node indices, or refuses unmatched
 points. Inspect the preview before adding the resulting paths and mark their
 corresponding nodes with `protect_features` for subsequent operations.
+
+### Edge comparison
+
+`compare(edge_aware=true, edge_threshold=0.05, edge_tolerance=1, close_region?)`
+keeps MSE separate from boundary displacement and edge precision/recall. Edges
+are nonmaximum-suppressed strongest RGB-channel Sobel gradients after 0.7 pixel
+Gaussian smoothing. The threshold is normalized gradient magnitude (0,1];
+edge tolerance is a document distance, independent of the crop's pixel scale.
+Metrics report inspection pixels and units per pixel; use the same region and
+resolution when comparing results. Precision/recall measure edge pixels within
+tolerance of the other image. Empty predicted/reference sets have precision/
+recall 1 respectively; displacement is null when a direction has no samples.
+Directional means, symmetric mean and p95 displacement are in document units.
+
+The annotated difference marks missing reference edges red, unmatched drawing
+edges orange, matches green, and duplicated components blue. A duplicate is a
+separate connected drawing edge component with at least 50% of its nearest
+reference support already covered by an earlier component; this is an explicit
+inspection heuristic, not a combined quality score. Reference and drawing PNGs
+accompany it. `close_region` adds the same views at up to 1024 pixels.
+
+`feature_checks=[{object,node,expected:[x,y],max_displacement:0,min_turn:30}]`
+checks explicit tips/corners against document coordinates and the turn between
+incoming/outgoing tangents in degrees. Position and corner pass results are
+separate; degenerate tangents or open endpoints have no corner turn. Protection
+metadata is reported alongside the checks.

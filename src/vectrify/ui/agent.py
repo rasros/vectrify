@@ -1063,6 +1063,11 @@ class Agent:
         region: Any = None,
         max_side: int | None = None,
         grid: bool = False,
+        edge_aware: bool = False,
+        edge_threshold: float = 0.05,
+        edge_tolerance: float = 1.0,
+        feature_checks: list[dict] | None = None,
+        close_region: Any = None,
     ) -> Reply:
         """The mean squared error against the reference, a heat map of where
         they differ, and the worst cells of a 4 by 4 grid over the region."""
@@ -1099,16 +1104,47 @@ class Agent:
         heat = heat_map(np.sqrt(per_pixel))
         if grid:
             heat = agent_look.draw_grid(heat, box)
-        return Reply(
-            {
-                **self._where(),
-                "region": list(box),
-                "mse": round(float(per_pixel.mean()), 6),
-                "worst_cells": cells[:4],
-                "mapping": agent_look.mapping(box, size),
-            },
-            [("difference", _png(heat))],
-        )
+        data = {
+            **self._where(),
+            "region": list(box),
+            "mse": round(float(per_pixel.mean()), 6),
+            "worst_cells": cells[:4],
+            "mapping": agent_look.mapping(box, size),
+        }
+        images = [("difference", _png(heat))]
+        if edge_aware or feature_checks:
+            from vectrify.ui.agent_edges import compare_edges
+            from vectrify.ui.agent_edges import feature_checks as check_features
+
+            drawn = self._cached("drawing", box, size)
+            ref = self._cached("reference", box, size)
+            data["edges"], annotated = compare_edges(
+                drawn,
+                ref,
+                box,
+                _finite(edge_threshold, "edge_threshold"),
+                _finite(edge_tolerance, "edge_tolerance"),
+            )
+            data["feature_checks"] = check_features(
+                self.session.editor.snapshot.document, feature_checks or []
+            )
+            images += [
+                ("drawing", _png(drawn)),
+                ("reference", _png(ref)),
+                ("edge_difference", _png(annotated)),
+            ]
+        if close_region is not None:
+            close = self.tool_compare(
+                None,
+                region=close_region,
+                max_side=1024,
+                edge_aware=True,
+                edge_threshold=edge_threshold,
+                edge_tolerance=edge_tolerance,
+            )
+            data["close"] = close.data
+            images += [("close_" + name, png) for name, png in close.images]
+        return Reply(data, images)
 
     def _colours(self, at: tuple[float, float], reach: float) -> dict[str, Any]:
         """The drawing's and the reference's mean colour within *reach* of
