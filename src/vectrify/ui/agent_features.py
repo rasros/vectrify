@@ -170,6 +170,17 @@ def isolate(
     if not moving:
         raise DocumentError("No complete feature components were extracted")
     split_document = tx.preview
+    if not cuts:
+        for side in (512, 1024):
+            box = document.artboard()
+            size = _size(box, side)
+            original = render_document(export_svg(document), box, size)
+            split = render_document(export_svg(split_document), box, size)
+            if original.tobytes() != split.tobytes():
+                raise DocumentError(
+                    "Chosen contours change effective paint; "
+                    "include the complete fill and its holes"
+                )
     # Choose the common ancestor and preserve component paint order.
     chains = [split_document.ancestry(oid)[:-1] for oid in moving]
     common = chains[0]

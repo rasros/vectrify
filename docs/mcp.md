@@ -609,3 +609,10 @@ preserved. Grouping refuses crossing unrelated overlapping paint, group opacity
 or clipping that cannot be carried, and verifies identical rendering before and
 after gathering at two scales. Expand the region to include complete features or
 narrow membership when a refusal identifies an incompatible neighbor.
+
+Isolation diagnostics distinguish transferred nodes from removed nodes. Transform
+changes report movement in document coordinates; metadata changes do not count
+as paint edits. For complete contours, isolation also verifies unchanged paint
+before extraction, including compound fill/hole behavior. An existing transformed
+outline layer keeps the source alignment; layers with opacity or clipping require
+a different layer name.

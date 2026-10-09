@@ -62,3 +62,25 @@ def test_outline_shares_geometry_renders_above_highlight_and_roundtrips():
     assert (
         agent.session.editor.snapshot.document.element(outline).get("stroke") == "navy"
     )
+
+
+def test_outline_in_transformed_existing_layer_stays_on_source_geometry():
+    from vectrify.document.model import Element
+    from vectrify.document.regions import object_matrix
+
+    document = import_svg(SVG)
+    layer = Element(
+        "outlines", "g", attributes=(("transform", "translate(20 0)"),), name="Outlines"
+    )
+    from dataclasses import replace
+
+    document = document.replace_element(
+        replace(document.root, children=(*document.root.children, layer))
+    )
+    agent = Agent(Session(document))
+    reply = agent.call(
+        "linked_outline", {"seen": [agent.session.epoch, 0], "id": "tuft"}
+    ).data
+    after = agent.session.editor.snapshot.document
+    outline = reply["relationship"]["outline"]
+    assert object_matrix(after, outline) == object_matrix(after, "tuft")

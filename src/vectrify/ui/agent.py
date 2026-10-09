@@ -1543,7 +1543,9 @@ class Agent:
                 ((p[0], p[1]) for p in pairs), None if kind == "none" else kind
             )
 
-        return self._edit(seen, [protect], "Protect features")
+        return self._edit(
+            seen, [self._select_points(pairs), protect], "Protect features"
+        )
 
     def tool_linked_outline(
         self,
