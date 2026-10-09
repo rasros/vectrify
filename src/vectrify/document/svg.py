@@ -165,6 +165,8 @@ def validate_attributes(tag: str, attributes: dict[str, str]) -> None:
         _validate_gradient(tag, attributes)
         return
     allowed = GEOMETRY[tag] | PAINT | {"transform", "clip-path"}
+    if tag == "path":
+        allowed |= {"data-vectrify-outline-source"}
     for name, value in attributes.items():
         if name not in allowed:
             raise DocumentError(f"Unsupported attribute: {name}")

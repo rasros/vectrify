@@ -523,3 +523,17 @@ the staged document's affected fields, shared consumers, locks and coordinate
 frames. Unrelated changes merge; overlapping conflicts refuse the entire batch.
 `status` retrieves the preview and `discard` drops it. Up to 20 previews are
 retained per agent; opening another drawing expires them.
+
+### Linked outlines
+
+`linked_outline(id, colour="#000000", width=1, layer="Outlines")` creates or
+updates a stroke-only path sharing the source fill's geometry. A named root
+layer is placed above fills and shading. The source's effective transform is
+copied and width is in its local units. Node edits through either linked path
+include its geometry consumers and honor their locks; painting the fill keeps
+the outline and highlight strokes independent. `points` lists geometry users;
+`describe` lists `outline_source`, parents and document order. Existing
+`properties`, `arrange`, `convert(to="path")` and `delete` manage the outline;
+call `linked_outline` again to refresh its transform or move its named layer.
+Clipped sources are refused because relocating their clip would change paint.
+Shared geometry survives project save/reload. Use `edit_batch` to preview it.

@@ -109,6 +109,7 @@ CONTOURS = 30
 # choosing its own targets for the session's checks; the agent keeps no
 # selection between calls, so there is no select tool.
 EDITS: dict[str, tuple[str, ...]] = {
+    "linked_outline": (),
     "properties": ("paint", "rename", "locks"),
     "transform": ("resize", "move"),
     "arrange": ("reorder", "move_objects"),
@@ -614,11 +615,15 @@ class Agent:
         """The step selecting *ids*, the call's own targets."""
         return {"command": "select", "objects": ids}
 
-    @staticmethod
-    def _select_points(points: list[list[str]]) -> dict:
+    def _geometry_targets(self, ids: list[str]) -> list[str]:
+        from vectrify.ui.agent_outlines import linked_targets
+
+        return linked_targets(self.session.editor.snapshot.document, ids)
+
+    def _select_points(self, points: list[list[str]]) -> dict:
         return {
             "command": "select",
-            "objects": sorted({o for o, _ in points}),
+            "objects": self._geometry_targets(sorted({o for o, _ in points})),
             "nodes": sorted({n for _, n in points}),
         }
 
@@ -778,6 +783,8 @@ class Agent:
         for key in ("locks", "inherited_locks"):
             if row[key]:
                 item[key] = row[key]
+        if attributes.get("data-vectrify-outline-source"):
+            item["outline_source"] = attributes["data-vectrify-outline-source"]
         if row["shared"]:
             item["shared_geometry"] = True
         if row["resource"]:
@@ -1385,6 +1392,34 @@ class Agent:
             )
 
     # Editing ------------------------------------------------------------
+
+    def tool_linked_outline(
+        self,
+        seen: Any,
+        id: str,  # noqa: A002
+        colour: str = "#000000",
+        width: float = 1.0,
+        layer: str = "Outlines",
+    ) -> Reply:
+        from vectrify.ui.agent_outlines import create
+
+        width = _finite(width, "width")
+        if width <= 0:
+            raise DocumentError("Outline width must be positive")
+        try:
+            css_colour(colour)
+        except Exception:
+            raise DocumentError("Give a CSS outline colour") from None
+        if not isinstance(layer, str) or not layer.strip():
+            raise DocumentError("Give a nonempty outline layer name")
+        relationship = {}
+
+        def edit() -> None:
+            relationship.update(create(self, id, colour, width, layer))
+
+        reply = self._edit(seen, [edit], "Linked outline")
+        reply.data["relationship"] = relationship
+        return reply
 
     def tool_properties(
         self,
@@ -2204,7 +2239,7 @@ class Agent:
         return self._edit(
             seen,
             [
-                self._select([id]),
+                lambda: self._select(self._geometry_targets([id])),
                 {
                     "command": "redraw_outline",
                     "object": id,
@@ -2393,7 +2428,16 @@ class Agent:
             self._check_seen(seen)
             # The job works on the selection it starts with: the agent's own,
             # of its targets, which the person's then replaces again.
-            session.action({**self._select(ids), **self._where()})
+            session.action(
+                {
+                    **self._select(
+                        self._geometry_targets(ids)
+                        if permissions.get("geometry")
+                        else ids
+                    ),
+                    **self._where(),
+                }
+            )
             payload: dict[str, Any] = {
                 "command": "start",
                 **self._where(),
