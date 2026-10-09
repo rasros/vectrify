@@ -137,7 +137,17 @@ class BandFit:
         # retained. Complete native/body proofs run again for every sibling.
         self._cached = None
 
-    def fit(self, before, assembled, oid, seed, work, *, width_fixed=False):
+    def fit(
+        self,
+        before,
+        assembled,
+        oid,
+        seed,
+        work,
+        *,
+        width_fixed=False,
+        preserve_alpha=False,
+    ):
         """Fit one complete candidate atomically; never publish a partial fit.
 
         Crop penalties propose useful parameters. Complete native painted and
@@ -223,6 +233,7 @@ class BandFit:
                     original.path_data(),
                     seed.band.width,
                     width_fixed,
+                    preserve_alpha,
                     tuple(frame),
                     sorted(corners),
                 )
@@ -281,7 +292,13 @@ class BandFit:
                 float(((composite(actual) - target)[visible] ** 2).mean() * 255**2)
                 + penalty
             )
-            if value < best_value:
+            alpha_exact = np.array_equal(actual[..., 3], baseline[..., 3])
+            if preserve_alpha:
+                # Guide the bounded search toward the parent's native silhouette,
+                # but only retain exactly feasible vectors. A penalty alone can
+                # still choose an attractive stroke spilling past the silhouette.
+                value += float(np.abs(actual[..., 3] - baseline[..., 3]).sum()) * 255e6
+            if (not preserve_alpha or alpha_exact) and value < best_value:
                 best_value = value
                 best_parameters = np.array(values, copy=True)
             _check(work)
@@ -317,7 +334,8 @@ class BandFit:
                 },
             )
         _check(work)
-        assert best_parameters is not None
+        if best_parameters is None:
+            return None
         fitted = shape(best_parameters)
         width = seed.band.width if width_fixed else float(best_parameters[-1])
         if crossings(fitted):
@@ -336,6 +354,11 @@ class BandFit:
         _check(work)
         document = editor.snapshot.document
         native = render(export_svg(document), self.evidence.source_size)
+        if preserve_alpha and not np.array_equal(
+            native[..., 3],
+            render(export_svg(before), self.evidence.source_size)[..., 3],
+        ):
+            return None
         stroke.set("d", document.geometry_for(oid).path_data())
         stroke.set("stroke-width", repr(width / scale))
         if not np.array_equal(
@@ -364,6 +387,7 @@ class BandFit:
             "parameters": best_parameters.tolist(),
             "movement": MAX_MOVEMENT,
             "native_body_absence": True,
+            **({"native_alpha_exact": True} if preserve_alpha else {}),
             "source_line_comparison": comparison,
             "source_ports": [list(nodes[0].endpoint), list(nodes[-1].endpoint)],
         }

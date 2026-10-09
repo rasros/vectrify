@@ -27,6 +27,10 @@ material parent, bounding changes by the removed field and old/new affected
 stroke bodies. Retained shadow bounds do not authorize unrelated changes.
 Global native alpha equality is mandatory. Off-field color quantization remains
 reported separately from byte-exact locality and is not a release policy.
+Attached fitting now retains only parameter vectors with exact parent alpha in
+the independent native fitting crop, then rechecks the complete drawing. Alpha
+penalties guide the search but cannot make an infeasible vector publishable. The
+constraint is part of the fit-cache key; an appearance fit cannot bypass it.
 
 ## Current evidence and limits
 
@@ -45,14 +49,25 @@ reported separately from byte-exact locality and is not a release policy.
   complement differs at one alpha pixel; the final drawing differs from its
   material parent at 61 alpha pixels and fails the complete-parent check as well.
   A successful fit alone does not prove an acceptable replacement.
+- The alpha-constrained replay also publishes no attached candidate, without
+  interruption. Profile 54 now fails during fitting because none of its bounded
+  parameter vectors preserve alpha. Inspection locates the earlier 61 changes
+  along the right silhouette at native x=397–398, y=1624–1656; the proposed stroke
+  extends beyond the material parent's coverage.
+- Profile 43's complete subtraction changes one remote alpha byte at native
+  (397, 1722), from 10 to 11. Smaller/larger field widths, contour ordering,
+  reversal and equivalent closed-contour starts do not remove that change.
+  Restricting subtraction to opaque pixel cells avoids it, but leaves part of
+  the removed field behind; this diagnostic is not an accepted complete cut.
 - Broad shadow interiors, internal source gaps, ambiguous chains, unsupported
   winding and bounded/interrupted work remain excluded. Source observations never
   copy the human rendering's repaired handle connection.
 
-Ruff, formatting and the full source/test Pyrefly check pass locally. The 88
+Ruff, formatting and the full source/test Pyrefly check pass locally. The 90
 source-slice, band-plan, source-band, source-junction, cap and material-continuation
-tests pass in 6.02 seconds. Draft CI was
-green at `06949c5`; the changes described here require their own CI gate.
+tests pass in 4.93 seconds. Two additional regressions reject a cached alpha-changing appearance fit and
+retain an exactly feasible width over a thinner source match. Draft CI was green at
+`2be5075`; the alpha-constrained fitting changes require their own CI gate.
 
 ## Active goal
 
@@ -69,12 +84,15 @@ The current direct diagnostic is in the ignored
 material ancestor and fitted candidate 11, receives no human target and records
 the completed rejection stages. Its rejected project is a diagnostic, not an
 accepted candidate or a new quality result.
+The completed constrained replay is in `.bench/cel-attached-alpha-fit-probe/`;
+equivalent-cut construction probes are in
+`.bench/cel-attached-cut-representation-probe/`.
 
 ## Resume here
 
-1. Fit the attached stroke and its material restoration so the final drawing
-   retains its parent's native silhouette/alpha. Keep the 61-pixel profile-54
-   rejection as the concrete diagnosis; do not waive those changes.
+1. Construct a complete removable field that preserves remote native alpha,
+   then fit the stroke and material together within the silhouette. Neither the
+   one-byte remote profile-43 change nor the 61-pixel profile-54 spill is waived.
 2. Preserve exact residual shadow controls and removed-field geometry. Any
    accepted replacement must pass the complete-parent locality check, including
    real gaps, caps and source-supported junctions.
