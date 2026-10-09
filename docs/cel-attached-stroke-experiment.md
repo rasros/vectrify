@@ -271,6 +271,8 @@ formatting; the global formatter flags pre-existing blank lines in unchanged
 [green in GitHub CI](https://github.com/rasros/vectrify/actions/runs/37983035298).
 The documented closing-edge and retained-width checkpoint `099a081` is also
 [green in GitHub CI](https://github.com/rasros/vectrify/actions/runs/37986998409).
+The positive-body contract checkpoint `08d9431` is
+[green in GitHub CI](https://github.com/rasros/vectrify/actions/runs/37996879559).
 The earlier `5187445` run was cancelled after it was superseded.
 The full bounded captured-proposal replay at `8bf5367` completes with 12 proposals, all
 native-valid and with complete ownership/component and save/reload checks. All
@@ -453,39 +455,117 @@ independent validation after import/type cleanup uses
 `bc9c3f55cc3d00d814a181086f7d07b9af071a006380dedb48fdaad7d56808aa`.
 No additional accepted sword chain is claimed by this checkpoint.
 
+## Complete primitive spans and separate restoration diagnosis
+
+The following ignored diagnostics use production source hash
+`bc9c3f55cc3d00d814a181086f7d07b9af071a006380dedb48fdaad7d56808aa`.
+They change runtime constructors explicitly; none adds a production candidate.
+Primitive indices remain fixture-specific and are not a general discovery rule.
+
+Removing a whole bounded pair of opposing original curve spans resolves the
+profile-85 subtraction artifact. The six-node left-pommel field contains the
+entire previous profile field, stays inside the original fill, preserves all
+original residual controls, and passes exact Boolean difference/intersection
+checks. Its native subtraction has no alpha gains and is byte-exact outside the
+actual field footprint. Extending just the former partial cut through another
+96 domains, or adding small intersection chips, does not resolve the artifact.
+See `.bench/cel-attached-primitive-field-pommel-probe/` and the explicitly rejected
+reach/field-completion diagnostics.
+
+The larger field requires a longer source-supported body. Measuring the raw dark
+ridge across the complete left-pommel span supplies 248 qualified samples and no
+observed gaps. Cold source-body planning supports all of these and all 63
+qualified samples on original profile 85. The original 13,145-sample source bank
+remains separate and unchanged. Full atomic material fitting still emits no
+candidate. The source trace, cold crop replay and rejected curved-material fit
+are saved in `.bench/cel-attached-primitive-source-trace-pommel/`,
+`.bench/cel-attached-primitive-source-left-atomic-crop-replay/` and
+`.bench/cel-attached-primitive-curved-material-replay/`. An earlier oversized-crop
+driver fails its area assertion and supplies no valid replay evidence.
+
+Separate restoration preserves the original material geometry exactly. A saved
+input comparison improves from 30 alpha-discrepant pixels for appended material
+to 27 for a separate surface, but neither drawing is accepted. Planning the
+stroke in the complete separate-restoration context reduces the discrepancy to
+six pixels. Independent full-native audit confirms:
+
+- A real open, four-node `fill="none"` stroke, width 1.2148100829712065.
+- Isolated actual-body support for all original 63 and extended 248 samples.
+- Exact original shadow-prefix and material controls, original material frame,
+  complete former-field removal and zero residual-field intersection.
+- Byte-exact RGBA outside the literal removed field and actual stroke body,
+  native subset validity and byte-exact native save/reload.
+- Six remaining alpha discrepancies, no original painted-line/gap rejection,
+  and one missing painted sample on the added raw profile within its existing
+  comparison allowance. Body support and painted support remain distinct checks.
+
+This is `.bench/cel-attached-separate-stroke-independent-audit/`; ownership and
+component acceptance are explicitly unproved. An earlier material diagnostic's
+body isolation omitted the ancestor transform and reports zero support; that
+incorrect isolation is superseded by this independent actual-root-frame audit.
+Do not use its body counts. Bounded material coordinate fitting and a 23-parameter
+joint least-squares trial do not produce exact complete alpha. The joint trial
+retains actual body support but has 11 alpha-discrepant pixels. Solid-versus-gradient
+paint and exact contour ordering/orientation controls reproduce the same original
+two restoration deficits; changing paint or serialization does not solve them.
+
+A longer whole-primitive field extends to the lower handle shoulder. It has 11
+nodes, retains exact original curve commands and passes geometric subtraction,
+no native alpha gains and byte-exact outside-field RGBA. Its raw source trace
+fits as four nodes, supplies 239 qualified samples and has no measured gaps.
+See `.bench/cel-attached-complete-left-neck-primitive-probe/`. Cold body planning
+in its separate-restoration context reaches a rejected guide with one byte of
+stroke-associated alpha excess. Restoration already contributes two additional
+excess pixels with the stroke hidden, so a body-only optimizer cannot repair the
+complete drawing. The independent full drawing audit at
+`.bench/cel-attached-long-source-stroke-independent-audit/` finds five alpha
+discrepancies, exact locality and reload, exact original material/residual
+controls, and actual-body support for all original 63 and extended 239 samples.
+Its added painted profile has one missing sample and no comparison rejection.
+Original ownership/component proof is still absent. This is a diagnostic drawing,
+not a newly accepted chain or a release preview. Its native comparison and
+isolated-stroke panel are saved as `stroke-preview-rejected.png` with separate
+preview provenance in that audit directory.
+
+The extended trace's endpoint coordinates are construction guides: `ink.measure`
+retains its supplied endpoints while centering interior samples. Averaging the
+old field boundaries does not itself measure a physical source port. Any future
+endpoint uncertainty policy must use raw evidence, keep the original source bank
+and gaps fixed, and distinguish these new guides from protected original ports.
+No such policy, new restoration surface, enlarged fitting bounds or alpha
+exception is enabled in production.
+
 ## Resume here
 
-The next feasibility work should distinguish qualified physical observations
-from unsupported endpoint estimates, and derive a stroke body before optimizing
-material. The source-only pommel body stage is feasible, but its complete atomic
-candidate remains rejected. Repeating its material optimization cannot correct
-the retained shadow's native alpha increase outside the stroke. No port
-correction, opacity parameter or relaxed material bounds are enabled in production.
+The current production route still accepts only the previously verified handle
+chain. Whole original curve spans and separate material surfaces improve the
+construction, but the larger complete drawings remain rejected. Repeating the
+partial-field subtraction or its material optimizer is not the next step.
 
-1. Establish a bounded source-only endpoint uncertainty policy with synthetic
-   controls for true gaps, supported attached junctions and transparent cluster
-   means. Keep every qualified sample and real gap in the frozen source bank;
-   do not use the human handle repair as evidence. Before material fitting,
-   independently measure the isolated new stroke and the retained context's
-   native alpha floor. Reject impossible positive-restoration constructions
-   before spending the material optimizer's budget.
-2. Co-plan the continued material's partial silhouette and editable stroke using
-   the edges that control failed pixels, rather than only nearby vertices. The
-   opaque interior restoration is insufficient at these edges. Preserve physical
-   source ports and real gaps; do not waive final alpha to obtain a candidate.
-   Before fitting material, identify native alpha excess already supplied by the
-   stroke and retained context. A positive underpaint cannot subtract that excess.
-   Plan interacting source chains together when one field removes another chain;
-   a nominal profile is not automatically an independent replacement.
-3. Extend complete planning to the remaining attached chains, including closing
-   material edges and interactions with adjacent source support. The unmodified
-   search now generates a fully verified profile-43 stroke without saved
-   parameters; the other chains still lack complete native-feasible proposals.
-   Keep exact residual controls, complete removal and all final native,
-   locality/source/ownership gates.
-4. Replay complete ownership, original ledgers, residual controls, native body
-   gaps, save/reload and the exported editable stroke inventory, then show the
-   actual strokes for visual feedback.
+1. Discover opposing whole primitive spans generically, with bounded node/extent
+   work, complete original-field containment, exact original curve controls and
+   independent native retained-context checks. Measure an additional raw source
+   trace across the entire selected span; retain every original qualified sample
+   and gap as separate frozen obligations. Include synthetic curved, translucent,
+   true-gap and connected-junction controls before enabling the interpretation.
+2. Establish the complete restoration context's native alpha floor before fitting
+   a positive stroke. Native-monotone subtraction alone does not prove that
+   restoration is monotone. Resolve excess already supplied by material/residual
+   paint in construction; reject it before spending a body-only fit budget. A
+   bounded raw-source endpoint policy must distinguish newly inferred guides,
+   transparent cluster means and protected original observations. Do not copy
+   the human handle repair or waive final alpha.
+3. Give a separate restoration surface a real original-ledger declaration and
+   complete component dependency proof. New filled identities require correct
+   cost/dependency/locality accounting and original source membership; they
+   cannot be introduced by an acceptance bypass, extra atom allowance or a
+   fabricated coverage witness. Preserve original material geometry, paint/frame
+   and the sealed complete shadow subtraction.
+4. Cold-regenerate a complete candidate without fixture indices or saved body/fit
+   parameters. Independently audit its actual isolated body, original and added
+   painted source profiles, real gaps, native alpha, literal locality, original
+   ownership/component ledgers and save/reload. Show the complete stroke drawing
+   for visual feedback only with its acceptance status stated accurately.
 
 No new reference corpus, learned ranking, automatic-operation quality result or
 release gate is claimed by this draft. The active goal remains unfinished.
