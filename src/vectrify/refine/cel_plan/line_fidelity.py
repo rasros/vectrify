@@ -379,6 +379,58 @@ class FittingLines:
         return float(value)
 
 
+class FittingBody:
+    """Positive source support supplied by one isolated editable stroke.
+
+    Queries use frozen qualified observations and their raw-positive normal
+    matching windows. Painted backgrounds cannot supply missing stroke support.
+    This contract does not authorize endpoint movement or prove fill removal.
+    """
+
+    SUPPORT_ALPHA = 0.05
+
+    def __init__(self, profile, qualified, allowed, bounds):
+        shifts = np.linspace(-1, 1, 9)
+        points = (
+            profile.points[:, None, :]
+            + shifts[None, :, None]
+            * profile.tolerance[:, None, None]
+            * profile.direction[:, None, :]
+            - np.asarray(bounds[:2])
+            - 0.5
+        )
+        self._points = _readonly(points[qualified].reshape(-1, 2))
+        self._allowed = _readonly(allowed[qualified])
+        self.shape = (bounds[3] - bounds[1], bounds[2] - bounds[0])
+
+    def observe(self, alpha, *, work=None):
+        _check(work)
+        if (
+            alpha.shape != self.shape
+            or not np.isfinite(alpha).all()
+            or np.any((alpha < 0) | (alpha > 1))
+        ):
+            raise ValueError("Stroke support requires finite aligned native alpha")
+        sampled = map_coordinates(
+            alpha,
+            [self._points[:, 1], self._points[:, 0]],
+            order=1,
+            mode="constant",
+            cval=0,
+        ).reshape(-1, 9)
+        support = np.max(np.where(self._allowed, sampled, 0), axis=1)
+        missing = support < self.SUPPORT_ALPHA
+        _check(work)
+        return {
+            "qualified_samples": len(support),
+            "supported_samples": int((~missing).sum()),
+            "missing_samples": int(missing.sum()),
+            "penalty": 1000 * float(np.maximum(0, self.SUPPORT_ALPHA - support).sum()),
+            "support_alpha": self.SUPPORT_ALPHA,
+            "raw_positive_matching_windows": True,
+        }
+
+
 class SourceLineGuard:
     """Immutable source supports and one fixed, per-chain baseline allowance.
 
@@ -390,7 +442,7 @@ class SourceLineGuard:
         self.shape = truth.shape
         self._validate(truth)
         prepared = []
-        source = []
+        source, body_windows = [], []
         count = 0
         visible = truth[..., 3] > VISIBLE
         for index, raw in enumerate(profiles):
@@ -404,6 +456,14 @@ class SourceLineGuard:
             measured = _prepare(truth, profile, visible)
             if measured is not None:
                 prepared.append(measured)
+                contrast, alpha, valid, _light = _sample(
+                    truth, profile, np.linspace(-1, 1, 9), visible
+                )
+                body_windows.append(
+                    _readonly(
+                        valid & (contrast >= 6) & (alpha >= 0.5 * alpha[:, 4, None])
+                    )
+                )
                 source.append(
                     (
                         raw,
@@ -453,6 +513,7 @@ class SourceLineGuard:
                         )
         _check(work)
         self._source = tuple(source)
+        self._body_windows = tuple(body_windows)
         self._profiles = tuple(prepared)
         self._baseline = None
         self._baseline_gaps = None
@@ -502,6 +563,35 @@ class SourceLineGuard:
         """
         _check(work)
         return tuple(original for original, _observed in self._source)
+
+    def fitting_body(self, profile, bounds, *, work=None):
+        """Copy a bounded stroke-only contract from this original source bank."""
+        _check(work)
+        bounds = np.asarray(bounds)
+        if (
+            bounds.shape != (4,)
+            or not np.isfinite(bounds).all()
+            or not np.array_equal(bounds, np.floor(bounds))
+            or np.any(bounds[:2] < 0)
+            or np.any(bounds[2:] > self.shape[1::-1])
+            or np.any(bounds[2:] <= bounds[:2])
+        ):
+            raise ValueError("Stroke support requires an integer native crop")
+        for i, (original, observed) in enumerate(self._source):
+            _check(work)
+            if original is profile:
+                if len(observed.points) > 16_384 or not observed.qualified.any():
+                    return None
+                # Prepared profiles, unlike original identity handles, are
+                # immutable copies of the measured native directions/centres.
+                return FittingBody(
+                    self._profiles[i][0],
+                    observed.qualified,
+                    self._body_windows[i],
+                    tuple(map(int, bounds)),
+                )
+        _check(work)
+        return None
 
     def fitting_crop(self, bounds, *, work=None):
         """A bounded optimization hint using the unchanged original observations.
