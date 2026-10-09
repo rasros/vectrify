@@ -20,6 +20,24 @@ from vectrify.refine.cel_plan.source_bands import SourceBands
 from vectrify.refine.cel_plan.source_slices import source_slice
 
 
+def test_long_implicit_closing_edge_controls_errors_far_from_its_endpoints():
+    from vectrify.document.svg import parse_path
+    from vectrify.refine.cel_plan.material_band_fit import _edge_variables
+
+    patch = parse_path("M0 0L100 0L0 100Z")
+    errors = np.array([[0.5, 50.0]])
+    variables = _edge_variables(patch, errors, 2)
+    selected = {
+        patch.subpaths[s].nodes[n].endpoint
+        for occurrences in variables
+        for s, n in occurrences
+    }
+    assert selected == {(0.0, 0.0), (0.0, 100.0)}
+    # An open contour has no closing edge and cannot acquire one by fitting.
+    opened = replace(patch, subpaths=(replace(patch.subpaths[0], closed=False),))
+    assert _edge_variables(opened, errors, 2) == []
+
+
 def fixture(alpha=1, gradient=False):
     definitions = (
         '<defs><linearGradient id="paint" gradientUnits="userSpaceOnUse" '
@@ -188,3 +206,26 @@ def test_joint_fit_keeps_fixed_width_and_rejects_unstable_material_paint(monkeyp
         is None
     )
     assert export_svg(unsupported) == initial
+
+
+def test_joint_fit_checks_retained_width_instead_of_last_optimizer_trial(monkeypatch):
+    from vectrify.refine.cel_plan import material_band_fit
+
+    evidence, guard, before, assembled, seed, _ = fixture()
+
+    def end_on_unretained_width(score, initial, **_kwargs):
+        trial = initial.copy()
+        trial[-1] = seed.band.width * 1.49
+        score(trial)
+
+    monkeypatch.setattr(material_band_fit, "minimize", end_on_unretained_width)
+    result = MaterialBandFit(evidence, guard).fit(
+        before, assembled, "ink", seed, "material", Work.start(20)
+    )
+    assert result is not None
+    candidate, witness = result
+    assert witness["width"] == max(0.8, seed.band.width * 0.5)
+    assert (
+        float(path_style(candidate, candidate.element("ink"))["stroke-width"])
+        == witness["width"]
+    )
