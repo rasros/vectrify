@@ -299,6 +299,61 @@ def register_tools(server: MCPServer, state: Vectrify) -> None:
             },
         )
 
+    @look
+    def isolate_feature(
+        action: Literal["inspect", "stage"] = "inspect",
+        region: Area | None = None,
+        seed: list[float] | None = None,
+        radius: float = 12,
+        members: list[dict[str, Any]] | None = None,
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> CallToolResult:
+        """Inspect multi-object feature candidates, explicitly choose membership, stage.
+
+        Begin with a region or seed point/radius. Candidates show contour IDs,
+        fragment paths, paint and boundary cuts. Each member must explicitly name
+        object, contours, role (fill/shading/highlight/shadow/outline), include.
+        Stage returns a batch preview and source mapping; edit_batch applies it.
+        cut=true permits boundary fragments; detach=true authorizes shared copies.
+        """
+        return state.call(
+            "isolate_feature",
+            {
+                "action": action,
+                "region": region,
+                "seed": seed,
+                "radius": radius,
+                "members": members,
+                "name": name,
+                "cut": cut,
+                "detach": detach,
+            },
+        )
+
+    @tool(structured_output=False)
+    def isolate_components(
+        region: Area,
+        members: list[dict[str, Any]],
+        name: str = "Feature",
+        cut: bool = False,
+        detach: bool = False,
+    ) -> CallToolResult:
+        """Extract explicit feature members as one named group. Prefer isolate_feature
+        with action=stage to inspect the result before applying. Refuses regrouping
+        that would change unrelated overlapping paint or stacking."""
+        return state.call(
+            "isolate_components",
+            {
+                "region": region,
+                "members": members,
+                "name": name,
+                "cut": cut,
+                "detach": detach,
+            },
+        )
+
     @tool(structured_output=False)
     def protect_features(
         points: Points,

@@ -32,10 +32,26 @@ def violations(before: Document, after: Document) -> list[dict]:
                     continue
                 reason = None
                 next_node = contour.nodes[(i + 1) % len(contour.nodes)]
+                # Extraction may transfer intact nodes to a new asset.
+                target = new
+                if target is None or not any(
+                    n.id == node.id for sp in target.subpaths for n in sp.nodes
+                ):
+                    target = next(
+                        (
+                            g
+                            for g in after.geometries
+                            if g.id in users
+                            and any(
+                                n.id == node.id for sp in g.subpaths for n in sp.nodes
+                            )
+                        ),
+                        None,
+                    )
                 try:
-                    if new is None:
+                    if target is None:
                         raise DocumentError("removed")
-                    kept = new.node(node.id)
+                    kept = target.node(node.id)
                     if kept.endpoint != node.endpoint:
                         reason = "moved"
                     elif kept.feature != node.feature:
@@ -44,7 +60,7 @@ def violations(before: Document, after: Document) -> list[dict]:
                         successor = next(
                             (
                                 sp.nodes[(j + 1) % len(sp.nodes)]
-                                for sp in new.subpaths
+                                for sp in target.subpaths
                                 for j, n in enumerate(sp.nodes)
                                 if n.id == node.id
                             ),

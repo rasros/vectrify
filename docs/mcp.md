@@ -586,3 +586,26 @@ checks explicit tips/corners against document coordinates and the turn between
 incoming/outgoing tangents in degrees. Position and corner pass results are
 separate; degenerate tangents or open endpoints have no corner turn. Protection
 metadata is reported alongside the checks.
+
+### Guided feature isolation
+
+Start with `isolate_feature(region=[x,y,w,h])` or `seed=[x,y], radius=12`.
+The annotated preview numbers candidate contours across objects and exposes
+source/contour IDs, effective paint, shared consumers, candidate fragment path
+data and boundary cuts. Membership is never inferred: stage with
+`members=[{object,contours:[id,...],role,include:true|false}]`. Roles are fill,
+shading, highlight, shadow and outline. Set a feature `name` and use
+`action="stage"` to return a normal/close batch preview; `edit_batch` applies or
+discards it atomically. The lower-level `isolate_components` performs the same
+explicit extraction directly and is also available inside a manual edit batch.
+
+Only the named contours are extracted. `cut=false` requires complete contours;
+`cut=true` permits crossing contours and reports their region boundary. Neighbors
+and excluded contours retain their geometry. Shared geometry requires explicit
+`detach=true`. The named group records a mapping to source objects/contours in
+inspection, SVG metadata and saved projects. Effective inherited paint and
+transforms are carried by the existing editor commands; component order is
+preserved. Grouping refuses crossing unrelated overlapping paint, group opacity
+or clipping that cannot be carried, and verifies identical rendering before and
+after gathering at two scales. Expand the region to include complete features or
+narrow membership when a refusal identifies an incompatible neighbor.
